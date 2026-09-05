@@ -20,6 +20,7 @@ fi
 
 mkdir -p "$ROOT/.tmp"
 mkdir -p "$WORKSPACE_ROOT"
+mkdir -p "$DSH_HOME/storages"
 : > "$LOG"
 rm -f "$COOKIE"
 rm -f "$DSH_HOME/storages/collab_team.json"
