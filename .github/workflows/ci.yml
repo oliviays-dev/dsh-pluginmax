@@ -50,6 +50,9 @@ jobs:
               -e 's#[A-Za-z0-9_-]{40,}#[redacted]#g' \
             | tee .tmp/smoke-diagnostics.txt \
               >> "$GITHUB_STEP_SUMMARY"
+            while IFS= read -r line; do
+              printf '::error::%s\n' "$line"
+            done < <(head -n 20 .tmp/smoke-diagnostics.txt)
             cat .tmp/install-profile.log 2>/dev/null || true
             cat .tmp/smoke.log 2>/dev/null || true
             [[ "$install_status" -ne 0 ]] && exit "$install_status"
