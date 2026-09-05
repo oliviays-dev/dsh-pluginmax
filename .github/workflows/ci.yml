@@ -31,6 +31,7 @@ jobs:
       - name: Install and smoke canary
         run: |
           set +e
+          mkdir -p .tmp
           ./scripts/install-profile.sh > .tmp/install-profile.log 2>&1
           install_status=$?
           smoke_status=0
@@ -47,9 +48,17 @@ jobs:
             } | sed -E \
               -e 's#https://[^[:space:]]+token=[^[:space:]]+[)"]?#[redacted launch url]#g' \
               -e 's#[A-Za-z0-9_-]{40,}#[redacted]#g' \
+            | tee .tmp/smoke-diagnostics.txt \
               >> "$GITHUB_STEP_SUMMARY"
             cat .tmp/install-profile.log 2>/dev/null || true
             cat .tmp/smoke.log 2>/dev/null || true
             [[ "$install_status" -ne 0 ]] && exit "$install_status"
             exit "$smoke_status"
           fi
+      - name: Upload smoke diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-diagnostics
+          path: .tmp/smoke-diagnostics.txt
+          if-no-files-found: error
