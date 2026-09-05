@@ -4,6 +4,15 @@ DSH Pluginmax is an out-of-tree collaboration plugin suite for DeepSeek Harness.
 
 ## Current milestone
 
+The current milestone is R1. It adds `dsh-collab-identity`, which provides:
+
+- `ctx.collabTeam`: users, scrypt passwords, bearer sessions, workspace members, and audit records
+- same-origin `/api/collab/auth/*` and `/api/collab/team/*` routes
+- an anonymous-safe `/identity` command and `collab_identity` tool
+- a Chinese Settings section for bootstrap/login, password changes, member management, and the audit timeline
+
+The durable domain is named `collab_team` because the locked DSH storage API only accepts snake-case unit names; it owns the product domain otherwise described as `collab.team`.
+
 R0 provides the repository foundation and `dsh-pluginmax-canary`, which validates:
 
 - local `link:` bundle installation
