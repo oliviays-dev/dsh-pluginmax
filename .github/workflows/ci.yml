@@ -30,5 +30,26 @@ jobs:
         run: pnpm --dir vendor/deepseek-harness install --frozen-lockfile && pnpm --dir vendor/deepseek-harness build
       - name: Install and smoke canary
         run: |
-          ./scripts/install-profile.sh
-          ./scripts/smoke.sh
+          set +e
+          ./scripts/install-profile.sh > .tmp/install-profile.log 2>&1
+          install_status=$?
+          smoke_status=0
+          if [[ "$install_status" -eq 0 ]]; then
+            ./scripts/smoke.sh > .tmp/smoke.log 2>&1
+            smoke_status=$?
+          fi
+          if [[ "$install_status" -ne 0 || "$smoke_status" -ne 0 ]]; then
+            {
+              echo '## Smoke diagnostics'
+              echo '```text'
+              tail -n 200 .tmp/install-profile.log 2>/dev/null || true
+              tail -n 200 .tmp/smoke.log 2>/dev/null || true
+            } | sed -E \
+              -e 's#https://[^[:space:]]+token=[^[:space:]]+[)"]?#[redacted launch url]#g' \
+              -e 's#[A-Za-z0-9_-]{40,}#[redacted]#g' \
+              >> "$GITHUB_STEP_SUMMARY"
+            cat .tmp/install-profile.log 2>/dev/null || true
+            cat .tmp/smoke.log 2>/dev/null || true
+            [[ "$install_status" -ne 0 ]] && exit "$install_status"
+            exit "$smoke_status"
+          fi
