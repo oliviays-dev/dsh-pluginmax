@@ -12,6 +12,9 @@
     },
     {
       "path": "plugins/dsh-collab-roles"
+    },
+    {
+      "path": "plugins/dsh-collab-meeting"
     }
   ]
 }

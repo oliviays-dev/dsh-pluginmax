@@ -4,7 +4,18 @@ DSH Pluginmax is an out-of-tree collaboration plugin suite for DeepSeek Harness.
 
 ## Current milestone
 
-The current milestone is R2. It adds `dsh-collab-space`, which provides:
+The current milestone is R4. It adds `dsh-collab-meeting`, which provides:
+
+- `ctx.collabMeeting`: durable meeting rooms, human participants, seat participants, transcripts, delivery records, and close summaries
+- pending-seat persona fallback with `/assignment claim <workspace> <seat>` guidance
+- first-active-participant leader marking and tombstoned departures that retain participant names
+- `/meeting` and `collab_meeting`, including bounded Agent spawn through the upstream `subagents.startContinuable` API
+- same-origin Bearer-protected `/api/collab/meetings` and `/api/collab/meeting/*` routes
+- a Chinese Settings section for meeting creation, joining, seat synchronization, transcript, leave, and close workflows
+
+R3 adds `dsh-collab-roles`, which provides personas, SOUL presets, workspace types, materialized seats, claims, assignments, and leader election.
+
+R2 adds `dsh-collab-space`, which provides:
 
 - `ctx.collabSharing`: policy-gated workspace/session sharing, global approval requests, path-safe atomic writes, and secret scanning
 - `ctx.collabLock` and `ctx.collabDigest`: advisory locks and redacted session summaries

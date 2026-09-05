@@ -28,6 +28,7 @@ rm -f "$DSH_HOME/storages/collab_sharing.json"
 rm -f "$DSH_HOME/storages/collab_config.json"
 rm -f "$DSH_HOME/storages/collab_locks.json"
 rm -f "$DSH_HOME/storages/collab_assignment.json"
+rm -f "$DSH_HOME/storages/collab_meeting.json"
 rm -f "$DSH_HOME/storages/workspace.json"
 rm -rf "$DSH_HOME/pluginmax/shared"
 rm -rf "$DSH_HOME/pluginmax/personas"
@@ -194,7 +195,7 @@ expect_code 201 "$code" "persona creation"
 code="$(api POST /roles/personas "$TOKEN" '{"id":"../escape","name":"Escape","soul":"bad"}' "http://127.0.0.1:$PORT")"
 expect_code 400 "$code" "persona path traversal"
 
-code="$(api POST /roles/types "$TOKEN" '{"id":"product","name":"Product collaboration","seats":[{"id":"owner","label":"Owner","participantKind":"human","personaId":"architect","permissions":["read","write","approve"]},{"id":"builder","label":"Builder","participantKind":"agent","permissions":["read","write"]}]}' "http://127.0.0.1:$PORT")"
+code="$(api POST /roles/types "$TOKEN" '{"id":"product","name":"Product collaboration","seats":[{"id":"owner","label":"Owner","participantKind":"human","personaId":"architect","permissions":["read","write","approve"]},{"id":"builder","label":"Builder","participantKind":"agent","permissions":["read","write"]},{"id":"reviewer","label":"Reviewer","participantKind":"human","permissions":["read","approve"]}]}' "http://127.0.0.1:$PORT")"
 expect_code 201 "$code" "workspace type creation"
 
 code="$(api POST /team/users/create "$TOKEN" '{"userId":"outsider","name":"Outsider","password":"password-789","role":"member"}')"
@@ -225,6 +226,69 @@ code="$(api GET "/roles/seats?workspaceId=$WORKSPACE_ID" "$TOKEN" "" "http://127
 expect_code 200 "$code" "role seat list"
 grep -q '"assigneeId":"session-a"' "$BODY" || {
   echo "role seat list is missing assigned agent" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+
+code="$(api GET "/meetings?workspaceId=$WORKSPACE_ID" "wrong-token")"
+expect_code 401 "$code" "invalid meeting bearer token"
+
+code="$(api GET "/meetings?workspaceId=$WORKSPACE_ID" "$TOKEN" "" "https://evil.example")"
+expect_code 403 "$code" "cross-origin meeting request"
+
+code="$(api GET "/meetings?workspaceId=$WORKSPACE_ID" "$OUTSIDER_TOKEN")"
+expect_code 403 "$code" "non-member meeting request"
+
+code="$(api POST /meetings "$TOKEN" "{\"workspaceId\":\"$WORKSPACE_ID\",\"title\":\"Pluginmax sync\",\"agenda\":\"Verify meeting collaboration.\"}" "http://127.0.0.1:$PORT")"
+expect_code 201 "$code" "meeting creation"
+MEETING_ID="$(node -e 'const body=require(process.argv[1]);process.stdout.write(body.meeting.id)' "$BODY")"
+
+code="$(api POST /meeting/join "$TOKEN" "{\"meetingId\":\"$MEETING_ID\",\"displayName\":\"Admin\"}" "http://127.0.0.1:$PORT")"
+expect_code 201 "$code" "human meeting join"
+grep -q '"leader":true' "$BODY" || {
+  echo "first human meeting participant should become leader" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+
+code="$(api POST /meeting/seats/pull "$TOKEN" "{\"meetingId\":\"$MEETING_ID\"}" "http://127.0.0.1:$PORT")"
+expect_code 200 "$code" "meeting seat pull"
+grep -q '"seatId":"owner"' "$BODY" || {
+  echo "meeting seat pull is missing the occupied owner seat" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+grep -q '"seatId":"reviewer"' "$BODY" || {
+  echo "meeting seat pull is missing the pending reviewer seat" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+grep -q "/assignment claim $WORKSPACE_ID reviewer" "$BODY" || {
+  echo "pending meeting seat should include the assignment hint" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+
+code="$(api POST /meeting/message "$TOKEN" "{\"meetingId\":\"$MEETING_ID\",\"content\":\"Meeting smoke message.\"}" "http://127.0.0.1:$PORT")"
+expect_code 201 "$code" "meeting message"
+
+code="$(api POST /meeting/close "$TOKEN" "{\"meetingId\":\"$MEETING_ID\",\"summary\":\"Meeting collaboration verified.\"}" "http://127.0.0.1:$PORT")"
+expect_code 200 "$code" "meeting close"
+grep -q '"status":"closed"' "$BODY" || {
+  echo "meeting close did not return a closed meeting" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+
+code="$(api GET "/meeting?meetingId=$MEETING_ID" "$TOKEN" "" "http://127.0.0.1:$PORT")"
+expect_code 200 "$code" "closed meeting detail"
+grep -q '"summary":"Meeting collaboration verified."' "$BODY" || {
+  echo "closed meeting detail is missing the persisted summary" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+grep -q "Meeting smoke message." "$BODY" || {
+  echo "closed meeting detail is missing the transcript" >&2
   cat "$BODY" >&2
   exit 1
 }
@@ -327,5 +391,5 @@ expect_code 409 "$code" "duplicate bootstrap"
 code="$(api POST /auth/logout "$TOKEN")"
 expect_code 200 "$code" "identity logout"
 
-echo "Pluginmax canary, identity, space, and roles smoke passed on port $PORT"
+echo "Pluginmax canary, identity, space, roles, and meeting smoke passed on port $PORT"
 exit 0
