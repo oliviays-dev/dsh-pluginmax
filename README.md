@@ -1,0 +1,53 @@
+# dsh-pluginmax
+
+DSH Pluginmax is an out-of-tree collaboration plugin suite for DeepSeek Harness. This repository intentionally contains no fork of DSH and no patches to upstream source files. The compatibility baseline is the `vendor/deepseek-harness` submodule at `d347e703908d0406b7a7ef80e3a0e594d86b2215` (`@deepseek-ai/dsh@0.1.3-alpha.1`).
+
+## Current milestone
+
+R0 provides the repository foundation and `dsh-pluginmax-canary`, which validates:
+
+- local `link:` bundle installation
+- `ctx.storageDomain`
+- `ctx.commands`
+- `ctx.tools`
+- `ctx.webServer`
+- `settings.section` through `dsh.client`
+- clean submodule ownership and disposable `DSH_HOME`
+
+The seven product plugins will be added milestone by milestone under `plugins/`.
+
+## Setup
+
+```sh
+./scripts/bootstrap.sh
+./scripts/install-profile.sh
+./scripts/smoke.sh
+```
+
+Bootstrap builds both this workspace and the locked upstream DSH checkout. Installation and smoke testing always use `.tmp/dsh-home`; they do not touch `~/.dsh`.
+
+## Development
+
+```sh
+pnpm check
+```
+
+This runs typecheck, lint, unit tests, package builds, bundle contracts, and dry-run pack validation.
+
+Run only the web smoke server:
+
+```sh
+PLUGINMAX_SMOKE_PORT=33117 ./scripts/smoke.sh
+```
+
+## Upstream policy
+
+The upstream submodule is read-only. To evaluate a new master ref, create a branch and run:
+
+```sh
+./scripts/upgrade-upstream.sh <commit>
+./scripts/bootstrap.sh
+pnpm check
+```
+
+Do not edit files under `vendor/deepseek-harness`. A CI check fails if the submodule is dirty or its checked-out commit drifts from the reviewed gitlink.

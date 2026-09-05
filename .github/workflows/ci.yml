@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "feature/**"]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            vendor/deepseek-harness/pnpm-lock.yaml
+      - name: Install Pluginmax workspace
+        run: pnpm install --frozen-lockfile
+      - name: Static, unit, build, and package checks
+        run: pnpm run check
+      - name: Build locked upstream DSH
+        run: pnpm --dir vendor/deepseek-harness install --frozen-lockfile && pnpm --dir vendor/deepseek-harness build
+      - name: Install and smoke canary
+        run: |
+          ./scripts/install-profile.sh
+          ./scripts/smoke.sh
