@@ -4,14 +4,24 @@ DSH Pluginmax is an out-of-tree collaboration plugin suite for DeepSeek Harness.
 
 ## Current milestone
 
-The current milestone is R1. It adds `dsh-collab-identity`, which provides:
+The current milestone is R2. It adds `dsh-collab-space`, which provides:
+
+- `ctx.collabSharing`: policy-gated workspace/session sharing, global approval requests, path-safe atomic writes, and secret scanning
+- `ctx.collabLock` and `ctx.collabDigest`: advisory locks and redacted session summaries
+- same-origin Bearer-protected `/api/collab/space/*` routes
+- `/share`, `collab_share`, `collab_global_read`, and approval-gated `collab_global_write`
+- a Chinese Settings section for uploads, policies, locks, global approvals, digests, and audit records
+
+Global shares stay outside sandbox writable roots. Agents access them only through the plugin tool gateway, and agent global writes require an approval decision.
+
+R1 adds `dsh-collab-identity`, which provides:
 
 - `ctx.collabTeam`: users, scrypt passwords, bearer sessions, workspace members, and audit records
 - same-origin `/api/collab/auth/*` and `/api/collab/team/*` routes
 - an anonymous-safe `/identity` command and `collab_identity` tool
 - a Chinese Settings section for bootstrap/login, password changes, member management, and the audit timeline
 
-The durable domain is named `collab_team` because the locked DSH storage API only accepts snake-case unit names; it owns the product domain otherwise described as `collab.team`.
+The durable domains use snake-case names (`collab_team`, `collab_sharing`, `collab_config`, and `collab_locks`) because the locked DSH storage API only accepts snake-case unit names; they own the product domains otherwise described as `collab.team`, `collab.sharing`, `collab.config`, and `collab.locks`.
 
 R0 provides the repository foundation and `dsh-pluginmax-canary`, which validates:
 

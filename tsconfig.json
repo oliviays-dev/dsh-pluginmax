@@ -6,6 +6,9 @@
     },
     {
       "path": "plugins/dsh-pluginmax-canary"
+    },
+    {
+      "path": "plugins/dsh-collab-space"
     }
   ]
 }

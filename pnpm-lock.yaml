@@ -41,6 +41,15 @@ importers:
         specifier: 4.4.3
         version: 4.4.3
 
+  plugins/dsh-collab-space:
+    dependencies:
+      "@pluginmax/shared":
+        specifier: workspace:*
+        version: link:../../packages/shared
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+
   plugins/dsh-pluginmax-canary:
     dependencies:
       "@pluginmax/shared":
