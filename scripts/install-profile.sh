@@ -18,6 +18,7 @@ rm -rf "$PROFILE_DIR"
 DSH_HOME="$DSH_HOME" node "$DSH_BIN" plugin --profile pluginmax add "$ROOT/plugins/dsh-pluginmax-canary"
 DSH_HOME="$DSH_HOME" node "$DSH_BIN" plugin --profile pluginmax add "$ROOT/plugins/dsh-collab-identity"
 DSH_HOME="$DSH_HOME" node "$DSH_BIN" plugin --profile pluginmax add "$ROOT/plugins/dsh-collab-space"
+DSH_HOME="$DSH_HOME" node "$DSH_BIN" plugin --profile pluginmax add "$ROOT/plugins/dsh-collab-roles"
 node "$ROOT/scripts/add-web-bundle.mjs" "$PROFILE_DIR/package.json"
 
 echo "installed profile: $PROFILE_DIR"

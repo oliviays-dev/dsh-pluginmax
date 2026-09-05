@@ -9,6 +9,9 @@
     },
     {
       "path": "plugins/dsh-collab-space"
+    },
+    {
+      "path": "plugins/dsh-collab-roles"
     }
   ]
 }

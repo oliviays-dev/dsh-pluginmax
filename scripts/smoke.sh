@@ -27,8 +27,11 @@ rm -f "$DSH_HOME/storages/collab_team.json"
 rm -f "$DSH_HOME/storages/collab_sharing.json"
 rm -f "$DSH_HOME/storages/collab_config.json"
 rm -f "$DSH_HOME/storages/collab_locks.json"
+rm -f "$DSH_HOME/storages/collab_assignment.json"
 rm -f "$DSH_HOME/storages/workspace.json"
 rm -rf "$DSH_HOME/pluginmax/shared"
+rm -rf "$DSH_HOME/pluginmax/personas"
+rm -rf "$DSH_HOME/pluginmax/workspace-types"
 
 # The locked DSH workspace registry starts empty and is normally populated by
 # the Web workspace picker. Seed one existing local directory so API smoke
@@ -179,6 +182,53 @@ code="$(api POST /auth/bootstrap "" '{"userId":"admin","name":"Admin","password"
 expect_code 201 "$code" "identity bootstrap"
 TOKEN="$(node -e 'const body=require(process.argv[1]);process.stdout.write(body.token)' "$BODY")"
 
+code="$(api GET /roles/personas "wrong-token")"
+expect_code 401 "$code" "invalid roles bearer token"
+
+code="$(api GET /roles/personas "$TOKEN")"
+expect_code 200 "$code" "roles persona list"
+
+code="$(api POST /roles/personas "$TOKEN" '{"id":"architect","name":"Architect","description":"Module boundaries","tags":["architecture"],"soul":"Use engineering judgment."}' "http://127.0.0.1:$PORT")"
+expect_code 201 "$code" "persona creation"
+
+code="$(api POST /roles/personas "$TOKEN" '{"id":"../escape","name":"Escape","soul":"bad"}' "http://127.0.0.1:$PORT")"
+expect_code 400 "$code" "persona path traversal"
+
+code="$(api POST /roles/types "$TOKEN" '{"id":"product","name":"Product collaboration","seats":[{"id":"owner","label":"Owner","participantKind":"human","personaId":"architect","permissions":["read","write","approve"]},{"id":"builder","label":"Builder","participantKind":"agent","permissions":["read","write"]}]}' "http://127.0.0.1:$PORT")"
+expect_code 201 "$code" "workspace type creation"
+
+code="$(api POST /team/users/create "$TOKEN" '{"userId":"outsider","name":"Outsider","password":"password-789","role":"member"}')"
+expect_code 201 "$code" "non-member account creation"
+
+code="$(api POST /auth/login "" '{"userId":"outsider","password":"password-789"}')"
+expect_code 200 "$code" "non-member login"
+OUTSIDER_TOKEN="$(node -e 'const body=require(process.argv[1]);process.stdout.write(body.token)' "$BODY")"
+
+code="$(api POST /roles/materialize "$OUTSIDER_TOKEN" "{\"workspaceId\":\"$WORKSPACE_ID\",\"typeId\":\"product\"}" "http://127.0.0.1:$PORT")"
+expect_code 403 "$code" "non-member role materialization"
+
+code="$(api POST /roles/materialize "$TOKEN" "{\"workspaceId\":\"$WORKSPACE_ID\",\"typeId\":\"product\"}" "http://127.0.0.1:$PORT")"
+expect_code 201 "$code" "workspace type materialization"
+
+code="$(api POST /roles/seats/claim "$TOKEN" "{\"workspaceId\":\"$WORKSPACE_ID\",\"seatId\":\"owner\"}" "http://127.0.0.1:$PORT")"
+expect_code 201 "$code" "human role claim"
+grep -q '"leader":true' "$BODY" || {
+  echo "first role claim should become leader" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+
+code="$(api POST /roles/seats/assign "$TOKEN" "{\"workspaceId\":\"$WORKSPACE_ID\",\"seatId\":\"builder\",\"assigneeKind\":\"agent\",\"assigneeId\":\"session-a\",\"personaId\":\"architect\"}" "http://127.0.0.1:$PORT")"
+expect_code 201 "$code" "agent role assignment"
+
+code="$(api GET "/roles/seats?workspaceId=$WORKSPACE_ID" "$TOKEN" "" "http://127.0.0.1:$PORT")"
+expect_code 200 "$code" "role seat list"
+grep -q '"assigneeId":"session-a"' "$BODY" || {
+  echo "role seat list is missing assigned agent" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+
 code="$(api GET /auth/me "$TOKEN")"
 expect_code 200 "$code" "current identity"
 grep -q '"role":"admin"' "$BODY" || {
@@ -277,5 +327,5 @@ expect_code 409 "$code" "duplicate bootstrap"
 code="$(api POST /auth/logout "$TOKEN")"
 expect_code 200 "$code" "identity logout"
 
-echo "Pluginmax canary, identity, and space smoke passed on port $PORT"
+echo "Pluginmax canary, identity, space, and roles smoke passed on port $PORT"
 exit 0
