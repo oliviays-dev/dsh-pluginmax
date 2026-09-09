@@ -205,6 +205,7 @@ export interface TeamServiceLike {
 export interface WorkspaceLike {
   readonly id: string;
   readonly path: string;
+  readonly title?: string;
 }
 
 export interface WorkspaceRegistryLike {
@@ -224,7 +225,18 @@ export class SpaceError extends Error {
 }
 
 interface SchemaLike<V> {
-  safeParse(value: unknown): { success: boolean; data?: V };
+  safeParse(value: unknown): SafeParseLike<V>;
+}
+
+interface SafeParseLike<V> {
+  success: boolean;
+  data?: V;
+  error?: {
+    issues?: ReadonlyArray<{
+      readonly message: string;
+      readonly path?: readonly PropertyKey[];
+    }>;
+  };
 }
 
 interface KvTableLike<V> {
@@ -303,12 +315,19 @@ export const lockDomainSpec: DomainSpecLike = {
 };
 
 function parseOrInvalid<T>(
-  schema: { safeParse(value: unknown): { success: boolean; data?: T } },
+  schema: { safeParse(value: unknown): SafeParseLike<T> },
   value: unknown,
 ): T {
   const result = schema.safeParse(value);
   if (!result.success || result.data === undefined) {
-    throw new SpaceError("invalid_input", "request input is invalid");
+    const issue = result.error?.issues?.[0];
+    const field = issue?.path?.length === undefined || issue.path.length === 0
+      ? ""
+      : `${issue.path.join(".")}: `;
+    throw new SpaceError(
+      "invalid_input",
+      issue === undefined ? "request input is invalid" : `${field}${issue.message}`,
+    );
   }
   return result.data;
 }
@@ -1283,6 +1302,16 @@ export class SharingService {
       if (scanSecrets(parsed.content).length > 0) {
         throw new SpaceError("forbidden", "content contains a detected secret");
       }
+      const duplicate = tableValues(this.tables.globalRequests).find(
+        (record) =>
+          record.path === parsed.path && record.status === "pending",
+      );
+      if (duplicate !== undefined) {
+        throw new SpaceError(
+          "conflict",
+          `global request is already pending: ${parsed.path}`,
+        );
+      }
       const pendingRoot = join(this.globalRoot, ".pending");
       const pendingPath = await safeTarget(
         pendingRoot,
@@ -1682,6 +1711,7 @@ function browserActor(
   const principal = team.resolveToken(token);
   if (principal === undefined)
     throw new SpaceError("unauthorized", "invalid bearer token");
+  const sessionId = `browser:${createHash("sha256").update(token).digest("hex")}`;
   const member =
     workspaceId === "global"
       ? undefined
@@ -1691,6 +1721,7 @@ function browserActor(
   return {
     kind: "user",
     id: principal.userId,
+    sessionId,
     globalRole: principal.role,
     ...(member === undefined ? {} : { workspaceRole: member.memberRole }),
   };
@@ -1755,6 +1786,8 @@ export function createSpaceRoutes(
           ok: true,
           workspaces: workspaces.list().map((workspace) => ({
             id: workspace.id,
+            title: workspace.title,
+            path: workspace.path,
           })),
         });
       },

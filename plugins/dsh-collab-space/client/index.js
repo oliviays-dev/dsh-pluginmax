@@ -9,9 +9,10 @@ window.__ModuleLoader__.load({
 
     const TOKEN_KEY = "pluginmax.collab.token";
     const inputStyle = {
-      border: "1px solid #c9cfd6",
+      background: "var(--dsw-alias-bg-base)",
+      border: "0.5px solid var(--dsw-alias-border-l3)",
       borderRadius: 6,
-      color: "#1f2933",
+      color: "var(--dsw-alias-label-primary)",
       font: "inherit",
       minWidth: 0,
       padding: "7px 9px",
@@ -19,10 +20,10 @@ window.__ModuleLoader__.load({
     };
     const buttonStyle = {
       alignItems: "center",
-      border: "1px solid #243746",
+      background: "var(--dsw-alias-button-primary-fill)",
+      border: 0,
       borderRadius: 6,
-      background: "#243746",
-      color: "#fff",
+      color: "var(--dsw-alias-label-primary-foreground)",
       cursor: "pointer",
       display: "inline-flex",
       font: "inherit",
@@ -33,11 +34,17 @@ window.__ModuleLoader__.load({
     };
     const secondaryButtonStyle = {
       ...buttonStyle,
-      background: "#fff",
-      color: "#243746",
+      background: "transparent",
+      border: "0.5px solid var(--dsw-alias-border-l3)",
+      color: "var(--dsw-alias-label-primary)",
+    };
+    const disabledButtonStyle = {
+      ...secondaryButtonStyle,
+      cursor: "not-allowed",
+      opacity: 0.55,
     };
     const panelStyle = {
-      borderTop: "1px solid #d9dee4",
+      borderTop: "0.5px solid var(--dsw-alias-border-l2)",
       display: "grid",
       gap: 12,
       paddingTop: 16,
@@ -52,14 +59,14 @@ window.__ModuleLoader__.load({
       borderCollapse: "collapse",
       fontSize: 13,
       minWidth: "100%",
-      width: "max-content",
+      width: "100%",
     };
     const cellStyle = {
-      borderBottom: "1px solid #e3e7eb",
+      borderBottom: "0.5px solid var(--dsw-alias-border-l2)",
       padding: "7px 9px",
       textAlign: "left",
       verticalAlign: "top",
-      whiteSpace: "nowrap",
+      overflowWrap: "anywhere",
     };
 
     function getToken() {
@@ -98,7 +105,12 @@ window.__ModuleLoader__.load({
     function Field({ id, label, value, onChange, ...rest }) {
       return jsxRuntime.jsxs("label", {
         htmlFor: id,
-        style: { color: "#52606d", display: "grid", fontSize: 13, gap: 5 },
+        style: {
+          color: "var(--dsw-alias-label-secondary)",
+          display: "grid",
+          fontSize: 13,
+          gap: 5,
+        },
         children: [
           jsxRuntime.jsx("span", { children: label }),
           jsxRuntime.jsx("input", {
@@ -116,7 +128,12 @@ window.__ModuleLoader__.load({
     function Area({ id, label, value, onChange, rows = 6 }) {
       return jsxRuntime.jsxs("label", {
         htmlFor: id,
-        style: { color: "#52606d", display: "grid", fontSize: 13, gap: 5 },
+        style: {
+          color: "var(--dsw-alias-label-secondary)",
+          display: "grid",
+          fontSize: 13,
+          gap: 5,
+        },
         children: [
           jsxRuntime.jsx("span", { children: label }),
           jsxRuntime.jsx("textarea", {
@@ -158,7 +175,11 @@ window.__ModuleLoader__.load({
     function Table({ headers, rows, empty }) {
       if (rows.length === 0) {
         return jsxRuntime.jsx("p", {
-          style: { color: "#52606d", fontSize: 13, margin: 0 },
+          style: {
+            color: "var(--dsw-alias-label-secondary)",
+            fontSize: 13,
+            margin: 0,
+          },
           children: empty,
         });
       }
@@ -186,6 +207,42 @@ window.__ModuleLoader__.load({
       });
     }
 
+    function workspaceLabel(workspace) {
+      const shortId = workspace.id.slice(0, 8);
+      const title = workspace.title?.trim();
+      const path = workspace.path?.trim();
+      if (title && path) return `${title} (${path})`;
+      if (path) return `${path} (${shortId})`;
+      if (title) return title;
+      return `未知工作区 (${shortId})`;
+    }
+
+    function friendlyError(cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      if (message.includes("path must use normalized forward-slash segments")) {
+        return "路径格式不合法：路径必须是规范化目录，不能包含空段、`.` 或 `..`。";
+      }
+      if (message === "request input is invalid") return "输入内容格式不正确。";
+      if (message.startsWith("global request is already pending: ")) {
+        return "这个全局路径已有待审批申请，请等待管理员处理后再提交。";
+      }
+      if (message === "workspace sharing permission is required") {
+        return "当前账号没有这个工作区的共享权限。请到「协作身份」选择同一个工作区，并把它保存为成员。";
+      }
+      if (message === "invalid or expired token") return "登录状态已过期，请到「协作身份」重新登录。";
+      if (message === "bearer token is required") return "请先到「协作身份」登录。";
+      if (message.startsWith("locked by ")) {
+        const match = message.match(/^locked by (.+?) until (.+)$/);
+        if (match) {
+          return `这个路径已被 ${match[1]} 锁定，到期时间：${match[2]}。请等锁到期，或联系持有者释放。`;
+        }
+      }
+      if (message === "lock owner or admin role is required") {
+        return "只有锁持有者或管理员可以释放这个锁。";
+      }
+      return message;
+    }
+
     const SpaceSection = () => {
       const [phase, setPhase] = react.useState("loading");
       const [error, setError] = react.useState("");
@@ -200,12 +257,15 @@ window.__ModuleLoader__.load({
       const [digests, setDigests] = react.useState([]);
       const [events, setEvents] = react.useState([]);
       const [globalRequests, setGlobalRequests] = react.useState([]);
+      const [decisionPendingId, setDecisionPendingId] = react.useState("");
       const [fileContent, setFileContent] = react.useState("");
       const [upload, setUpload] = react.useState({
         path: "docs/readme.md",
         scope: "workspace",
         content: "",
       });
+      const [uploadFeedback, setUploadFeedback] = react.useState(null);
+      const [uploadPending, setUploadPending] = react.useState(false);
       const [policy, setPolicy] = react.useState({
         pattern: "workspace/docs/*.md",
         scope: "workspace",
@@ -213,15 +273,19 @@ window.__ModuleLoader__.load({
         effect: "allow",
       });
       const [lockPath, setLockPath] = react.useState("docs/readme.md");
+      const [lockFeedback, setLockFeedback] = react.useState(null);
+      const [lockPendingAction, setLockPendingAction] = react.useState("");
 
       const notify = (text) => {
         setError("");
         setMessage(text);
+        setUploadFeedback(null);
+        setLockFeedback(null);
       };
 
       const fail = (cause) => {
         setMessage("");
-        setError(cause instanceof Error ? cause.message : String(cause));
+        setError(friendlyError(cause));
       };
 
       const load = react.useCallback(async () => {
@@ -280,7 +344,13 @@ window.__ModuleLoader__.load({
           signal: controller.signal,
         }).catch((cause) => {
           if (disposed || cause.name === "AbortError") return;
-          if (cause.status === 401) setPhase("login");
+          if (cause.status === 401) {
+            setToken(undefined);
+            setMe(null);
+            setError("");
+            setPhase("login");
+            return;
+          }
           fail(cause);
           setPhase("error");
         });
@@ -292,20 +362,35 @@ window.__ModuleLoader__.load({
 
       const submitUpload = async (event) => {
         event.preventDefault();
+        setMessage("");
+        setError("");
+        setUploadPending(true);
+        setUploadFeedback({ kind: "info", message: "正在提交共享内容..." });
         try {
           const result = await request("/api/collab/space/files", {
             method: "POST",
             body: JSON.stringify({ workspaceId, ...upload }),
           });
-          notify(
-            result.request === undefined
-              ? `已共享 ${result.file.path}`
-              : `全局共享已提交审批 ${result.request.id}`,
-          );
+          setUploadFeedback({
+            kind: "success",
+            message:
+              result.request === undefined
+                ? `已共享 ${result.file.path}`
+                : `全局共享已提交审批，等待管理员审批。申请 ID：${result.request.id}`,
+          });
           setUpload((current) => ({ ...current, content: "" }));
-          await load();
+          try {
+            await load();
+          } catch (refreshCause) {
+            setError(friendlyError(refreshCause));
+          }
         } catch (cause) {
-          fail(cause);
+          setUploadFeedback({
+            kind: "error",
+            message: friendlyError(cause),
+          });
+        } finally {
+          setUploadPending(false);
         }
       };
 
@@ -343,19 +428,64 @@ window.__ModuleLoader__.load({
       };
 
       const lockAction = async (action) => {
+        if (lockPendingAction !== "") return;
+        const actionLabel = action === "acquire" ? "加锁" : "释放";
+        setMessage("");
+        setError("");
+        setLockFeedback({ kind: "info", message: `正在${actionLabel}...` });
+        setLockPendingAction(action);
         try {
-          await request(`/api/collab/space/locks/${action}`, {
+          const result = await request(`/api/collab/space/locks/${action}`, {
             method: "POST",
             body: JSON.stringify({ workspaceId, path: lockPath }),
           });
-          notify(action === "acquire" ? "已获得咨询锁" : "已释放咨询锁");
-          await load();
+          if (action === "acquire") {
+            setLocks((current) =>
+              [
+                ...current.filter((lock) => lock.key !== result.lock.key),
+                result.lock,
+              ].sort((left, right) => left.path.localeCompare(right.path)),
+            );
+            setLockFeedback({
+              kind: "success",
+              message: `已锁定 ${result.lock.path}，到期时间：${result.lock.expiresAt}`,
+            });
+          } else {
+            setLocks((current) =>
+              current.filter(
+                (lock) =>
+                  !(
+                    lock.workspaceId === workspaceId && lock.path === lockPath
+                  ),
+              ),
+            );
+            setLockFeedback({
+              kind: "success",
+              message: result.released
+                ? `已释放 ${lockPath}`
+                : `${lockPath} 当前没有活跃锁`,
+            });
+          }
+          try {
+            await load();
+          } catch (refreshCause) {
+            setLockFeedback({
+              kind: "info",
+              message: `操作已完成，但刷新列表失败：${friendlyError(refreshCause)}`,
+            });
+          }
         } catch (cause) {
-          fail(cause);
+          setLockFeedback({
+            kind: "error",
+            message: friendlyError(cause),
+          });
+        } finally {
+          setLockPendingAction("");
         }
       };
 
       const decideGlobal = async (requestId, approve) => {
+        setDecisionPendingId(requestId);
         try {
           await request("/api/collab/space/global/requests/decision", {
             method: "POST",
@@ -365,18 +495,20 @@ window.__ModuleLoader__.load({
           await load();
         } catch (cause) {
           fail(cause);
+        } finally {
+          setDecisionPendingId("");
         }
       };
 
       if (phase === "loading") {
         return jsxRuntime.jsx("p", {
-          style: { color: "#52606d" },
+          style: { color: "var(--dsw-alias-label-secondary)" },
           children: "正在加载共享区...",
         });
       }
       if (phase === "login") {
         return jsxRuntime.jsx("p", {
-          style: { color: "#52606d" },
+          style: { color: "var(--dsw-alias-label-secondary)" },
           children: "请先在「协作身份」登录。",
         });
       }
@@ -387,13 +519,27 @@ window.__ModuleLoader__.load({
           error === ""
             ? null
             : jsxRuntime.jsx("p", {
-                style: { color: "#b3261e", margin: 0 },
+                style: { color: "var(--dsw-alias-state-error-primary)", margin: 0 },
                 children: error,
+              }),
+          me === null
+            ? null
+            : jsxRuntime.jsxs("p", {
+                style: {
+                  color: "var(--dsw-alias-label-secondary)",
+                  fontSize: 13,
+                  margin: 0,
+                },
+                children: [
+                  "当前身份：",
+                  jsxRuntime.jsx("strong", { children: me.name }),
+                  `（${me.id} · ${me.role}）`,
+                ],
               }),
           message === ""
             ? null
             : jsxRuntime.jsx("p", {
-                style: { color: "#1b6e3d", margin: 0 },
+                style: { color: "var(--dsw-alias-state-success-primary)", margin: 0 },
                 children: message,
               }),
           jsxRuntime.jsxs("div", {
@@ -406,7 +552,7 @@ window.__ModuleLoader__.load({
             children: [
               jsxRuntime.jsx("label", {
                 style: {
-                  color: "#52606d",
+                  color: "var(--dsw-alias-label-secondary)",
                   display: "grid",
                   fontSize: 13,
                   gap: 5,
@@ -414,7 +560,7 @@ window.__ModuleLoader__.load({
                 children: [
                   jsxRuntime.jsx("span", { children: "工作区" }),
                   jsxRuntime.jsx("select", {
-                    style: { ...inputStyle, width: 180 },
+                    style: { ...inputStyle, width: "min(460px, 100%)" },
                     value: workspaceId,
                     onChange: (event) => setWorkspaceId(event.target.value),
                     children: workspaces.map((workspace) =>
@@ -422,13 +568,25 @@ window.__ModuleLoader__.load({
                         "option",
                         {
                           value: workspace.id,
-                          children: workspace.id,
+                          children: workspaceLabel(workspace),
                         },
                         workspace.id,
                       ),
                     ),
                   }),
                 ],
+              }),
+              jsxRuntime.jsx("span", {
+                style: {
+                  color: "var(--dsw-alias-label-secondary)",
+                  fontSize: 12,
+                  minWidth: "100%",
+                  overflowWrap: "anywhere",
+                },
+                children: `当前目录：${
+                  workspaces.find((item) => item.id === workspaceId)?.path ??
+                  "未知工作区"
+                }`,
               }),
               jsxRuntime.jsx("button", {
                 type: "button",
@@ -441,7 +599,7 @@ window.__ModuleLoader__.load({
           config === null
             ? null
             : jsxRuntime.jsxs("p", {
-                style: { color: "#52606d", fontSize: 13, margin: 0 },
+                style: { color: "var(--dsw-alias-label-secondary)", fontSize: 13, margin: 0 },
                 children: [
                   `默认范围：${config.defaultScope}`,
                   config.enabled ? "，共享已启用" : "，共享已停用",
@@ -450,6 +608,25 @@ window.__ModuleLoader__.load({
           jsxRuntime.jsxs(Panel, {
             title: "上传与文档",
             children: [
+              uploadFeedback === null
+                ? null
+                : jsxRuntime.jsx("p", {
+                    role: uploadFeedback.kind === "error" ? "alert" : "status",
+                    style: {
+                      color:
+                        uploadFeedback.kind === "error"
+                          ? "var(--dsw-alias-state-error-primary)"
+                          : uploadFeedback.kind === "success"
+                            ? "var(--dsw-alias-state-success-primary)"
+                            : "var(--dsw-alias-label-secondary)",
+                      fontSize: 13,
+                      fontWeight:
+                        uploadFeedback.kind === "info" ? 400 : 600,
+                      margin: 0,
+                      overflowWrap: "anywhere",
+                    },
+                    children: uploadFeedback.message,
+                  }),
               jsxRuntime.jsxs("form", {
                 style: formStyle,
                 onSubmit: submitUpload,
@@ -466,7 +643,7 @@ window.__ModuleLoader__.load({
                   }),
                   jsxRuntime.jsx("label", {
                     style: {
-                      color: "#52606d",
+                      color: "var(--dsw-alias-label-secondary)",
                       display: "grid",
                       fontSize: 13,
                       gap: 5,
@@ -505,7 +682,8 @@ window.__ModuleLoader__.load({
                   jsxRuntime.jsx("button", {
                     type: "submit",
                     style: buttonStyle,
-                    children: "上传",
+                    disabled: uploadPending,
+                    children: uploadPending ? "提交中..." : "上传",
                   }),
                 ],
               }),
@@ -556,8 +734,8 @@ window.__ModuleLoader__.load({
                 ? null
                 : jsxRuntime.jsx("pre", {
                     style: {
-                      background: "#f4f6f8",
-                      border: "1px solid #d9dee4",
+                      background: "var(--dsw-alias-bg-layer-2)",
+                      border: "1px solid var(--dsw-alias-border-l2)",
                       borderRadius: 6,
                       margin: 0,
                       maxHeight: 260,
@@ -588,7 +766,7 @@ window.__ModuleLoader__.load({
                   }),
                   jsxRuntime.jsx("label", {
                     style: {
-                      color: "#52606d",
+                      color: "var(--dsw-alias-label-secondary)",
                       display: "grid",
                       fontSize: 13,
                       gap: 5,
@@ -626,7 +804,7 @@ window.__ModuleLoader__.load({
                   }),
                   jsxRuntime.jsx("label", {
                     style: {
-                      color: "#52606d",
+                      color: "var(--dsw-alias-label-secondary)",
                       display: "grid",
                       fontSize: 13,
                       gap: 5,
@@ -701,23 +879,50 @@ window.__ModuleLoader__.load({
               children: [
                 jsxRuntime.jsx("button", {
                   type: "button",
-                  style: buttonStyle,
+                  disabled: lockPendingAction !== "",
+                  style:
+                    lockPendingAction === "acquire"
+                      ? disabledButtonStyle
+                      : buttonStyle,
                   onClick: () => lockAction("acquire"),
-                  children: "加锁",
+                  children: lockPendingAction === "acquire" ? "锁定中..." : "加锁",
                 }),
                 jsxRuntime.jsx("button", {
                   type: "button",
-                  style: secondaryButtonStyle,
+                  disabled: lockPendingAction !== "",
+                  style:
+                    lockPendingAction === "release"
+                      ? disabledButtonStyle
+                      : secondaryButtonStyle,
                   onClick: () => lockAction("release"),
-                  children: "释放",
+                  children: lockPendingAction === "release" ? "释放中..." : "释放",
                 }),
               ],
             }),
             children: [
+              lockFeedback === null
+                ? null
+                : jsxRuntime.jsx("p", {
+                    role: lockFeedback.kind === "error" ? "alert" : "status",
+                    style: {
+                      color:
+                        lockFeedback.kind === "error"
+                          ? "var(--dsw-alias-state-error-primary)"
+                          : lockFeedback.kind === "success"
+                            ? "var(--dsw-alias-state-success-primary)"
+                            : "var(--dsw-alias-label-secondary)",
+                      fontSize: 13,
+                      fontWeight: lockFeedback.kind === "info" ? 400 : 600,
+                      margin: 0,
+                      overflowWrap: "anywhere",
+                    },
+                    children: lockFeedback.message,
+                  }),
               Field({
                 id: "pluginmax-lock-path",
                 label: "路径",
                 value: lockPath,
+                disabled: lockPendingAction !== "",
                 onChange: (event) => setLockPath(event.target.value),
               }),
               jsxRuntime.jsx(Table, {
@@ -777,27 +982,59 @@ window.__ModuleLoader__.load({
                             }),
                             jsxRuntime.jsx("td", {
                               style: cellStyle,
-                              children: item.status,
+                              children:
+                                item.status === "pending"
+                                  ? "待审批"
+                                  : item.status === "approved"
+                                    ? "已批准"
+                                    : item.status === "rejected"
+                                      ? "已拒绝"
+                                      : item.status,
                             }),
                             jsxRuntime.jsxs("td", {
                               style: cellStyle,
-                              children: [
-                                jsxRuntime.jsx("button", {
-                                  type: "button",
-                                  style: secondaryButtonStyle,
-                                  disabled: item.status !== "pending",
-                                  onClick: () => decideGlobal(item.id, true),
-                                  children: "批准",
-                                }),
-                                " ",
-                                jsxRuntime.jsx("button", {
-                                  type: "button",
-                                  style: secondaryButtonStyle,
-                                  disabled: item.status !== "pending",
-                                  onClick: () => decideGlobal(item.id, false),
-                                  children: "拒绝",
-                                }),
-                              ],
+                              children:
+                                item.status === "pending"
+                                  ? [
+                                      jsxRuntime.jsx(
+                                        "button",
+                                        {
+                                          type: "button",
+                                          style:
+                                            decisionPendingId === item.id
+                                              ? disabledButtonStyle
+                                              : secondaryButtonStyle,
+                                          disabled: decisionPendingId === item.id,
+                                          onClick: () =>
+                                            decideGlobal(item.id, true),
+                                          children:
+                                            decisionPendingId === item.id
+                                              ? "处理中..."
+                                              : "批准",
+                                        },
+                                        "approve",
+                                      ),
+                                      " ",
+                                      jsxRuntime.jsx(
+                                        "button",
+                                        {
+                                          type: "button",
+                                          style:
+                                            decisionPendingId === item.id
+                                              ? disabledButtonStyle
+                                              : secondaryButtonStyle,
+                                          disabled: decisionPendingId === item.id,
+                                          onClick: () =>
+                                            decideGlobal(item.id, false),
+                                          children:
+                                            decisionPendingId === item.id
+                                              ? "处理中..."
+                                              : "拒绝",
+                                        },
+                                        "reject",
+                                      ),
+                                    ]
+                                  : "-",
                             }),
                           ],
                         },

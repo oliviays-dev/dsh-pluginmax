@@ -9,19 +9,20 @@ window.__ModuleLoader__.load({
 
     const TOKEN_KEY = "pluginmax.collab.token";
     const inputStyle = {
-      border: "1px solid #c9cfd6",
+      background: "var(--dsw-alias-bg-base)",
+      border: "0.5px solid var(--dsw-alias-border-l3)",
       borderRadius: 6,
-      color: "#1f2933",
+      color: "var(--dsw-alias-label-primary)",
       font: "inherit",
       minWidth: 0,
       padding: "7px 9px",
       width: "100%",
     };
     const buttonStyle = {
-      border: "1px solid #243746",
+      background: "var(--dsw-alias-button-primary-fill)",
+      border: 0,
       borderRadius: 6,
-      background: "#243746",
-      color: "#fff",
+      color: "var(--dsw-alias-label-primary-foreground)",
       cursor: "pointer",
       display: "inline-flex",
       font: "inherit",
@@ -32,11 +33,12 @@ window.__ModuleLoader__.load({
     };
     const secondaryButtonStyle = {
       ...buttonStyle,
-      background: "#fff",
-      color: "#243746",
+      background: "transparent",
+      border: "0.5px solid var(--dsw-alias-border-l3)",
+      color: "var(--dsw-alias-label-primary)",
     };
     const panelStyle = {
-      borderTop: "1px solid #d9dee4",
+      borderTop: "0.5px solid var(--dsw-alias-border-l2)",
       display: "grid",
       gap: 12,
       paddingTop: 16,
@@ -45,14 +47,15 @@ window.__ModuleLoader__.load({
       borderCollapse: "collapse",
       fontSize: 13,
       minWidth: "100%",
-      width: "max-content",
+      tableLayout: "fixed",
+      width: "100%",
     };
     const cellStyle = {
-      borderBottom: "1px solid #e3e7eb",
+      borderBottom: "0.5px solid var(--dsw-alias-border-l2)",
       padding: "7px 9px",
       textAlign: "left",
       verticalAlign: "top",
-      whiteSpace: "nowrap",
+      overflowWrap: "anywhere",
     };
     const contentCellStyle = {
       ...cellStyle,
@@ -94,7 +97,12 @@ window.__ModuleLoader__.load({
     function Field({ id, label, value, onChange, ...rest }) {
       return jsxRuntime.jsxs("label", {
         htmlFor: id,
-        style: { color: "#52606d", display: "grid", fontSize: 13, gap: 5 },
+        style: {
+          color: "var(--dsw-alias-label-secondary)",
+          display: "grid",
+          fontSize: 13,
+          gap: 5,
+        },
         children: [
           jsxRuntime.jsx("span", { children: label }),
           jsxRuntime.jsx("input", {
@@ -112,7 +120,12 @@ window.__ModuleLoader__.load({
     function Area({ id, label, value, onChange, rows = 4 }) {
       return jsxRuntime.jsxs("label", {
         htmlFor: id,
-        style: { color: "#52606d", display: "grid", fontSize: 13, gap: 5 },
+        style: {
+          color: "var(--dsw-alias-label-secondary)",
+          display: "grid",
+          fontSize: 13,
+          gap: 5,
+        },
         children: [
           jsxRuntime.jsx("span", { children: label }),
           jsxRuntime.jsx("textarea", {
@@ -154,7 +167,11 @@ window.__ModuleLoader__.load({
     function Table({ headers, rows, empty }) {
       if (rows.length === 0) {
         return jsxRuntime.jsx("p", {
-          style: { color: "#52606d", fontSize: 13, margin: 0 },
+          style: {
+            color: "var(--dsw-alias-label-secondary)",
+            fontSize: 13,
+            margin: 0,
+          },
           children: empty,
         });
       }
@@ -270,7 +287,7 @@ window.__ModuleLoader__.load({
 
       if (phase === "login") {
         return jsxRuntime.jsx("p", {
-          style: { color: "#52606d", fontSize: 13 },
+          style: { color: "var(--dsw-alias-label-secondary)", fontSize: 13 },
           children: "请先登录 Pluginmax",
         });
       }
@@ -283,7 +300,7 @@ window.__ModuleLoader__.load({
           error === ""
             ? null
             : jsxRuntime.jsx("p", {
-                style: { color: "#b3261e" },
+                style: { color: "var(--dsw-alias-state-error-primary)" },
                 children: error,
               }),
           jsxRuntime.jsx(Field, {
@@ -387,7 +404,7 @@ window.__ModuleLoader__.load({
                   title: detail.meeting.title,
                   action: jsxRuntime.jsx("span", {
                     style: {
-                      color: "#52606d",
+                      color: "var(--dsw-alias-label-secondary)",
                       fontSize: 13,
                       whiteSpace: "nowrap",
                     },
@@ -403,7 +420,7 @@ window.__ModuleLoader__.load({
                           style: {
                             margin: 0,
                             whiteSpace: "pre-wrap",
-                            color: "#52606d",
+                            color: "var(--dsw-alias-label-secondary)",
                           },
                           children: detail.meeting.agenda,
                         }),

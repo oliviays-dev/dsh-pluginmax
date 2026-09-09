@@ -9,7 +9,13 @@ import { z } from "zod";
 import { readJsonBody, sameOrigin, sendJson } from "@pluginmax/shared";
 
 export const name = "dsh-collab-identity";
-export const inject = ["storageDomain", "commands", "tools", "webServer"];
+export const inject = [
+  "storageDomain",
+  "workspaceRegistry",
+  "commands",
+  "tools",
+  "webServer",
+];
 
 export const USER_ROLES = ["admin", "owner", "member", "guest"] as const;
 export const MEMBER_ROLES = ["owner", "member", "guest"] as const;
@@ -188,6 +194,17 @@ export interface WebRouteLike {
   ): Promise<void> | void;
 }
 
+export interface WorkspaceLike {
+  readonly id: string;
+  readonly path: string;
+  readonly title?: string;
+}
+
+export interface WorkspaceRegistryLike {
+  get(id: string): WorkspaceLike | undefined;
+  list(): readonly WorkspaceLike[];
+}
+
 export interface IdentityContext {
   effect(register: () => () => void): void;
   provide(key: "collabTeam", value: TeamService): unknown;
@@ -213,6 +230,7 @@ export interface IdentityContext {
   };
   webServer: { register(route: WebRouteLike): unknown };
   storageDomain: { open(spec: DomainSpecLike): Promise<DomainLike> };
+  workspaceRegistry: WorkspaceRegistryLike;
 }
 
 export const teamDomainSpec: DomainSpecLike = {
@@ -939,6 +957,7 @@ async function runHandler(
 
 export function createIdentityRoutes(
   service: TeamService,
+  workspaces: WorkspaceRegistryLike,
 ): readonly WebRouteLike[] {
   const routes: Array<{
     path: string;
@@ -948,6 +967,22 @@ export function createIdentityRoutes(
       response: ServerResponse,
     ) => Promise<void> | void;
   }> = [
+    {
+      path: "/api/collab/team/workspaces",
+      method: "GET",
+      handler: (request, response) => {
+        assertSameOrigin(request);
+        requirePrincipal(request, service);
+        sendJson(response, 200, {
+          ok: true,
+          workspaces: workspaces.list().map((workspace) => ({
+            id: workspace.id,
+            title: workspace.title,
+            path: workspace.path,
+          })),
+        });
+      },
+    },
     {
       path: "/api/collab/auth/status",
       method: "GET",
@@ -1210,9 +1245,10 @@ export async function apply(
     },
   });
 
-  const disposers = createIdentityRoutes(service).map((route) =>
-    ctx.webServer.register(route),
-  ) as Array<() => void>;
+  const disposers = createIdentityRoutes(
+    service,
+    ctx.workspaceRegistry,
+  ).map((route) => ctx.webServer.register(route)) as Array<() => void>;
   return () => {
     for (const dispose of disposers) dispose();
   };

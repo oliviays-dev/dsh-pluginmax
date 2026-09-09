@@ -47,7 +47,10 @@ window.__ModuleLoader__.load({
               "用于验证 DSH 的 out-of-tree 插件、存储、命令、工具、HTTP 路由和设置页槽位。",
           }),
           jsxRuntime.jsx("p", {
-            style: state.phase === "error" ? { color: "#b42318" } : undefined,
+            style:
+              state.phase === "error"
+                ? { color: "var(--dsw-alias-state-error-primary)" }
+                : undefined,
             children:
               state.phase === "loading"
                 ? "正在检查..."

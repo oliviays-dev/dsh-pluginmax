@@ -9,9 +9,10 @@ window.__ModuleLoader__.load({
 
     const TOKEN_KEY = "pluginmax.collab.token";
     const inputStyle = {
-      border: "1px solid #c9cfd6",
+      background: "var(--dsw-alias-bg-base)",
+      border: "0.5px solid var(--dsw-alias-border-l3)",
       borderRadius: 6,
-      color: "#1f2933",
+      color: "var(--dsw-alias-label-primary)",
       font: "inherit",
       minWidth: 0,
       padding: "7px 9px",
@@ -19,10 +20,10 @@ window.__ModuleLoader__.load({
     };
     const buttonStyle = {
       alignItems: "center",
-      border: "1px solid #243746",
+      background: "var(--dsw-alias-button-primary-fill)",
+      border: 0,
       borderRadius: 6,
-      background: "#243746",
-      color: "#fff",
+      color: "var(--dsw-alias-label-primary-foreground)",
       cursor: "pointer",
       display: "inline-flex",
       font: "inherit",
@@ -32,11 +33,12 @@ window.__ModuleLoader__.load({
     };
     const secondaryButtonStyle = {
       ...buttonStyle,
-      background: "#fff",
-      color: "#243746",
+      background: "transparent",
+      border: "0.5px solid var(--dsw-alias-border-l3)",
+      color: "var(--dsw-alias-label-primary)",
     };
     const panelStyle = {
-      borderTop: "1px solid #d9dee4",
+      borderTop: "0.5px solid var(--dsw-alias-border-l2)",
       display: "grid",
       gap: 14,
       paddingTop: 16,
@@ -50,14 +52,16 @@ window.__ModuleLoader__.load({
       borderCollapse: "collapse",
       fontSize: 13,
       minWidth: "100%",
-      width: "max-content",
+      tableLayout: "fixed",
+      width: "100%",
     };
 
     const cellStyle = {
-      borderBottom: "1px solid #e3e7eb",
+      borderBottom: "0.5px solid var(--dsw-alias-border-l2)",
       padding: "7px 9px",
       textAlign: "left",
       verticalAlign: "top",
+      overflowWrap: "anywhere",
     };
 
     function getToken() {
@@ -100,7 +104,12 @@ window.__ModuleLoader__.load({
     function Field({ id, label, type = "text", value, onChange, ...rest }) {
       return jsxRuntime.jsxs("label", {
         htmlFor: id,
-        style: { color: "#52606d", display: "grid", fontSize: 13, gap: 5 },
+        style: {
+          color: "var(--dsw-alias-label-secondary)",
+          display: "grid",
+          fontSize: 13,
+          gap: 5,
+        },
         children: [
           jsxRuntime.jsx("span", { children: label }),
           jsxRuntime.jsx("input", {
@@ -140,6 +149,23 @@ window.__ModuleLoader__.load({
       });
     }
 
+    function workspaceLabel(workspace) {
+      const title = workspace.title?.trim();
+      const path = workspace.path?.trim();
+      if (title && path) return `${title} (${path})`;
+      if (path) return path;
+      if (title) return title;
+      return `未知工作区 (${workspace.id.slice(0, 8)})`;
+    }
+
+    function friendlyError(cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      if (message === "invalid user or password") return "用户 ID 或密码不正确。";
+      if (message === "invalid or expired token") return "登录状态已过期，请重新登录。";
+      if (message === "bearer token is required") return "请先登录。";
+      return message;
+    }
+
     const IdentitySection = () => {
       const [phase, setPhase] = react.useState("loading");
       const [message, setMessage] = react.useState("");
@@ -148,6 +174,7 @@ window.__ModuleLoader__.load({
       const [users, setUsers] = react.useState([]);
       const [members, setMembers] = react.useState([]);
       const [events, setEvents] = react.useState([]);
+      const [workspaces, setWorkspaces] = react.useState([]);
       const [workspaceId, setWorkspaceId] = react.useState("main");
       const [account, setAccount] = react.useState({
         userId: "",
@@ -176,16 +203,16 @@ window.__ModuleLoader__.load({
 
       const fail = (cause) => {
         setMessage("");
-        setError(cause instanceof Error ? cause.message : String(cause));
+        setError(friendlyError(cause));
       };
 
       const loadAdmin = react.useCallback(
-        async (user = me) => {
+        async (user = me, activeWorkspaceId = workspaceId) => {
           if (user?.role !== "admin") return;
           const [userResult, memberResult, auditResult] = await Promise.all([
             request("/api/collab/team/users"),
             request(
-              `/api/collab/team/members?workspaceId=${encodeURIComponent(workspaceId)}`,
+              `/api/collab/team/members?workspaceId=${encodeURIComponent(activeWorkspaceId)}`,
             ),
             request("/api/collab/team/audit?limit=100"),
           ]);
@@ -195,6 +222,18 @@ window.__ModuleLoader__.load({
         },
         [me, workspaceId],
       );
+
+      const loadWorkspaces = async () => {
+        const result = await request("/api/collab/team/workspaces");
+        setWorkspaces(result.workspaces);
+        const selected = result.workspaces.some(
+          (workspace) => workspace.id === workspaceId,
+        )
+          ? workspaceId
+          : (result.workspaces[0]?.id ?? "main");
+        setWorkspaceId(selected);
+        return selected;
+      };
 
       react.useEffect(() => {
         let disposed = false;
@@ -214,9 +253,9 @@ window.__ModuleLoader__.load({
               signal: controller.signal,
             });
             if (disposed) return;
+            await loadWorkspaces();
             setMe(current.user);
             setPhase("ready");
-            await loadAdmin(current.user);
           } catch (cause) {
             if (cause.name === "AbortError" || disposed) return;
             if (cause.status === 401) {
@@ -231,7 +270,7 @@ window.__ModuleLoader__.load({
           disposed = true;
           controller.abort();
         };
-      }, [loadAdmin]);
+        }, [loadAdmin, workspaceId]);
 
       react.useEffect(() => {
         if (me?.role !== "admin") return;
@@ -249,7 +288,8 @@ window.__ModuleLoader__.load({
           setMe(result.user);
           setPhase("ready");
           notify(`已创建管理员 ${result.user.id}`);
-          await loadAdmin(result.user);
+          const activeWorkspaceId = await loadWorkspaces();
+          await loadAdmin(result.user, activeWorkspaceId);
         } catch (cause) {
           fail(cause);
         }
@@ -269,7 +309,8 @@ window.__ModuleLoader__.load({
           setMe(result.user);
           setPhase("ready");
           notify(`已登录 ${result.user.name}`);
-          await loadAdmin(result.user);
+          const activeWorkspaceId = await loadWorkspaces();
+          await loadAdmin(result.user, activeWorkspaceId);
         } catch (cause) {
           fail(cause);
         }
@@ -345,12 +386,14 @@ window.__ModuleLoader__.load({
           setUsers([]);
           setMembers([]);
           setEvents([]);
+          setWorkspaces([]);
+          setWorkspaceId("main");
           setPhase("login");
-          notify("已退出");
+          notify("已退出登录");
         }
       };
 
-      const accountFields = jsxRuntime.jsxs(jsxRuntime.Fragment, {
+      const bootstrapFields = jsxRuntime.jsxs(jsxRuntime.Fragment, {
         children: [
           jsxRuntime.jsx(Field, {
             id: "pluginmax-user-id",
@@ -374,6 +417,22 @@ window.__ModuleLoader__.load({
               })),
             autoComplete: "name",
           }),
+        ],
+      });
+
+      const loginFields = jsxRuntime.jsxs(jsxRuntime.Fragment, {
+        children: [
+          jsxRuntime.jsx(Field, {
+            id: "pluginmax-user-id",
+            label: "用户 ID",
+            value: account.userId,
+            onChange: (event) =>
+              setAccount((current) => ({
+                ...current,
+                userId: event.target.value,
+              })),
+            autoComplete: "username",
+          }),
           jsxRuntime.jsx(Field, {
             id: "pluginmax-user-password",
             label: "密码",
@@ -384,7 +443,7 @@ window.__ModuleLoader__.load({
                 ...current,
                 password: event.target.value,
               })),
-            autoComplete: "new-password",
+            autoComplete: "current-password",
           }),
         ],
       });
@@ -399,7 +458,7 @@ window.__ModuleLoader__.load({
 
       return jsxRuntime.jsxs("section", {
         "data-pluginmax-identity": true,
-        style: { color: "#1f2933", display: "grid", gap: 16, padding: 4 },
+        style: { color: "var(--dsw-alias-label-primary)", display: "grid", gap: 16, padding: 4 },
         children: [
           jsxRuntime.jsxs("div", {
             style: {
@@ -419,20 +478,20 @@ window.__ModuleLoader__.load({
                     type: "button",
                     style: secondaryButtonStyle,
                     onClick: logout,
-                    children: "退出",
+                    children: "退出登录",
                   }),
             ],
           }),
           message === ""
             ? null
             : jsxRuntime.jsx("p", {
-                style: { color: "#087443", margin: 0 },
+                style: { color: "var(--dsw-alias-state-success-primary)", margin: 0 },
                 children: message,
               }),
           error === ""
             ? null
             : jsxRuntime.jsx("p", {
-                style: { color: "#b42318", margin: 0 },
+                style: { color: "var(--dsw-alias-state-error-primary)", margin: 0 },
                 children: error,
               }),
           phase === "bootstrap"
@@ -440,7 +499,7 @@ window.__ModuleLoader__.load({
                 onSubmit: submitBootstrap,
                 style: formStyle,
                 children: [
-                  accountFields,
+                  bootstrapFields,
                   jsxRuntime.jsx("button", {
                     type: "submit",
                     style: {
@@ -458,7 +517,7 @@ window.__ModuleLoader__.load({
                 onSubmit: submitLogin,
                 style: formStyle,
                 children: [
-                  accountFields,
+                  loginFields,
                   jsxRuntime.jsx("button", {
                     type: "submit",
                     style: {
@@ -478,14 +537,50 @@ window.__ModuleLoader__.load({
                   jsxRuntime.jsxs("div", {
                     style: {
                       alignItems: "center",
+                      background: "var(--dsw-alias-bg-layer-2)",
+                      border: "0.5px solid var(--dsw-alias-border-l2)",
+                      borderRadius: 6,
+                      display: "grid",
+                      gap: 4,
+                      padding: 12,
+                    },
+                    children: [
+                      jsxRuntime.jsx("span", {
+                        style: {
+                          color: "var(--dsw-alias-label-secondary)",
+                          fontSize: 12,
+                        },
+                        children: "当前身份",
+                      }),
+                      jsxRuntime.jsx("strong", {
+                        style: { fontSize: 15 },
+                        children: me.name,
+                      }),
+                      jsxRuntime.jsxs("span", {
+                        style: {
+                          color: "var(--dsw-alias-label-secondary)",
+                          fontSize: 13,
+                        },
+                        children: [me.id, " · ", me.role],
+                      }),
+                    ],
+                  }),
+                  jsxRuntime.jsxs("div", {
+                    style: {
+                      alignItems: "center",
                       display: "flex",
                       flexWrap: "wrap",
                       gap: 8,
                     },
                     children: [
-                      jsxRuntime.jsx("strong", { children: me.name }),
-                      jsxRuntime.jsx("span", { children: me.id }),
-                      jsxRuntime.jsx("span", { children: me.role }),
+                      jsxRuntime.jsx("span", {
+                        style: {
+                          color: "var(--dsw-alias-label-secondary)",
+                          fontSize: 13,
+                        },
+                        children:
+                          "要使用另一个账号，请先点击右上角「退出登录」，再输入新的用户 ID 和密码。",
+                      }),
                     ],
                   }),
                   jsxRuntime.jsxs("form", {
@@ -576,7 +671,7 @@ window.__ModuleLoader__.load({
                           jsxRuntime.jsx("label", {
                             htmlFor: "pluginmax-new-user-role",
                             style: {
-                              color: "#52606d",
+                              color: "var(--dsw-alias-label-secondary)",
                               display: "grid",
                               fontSize: 13,
                               gap: 5,
@@ -668,11 +763,49 @@ window.__ModuleLoader__.load({
                   jsxRuntime.jsxs(Panel, {
                     title: "工作区成员",
                     children: [
-                      jsxRuntime.jsx(Field, {
-                        id: "pluginmax-workspace-id",
-                        label: "工作区 ID",
-                        value: workspaceId,
-                        onChange: (event) => setWorkspaceId(event.target.value),
+                      jsxRuntime.jsxs("label", {
+                        htmlFor: "pluginmax-workspace-id",
+                        style: {
+                          color: "var(--dsw-alias-label-secondary)",
+                          display: "grid",
+                          fontSize: 13,
+                          gap: 5,
+                        },
+                        children: [
+                          jsxRuntime.jsx("span", { children: "工作区" }),
+                          jsxRuntime.jsxs("select", {
+                            id: "pluginmax-workspace-id",
+                            style: inputStyle,
+                            value: workspaceId,
+                            onChange: (event) =>
+                              setWorkspaceId(event.target.value),
+                            children: [
+                              workspaces.length === 0
+                                ? jsxRuntime.jsx(
+                                    "option",
+                                    {
+                                      value: workspaceId,
+                                      children: "暂无可用工作区",
+                                    },
+                                    "empty",
+                                  )
+                                : workspaces.map((workspace) =>
+                                    jsxRuntime.jsx(
+                                      "option",
+                                      {
+                                        value: workspace.id,
+                                        children: workspaceLabel(workspace),
+                                      },
+                                      workspace.id,
+                                    ),
+                                  ),
+                            ],
+                          }),
+                          jsxRuntime.jsx("span", {
+                            style: { overflowWrap: "anywhere" },
+                            children: `工作区 ID：${workspaceId}`,
+                          }),
+                        ],
                       }),
                       jsxRuntime.jsxs("form", {
                         onSubmit: submitMember,
@@ -691,7 +824,7 @@ window.__ModuleLoader__.load({
                           jsxRuntime.jsx("label", {
                             htmlFor: "pluginmax-member-role",
                             style: {
-                              color: "#52606d",
+                              color: "var(--dsw-alias-label-secondary)",
                               display: "grid",
                               fontSize: 13,
                               gap: 5,

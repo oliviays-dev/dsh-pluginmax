@@ -14,6 +14,7 @@ import {
   type MemberRecord,
   type SessionRecord,
   type UserRecord,
+  type WorkspaceRegistryLike,
   type WebRouteLike,
 } from "./index.ts";
 
@@ -99,6 +100,14 @@ function fakeDomain(currentTables: Tables): DomainLike {
   } as unknown as DomainLike;
 }
 
+const workspaceRegistry: WorkspaceRegistryLike = {
+  get: (id) =>
+    id === "workspace-1"
+      ? { id, path: "/tmp/workspace-1", title: "Workspace 1" }
+      : undefined,
+  list: () => [{ id: "workspace-1", path: "/tmp/workspace-1", title: "Workspace 1" }],
+};
+
 async function setupPlugin() {
   const currentTables = tables();
   const disposers: Array<() => void> = [];
@@ -112,6 +121,7 @@ async function setupPlugin() {
     commands: { register: (definition) => commands.push(definition) },
     tools: { register: (definition) => tools.push(definition) },
     webServer: { register: (route) => routes.push(route) },
+    workspaceRegistry,
     storageDomain: {
       open: async (spec) => {
         expect(spec.name).toBe("collab_team");
@@ -218,7 +228,13 @@ describe("dsh-collab-identity", () => {
       "auth_sessions",
       "audit_log",
     ]);
-    expect(inject).toEqual(["storageDomain", "commands", "tools", "webServer"]);
+    expect(inject).toEqual([
+      "storageDomain",
+      "workspaceRegistry",
+      "commands",
+      "tools",
+      "webServer",
+    ]);
   });
 
   it("hashes passwords with salted scrypt and rejects bad hashes", () => {
@@ -374,8 +390,12 @@ describe("dsh-collab-identity", () => {
     expect(plugin.provided[0]).toBeInstanceOf(TeamService);
     expect(plugin.commands).toHaveLength(1);
     expect(plugin.tools).toHaveLength(1);
+    expect(inject).toContain("workspaceRegistry");
     expect(plugin.routes.map((item) => item.path)).toContain(
       "/api/collab/auth/login",
+    );
+    expect(plugin.routes.map((item) => item.path)).toContain(
+      "/api/collab/team/workspaces",
     );
     expect(new Set(plugin.routes.map((item) => item.path)).size).toBe(
       plugin.routes.length,
@@ -405,10 +425,11 @@ describe("dsh-collab-identity", () => {
         return () => `${String(++sequence).padStart(20, "0")}-fixed-token`;
       })(),
     });
-    const routes = createIdentityRoutes(team);
+    const routes = createIdentityRoutes(team, workspaceRegistry);
     const bootstrap = route(routes, "/api/collab/auth/bootstrap");
     const me = route(routes, "/api/collab/auth/me");
     const users = route(routes, "/api/collab/team/users");
+    const workspaces = route(routes, "/api/collab/team/workspaces");
 
     const crossOrigin = await call(
       bootstrap,
@@ -436,6 +457,18 @@ describe("dsh-collab-identity", () => {
     );
     expect(created.status).toBe(201);
     const token = (created.json() as { token: string }).token;
+
+    const workspaceResult = await call(
+      workspaces,
+      fakeRequest("GET", "/api/collab/team/workspaces", {
+        authorization: `Bearer ${token}`,
+      }),
+    );
+    expect(workspaceResult.status).toBe(200);
+    expect(workspaceResult.json()).toMatchObject({
+      ok: true,
+      workspaces: [{ id: "workspace-1", title: "Workspace 1" }],
+    });
 
     const member = await team.registerUser("admin", {
       userId: "member",

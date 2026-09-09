@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   mkdir,
   mkdtemp,
@@ -112,8 +113,11 @@ function agent(sessionId: string): SpaceActor {
 
 function registry(root: string): WorkspaceRegistryLike {
   return {
-    get: (id) => (id === "main" ? { id, path: join(root, "main") } : undefined),
-    list: () => [{ id: "main", path: join(root, "main") }],
+    get: (id) =>
+      id === "main"
+        ? { id, path: join(root, "main"), title: "gui-workspace" }
+        : undefined,
+    list: () => [{ id: "main", path: join(root, "main"), title: "gui-workspace" }],
   };
 }
 
@@ -458,6 +462,15 @@ describe("dsh-collab-space", () => {
       pendingPath: "[pending]",
     });
     await expect(
+      sharing.submitGlobal(admin, {
+        path: "docs/global.md",
+        content: "duplicate global content\n",
+      }),
+    ).rejects.toMatchObject({
+      code: "conflict",
+      message: "global request is already pending: docs/global.md",
+    });
+    await expect(
       sharing.decideGlobal(member, request.id, true),
     ).rejects.toMatchObject({
       code: "forbidden",
@@ -628,6 +641,32 @@ describe("dsh-collab-space routes and plugin registration", () => {
       team,
       registry(root),
     );
+    const workspaces = findRoute(routes, "/api/collab/space/workspaces");
+    const missingWorkspaceToken = await call(
+      workspaces,
+      fakeRequest("GET", "/api/collab/space/workspaces", {
+        origin: "http://127.0.0.1:33117",
+      }),
+    );
+    expect(missingWorkspaceToken.status).toBe(401);
+    const workspaceMetadata = await call(
+      workspaces,
+      fakeRequest("GET", "/api/collab/space/workspaces", {
+        origin: "http://127.0.0.1:33117",
+        authorization: "Bearer valid-token",
+      }),
+    );
+    expect(workspaceMetadata.status).toBe(200);
+    expect(workspaceMetadata.json()).toEqual({
+      ok: true,
+      workspaces: [
+        {
+          id: "main",
+          path: join(root, "main"),
+          title: "gui-workspace",
+        },
+      ],
+    });
     const files = findRoute(routes, "/api/collab/space/files");
 
     const crossOrigin = await call(
@@ -663,6 +702,50 @@ describe("dsh-collab-space routes and plugin registration", () => {
     );
     expect(valid.status).toBe(200);
     expect(valid.json()).toMatchObject({ ok: true, files: [] });
+
+    const invalidUpload = await call(
+      files,
+      fakeRequest("POST", "/api/collab/space/files", {
+        origin: "http://127.0.0.1:33117",
+        authorization: "Bearer valid-token",
+        body: {
+          workspaceId: "main",
+          path: "../escape.md",
+          scope: "workspace",
+          content: "bad path",
+        },
+      }),
+    );
+    expect(invalidUpload.status).toBe(400);
+    expect(invalidUpload.json()).toMatchObject({
+      ok: false,
+      error: {
+        code: "invalid_input",
+        message: "path: path must use normalized forward-slash segments",
+      },
+    });
+
+    const lockAcquire = findRoute(routes, "/api/collab/space/locks/acquire");
+    const locked = await call(
+      lockAcquire,
+      fakeRequest("POST", "/api/collab/space/locks/acquire", {
+        origin: "http://127.0.0.1:33117",
+        authorization: "Bearer valid-token",
+        body: {
+          workspaceId: "main",
+          path: "docs/kickoff.md",
+        },
+      }),
+    );
+    expect(locked.status).toBe(201);
+    expect(locked.json()).toMatchObject({
+      ok: true,
+      lock: {
+        ownerId: "admin",
+        ownerSessionId: `browser:${createHash("sha256").update("valid-token").digest("hex")}`,
+      },
+    });
+    expect(current.audit.size).toBe(0);
   });
 
   it("registers services, command, tools, guards, and browser routes", async () => {
