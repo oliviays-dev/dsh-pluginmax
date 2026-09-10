@@ -35,6 +35,19 @@ window.__ModuleLoader__.load({
       border: "0.5px solid var(--dsw-alias-border-l3)",
       color: "var(--dsw-alias-label-primary)",
     };
+    const iconButtonStyle = {
+      alignItems: "center",
+      background: "transparent",
+      border: "0.5px solid var(--dsw-alias-border-l3)",
+      borderRadius: 6,
+      color: "var(--dsw-alias-label-secondary)",
+      cursor: "pointer",
+      display: "inline-flex",
+      flex: "0 0 auto",
+      height: 36,
+      justifyContent: "center",
+      width: 36,
+    };
     const panelStyle = {
       borderTop: "0.5px solid var(--dsw-alias-border-l2)",
       display: "grid",
@@ -110,7 +123,7 @@ window.__ModuleLoader__.load({
       });
     }
 
-    function Area({ id, label, value, onChange, rows = 6 }) {
+    function Area({ id, label, value, onChange, rows = 6, ...rest }) {
       return jsxRuntime.jsxs("label", {
         htmlFor: id,
         style: {
@@ -128,6 +141,7 @@ window.__ModuleLoader__.load({
             style: { ...inputStyle, resize: "vertical" },
             value,
             onChange,
+            ...rest,
           }),
         ],
       });
@@ -187,15 +201,73 @@ window.__ModuleLoader__.load({
       });
     }
 
+    function workspaceLabel(workspace) {
+      const title = workspace.title?.trim();
+      const path = workspace.path?.trim();
+      if (title && path) return `${title} (${path})`;
+      if (path) return path;
+      if (title) return title;
+      return `未知工作区 (${workspace.id.slice(0, 8)})`;
+    }
+
+    function InfoIcon() {
+      return jsxRuntime.jsx("svg", {
+        "aria-hidden": true,
+        fill: "none",
+        height: 16,
+        stroke: "currentColor",
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        strokeWidth: 1.8,
+        viewBox: "0 0 24 24",
+        width: 16,
+        children: [
+          jsxRuntime.jsx("circle", { cx: 12, cy: 12, r: 9 }, "circle"),
+          jsxRuntime.jsx("path", { d: "M12 11v5" }, "stem"),
+          jsxRuntime.jsx("path", { d: "M12 8h.01" }, "dot"),
+        ],
+      });
+    }
+
+    function CopyIcon() {
+      return jsxRuntime.jsx("svg", {
+        "aria-hidden": true,
+        fill: "none",
+        height: 14,
+        stroke: "currentColor",
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        strokeWidth: 1.8,
+        viewBox: "0 0 24 24",
+        width: 14,
+        children: [
+          jsxRuntime.jsx(
+            "rect",
+            { height: 12, rx: 2, width: 12, x: 9, y: 9 },
+            "front",
+          ),
+          jsxRuntime.jsx(
+            "path",
+            { d: "M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" },
+            "back",
+          ),
+        ],
+      });
+    }
+
     const RolesSection = () => {
       const [phase, setPhase] = react.useState("loading");
       const [error, setError] = react.useState("");
       const [message, setMessage] = react.useState("");
       const [workspaceId, setWorkspaceId] = react.useState("main");
+      const [workspaces, setWorkspaces] = react.useState([]);
+      const [workspaceInfoOpen, setWorkspaceInfoOpen] = react.useState(false);
       const [personas, setPersonas] = react.useState([]);
       const [types, setTypes] = react.useState([]);
       const [config, setConfig] = react.useState(null);
       const [seats, setSeats] = react.useState([]);
+      const [viewer, setViewer] = react.useState(null);
+      const [currentUser, setCurrentUser] = react.useState(null);
       const [persona, setPersona] = react.useState({
         id: "",
         name: "",
@@ -211,6 +283,40 @@ window.__ModuleLoader__.load({
           '[{"id":"leader","label":"负责人","participantKind":"human","permissions":["read","write","approve"]}]',
       });
       const [claimSeat, setClaimSeat] = react.useState("");
+      const claimableSeats = (config?.seats ?? []).filter((seat) => {
+        if (seat.participantKind !== "human" && seat.participantKind !== "any")
+          return false;
+        return !seats.some(
+          (assignment) =>
+            assignment.seatId === seat.id && assignment.status !== "released",
+        );
+      });
+      const seatStatus = (status) => {
+        if (status === "claimed") return "已认领";
+        if (status === "assigned") return "已指派";
+        if (status === "released") return "已释放";
+        return status;
+      };
+      const canRelease = (item) => {
+        if (item.status === "released") return false;
+        const isManager =
+          viewer?.globalRole === "admin" || viewer?.workspaceRole === "owner";
+        return (
+          isManager ||
+          (item.assigneeKind === "user" && item.assigneeId === viewer?.id)
+        );
+      };
+      const [materializeTypeId, setMaterializeTypeId] = react.useState("");
+      const [materializeFeedback, setMaterializeFeedback] = react.useState({
+        kind: "",
+        text: "",
+      });
+      const [typeCreating, setTypeCreating] = react.useState(false);
+      const [typeFeedback, setTypeFeedback] = react.useState({
+        kind: "",
+        text: "",
+      });
+      const canManageTypes = currentUser?.role === "admin";
 
       const notify = (text) => {
         setError("");
@@ -227,21 +333,38 @@ window.__ModuleLoader__.load({
           setPhase("login");
           return;
         }
-        const [personaResult, typeResult] = await Promise.all([
+        const [
+          personaResult,
+          typeResult,
+          workspaceResult,
+          currentUserResult,
+        ] = await Promise.all([
           request("/api/collab/roles/personas"),
           request("/api/collab/roles/types"),
+          request("/api/collab/team/workspaces"),
+          request("/api/collab/auth/me"),
         ]);
         setPersonas(personaResult.personas);
         setTypes(typeResult.types);
+        setWorkspaces(workspaceResult.workspaces);
+        setCurrentUser(currentUserResult.user);
+        const selected = workspaceResult.workspaces.some(
+          (workspace) => workspace.id === workspaceId,
+        )
+          ? workspaceId
+          : (workspaceResult.workspaces[0]?.id ?? workspaceId);
+        setWorkspaceId(selected);
         try {
           const seatResult = await request(
-            `/api/collab/roles/seats?workspaceId=${encodeURIComponent(workspaceId)}`,
+            `/api/collab/roles/seats?workspaceId=${encodeURIComponent(selected)}`,
           );
           setConfig(seatResult.config);
           setSeats(seatResult.seats);
+          setViewer(seatResult.viewer ?? null);
         } catch {
           setConfig(null);
           setSeats([]);
+          setViewer(null);
         }
         setPhase("ready");
       }, [workspaceId]);
@@ -284,30 +407,62 @@ window.__ModuleLoader__.load({
 
       const submitType = async (event) => {
         event.preventDefault();
+        setTypeFeedback({ kind: "", text: "" });
+        setTypeCreating(true);
         try {
           const parsedSeats = JSON.parse(type.seatsJson);
           const result = await request("/api/collab/roles/types", {
             method: "POST",
             body: JSON.stringify({ ...type, seats: parsedSeats }),
           });
-          notify(`已创建 ${result.type.name}`);
+          setTypeFeedback({
+            kind: "success",
+            text: `已创建 ${result.type.name}`,
+          });
           await load();
         } catch (cause) {
           fail(cause);
+          setTypeFeedback({
+            kind: "error",
+            text:
+              cause.message === "admin role is required for type creation"
+                ? "只有 admin 可以创建工作区类型。"
+                : cause.message || "创建失败，请稍后重试。",
+          });
+        } finally {
+          setTypeCreating(false);
         }
       };
 
       const materialize = async (typeId) => {
+        setMaterializeTypeId(typeId);
+        setMaterializeFeedback({ kind: "", text: "" });
         try {
           const result = await request("/api/collab/roles/materialize", {
             method: "POST",
             body: JSON.stringify({ workspaceId, typeId }),
           });
           setConfig(result.config);
-          setSeats([]);
+          const seatResult = await request(
+            `/api/collab/roles/seats?workspaceId=${encodeURIComponent(workspaceId)}`,
+          );
+          setSeats(seatResult.seats);
           notify(`已物化 ${result.config.typeName}`);
+          setMaterializeFeedback({
+            kind: "success",
+            text: `已物化 ${result.config.typeName}，角色席位已刷新`,
+          });
         } catch (cause) {
           fail(cause);
+          setMaterializeFeedback({
+            kind: "error",
+            text:
+              cause instanceof Error && cause.message !== ""
+                ? cause.message
+                : "物化失败，请稍后重试",
+          });
+        } finally {
+          setMaterializeTypeId("");
         }
       };
 
@@ -356,11 +511,122 @@ window.__ModuleLoader__.load({
                 style: { color: "var(--dsw-alias-state-error-primary)" },
                 children: error,
               }),
-          jsxRuntime.jsx(Field, {
-            id: "pluginmax-roles-workspace",
-            label: "工作区",
-            value: workspaceId,
-            onChange: (event) => setWorkspaceId(event.target.value),
+          jsxRuntime.jsxs("div", {
+            style: { display: "grid", gap: 8 },
+            children: [
+              jsxRuntime.jsxs("div", {
+                style: {
+                  alignItems: "end",
+                  display: "grid",
+                  gap: 8,
+                  gridTemplateColumns: "minmax(0, 1fr) auto",
+                },
+                children: [
+                  jsxRuntime.jsxs("label", {
+                    htmlFor: "pluginmax-roles-workspace",
+                    style: {
+                      color: "var(--dsw-alias-label-secondary)",
+                      display: "grid",
+                      fontSize: 13,
+                      gap: 5,
+                      minWidth: 0,
+                    },
+                    children: [
+                      jsxRuntime.jsx("span", { children: "工作区" }),
+                      jsxRuntime.jsx("select", {
+                        id: "pluginmax-roles-workspace",
+                        style: inputStyle,
+                        value: workspaceId,
+                        onChange: (event) =>
+                          setWorkspaceId(event.target.value),
+                        children: workspaces.map((workspace) =>
+                          jsxRuntime.jsx(
+                            "option",
+                            {
+                              value: workspace.id,
+                              children: workspaceLabel(workspace),
+                            },
+                            workspace.id,
+                          ),
+                        ),
+                      }),
+                    ],
+                  }),
+                  jsxRuntime.jsx("button", {
+                    type: "button",
+                    "aria-expanded": workspaceInfoOpen,
+                    "aria-label": "工作区信息",
+                    title: "工作区信息",
+                    style: iconButtonStyle,
+                    onClick: () => setWorkspaceInfoOpen((open) => !open),
+                    children: jsxRuntime.jsx(InfoIcon, {}),
+                  }),
+                ],
+              }),
+              workspaceInfoOpen
+                ? jsxRuntime.jsxs("div", {
+                    "aria-label": "工作区详情",
+                    role: "region",
+                    style: {
+                      alignItems: "start",
+                      background: "var(--dsw-alias-bg-layer-2)",
+                      border: "0.5px solid var(--dsw-alias-border-l2)",
+                      borderRadius: 6,
+                      display: "grid",
+                      gap: 8,
+                      gridTemplateColumns: "minmax(0, 1fr) auto",
+                      padding: 10,
+                    },
+                    children: [
+                      jsxRuntime.jsxs("div", {
+                        style: {
+                          color: "var(--dsw-alias-label-secondary)",
+                          display: "grid",
+                          fontSize: 12,
+                          gap: 4,
+                          minWidth: 0,
+                        },
+                        children: [
+                          jsxRuntime.jsxs("span", {
+                            children: [
+                              "名称：",
+                              workspaces.find(
+                                (workspace) => workspace.id === workspaceId,
+                              )?.title || "未命名",
+                            ],
+                          }),
+                          jsxRuntime.jsxs("span", {
+                            style: { overflowWrap: "anywhere" },
+                            children: [
+                              "路径：",
+                              workspaces.find(
+                                (workspace) => workspace.id === workspaceId,
+                              )?.path || "未知",
+                            ],
+                          }),
+                          jsxRuntime.jsx("span", {
+                            style: { overflowWrap: "anywhere" },
+                            children: `工作区 ID：${workspaceId}`,
+                          }),
+                        ],
+                      }),
+                      jsxRuntime.jsx("button", {
+                        type: "button",
+                        style: secondaryButtonStyle,
+                        onClick: async () => {
+                          try {
+                            await navigator.clipboard.writeText(workspaceId);
+                            notify("已复制工作区 ID");
+                          } catch (cause) {
+                            fail(cause);
+                          }
+                        },
+                        children: [jsxRuntime.jsx(CopyIcon, {}), "复制 ID"],
+                      }),
+                    ],
+                  })
+                : null,
+            ],
           }),
           jsxRuntime.jsxs(Panel, {
             title: "人设",
@@ -464,14 +730,61 @@ window.__ModuleLoader__.load({
           jsxRuntime.jsxs(Panel, {
             title: "工作区类型",
             children: [
+              materializeFeedback.text === ""
+                ? null
+                : jsxRuntime.jsx("p", {
+                    role: "status",
+                    style: {
+                      color:
+                        materializeFeedback.kind === "error"
+                          ? "var(--dsw-alias-state-error-primary)"
+                          : "var(--dsw-alias-state-success-primary)",
+                      fontSize: 13,
+                      margin: 0,
+                    },
+                    children: materializeFeedback.text,
+                  }),
+              canManageTypes
+                ? null
+                : jsxRuntime.jsx("p", {
+                    role: "note",
+                    style: {
+                      color: "var(--dsw-alias-label-secondary)",
+                      fontSize: 13,
+                      margin: 0,
+                    },
+                    children:
+                      "工作区类型是全局模板，只有 admin 可以创建。你可以查看现有类型，并在自己管理工作区时物化。",
+                  }),
+              typeFeedback.text === ""
+                ? null
+                : jsxRuntime.jsx("p", {
+                    role: "status",
+                    style: {
+                      color:
+                        typeFeedback.kind === "error"
+                          ? "var(--dsw-alias-state-error-primary)"
+                          : "var(--dsw-alias-state-success-primary)",
+                      fontSize: 13,
+                      fontWeight: typeFeedback.kind === "error" ? 600 : 500,
+                      margin: 0,
+                      overflowWrap: "anywhere",
+                    },
+                    children: typeFeedback.text,
+                  }),
               jsxRuntime.jsxs("form", {
-                style: { display: "grid", gap: 9 },
+                style: {
+                  display: "grid",
+                  gap: 9,
+                  opacity: canManageTypes ? 1 : 0.72,
+                },
                 onSubmit: submitType,
                 children: [
                   jsxRuntime.jsx(Field, {
                     id: "pluginmax-type-id",
                     label: "标识",
                     value: type.id,
+                    disabled: !canManageTypes || typeCreating,
                     onChange: (event) =>
                       setType((current) => ({
                         ...current,
@@ -483,6 +796,7 @@ window.__ModuleLoader__.load({
                     id: "pluginmax-type-name",
                     label: "名称",
                     value: type.name,
+                    disabled: !canManageTypes || typeCreating,
                     onChange: (event) =>
                       setType((current) => ({
                         ...current,
@@ -495,6 +809,7 @@ window.__ModuleLoader__.load({
                     label: "席位 JSON",
                     value: type.seatsJson,
                     rows: 5,
+                    disabled: !canManageTypes || typeCreating,
                     onChange: (event) =>
                       setType((current) => ({
                         ...current,
@@ -504,6 +819,7 @@ window.__ModuleLoader__.load({
                   jsxRuntime.jsx("button", {
                     type: "submit",
                     style: buttonStyle,
+                    disabled: !canManageTypes || typeCreating,
                     children: "创建",
                   }),
                 ],
@@ -532,8 +848,12 @@ window.__ModuleLoader__.load({
                           children: jsxRuntime.jsx("button", {
                             type: "button",
                             style: secondaryButtonStyle,
+                            disabled: materializeTypeId !== "",
                             onClick: () => materialize(item.id),
-                            children: "物化",
+                            children:
+                              materializeTypeId === item.id
+                                ? "物化中..."
+                                : "物化",
                           }),
                         }),
                       ],
@@ -551,15 +871,24 @@ window.__ModuleLoader__.load({
               style: { display: "flex", gap: 8 },
               children: [
                 jsxRuntime.jsx("select", {
-                  style: { ...inputStyle, width: 160 },
+                  "aria-label": "选择可认领席位",
+                  disabled:
+                    config === null ||
+                    claimableSeats.length === 0,
+                  style: { ...inputStyle, width: 180 },
                   value: claimSeat,
                   onChange: (event) => setClaimSeat(event.target.value),
                   children: [
                     jsxRuntime.jsx("option", {
                       value: "",
-                      children: "选择席位",
+                      children:
+                        config === null
+                          ? "请先物化工作区类型"
+                          : claimableSeats.length === 0
+                            ? "暂无可认领席位"
+                            : "选择席位",
                     }),
-                    ...(config?.seats ?? []).map((seat) =>
+                    ...claimableSeats.map((seat) =>
                       jsxRuntime.jsx(
                         "option",
                         { value: seat.id, children: seat.label },
@@ -571,6 +900,7 @@ window.__ModuleLoader__.load({
                 jsxRuntime.jsx("button", {
                   type: "button",
                   style: buttonStyle,
+                  disabled: claimSeat === "",
                   onClick: claim,
                   children: "认领",
                 }),
@@ -578,7 +908,15 @@ window.__ModuleLoader__.load({
             }),
             children: [
               config === null
-                ? jsxRuntime.jsx("p", { children: "当前工作区未物化" })
+                ? jsxRuntime.jsx("p", {
+                    style: {
+                      color: "var(--dsw-alias-label-secondary)",
+                      fontSize: 13,
+                      margin: 0,
+                    },
+                    children:
+                      "当前工作区未物化。上面的「3 个席位」仍是类型模板；点击该类型的「物化」后，这里才会生成可认领席位。",
+                  })
                 : jsxRuntime.jsx(Table, {
                     headers: [
                       "席位",
@@ -599,7 +937,7 @@ window.__ModuleLoader__.load({
                             }),
                             jsxRuntime.jsx("td", {
                               style: cellStyle,
-                              children: item.status,
+                              children: seatStatus(item.status),
                             }),
                             jsxRuntime.jsx("td", {
                               style: cellStyle,
@@ -615,12 +953,20 @@ window.__ModuleLoader__.load({
                             }),
                             jsxRuntime.jsx("td", {
                               style: cellStyle,
-                              children: jsxRuntime.jsx("button", {
-                                type: "button",
-                                style: secondaryButtonStyle,
-                                onClick: () => release(item.seatId),
-                                children: "释放",
-                              }),
+                              children: canRelease(item)
+                                ? jsxRuntime.jsx("button", {
+                                    type: "button",
+                                    style: secondaryButtonStyle,
+                                    onClick: () => release(item.seatId),
+                                    children: "释放",
+                                  })
+                                : jsxRuntime.jsx("span", {
+                                    style: {
+                                      color:
+                                        "var(--dsw-alias-label-secondary)",
+                                    },
+                                    children: "-",
+                                  }),
                             }),
                           ],
                         },

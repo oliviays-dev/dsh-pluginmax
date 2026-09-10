@@ -58,6 +58,7 @@ window.__ModuleLoader__.load({
     const tableStyle = {
       borderCollapse: "collapse",
       fontSize: 13,
+      tableLayout: "fixed",
       minWidth: "100%",
       width: "100%",
     };
@@ -217,7 +218,57 @@ window.__ModuleLoader__.load({
       return `未知工作区 (${shortId})`;
     }
 
-    function friendlyError(cause) {
+    function formatTime(value) {
+      const time = new Date(value);
+      if (Number.isNaN(time.getTime())) return value;
+      return time.toLocaleString("zh-CN", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      });
+    }
+
+    function InfoIcon() {
+      return jsxRuntime.jsx("svg", {
+        "aria-hidden": true,
+        fill: "none",
+        height: 14,
+        stroke: "currentColor",
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        strokeWidth: 1.8,
+        viewBox: "0 0 24 24",
+        width: 14,
+        children: [
+          jsxRuntime.jsx("circle", { cx: 12, cy: 12, r: 9 }, "circle"),
+          jsxRuntime.jsx("path", { d: "M12 11v5" }, "stem"),
+          jsxRuntime.jsx("path", { d: "M12 8h.01" }, "dot"),
+        ],
+      });
+    }
+
+    function shortSession(value) {
+      if (typeof value !== "string") return "-";
+      const withoutPrefix = value.startsWith("browser:")
+        ? value.slice("browser:".length)
+        : value;
+      return withoutPrefix.slice(0, 8);
+    }
+
+    function lockSourceLabel(lock, workspace) {
+      const sessionKind = lock.ownerSessionId?.startsWith("browser:")
+        ? "浏览器登录会话"
+        : "会话";
+      const workspaceTitle =
+        workspace?.title?.trim() || workspace?.path || lock.workspaceId;
+      return `${workspaceTitle} / ${lock.ownerId} / ${sessionKind} (${shortSession(lock.ownerSessionId)})`;
+    }
+
+    function friendlyError(cause, context = {}) {
       const message = cause instanceof Error ? cause.message : String(cause);
       if (message.includes("path must use normalized forward-slash segments")) {
         return "路径格式不合法：路径必须是规范化目录，不能包含空段、`.` 或 `..`。";
@@ -234,7 +285,11 @@ window.__ModuleLoader__.load({
       if (message.startsWith("locked by ")) {
         const match = message.match(/^locked by (.+?) until (.+)$/);
         if (match) {
-          return `这个路径已被 ${match[1]} 锁定，到期时间：${match[2]}。请等锁到期，或联系持有者释放。`;
+          const workspaceTitle =
+            context.workspaceTitle?.trim() ||
+            context.workspaceId ||
+            "当前工作区";
+          return `这个路径已被「${workspaceTitle} / ${match[1]}」的登录会话锁定，到期时间：${formatTime(match[2])}。请等锁到期，或联系持有者释放。`;
         }
       }
       if (message === "lock owner or admin role is required") {
@@ -275,6 +330,7 @@ window.__ModuleLoader__.load({
       const [lockPath, setLockPath] = react.useState("docs/readme.md");
       const [lockFeedback, setLockFeedback] = react.useState(null);
       const [lockPendingAction, setLockPendingAction] = react.useState("");
+      const [lockInfoKey, setLockInfoKey] = react.useState("");
 
       const notify = (text) => {
         setError("");
@@ -448,7 +504,7 @@ window.__ModuleLoader__.load({
             );
             setLockFeedback({
               kind: "success",
-              message: `已锁定 ${result.lock.path}，到期时间：${result.lock.expiresAt}`,
+              message: `已锁定 ${result.lock.path}，到期时间：${formatTime(result.lock.expiresAt)}`,
             });
           } else {
             setLocks((current) =>
@@ -477,7 +533,12 @@ window.__ModuleLoader__.load({
         } catch (cause) {
           setLockFeedback({
             kind: "error",
-            message: friendlyError(cause),
+            message: friendlyError(cause, {
+              workspaceId,
+              workspaceTitle: workspaces.find(
+                (workspace) => workspace.id === workspaceId,
+              )?.title,
+            }),
           });
         } finally {
           setLockPendingAction("");
@@ -926,27 +987,91 @@ window.__ModuleLoader__.load({
                 onChange: (event) => setLockPath(event.target.value),
               }),
               jsxRuntime.jsx(Table, {
-                headers: ["路径", "持有者", "会话", "到期"],
+                headers: ["路径", "来源", "到期时间"],
                 rows: locks.map((lock) =>
                   jsxRuntime.jsxs(
                     "tr",
                     {
                       children: [
                         jsxRuntime.jsx("td", {
-                          style: cellStyle,
+                          style: { ...cellStyle, width: "30%" },
                           children: lock.path,
                         }),
                         jsxRuntime.jsx("td", {
-                          style: cellStyle,
-                          children: lock.ownerId,
+                          style: { ...cellStyle, width: "54%" },
+                          children: jsxRuntime.jsxs("div", {
+                            style: { display: "grid", gap: 6 },
+                            children: [
+                              jsxRuntime.jsxs("div", {
+                                style: {
+                                  alignItems: "center",
+                                  display: "flex",
+                                  gap: 6,
+                                },
+                                children: [
+                                  jsxRuntime.jsx("span", {
+                                    title: lock.ownerSessionId,
+                                    children: lockSourceLabel(
+                                      lock,
+                                      workspaces.find(
+                                        (workspace) =>
+                                          workspace.id === lock.workspaceId,
+                                      ),
+                                    ),
+                                  }),
+                                  jsxRuntime.jsx("button", {
+                                    type: "button",
+                                    "aria-expanded": lockInfoKey === lock.key,
+                                    "aria-label": "锁来源详情",
+                                    title: "锁来源详情",
+                                    style: {
+                                      ...iconButtonStyle,
+                                      height: 24,
+                                      width: 24,
+                                    },
+                                    onClick: () =>
+                                      setLockInfoKey((current) =>
+                                        current === lock.key ? "" : lock.key,
+                                      ),
+                                    children: jsxRuntime.jsx(InfoIcon, {}),
+                                  }),
+                                ],
+                              }),
+                              lockInfoKey === lock.key
+                                ? jsxRuntime.jsxs("div", {
+                                    style: {
+                                      color:
+                                        "var(--dsw-alias-label-secondary)",
+                                      display: "grid",
+                                      fontSize: 12,
+                                      gap: 3,
+                                    },
+                                    children: [
+                                      jsxRuntime.jsx("span", {
+                                        children: `来源类型：${
+                                          lock.ownerSessionId?.startsWith(
+                                            "browser:",
+                                          )
+                                            ? "浏览器登录会话"
+                                            : "Pluginmax 会话"
+                                        }`,
+                                      }),
+                                      jsxRuntime.jsx("span", {
+                                        style: { overflowWrap: "anywhere" },
+                                        children: `完整会话标识：${lock.ownerSessionId}`,
+                                      }),
+                                      jsxRuntime.jsx("span", {
+                                        children: `加锁时间：${formatTime(lock.acquiredAt)}`,
+                                      }),
+                                    ],
+                                  })
+                                : null,
+                            ],
+                          }),
                         }),
                         jsxRuntime.jsx("td", {
-                          style: cellStyle,
-                          children: lock.ownerSessionId,
-                        }),
-                        jsxRuntime.jsx("td", {
-                          style: cellStyle,
-                          children: lock.expiresAt,
+                          style: { ...cellStyle, width: "16%" },
+                          children: formatTime(lock.expiresAt),
                         }),
                       ],
                     },

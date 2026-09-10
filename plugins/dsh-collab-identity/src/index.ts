@@ -972,13 +972,16 @@ export function createIdentityRoutes(
       method: "GET",
       handler: (request, response) => {
         assertSameOrigin(request);
-        requirePrincipal(request, service);
+        const principal = requirePrincipal(request, service);
         sendJson(response, 200, {
           ok: true,
           workspaces: workspaces.list().map((workspace) => ({
             id: workspace.id,
             title: workspace.title,
             path: workspace.path,
+            isMember: service
+              .members(workspace.id)
+              .some((member) => member.userId === principal.userId),
           })),
         });
       },

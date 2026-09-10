@@ -37,6 +37,19 @@ window.__ModuleLoader__.load({
       border: "0.5px solid var(--dsw-alias-border-l3)",
       color: "var(--dsw-alias-label-primary)",
     };
+    const iconButtonStyle = {
+      alignItems: "center",
+      background: "transparent",
+      border: "0.5px solid var(--dsw-alias-border-l3)",
+      borderRadius: 6,
+      color: "var(--dsw-alias-label-secondary)",
+      cursor: "pointer",
+      display: "inline-flex",
+      flex: "0 0 auto",
+      height: 36,
+      justifyContent: "center",
+      width: 36,
+    };
     const panelStyle = {
       borderTop: "0.5px solid var(--dsw-alias-border-l2)",
       display: "grid",
@@ -158,6 +171,51 @@ window.__ModuleLoader__.load({
       return `未知工作区 (${workspace.id.slice(0, 8)})`;
     }
 
+    function InfoIcon() {
+      return jsxRuntime.jsx("svg", {
+        "aria-hidden": true,
+        fill: "none",
+        height: 16,
+        stroke: "currentColor",
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        strokeWidth: 1.8,
+        viewBox: "0 0 24 24",
+        width: 16,
+        children: [
+          jsxRuntime.jsx("circle", { cx: 12, cy: 12, r: 9 }, "circle"),
+          jsxRuntime.jsx("path", { d: "M12 11v5" }, "stem"),
+          jsxRuntime.jsx("path", { d: "M12 8h.01" }, "dot"),
+        ],
+      });
+    }
+
+    function CopyIcon() {
+      return jsxRuntime.jsx("svg", {
+        "aria-hidden": true,
+        fill: "none",
+        height: 14,
+        stroke: "currentColor",
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        strokeWidth: 1.8,
+        viewBox: "0 0 24 24",
+        width: 14,
+        children: [
+          jsxRuntime.jsx(
+            "rect",
+            { height: 12, rx: 2, width: 12, x: 9, y: 9 },
+            "front",
+          ),
+          jsxRuntime.jsx(
+            "path",
+            { d: "M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" },
+            "back",
+          ),
+        ],
+      });
+    }
+
     function friendlyError(cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       if (message === "invalid user or password") return "用户 ID 或密码不正确。";
@@ -176,6 +234,7 @@ window.__ModuleLoader__.load({
       const [events, setEvents] = react.useState([]);
       const [workspaces, setWorkspaces] = react.useState([]);
       const [workspaceId, setWorkspaceId] = react.useState("main");
+      const [workspaceInfoOpen, setWorkspaceInfoOpen] = react.useState(false);
       const [account, setAccount] = react.useState({
         userId: "",
         name: "",
@@ -760,53 +819,140 @@ window.__ModuleLoader__.load({
                       }),
                     ],
                   }),
-                  jsxRuntime.jsxs(Panel, {
-                    title: "工作区成员",
-                    children: [
-                      jsxRuntime.jsxs("label", {
-                        htmlFor: "pluginmax-workspace-id",
-                        style: {
-                          color: "var(--dsw-alias-label-secondary)",
-                          display: "grid",
-                          fontSize: 13,
-                          gap: 5,
-                        },
-                        children: [
-                          jsxRuntime.jsx("span", { children: "工作区" }),
-                          jsxRuntime.jsxs("select", {
-                            id: "pluginmax-workspace-id",
-                            style: inputStyle,
-                            value: workspaceId,
-                            onChange: (event) =>
-                              setWorkspaceId(event.target.value),
-                            children: [
-                              workspaces.length === 0
-                                ? jsxRuntime.jsx(
-                                    "option",
-                                    {
-                                      value: workspaceId,
-                                      children: "暂无可用工作区",
-                                    },
-                                    "empty",
-                                  )
-                                : workspaces.map((workspace) =>
-                                    jsxRuntime.jsx(
-                                      "option",
-                                      {
-                                        value: workspace.id,
-                                        children: workspaceLabel(workspace),
-                                      },
-                                      workspace.id,
-                                    ),
-                                  ),
-                            ],
-                          }),
-                          jsxRuntime.jsx("span", {
-                            style: { overflowWrap: "anywhere" },
-                            children: `工作区 ID：${workspaceId}`,
-                          }),
-                        ],
-                      }),
+	                  jsxRuntime.jsxs(Panel, {
+	                    title: "工作区成员",
+	                    children: [
+	                      jsxRuntime.jsxs("div", {
+	                        style: {
+	                          alignItems: "end",
+	                          display: "grid",
+	                          gap: 8,
+	                          gridTemplateColumns: "minmax(0, 1fr) auto",
+	                        },
+	                        children: [
+	                          jsxRuntime.jsxs("label", {
+	                            htmlFor: "pluginmax-workspace-id",
+	                            style: {
+	                              color: "var(--dsw-alias-label-secondary)",
+	                              display: "grid",
+	                              fontSize: 13,
+	                              gap: 5,
+	                              minWidth: 0,
+	                            },
+	                            children: [
+	                              jsxRuntime.jsx("span", { children: "工作区" }),
+	                              jsxRuntime.jsxs("select", {
+	                                id: "pluginmax-workspace-id",
+	                                style: inputStyle,
+	                                value: workspaceId,
+	                                onChange: (event) =>
+	                                  setWorkspaceId(event.target.value),
+	                                children: [
+	                                  workspaces.length === 0
+	                                    ? jsxRuntime.jsx(
+	                                        "option",
+	                                        {
+	                                          value: workspaceId,
+	                                          children: "暂无可用工作区",
+	                                        },
+	                                        "empty",
+	                                      )
+	                                    : workspaces.map((workspace) =>
+	                                        jsxRuntime.jsx(
+	                                          "option",
+	                                          {
+	                                            value: workspace.id,
+	                                            children: workspaceLabel(workspace),
+	                                          },
+	                                          workspace.id,
+	                                        ),
+	                                      ),
+	                                ],
+	                              }),
+	                            ],
+	                          }),
+	                          jsxRuntime.jsx("button", {
+	                            type: "button",
+	                            "aria-expanded": workspaceInfoOpen,
+	                            "aria-label": "工作区信息",
+	                            title: "工作区信息",
+	                            style: iconButtonStyle,
+	                            onClick: () =>
+	                              setWorkspaceInfoOpen((open) => !open),
+	                            children: jsxRuntime.jsx(InfoIcon, {}),
+	                          }),
+	                        ],
+	                      }),
+	                      workspaceInfoOpen
+	                        ? jsxRuntime.jsxs("div", {
+	                            "aria-label": "工作区详情",
+	                            role: "region",
+	                            style: {
+	                              alignItems: "start",
+	                              background: "var(--dsw-alias-bg-layer-2)",
+	                              border: "0.5px solid var(--dsw-alias-border-l2)",
+	                              borderRadius: 6,
+	                              display: "grid",
+	                              gap: 8,
+	                              gridTemplateColumns: "minmax(0, 1fr) auto",
+	                              padding: 10,
+	                            },
+	                            children: [
+	                              jsxRuntime.jsxs("div", {
+	                                style: {
+	                                  color: "var(--dsw-alias-label-secondary)",
+	                                  display: "grid",
+	                                  fontSize: 12,
+	                                  gap: 4,
+	                                  minWidth: 0,
+	                                },
+	                                children: [
+	                                  jsxRuntime.jsxs("span", {
+	                                    children: [
+	                                      "名称：",
+	                                      workspaces.find(
+	                                        (workspace) =>
+	                                          workspace.id === workspaceId,
+	                                      )?.title || "未命名",
+	                                    ],
+	                                  }),
+	                                  jsxRuntime.jsxs("span", {
+	                                    style: { overflowWrap: "anywhere" },
+	                                    children: [
+	                                      "路径：",
+	                                      workspaces.find(
+	                                        (workspace) =>
+	                                          workspace.id === workspaceId,
+	                                      )?.path || "未知",
+	                                    ],
+	                                  }),
+	                                  jsxRuntime.jsx("span", {
+	                                    style: { overflowWrap: "anywhere" },
+	                                    children: `工作区 ID：${workspaceId}`,
+	                                  }),
+	                                ],
+	                              }),
+	                              jsxRuntime.jsx("button", {
+	                                type: "button",
+	                                style: secondaryButtonStyle,
+	                                onClick: async () => {
+	                                  try {
+	                                    await navigator.clipboard.writeText(
+	                                      workspaceId,
+	                                    );
+	                                    notify("已复制工作区 ID");
+	                                  } catch (cause) {
+	                                    fail(cause);
+	                                  }
+	                                },
+	                                children: [
+	                                  jsxRuntime.jsx(CopyIcon, {}),
+	                                  "复制 ID",
+	                                ],
+	                              }),
+	                            ],
+	                          })
+	                        : null,
                       jsxRuntime.jsxs("form", {
                         onSubmit: submitMember,
                         style: formStyle,

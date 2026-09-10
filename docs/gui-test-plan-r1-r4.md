@@ -83,7 +83,8 @@ DSH_HOME="$PWD/.tmp/dsh-home" node \
    - 密码：`Admin-pass-123`
 
    如果已经初始化过，则用 `gui-admin` / `Admin-pass-123` 登录。
-7. 返回「共享」。只有在「协作身份」登录成功后，「共享」顶部才会显示「工作区」下拉框。选择标题中包含 `.tmp/gui-workspace` 的工作区；下文称为 `<WS_ID>`。
+7. 在「协作身份」>「工作区成员」的工作区下拉框中，选择标题或路径包含 `.tmp/gui-workspace` 的工作区。点击右侧「工作区信息」图标，可查看名称、路径和工作区 ID，并点击「复制 ID」。这个 ID 就是下文的 `<WS_ID>`。
+8. 返回「共享」。只有在「协作身份」登录成功后，「共享」顶部才会显示「工作区」下拉框。选择同一个工作区。
 
 预期：四个 Pluginmax 设置分区都可见，无空白分区；登录后「共享」显示工作区下拉框；浏览器 Console 没有未捕获异常。
 
@@ -101,7 +102,7 @@ DSH_HOME="$PWD/.tmp/dsh-home" node \
 ## 测试约定
 
 - 「Profile A/B/C/D」分别表示使用上表中的浏览器 Profile 登录。
-- 所有时间字段应为 UTC ISO 8601 字符串。
+- API 返回和持久化数据中的时间使用 UTC ISO 8601 字符串；「咨询锁」GUI 的到期时间显示为本地时间，便于人工判断。
 - 每个用例结束后保留页面截图，文件名使用测试编号，例如 `B2-deny-policy.png`。
 - 故意触发的 400/401/403 网络响应不算缺陷；浏览器 Console 中不应出现未捕获的 JavaScript 异常。
 - 若某个用例依赖前置数据，先执行「标准数据准备」；单独重跑该用例时，需要按前置条件补齐数据。
@@ -249,8 +250,6 @@ DSH_HOME="$PWD/.tmp/dsh-home" node \
 **优先级**：P1  
 **前置**：A2 完成；Profile B 是工作区 owner。  
 **覆盖**：R2。  
-**当前实现观察**：浏览器侧 `SpaceActor` 当前没有自然 sessionId，而锁服务要求 sessionId。因此该用例很可能暴露 GUI 可用性缺口。
-
 1. Profile B 打开 Settings >「共享」>「咨询锁」。
 2. 路径输入 `docs/kickoff.md`。
 3. 点击「加锁」。
@@ -259,14 +258,14 @@ DSH_HOME="$PWD/.tmp/dsh-home" node \
 
 **用户视角预期**：
 
-- 第一个用户能获得锁，「咨询锁」表显示路径、持有者、会话和到期时间。
-- 第二个用户应看到明确的 `locked by ...` 冲突提示，不产生第二把活跃锁。
+- 第一个用户能获得锁，「咨询锁」表显示路径、持有者、登录会话短标识和本地格式的到期时间。
+- 第二个用户应看到明确的中文冲突提示，其中到期时间也是本地格式；不产生第二把活跃锁。
 - 第一个用户点击「释放」后，第二个用户可以重新获得锁。
 
 **按当前实现的判定**：
 
-- 如果点击「加锁」直接显示 `lock requires a session id`，应记录为 R2 GUI 缺陷：服务能力存在，但浏览器入口缺少会话上下文或应由服务端为 browser actor 提供稳定会话标识。
-- 除上述明确错误外，不得出现页面崩溃、重复锁或失败后仍然显示活跃锁。
+- 不得出现 `lock requires a session id` 或其他原始内部错误。
+- 不得出现页面崩溃、重复锁或失败后仍然显示活跃锁。
 
 ### C1. 创建人设与工作区类型并物化
 
@@ -275,7 +274,7 @@ DSH_HOME="$PWD/.tmp/dsh-home" node \
 **覆盖**：R3。
 
 1. Profile A 打开 Settings >「角色」。
-2. 在「工作区」填入 `<WS_ID>`。
+2. 在「工作区」下拉框选择包含 `.tmp/gui-workspace` 的工作区；如需确认或复制 ID，点击右侧「工作区信息」图标。
 3. 在「人设」中输入：
    - 标识：`architect`
    - 名称：`Architect`
@@ -571,10 +570,9 @@ R1-R4 GUI 回归全部通过需要同时满足：
 
 以下是阅读当前 R4 实现后建议在 GUI 回归中重点确认的点：
 
-1. **浏览器咨询锁缺少 sessionId**：`LockService.acquire()` 要求 sessionId，但 Space client 的「加锁」请求没有为 browser actor 提供稳定会话标识。B4 应验证是否稳定复现 `lock requires a session id`。
-2. **工作区文件列表的成员边界**：文件列表路由主要要求有效 token，`read` 才执行共享策略和成员/角色判断。F3 应验证 Guest 是否能在读取失败前看到文件路径；若能看到，应作为最小信息暴露问题记录。
-3. **角色指派没有 GUI 入口**：服务端支持 `/api/collab/roles/seats/assign`，但当前 client 面板只见认领和释放。GUI 回归只能覆盖人类席位认领；Agent 席位指派需要单独 API/Agent 面板测试或补充 GUI。
-4. **write deny 不能仅靠 GUI 上传验证**：上传成功后会创建 allow 策略，GUI 上传路径本身没有先走完整 policy resolve。GUI 只能稳定验证 read deny；write deny 应另用 Agent 工具或 API contract 测试覆盖。
+1. **工作区文件列表的成员边界**：文件列表路由主要要求有效 token，`read` 才执行共享策略和成员/角色判断。F3 应验证 Guest 是否能在读取失败前看到文件路径；若能看到，应作为最小信息暴露问题记录。
+2. **角色指派没有 GUI 入口**：服务端支持 `/api/collab/roles/seats/assign`，但当前 client 面板只见认领和释放。GUI 回归只能覆盖人类席位认领；Agent 席位指派需要单独 API/Agent 面板测试或补充 GUI。
+3. **write deny 不能仅靠 GUI 上传验证**：上传成功后会创建 allow 策略，GUI 上传路径本身没有先走完整 policy resolve。GUI 只能稳定验证 read deny；write deny 应另用 Agent 工具或 API contract 测试覆盖。
 
 ## 附录 A：使用不同浏览器 Profile 测试多账户
 

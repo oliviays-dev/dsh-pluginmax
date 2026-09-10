@@ -61,9 +61,16 @@ for (const pluginName of pluginNames) {
       /exports\.inject\s*=\s*\["slots"\]/.test(clientSource),
       `${pluginName}: client must declare its slots service dependency`,
     );
+    const validSlots = [
+      "settings.section",
+      "sidebar.footer.action",
+      "shell.overlay",
+    ];
     check(
-      /ctx\.slots\.inject\(\s*"settings\.section"/.test(clientSource),
-      `${pluginName}: client must register through the settings.section slot`,
+      validSlots.some((slot) =>
+        new RegExp(`ctx\\.slots\\.inject\\(\\s*"${slot}"`).test(clientSource),
+      ),
+      `${pluginName}: client must register through a known DSH slot (${validSlots.join(", ")})`,
     );
     check(
       !clientSource.includes("ctx.inject("),

@@ -811,13 +811,18 @@ export function createRolesRoutes(
         ).searchParams.get("workspaceId");
         if (workspaceId === null)
           throw new RolesError("invalid_input", "workspaceId is required");
-        browserActor(team, request, workspaceId, {
+        const viewer = browserActor(team, request, workspaceId, {
           requireWorkspaceMember: true,
         });
         sendJson(response, 200, {
           ok: true,
           config: assignments.config(workspaceId),
           seats: assignments.seats(workspaceId),
+          viewer: {
+            id: viewer.id,
+            globalRole: viewer.globalRole,
+            workspaceRole: viewer.workspaceRole,
+          },
         });
       },
     },
