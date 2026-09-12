@@ -84,6 +84,7 @@ window.__ModuleLoader__.load({
     function setToken(token) {
       if (token === undefined) window.localStorage.removeItem(TOKEN_KEY);
       else window.localStorage.setItem(TOKEN_KEY, token);
+      window.dispatchEvent(new CustomEvent("pluginmax:collab-token"));
     }
 
     async function request(path, options = {}) {
@@ -114,11 +115,20 @@ window.__ModuleLoader__.load({
       return body;
     }
 
-    function Field({ id, label, type = "text", value, onChange, ...rest }) {
+    function Field({
+      id,
+      label,
+      type = "text",
+      value,
+      onChange,
+      hint,
+      ...rest
+    }) {
       return jsxRuntime.jsxs("label", {
         htmlFor: id,
         style: {
           color: "var(--dsw-alias-label-secondary)",
+          alignContent: "start",
           display: "grid",
           fontSize: 13,
           gap: 5,
@@ -134,6 +144,12 @@ window.__ModuleLoader__.load({
             onChange,
             ...rest,
           }),
+          hint
+            ? jsxRuntime.jsx("span", {
+                style: { fontSize: 12, opacity: 0.72 },
+                children: hint,
+              })
+            : null,
         ],
       });
     }
@@ -221,6 +237,7 @@ window.__ModuleLoader__.load({
       if (message === "invalid user or password") return "用户 ID 或密码不正确。";
       if (message === "invalid or expired token") return "登录状态已过期，请重新登录。";
       if (message === "bearer token is required") return "请先登录。";
+      if (message === "user id already exists") return "用户 ID 已存在。";
       return message;
     }
 
@@ -391,13 +408,30 @@ window.__ModuleLoader__.load({
 
       const submitUser = async (event) => {
         event.preventDefault();
+        const userId = newUser.userId.trim();
+        const name = newUser.name.trim();
+        if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(userId)) {
+          setError(
+            "用户 ID 需以字母或数字开头，只能包含字母、数字、点、下划线和中划线。",
+          );
+          return;
+        }
+        if (name === "") {
+          setError("请填写显示名称。");
+          return;
+        }
+        if (newUser.password.length < 8) {
+          setError("初始密码至少需要 8 个字符。");
+          return;
+        }
         try {
           await request("/api/collab/team/users/create", {
             method: "POST",
-            body: JSON.stringify(newUser),
+            body: JSON.stringify({ ...newUser, userId, name }),
           });
           setNewUser({ userId: "", name: "", password: "", role: "member" });
-          notify("成员账号已创建");
+          setMemberForm({ userId, role: "member" });
+          notify("全局账号已创建；请在下方「工作区成员」中保存为成员。");
           await loadAdmin();
         } catch (cause) {
           fail(cause);
@@ -694,11 +728,17 @@ window.__ModuleLoader__.load({
                     children: [
                       jsxRuntime.jsxs("form", {
                         onSubmit: submitUser,
-                        style: formStyle,
+                        style: {
+                          ...formStyle,
+                          gridTemplateColumns:
+                            "minmax(160px, 1fr) minmax(160px, 1fr) minmax(180px, 1fr)",
+                        },
                         children: [
                           jsxRuntime.jsx(Field, {
                             id: "pluginmax-new-user-id",
                             label: "用户 ID",
+                            hint: "字母或数字开头，最长 64 位",
+                            maxLength: 64,
                             value: newUser.userId,
                             onChange: (event) =>
                               setNewUser((current) => ({
@@ -709,6 +749,8 @@ window.__ModuleLoader__.load({
                           jsxRuntime.jsx(Field, {
                             id: "pluginmax-new-user-name",
                             label: "显示名称",
+                            hint: "最长 80 个字符",
+                            maxLength: 80,
                             value: newUser.name,
                             onChange: (event) =>
                               setNewUser((current) => ({
@@ -720,6 +762,8 @@ window.__ModuleLoader__.load({
                             id: "pluginmax-new-user-password",
                             label: "初始密码",
                             type: "password",
+                            hint: "至少 8 个字符，最长 256 位",
+                            maxLength: 256,
                             value: newUser.password,
                             onChange: (event) =>
                               setNewUser((current) => ({
@@ -731,13 +775,14 @@ window.__ModuleLoader__.load({
                             htmlFor: "pluginmax-new-user-role",
                             style: {
                               color: "var(--dsw-alias-label-secondary)",
+                              alignContent: "start",
                               display: "grid",
                               fontSize: 13,
                               gap: 5,
                             },
                             children: [
                               jsxRuntime.jsx("span", { children: "全局角色" }),
-                              jsxRuntime.jsx("select", {
+                          jsxRuntime.jsx("select", {
                                 id: "pluginmax-new-user-role",
                                 style: inputStyle,
                                 value: newUser.role,

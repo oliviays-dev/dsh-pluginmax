@@ -1113,8 +1113,17 @@ export function createIdentityRoutes(
       method: "GET",
       handler: (request, response) => {
         assertSameOrigin(request);
-        requireAdmin(request, service);
         const workspaceId = query(request).get("workspaceId") ?? "";
+        const principal = requirePrincipal(request, service);
+        const isWorkspaceMember = service
+          .members(workspaceId)
+          .some((member) => member.userId === principal.userId);
+        if (principal.role !== "admin" && !isWorkspaceMember) {
+          throw new IdentityError(
+            "forbidden",
+            "workspace membership is required to view members",
+          );
+        }
         sendJson(response, 200, {
           ok: true,
           members: service.members(workspaceId),
