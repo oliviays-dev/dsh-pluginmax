@@ -62,6 +62,7 @@ for (const pluginName of pluginNames) {
       `${pluginName}: client must declare its slots service dependency`,
     );
     const validSlots = [
+      "conversation.view",
       "settings.section",
       "sidebar.footer.action",
       "shell.overlay",
@@ -79,6 +80,19 @@ for (const pluginName of pluginNames) {
     check(
       readFileSync(join(dir, "lib/client.js"), "utf8") === clientSource,
       `${pluginName}: built client bundle must match client/index.js`,
+    );
+  }
+
+  const serverSourcePath = join(dir, "src/index.ts");
+  if (existsSync(serverSourcePath)) {
+    const serverSource = readFileSync(serverSourcePath, "utf8");
+    const toolRegistrations =
+      serverSource.match(/ctx\.tools\.register\(/g)?.length ?? 0;
+    const outputDeclarations =
+      serverSource.match(/(^|\s)output:\s*/g)?.length ?? 0;
+    check(
+      outputDeclarations >= toolRegistrations,
+      `${pluginName}: every tool registration must declare an output contract`,
     );
   }
 

@@ -20,6 +20,7 @@ DSH_HOME="$DSH_HOME" node "$DSH_BIN" plugin --profile pluginmax add "$ROOT/plugi
 DSH_HOME="$DSH_HOME" node "$DSH_BIN" plugin --profile pluginmax add "$ROOT/plugins/dsh-collab-space"
 DSH_HOME="$DSH_HOME" node "$DSH_BIN" plugin --profile pluginmax add "$ROOT/plugins/dsh-collab-roles"
 DSH_HOME="$DSH_HOME" node "$DSH_BIN" plugin --profile pluginmax add "$ROOT/plugins/dsh-collab-meeting"
+DSH_HOME="$DSH_HOME" node "$DSH_BIN" plugin --profile pluginmax add "$ROOT/plugins/dsh-collab-workflow"
 node "$ROOT/scripts/add-web-bundle.mjs" "$PROFILE_DIR/package.json"
 
 echo "installed profile: $PROFILE_DIR"
