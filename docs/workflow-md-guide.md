@@ -161,6 +161,7 @@
 executor: system:<服务标识>
 executor: user:<用户标识>
 executor: agent:<Agent/人设标识>
+executor: employee:<Employee ID>
 ```
 
 审批人可多行：
@@ -168,11 +169,58 @@ executor: agent:<Agent/人设标识>
 ```text
 - approver: 用户:Alice
 - approver: agent:architect
+- approver: employee:backend-01
 ```
 
-`用户:` / `agent:` 前缀用于 UI；冒号后的标识应使用系统用户标识或人设 ID。
+`用户:` / `agent:` / `employee:` 前缀用于 UI；冒号后的标识分别使用系统用户标识、Agent Profile ID 和 Employee ID。
 
-导入和启动时都会校验 `user:<用户标识>`。这个用户必须是当前工作区的真实成员；不存在、已移出或只是“名字像角色”的标识都会被拒绝。`system:<服务标识>` 表示系统能力；`agent:<Agent/人设标识>` 当前仍是声明式占位，由人类责任人代交交付物。
+导入和启动时都会校验 `user:<用户标识>`。这个用户必须是当前工作区的真实成员；不存在、已移出或只是“名字像角色”的标识都会被拒绝。`system:<服务标识>` 表示系统能力。
+
+### Agent 执行控制
+
+### Digital Employee 执行控制
+
+正式数字员工使用 Employee ID：
+
+```md
+- executor: employee:backend-01
+- execution: task-worker
+- trigger: auto-on-ready
+```
+
+导入前必须在「设置 > 员工」确认：
+
+1. Digital Employee 已启用；
+2. 在当前工作区有显式角色授权；
+3. 有启用的 Runtime Profile；
+4. Runtime Profile 已填写 Task Worker Profile 映射。
+
+派发时会签发绑定到 workflow instance 的 Action Ticket；员工被暂停、票据过期或显式拒绝时，输出不会进入交付物。旧 `agent:<id>` 语法继续可用，但运行记录会标记为过渡 Task Worker。
+
+`agent:<id>` 可以绑定当前工作区的 Agent Profile。下面字段通常一起写在任务节点里：
+
+```md
+- execution: task-worker
+- trigger: manual-dispatch
+- max-attempts: 2
+- timeout: 30m
+- agent-profile: backend-agent
+```
+
+| 字段            | 默认值               | 说明                                                             |
+| --------------- | -------------------- | ---------------------------------------------------------------- |
+| `execution`     | `manual`             | `task-worker` 表示由一次性 Agent 执行；`manual` 继续由人工交付。 |
+| `trigger`       | `manual-dispatch`    | `auto-on-ready` 会在节点就绪后由服务端自动派发。                 |
+| `max-attempts`  | `1`                  | 同一次节点进入最多派发次数，取值 1 到 5。                        |
+| `timeout`       | `30m`                | 单次 Agent 运行超时，支持 `1s` 到 `1h`。                         |
+| `agent-profile` | executor 的 Agent id | 显式指定 Profile；不填时尝试使用 `executor: agent:<id>` 解析。   |
+
+规则：
+
+- 自动派发必须同时满足 `execution: task-worker` 和 `trigger: auto-on-ready`；
+- 导入和启动时校验 Profile 存在、启用且类型是 `task-worker`；
+- Agent 成功输出不会直接完成节点；必须满足 required 交付物，并由责任人确认；
+- 失败、超时、中断或取消后，责任人可以人工代交，owner/admin 可以越过重试上限处理。
 
 ### 责任人
 
@@ -182,9 +230,9 @@ executor: agent:<Agent/人设标识>
 - responsible: user:Alice
 ```
 
-用户任务可以用它把实际操作人和 `executor` 分开。Agent 节点建议始终声明人类责任人；未声明时保存会产生 warning，运行期由工作区负责人或管理员处理。
+用户任务可以用它把实际操作人和 `executor` 分开。Agent / Digital Employee 节点建议始终声明人类责任人；未声明时保存会产生 warning，运行期由工作区负责人或管理员处理。
 
-`responsible` 里的用户也必须是当前工作区成员。
+`responsible: user:<id>` 里的用户必须是当前工作区成员；`responsible: employee:<id>` 的数字员工必须启用并有当前工作区授权。
 
 ### 交付物
 

@@ -81,6 +81,19 @@ window.__ModuleLoader__.load({
       return window.localStorage.getItem(TOKEN_KEY);
     }
 
+    function localTime(value) {
+      if (!value) return "-";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return value;
+      return date.toLocaleString([], {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    }
+
     function setToken(token) {
       if (token === undefined) window.localStorage.removeItem(TOKEN_KEY);
       else window.localStorage.setItem(TOKEN_KEY, token);
@@ -245,12 +258,14 @@ window.__ModuleLoader__.load({
       const [phase, setPhase] = react.useState("loading");
       const [message, setMessage] = react.useState("");
       const [error, setError] = react.useState("");
+      const [saving, setSaving] = react.useState(false);
+      const savingRef = react.useRef(false);
       const [me, setMe] = react.useState(null);
       const [users, setUsers] = react.useState([]);
       const [members, setMembers] = react.useState([]);
       const [events, setEvents] = react.useState([]);
       const [workspaces, setWorkspaces] = react.useState([]);
-      const [workspaceId, setWorkspaceId] = react.useState("main");
+      const [workspaceId, setWorkspaceId] = react.useState(null);
       const [workspaceInfoOpen, setWorkspaceInfoOpen] = react.useState(false);
       const [account, setAccount] = react.useState({
         userId: "",
@@ -284,7 +299,10 @@ window.__ModuleLoader__.load({
 
       const loadAdmin = react.useCallback(
         async (user = me, activeWorkspaceId = workspaceId) => {
-          if (user?.role !== "admin") return;
+          if (user?.role !== "admin" || !activeWorkspaceId) {
+            if (!activeWorkspaceId) setMembers([]);
+            return;
+          }
           const [userResult, memberResult, auditResult] = await Promise.all([
             request("/api/collab/team/users"),
             request(
@@ -306,7 +324,7 @@ window.__ModuleLoader__.load({
           (workspace) => workspace.id === workspaceId,
         )
           ? workspaceId
-          : (result.workspaces[0]?.id ?? "main");
+          : (result.workspaces[0]?.id ?? null);
         setWorkspaceId(selected);
         return selected;
       };
@@ -321,8 +339,12 @@ window.__ModuleLoader__.load({
             });
             if (disposed) return;
             const token = getToken();
+            if (!status.initialized) {
+              setPhase("bootstrap");
+              return;
+            }
             if (token === null) {
-              setPhase(status.initialized ? "login" : "bootstrap");
+              setPhase("login");
               return;
             }
             const current = await request("/api/collab/auth/me", {
@@ -355,6 +377,9 @@ window.__ModuleLoader__.load({
 
       const submitBootstrap = async (event) => {
         event.preventDefault();
+        if (savingRef.current) return;
+        savingRef.current = true;
+        setSaving(true);
         try {
           const result = await request("/api/collab/auth/bootstrap", {
             method: "POST",
@@ -368,11 +393,17 @@ window.__ModuleLoader__.load({
           await loadAdmin(result.user, activeWorkspaceId);
         } catch (cause) {
           fail(cause);
+        } finally {
+          savingRef.current = false;
+          setSaving(false);
         }
       };
 
       const submitLogin = async (event) => {
         event.preventDefault();
+        if (savingRef.current) return;
+        savingRef.current = true;
+        setSaving(true);
         try {
           const result = await request("/api/collab/auth/login", {
             method: "POST",
@@ -389,11 +420,17 @@ window.__ModuleLoader__.load({
           await loadAdmin(result.user, activeWorkspaceId);
         } catch (cause) {
           fail(cause);
+        } finally {
+          savingRef.current = false;
+          setSaving(false);
         }
       };
 
       const submitPassword = async (event) => {
         event.preventDefault();
+        if (savingRef.current) return;
+        savingRef.current = true;
+        setSaving(true);
         try {
           await request("/api/collab/auth/change-password", {
             method: "POST",
@@ -403,6 +440,9 @@ window.__ModuleLoader__.load({
           notify("密码已更新");
         } catch (cause) {
           fail(cause);
+        } finally {
+          savingRef.current = false;
+          setSaving(false);
         }
       };
 
@@ -424,6 +464,9 @@ window.__ModuleLoader__.load({
           setError("初始密码至少需要 8 个字符。");
           return;
         }
+        if (savingRef.current) return;
+        savingRef.current = true;
+        setSaving(true);
         try {
           await request("/api/collab/team/users/create", {
             method: "POST",
@@ -435,11 +478,21 @@ window.__ModuleLoader__.load({
           await loadAdmin();
         } catch (cause) {
           fail(cause);
+        } finally {
+          savingRef.current = false;
+          setSaving(false);
         }
       };
 
       const submitMember = async (event) => {
         event.preventDefault();
+        if (noWorkspace) {
+          fail(new Error("请先在左侧工作区列表添加或打开一个工作区。"));
+          return;
+        }
+        if (savingRef.current) return;
+        savingRef.current = true;
+        setSaving(true);
         try {
           await request("/api/collab/team/members/set", {
             method: "PUT",
@@ -454,10 +507,16 @@ window.__ModuleLoader__.load({
           await loadAdmin();
         } catch (cause) {
           fail(cause);
+        } finally {
+          savingRef.current = false;
+          setSaving(false);
         }
       };
 
       const removeMember = async (userId) => {
+        if (savingRef.current) return;
+        savingRef.current = true;
+        setSaving(true);
         try {
           await request("/api/collab/team/members/remove", {
             method: "POST",
@@ -467,6 +526,9 @@ window.__ModuleLoader__.load({
           await loadAdmin();
         } catch (cause) {
           fail(cause);
+        } finally {
+          savingRef.current = false;
+          setSaving(false);
         }
       };
 
@@ -510,8 +572,25 @@ window.__ModuleLoader__.load({
               })),
             autoComplete: "name",
           }),
+          jsxRuntime.jsx(Field, {
+            id: "pluginmax-bootstrap-password",
+            label: "初始密码",
+            type: "password",
+            value: account.password,
+            onChange: (event) =>
+              setAccount((current) => ({
+                ...current,
+                password: event.target.value,
+              })),
+            autoComplete: "new-password",
+          }),
         ],
       });
+
+      const activeWorkspace = workspaces.find(
+        (workspace) => workspace.id === workspaceId,
+      );
+      const noWorkspace = !activeWorkspace;
 
       const loginFields = jsxRuntime.jsxs(jsxRuntime.Fragment, {
         children: [
@@ -600,7 +679,8 @@ window.__ModuleLoader__.load({
                       gridColumn: "1 / -1",
                       justifySelf: "start",
                     },
-                    children: "创建管理员",
+                    disabled: saving,
+                    children: saving ? "创建中..." : "创建管理员",
                   }),
                 ],
               })
@@ -618,7 +698,8 @@ window.__ModuleLoader__.load({
                       gridColumn: "1 / -1",
                       justifySelf: "start",
                     },
-                    children: "登录",
+                    disabled: saving,
+                    children: saving ? "登录中..." : "登录",
                   }),
                 ],
               })
@@ -706,8 +787,13 @@ window.__ModuleLoader__.load({
                       }),
                       jsxRuntime.jsx("button", {
                         type: "submit",
-                        style: { ...buttonStyle, justifySelf: "start" },
-                        children: "更新密码",
+                        disabled: saving,
+                        style: {
+                          ...buttonStyle,
+                          justifySelf: "start",
+                          opacity: saving ? 0.6 : 1,
+                        },
+                        children: saving ? "更新中..." : "更新密码",
                       }),
                     ],
                   }),
@@ -808,8 +894,13 @@ window.__ModuleLoader__.load({
                           }),
                           jsxRuntime.jsx("button", {
                             type: "submit",
-                            style: { ...buttonStyle, justifySelf: "start" },
-                            children: "创建",
+                            disabled: saving,
+                            style: {
+                              ...buttonStyle,
+                              justifySelf: "start",
+                              opacity: saving ? 0.6 : 1,
+                            },
+                            children: saving ? "创建中..." : "创建",
                           }),
                         ],
                       }),
@@ -852,7 +943,8 @@ window.__ModuleLoader__.load({
                                     }),
                                     jsxRuntime.jsx("td", {
                                       style: cellStyle,
-                                      children: user.createdAt,
+                                      title: user.createdAt,
+                                      children: localTime(user.createdAt),
                                     }),
                                   ],
                                 },
@@ -889,7 +981,8 @@ window.__ModuleLoader__.load({
 	                              jsxRuntime.jsxs("select", {
 	                                id: "pluginmax-workspace-id",
 	                                style: inputStyle,
-	                                value: workspaceId,
+	                                value: workspaceId ?? "",
+	                                disabled: noWorkspace,
 	                                onChange: (event) =>
 	                                  setWorkspaceId(event.target.value),
 	                                children: [
@@ -897,7 +990,7 @@ window.__ModuleLoader__.load({
 	                                    ? jsxRuntime.jsx(
 	                                        "option",
 	                                        {
-	                                          value: workspaceId,
+	                                          value: "",
 	                                          children: "暂无可用工作区",
 	                                        },
 	                                        "empty",
@@ -920,8 +1013,17 @@ window.__ModuleLoader__.load({
 	                            type: "button",
 	                            "aria-expanded": workspaceInfoOpen,
 	                            "aria-label": "工作区信息",
-	                            title: "工作区信息",
-	                            style: iconButtonStyle,
+	                            title: noWorkspace
+	                              ? "请先在左侧添加或打开工作区"
+	                              : "工作区信息",
+	                            disabled: noWorkspace,
+	                            style: noWorkspace
+	                              ? {
+	                                  ...iconButtonStyle,
+	                                  cursor: "not-allowed",
+	                                  opacity: 0.45,
+	                                }
+	                              : iconButtonStyle,
 	                            onClick: () =>
 	                              setWorkspaceInfoOpen((open) => !open),
 	                            children: jsxRuntime.jsx(InfoIcon, {}),
@@ -952,32 +1054,24 @@ window.__ModuleLoader__.load({
 	                                  minWidth: 0,
 	                                },
 	                                children: [
-	                                  jsxRuntime.jsxs("span", {
+	                                  noWorkspace ? jsxRuntime.jsx("span", { children: "请先在左侧工作区列表添加或打开一个工作区。" }) : jsxRuntime.jsxs(jsxRuntime.Fragment, {
 	                                    children: [
-	                                      "名称：",
-	                                      workspaces.find(
-	                                        (workspace) =>
-	                                          workspace.id === workspaceId,
-	                                      )?.title || "未命名",
+	                                      jsxRuntime.jsxs("span", {
+	                                        children: ["名称：", activeWorkspace?.title || "未命名"],
+	                                      }),
+	                                      jsxRuntime.jsxs("span", {
+	                                        style: { overflowWrap: "anywhere" },
+	                                        children: ["路径：", activeWorkspace?.path || "未知"],
+	                                      }),
+	                                      jsxRuntime.jsx("span", {
+	                                        style: { overflowWrap: "anywhere" },
+	                                        children: `工作区 ID：${workspaceId}`,
+	                                      }),
 	                                    ],
-	                                  }),
-	                                  jsxRuntime.jsxs("span", {
-	                                    style: { overflowWrap: "anywhere" },
-	                                    children: [
-	                                      "路径：",
-	                                      workspaces.find(
-	                                        (workspace) =>
-	                                          workspace.id === workspaceId,
-	                                      )?.path || "未知",
-	                                    ],
-	                                  }),
-	                                  jsxRuntime.jsx("span", {
-	                                    style: { overflowWrap: "anywhere" },
-	                                    children: `工作区 ID：${workspaceId}`,
 	                                  }),
 	                                ],
 	                              }),
-	                              jsxRuntime.jsx("button", {
+	                              noWorkspace ? null : jsxRuntime.jsx("button", {
 	                                type: "button",
 	                                style: secondaryButtonStyle,
 	                                onClick: async () => {
@@ -1005,6 +1099,7 @@ window.__ModuleLoader__.load({
                           jsxRuntime.jsx(Field, {
                             id: "pluginmax-member-user-id",
                             label: "用户 ID",
+                            disabled: noWorkspace,
                             value: memberForm.userId,
                             onChange: (event) =>
                               setMemberForm((current) => ({
@@ -1022,10 +1117,11 @@ window.__ModuleLoader__.load({
                             },
                             children: [
                               jsxRuntime.jsx("span", { children: "成员角色" }),
-                              jsxRuntime.jsx("select", {
-                                id: "pluginmax-member-role",
-                                style: inputStyle,
-                                value: memberForm.role,
+	                              jsxRuntime.jsx("select", {
+	                                id: "pluginmax-member-role",
+	                                style: inputStyle,
+	                                disabled: noWorkspace,
+	                                value: memberForm.role,
                                 onChange: (event) =>
                                   setMemberForm((current) => ({
                                     ...current,
@@ -1042,10 +1138,22 @@ window.__ModuleLoader__.load({
                               }),
                             ],
                           }),
-                          jsxRuntime.jsx("button", {
-                            type: "submit",
-                            style: { ...buttonStyle, justifySelf: "start" },
-                            children: "保存成员",
+	                          jsxRuntime.jsx("button", {
+	                            type: "submit",
+	                            disabled: noWorkspace || saving,
+	                            style: noWorkspace
+	                              ? {
+	                                  ...buttonStyle,
+	                                  cursor: "not-allowed",
+	                                  justifySelf: "start",
+	                                  opacity: 0.45,
+	                                }
+	                              : {
+	                                  ...buttonStyle,
+	                                  justifySelf: "start",
+	                                  opacity: saving ? 0.6 : 1,
+	                                },
+                            children: saving ? "保存中..." : "保存成员",
                           }),
                         ],
                       }),
@@ -1096,9 +1204,12 @@ window.__ModuleLoader__.load({
                                       children: jsxRuntime.jsx("button", {
                                         type: "button",
                                         style: secondaryButtonStyle,
+                                        disabled: saving,
                                         onClick: () =>
                                           removeMember(member.userId),
-                                        children: "移出",
+                                        children: saving
+                                          ? "处理中..."
+                                          : "移出",
                                       }),
                                     }),
                                   ],
@@ -1141,7 +1252,8 @@ window.__ModuleLoader__.load({
                                 children: [
                                   jsxRuntime.jsx("td", {
                                     style: cellStyle,
-                                    children: event.at,
+                                    title: event.at,
+                                    children: localTime(event.at),
                                   }),
                                   jsxRuntime.jsx("td", {
                                     style: cellStyle,

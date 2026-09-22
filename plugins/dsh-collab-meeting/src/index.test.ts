@@ -466,6 +466,339 @@ describe("dsh-collab-meeting", () => {
     });
   });
 
+  it("invites workspace members directly and lets people change their own seat", async () => {
+    const meeting = await service.create(
+      { kind: "user", id: "admin", globalRole: "admin" },
+      { workspaceId: "main", title: "直邀评审" },
+    );
+    await service.join(
+      { kind: "user", id: "alice", workspaceRole: "member" },
+      meeting.id,
+      "Alice",
+    );
+
+    const invited = await service.inviteParticipant(
+      { kind: "user", id: "alice", workspaceRole: "member" },
+      meeting.id,
+      { targetId: "bob", displayName: "Bob", seatLabel: "后端" },
+    );
+    expect(invited).toMatchObject({
+      kind: "human",
+      refId: "bob",
+      displayName: "Bob",
+      seatLabel: "后端",
+      status: "active",
+      source: "direct",
+      leader: false,
+    });
+    await expect(
+      service.inviteParticipant(
+        { kind: "user", id: "alice", workspaceRole: "member" },
+        meeting.id,
+        { targetId: "bob", displayName: "Bob" },
+      ),
+    ).rejects.toMatchObject({ code: "conflict" });
+
+    const changedSeat = await service.changeOwnSeat(
+      { kind: "user", id: "alice", workspaceRole: "member" },
+      meeting.id,
+      "主持人",
+    );
+    expect(changedSeat).toMatchObject({ refId: "alice", seatLabel: "主持人" });
+    await service.changeOwnSeat(
+      { kind: "user", id: "bob", workspaceRole: "member" },
+      meeting.id,
+      "评审",
+    );
+    expect(
+      service
+        .participants(meeting.id)
+        .find((participant) => participant.refId === "alice")?.seatLabel,
+    ).toBe("主持人");
+    expect(service.transcript(meeting.id).at(-1)).toMatchObject({
+      senderKind: "system",
+      content: "Alice 已邀请 Bob 入会。",
+    });
+
+    const team = {
+      resolveToken: (token: string) =>
+        token === "alice-token"
+          ? { userId: "alice", role: "member" }
+          : token === "bob-token"
+            ? { userId: "bob", role: "member" }
+            : token === "outsider-token"
+              ? { userId: "outsider", role: "member" }
+              : undefined,
+      members: () => [
+        { userId: "alice", name: "Alice", memberRole: "member" },
+        { userId: "bob", name: "Bob", memberRole: "member" },
+      ],
+    };
+    const routes = createMeetingRoutes(service, team);
+    const peopleResponse = await call(
+      findRoute(routes, "/api/collab/meeting/people"),
+      fakeRequest("GET", `/api/collab/meeting/people?meetingId=${meeting.id}`, {
+        token: "alice-token",
+        origin: "http://127.0.0.1:33117",
+      }),
+    );
+    expect(peopleResponse.status).toBe(200);
+    expect(
+      (peopleResponse.json() as { people: Array<{ id: string; state?: string }> })
+        .people,
+    ).toMatchObject([
+      { id: "alice", state: "active" },
+      { id: "bob", state: "active" },
+    ]);
+
+    const outsiderResponse = await call(
+      findRoute(routes, "/api/collab/meeting/participants/invite"),
+      fakeRequest("POST", "/api/collab/meeting/participants/invite", {
+        token: "alice-token",
+        origin: "http://127.0.0.1:33117",
+        body: {
+          meetingId: meeting.id,
+          people: [{ targetId: "outsider", seatLabel: "外部" }],
+        },
+      }),
+    );
+    expect(outsiderResponse.status).toBe(400);
+    expect(
+      service
+        .participants(meeting.id)
+        .some((participant) => participant.refId === "outsider"),
+    ).toBe(false);
+
+    const seatResponse = await call(
+      findRoute(routes, "/api/collab/meeting/participant/change-seat"),
+      fakeRequest("POST", "/api/collab/meeting/participant/change-seat", {
+        token: "bob-token",
+        origin: "http://127.0.0.1:33117",
+        body: { meetingId: meeting.id, seatLabel: "前端" },
+      }),
+    );
+    expect(seatResponse.status).toBe(200);
+    expect(
+      (seatResponse.json() as { participant: { seatLabel?: string } }).participant,
+    ).toMatchObject({ refId: "bob", seatLabel: "前端" });
+  });
+
+  it("lets leaders manage meeting seats and clears assignments on delete", async () => {
+    const meeting = await service.create(
+      { kind: "user", id: "admin", globalRole: "admin" },
+      { workspaceId: "main", title: "会议席位" },
+    );
+    await service.join(
+      { kind: "user", id: "alice", workspaceRole: "member" },
+      meeting.id,
+      "Alice",
+    );
+    await service.join(
+      { kind: "user", id: "bob", workspaceRole: "member" },
+      meeting.id,
+      "Bob",
+    );
+
+    await expect(
+      service.addSeat(
+        { kind: "user", id: "bob", workspaceRole: "member" },
+        meeting.id,
+        "后端",
+      ),
+    ).rejects.toMatchObject({ code: "forbidden" });
+
+    const withSeat = await service.addSeat(
+      { kind: "user", id: "alice", workspaceRole: "member" },
+      meeting.id,
+      "后端",
+    );
+    expect(withSeat.seats).toHaveLength(1);
+    expect(withSeat.seats[0]).toMatchObject({ label: "后端" });
+    const seat = withSeat.seats[0]!;
+    await expect(
+      service.addSeat(
+        { kind: "user", id: "alice", workspaceRole: "member" },
+        meeting.id,
+        "后端",
+      ),
+    ).rejects.toMatchObject({ code: "conflict" });
+
+    const bob = await service.changeOwnSeat(
+      { kind: "user", id: "bob", workspaceRole: "member" },
+      meeting.id,
+      undefined,
+      seat.id,
+    );
+    expect(bob).toMatchObject({ seatId: seat.id, seatLabel: "后端" });
+    await expect(
+      service.inviteParticipant(
+        { kind: "user", id: "alice", workspaceRole: "member" },
+        meeting.id,
+        {
+          targetId: "carol",
+          displayName: "Carol",
+          seatId: seat.id,
+          seatLabel: seat.label,
+        },
+      ),
+    ).rejects.toMatchObject({ code: "conflict" });
+
+    const renamed = await service.renameSeat(
+      { kind: "user", id: "alice", workspaceRole: "member" },
+      meeting.id,
+      seat.id,
+      "后端 Owner",
+    );
+    expect(renamed.seats).toMatchObject([{ id: seat.id, label: "后端 Owner" }]);
+    expect(
+      service.participants(meeting.id).find((participant) => participant.id === bob.id),
+    ).toMatchObject({ seatLabel: "后端 Owner" });
+
+    const cleared = await service.removeSeat(
+      { kind: "user", id: "alice", workspaceRole: "member" },
+      meeting.id,
+      seat.id,
+    );
+    expect(cleared.seats).toEqual([]);
+    expect(
+      service.participants(meeting.id).find((participant) => participant.id === bob.id),
+    ).toMatchObject({ status: "active", seatId: undefined, seatLabel: undefined });
+  });
+
+  it("lets the meeting leader and avatar owner change an avatar's seat", async () => {
+    const meeting = await service.create(
+      { kind: "user", id: "alice", workspaceRole: "member" },
+      { workspaceId: "main", title: "席位权限" },
+    );
+    await service.join(
+      { kind: "user", id: "alice", workspaceRole: "member" },
+      meeting.id,
+      "Alice",
+    );
+    const withSeat = await service.addSeat(
+      { kind: "user", id: "alice", workspaceRole: "member" },
+      meeting.id,
+      "评审",
+    );
+    const seat = withSeat.seats[0]!;
+    const avatar = await service.spawnAgentForUser(
+      { kind: "user", id: "alice", workspaceRole: "member" },
+      {
+        meetingId: meeting.id,
+        personaId: "architect",
+        displayName: "Alice 的分身",
+        provider: "spawn",
+        autoSpeak: "mentions",
+        initialGreeting: false,
+        ownerName: "Alice",
+      },
+      personas(),
+    );
+    expect(avatar.ownerId).toBe("alice");
+
+    const byOwner = await service.changeParticipantSeat(
+      { kind: "user", id: "alice", workspaceRole: "member" },
+      meeting.id,
+      avatar.id,
+      undefined,
+      seat.id,
+    );
+    expect(byOwner).toMatchObject({ seatId: seat.id, seatLabel: "评审" });
+
+    await expect(
+      service.changeParticipantSeat(
+        { kind: "user", id: "bob", workspaceRole: "member" },
+        meeting.id,
+        avatar.id,
+        undefined,
+        seat.id,
+      ),
+    ).rejects.toMatchObject({ code: "forbidden" });
+  });
+
+  it("lets authorized participants remove users and avatars", async () => {
+    const reports: Array<{ delegationId: string; finalize?: boolean }> = [];
+    service.setDelegationReporter({
+      generateDelegationReport: async (delegationId, _transcript, options) => {
+        reports.push({ delegationId, finalize: options.finalize });
+      },
+    });
+    const meeting = await service.create(
+      { kind: "user", id: "admin", globalRole: "admin" },
+      { workspaceId: "main", title: "移出参会者" },
+    );
+    const alice = await service.join(
+      { kind: "user", id: "alice", workspaceRole: "member" },
+      meeting.id,
+      "Alice",
+    );
+    const bob = await service.join(
+      { kind: "user", id: "bob", workspaceRole: "member" },
+      meeting.id,
+      "Bob",
+    );
+    const avatar = await service.spawnAgentForUser(
+      { kind: "user", id: "alice", workspaceRole: "member" },
+      {
+        meetingId: meeting.id,
+        personaId: "architect",
+        displayName: "Alice 的分身",
+        ownerName: "Alice",
+        autoSpeak: "manual",
+        initialGreeting: false,
+        delegationId: "delegation-01",
+      },
+      personas(),
+    );
+
+    await expect(
+      service.removeParticipant(
+        { kind: "user", id: "bob", workspaceRole: "member" },
+        meeting.id,
+        avatar.id,
+      ),
+    ).rejects.toMatchObject({ code: "forbidden" });
+    await expect(
+      service.removeParticipant(
+        { kind: "user", id: "alice", workspaceRole: "member" },
+        meeting.id,
+        alice.id,
+      ),
+    ).rejects.toMatchObject({ code: "conflict" });
+
+    const removedBob = await service.removeParticipant(
+      { kind: "user", id: "alice", workspaceRole: "member" },
+      meeting.id,
+      bob.id,
+    );
+    const removedAvatar = await service.removeParticipant(
+      { kind: "user", id: "alice", workspaceRole: "member" },
+      meeting.id,
+      avatar.id,
+    );
+
+    expect(removedBob).toMatchObject({ id: bob.id, status: "left" });
+    expect(removedAvatar).toMatchObject({ id: avatar.id, status: "left" });
+    expect(
+      service
+        .participants(meeting.id)
+        .filter((participant) => participant.status === "active")
+        .map((participant) => participant.id),
+    ).toEqual([alice.id]);
+    expect(
+      service
+        .transcript(meeting.id)
+        .filter((message) => message.senderKind === "system")
+        .map((message) => message.content),
+    ).toEqual([
+      "Bob 已被 Alice 移出会议。",
+      "Alice 的分身 已被 Alice 移出会议。",
+    ]);
+    expect(reports).toEqual([
+      { delegationId: avatar.delegationId, finalize: false },
+    ]);
+  });
+
   it("creates durable worker-backed participants without binding to an Agent", async () => {
     const meeting = await service.create(
       { kind: "agent", id: "root-agent", workspaceRole: "member" },
@@ -520,7 +853,9 @@ describe("dsh-collab-meeting", () => {
       { meetingId: meeting.id, personaId: "architect", displayName: "架构师" },
       personas(),
     );
-    const participant = service.participants(meeting.id).at(-1)!;
+    const participant = service
+      .participants(meeting.id)
+      .find((candidate) => candidate.kind === "agent")!;
     const message = await service.post(
       { kind: "user", id: "alice", workspaceRole: "member" },
       meeting.id,
@@ -556,6 +891,61 @@ describe("dsh-collab-meeting", () => {
       .participants(meeting.id)
       .map((participant) => participant.refId),
     ).toContain(participant.refId);
+  });
+
+  it("composes base soul and role overlay when both personas are present", async () => {
+    const meeting = await service.create(
+      { kind: "agent", id: "root-agent", workspaceRole: "member" },
+      { workspaceId: "main", title: "角色叠加会议" },
+    );
+    await service.join(
+      { kind: "user", id: "alice", workspaceRole: "member" },
+      meeting.id,
+      "Alice",
+    );
+    const starts: MeetingWorkerStartLike[] = [];
+    const runtime = new MeetingRuntime({
+      meetings: service,
+      agents: () => ({
+        get: () => undefined,
+        create: async (options) => ({
+          agent: { id: options.sessionId },
+          dispose: async () => undefined,
+        }),
+      }),
+      personas: () => personas(),
+      subagents: () => subagents(starts, ["好的"]),
+    });
+    await service.spawnAgent(
+      { kind: "agent", id: "root-agent", workspaceRole: "member" },
+      {
+        meetingId: meeting.id,
+        personaId: "architect",
+        basePersonaId: "builder",
+        displayName: "双重人设",
+      },
+      personas(),
+    );
+    const participant = service
+      .participants(meeting.id)
+      .find((candidate) => candidate.kind === "agent")!;
+    const message = await service.post(
+      { kind: "user", id: "alice", workspaceRole: "member" },
+      meeting.id,
+      "请回复。",
+    );
+    runtime.dispatch(
+      message,
+      service.participants(meeting.id).filter((candidate) =>
+        message.deliveries.some((delivery) => delivery.participantId === candidate.id),
+      ),
+    );
+    await runtime.waitIdle();
+    expect(starts).toHaveLength(1);
+    const prompt = starts[0]?.prompt[0]?.text ?? "";
+    expect(prompt).toContain("# builder SOUL");
+    expect(prompt).toContain("## 会议角色上下文");
+    expect(prompt).toContain("架构师");
   });
 
   it("protects browser routes with same-origin, bearer, and workspace checks", async () => {
@@ -844,6 +1234,38 @@ describe("dsh-collab-meeting", () => {
       service.participants(meeting.id).find(({ id }) => id === participant.id)
         ?.status,
     ).toBe("active");
+  });
+
+  it("marks expired meeting avatars and blocks their worker replies", async () => {
+    const meeting = await meetingWithAlice();
+    service.setDelegationReporter({
+      generateDelegationReport: async () => undefined,
+      getDelegationStatus: () => ({
+        status: "active",
+        expiresAt: "2025-12-31T23:59:59.000Z",
+      }),
+    });
+    const avatar = await service.spawnAgentForUser(
+      { kind: "user", id: "alice", workspaceRole: "member" },
+      {
+        meetingId: meeting.id,
+        personaId: "architect",
+        displayName: "过期分身",
+        autoSpeak: "mentions",
+        initialGreeting: false,
+        ownerName: "Alice",
+        delegationId: "delegation-expired",
+      },
+      personas(),
+    );
+
+    await expect(
+      service.postWorkerReply(avatar.id, "我还能回复"),
+    ).rejects.toThrow("delegation is expired");
+    expect(service.transcript(meeting.id).at(-1)).toMatchObject({
+      senderKind: "system",
+      content: expect.stringContaining("的委托已到期"),
+    });
   });
 
   it("isolates same-persona participants across meetings", async () => {

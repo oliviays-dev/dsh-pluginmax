@@ -17,6 +17,7 @@ window.__ModuleLoader__.load({
     const store = {
       open: false,
       listeners: new Set(),
+      openPanel() { this.open = true; this.emit(); },
       toggle() { this.open = !this.open; this.emit(); },
       close() { this.open = false; this.emit(); },
       subscribe(fn) { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; },
@@ -299,6 +300,16 @@ window.__ModuleLoader__.load({
       fontSize: 9,
       padding: "1px 5px",
       whiteSpace: "nowrap",
+    };
+
+    const removeParticipantBtnStyle = {
+      ...participantTagStyle,
+      background: "rgba(239, 68, 68, 0.10)",
+      border: 0,
+      color: "var(--dsw-alias-state-danger-primary, #ef4444)",
+      cursor: "pointer",
+      fontFamily: "inherit",
+      fontWeight: 700,
     };
 
     const selfParticipantRowStyle = {
@@ -804,6 +815,230 @@ window.__ModuleLoader__.load({
       participant.displayName ||
       participant.id;
 
+    const markdownBlockStyle = {
+      color: "inherit",
+      display: "grid",
+      fontSize: "inherit",
+      gap: 5,
+      lineHeight: "inherit",
+      minWidth: 0,
+    };
+
+    const markdownParagraphStyle = {
+      margin: 0,
+      overflowWrap: "anywhere",
+      whiteSpace: "pre-wrap",
+    };
+
+    const markdownCodeStyle = {
+      background: "rgba(127, 127, 127, 0.16)",
+      borderRadius: 3,
+      fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+      fontSize: "0.92em",
+      overflowWrap: "anywhere",
+      padding: "1px 4px",
+    };
+
+    const markdownPreStyle = {
+      background: "rgba(127, 127, 127, 0.14)",
+      border: "0.5px solid rgba(127, 127, 127, 0.24)",
+      borderRadius: 5,
+      margin: 0,
+      overflowX: "auto",
+      padding: "6px 8px",
+    };
+
+    const markdownQuoteStyle = {
+      borderLeft: "2px solid rgba(127, 127, 127, 0.44)",
+      color: "inherit",
+      margin: 0,
+      opacity: 0.88,
+      paddingLeft: 8,
+    };
+
+    const markdownListStyle = {
+      margin: 0,
+      overflowWrap: "anywhere",
+      paddingLeft: 17,
+    };
+
+    function safeMarkdownLink(href) {
+      try {
+        const url = new URL(href);
+        return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
+      } catch {
+        return null;
+      }
+    }
+
+    function renderInlineMarkdown(text) {
+      const nodes = [];
+      const pattern = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(~~[^~\n]+~~)|(\*[^*\n]+\*)|(_[^_\n]+_)|(\[[^\]\n]+\]\(https?:\/\/[^)\s]+\))/g;
+      let cursor = 0;
+      let match = pattern.exec(text);
+      let index = 0;
+
+      while (match !== null) {
+        if (match.index > cursor) nodes.push(text.slice(cursor, match.index));
+        const token = match[0];
+        if (token.startsWith("`")) {
+          nodes.push(jsxRuntime.jsx("code", { style: markdownCodeStyle, children: token.slice(1, -1) }, `code-${index}`));
+        } else if (token.startsWith("**") || token.startsWith("__")) {
+          nodes.push(jsxRuntime.jsx("strong", { children: token.slice(2, -2) }, `strong-${index}`));
+        } else if (token.startsWith("~~")) {
+          nodes.push(jsxRuntime.jsx("del", { children: token.slice(2, -2) }, `del-${index}`));
+        } else if (token.startsWith("[")) {
+          const separator = token.lastIndexOf("](");
+          const label = token.slice(1, separator);
+          const href = token.slice(separator + 2, -1);
+          const safeHref = safeMarkdownLink(href);
+          nodes.push(safeHref === null
+            ? label
+            : jsxRuntime.jsx("a", {
+                href: safeHref,
+                rel: "noopener noreferrer",
+                target: "_blank",
+                children: label,
+              }, `link-${index}`));
+        } else {
+          nodes.push(jsxRuntime.jsx("em", { children: token.slice(1, -1) }, `em-${index}`));
+        }
+        cursor = match.index + token.length;
+        index += 1;
+        match = pattern.exec(text);
+      }
+
+      if (cursor < text.length) nodes.push(text.slice(cursor));
+      return nodes;
+    }
+
+    function renderMarkdownParagraph(lines) {
+      return jsxRuntime.jsx("p", {
+        style: markdownParagraphStyle,
+        children: lines.flatMap((line, index) => index === 0
+          ? renderInlineMarkdown(line)
+          : [jsxRuntime.jsx("br", {}, `line-${index}`), ...renderInlineMarkdown(line)]),
+      });
+    }
+
+    function renderMarkdown(content) {
+      const lines = String(content ?? "").split(/\r?\n/);
+      const blocks = [];
+      let index = 0;
+
+      while (index < lines.length) {
+        const line = lines[index];
+        if (line.trim() === "") {
+          index += 1;
+          continue;
+        }
+
+        const codeFence = line.match(/^```(.*)$/);
+        if (codeFence !== null) {
+          const codeLines = [];
+          index += 1;
+          while (index < lines.length && !/^```\s*$/.test(lines[index])) {
+            codeLines.push(lines[index]);
+            index += 1;
+          }
+          index += 1;
+          blocks.push(jsxRuntime.jsx("pre", {
+            style: markdownPreStyle,
+            children: jsxRuntime.jsx("code", {
+              style: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 11, whiteSpace: "pre" },
+              children: codeLines.join("\n"),
+            }),
+          }, `pre-${blocks.length}`));
+          continue;
+        }
+
+        const heading = line.match(/^(#{1,6})\s+(.+?)\s*#*$/);
+        if (heading !== null) {
+          const level = heading[1].length;
+          blocks.push(jsxRuntime.jsx("div", {
+            style: {
+              fontWeight: 700,
+              fontSize: level <= 1 ? 14 : level === 2 ? 13 : 12,
+              lineHeight: 1.4,
+              margin: "2px 0 0",
+            },
+            children: renderInlineMarkdown(heading[2]),
+          }, `heading-${blocks.length}`));
+          index += 1;
+          continue;
+        }
+
+        const quote = line.match(/^>\s?(.*)$/);
+        if (quote !== null) {
+          const quoteLines = [quote[1]];
+          index += 1;
+          while (index < lines.length) {
+            const nextQuote = lines[index].match(/^>\s?(.*)$/);
+            if (nextQuote === null) break;
+            quoteLines.push(nextQuote[1]);
+            index += 1;
+          }
+          blocks.push(jsxRuntime.jsx("blockquote", {
+            style: markdownQuoteStyle,
+            children: renderMarkdownParagraph(quoteLines),
+          }, `quote-${blocks.length}`));
+          continue;
+        }
+
+        const unordered = line.match(/^\s*[-*]\s+(.*)$/);
+        if (unordered !== null) {
+          const items = [];
+          while (index < lines.length) {
+            const item = lines[index].match(/^\s*[-*]\s+(.*)$/);
+            if (item === null) break;
+            items.push(item[1]);
+            index += 1;
+          }
+          blocks.push(jsxRuntime.jsx("ul", {
+            style: markdownListStyle,
+            children: items.map((item, itemIndex) => jsxRuntime.jsx("li", {
+              children: renderInlineMarkdown(item),
+            }, `ul-${itemIndex}`)),
+          }, `ul-block-${blocks.length}`));
+          continue;
+        }
+
+        const ordered = line.match(/^\s*\d+[.)]\s+(.*)$/);
+        if (ordered !== null) {
+          const items = [];
+          while (index < lines.length) {
+            const item = lines[index].match(/^\s*\d+[.)]\s+(.*)$/);
+            if (item === null) break;
+            items.push(item[1]);
+            index += 1;
+          }
+          blocks.push(jsxRuntime.jsx("ol", {
+            style: markdownListStyle,
+            children: items.map((item, itemIndex) => jsxRuntime.jsx("li", {
+              children: renderInlineMarkdown(item),
+            }, `ol-${itemIndex}`)),
+          }, `ol-block-${blocks.length}`));
+          continue;
+        }
+
+        const paragraphLines = [];
+        while (index < lines.length && lines[index].trim() !== "" &&
+          !lines[index].startsWith("```") &&
+          !/^(#{1,6})\s+/.test(lines[index]) &&
+          !/^>\s?/.test(lines[index]) &&
+          !/^\s*[-*]\s+/.test(lines[index]) &&
+          !/^\s*\d+[.)]\s+/.test(lines[index])) {
+          paragraphLines.push(lines[index]);
+          index += 1;
+        }
+        if (paragraphLines.length > 0) {
+          blocks.push(renderMarkdownParagraph(paragraphLines));
+        }
+      }
+
+      return jsxRuntime.jsx("div", { style: markdownBlockStyle, children: blocks });
+    }
+
     const MeetingPanel = () => {
       const open = usePanelOpen();
 
@@ -832,17 +1067,30 @@ window.__ModuleLoader__.load({
       const [personas, setPersonas] = react.useState([]);
       const [personaId, setPersonaId] = react.useState("");
       const [agentBusy, setAgentBusy] = react.useState(false);
+      const [delegationNoticeBusy, setDelegationNoticeBusy] = react.useState("");
       const [autoSpeak, setAutoSpeak] = react.useState("mentions");
       const [initialGreeting, setInitialGreeting] = react.useState(true);
+      const [avatarNickname, setAvatarNickname] = react.useState("");
       const [mentionIds, setMentionIds] = react.useState(() => new Set());
       const [mentionOpen, setMentionOpen] = react.useState(false);
       const [mentionCaret, setMentionCaret] = react.useState(0);
       const [participantsOpen, setParticipantsOpen] = react.useState(true);
+      const [removingParticipantId, setRemovingParticipantId] = react.useState("");
 
       const [seatOpen, setSeatOpen] = react.useState(false);
       const [seats, setSeats] = react.useState([]);
       const [selectedSeatIds, setSelectedSeatIds] = react.useState(() => new Set());
       const [seatBusy, setSeatBusy] = react.useState(false);
+      const [people, setPeople] = react.useState([]);
+      const [selectedPeople, setSelectedPeople] = react.useState(() => new Set());
+      const [peopleSeatIds, setPeopleSeatIds] = react.useState({});
+      const [editingSeat, setEditingSeat] = react.useState(false);
+      const [editingSeatFor, setEditingSeatFor] = react.useState("");
+      const [seatIdDraft, setSeatIdDraft] = react.useState("");
+      const [seatManageOpen, setSeatManageOpen] = react.useState(false);
+      const [newSeatLabel, setNewSeatLabel] = react.useState("");
+      const [editingSeatDefinitionId, setEditingSeatDefinitionId] = react.useState("");
+      const [seatDefinitionDraft, setSeatDefinitionDraft] = react.useState("");
 
       const loadingDataRef = react.useRef(false);
       const messagesRef = react.useRef(null);
@@ -853,6 +1101,9 @@ window.__ModuleLoader__.load({
 
       const currentWs = workspaces.find((ws) => ws.id === workspaceId);
       const active = detail?.meeting?.status === "active";
+      const myExpiredAvatars = (detail?.participants ?? []).filter((p) =>
+        p.kind === "agent" && p.ownerId === detail?.actorId && p.delegationStatus === "expired",
+      );
       const typedIds = typedMentionIds(content, detail?.participants);
       const mentionToken = mentionTokenAt(content, mentionCaret);
       const mentionOptions = (detail?.participants ?? [])
@@ -862,6 +1113,19 @@ window.__ModuleLoader__.load({
           const label = mentionInsertName(p).toLowerCase();
           return label.includes(mentionToken.query.toLowerCase());
         });
+      const activeOthers = (detail?.participants ?? []).filter(
+        (p) => p.status === "active" && p.refId !== detail.actorId,
+      );
+      const isMentioningAll =
+        activeOthers.length > 0 &&
+        activeOthers.every((p) => mentionIds.has(p.id));
+      const selectAllMentions = () => {
+        setMentionIds(new Set(activeOthers.map((p) => p.id)));
+        setMentionOpen(false);
+      };
+      const clearAllMentions = () => {
+        setMentionIds(new Set());
+      };
       const myParticipant = detail?.participants?.find(
         (p) => p.kind === "human" && p.status === "active" && p.refId === detail.actorId,
       );
@@ -870,6 +1134,61 @@ window.__ModuleLoader__.load({
       const participantById = new Map(
         (detail?.participants ?? []).map((p) => [p.id, p.displayName ?? p.id]),
       );
+      const meetingSeats = detail?.meeting?.seats ?? [];
+      const canManageSeats = detail?.canManageSeats === true;
+      const humanSeatOptions = [
+        ...meetingSeats.map((seat) => ({
+          value: `seat:${seat.id}`,
+          label: seat.label,
+          meetingSeat: true,
+        })),
+        ...seats
+          .filter((seat) => seat.participantKind !== "agent")
+          .map((seat) => ({
+            value: `seat:${seat.seatId}`,
+            label: `${seat.label}（工作区）`,
+            meetingSeat: false,
+          })),
+      ];
+      const usedSeatValues = new Set(
+        (detail?.participants ?? [])
+          .filter((p) => p.kind === "human" && p.status !== "left")
+          .flatMap((p) => {
+            if (p.seatId !== undefined) return [`seat:${p.seatId}`];
+            if (p.seatLabel === undefined) return [];
+            return [
+              `label:${p.seatLabel}`,
+              ...humanSeatOptions
+                .filter((seat) => seat.label === p.seatLabel)
+                .map((seat) => seat.value),
+            ];
+          })
+        );
+      const mySeatValue = myParticipant?.seatId !== undefined
+        ? `seat:${myParticipant.seatId}`
+          : myParticipant?.seatLabel !== undefined &&
+              humanSeatOptions.some((seat) => seat.label === myParticipant.seatLabel)
+            ? humanSeatOptions.find((seat) => seat.label === myParticipant.seatLabel)?.value ?? ""
+            : myParticipant?.seatLabel !== undefined
+              ? `label:${myParticipant.seatLabel}`
+              : "";
+      const ownSeatOptions = [
+        { value: "", label: "不指定席位", disabled: false },
+        ...humanSeatOptions,
+        ...(myParticipant?.seatLabel !== undefined &&
+        !humanSeatOptions.some((seat) => seat.label === myParticipant.seatLabel)
+          ? [{
+              value: `label:${myParticipant.seatLabel}`,
+              label: `${myParticipant.seatLabel}（当前）`,
+              disabled: false,
+            }]
+          : []),
+      ].map((choice) => ({
+        ...choice,
+        disabled: choice.value !== "" &&
+          choice.value !== mySeatValue &&
+          usedSeatValues.has(choice.value),
+      }));
 
       /* load workspaces when panel opens */
       react.useEffect(() => {
@@ -897,6 +1216,19 @@ window.__ModuleLoader__.load({
         })();
         return () => { disposed = true; };
       }, [open]);
+
+      react.useEffect(() => {
+        const navigate = (event) => {
+          const target = event.detail ?? {};
+          if (target.plugin !== "meeting" || !target.meetingId) return;
+          if (target.workspaceId) setWorkspaceId(target.workspaceId);
+          setView("chat");
+          setMeetingId(target.meetingId);
+          store.openPanel();
+        };
+        window.addEventListener("pluginmax:collab-navigate", navigate);
+        return () => window.removeEventListener("pluginmax:collab-navigate", navigate);
+      }, []);
 
       /* load meetings + detail; silent polling keeps conversations current */
       const load = react.useCallback(async (silent = false) => {
@@ -935,8 +1267,33 @@ window.__ModuleLoader__.load({
       }, [detail?.transcript?.length, view]);
 
       react.useEffect(() => {
+        if (!active || !joined || meetingId === "") return;
+        let disposed = false;
+        (async () => {
+          try {
+            const result = await request(
+              `/api/collab/meeting/seats?meetingId=${encodeURIComponent(meetingId)}`,
+            );
+            if (!disposed) setSeats(result.seats ?? []);
+          } catch {
+            if (!disposed) setSeats([]);
+          }
+        })();
+        return () => { disposed = true; };
+      }, [active, joined, meetingId]);
+
+      react.useEffect(() => {
         setMentionIds(new Set());
         setMentionOpen(false);
+        setPeople([]);
+        setSelectedPeople(new Set());
+        setPeopleSeatIds({});
+        setEditingSeat(false);
+        setSeatIdDraft("");
+        setSeatManageOpen(false);
+        setNewSeatLabel("");
+        setEditingSeatDefinitionId("");
+        setSeatDefinitionDraft("");
       }, [meetingId]);
 
       /* load personas for agent dispatch */
@@ -1043,11 +1400,13 @@ window.__ModuleLoader__.load({
             body: JSON.stringify({
               meetingId,
               personaId,
+              ...(avatarNickname.trim() !== "" ? { displayName: avatarNickname.trim() } : {}),
               autoSpeak,
               initialGreeting,
             }),
           });
           notify(`已派遣分身「${persona?.name ?? personaId}」`);
+          setAvatarNickname("");
           await load();
         } catch (cause) { fail(cause); }
         finally { setAgentBusy(false); }
@@ -1064,15 +1423,232 @@ window.__ModuleLoader__.load({
         } catch (cause) { fail(cause); }
       };
 
+      const resumeExpiredAvatar = async (participant) => {
+        if (!participant.delegationId || delegationNoticeBusy !== "") return;
+        setDelegationNoticeBusy(participant.id);
+        try {
+          await request("/api/collab/delegation/status", {
+            method: "POST",
+            body: JSON.stringify({ delegationId: participant.delegationId, status: "active" }),
+          });
+          notify(`已恢复「${participant.displayName}」的委托`);
+          await load(true);
+        } catch (cause) { fail(cause); }
+        finally { setDelegationNoticeBusy(""); }
+      };
+
+      const extendExpiredAvatar = async (participant) => {
+        if (!participant.delegationId || delegationNoticeBusy !== "") return;
+        const value = window.prompt("延长多少分钟？", "30");
+        const minutes = Number(value);
+        if (!Number.isInteger(minutes) || minutes <= 0) return;
+        setDelegationNoticeBusy(participant.id);
+        try {
+          await request("/api/collab/delegation/extend", {
+            method: "POST",
+            body: JSON.stringify({ delegationId: participant.delegationId, durationMinutes: minutes }),
+          });
+          notify(`已延期并恢复「${participant.displayName}」`);
+          await load(true);
+        } catch (cause) { fail(cause); }
+        finally { setDelegationNoticeBusy(""); }
+      };
+
+      const removeParticipant = async (participant) => {
+        if (removingParticipantId !== "") return;
+        if (!window.confirm(`将「${participant.displayName ?? participant.id}」移出会议？`)) return;
+        setRemovingParticipantId(participant.id);
+        try {
+          await request("/api/collab/meeting/participant/remove", {
+            method: "POST",
+            body: JSON.stringify({
+              meetingId,
+              participantId: participant.id,
+            }),
+          });
+          notify(`已移出「${participant.displayName ?? participant.id}」`);
+          await load();
+        } catch (cause) { fail(cause); }
+        finally { setRemovingParticipantId(""); }
+      };
+
       const openSeatPicker = async () => {
         setSeatOpen(true);
         setSeatBusy(true);
         try {
-          const result = await request(
-            `/api/collab/meeting/seats?meetingId=${encodeURIComponent(meetingId)}`,
-          );
-          setSeats(result.seats ?? []);
+          const [peopleResult, seatResult] = await Promise.allSettled([
+            request(`/api/collab/meeting/people?meetingId=${encodeURIComponent(meetingId)}`),
+            request(`/api/collab/meeting/seats?meetingId=${encodeURIComponent(meetingId)}`),
+          ]);
+          if (peopleResult.status === "rejected") throw peopleResult.reason;
+          setPeople(peopleResult.value.people ?? []);
+          setSeats(seatResult.status === "fulfilled" ? seatResult.value.seats ?? [] : []);
           setSelectedSeatIds(new Set());
+          setPeopleSeatIds({});
+        } catch (cause) {
+          fail(cause);
+        } finally {
+          setSeatBusy(false);
+        }
+      };
+
+      const togglePerson = (personId) => {
+        setSelectedPeople((current) => {
+          const next = new Set(current);
+          if (next.has(personId)) next.delete(personId);
+          else next.add(personId);
+          return next;
+        });
+      };
+
+      const setPersonSeatId = (personId, seatValue) => {
+        setPeopleSeatIds((current) => ({ ...current, [personId]: seatValue }));
+      };
+
+      const inviteSelectedPeople = async () => {
+        if (selectedPeople.size === 0 || seatBusy) return;
+        const chosenSeatValues = [...selectedPeople]
+          .map((personId) => peopleSeatIds[personId] ?? "")
+          .filter((value) => value !== "");
+        if (new Set(chosenSeatValues).size !== chosenSeatValues.length) {
+          fail(new Error("不同成员不能选择同一个席位"));
+          return;
+        }
+        const selected = people
+          .filter((person) => selectedPeople.has(person.id))
+          .map((person) => {
+            const seatValue = peopleSeatIds[person.id] ?? "";
+            if (!seatValue.startsWith("seat:")) {
+              return { targetId: person.id };
+            }
+            const meetingSeat = meetingSeats.find((candidate) => `seat:${candidate.id}` === seatValue);
+            const workspaceSeat = seats.find((candidate) => `seat:${candidate.seatId}` === seatValue);
+            const seatLabel = meetingSeat?.label ?? workspaceSeat?.label;
+            return {
+              targetId: person.id,
+              ...(seatLabel === undefined ? {} : { seatLabel }),
+              ...(meetingSeat === undefined ? {} : { seatId: meetingSeat.id }),
+            };
+          });
+        setSeatBusy(true);
+        try {
+          await request("/api/collab/meeting/participants/invite", {
+            method: "POST",
+            body: JSON.stringify({ meetingId, people: selected }),
+          });
+          notify(`已拉入 ${selected.length} 位成员`);
+          setSeatOpen(false);
+          setSelectedPeople(new Set());
+          setPeopleSeatIds({});
+          await load();
+        } catch (cause) {
+          fail(cause);
+        } finally {
+          setSeatBusy(false);
+        }
+      };
+
+      const openSeatEditor = (participantId) => {
+        setEditingSeatFor(participantId ?? "");
+        setSeatIdDraft(mySeatValue);
+        setEditingSeat(true);
+      };
+
+      const saveOwnSeat = async (event) => {
+        event.preventDefault();
+        if (seatBusy) return;
+        const seatValue = seatIdDraft;
+        let nextSeatLabel;
+        if (seatValue.startsWith("seat:")) {
+          const meetingSeat = meetingSeats.find((candidate) => `seat:${candidate.id}` === seatValue);
+          const workspaceSeat = seats.find((candidate) => `seat:${candidate.seatId}` === seatValue);
+          const seat = meetingSeat === undefined
+            ? workspaceSeat
+            : { label: meetingSeat.label };
+          if (seat === undefined) {
+            fail(new Error("所选席位不存在，请重新打开后重试"));
+            return;
+          }
+          nextSeatLabel = seat.label;
+        } else if (seatValue.startsWith("label:")) {
+          nextSeatLabel = seatValue.slice("label:".length);
+        }
+        setSeatBusy(true);
+        try {
+          await request("/api/collab/meeting/participant/change-seat", {
+            method: "POST",
+            body: JSON.stringify({
+              meetingId,
+              ...(editingSeatFor !== "" ? { participantId: editingSeatFor } : {}),
+              seatLabel: nextSeatLabel,
+              ...(meetingSeats.some((candidate) => `seat:${candidate.id}` === seatValue)
+                ? { seatId: seatValue.slice("seat:".length) }
+                : {}),
+            }),
+          });
+          notify(nextSeatLabel === undefined ? "已设为不指定席位" : "已更新席位");
+          setEditingSeat(false);
+          await load();
+        } catch (cause) {
+          fail(cause);
+        } finally {
+          setSeatBusy(false);
+        }
+      };
+
+      const createManagedSeat = async (event) => {
+        event.preventDefault();
+        if (!canManageSeats || seatBusy || newSeatLabel.trim() === "") return;
+        setSeatBusy(true);
+        try {
+          await request("/api/collab/meeting/seats/manage", {
+            method: "POST",
+            body: JSON.stringify({ meetingId, label: newSeatLabel.trim() }),
+          });
+          notify("已新增会议席位");
+          setNewSeatLabel("");
+          await load();
+        } catch (cause) {
+          fail(cause);
+        } finally {
+          setSeatBusy(false);
+        }
+      };
+
+      const renameManagedSeat = async (seat) => {
+        if (!canManageSeats || seatBusy || seatDefinitionDraft.trim() === "") return;
+        setSeatBusy(true);
+        try {
+          await request("/api/collab/meeting/seats/manage", {
+            method: "PATCH",
+            body: JSON.stringify({
+              meetingId,
+              seatId: seat.id,
+              label: seatDefinitionDraft.trim(),
+            }),
+          });
+          notify("已更新会议席位");
+          setEditingSeatDefinitionId("");
+          setSeatDefinitionDraft("");
+          await load();
+        } catch (cause) {
+          fail(cause);
+        } finally {
+          setSeatBusy(false);
+        }
+      };
+
+      const removeManagedSeat = async (seat) => {
+        if (!canManageSeats || seatBusy) return;
+        if (!window.confirm(`删除席位「${seat.label}」？已占用该席位的成员会改为未设置席位。`)) return;
+        setSeatBusy(true);
+        try {
+          await request("/api/collab/meeting/seats/manage", {
+            method: "DELETE",
+            body: JSON.stringify({ meetingId, seatId: seat.id }),
+          });
+          notify("已删除会议席位");
+          await load();
         } catch (cause) {
           fail(cause);
         } finally {
@@ -1187,6 +1763,17 @@ window.__ModuleLoader__.load({
         detail === null
           ? jsxRuntime.jsx("div", { style: { alignItems: "center", color: "var(--dsw-alias-label-tertiary)", display: "grid", flex: 1, fontSize: 12, justifyContent: "center" }, children: "加载中…" })
           : jsxRuntime.jsxs(react.Fragment, { children: [
+              myExpiredAvatars.length > 0 ? jsxRuntime.jsx("div", { style: { background: "rgba(226,167,55,0.15)", borderBottom: "0.5px solid rgba(226,167,55,0.35)", color: "var(--dsw-alias-label-primary)", display: "grid", flexShrink: 0, fontSize: 12, gap: 8, padding: "8px 14px" }, children:
+                myExpiredAvatars.map((participant) => jsxRuntime.jsxs("div", { style: { display: "grid", gap: 6 }, children: [
+                  jsxRuntime.jsxs("div", { children: [
+                    jsxRuntime.jsx("strong", { children: `「${participant.displayName}」已到期。` }),
+                    " 本会议的自动发言已暂停，需要你跟进、延期恢复，或另派分身接手。",
+                  ] }),
+                  jsxRuntime.jsxs("div", { style: { display: "flex", gap: 5 }, children: [
+                    jsxRuntime.jsx("button", { type: "button", style: ghostBtnStyle, disabled: delegationNoticeBusy !== "", onClick: () => extendExpiredAvatar(participant), children: delegationNoticeBusy === participant.id ? "处理中…" : "延期并恢复" }),
+                    jsxRuntime.jsx("button", { type: "button", style: ghostBtnStyle, disabled: delegationNoticeBusy !== "", onClick: () => resumeExpiredAvatar(participant), children: "恢复" }),
+                  ] }),
+                ] }, participant.id)) }) : null,
               jsxRuntime.jsxs("div", { style: participantsStyle, children: [
                 jsxRuntime.jsxs("button", {
                   type: "button",
@@ -1206,12 +1793,23 @@ window.__ModuleLoader__.load({
                   (detail.participants ?? []).filter((p) => p.status !== "left").map((p) => {
                     const isMe = p.refId === detail.actorId && p.kind === "human";
                     const isPending = p.status === "pending";
+                    const avatarExpired = p.delegationStatus === "expired";
+                    const participantType = p.kind === "agent"
+                      ? (p.principalType === "delegation" || p.ownerName !== undefined || p.delegationId !== undefined ? "分身" : "数字员工")
+                      : "真人";
                     return jsxRuntime.jsxs("div", {
-                      style: isMe ? selfParticipantRowStyle : participantRowStyle,
+                      style: {
+                        ...(isMe ? selfParticipantRowStyle : participantRowStyle),
+                        ...(avatarExpired ? { opacity: 0.64 } : {}),
+                      },
                       children: [
                         jsxRuntime.jsx("div", { style: { ...avatarStyle, background: p.kind === "agent" ? "var(--dsw-alias-accent-primary, #4f8ef7)" : "var(--dsw-alias-state-success-primary, #34d47e)" }, children: p.kind === "agent" ? "AI" : (p.displayName ?? "?").slice(0, 1) }),
                         jsxRuntime.jsxs("div", { style: participantNameStyle, children: [
                           p.displayName ?? "未知",
+                          p.seatLabel !== undefined || (isMe && p.kind === "human") ? jsxRuntime.jsx("div", {
+                            style: { color: "var(--dsw-alias-label-tertiary)", fontSize: 9, marginTop: 1 },
+                            children: p.seatLabel === undefined ? "席位：未设置" : `席位：${p.seatLabel}`,
+                          }) : null,
                           p.kind === "agent" && p.ownerName !== undefined ? jsxRuntime.jsxs("div", {
                             style: { color: "var(--dsw-alias-label-tertiary)", fontSize: 9, marginTop: 1 },
                             children: [p.ownerName, "的分身 · ", p.autoSpeak === "all" ? "全部回复" : p.autoSpeak === "manual" ? "手动触发" : "被@回复"],
@@ -1219,10 +1817,48 @@ window.__ModuleLoader__.load({
                         ] }),
                         jsxRuntime.jsxs("div", { style: { alignItems: "center", display: "flex", gap: 3 }, children: [
                           isMe ? jsxRuntime.jsx("span", { style: selfParticipantTagStyle, children: "我" }) : null,
-                          p.kind === "agent" ? jsxRuntime.jsx("span", { style: { ...badgeStyle, background: "rgba(79,142,247,0.18)", color: "var(--dsw-alias-accent-primary, #4f8ef7)" }, children: "AI" }) : null,
+                          p.kind === "agent" ? jsxRuntime.jsx("span", { style: { ...badgeStyle, background: "rgba(79,142,247,0.18)", color: "var(--dsw-alias-accent-primary, #4f8ef7)" }, children: participantType }) : null,
+                          avatarExpired ? jsxRuntime.jsx("span", { style: { ...participantTagStyle, color: "var(--dsw-alias-state-error-primary, #e5534b)" }, children: "已到期" }) : null,
                           p.leader ? jsxRuntime.jsx("span", { style: { ...participantTagStyle, color: "var(--dsw-alias-state-warning-primary, #e2a737)" }, children: "Leader" }) : null,
                           isPending ? jsxRuntime.jsx("span", { style: participantTagStyle, children: "待认领" }) : null,
+                          (() => {
+                            const isAvatarOwner = p.kind === "agent" && p.ownerId === detail.actorId;
+                            const canChangeSeat = active && (isMe || (isLeader && !isMe) || isAvatarOwner);
+                            return canChangeSeat ? jsxRuntime.jsx("button", {
+                            type: "button",
+                            style: removeParticipantBtnStyle,
+                            disabled: seatBusy,
+                            onClick: () => openSeatEditor(isMe ? undefined : p.id),
+                            children: "改席位",
+                          }) : null;
+                          })(),
+                          detail.canRemove === true && !isMe ? jsxRuntime.jsx("button", {
+                            type: "button",
+                            style: removeParticipantBtnStyle,
+                            disabled: removingParticipantId === p.id,
+                            onClick: () => removeParticipant(p),
+                            children: removingParticipantId === p.id ? "移出中…" : "移出",
+                          }) : null,
                         ] }),
+                        editingSeat && active && (isMe || editingSeatFor === p.id) ? jsxRuntime.jsxs("form", {
+                          style: { display: "flex", gap: 4, gridColumn: "1 / -1", marginTop: 4 },
+                          onSubmit: saveOwnSeat,
+                          children: [
+                            jsxRuntime.jsx("select", {
+                              style: { ...inputStyle, flex: 1, fontSize: 11, padding: "4px 6px" },
+                              value: seatIdDraft,
+                              disabled: seatBusy,
+                              onChange: (event) => setSeatIdDraft(event.target.value),
+                              children: ownSeatOptions.map((choice) => jsxRuntime.jsx("option", {
+                                value: choice.value,
+                                disabled: choice.disabled,
+                                children: choice.label,
+                              }, choice.value)),
+                            }),
+                            jsxRuntime.jsx("button", { type: "submit", style: primaryBtnStyle, disabled: seatBusy, children: "保存" }),
+                            jsxRuntime.jsx("button", { type: "button", style: ghostBtnStyle, disabled: seatBusy, onClick: () => setEditingSeat(false), children: "取消" }),
+                          ],
+                        }) : null,
                       ],
                     }, p.id);
                   }),
@@ -1244,12 +1880,12 @@ window.__ModuleLoader__.load({
 	                            ...(directedToMe ? { boxShadow: "0 0 0 1px var(--dsw-alias-accent-primary, #4f8ef7)" } : {}),
 	                          }, children: [
 	                            msg.senderKind === "agent" ? jsxRuntime.jsx("div", { style: { color: "var(--dsw-alias-accent-primary, #4f8ef7)", fontSize: 9, fontWeight: 700, marginBottom: 3 }, children: "AI 分身" }) : null,
-	                            msg.content,
+	                            renderMarkdown(msg.content),
 	                          ] }),
 	                          jsxRuntime.jsx("div", { style: { ...metaStyle, textAlign: isSelf ? "right" : "left" }, children: [
 	                            msg.senderKind === "agent" ? "AI · " : "",
 	                            msg.senderName,
-	                            mentions.length === 0 ? " · 群发" : directedToMe ? " · 定向给我" : ` · 定向给${mentionNames.join("、")}`,
+	                            mentions.length === 0 ? " · 群发" : directedToMe ? " · 定向给我" : mentions.length >= activeOthers.length && activeOthers.length > 0 ? " · @所有人" : ` · 定向给${mentionNames.join("、")}`,
 	                            ` · ${timeShort(msg.createdAt)}`,
 	                          ].join("") }),
 	                        ],
@@ -1280,8 +1916,8 @@ window.__ModuleLoader__.load({
                           " · ",
                           p.autoSpeak === "all" ? "全部回复" : p.autoSpeak === "manual" ? "手动触发" : "被@回复",
                         ] }),
-                        jsxRuntime.jsx("span", { style: { color: "var(--dsw-alias-state-success-primary, #34d47e)", fontSize: 10 }, children: "已接入" }),
-                        p.autoSpeak === "manual" ? jsxRuntime.jsx("button", {
+                        p.delegationStatus === "expired" ? jsxRuntime.jsx("span", { style: { color: "var(--dsw-alias-state-error-primary, #e5534b)", fontSize: 10 }, children: "已到期" }) : jsxRuntime.jsx("span", { style: { color: "var(--dsw-alias-state-success-primary, #34d47e)", fontSize: 10 }, children: "已接入" }),
+                        p.autoSpeak === "manual" && p.delegationStatus !== "expired" ? jsxRuntime.jsx("button", {
                           type: "button",
                           style: { ...ghostBtnStyle, padding: "2px 6px", fontSize: 10 },
                           onClick: () => triggerAgent(p),
@@ -1299,6 +1935,14 @@ window.__ModuleLoader__.load({
                         jsxRuntime.jsx("option", { value: "", children: "选择人设…" }),
                         ...personas.map((p) => jsxRuntime.jsx("option", { value: p.id, children: p.name ?? p.id }, p.id)),
                       ],
+                    }),
+                    jsxRuntime.jsx("input", {
+                      type: "text",
+                      style: { ...selectStyle, fontSize: 11 },
+                      placeholder: "分身名称（可选，默认用主人名+会议名）",
+                      value: avatarNickname,
+                      onChange: (event) => setAvatarNickname(event.target.value),
+                      maxLength: 40,
                     }),
                     personas.length <= 1 ? jsxRuntime.jsx("div", { style: seatMetaStyle, children: "目前只有一个可选人设；更多角色请到「设置 > 角色」创建。" }) : null,
                     jsxRuntime.jsxs("select", {
@@ -1320,21 +1964,33 @@ window.__ModuleLoader__.load({
                 ] }) : null,
                 joined ? jsxRuntime.jsxs("form", { style: { ...inputSecStyle, flexDirection: "column", position: "relative" }, onSubmit: sendMessage, children: [
                   typedIds.size > 0 ? jsxRuntime.jsx("div", { style: { color: "var(--dsw-alias-label-tertiary)", fontSize: 10 }, children: [...typedIds].map((id) => `已识别 @${participantById.get(id) ?? id}`).join("、") }) : null,
-                  mentionIds.size > 0 ? jsxRuntime.jsx("div", { style: { display: "flex", flexWrap: "wrap", gap: 3 }, children: [...mentionIds].map((id) => jsxRuntime.jsxs("span", {
+                  isMentioningAll ? jsxRuntime.jsx("div", { style: { display: "flex", flexWrap: "wrap", gap: 3 }, children: jsxRuntime.jsxs("span", {
+                    style: mentionChipStyle,
+                    children: [
+                      "@所有人",
+                      jsxRuntime.jsx("button", { type: "button", "aria-label": "移除所有接收人", style: { background: "transparent", border: 0, color: "var(--dsw-alias-label-tertiary)", cursor: "pointer", font: "inherit", padding: 0 }, onClick: clearAllMentions, children: "×" }),
+                    ],
+                  }) }) : mentionIds.size > 0 ? jsxRuntime.jsx("div", { style: { display: "flex", flexWrap: "wrap", gap: 3 }, children: [...mentionIds].map((id) => jsxRuntime.jsxs("span", {
                     style: mentionChipStyle,
                     children: [
                       `@${participantById.get(id) ?? id}`,
                       jsxRuntime.jsx("button", { type: "button", "aria-label": "移除接收人", style: { background: "transparent", border: 0, color: "var(--dsw-alias-label-tertiary)", cursor: "pointer", font: "inherit", padding: 0 }, onClick: () => setMentionIds((cur) => { const next = new Set(cur); next.delete(id); return next; }), children: "×" }),
                     ],
                   }, id)) }) : null,
-                  mentionOpen ? jsxRuntime.jsx("div", { style: mentionMenuStyle, children:
+                  mentionOpen ? jsxRuntime.jsxs("div", { style: mentionMenuStyle, children: [
+                    jsxRuntime.jsx("button", {
+                      type: "button",
+                      style: { ...ghostBtnStyle, justifyContent: "flex-start", padding: "3px 6px", fontWeight: 600 },
+                      onClick: selectAllMentions,
+                      children: "@所有人",
+                    }),
                     mentionOptions.map((p) => jsxRuntime.jsx("button", {
                       type: "button",
                       style: { ...ghostBtnStyle, justifyContent: "flex-start", padding: "3px 6px" },
                       onClick: () => selectMention(p),
                       children: `${p.kind === "agent" ? "@AI " : "@ "}${p.displayName}`,
                     }, p.id)),
-                  }) : null,
+                  ] }) : null,
                   jsxRuntime.jsxs("div", { style: { display: "flex", gap: 5 }, children: [
                     jsxRuntime.jsx("button", { type: "button", style: { ...iconBtnStyle, border: "0.5px solid var(--dsw-alias-border-l3)" }, "aria-label": "选择接收人", title: "选择接收人；不选则群发", onClick: () => setMentionOpen(!mentionOpen), children: "@" }),
                     jsxRuntime.jsx("textarea", {
@@ -1359,6 +2015,7 @@ window.__ModuleLoader__.load({
                     ? jsxRuntime.jsx("span", { style: hintStyle, children: isLeader ? "你是会议 Leader" : "已加入会议" })
                     : jsxRuntime.jsx("button", { type: "button", style: primaryBtnStyle, onClick: () => action("/api/collab/meeting/join", { displayName: accountName || `用户-${detail.actorId.slice(0, 6)}` }, "已加入会议"), children: "加入会议" }),
                   joined ? jsxRuntime.jsx("button", { type: "button", style: ghostBtnStyle, onClick: openSeatPicker, children: "拉人入会" }) : null,
+                  joined && canManageSeats && active ? jsxRuntime.jsx("button", { type: "button", style: ghostBtnStyle, onClick: () => setSeatManageOpen(!seatManageOpen), children: seatManageOpen ? "收起席位管理" : "席位管理" }) : null,
                   joined ? jsxRuntime.jsx("button", { type: "button", style: ghostBtnStyle, onClick: () => action("/api/collab/meeting/leave", {}, "已离开会议"), children: "离开会议" }) : null,
                   isLeader ? jsxRuntime.jsx("button", { type: "button", style: ghostBtnStyle, onClick: () => setSummaryOpen(!summaryOpen), children: summaryOpen ? "收起摘要" : "关闭会议" }) : null,
                 ] }),
@@ -1367,10 +2024,70 @@ window.__ModuleLoader__.load({
                     jsxRuntime.jsx("div", { style: { color: "var(--dsw-alias-label-primary)", flex: 1, fontSize: 12, fontWeight: 600 }, children: "拉人入会" }),
                     jsxRuntime.jsx("button", { type: "button", style: iconBtnStyle, "aria-label": "关闭席位选择", onClick: () => setSeatOpen(false), children: jsxRuntime.jsx(CloseIcon, {}) }),
                   ] }),
-                  jsxRuntime.jsx("div", { style: seatMetaStyle, children: "勾选要拉入的席位；已退出或已在会的席位不可选择。" }),
-                  seats.length === 0
-                    ? jsxRuntime.jsx("div", { style: seatMetaStyle, children: seatBusy ? "正在读取席位…" : "当前工作区还没有可拉入的席位。" })
-                    : jsxRuntime.jsx(react.Fragment, { children: seats.map((seat) => {
+                  jsxRuntime.jsx("div", { style: seatMetaStyle, children: "先勾选成员直接拉入，并从下拉列表选择席位；下方角色席位是可选方式。" }),
+                  people.length === 0
+                    ? jsxRuntime.jsx("div", { style: seatMetaStyle, children: seatBusy ? "正在读取成员…" : "当前工作区没有可选成员。" })
+                    : jsxRuntime.jsx("div", { style: { display: "grid", gap: 5 }, children: people.map((person) => {
+                        const selectable = person.state !== "active" && person.state !== "pending";
+                        const selectedSeatValue = peopleSeatIds[person.id] ?? "";
+                        const otherSelectedSeatValues = [...selectedPeople]
+                          .filter((personId) => personId !== person.id)
+                          .map((personId) => peopleSeatIds[personId] ?? "");
+                        const personSeatOptions = [
+                          { value: "", label: "不指定席位", disabled: false },
+                          ...humanSeatOptions,
+                        ].map((choice) => ({
+                          ...choice,
+                          disabled: choice.value !== "" &&
+                            (usedSeatValues.has(choice.value) ||
+                              otherSelectedSeatValues.includes(choice.value)),
+                        }));
+                        return jsxRuntime.jsxs("div", {
+                          style: { ...seatRowStyle, cursor: "default", opacity: selectable ? 1 : 0.52 },
+                          children: [
+                            jsxRuntime.jsx("input", {
+                              type: "checkbox",
+                              style: checkboxStyle,
+                              checked: selectedPeople.has(person.id),
+                              disabled: !selectable || seatBusy,
+                              onChange: () => togglePerson(person.id),
+                            }),
+                            jsxRuntime.jsxs("div", { style: { minWidth: 0 }, children: [
+                              jsxRuntime.jsx("div", { style: seatLabelStyle, children: `${person.name} · 真人` }),
+                              jsxRuntime.jsx("div", { style: seatMetaStyle, children:
+                                person.state === "active" ? "已在会" :
+                                person.state === "pending" ? "待认领" :
+                                person.state === "left" ? "曾退出，可再次拉入" : "未入会"
+                              }),
+                            ] }),
+                            jsxRuntime.jsx("select", {
+                              style: { ...selectStyle, fontSize: 10, padding: "3px 5px", width: 96 },
+                              value: selectedSeatValue,
+                              disabled: !selectable || !selectedPeople.has(person.id) || seatBusy,
+                              onChange: (event) => setPersonSeatId(person.id, event.target.value),
+                              children: personSeatOptions.map((choice) => jsxRuntime.jsx("option", {
+                                value: choice.value,
+                                disabled: !selectable || !selectedPeople.has(person.id) || choice.disabled,
+                                children: choice.label,
+                              }, choice.value)),
+                            }),
+                          ],
+                        }, person.id);
+                      }) }),
+                  jsxRuntime.jsx("div", { style: seatActionsStyle, children:
+                    jsxRuntime.jsx("button", {
+                      type: "button",
+                      style: primaryBtnStyle,
+                      disabled: seatBusy || selectedPeople.size === 0,
+                      onClick: inviteSelectedPeople,
+                      children: `拉入选中成员（${selectedPeople.size}）`,
+                    })
+                  }),
+                  seats.length > 0 ? jsxRuntime.jsxs("div", { style: { color: "var(--dsw-alias-label-secondary)", fontSize: 11, fontWeight: 600, marginTop: 3 }, children: [
+                    "角色席位",
+                    jsxRuntime.jsx("span", { style: seatMetaStyle, children: " · 已退出或已在会的席位不可选择" }),
+                  ] }) : null,
+                  seats.length > 0 ? jsxRuntime.jsx("div", { style: { display: "grid", gap: 5 }, children: seats.map((seat) => {
                         const selectable = seat.availability === "selectable";
                         const occupant = seat.assigneeName === undefined
                           ? "待认领"
@@ -1400,7 +2117,7 @@ window.__ModuleLoader__.load({
                             ] }),
                           ],
                         }, seat.seatId);
-                      }) }),
+                      }) }) : null,
                   seats.length > 0 ? jsxRuntime.jsxs("div", { style: seatActionsStyle, children: [
                     jsxRuntime.jsxs("div", { style: { display: "flex", gap: 5 }, children: [
                       jsxRuntime.jsx("button", { type: "button", style: ghostBtnStyle, disabled: seatBusy, onClick: selectAvailableSeats, children: "全选可选" }),
@@ -1414,6 +2131,48 @@ window.__ModuleLoader__.load({
                       children: `拉入选中（${selectedSeatIds.size}）`,
                     }),
                   ] }) : null,
+                ] }) : null,
+                seatManageOpen && joined && canManageSeats && active ? jsxRuntime.jsxs("div", { style: seatSecStyle, children: [
+                  jsxRuntime.jsxs("div", { style: { alignItems: "center", display: "flex", gap: 6 }, children: [
+                    jsxRuntime.jsx("div", { style: { color: "var(--dsw-alias-label-primary)", flex: 1, fontSize: 12, fontWeight: 600 }, children: "席位管理" }),
+                    jsxRuntime.jsx("button", { type: "button", style: iconBtnStyle, "aria-label": "关闭席位管理", onClick: () => setSeatManageOpen(false), children: jsxRuntime.jsx(CloseIcon, {}) }),
+                  ] }),
+                  jsxRuntime.jsx("form", { style: { display: "flex", gap: 5 }, onSubmit: createManagedSeat, children: [
+                    jsxRuntime.jsx("input", {
+                      style: inputStyle,
+                      value: newSeatLabel,
+                      onChange: (event) => setNewSeatLabel(event.target.value),
+                      placeholder: "新席位名称，例如 后端",
+                      disabled: seatBusy,
+                      maxLength: 80,
+                      required: true,
+                    }),
+                    jsxRuntime.jsx("button", { type: "submit", style: primaryBtnStyle, disabled: seatBusy, children: "新增" }),
+                  ] }),
+                  meetingSeats.length === 0
+                    ? jsxRuntime.jsx("div", { style: seatMetaStyle, children: "本会议还没有自定义席位。新增后会出现在拉人和改席位的下拉列表中。" })
+                    : jsxRuntime.jsx("div", { style: { display: "grid", gap: 5 }, children: meetingSeats.map((seat) => jsxRuntime.jsxs("div", {
+                        style: seatRowStyle,
+                        children: [
+                          editingSeatDefinitionId === seat.id ? jsxRuntime.jsxs(react.Fragment, { children: [
+                            jsxRuntime.jsx("input", {
+                              style: inputStyle,
+                              value: seatDefinitionDraft,
+                              autoFocus: true,
+                              disabled: seatBusy,
+                              maxLength: 80,
+                              onChange: (event) => setSeatDefinitionDraft(event.target.value),
+                            }),
+                            jsxRuntime.jsx("button", { type: "button", style: primaryBtnStyle, disabled: seatBusy, onClick: () => renameManagedSeat(seat), children: "保存" }),
+                            jsxRuntime.jsx("button", { type: "button", style: ghostBtnStyle, disabled: seatBusy, onClick: () => setEditingSeatDefinitionId(""), children: "取消" }),
+                          ] }) : jsxRuntime.jsxs(react.Fragment, { children: [
+                            jsxRuntime.jsx("div", { style: { color: "var(--dsw-alias-label-primary)", flex: 1, fontSize: 11, fontWeight: 600, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: seat.label }),
+                            jsxRuntime.jsx("button", { type: "button", style: ghostBtnStyle, disabled: seatBusy, onClick: () => { setEditingSeatDefinitionId(seat.id); setSeatDefinitionDraft(seat.label); }, children: "改名" }),
+                            jsxRuntime.jsx("button", { type: "button", style: removeParticipantBtnStyle, disabled: seatBusy, onClick: () => removeManagedSeat(seat), children: "删除" }),
+                          ] }),
+                        ],
+                      }, seat.id)) }),
+                  jsxRuntime.jsx("div", { style: seatMetaStyle, children: "删除席位不会移出成员；已占用成员会改为「未设置席位」。" }),
                 ] }) : null,
                 summaryOpen && isLeader ? jsxRuntime.jsxs("form", { style: { borderTop: "0.5px solid var(--dsw-alias-border-l2)", display: "grid", flexShrink: 0, gap: 6, padding: "7px 14px" }, onSubmit: async (event) => { event.preventDefault(); await action("/api/collab/meeting/close", { summary }, "会议已关闭"); setSummaryOpen(false); setSummary(""); }, children: [
                   jsxRuntime.jsx("textarea", { style: { ...inputStyle, minHeight: 48, resize: "vertical" }, value: summary, onChange: (event) => setSummary(event.target.value), placeholder: "关闭摘要（必填）", required: true }),

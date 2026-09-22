@@ -3,7 +3,7 @@
 ## 元信息
 
 - key: product-delivery
-- version: 2
+- version: 6
 - description: 需求评审后并行开发与测试，关键交付物作为完成门禁
 - variable: complexity = 5
 
@@ -24,6 +24,11 @@
 - executor: agent:backend-agent
 - responsible: user:workflow-member
 - description: 完成接口、数据结构和回归说明
+- execution: task-worker
+- trigger: manual-dispatch
+- max-attempts: 2
+- timeout: 30m
+- agent-profile: backend-agent
 - deliverable: implementation-report
   title: 开发交付说明
   type: text

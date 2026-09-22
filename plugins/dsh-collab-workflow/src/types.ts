@@ -3,19 +3,19 @@ import { z } from "zod";
 export const idPattern = /^[a-zA-Z][a-zA-Z0-9._-]*$/;
 
 export const executorSchema = z.object({
-  kind: z.enum(["system", "user", "agent"]),
+  kind: z.enum(["system", "user", "agent", "employee"]),
   id: z.string().trim().min(1).max(120),
   label: z.string().trim().max(120).optional(),
 });
 
 export const approverSchema = z.object({
-  kind: z.enum(["user", "agent"]),
+  kind: z.enum(["user", "agent", "employee"]),
   id: z.string().trim().min(1).max(120),
   name: z.string().trim().min(1).max(120),
 });
 
 export const actorRefSchema = z.object({
-  kind: z.enum(["user", "agent"]),
+  kind: z.enum(["user", "agent", "employee"]),
   id: z.string().trim().min(1).max(120),
   label: z.string().trim().max(120).optional(),
 });
@@ -67,6 +67,13 @@ export const workflowNodeSchema = z.object({
   description: z.string().trim().max(2_000).default(""),
   executor: executorSchema,
   responsible: actorRefSchema.optional(),
+  execution: z.enum(["manual", "task-worker"]).default("manual"),
+  trigger: z
+    .enum(["manual-dispatch", "auto-on-ready"])
+    .default("manual-dispatch"),
+  maxAttempts: z.number().int().min(1).max(5).default(1),
+  timeoutMs: z.number().int().min(1_000).max(3_600_000).default(1_800_000),
+  agentProfileId: z.string().trim().regex(idPattern).optional(),
   deliverables: z.array(deliverableRequirementSchema).default([]),
   approvers: z.array(approverSchema).default([]),
   approvalPolicy: z.enum(["all", "any"]).default("all"),

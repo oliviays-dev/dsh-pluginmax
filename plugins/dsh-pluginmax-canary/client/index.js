@@ -7,6 +7,20 @@ window.__ModuleLoader__.load({
     const react = require("react");
     const jsxRuntime = require("react/jsx-runtime");
 
+    function formatTime(value) {
+      const time = new Date(value);
+      if (Number.isNaN(time.getTime())) return value;
+      return time.toLocaleString("zh-CN", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      });
+    }
+
     const CanarySection = () => {
       const [state, setState] = react.useState({
         phase: "loading",
@@ -24,7 +38,11 @@ window.__ModuleLoader__.load({
             const body = await response.json();
             setState({
               phase: "ready",
-              detail: `${body.domain}: ${body.records.at(-1)?.startedAt ?? "unknown"}`,
+              detail: `${body.domain}: ${
+                body.records.at(-1)?.startedAt
+                  ? formatTime(body.records.at(-1).startedAt)
+                  : "unknown"
+              }`,
             });
           })
           .catch((error) => {

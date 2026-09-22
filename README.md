@@ -4,7 +4,37 @@ DSH Pluginmax is an out-of-tree collaboration plugin suite for DeepSeek Harness.
 
 ## Current milestone
 
-The current milestone is R4. It adds `dsh-collab-meeting`, which provides:
+The current milestone is Phase X: workflow agent execution. It adds `dsh-collab-agent`, which provides:
+
+- workspace-scoped Agent Profiles and one-shot Task Worker runs
+- explicit manual and `auto-on-ready` workflow dispatch
+- bounded prompt construction, cancellation, timeout, restart recovery, and run history
+- mapping of a worker's final text output into the existing deliverable gate
+- human confirmation before an agent-executed node can complete
+
+The Task Worker does not create a sidebar home session, join meetings, inherit full host permissions, or complete workflow nodes by itself.
+
+The employee platform milestone through E7 adds `dsh-collab-employee` and connects it to workflow execution:
+
+- durable `collab_employee` records with `human` and `digital` employee kinds
+- automatic compatibility mapping from every Identity login account to a Human Employee
+- same-origin Bearer-protected employee, role, runtime, delegation, ticket, report, and audit APIs
+- Digital Employee lifecycle records without password-login capability
+- explicit workspace role grants, Runtime Profiles, tool allow/deny policies, resource scopes, and budgets
+- context-bound Action Tickets with deny-wins authorization and auditable permission provenance
+- structured Human Avatar delegations with owner/admin-only ticket control, pause, extend, revoke, expiry, and reports
+- meeting avatar dispatch that creates a restricted delegation and generates a per-avatar report without adding the avatar to the employee directory
+- `employee:<employeeId>` workflow execution with explicit Runtime Profile mapping, context-bound Action Tickets, auditable runs, and the existing deliverable gate
+- an admin governance center for employees, permission provenance, runtime budgets, activity, failures, and avatar reports
+- a main-area workstation with employee detail, delegation detail, workflow node, approval, avatar report, and admin permission panels
+
+Role-based workstation panel composition is deliberately reserved for a later iteration. The current workstation exposes the six base panels in a fixed layout and displays the reserved role-profile schema instead of pretending that custom layouts are editable.
+
+Workflow approval references can parse `employee:<employeeId>`, but final approval remains visibly pending until the dedicated Digital Employee runtime decision path is delivered. Browser users cannot approve on behalf of a Digital Employee.
+
+The employee model deliberately keeps Human Avatar / Delegation out of the employee directory and preserves existing `userId` compatibility.
+
+Phase X builds on R4. `dsh-collab-meeting` provides:
 
 - `ctx.collabMeeting`: durable meeting rooms, human participants, seat participants, transcripts, delivery records, and close summaries
 - pending-seat persona fallback with `/assignment claim <workspace> <seat>` guidance
@@ -44,7 +74,7 @@ R0 provides the repository foundation and `dsh-pluginmax-canary`, which validate
 - `settings.section` through `dsh.client`
 - clean submodule ownership and disposable `DSH_HOME`
 
-The seven product plugins will be added milestone by milestone under `plugins/`.
+Product plugins are added milestone by milestone under `plugins/`.
 
 ## Setup
 

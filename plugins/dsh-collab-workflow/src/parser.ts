@@ -70,10 +70,11 @@ function parseExecutor(
   value: string,
   errors: string[],
 ): WorkflowNode["executor"] | undefined {
-  const match = /^(system|user|agent|系统|用户)\s*[:：]\s*(.+)$/.exec(value);
+  const match =
+    /^(system|user|agent|employee|系统|用户|员工)\s*[:：]\s*(.+)$/.exec(value);
   if (match === null) {
     errors.push(
-      `invalid executor "${value}"; use system:user, user:alice, or agent:architect`,
+      `invalid executor "${value}"; use system:user, user:alice, agent:architect, or employee:backend-engineer-01`,
     );
     return undefined;
   }
@@ -83,7 +84,9 @@ function parseExecutor(
       ? "system"
       : kindRaw === "user" || kindRaw === "用户"
         ? "user"
-        : "agent";
+        : kindRaw === "employee" || kindRaw === "员工"
+          ? "employee"
+          : "agent";
   const id = match[2]!.trim();
   if (!ID_PATTERN.test(id)) {
     errors.push(`invalid executor id "${id}"`);
@@ -93,12 +96,20 @@ function parseExecutor(
 }
 
 function parseApprover(value: string, errors: string[]): Approver | undefined {
-  const match = /^(用户|agent)\s*[:：]\s*(.+)$/.exec(value);
+  const match = /^(用户|agent|employee|员工)\s*[:：]\s*(.+)$/.exec(value);
   if (match === null) {
-    errors.push(`invalid approver "${value}"; use 用户:id or agent:id`);
+    errors.push(
+      `invalid approver "${value}"; use 用户:id, agent:id, or employee:id`,
+    );
     return undefined;
   }
-  const kind = match[1]!.toLowerCase() === "agent" ? "agent" : "user";
+  const rawKind = match[1]!.toLowerCase();
+  const kind =
+    rawKind === "agent"
+      ? "agent"
+      : rawKind === "employee" || rawKind === "员工"
+        ? "employee"
+        : "user";
   const id = match[2]!.trim();
   if (!ID_PATTERN.test(id)) {
     errors.push(`invalid approver id "${id}"`);
@@ -116,6 +127,16 @@ const DELIVERABLE_FIELDS = new Set([
   "min-text-length",
   "max-files",
 ]);
+
+function parseDurationMs(value: string): number | undefined {
+  const match = /^(\d+)\s*(ms|s|m|h)$/.exec(value.trim());
+  if (match === null) return undefined;
+  const amount = Number(match[1]);
+  const unitMs = { ms: 1, s: 1_000, m: 60_000, h: 3_600_000 }[
+    match[2] as "ms" | "s" | "m" | "h"
+  ];
+  return amount * unitMs;
+}
 
 function parseEdges(
   lines: string[],
@@ -411,8 +432,11 @@ export function parseWorkflowMarkdown(markdown: string): ParseResult {
         : parseExecutor(responsibleText, errors);
     const typedResponsible = responsible as ActorRef | undefined;
     if (responsibleText !== undefined && responsible === undefined) continue;
-    if (typedResponsible !== undefined && typedResponsible.kind !== "user") {
-      errors.push(`node "${nodeId}" responsible must be a user`);
+    if (
+      typedResponsible !== undefined &&
+      !["user", "employee"].includes(typedResponsible.kind)
+    ) {
+      errors.push(`node "${nodeId}" responsible must be a user or employee`);
       continue;
     }
     if (executor.kind === "agent" && typedResponsible === undefined) {
@@ -457,6 +481,10 @@ export function parseWorkflowMarkdown(markdown: string): ParseResult {
       description: fields.get("description")?.[0] ?? "",
       executor,
       responsible: typedResponsible,
+      execution: "manual",
+      trigger: "manual-dispatch",
+      maxAttempts: 1,
+      timeoutMs: 1_800_000,
       deliverables,
       approvers,
       approvalPolicy: fields.get("policy")?.[0] === "any" ? "any" : "all",
@@ -472,6 +500,64 @@ export function parseWorkflowMarkdown(markdown: string): ParseResult {
             subworkflowVersion: Number(fields.get("subworkflow-version")![0]),
           }),
     };
+    const executionText = fields.get("execution")?.[0]?.toLowerCase();
+    if (executionText !== undefined) {
+      if (executionText === "manual" || executionText === "task-worker") {
+        node.execution = executionText;
+      } else {
+        errors.push(
+          `node "${nodeId}" has an invalid execution: ${executionText}`,
+        );
+      }
+    }
+    const triggerText = fields.get("trigger")?.[0]?.toLowerCase();
+    if (triggerText !== undefined) {
+      if (
+        triggerText === "manual-dispatch" ||
+        triggerText === "auto-on-ready"
+      ) {
+        node.trigger = triggerText;
+      } else {
+        errors.push(`node "${nodeId}" has an invalid trigger: ${triggerText}`);
+      }
+    }
+    const maxAttemptsText = fields.get("max-attempts")?.[0];
+    if (maxAttemptsText !== undefined) {
+      const parsed = Number(maxAttemptsText);
+      if (!Number.isInteger(parsed) || parsed < 1 || parsed > 5) {
+        errors.push(
+          `node "${nodeId}" has an invalid max-attempts: ${maxAttemptsText}`,
+        );
+      } else {
+        node.maxAttempts = parsed;
+      }
+    }
+    const timeoutText = fields.get("timeout")?.[0];
+    if (timeoutText !== undefined) {
+      const parsed = parseDurationMs(timeoutText);
+      if (parsed === undefined || parsed < 1_000 || parsed > 3_600_000) {
+        errors.push(
+          `node "${nodeId}" has an invalid timeout: ${timeoutText} (use 1s - 1h)`,
+        );
+      } else {
+        node.timeoutMs = parsed;
+      }
+    }
+    const agentProfileText = fields.get("agent-profile")?.[0];
+    if (agentProfileText !== undefined) {
+      if (ID_PATTERN.test(agentProfileText)) {
+        node.agentProfileId = agentProfileText;
+      } else {
+        errors.push(
+          `node "${nodeId}" has an invalid agent-profile: ${agentProfileText}`,
+        );
+      }
+    }
+    if (node.trigger === "auto-on-ready" && node.execution !== "task-worker") {
+      errors.push(
+        `node "${nodeId}" trigger auto-on-ready requires execution: task-worker`,
+      );
+    }
     if (type === "subworkflow") {
       if (node.subworkflowKey === undefined)
         errors.push(`subworkflow node ${nodeId} requires subworkflow`);

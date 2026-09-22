@@ -321,6 +321,8 @@ window.__ModuleLoader__.load({
       });
       const [uploadFeedback, setUploadFeedback] = react.useState(null);
       const [uploadPending, setUploadPending] = react.useState(false);
+      const [policyPending, setPolicyPending] = react.useState(false);
+      const policyPendingRef = react.useRef(false);
       const [policy, setPolicy] = react.useState({
         pattern: "workspace/docs/*.md",
         scope: "workspace",
@@ -465,6 +467,9 @@ window.__ModuleLoader__.load({
 
       const submitPolicy = async (event) => {
         event.preventDefault();
+        if (policyPendingRef.current) return;
+        policyPendingRef.current = true;
+        setPolicyPending(true);
         try {
           await request("/api/collab/space/policies", {
             method: "POST",
@@ -480,6 +485,9 @@ window.__ModuleLoader__.load({
           await load();
         } catch (cause) {
           fail(cause);
+        } finally {
+          policyPendingRef.current = false;
+          setPolicyPending(false);
         }
       };
 
@@ -769,7 +777,8 @@ window.__ModuleLoader__.load({
                         }),
                         jsxRuntime.jsx("td", {
                           style: cellStyle,
-                          children: file.updatedAt,
+                          title: file.updatedAt,
+                          children: formatTime(file.updatedAt),
                         }),
                         jsxRuntime.jsx("td", {
                           style: cellStyle,
@@ -893,7 +902,8 @@ window.__ModuleLoader__.load({
                   jsxRuntime.jsx("button", {
                     type: "submit",
                     style: buttonStyle,
-                    children: "添加",
+                    disabled: policyPending,
+                    children: policyPending ? "添加中..." : "添加",
                   }),
                 ],
               }),
@@ -922,7 +932,10 @@ window.__ModuleLoader__.load({
                         }),
                         jsxRuntime.jsx("td", {
                           style: cellStyle,
-                          children: item.expiresAt ?? "-",
+                          title: item.expiresAt || undefined,
+                          children: item.expiresAt
+                            ? formatTime(item.expiresAt)
+                            : "-",
                         }),
                       ],
                     },
@@ -1187,7 +1200,8 @@ window.__ModuleLoader__.load({
                         }),
                         jsxRuntime.jsx("td", {
                           style: cellStyle,
-                          children: item.updatedAt,
+                          title: item.updatedAt,
+                          children: formatTime(item.updatedAt),
                         }),
                         jsxRuntime.jsx("td", {
                           style: cellStyle,
@@ -1209,7 +1223,8 @@ window.__ModuleLoader__.load({
                       children: [
                         jsxRuntime.jsx("td", {
                           style: cellStyle,
-                          children: event.at,
+                          title: event.at,
+                          children: formatTime(event.at),
                         }),
                         jsxRuntime.jsx("td", {
                           style: cellStyle,

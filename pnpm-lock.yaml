@@ -33,6 +33,24 @@ importers:
         specifier: 4.4.3
         version: 4.4.3
 
+  plugins/dsh-collab-agent:
+    dependencies:
+      '@pluginmax/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+
+  plugins/dsh-collab-employee:
+    dependencies:
+      '@pluginmax/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+
   plugins/dsh-collab-identity:
     dependencies:
       '@pluginmax/shared':

@@ -99,6 +99,181 @@ export interface TeamServiceLike {
   members(workspaceId: string): readonly TeamMemberLike[];
 }
 
+export interface WorkflowEmployeeTarget {
+  readonly employee: {
+    readonly id: string;
+    readonly displayName: string;
+    readonly status: string;
+  };
+  readonly assignment: {
+    readonly role: "viewer" | "member" | "owner";
+    readonly permissions: readonly string[];
+  };
+  readonly profile: {
+    readonly id: string;
+    readonly name: string;
+    readonly legacyAgentProfileId?: string | undefined;
+  };
+}
+
+export interface EmployeeServiceLike {
+  employeeWorkspaceTarget(
+    employeeId: string,
+    workspaceId: string,
+  ):
+    | {
+        readonly employee: {
+          readonly id: string;
+          readonly displayName: string;
+          readonly status: string;
+        };
+        readonly assignment: {
+          readonly role: "viewer" | "member" | "owner";
+          readonly permissions: readonly string[];
+        };
+      }
+    | undefined;
+  workflowTarget(
+    employeeId: string,
+    workspaceId: string,
+  ): WorkflowEmployeeTarget | undefined;
+  workflowDispatchBlockReason(
+    employeeId: string,
+    workspaceId: string,
+  ): string | undefined;
+  employeeApprovalTarget(
+    employeeId: string,
+    workspaceId: string,
+  ):
+    | {
+        readonly id: string;
+        readonly displayName: string;
+        readonly status: string;
+      }
+    | undefined;
+  issueRuntimeTicket(
+    actorAuthUserId: string,
+    input: {
+      readonly actorAuthUserId: string;
+      readonly employeeId: string;
+      readonly workspaceId: string;
+      readonly contextType: "workflow";
+      readonly contextId: string;
+      readonly requestedActions: readonly string[];
+      readonly resourceScopes?: readonly string[] | undefined;
+      readonly runId?: string | undefined;
+      readonly durationMinutes?: number | undefined;
+    },
+  ): Promise<{ readonly id: string }>;
+  authorizeTicket(input: {
+    readonly ticketId: string;
+    readonly action: string;
+    readonly resource?: string | undefined;
+    readonly workspaceId: string;
+    readonly contextType: "workflow";
+    readonly contextId: string;
+  }): Promise<{ readonly employeeId: string }>;
+}
+
+export interface AgentRunView {
+  readonly id: string;
+  readonly workspaceId: string;
+  readonly agentProfileId: string;
+  readonly personaId?: string | undefined;
+  readonly employeeId?: string | undefined;
+  readonly principalType?:
+    "transitional-agent" | "digital-employee" | undefined;
+  readonly ticketId?: string | undefined;
+  readonly instanceId: string;
+  readonly nodeId: string;
+  readonly dispatchKey: string;
+  readonly trigger: "manual-dispatch" | "auto-on-ready";
+  readonly status:
+    | "queued"
+    | "running"
+    | "waiting_input"
+    | "succeeded"
+    | "failed"
+    | "timeout"
+    | "cancelled"
+    | "interrupted";
+  readonly attempt: number;
+  readonly runSeq: number;
+  readonly maxAttempts: number;
+  readonly timeoutMs: number;
+  readonly payload: {
+    readonly instanceTitle: string;
+    readonly nodeName: string;
+    readonly nodeDescription: string;
+    readonly profileName: string;
+    readonly employeeName?: string | undefined;
+    readonly responsibleId?: string | undefined;
+    readonly deliverables: ReadonlyArray<{
+      readonly key: string;
+      readonly title: string;
+      readonly type: "file" | "text" | "link";
+      readonly required: boolean;
+      readonly description: string;
+      readonly minTextLength?: number | undefined;
+    }>;
+    readonly context: Record<string, string | number | boolean>;
+  };
+  readonly promptSnapshot?: string | undefined;
+  readonly output?:
+    | {
+        readonly summary: string;
+        readonly endedAt?: string | undefined;
+        readonly stopReason?: string | undefined;
+      }
+    | undefined;
+  readonly error?: string | undefined;
+  readonly startedAt?: string | undefined;
+  readonly endedAt?: string | undefined;
+  readonly createdBy: string;
+  readonly createdAt: string;
+}
+
+export interface AgentServiceLike {
+  profile(
+    workspaceId: string,
+    profileId: string,
+  ):
+    | {
+        readonly id: string;
+        readonly name: string;
+        readonly runtimeKind: string;
+        readonly status: string;
+        readonly personaId?: string | undefined;
+      }
+    | undefined;
+  runs(instanceId: string, nodeId?: string | undefined): AgentRunView[];
+  run(runId: string): AgentRunView | undefined;
+  dispatch(input: {
+    readonly workspaceId: string;
+    readonly profileId: string;
+    readonly source: "workflow";
+    readonly instanceId: string;
+    readonly nodeId: string;
+    readonly dispatchKey: string;
+    readonly trigger: "manual-dispatch" | "auto-on-ready";
+    readonly attempt: number;
+    readonly runSeq: number;
+    readonly maxAttempts: number;
+    readonly timeoutMs: number;
+    readonly personaId?: string | undefined;
+    readonly employeeId?: string | undefined;
+    readonly principalType?:
+      "transitional-agent" | "digital-employee" | undefined;
+    readonly ticketId?: string | undefined;
+    readonly payload: AgentRunView["payload"];
+    readonly createdBy: string;
+  }): Promise<AgentRunView>;
+  cancel(runId: string): Promise<AgentRunView>;
+  bindWorkflow(handler: {
+    onSettled(run: AgentRunView): Promise<void> | void;
+  }): void;
+}
+
 export interface WorkflowActor {
   readonly kind: "user" | "agent";
   readonly id: string;
@@ -140,7 +315,23 @@ interface WorkflowContext {
       child: WorkflowContext & { readonly collabTeam: TeamServiceLike },
     ) => void,
   ): { dispose(): void } | void;
+  inject(
+    keys: readonly ["collabAgent"],
+    callback: (
+      child: WorkflowContext & { readonly collabAgent: AgentServiceLike },
+    ) => void,
+  ): { dispose(): void } | void;
+  inject(
+    keys: readonly ["collabEmployee"],
+    callback: (
+      child: WorkflowContext & {
+        readonly collabEmployee: EmployeeServiceLike;
+      },
+    ) => void,
+  ): { dispose(): void } | void;
   get(key: "collabTeam"): TeamServiceLike | undefined;
+  get(key: "collabAgent"): AgentServiceLike | undefined;
+  get(key: "collabEmployee"): EmployeeServiceLike | undefined;
 }
 
 export const workflowDomainSpec = {
@@ -198,6 +389,10 @@ function isManager(actor: WorkflowActor): boolean {
     actor.kind === "user" &&
     (actor.globalRole === "admin" || actor.workspaceRole === "owner")
   );
+}
+
+function isAgentRunActive(run: AgentRunView): boolean {
+  return ["queued", "running", "waiting_input"].includes(run.status);
 }
 
 function actorMatchesApprover(
@@ -341,6 +536,12 @@ export function validateWorkspaceActorReferences(
   return issues;
 }
 
+export function extractAgentDeliverableText(summary: string): string {
+  const match = /^##\s*交付说明\s*$/m.exec(summary);
+  if (match === null) return "";
+  return summary.slice(match.index + match[0].length).trim();
+}
+
 export interface WorkflowServiceTables {
   definitions: KvTableLike<WorkflowDefinition>;
   instances: KvTableLike<WorkflowInstance>;
@@ -366,6 +567,8 @@ export class WorkflowService {
       readonly now?: () => Date;
       readonly artifactRoot?: string;
       readonly team?: () => TeamServiceLike | undefined;
+      readonly agent?: () => AgentServiceLike | undefined;
+      readonly employee?: () => EmployeeServiceLike | undefined;
     } = {},
   ) {}
 
@@ -400,8 +603,116 @@ export class WorkflowService {
     );
     if (workspaceId !== undefined) {
       issues.push(...this.actorReferenceIssues(parsed.graph, workspaceId));
+      issues.push(...this.agentReferenceIssues(parsed.graph, workspaceId));
     }
     return { graph: parsed.graph, issues: dedupeIssues(issues) };
+  }
+
+  private agentReferenceIssues(
+    graph: WorkflowGraph,
+    workspaceId: string,
+  ): ValidationIssue[] {
+    const issues: ValidationIssue[] = [];
+    const agent = this.options.agent?.();
+    const employees = this.options.employee?.();
+    for (const node of graph.nodes) {
+      const label = `节点「${node.name}」`;
+      if (node.executor.kind === "employee") {
+        if (node.execution !== "task-worker") {
+          issues.push({
+            level: "error",
+            message: `${label}的 Digital Employee 执行者必须启用 task-worker`,
+          });
+        }
+        if (employees === undefined) {
+          issues.push({
+            level: "warning",
+            message: `${label}引用了 Digital Employee，但员工目录暂不可用，无法校验`,
+          });
+        }
+        else if (node.execution === "task-worker") {
+          const target = employees.workflowTarget(node.executor.id, workspaceId);
+          if (target === undefined) {
+            issues.push({
+              level: "error",
+              message: `${label}的 Digital Employee「${node.executor.id}」必须启用，且具备显式工作区授权、启用 Runtime Profile 和 Agent Profile 映射`,
+            });
+          } else {
+            const profileId = target.profile.legacyAgentProfileId!;
+            this.checkAgentProfile(issues, label, agent, workspaceId, profileId);
+          }
+        }
+      } else if (node.executor.kind === "agent") {
+        if (node.execution !== "task-worker") continue;
+        this.checkAgentProfile(
+          issues,
+          label,
+          agent,
+          workspaceId,
+          node.agentProfileId ?? node.executor.id,
+        );
+      }
+      if (node.type !== "approval") continue;
+      for (const approver of node.approvers) {
+        if (approver.kind !== "employee") continue;
+        if (employees === undefined) {
+          issues.push({
+            level: "warning",
+            message: `${label}引用了 Digital Employee 审批人，但员工目录暂不可用，无法校验`,
+          });
+          continue;
+        }
+        const target = employees.employeeApprovalTarget(
+          approver.id,
+          workspaceId,
+        );
+        if (target === undefined) {
+          issues.push({
+            level: "error",
+            message: `${label}的 Digital Employee 审批人「${approver.id}」必须启用并拥有显式 approve 授权`,
+          });
+        } else {
+          issues.push({
+            level: "warning",
+            message: `${label}的 Digital Employee 最终审批将保持等待，直到专用 runtime decision path 可用`,
+          });
+        }
+      }
+    }
+    return issues;
+  }
+
+  private checkAgentProfile(
+    issues: ValidationIssue[],
+    label: string,
+    agent: AgentServiceLike | undefined,
+    workspaceId: string,
+    profileId: string,
+  ): void {
+    if (agent === undefined) {
+      issues.push({
+        level: "warning",
+        message: `${label}需要 Agent Profile「${profileId}」，但 Agent 注册表暂不可用，无法校验`,
+      });
+      return;
+    }
+    const profile = agent.profile(workspaceId, profileId);
+    if (profile === undefined) {
+      issues.push({
+        level: "error",
+        message: `${label}的 Agent Profile「${profileId}」不存在，请先在工作区创建`,
+      });
+    } else if (profile.status !== "active") {
+      issues.push({
+        level: "error",
+        message: `${label}的 Agent Profile「${profile.name}」已停用`,
+      });
+    } else if (profile.runtimeKind !== "task-worker") {
+      issues.push({
+        level: "error",
+        message: `${label}的 Agent Profile「${profile.name}」不是 task-worker 类型`,
+      });
+    }
   }
 
   private actorReferenceIssues(
@@ -418,9 +729,9 @@ export class WorkflowService {
       .filter((definition) => definition.workspaceId === workspaceId)
       .sort(
         (left, right) =>
+          right.updatedAt.localeCompare(left.updatedAt) ||
           left.key.localeCompare(right.key) ||
-          right.version - left.version ||
-          left.createdAt.localeCompare(right.createdAt),
+          right.version - left.version,
       );
   }
 
@@ -445,9 +756,15 @@ export class WorkflowService {
         check.graph === undefined
           ? []
           : this.actorReferenceIssues(check.graph, input.workspaceId);
-      const errors = [...check.issues, ...identityIssues].filter(
-        (issue) => issue.level === "error",
-      );
+      const agentIssues =
+        check.graph === undefined
+          ? []
+          : this.agentReferenceIssues(check.graph, input.workspaceId);
+      const errors = [
+        ...check.issues,
+        ...identityIssues,
+        ...agentIssues,
+      ].filter((issue) => issue.level === "error");
       if (check.graph === undefined || errors.length > 0) {
         throw new WorkflowError(
           "invalid_input",
@@ -518,7 +835,9 @@ export class WorkflowService {
 
   instanceView(instanceId: string): WorkflowInstance | undefined {
     const instance = this.instance(instanceId);
-    return instance === undefined ? undefined : this.refreshStatus(instance);
+    return instance === undefined
+      ? undefined
+      : this.syncDeliverableStates(this.refreshStatus(instance));
   }
 
   events(instanceId: string): WorkflowEvent[] {
@@ -717,7 +1036,8 @@ export class WorkflowService {
         data: { definition: `${definition.name} v${definition.version}` },
       });
       const started = await this.putInstance(instance);
-      return this.startReadySubworkflows(actor, started);
+      const dispatched = await this.autoDispatchAgentNodes(actor, started);
+      return this.startReadySubworkflows(actor, dispatched);
     });
   }
 
@@ -854,10 +1174,9 @@ export class WorkflowService {
   ): void {
     const target = instance.nodes[edge.to];
     if (target?.status !== "waiting") return;
-    const alternativeRoutes = this.incomingEdges(
-      definition,
-      edge.to,
-    ).filter((candidate) => candidate.from !== edge.from);
+    const alternativeRoutes = this.incomingEdges(definition, edge.to).filter(
+      (candidate) => candidate.from !== edge.from,
+    );
     if (alternativeRoutes.length > 0) return;
     instance.nodes[edge.to] = {
       ...target,
@@ -965,8 +1284,9 @@ export class WorkflowService {
       );
       if (blockers.length > 0) continue;
       const target = current.nodes[edge.to];
-      const isReworkEdge =
-        ["completed", "skipped"].includes(target?.status ?? "");
+      const isReworkEdge = ["completed", "skipped"].includes(
+        target?.status ?? "",
+      );
       if (
         target === undefined ||
         (!isReworkEdge &&
@@ -987,16 +1307,702 @@ export class WorkflowService {
           ? this.initialState(targetNode, "")
           : {}),
         status: "ready",
-        attempts: isReworkEdge
-          ? Number(target?.attempts ?? 1) + 1
-          : visits,
+        attempts: isReworkEdge ? Number(target?.attempts ?? 1) + 1 : visits,
         enteredAt: iso(this.now()),
         note: undefined,
       };
     }
     current = await this.putInstance(current);
     current = await this.putInstance(this.refreshStatus(current));
+    current = await this.autoDispatchAgentNodes(actor, current);
     return this.startReadySubworkflows(actor, current);
+  }
+
+  async agentRuns(instanceId: string): Promise<AgentRunView[]> {
+    const instance = this.instance(instanceId);
+    if (instance === undefined) return [];
+    const agent = this.options.agent?.();
+    return agent?.runs(instanceId) ?? [];
+  }
+
+  dispatchAgentNode(
+    actor: WorkflowActor,
+    input: {
+      instanceId: string;
+      nodeId: string;
+      trigger: "manual-dispatch" | "auto-on-ready";
+    },
+  ): Promise<WorkflowInstance> {
+    return this.enqueue(async () => {
+      const { instance } = await this.dispatchAgentNodeLocked(actor, input);
+      return instance;
+    });
+  }
+
+  cancelAgentRun(
+    actor: WorkflowActor,
+    runId: string,
+  ): Promise<WorkflowInstance> {
+    return this.enqueue(async () => {
+      const agent = this.requireAgentService();
+      const run = agent.run(runId);
+      if (run === undefined)
+        throw new WorkflowError("not_found", "agent run not found");
+      if (!isAgentRunActive(run)) {
+        throw new WorkflowError(
+          "conflict",
+          run.status === "succeeded"
+            ? "Agent 运行已完成，无法取消"
+            : "Agent 运行已结束，无法取消",
+        );
+      }
+      const instance = this.instance(run.instanceId);
+      if (instance === undefined)
+        throw new WorkflowError("not_found", "workflow instance not found");
+      const { node } = this.requireNode(instance, run.nodeId);
+      if (
+        actor.kind !== "user" ||
+        (!isManager(actor) && !this.canSubmit(actor, node))
+      )
+        throw new WorkflowError(
+          "forbidden",
+          "只有节点负责人、工作区负责人或管理员可以取消 Agent 运行",
+        );
+      try {
+        await agent.cancel(runId);
+      } catch (cause) {
+        if (
+          cause instanceof Error &&
+          "code" in cause &&
+          cause.code === "conflict"
+        ) {
+          throw new WorkflowError(
+            "conflict",
+            cause.message || "Agent 运行已结束，无法取消",
+          );
+        }
+        throw cause;
+      }
+      return this.instance(run.instanceId) ?? instance;
+    });
+  }
+
+  retryAgentRun(
+    actor: WorkflowActor,
+    runId: string,
+  ): Promise<WorkflowInstance> {
+    return this.enqueue(async () => {
+      const agent = this.requireAgentService();
+      const run = agent.run(runId);
+      if (run === undefined)
+        throw new WorkflowError("not_found", "agent run not found");
+      const instance = this.instance(run.instanceId);
+      if (instance === undefined)
+        throw new WorkflowError("not_found", "workflow instance not found");
+      const { node } = this.requireNode(instance, run.nodeId);
+      if (
+        actor.kind !== "user" ||
+        (!isManager(actor) && !this.canSubmit(actor, node))
+      )
+        throw new WorkflowError(
+          "forbidden",
+          "只有节点负责人、工作区负责人或管理员可以重试 Agent 运行",
+        );
+      const state = instance.nodes[run.nodeId]!;
+      const outputRejected =
+        run.status === "succeeded" &&
+        state.status === "blocked" &&
+        state.note?.startsWith("Agent 未按约定输出「交付说明」") === true;
+      const ticketRejected =
+        run.status === "succeeded" &&
+        state.status === "blocked" &&
+        state.note?.startsWith("Digital Employee 输出被拒绝") === true;
+      if (
+        !["failed", "timeout", "interrupted", "cancelled"].includes(
+          run.status,
+        ) &&
+        !outputRejected &&
+        !ticketRejected
+      )
+        throw new WorkflowError(
+          "conflict",
+          "只有失败、超时、中断、已取消、输出无效或输出被票据拒绝的运行可以重试",
+        );
+      if (!["ready", "blocked"].includes(state.status))
+        throw new WorkflowError("conflict", "节点当前不能重试 Agent 运行");
+      const reset = await this.putInstance({
+        ...instance,
+        nodes: {
+          ...instance.nodes,
+          [run.nodeId]: { ...state, status: "ready", note: undefined },
+        },
+      });
+      const { instance: updated } = await this.dispatchAgentNodeLocked(actor, {
+        instanceId: reset.id,
+        nodeId: run.nodeId,
+        trigger: "manual-dispatch",
+      });
+      return updated;
+    });
+  }
+
+  private requireAgentService(): AgentServiceLike {
+    const agent = this.options.agent?.();
+    if (agent === undefined)
+      throw new WorkflowError("not_found", "Agent 注册表不可用");
+    return agent;
+  }
+
+  private async dispatchAgentNodeLocked(
+    actor: WorkflowActor,
+    input: {
+      instanceId: string;
+      nodeId: string;
+      trigger: "manual-dispatch" | "auto-on-ready";
+    },
+  ): Promise<{ instance: WorkflowInstance; run?: AgentRunView }> {
+    const { instance, node } = this.requireNode(
+      this.instance(input.instanceId),
+      input.nodeId,
+    );
+    if (
+      node.type !== "task" ||
+      !["agent", "employee"].includes(node.executor.kind)
+    )
+      throw new WorkflowError(
+        "invalid_input",
+        "只有 Agent 或 Digital Employee 执行的任务节点可以派发",
+      );
+    if (node.execution !== "task-worker")
+      throw new WorkflowError(
+        "invalid_input",
+        "该节点未启用 task-worker 执行模式",
+      );
+    const state = instance.nodes[node.id]!;
+    const isAuto = input.trigger === "auto-on-ready";
+    const agent = this.requireAgentService();
+    if (!isAuto) {
+      if (actor.kind !== "user")
+        throw new WorkflowError("forbidden", "Agent 派发需要用户操作");
+      if (!isManager(actor) && !this.canSubmit(actor, node))
+        throw new WorkflowError(
+          "forbidden",
+          "只有节点负责人、工作区负责人或管理员可以派发 Agent",
+        );
+    }
+    const serviceFailureRecoverable =
+      !isAuto &&
+      state.status === "blocked" &&
+      (state.note?.startsWith("Agent Profile") === true ||
+        state.note?.startsWith("Digital Employee") === true) &&
+      agent.runs(instance.id, node.id).every((run) => !isAgentRunActive(run));
+    const dispatchState = serviceFailureRecoverable
+      ? { ...state, status: "ready" as const, note: undefined }
+      : state;
+    if (dispatchState.status !== "ready")
+      throw new WorkflowError("conflict", "节点当前不处于可执行状态");
+    const employees = this.options.employee?.();
+    const dispatchBlockReason = employees?.workflowDispatchBlockReason(
+      node.executor.id,
+      instance.workspaceId,
+    );
+    if (node.executor.kind === "employee" && dispatchBlockReason !== undefined) {
+      if (!isAuto) throw new WorkflowError("forbidden", dispatchBlockReason);
+      const blocked = await this.putInstance({
+        ...instance,
+        nodes: {
+          ...instance.nodes,
+          [node.id]: { ...state, status: "blocked", note: dispatchBlockReason },
+        },
+      });
+      await this.appendEvent(blocked, {
+        nodeId: node.id,
+        kind: "agent.dispatch_failed",
+        actor: { kind: "system", id: "workflow", name: "系统" },
+        message: dispatchBlockReason,
+        data: { employeeId: node.executor.id },
+      });
+      return { instance: blocked };
+    }
+    let employeeTarget:
+      ReturnType<EmployeeServiceLike["workflowTarget"]> | undefined;
+    let profileId: string;
+    if (node.executor.kind === "employee") {
+      employeeTarget = employees?.workflowTarget(
+        node.executor.id,
+        instance.workspaceId,
+      );
+      if (employeeTarget === undefined) {
+        const message = `Digital Employee「${node.executor.id}」不可派发；请检查员工状态、工作区授权、Runtime Profile 和 Agent Profile 映射`;
+        if (!isAuto) throw new WorkflowError("invalid_input", message);
+        const blocked = await this.putInstance({
+          ...instance,
+          nodes: {
+            ...instance.nodes,
+            [node.id]: { ...state, status: "blocked", note: message },
+          },
+        });
+        await this.appendEvent(blocked, {
+          nodeId: node.id,
+          kind: "agent.dispatch_failed",
+          actor: { kind: "system", id: "workflow", name: "系统" },
+          message,
+          data: { employeeId: node.executor.id },
+        });
+        return { instance: blocked };
+      }
+      profileId = employeeTarget.profile.legacyAgentProfileId!;
+    } else {
+      profileId = node.agentProfileId ?? node.executor.id;
+    }
+    const profile = agent.profile(instance.workspaceId, profileId);
+    if (
+      profile === undefined ||
+      profile.status !== "active" ||
+      profile.runtimeKind !== "task-worker"
+    ) {
+      const message =
+        profile === undefined
+          ? `Agent Profile「${profileId}」不存在，请先在工作区创建`
+          : profile.status !== "active"
+            ? `Agent Profile「${profile.name}」已停用`
+            : `Agent Profile「${profile.name}」不是 task-worker 类型`;
+      if (!isAuto) throw new WorkflowError("invalid_input", message);
+      const blocked = await this.putInstance({
+        ...instance,
+        nodes: {
+          ...instance.nodes,
+          [node.id]: { ...state, status: "blocked", note: message },
+        },
+      });
+      await this.appendEvent(blocked, {
+        nodeId: node.id,
+        kind: "agent.dispatch_failed",
+        actor: { kind: "system", id: "workflow", name: "系统" },
+        message,
+        data: { profileId },
+      });
+      return { instance: blocked };
+    }
+    const entryPrefix = `${instance.workspaceId}:${instance.id}:${node.id}:a${dispatchState.attempts}:${dispatchState.enteredAt ?? "unknown"}`;
+    const runSeq =
+      agent
+        .runs(instance.id, node.id)
+        .filter((run) => run.dispatchKey.startsWith(`${entryPrefix}#`)).length +
+      1;
+    if (runSeq > node.maxAttempts) {
+      if (isAuto) return { instance };
+      if (!isManager(actor))
+        throw new WorkflowError(
+          "forbidden",
+          `已达到派发上限（max-attempts=${node.maxAttempts}）；如需继续，请联系工作区负责人或管理员`,
+        );
+    }
+    const dispatchKey = `${entryPrefix}#${runSeq}`;
+    let ticketId: string | undefined;
+    if (employeeTarget !== undefined) {
+      if (employees === undefined || actor.kind !== "user") {
+        const message = "Digital Employee 运行需要有效的真人操作上下文";
+        if (!isAuto) throw new WorkflowError("forbidden", message);
+        const blocked = await this.putInstance({
+          ...instance,
+          nodes: {
+            ...instance.nodes,
+            [node.id]: { ...state, status: "blocked", note: message },
+          },
+        });
+        await this.appendEvent(blocked, {
+          nodeId: node.id,
+          kind: "agent.dispatch_failed",
+          actor: { kind: "system", id: "workflow", name: "系统" },
+          message,
+          data: { employeeId: employeeTarget.employee.id },
+        });
+        return { instance: blocked };
+      }
+      try {
+        const ticket = await employees.issueRuntimeTicket(actor.id, {
+          actorAuthUserId: actor.id,
+          employeeId: employeeTarget.employee.id,
+          workspaceId: instance.workspaceId,
+          contextType: "workflow",
+          contextId: instance.id,
+          requestedActions: ["read", "write"],
+          resourceScopes: [`workflow/${instance.id}/${node.id}`],
+          durationMinutes: Math.min(
+            1_440,
+            Math.ceil(node.timeoutMs / 60_000) + 1,
+          ),
+        });
+        ticketId = ticket.id;
+      } catch (cause) {
+        const message =
+          cause instanceof Error
+            ? `Digital Employee 运行票据签发失败：${cause.message}`
+            : "Digital Employee 运行票据签发失败";
+        if (!isAuto) throw new WorkflowError("forbidden", message);
+        const blocked = await this.putInstance({
+          ...instance,
+          nodes: {
+            ...instance.nodes,
+            [node.id]: { ...state, status: "blocked", note: message },
+          },
+        });
+        await this.appendEvent(blocked, {
+          nodeId: node.id,
+          kind: "agent.dispatch_failed",
+          actor: { kind: "system", id: "workflow", name: "系统" },
+          message,
+          data: { employeeId: employeeTarget.employee.id },
+        });
+        return { instance: blocked };
+      }
+    }
+    const run = await agent.dispatch({
+      workspaceId: instance.workspaceId,
+      profileId: profile.id,
+      source: "workflow",
+      instanceId: instance.id,
+      nodeId: node.id,
+      dispatchKey,
+      trigger: input.trigger,
+      attempt: dispatchState.attempts,
+      runSeq,
+      maxAttempts: node.maxAttempts,
+      timeoutMs: node.timeoutMs,
+      ...(profile.personaId === undefined
+        ? {}
+        : { personaId: profile.personaId }),
+      ...(employeeTarget === undefined
+        ? { principalType: "transitional-agent" as const }
+        : {
+            employeeId: employeeTarget.employee.id,
+            principalType: "digital-employee" as const,
+            ...(ticketId === undefined ? {} : { ticketId }),
+          }),
+      payload: {
+        instanceTitle: instance.title,
+        nodeName: node.name,
+        nodeDescription: node.description,
+        profileName: profile.name,
+        ...(employeeTarget === undefined
+          ? {}
+          : { employeeName: employeeTarget.employee.displayName }),
+        ...(node.responsible === undefined
+          ? {}
+          : { responsibleId: node.responsible.id }),
+        deliverables: node.deliverables.map((item) => ({
+          key: item.key,
+          title: item.title,
+          type: item.type,
+          required: item.required,
+          description: item.description,
+          ...(item.minTextLength === undefined
+            ? {}
+            : { minTextLength: item.minTextLength }),
+        })),
+        context: instance.context,
+      },
+      createdBy: actor.kind === "user" ? actor.id : "workflow",
+    });
+    const updated = await this.putInstance(
+      this.syncDeliverableStates({
+        ...instance,
+        nodes: {
+          ...instance.nodes,
+          [node.id]: {
+            ...state,
+            status: "running",
+            assignedTo: employeeTarget?.employee.displayName ?? profile.name,
+            note: `${employeeTarget === undefined ? "Agent" : "Digital Employee"} ${isAuto ? "自动" : ""}运行中 · 第 ${runSeq} 次`,
+          },
+        },
+      }),
+    );
+    await this.appendEvent(updated, {
+      nodeId: node.id,
+      kind: "agent.dispatched",
+      actor: isAuto ? { kind: "system", id: "workflow", name: "系统" } : actor,
+      message: `派发 ${employeeTarget === undefined ? "Agent" : "Digital Employee"}「${employeeTarget?.employee.displayName ?? profile.name}」运行（第 ${runSeq} 次）`,
+      data: {
+        runId: run.id,
+        trigger: input.trigger,
+        ...(employeeTarget === undefined
+          ? {}
+          : { employeeId: employeeTarget.employee.id, ticketId }),
+      },
+    });
+    return { instance: updated, run };
+  }
+
+  private async autoDispatchAgentNodes(
+    actor: WorkflowActor,
+    instance: WorkflowInstance,
+  ): Promise<WorkflowInstance> {
+    if (this.options.agent?.() === undefined) return instance;
+    const definition = this.tables.definitions.get(instance.definitionId);
+    if (definition === undefined) return instance;
+    let current = instance;
+    for (const node of definition.graph.nodes) {
+      if (
+        node.type !== "task" ||
+        !["agent", "employee"].includes(node.executor.kind)
+      )
+        continue;
+      if (node.execution !== "task-worker" || node.trigger !== "auto-on-ready")
+        continue;
+      if (current.nodes[node.id]?.status !== "ready") continue;
+      try {
+        const { instance: updated } = await this.dispatchAgentNodeLocked(
+          actor,
+          { instanceId: current.id, nodeId: node.id, trigger: "auto-on-ready" },
+        );
+        current = updated;
+      } catch {
+        current = this.instance(current.id) ?? current;
+      }
+    }
+    return current;
+  }
+
+  async handleAgentSettle(run: AgentRunView): Promise<void> {
+    await this.enqueue(async () => {
+      const instance = this.instance(run.instanceId);
+      if (instance === undefined) return;
+      const definition = this.tables.definitions.get(instance.definitionId);
+      if (definition === undefined) return;
+      const node = definition.graph.nodes.find(
+        (item) => item.id === run.nodeId,
+      );
+      const state = instance.nodes[run.nodeId];
+      if (node === undefined || state === undefined) return;
+      if (["completed", "skipped"].includes(state.status)) return;
+      if (run.status === "succeeded") {
+        await this.applyAgentSuccess(instance, node, run);
+        return;
+      }
+      if (run.status === "cancelled") {
+        const updated = await this.putInstance({
+          ...instance,
+          nodes: {
+            ...instance.nodes,
+            [node.id]: {
+              ...state,
+              status: "ready",
+              note: "Agent 运行已取消，可重新派发或人工代交",
+            },
+          },
+        });
+        await this.appendEvent(updated, {
+          nodeId: node.id,
+          kind: "agent.cancelled",
+          actor: { kind: "system", id: "workflow", name: "系统" },
+          message: `Agent 运行已取消（第 ${run.runSeq} 次）`,
+          data: { runId: run.id },
+        });
+        return;
+      }
+      const reason =
+        run.error ??
+        (run.status === "timeout"
+          ? "运行超时"
+          : run.status === "interrupted"
+            ? "服务重启导致运行中断"
+            : "Agent 运行失败");
+      const updated = await this.putInstance({
+        ...instance,
+        nodes: {
+          ...instance.nodes,
+          [node.id]: {
+            ...state,
+            status: "blocked",
+            note: `Agent 运行未完成：${reason}`,
+          },
+        },
+      });
+      await this.appendEvent(updated, {
+        nodeId: node.id,
+        kind: "agent.failed",
+        actor: { kind: "system", id: "workflow", name: "系统" },
+        message: `Agent 运行未完成：${reason}`,
+        data: { runId: run.id, status: run.status },
+      });
+    });
+  }
+
+  private async applyAgentSuccess(
+    instance: WorkflowInstance,
+    node: WorkflowNode,
+    run: AgentRunView,
+  ): Promise<void> {
+    const state = instance.nodes[node.id]!;
+    const summary = run.output?.summary ?? "";
+    const deliverableText = extractAgentDeliverableText(summary);
+    if (run.ticketId !== undefined) {
+      const employees = this.options.employee?.();
+      try {
+        if (employees === undefined) throw new Error("员工目录不可用");
+        await employees.authorizeTicket({
+          ticketId: run.ticketId,
+          action: "write",
+          resource: `workflow/${instance.id}/${node.id}`,
+          workspaceId: instance.workspaceId,
+          contextType: "workflow",
+          contextId: instance.id,
+        });
+      } catch (cause) {
+        const reason = cause instanceof Error ? cause.message : "授权失败";
+        const message = `Digital Employee 输出被拒绝：运行票据授权失败（${reason}）`;
+        const blocked = await this.putInstance({
+          ...instance,
+          nodes: {
+            ...instance.nodes,
+            [node.id]: { ...state, status: "blocked", note: message },
+          },
+        });
+        await this.appendEvent(blocked, {
+          nodeId: node.id,
+          kind: "agent.ticket_denied",
+          actor: { kind: "system", id: "workflow", name: "系统" },
+          message,
+          data: { runId: run.id, ticketId: run.ticketId },
+        });
+        return;
+      }
+    }
+    const requirement = node.deliverables.find(
+      (item) => item.required && item.type === "text",
+    );
+    if (requirement !== undefined && deliverableText === "") {
+      const message =
+        "Agent 未按约定输出「交付说明」，内容不写入交付物；可重试或人工提交";
+      const blocked = await this.putInstance({
+        ...instance,
+        nodes: {
+          ...instance.nodes,
+          [node.id]: {
+            ...state,
+            status: "blocked",
+            note: message,
+          },
+        },
+      });
+      await this.appendEvent(blocked, {
+        nodeId: node.id,
+        kind: "agent.output_invalid",
+        actor: { kind: "system", id: "workflow", name: "系统" },
+        message,
+        data: { runId: run.id },
+      });
+      return;
+    }
+    if (
+      requirement !== undefined &&
+      deliverableText.length >= (requirement.minTextLength ?? 1) &&
+      !this.nodeSubmissions(instance.id, node.id).some(
+        (submission) => submission.note === `agent-run:${run.id}`,
+      )
+    ) {
+      const record: WorkflowSubmission = {
+        id: randomUUID(),
+        workspaceId: instance.workspaceId,
+        instanceId: instance.id,
+        nodeId: node.id,
+        requirementKey: requirement.key,
+        requirementTitle: requirement.title,
+        type: "text",
+        value: deliverableText.slice(0, 100_000),
+        artifacts: [],
+        submittedBy:
+          run.employeeId === undefined
+            ? `agent:${run.agentProfileId}`
+            : `employee:${run.employeeId}`,
+        submittedByName: run.payload.employeeName ?? run.payload.profileName,
+        onBehalfOf: node.executor.id,
+        submittedAt: iso(this.now()),
+        status: "submitted",
+        note: `agent-run:${run.id}`,
+      };
+      await this.tables.submissions
+        .put(record.id, workflowSubmissionSchema.parse(record))
+        .then(() => record);
+      await this.appendEvent(instance, {
+        nodeId: node.id,
+        kind: "agent.deliverable",
+        actor: { kind: "system", id: "workflow", name: "系统" },
+        message: `Agent 提交交付物：${requirement.title}`,
+        data: { runId: run.id, requirementKey: requirement.key },
+      });
+    }
+    const actor = { kind: "system" as const, id: "workflow", name: "系统" };
+    const responsibleId = run.payload.responsibleId ?? run.createdBy;
+    const member = this.options
+      .team?.()
+      ?.members(instance.workspaceId)
+      .find((item) => item.userId === responsibleId);
+    const runner: WorkflowActor = {
+      kind: "user",
+      id: responsibleId,
+      name: member?.name ?? responsibleId,
+      workspaceRole: member?.memberRole ?? "owner",
+    };
+    const settled = this.syncDeliverableStates({
+      ...instance,
+      nodes: {
+        ...instance.nodes,
+        [node.id]: {
+          ...state,
+          status: "ready",
+          note: "Agent 运行完成，交付物待确认",
+        },
+      },
+    });
+    const settledState = settled.nodes[node.id]!;
+    const canAutoComplete =
+      this.missingDeliverables(node, settledState).length === 0;
+    const timestamp = iso(this.now());
+    const updated = await this.putInstance(
+      canAutoComplete
+        ? this.refreshStatus({
+            ...settled,
+            nodes: {
+              ...settled.nodes,
+              [node.id]: {
+                ...settledState,
+                status: "completed",
+                completedAt: timestamp,
+                note: `Agent 自动完成（第 ${run.runSeq} 次）`,
+              },
+            },
+          })
+        : settled,
+    );
+    if (canAutoComplete) {
+      await this.appendEvent(updated, {
+        nodeId: node.id,
+        kind: "node.completed",
+        actor,
+        message: `Agent 交付通过，自动完成节点：${node.name}`,
+        data: { runId: run.id },
+      });
+      await this.resumeParentIfCompleted(runner, updated);
+      const advanced = await this.advance(runner, updated, node.id);
+      await this.appendEvent(advanced, {
+        nodeId: node.id,
+        kind: "agent.succeeded",
+        actor,
+        message: `Agent 运行完成（第 ${run.runSeq} 次）`,
+        data: { runId: run.id },
+      });
+      return;
+    }
+    await this.appendEvent(updated, {
+      nodeId: node.id,
+      kind: "agent.succeeded",
+      actor,
+      message: `Agent 运行完成（第 ${run.runSeq} 次）`,
+      data: { runId: run.id },
+    });
   }
 
   private incrementLoopVariables(
@@ -1071,15 +2077,15 @@ export class WorkflowService {
     const inconsistentCompletion = definition
       ? Object.entries(instance.nodes).some(([nodeId, state]) => {
           if (state.status !== "completed") return false;
-            const incoming = this.incomingEdges(definition, nodeId);
-            return (
-              incoming.length > 0 &&
-                !incoming.some((edge) =>
-                  ["completed", "skipped", "ready", "running"].includes(
-                    instance.nodes[edge.from]?.status ?? "",
-                  ),
-                )
-            );
+          const incoming = this.incomingEdges(definition, nodeId);
+          return (
+            incoming.length > 0 &&
+            !incoming.some((edge) =>
+              ["completed", "skipped", "ready", "running"].includes(
+                instance.nodes[edge.from]?.status ?? "",
+              ),
+            )
+          );
         })
       : false;
     if (inconsistentCompletion) return { ...instance, status: "blocked" };
@@ -1099,13 +2105,23 @@ export class WorkflowService {
         ["ready", "running", "waiting"].includes(state.status),
       )
     ) {
-      const pendingApproval = states.some(
-        (state) =>
-          state.status === "waiting" &&
+      const pendingApproval = states.some((state) => {
+        if (state.status !== "waiting") return false;
+        const incoming = definition
+          ? this.incomingEdges(definition, state.nodeId)
+          : [];
+        const reached = incoming.every((edge) =>
+          ["completed", "skipped"].includes(
+            instance.nodes[edge.from]?.status ?? "",
+          ),
+        );
+        return (
+          reached &&
           Object.values(state.approvals).some(
             (item) => item.status === "pending",
-          ),
-      );
+          )
+        );
+      });
       return { ...instance, status: pendingApproval ? "waiting" : "running" };
     }
     return { ...instance, status: "running" };
@@ -1124,7 +2140,7 @@ export class WorkflowService {
     if (isManager(actor)) return true;
     if (node.type === "service" || node.type === "subworkflow") return false;
     const responsible = node.responsible;
-    if (node.executor.kind === "agent") {
+    if (["agent", "employee"].includes(node.executor.kind)) {
       return responsible !== undefined && responsible.id === actor.id;
     }
     if (node.executor.kind === "user" && node.executor.id === actor.id)
@@ -1169,10 +2185,10 @@ export class WorkflowService {
       const state = nodes[node.id];
       if (node.deliverables.length === 0 || state === undefined) continue;
       const latest = new Map(
-        this.nodeSubmissions(instance.id, node.id).map((submission) => [
-          submission.requirementKey,
-          submission,
-        ]),
+        (this.hasActiveAgentRun(instance.id, node.id)
+          ? []
+          : this.nodeSubmissions(instance.id, node.id)
+        ).map((submission) => [submission.requirementKey, submission]),
       );
       const deliverables: Record<string, DeliverableState> = {};
       for (const requirement of node.deliverables) {
@@ -1206,6 +2222,17 @@ export class WorkflowService {
       const current = state.deliverables[requirement.key];
       return current === undefined || current.status !== "submitted";
     });
+  }
+
+  private hasActiveAgentRun(instanceId: string, nodeId: string): boolean {
+    return (
+      this.options
+        .agent?.()
+        ?.runs(instanceId, nodeId)
+        .some((run) =>
+          ["queued", "running", "waiting_input"].includes(run.status),
+        ) === true
+    );
   }
 
   artifactRoot(): string {
@@ -1306,7 +2333,15 @@ export class WorkflowService {
           "deliverable type does not match",
         );
       const state = instance.nodes[input.nodeId]!;
-      if (!["ready", "running", "waiting"].includes(state.status))
+      const agentManualFallback =
+        node.type === "task" &&
+        ["agent", "employee"].includes(node.executor.kind) &&
+        node.execution === "task-worker" &&
+        state.status === "blocked";
+      if (
+        !["ready", "running", "waiting"].includes(state.status) &&
+        !agentManualFallback
+      )
         throw new WorkflowError(
           "conflict",
           "node is not accepting deliverables",
@@ -1337,8 +2372,9 @@ export class WorkflowService {
           );
         }
       }
-      const onBehalfOf =
-        node.executor.kind === "agent" ? node.executor.id : undefined;
+      const onBehalfOf = ["agent", "employee"].includes(node.executor.kind)
+        ? node.executor.id
+        : undefined;
       const record: WorkflowSubmission = {
         id: randomUUID(),
         workspaceId: instance.workspaceId,
@@ -1359,7 +2395,21 @@ export class WorkflowService {
       const saved = await this.tables.submissions
         .put(record.id, workflowSubmissionSchema.parse(record))
         .then(() => record);
-      await this.putInstance(this.syncDeliverableStates(instance));
+      await this.putInstance(
+        this.syncDeliverableStates({
+          ...instance,
+          nodes: agentManualFallback
+            ? {
+                ...instance.nodes,
+                [node.id]: {
+                  ...state,
+                  status: "ready",
+                  note: "人工代交交付物已提交，待确认",
+                },
+              }
+            : instance.nodes,
+        }),
+      );
       await this.appendEvent(instance, {
         nodeId: node.id,
         kind: "deliverable.submitted",
@@ -1413,7 +2463,15 @@ export class WorkflowService {
           `upload 1-${requirement.maxFiles} file${requirement.maxFiles === 1 ? "" : "s"}`,
         );
       const state = instance.nodes[input.nodeId]!;
-      if (!["ready", "running", "waiting"].includes(state.status))
+      const agentManualFallback =
+        node.type === "task" &&
+        ["agent", "employee"].includes(node.executor.kind) &&
+        node.execution === "task-worker" &&
+        state.status === "blocked";
+      if (
+        !["ready", "running", "waiting"].includes(state.status) &&
+        !agentManualFallback
+      )
         throw new WorkflowError(
           "conflict",
           "node is not accepting deliverables",
@@ -1463,8 +2521,9 @@ export class WorkflowService {
           "conflict",
           "workflow artifact storage limit reached",
         );
-      const onBehalfOf =
-        node.executor.kind === "agent" ? node.executor.id : undefined;
+      const onBehalfOf = ["agent", "employee"].includes(node.executor.kind)
+        ? node.executor.id
+        : undefined;
       const record: WorkflowSubmission = {
         id: submissionId,
         workspaceId: instance.workspaceId,
@@ -1486,7 +2545,21 @@ export class WorkflowService {
         record.id,
         workflowSubmissionSchema.parse(record),
       );
-      await this.putInstance(this.syncDeliverableStates(instance));
+      await this.putInstance(
+        this.syncDeliverableStates({
+          ...instance,
+          nodes: agentManualFallback
+            ? {
+                ...instance.nodes,
+                [node.id]: {
+                  ...state,
+                  status: "ready",
+                  note: "人工代交交付物已提交，待确认",
+                },
+              }
+            : instance.nodes,
+        }),
+      );
       await this.appendEvent(instance, {
         nodeId: node.id,
         kind: "deliverable.submitted",
@@ -1602,7 +2675,7 @@ export class WorkflowService {
                       ?.latestSubmissionId,
                 })),
               }),
-          ...(node.executor.kind === "agent"
+          ...(["agent", "employee"].includes(node.executor.kind)
             ? { onBehalfOf: node.executor.id }
             : {}),
         },
@@ -1631,6 +2704,24 @@ export class WorkflowService {
       const state = instance.nodes[input.nodeId]!;
       if (state.status !== "ready" && state.status !== "waiting") {
         throw new WorkflowError("conflict", "approval is not actionable");
+      }
+      if (state.status === "waiting") {
+        if (state.enteredAt === undefined) {
+          throw new WorkflowError(
+            "conflict",
+            "approval is waiting for upstream nodes",
+          );
+        }
+        if (
+          !Object.values(state.approvals).some(
+            (item) => item.status !== "pending",
+          )
+        ) {
+          throw new WorkflowError(
+            "conflict",
+            "approval is waiting for upstream nodes",
+          );
+        }
       }
       const approvalKey = Object.keys(state.approvals).find((key) =>
         actorMatchesApprover(actor, state.approvals[key]!.approver),
@@ -2240,6 +3331,9 @@ const actionBodySchema = z
 export function createWorkflowRoutes(
   service: WorkflowService,
   team: () => TeamServiceLike | undefined,
+  dependencies: {
+    readonly agent?: () => AgentServiceLike | undefined;
+  } = {},
 ): WebRouteLike[] {
   const requireTeam = (): TeamServiceLike => {
     const value = team();
@@ -2318,7 +3412,7 @@ export function createWorkflowRoutes(
     {
       kind: "exact",
       path: "/api/collab/workflow/instances/detail",
-      handler: (request, response) => {
+      handler: async (request, response) => {
         assertMethod(request, response, "GET");
         const workspaceId = requireWorkspace(request);
         const actor = browserActor(requireTeam(), request, workspaceId);
@@ -2329,13 +3423,63 @@ export function createWorkflowRoutes(
         if (instance === undefined || instance.workspaceId !== workspaceId) {
           throw new WorkflowError("not_found", "workflow instance not found");
         }
+        const agent = dependencies.agent?.();
+        const agentRuns = agent?.runs(instanceId) ?? [];
         sendJson(response, 200, {
           ok: true,
           instance,
           submissions: service.submissions(instanceId),
           events: service.events(instanceId),
+          agentRuns,
           actor,
         });
+      },
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/workflow/agent-runs/dispatch",
+      handler: async (request, response) => {
+        assertMethod(request, response, "POST");
+        const body = z
+          .object({
+            workspaceId: z.string().min(1),
+            instanceId: z.string().min(1),
+            nodeId: z.string().min(1),
+          })
+          .parse(await readBody(request));
+        const actor = browserActor(requireTeam(), request, body.workspaceId);
+        const instance = await service.dispatchAgentNode(actor, {
+          instanceId: body.instanceId,
+          nodeId: body.nodeId,
+          trigger: "manual-dispatch",
+        });
+        sendJson(response, 200, { ok: true, instance });
+      },
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/workflow/agent-runs/cancel",
+      handler: async (request, response) => {
+        assertMethod(request, response, "POST");
+        const body = z
+          .object({ workspaceId: z.string().min(1), runId: z.string().min(1) })
+          .parse(await readBody(request));
+        const actor = browserActor(requireTeam(), request, body.workspaceId);
+        const instance = await service.cancelAgentRun(actor, body.runId);
+        sendJson(response, 200, { ok: true, instance });
+      },
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/workflow/agent-runs/retry",
+      handler: async (request, response) => {
+        assertMethod(request, response, "POST");
+        const body = z
+          .object({ workspaceId: z.string().min(1), runId: z.string().min(1) })
+          .parse(await readBody(request));
+        const actor = browserActor(requireTeam(), request, body.workspaceId);
+        const instance = await service.retryAgentRun(actor, body.runId);
+        sendJson(response, 200, { ok: true, instance });
       },
     },
     {
@@ -2779,14 +3923,29 @@ export async function apply(
       events: domain.table("events"),
       submissions: domain.table("submissions"),
     },
-    { team: () => injectedTeam },
+    {
+      team: () => injectedTeam,
+      agent: () => ctx.get("collabAgent"),
+      employee: () => ctx.get("collabEmployee"),
+    },
   );
   ctx.provide("collabWorkflow", service);
   ctx.effect(() => () => void domain.close());
+  ctx.inject(["collabAgent"], (child) => {
+    const agent = (
+      child as WorkflowContext & { collabAgent?: AgentServiceLike }
+    ).collabAgent;
+    if (agent === undefined) return;
+    agent.bindWorkflow({
+      onSettled: (run) => service.handleAgentSettle(run),
+    });
+  });
   ctx.inject(["collabTeam"], (child) => {
     injectedTeam = child.collabTeam;
     const team = injectedTeam;
-    for (const route of createWorkflowRoutes(service, () => team)) {
+    for (const route of createWorkflowRoutes(service, () => team, {
+      agent: () => ctx.get("collabAgent"),
+    })) {
       ctx.webServer.register(route);
     }
   });

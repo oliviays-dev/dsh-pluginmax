@@ -18,6 +18,12 @@
     },
     {
       "path": "plugins/dsh-collab-workflow"
+    },
+    {
+      "path": "plugins/dsh-collab-agent"
+    },
+    {
+      "path": "plugins/dsh-collab-employee"
     }
   ]
 }

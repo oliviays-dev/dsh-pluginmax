@@ -210,6 +210,20 @@ window.__ModuleLoader__.load({
       return `未知工作区 (${workspace.id.slice(0, 8)})`;
     }
 
+    function localTime(value) {
+      const time = new Date(value);
+      if (Number.isNaN(time.getTime())) return value;
+      return time.toLocaleString("zh-CN", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      });
+    }
+
     function InfoIcon() {
       return jsxRuntime.jsx("svg", {
         "aria-hidden": true,
@@ -275,6 +289,8 @@ window.__ModuleLoader__.load({
         tags: "",
         soul: "",
       });
+      const [personaSaving, setPersonaSaving] = react.useState(false);
+      const personaSavingRef = react.useRef(false);
       const [type, setType] = react.useState({
         id: "",
         name: "",
@@ -386,6 +402,9 @@ window.__ModuleLoader__.load({
 
       const submitPersona = async (event) => {
         event.preventDefault();
+        if (personaSavingRef.current) return;
+        personaSavingRef.current = true;
+        setPersonaSaving(true);
         try {
           const result = await request("/api/collab/roles/personas", {
             method: "POST",
@@ -402,6 +421,9 @@ window.__ModuleLoader__.load({
           await load();
         } catch (cause) {
           fail(cause);
+        } finally {
+          personaSavingRef.current = false;
+          setPersonaSaving(false);
         }
       };
 
@@ -691,7 +713,8 @@ window.__ModuleLoader__.load({
                   jsxRuntime.jsx("button", {
                     type: "submit",
                     style: buttonStyle,
-                    children: "创建",
+                    disabled: personaSaving,
+                    children: personaSaving ? "创建中..." : "创建",
                   }),
                 ],
               }),
@@ -716,7 +739,8 @@ window.__ModuleLoader__.load({
                         }),
                         jsxRuntime.jsx("td", {
                           style: cellStyle,
-                          children: item.updatedAt,
+                          title: item.updatedAt,
+                          children: localTime(item.updatedAt),
                         }),
                       ],
                     },

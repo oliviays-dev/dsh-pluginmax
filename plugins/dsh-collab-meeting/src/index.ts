@@ -27,7 +27,14 @@ const idSchema = z
 const titleSchema = z.string().trim().min(1).max(160);
 const textSchema = z.string().trim().max(20_000);
 const displayNameSchema = z.string().trim().min(1).max(80);
+const seatLabelSchema = z.string().trim().max(80);
+const seatNameSchema = z.string().trim().min(1).max(80);
 const isoTimeSchema = z.string().datetime({ precision: 3 });
+
+const meetingSeatSchema = z.object({
+  id: idSchema,
+  label: seatNameSchema,
+});
 
 const meetingSchema = z.object({
   id: z.string().min(1).max(160),
@@ -36,6 +43,7 @@ const meetingSchema = z.object({
   agenda: z.string().trim().max(20_000).default(""),
   status: z.enum(["active", "closed"]),
   createdBy: idSchema,
+  seats: z.array(meetingSeatSchema).max(100).default([]),
   parentSessionId: idSchema.optional(),
   createdAt: isoTimeSchema,
   updatedAt: isoTimeSchema,
@@ -51,11 +59,18 @@ const participantSchema = z.object({
   refId: idSchema,
   displayName: displayNameSchema,
   seatId: idSchema.optional(),
+  seatLabel: seatLabelSchema.optional(),
   personaId: idSchema.optional(),
+  basePersonaId: idSchema.optional(),
   ownerId: idSchema.optional(),
   ownerName: displayNameSchema.optional(),
   autoSpeak: z.enum(["all", "mentions", "manual"]).optional(),
   initialGreeting: z.boolean().optional(),
+  delegationId: idSchema.optional(),
+  delegationStatus: z
+    .enum(["active", "paused", "revoked", "expired", "completed"])
+    .optional(),
+  principalType: z.enum(["direct", "delegation", "runtime"]).optional(),
   leader: z.boolean().default(false),
   status: z.enum(["pending", "active", "left"]),
   source: z.enum(["direct", "seat", "spawned"]),
@@ -95,6 +110,7 @@ const actorSchema = z.object({
 });
 
 export type Meeting = z.infer<typeof meetingSchema>;
+export type MeetingSeat = z.infer<typeof meetingSeatSchema>;
 export type MeetingParticipant = z.infer<typeof participantSchema>;
 export type MeetingMessage = z.infer<typeof messageSchema>;
 export type MeetingDelivery = z.infer<typeof deliverySchema>;
@@ -325,6 +341,7 @@ export interface AssignmentViewLike {
   readonly assigneeKind: "user" | "agent";
   readonly assigneeId: string;
   readonly personaId?: string;
+  readonly basePersonaId?: string;
   readonly leader: boolean;
   readonly status: "claimed" | "assigned" | "released";
 }
@@ -430,6 +447,21 @@ function agentActor(sessionId: string | undefined): MeetingActor {
 
 function actorKind(actor: MeetingActor): "human" | "agent" {
   return actor.kind === "user" ? "human" : "agent";
+}
+
+function resolvedDelegationStatus(
+  status: string,
+  expiresAt: string | undefined,
+  now: Date,
+): string {
+  if (
+    status === "active" &&
+    expiresAt !== undefined &&
+    new Date(expiresAt).getTime() <= now.getTime()
+  ) {
+    return "expired";
+  }
+  return status;
 }
 
 function nameTaken(
@@ -664,14 +696,63 @@ export class MeetingRuntime {
   ): Promise<string> {
     const meeting = this.deps.meetings.get(participant.meetingId);
     const personaService = this.deps.personas?.();
-    let persona;
-    let preset;
-    if (participant.personaId !== undefined && personaService !== undefined) {
-      persona = await personaService.get(participant.personaId);
-      preset = await personaService.preset(
-        participant.personaId,
-        `会议：${meeting.title}\n工作区：${meeting.workspaceId}`,
+    const meetingContext = `会议：${meeting.title}\n工作区：${meeting.workspaceId}`;
+    let basePreset: string | undefined;
+    if (
+      participant.basePersonaId !== undefined &&
+      personaService !== undefined
+    ) {
+      basePreset = await personaService.preset(
+        participant.basePersonaId,
+        meetingContext,
       );
+    }
+    let rolePersona: Awaited<
+      ReturnType<PersonaServiceLike["get"]>
+    > | undefined;
+    if (
+      participant.personaId !== undefined &&
+      personaService !== undefined &&
+      participant.personaId !== participant.basePersonaId
+    ) {
+      rolePersona = await personaService.get(participant.personaId);
+    }
+    let identitySection: string;
+    if (basePreset !== undefined) {
+      if (rolePersona !== undefined) {
+        identitySection = [
+          basePreset,
+          "",
+          "## 会议角色上下文",
+          `在当前会议中，你以「${rolePersona.name}」的角色参与。`,
+          rolePersona.description === ""
+            ? ""
+            : `角色说明：${rolePersona.description}`,
+        ]
+          .filter((line) => line !== "")
+          .join("\n");
+      } else {
+        identitySection = basePreset;
+      }
+    } else if (rolePersona !== undefined) {
+      const rolePreset = await personaService!.preset(
+        participant.personaId!,
+        meetingContext,
+      );
+      identitySection = personaPrompt(rolePersona, rolePreset);
+    } else {
+      let legacyPreset: string | undefined;
+      if (
+        participant.personaId !== undefined &&
+        participant.basePersonaId === undefined &&
+        personaService !== undefined
+      ) {
+        legacyPreset = await personaService.preset(
+          participant.personaId,
+          meetingContext,
+        );
+      }
+      identitySection = personaPrompt(undefined, legacyPreset);
     }
     const participants = this.deps.meetings
       .participants(meeting.id)
@@ -693,7 +774,7 @@ export class MeetingRuntime {
     return [
       "# DSH Pluginmax 会议 worker",
       "",
-      personaPrompt(persona, preset),
+      identitySection,
       "",
       `这是为「${meeting.title}」运行的一次性会议任务。会议结束后这个 worker 不保留状态。`,
       participant.ownerName === undefined ? "" : `主人：${participant.ownerName}`,
@@ -835,7 +916,24 @@ export class MeetingRuntime {
     }
   }
 }
+export interface DelegationReporterLike {
+  generateDelegationReport(
+    delegationId: string,
+    transcript: string,
+    options: { finalize?: boolean },
+  ): Promise<unknown>;
+  getDelegationStatus?(
+    delegationId: string,
+  ): { status: string; expiresAt?: string } | undefined;
+}
+
 export class MeetingService {
+  private delegationReporter: DelegationReporterLike | undefined;
+
+  setDelegationReporter(reporter: DelegationReporterLike | undefined): void {
+    this.delegationReporter = reporter;
+  }
+
   constructor(
     private readonly tables: {
       readonly meetings: KvTableLike<Meeting>;
@@ -874,6 +972,7 @@ export class MeetingService {
       agenda: parsed.agenda ?? "",
       status: "active" as const,
       createdBy: parsedActor.id,
+      seats: [],
       ...(parsed.parentSessionId === undefined
         ? {}
         : { parentSessionId: parsed.parentSessionId }),
@@ -1088,6 +1187,9 @@ export class MeetingService {
             : {
                 personaId: assignment.personaId ?? seat.personaId,
               }),
+          ...(assignment.basePersonaId === undefined
+            ? {}
+            : { basePersonaId: assignment.basePersonaId }),
           leader: assignment.leader,
           status: "active" as const,
           source: "seat" as const,
@@ -1140,6 +1242,403 @@ export class MeetingService {
     );
   }
 
+  async inviteParticipant(
+    actor: MeetingActor,
+    meetingId: string,
+    input: {
+      readonly targetId: string;
+      readonly displayName: string;
+      readonly seatLabel?: string;
+      readonly seatId?: string;
+    },
+  ): Promise<MeetingParticipant> {
+    const parsedActor = parseOrInvalid(actorSchema, actor);
+    const meeting = this.get(meetingId);
+    if (meeting.status !== "active")
+      throw new MeetingError("conflict", "meeting is closed");
+    const targetId = parseOrInvalid(idSchema, input.targetId);
+    const displayName = parseOrInvalid(displayNameSchema, input.displayName);
+    const seatLabel =
+      input.seatLabel === undefined || input.seatLabel === ""
+        ? undefined
+        : parseOrInvalid(seatLabelSchema, input.seatLabel);
+    const participants = this.participants(meeting.id);
+    let seatId: string | undefined;
+    if (input.seatId !== undefined) {
+      const parsedSeatId = parseOrInvalid(idSchema, input.seatId);
+      const seat = meeting.seats.find((candidate) => candidate.id === parsedSeatId);
+      if (seat === undefined)
+        throw new MeetingError("not_found", "meeting seat not found");
+      seatId = seat.id;
+      if (seatLabel !== undefined && seatLabel !== seat.label)
+        throw new MeetingError("invalid_input", "seat label does not match the meeting seat");
+      if (
+        participants.some(
+          (candidate) =>
+            candidate.status === "active" &&
+            candidate.seatId === seat.id &&
+            candidate.refId !== targetId,
+        )
+      ) {
+        throw new MeetingError("conflict", "meeting seat is already occupied");
+      }
+    }
+    const caller = participants.find(
+      (candidate) =>
+        candidate.status === "active" &&
+        candidate.kind === actorKind(parsedActor) &&
+        candidate.refId === parsedActor.id,
+    );
+    if (
+      !(
+        caller !== undefined ||
+        meeting.createdBy === parsedActor.id ||
+        managerActor(parsedActor)
+      )
+    ) {
+      throw new MeetingError(
+        "forbidden",
+        "an active meeting participant, creator, or workspace owner role is required",
+      );
+    }
+    const existing = participants.find(
+      (candidate) => candidate.kind === "human" && candidate.refId === targetId,
+    );
+    if (existing !== undefined && existing.status === "active")
+      throw new MeetingError("conflict", "participant already joined");
+    const timestamp = nowIso(this.options.now);
+    const invited = {
+      ...existing,
+      id: existing?.id ?? randomUUID(),
+      meetingId: meeting.id,
+      kind: "human" as const,
+      refId: targetId,
+      displayName,
+      seatId,
+      seatLabel: seatId === undefined ? seatLabel : meeting.seats.find((candidate) => candidate.id === seatId)!.label,
+      personaId: undefined,
+      ownerId: undefined,
+      ownerName: undefined,
+      autoSpeak: undefined,
+      initialGreeting: undefined,
+      delegationId: undefined,
+      principalType: undefined,
+      leader: false,
+      status: "active" as const,
+      source: "direct" as const,
+      hint: undefined,
+      joinedAt: timestamp,
+      leftAt: undefined,
+      updatedAt: timestamp,
+    };
+    await this.tables.participants.put(invited.id, invited);
+    const operator = caller?.displayName ?? parsedActor.id;
+    const systemMessageId = randomUUID();
+    await this.tables.messages.put(systemMessageId, {
+      id: systemMessageId,
+      sequence: (this.transcript(meeting.id).at(-1)?.sequence ?? 0) + 1,
+      meetingId: meeting.id,
+      senderKind: "system",
+      senderId: "system",
+      senderName: "系统",
+      content: `${operator} 已邀请 ${displayName} 入会。`,
+      mentions: [],
+      deliveries: [],
+      createdAt: timestamp,
+    });
+    return invited;
+  }
+
+  async changeOwnSeat(
+    actor: MeetingActor,
+    meetingId: string,
+    seatLabel?: string,
+    seatId?: string,
+  ): Promise<MeetingParticipant> {
+    const parsedActor = parseOrInvalid(actorSchema, actor);
+    const meeting = this.get(meetingId);
+    if (meeting.status !== "active")
+      throw new MeetingError("conflict", "meeting is closed");
+    const normalizedSeatLabel =
+      seatLabel === undefined || seatLabel === ""
+        ? undefined
+        : parseOrInvalid(seatLabelSchema, seatLabel);
+    let normalizedSeatId: string | undefined;
+    if (seatId !== undefined) {
+      const parsedSeatId = parseOrInvalid(idSchema, seatId);
+      const seat = meeting.seats.find((candidate) => candidate.id === parsedSeatId);
+      if (seat === undefined)
+        throw new MeetingError("not_found", "meeting seat not found");
+      if (normalizedSeatLabel !== undefined && normalizedSeatLabel !== seat.label)
+        throw new MeetingError("invalid_input", "seat label does not match the meeting seat");
+      normalizedSeatId = seat.id;
+      if (
+        this.participants(meeting.id).some(
+          (candidate) =>
+            candidate.status === "active" &&
+            candidate.seatId === seat.id &&
+            candidate.refId !== parsedActor.id,
+        )
+      ) {
+        throw new MeetingError("conflict", "meeting seat is already occupied");
+      }
+    }
+    const participant = this.participants(meeting.id).find(
+      (candidate) =>
+        candidate.status === "active" &&
+        candidate.kind === "human" &&
+        candidate.refId === parsedActor.id,
+    );
+    if (participant === undefined)
+      throw new MeetingError(
+        "not_found",
+        "active meeting participant not found",
+      );
+    const updated = {
+      ...participant,
+      seatId: normalizedSeatId,
+      seatLabel: normalizedSeatId === undefined
+        ? normalizedSeatLabel
+        : meeting.seats.find((candidate) => candidate.id === normalizedSeatId)!.label,
+      updatedAt: nowIso(this.options.now),
+    };
+    await this.tables.participants.put(updated.id, updated);
+    return updated;
+  }
+
+  async changeParticipantSeat(
+    actor: MeetingActor,
+    meetingId: string,
+    participantId: string,
+    seatLabel?: string,
+    seatId?: string,
+  ): Promise<MeetingParticipant> {
+    const parsedActor = parseOrInvalid(actorSchema, actor);
+    const meeting = this.get(meetingId);
+    if (meeting.status !== "active")
+      throw new MeetingError("conflict", "meeting is closed");
+    const caller = this.participants(meeting.id).find(
+      (candidate) =>
+        candidate.status === "active" &&
+        candidate.kind === "human" &&
+        candidate.refId === parsedActor.id,
+    );
+    const isLeader = caller?.leader === true;
+    const target = this.participants(meeting.id).find(
+      (candidate) => candidate.id === participantId && candidate.status === "active",
+    );
+    if (target === undefined)
+      throw new MeetingError("not_found", "meeting participant not found");
+    const isSelf = target.kind === "human" && target.refId === parsedActor.id;
+    const isOwner =
+      target.kind === "agent" && target.ownerId === parsedActor.id;
+    if (!isSelf && !isLeader && !isOwner) {
+      throw new MeetingError(
+        "forbidden",
+        "only the meeting leader or the avatar owner can change this participant's seat",
+      );
+    }
+    return this.applySeatChange(meeting.id, target, seatLabel, seatId, parsedActor.id);
+  }
+
+  private async applySeatChange(
+    meetingId: string,
+    target: MeetingParticipant,
+    seatLabel?: string,
+    seatId?: string,
+    excludeRefId?: string,
+  ): Promise<MeetingParticipant> {
+    const meeting = this.get(meetingId);
+    const normalizedSeatLabel =
+      seatLabel === undefined || seatLabel === ""
+        ? undefined
+        : parseOrInvalid(seatLabelSchema, seatLabel);
+    let normalizedSeatId: string | undefined;
+    if (seatId !== undefined) {
+      const parsedSeatId = parseOrInvalid(idSchema, seatId);
+      const seat = meeting.seats.find((candidate) => candidate.id === parsedSeatId);
+      if (seat === undefined)
+        throw new MeetingError("not_found", "meeting seat not found");
+      if (normalizedSeatLabel !== undefined && normalizedSeatLabel !== seat.label)
+        throw new MeetingError("invalid_input", "seat label does not match the meeting seat");
+      normalizedSeatId = seat.id;
+      if (
+        this.participants(meetingId).some(
+          (candidate) =>
+            candidate.status === "active" &&
+            candidate.seatId === seat.id &&
+            candidate.id !== target.id,
+        )
+      ) {
+        throw new MeetingError("conflict", "meeting seat is already occupied");
+      }
+    }
+    const updated = {
+      ...target,
+      seatId: normalizedSeatId,
+      seatLabel: normalizedSeatId === undefined
+        ? normalizedSeatLabel
+        : meeting.seats.find((candidate) => candidate.id === normalizedSeatId)!.label,
+      updatedAt: nowIso(this.options.now),
+    };
+    await this.tables.participants.put(updated.id, updated);
+    return updated;
+  }
+
+  async addSeat(
+    actor: MeetingActor,
+    meetingId: string,
+    label: string,
+  ): Promise<Meeting> {
+    const parsedActor = parseOrInvalid(actorSchema, actor);
+    const meeting = this.get(meetingId);
+    if (meeting.status !== "active")
+      throw new MeetingError("conflict", "meeting is closed");
+    const seatLabel = parseOrInvalid(seatNameSchema, label);
+    const participants = this.participants(meeting.id);
+    const caller = participants.find(
+      (candidate) =>
+        candidate.status === "active" &&
+        candidate.kind === actorKind(parsedActor) &&
+        candidate.refId === parsedActor.id,
+    );
+    if (
+      !(
+        caller?.leader === true ||
+        meeting.createdBy === parsedActor.id ||
+        managerActor(parsedActor)
+      )
+    ) {
+      throw new MeetingError(
+        "forbidden",
+        "meeting leader, creator, or workspace owner role is required",
+      );
+    }
+    if (meeting.seats.some((seat) => seat.label.localeCompare(seatLabel, undefined, { sensitivity: "base" }) === 0))
+      throw new MeetingError("conflict", "meeting seat label already exists");
+    if (meeting.seats.length >= 100)
+      throw new MeetingError("conflict", "meeting seat limit reached");
+    const updated = {
+      ...meeting,
+      seats: [...meeting.seats, { id: randomUUID(), label: seatLabel }],
+      updatedAt: nowIso(this.options.now),
+    };
+    await this.tables.meetings.put(updated.id, updated);
+    return updated;
+  }
+
+  async renameSeat(
+    actor: MeetingActor,
+    meetingId: string,
+    seatId: string,
+    label: string,
+  ): Promise<Meeting> {
+    const parsedActor = parseOrInvalid(actorSchema, actor);
+    const parsedSeatId = parseOrInvalid(idSchema, seatId);
+    const meeting = this.get(meetingId);
+    if (meeting.status !== "active")
+      throw new MeetingError("conflict", "meeting is closed");
+    const seatLabel = parseOrInvalid(seatNameSchema, label);
+    const participants = this.participants(meeting.id);
+    const caller = participants.find(
+      (candidate) =>
+        candidate.status === "active" &&
+        candidate.kind === actorKind(parsedActor) &&
+        candidate.refId === parsedActor.id,
+    );
+    if (
+      !(
+        caller?.leader === true ||
+        meeting.createdBy === parsedActor.id ||
+        managerActor(parsedActor)
+      )
+    ) {
+      throw new MeetingError(
+        "forbidden",
+        "meeting leader, creator, or workspace owner role is required",
+      );
+    }
+    const seat = meeting.seats.find((candidate) => candidate.id === parsedSeatId);
+    if (seat === undefined)
+      throw new MeetingError("not_found", "meeting seat not found");
+    if (
+      meeting.seats.some(
+        (candidate) =>
+          candidate.id !== seat.id &&
+          candidate.label.localeCompare(seatLabel, undefined, { sensitivity: "base" }) === 0,
+      )
+    ) {
+      throw new MeetingError("conflict", "meeting seat label already exists");
+    }
+    const updated = {
+      ...meeting,
+      seats: meeting.seats.map((candidate) =>
+        candidate.id === seat.id ? { ...candidate, label: seatLabel } : candidate,
+      ),
+      updatedAt: nowIso(this.options.now),
+    };
+    await this.tables.meetings.put(updated.id, updated);
+    for (const participant of this.participants(meeting.id)) {
+      if (participant.seatId !== seat.id || participant.seatLabel === seatLabel) continue;
+      await this.tables.participants.put(participant.id, {
+        ...participant,
+        seatLabel,
+        updatedAt: nowIso(this.options.now),
+      });
+    }
+    return updated;
+  }
+
+  async removeSeat(
+    actor: MeetingActor,
+    meetingId: string,
+    seatId: string,
+  ): Promise<Meeting> {
+    const parsedActor = parseOrInvalid(actorSchema, actor);
+    const parsedSeatId = parseOrInvalid(idSchema, seatId);
+    const meeting = this.get(meetingId);
+    if (meeting.status !== "active")
+      throw new MeetingError("conflict", "meeting is closed");
+    const participants = this.participants(meeting.id);
+    const caller = participants.find(
+      (candidate) =>
+        candidate.status === "active" &&
+        candidate.kind === actorKind(parsedActor) &&
+        candidate.refId === parsedActor.id,
+    );
+    if (
+      !(
+        caller?.leader === true ||
+        meeting.createdBy === parsedActor.id ||
+        managerActor(parsedActor)
+      )
+    ) {
+      throw new MeetingError(
+        "forbidden",
+        "meeting leader, creator, or workspace owner role is required",
+      );
+    }
+    if (!meeting.seats.some((candidate) => candidate.id === parsedSeatId))
+      throw new MeetingError("not_found", "meeting seat not found");
+    const timestamp = nowIso(this.options.now);
+    const updated = {
+      ...meeting,
+      seats: meeting.seats.filter((candidate) => candidate.id !== parsedSeatId),
+      updatedAt: timestamp,
+    };
+    await this.tables.meetings.put(updated.id, updated);
+    for (const participant of participants) {
+      if (participant.seatId !== parsedSeatId) continue;
+      await this.tables.participants.put(participant.id, {
+        ...participant,
+        seatId: undefined,
+        seatLabel: undefined,
+        updatedAt: timestamp,
+      });
+    }
+    return updated;
+  }
+
   async leave(
     actor: MeetingActor,
     meetingId: string,
@@ -1167,7 +1666,131 @@ export class MeetingService {
       updatedAt: nowIso(this.options.now),
     };
     await this.tables.participants.put(left.id, left);
+    await this.reportForDelegation(left, false);
     return left;
+  }
+
+  async removeParticipant(
+    actor: MeetingActor,
+    meetingId: string,
+    participantId: string,
+  ): Promise<MeetingParticipant> {
+    const parsedActor = parseOrInvalid(actorSchema, actor);
+    const parsedParticipantId = parseOrInvalid(idSchema, participantId);
+    const meeting = this.get(meetingId);
+    if (meeting.status !== "active")
+      throw new MeetingError("conflict", "meeting is closed");
+    const participants = this.participants(meeting.id);
+    const caller = participants.find(
+      (candidate) =>
+        candidate.status === "active" &&
+        candidate.kind === actorKind(parsedActor) &&
+        candidate.refId === parsedActor.id,
+    );
+    if (
+      !(
+        caller?.leader === true ||
+        meeting.createdBy === parsedActor.id ||
+        managerActor(parsedActor)
+      )
+    ) {
+      throw new MeetingError(
+        "forbidden",
+        "meeting leader, creator, or workspace owner role is required",
+      );
+    }
+    const participant = participants.find(
+      (candidate) => candidate.id === parsedParticipantId,
+    );
+    if (
+      participant === undefined ||
+      participant.status === "left"
+    ) {
+      throw new MeetingError(
+        "not_found",
+        "active meeting participant not found",
+      );
+    }
+    if (
+      participant.status === "active" &&
+      participant.kind === actorKind(parsedActor) &&
+      participant.refId === parsedActor.id
+    ) {
+      throw new MeetingError("conflict", "use leave to remove yourself");
+    }
+    const timestamp = nowIso(this.options.now);
+    const removed = {
+      ...participant,
+      status: "left" as const,
+      leftAt: timestamp,
+      updatedAt: timestamp,
+    };
+    const operator =
+      caller?.displayName ??
+      parsedActor.id;
+    await this.tables.participants.put(removed.id, removed);
+    const systemMessageId = randomUUID();
+    await this.tables.messages.put(systemMessageId, {
+      id: systemMessageId,
+      sequence: (this.transcript(meeting.id).at(-1)?.sequence ?? 0) + 1,
+      meetingId: meeting.id,
+      senderKind: "system",
+      senderId: "system",
+      senderName: "系统",
+      content: `${participant.displayName} 已被 ${operator} 移出会议。`,
+      mentions: [],
+      deliveries: [],
+      createdAt: timestamp,
+    });
+    await this.reportForDelegation(removed, false);
+    return removed;
+  }
+
+  private async reportForDelegation(
+    participant: MeetingParticipant,
+    finalize: boolean,
+  ): Promise<void> {
+    if (participant.delegationId === undefined || this.delegationReporter === undefined) return;
+    const transcript = this.transcript(participant.meetingId)
+      .map((message) => `${message.senderName}: ${message.content}`)
+      .join("\n");
+    await this.delegationReporter.generateDelegationReport(
+      participant.delegationId,
+      transcript,
+      { finalize },
+    );
+  }
+
+  private delegationState(participant: MeetingParticipant) {
+    if (participant.delegationId === undefined) return undefined;
+    const status = this.delegationReporter?.getDelegationStatus?.(
+      participant.delegationId,
+    );
+    return status === undefined
+      ? undefined
+      : resolvedDelegationStatus(
+          status.status,
+          status.expiresAt,
+          this.options.now(),
+        );
+  }
+
+  private async appendSystemMessage(meetingId: string, content: string) {
+    const timestamp = nowIso(this.options.now);
+    const message = parseMessage({
+      id: randomUUID(),
+      sequence: (this.transcript(meetingId).at(-1)?.sequence ?? 0) + 1,
+      meetingId,
+      senderKind: "system",
+      senderId: "system",
+      senderName: "系统",
+      content,
+      mentions: [],
+      deliveries: [],
+      createdAt: timestamp,
+    });
+    await this.tables.messages.put(message.id, message);
+    return message;
   }
 
   async spawnAgent(
@@ -1176,6 +1799,7 @@ export class MeetingService {
       readonly meetingId: string;
       readonly seatId?: string;
       readonly personaId?: string;
+      readonly basePersonaId?: string;
       readonly displayName?: string;
       readonly provider?: string;
     },
@@ -1192,6 +1816,7 @@ export class MeetingService {
         meetingId: z.string().min(1).max(160),
         seatId: idSchema.optional(),
         personaId: idSchema.optional(),
+        basePersonaId: idSchema.optional(),
         displayName: displayNameSchema.optional(),
         provider: z.string().trim().min(1).max(80).default("spawn"),
       }),
@@ -1233,6 +1858,9 @@ export class MeetingService {
       displayName,
       ...(parsed.seatId === undefined ? {} : { seatId: parsed.seatId }),
       ...(personaId === undefined ? {} : { personaId }),
+      ...(parsed.basePersonaId === undefined
+        ? {}
+        : { basePersonaId: parsed.basePersonaId }),
       leader: seat?.leader ?? false,
       status: "active",
       source: seat === undefined ? "spawned" : "seat",
@@ -1248,11 +1876,14 @@ export class MeetingService {
     input: {
       readonly meetingId: string;
       readonly personaId: string;
+      readonly basePersonaId?: string;
       readonly displayName?: string;
       readonly provider?: string;
       readonly autoSpeak: "all" | "mentions" | "manual";
       readonly initialGreeting: boolean;
       readonly ownerName: string;
+      readonly ownerEmployeeId?: string;
+      readonly delegationId?: string;
     },
     personas: PersonaServiceLike,
   ): Promise<MeetingParticipant> {
@@ -1263,11 +1894,14 @@ export class MeetingService {
       z.object({
         meetingId: z.string().min(1).max(160),
         personaId: idSchema,
+        basePersonaId: idSchema.optional(),
         displayName: displayNameSchema.optional(),
         provider: z.string().trim().min(1).max(80).default("spawn"),
         autoSpeak: z.enum(["all", "mentions", "manual"]),
         initialGreeting: z.boolean(),
         ownerName: displayNameSchema,
+        ownerEmployeeId: idSchema.optional(),
+        delegationId: idSchema.optional(),
       }),
       input,
     );
@@ -1296,10 +1930,15 @@ export class MeetingService {
       refId: "worker",
       displayName,
       personaId: persona.id,
+      ...(parsed.basePersonaId === undefined
+        ? {}
+        : { basePersonaId: parsed.basePersonaId }),
       ownerId: parsedActor.id,
       ownerName: parsed.ownerName,
       autoSpeak: parsed.autoSpeak,
       initialGreeting: parsed.initialGreeting,
+      ...(parsed.ownerEmployeeId === undefined ? {} : { principalType: "delegation" as const }),
+      ...(parsed.delegationId === undefined ? {} : { delegationId: parsed.delegationId }),
       leader: false,
       status: "active",
       source: "spawned",
@@ -1410,6 +2049,25 @@ export class MeetingService {
       throw new MeetingError("conflict", "meeting is closed");
     if (current.kind !== "agent" || current.status !== "active")
       throw new MeetingError("forbidden", "active meeting agent is required");
+    const delegationStatus = this.delegationState(current);
+    if (delegationStatus !== undefined && delegationStatus !== "active") {
+      const reason =
+        delegationStatus === "expired"
+          ? "已到期"
+          : delegationStatus === "paused"
+            ? "已暂停"
+            : delegationStatus === "revoked"
+              ? "已被召回"
+              : "已完成";
+      await this.appendSystemMessage(
+        meeting.id,
+        `${current.displayName} 的委托${reason}，暂不能继续自动发言。请主人延期、恢复委托，或另行指派。`,
+      );
+      throw new MeetingError(
+        "conflict",
+        `delegation is ${delegationStatus}`,
+      );
+    }
     const parsedContent = parseOrInvalid(textSchema, content);
     const timestamp = nowIso(this.options.now);
     const message = {
@@ -1510,6 +2168,7 @@ export class MeetingService {
         leftAt: timestamp,
         updatedAt: timestamp,
       });
+      await this.reportForDelegation({ ...participant, status: "left" }, true);
     }
     return closed;
   }
@@ -1544,6 +2203,45 @@ interface TeamServiceLike {
     memberRole: string;
     name?: string;
   }>;
+}
+
+interface EmployeeServiceLike {
+  getByAuthUserId(
+    authUserId: string,
+  ):
+    | {
+        readonly id: string;
+        readonly displayName: string;
+      }
+    | undefined;
+  createDelegation(
+    ownerAuthUserId: string,
+    input: {
+      displayName?: string;
+      personaId?: string;
+      workspaceId: string;
+      ownerWorkspaceRole?: "viewer" | "member" | "owner";
+      contextType: "meeting";
+      contextId: string;
+      objective: string;
+      stance?: string;
+      watchItems?: readonly string[];
+      allowedActions: readonly string[];
+      deniedActions?: readonly string[];
+      speakPolicy: "manual" | "mentions" | "all";
+      approvalPolicy: "never" | "suggest" | "explicit-only";
+      durationMinutes?: number;
+    },
+  ): Promise<{ readonly id: string }>;
+  attachParticipant(delegationId: string, participantId: string): Promise<unknown>;
+  getDelegationStatus(
+    delegationId: string,
+  ): { status: string; expiresAt?: string } | undefined;
+  generateDelegationReport(
+    delegationId: string,
+    transcript: string,
+    options: { finalize?: boolean },
+  ): Promise<unknown>;
 }
 
 interface AgentsServiceLike {
@@ -1581,6 +2279,7 @@ export interface MeetingContext {
     open(spec: typeof meetingDomainSpec): Promise<MeetingDomainLike>;
   };
   collabTeam?: TeamServiceLike;
+  collabEmployee?: EmployeeServiceLike;
   collabAssignment?: AssignmentServiceLike;
   collabPersonas?: PersonaServiceLike;
   agents?: AgentRegistryLike;
@@ -1590,6 +2289,15 @@ export interface MeetingContext {
   get(key: "collabPersonas"): PersonaServiceLike | undefined;
   get(key: "agents"): AgentsServiceLike | undefined;
   get(key: "subagents"): SubagentsRuntimeLike | undefined;
+  get(key: "collabEmployee"): EmployeeServiceLike | undefined;
+  inject(
+    keys: readonly ["collabEmployee"],
+    callback: (
+      child: Omit<MeetingContext, "collabEmployee"> & {
+        readonly collabEmployee?: EmployeeServiceLike;
+      },
+    ) => void,
+  ): { dispose(): void };
   inject(
     keys: readonly ["collabTeam"],
     callback: (
@@ -1656,6 +2364,18 @@ async function runHandler(
       });
       return;
     }
+    if (cause instanceof Error && cause.name === "EmployeeError") {
+      const code = Reflect.get(cause, "code") as MeetingError["code"];
+      const message =
+        cause.message === "owner must have an active workspace role"
+          ? "派遣前请先给当前真人员工配置工作区授权"
+          : cause.message;
+      sendJson(response, errorStatus(code), {
+        ok: false,
+        error: { code, message },
+      });
+      return;
+    }
     sendJson(response, 500, {
       ok: false,
       error: { code: "internal_error", message: "meeting operation failed" },
@@ -1697,6 +2417,7 @@ export function createMeetingRoutes(
     readonly personas?: () => PersonaServiceLike | undefined;
     readonly subagents?: () => SubagentsRuntimeLike | undefined;
     readonly runtime?: () => MeetingRuntime | undefined;
+    readonly employees?: () => EmployeeServiceLike | undefined;
   } = {},
 ): WebRouteLike[] {
   const memberNames = (workspaceId: string) =>
@@ -1774,15 +2495,80 @@ export function createMeetingRoutes(
         const meetingId = requireQuery(request, "meetingId");
         const meeting = meetings.get(meetingId);
         const actor = browserActor(team, request, meeting.workspaceId);
+        const caller = meetings
+          .participants(meeting.id)
+          .find(
+            (candidate) =>
+              candidate.status === "active" &&
+              candidate.kind === actorKind(actor) &&
+              candidate.refId === actor.id,
+          );
+        const employees = dependencies.employees?.();
+        const now = new Date();
+        const participants = readableParticipants(
+          meeting.workspaceId,
+          meetings.participants(meeting.id),
+        ).map((participant) => {
+          if (participant.delegationId === undefined) return participant;
+          const status = employees?.getDelegationStatus(
+            participant.delegationId,
+          );
+          if (status === undefined) return participant;
+          return {
+            ...participant,
+            delegationStatus: resolvedDelegationStatus(
+              status.status,
+              status.expiresAt,
+              now,
+            ),
+          };
+        });
         sendJson(response, 200, {
           ok: true,
           meeting,
-          participants: readableParticipants(
-            meeting.workspaceId,
-            meetings.participants(meeting.id),
-          ),
+          participants,
           transcript: meetings.transcript(meeting.id),
           actorId: actor.id,
+          canRemove:
+            caller?.leader === true ||
+            meeting.createdBy === actor.id ||
+            managerActor(actor),
+          canInvite:
+            caller !== undefined ||
+            meeting.createdBy === actor.id ||
+            managerActor(actor),
+          canManageSeats:
+            caller?.leader === true ||
+            meeting.createdBy === actor.id ||
+            managerActor(actor),
+        });
+      },
+    },
+    {
+      method: "POST",
+      path: "/api/collab/meeting/participant/remove",
+      handler: async (request: IncomingMessage, response: ServerResponse) => {
+        const body = parseOrInvalid(
+          z.object({
+            meetingId: z.string().min(1).max(160),
+            participantId: z.string().min(1).max(160),
+          }),
+          await readBody(request),
+        );
+        const meeting = meetings.get(body.meetingId);
+        const actor = browserActor(team, request, meeting.workspaceId);
+        const participant = meetings
+          .participants(meeting.id)
+          .find((candidate) => candidate.id === body.participantId);
+        const runtime = dependencies.runtime?.();
+        if (runtime !== undefined) runtime.cancelParticipant(participant?.id ?? "");
+        sendJson(response, 200, {
+          ok: true,
+          participant: await meetings.removeParticipant(
+            actor,
+            meeting.id,
+            body.participantId,
+          ),
         });
       },
     },
@@ -1802,6 +2588,191 @@ export function createMeetingRoutes(
         sendJson(response, 201, {
           ok: true,
           participant: await meetings.join(actor, meeting.id, body.displayName),
+        });
+      },
+    },
+    {
+      method: "GET",
+      path: "/api/collab/meeting/people",
+      handler: (request: IncomingMessage, response: ServerResponse) => {
+        const meetingId = requireQuery(request, "meetingId");
+        const meeting = meetings.get(meetingId);
+        browserActor(team, request, meeting.workspaceId);
+        const currentByUser = new Map(
+          meetings
+            .participants(meeting.id)
+            .filter((participant) => participant.kind === "human")
+            .map((participant) => [participant.refId, participant]),
+        );
+        const people = team.members(meeting.workspaceId).map((member) => {
+          const current = currentByUser.get(member.userId);
+          return {
+            id: member.userId,
+            name: member.name ?? member.userId,
+            role: member.memberRole,
+            participantId: current?.id,
+            state: current?.status,
+            seatLabel: current?.seatLabel,
+          };
+        });
+        sendJson(response, 200, { ok: true, people });
+      },
+    },
+    {
+      method: "POST",
+      path: "/api/collab/meeting/participants/invite",
+      handler: async (request: IncomingMessage, response: ServerResponse) => {
+        const body = parseOrInvalid(
+          z.object({
+            meetingId: z.string().min(1).max(160),
+            people: z
+              .array(
+                z.object({
+                  targetId: z.string().trim().min(1).max(160),
+                  seatLabel: z.string().trim().max(80).optional(),
+                  seatId: idSchema.optional(),
+                }),
+              )
+              .min(1)
+              .max(100),
+          }),
+          await readBody(request),
+        );
+        const meeting = meetings.get(body.meetingId);
+        const actor = browserActor(team, request, meeting.workspaceId);
+        const members = new Map(
+          team
+            .members(meeting.workspaceId)
+            .map((member) => [member.userId, member]),
+        );
+        const targets = new Set(body.people.map((person) => person.targetId));
+        if (targets.size !== body.people.length)
+          throw new MeetingError("invalid_input", "duplicate invite targets");
+        const invited: MeetingParticipant[] = [];
+        for (const person of body.people) {
+          const member = members.get(person.targetId);
+          if (member === undefined)
+            throw new MeetingError(
+              "invalid_input",
+              "invite target must be a workspace member",
+            );
+          invited.push(
+            await meetings.inviteParticipant(actor, meeting.id, {
+              targetId: member.userId,
+              displayName: member.name ?? member.userId,
+              ...(person.seatLabel === undefined || person.seatLabel === ""
+                ? {}
+                : { seatLabel: person.seatLabel }),
+              ...(person.seatId === undefined ? {} : { seatId: person.seatId }),
+            }),
+          );
+        }
+        sendJson(response, 201, { ok: true, participants: invited });
+      },
+    },
+    {
+      method: "POST",
+      path: "/api/collab/meeting/participant/change-seat",
+      handler: async (request: IncomingMessage, response: ServerResponse) => {
+        const body = parseOrInvalid(
+          z.object({
+            meetingId: z.string().min(1).max(160),
+            participantId: idSchema.optional(),
+            seatLabel: z.string().trim().max(80).optional(),
+            seatId: idSchema.optional(),
+          }),
+          await readBody(request),
+        );
+        const meeting = meetings.get(body.meetingId);
+        const actor = browserActor(team, request, meeting.workspaceId);
+        if (body.participantId !== undefined) {
+          sendJson(response, 200, {
+            ok: true,
+            participant: await meetings.changeParticipantSeat(
+              actor,
+              meeting.id,
+              body.participantId,
+              body.seatLabel,
+              body.seatId,
+            ),
+          });
+          return;
+        }
+        sendJson(response, 200, {
+          ok: true,
+          participant: await meetings.changeOwnSeat(
+            actor,
+            meeting.id,
+            body.seatLabel,
+            body.seatId,
+          ),
+        });
+      },
+    },
+    {
+      method: "POST",
+      path: "/api/collab/meeting/seats/manage",
+      handler: async (request: IncomingMessage, response: ServerResponse) => {
+        const body = parseOrInvalid(
+          z.object({
+            meetingId: z.string().min(1).max(160),
+            label: seatNameSchema,
+          }),
+          await readBody(request),
+        );
+        const meeting = meetings.get(body.meetingId);
+        const actor = browserActor(team, request, meeting.workspaceId);
+        sendJson(response, 201, {
+          ok: true,
+          meeting: await meetings.addSeat(actor, meeting.id, body.label),
+        });
+      },
+    },
+    {
+      method: "PATCH",
+      path: "/api/collab/meeting/seats/manage",
+      handler: async (request: IncomingMessage, response: ServerResponse) => {
+        const body = parseOrInvalid(
+          z.object({
+            meetingId: z.string().min(1).max(160),
+            seatId: idSchema,
+            label: seatNameSchema,
+          }),
+          await readBody(request),
+        );
+        const meeting = meetings.get(body.meetingId);
+        const actor = browserActor(team, request, meeting.workspaceId);
+        sendJson(response, 200, {
+          ok: true,
+          meeting: await meetings.renameSeat(
+            actor,
+            meeting.id,
+            body.seatId,
+            body.label,
+          ),
+        });
+      },
+    },
+    {
+      method: "DELETE",
+      path: "/api/collab/meeting/seats/manage",
+      handler: async (request: IncomingMessage, response: ServerResponse) => {
+        const body = parseOrInvalid(
+          z.object({
+            meetingId: z.string().min(1).max(160),
+            seatId: idSchema,
+          }),
+          await readBody(request),
+        );
+        const meeting = meetings.get(body.meetingId);
+        const actor = browserActor(team, request, meeting.workspaceId);
+        sendJson(response, 200, {
+          ok: true,
+          meeting: await meetings.removeSeat(
+            actor,
+            meeting.id,
+            body.seatId,
+          ),
         });
       },
     },
@@ -1989,10 +2960,17 @@ export function createMeetingRoutes(
           z.object({
             meetingId: z.string().min(1).max(160),
             personaId: idSchema,
+            basePersonaId: idSchema.optional(),
             parentSessionId: idSchema.optional(),
             displayName: displayNameSchema.optional(),
             autoSpeak: z.enum(["all", "mentions", "manual"]).default("mentions"),
             initialGreeting: z.boolean().default(true),
+            objective: z.string().trim().min(1).max(4_000).optional(),
+            stance: z.string().trim().max(4_000).optional(),
+            watchItems: z.array(z.string().trim().min(1).max(500)).max(20).optional(),
+            allowedActions: z.array(z.string().trim().min(1).max(120)).max(100).optional(),
+            speakPolicy: z.enum(["manual", "mentions", "all"]).optional(),
+            durationMinutes: z.number().int().min(1).max(10_080).optional(),
           }),
           await readBody(request),
         );
@@ -2020,25 +2998,62 @@ export function createMeetingRoutes(
           throw new MeetingError("not_found", "meeting runtime is unavailable");
         if (personas === undefined)
           throw new MeetingError("not_found", "roles persona service is unavailable");
+        const employees = dependencies.employees?.();
+        if (employees === undefined) {
+          throw new MeetingError("not_found", "employee service is unavailable");
+        }
+        const owner = employees.getByAuthUserId(actor.id);
+        if (owner === undefined) {
+          throw new MeetingError("forbidden", "Human Employee record is required");
+        }
+        const ownerName =
+          memberNames(meeting.workspaceId).get(actor.id) ?? requester.displayName;
+        const delegation = await employees.createDelegation(actor.id, {
+          displayName:
+            body.displayName ??
+            `${ownerName} · ${meeting.title.slice(0, 20)} 分身`,
+          personaId: body.personaId,
+          workspaceId: meeting.workspaceId,
+          ownerWorkspaceRole:
+            actor.workspaceRole ??
+            (actor.globalRole === "admin" ? "owner" : undefined),
+          contextType: "meeting",
+          contextId: meeting.id,
+          objective:
+            body.objective ?? `代表 ${ownerName} 参加「${meeting.title}」，如实表达指定立场并汇报结论。`,
+          ...(body.stance === undefined ? {} : { stance: body.stance }),
+          ...(body.watchItems === undefined ? {} : { watchItems: body.watchItems }),
+          allowedActions: body.allowedActions ?? ["meeting.read", "meeting.speak"],
+          deniedActions: ["approval.final", "employee.manage", "workflow.approve"],
+          speakPolicy: body.speakPolicy ?? body.autoSpeak,
+          approvalPolicy: "never",
+          ...(body.durationMinutes === undefined ? {} : { durationMinutes: body.durationMinutes }),
+        });
         const participant = await meetings.spawnAgentForUser(
           actor,
           {
             meetingId: meeting.id,
             personaId: body.personaId,
+            ...(body.basePersonaId === undefined
+              ? {}
+              : { basePersonaId: body.basePersonaId }),
             ...(body.displayName === undefined
               ? {}
               : { displayName: body.displayName }),
             autoSpeak: body.autoSpeak,
             initialGreeting: body.initialGreeting,
-            ownerName:
-              memberNames(meeting.workspaceId).get(actor.id) ?? requester.displayName,
+            ownerName,
+            ownerEmployeeId: owner.id,
+            delegationId: delegation.id,
           },
           personas,
         );
+        await employees.attachParticipant(delegation.id, participant.id);
         if (body.initialGreeting) runtime.greet(participant);
         sendJson(response, 201, {
           ok: true,
           participant,
+          delegation,
         });
       },
     },
@@ -2238,6 +3253,7 @@ function registerMeetingInterfaces(
         summary: { type: "string" },
         seatId: { type: "string" },
         personaId: { type: "string" },
+        basePersonaId: { type: "string" },
         provider: { type: "string" },
       },
       required: ["operation"],
@@ -2266,6 +3282,7 @@ function registerMeetingInterfaces(
           summary: textSchema.optional(),
           seatId: idSchema.optional(),
           personaId: idSchema.optional(),
+          basePersonaId: idSchema.optional(),
           provider: z.string().trim().min(1).max(80).optional(),
         }),
         args,
@@ -2359,6 +3376,9 @@ function registerMeetingInterfaces(
           ...(parsed.personaId === undefined
             ? {}
             : { personaId: parsed.personaId }),
+          ...(parsed.basePersonaId === undefined
+            ? {}
+            : { basePersonaId: parsed.basePersonaId }),
           ...(parsed.displayName === undefined
             ? {}
             : { displayName: parsed.displayName }),
@@ -2403,10 +3423,15 @@ export async function apply(ctx: MeetingContext): Promise<void | (() => void)> {
       personas: () => ctx.get("collabPersonas"),
       subagents: () => ctx.get("subagents"),
       runtime: () => runtime,
+      employees: () => ctx.get("collabEmployee"),
     }).map((route) => ctx.webServer.register(route)) as Array<() => void>;
+  });
+  const employeeFiber = ctx.inject(["collabEmployee"], (child) => {
+    meetings.setDelegationReporter(child.collabEmployee);
   });
   return () => {
     identityFiber.dispose();
+    employeeFiber?.dispose();
     for (const dispose of routeDisposers) dispose();
   };
 }

@@ -25,6 +25,7 @@ window.__ModuleLoader__.load({
 .pmwf-btn{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:6px;min-height:33px;padding:7px 11px;font:inherit;font-size:13px;cursor:pointer;background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground)}
 .pmwf-btn.secondary{background:transparent;border:0.5px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-primary)}
 .pmwf-btn.small{min-height:27px;padding:4px 8px;font-size:12px}
+.pmwf-input.small{min-height:27px;padding:4px 8px;font-size:12px;width:auto}
 .pmwf-btn:disabled{opacity:.45;cursor:not-allowed}
 .pmwf-list{display:flex;flex-direction:column;gap:8px}
 .pmwf-flow{overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base))}
@@ -224,6 +225,20 @@ window.__ModuleLoader__.load({
       });
     }
 
+    function formatDuration(value) {
+      if (!Number.isFinite(value) || value <= 0) return "未知";
+      if (value < 60_000) {
+        const seconds = Math.round(value / 1000);
+        return `${seconds} 秒`;
+      }
+      if (value < 3_600_000) {
+        const minutes = Math.round(value / 60_000);
+        return `${minutes} 分钟`;
+      }
+      const hours = Math.round(value / 3_600_000);
+      return `${hours} 小时`;
+    }
+
     function nodeTypeLabel(value) {
       return (
         {
@@ -247,14 +262,21 @@ window.__ModuleLoader__.load({
 
     function executorLabel(node) {
       const kind =
-        { system: "系统", user: "用户", agent: "Agent" }[node.executor.kind] ??
-        node.executor.kind;
+        { system: "系统", user: "用户", agent: "Agent", employee: "数字员工" }[
+          node.executor.kind
+        ] ?? node.executor.kind;
       return `${kind} · ${node.executor.label ?? node.executor.id}`;
     }
 
     function approverLabel(approver, memberNames) {
       const name = memberNames.get(approver.id) ?? approver.name ?? approver.id;
-      return `${approver.kind === "agent" ? "Agent" : "用户"} · ${name}`;
+      const kind =
+        approver.kind === "agent"
+          ? "Agent"
+          : approver.kind === "employee"
+            ? "数字员工"
+            : "用户";
+      return `${kind} · ${name}`;
     }
 
     function deliverableTypeLabel(value) {
@@ -280,10 +302,9 @@ window.__ModuleLoader__.load({
       if (!actor || (actor.kind !== "user" && !actor.id)) return false;
       if (manager) return true;
       if (node.type === "service" || node.type === "subworkflow") return false;
-      const responsibleId =
-        node.executor.kind === "agent"
-          ? node.responsible?.id
-          : (node.responsible?.id ?? node.executor.id);
+      const responsibleId = ["agent", "employee"].includes(node.executor.kind)
+        ? node.responsible?.id
+        : (node.responsible?.id ?? node.executor.id);
       if (node.executor.kind === "user" && node.executor.id === actor.id)
         return true;
       return responsibleId === actor.id;
@@ -294,7 +315,7 @@ window.__ModuleLoader__.load({
       if (manager) return true;
       if (node.type === "service" || node.type === "subworkflow") return false;
       const responsible = node.responsible;
-      if (node.executor.kind === "agent") {
+      if (["agent", "employee"].includes(node.executor.kind)) {
         return responsible?.kind === "user" && responsible.id === actor.id;
       }
       if (node.executor.kind === "user" && node.executor.id === actor.id) {
@@ -303,17 +324,19 @@ window.__ModuleLoader__.load({
       return responsible?.kind === "user" && responsible.id === actor.id;
     }
 
-    function completeButtonLabel(node, actor, manager, memberNames) {
-      const missing = missingDeliverables(node, {});
+    function completeButtonLabel(node, actor, manager, memberNames, state) {
+      const missing = missingDeliverables(node, state);
       if (missing.length > 0) return `缺少 ${missing.length} 项交付物`;
       if (canCompleteNode(node, actor, manager)) return "完成";
-      if (node.executor.kind === "agent" && node.responsible === undefined) {
+      if (
+        ["agent", "employee"].includes(node.executor.kind) &&
+        node.responsible === undefined
+      ) {
         return "Owner/Admin 可完成";
       }
-      const responsibleId =
-        node.executor.kind === "agent"
-          ? node.responsible?.id
-          : (node.responsible?.id ?? node.executor.id);
+      const responsibleId = ["agent", "employee"].includes(node.executor.kind)
+        ? node.responsible?.id
+        : (node.responsible?.id ?? node.executor.id);
       const name = memberNames.get(responsibleId) ?? responsibleId;
       return name ? `由 ${name} 完成` : "无完成权限";
     }
@@ -322,16 +345,42 @@ window.__ModuleLoader__.load({
       const { node, state, detail, instance } = props;
       if ((node.deliverables ?? []).length === 0) return null;
       const manager = props.isManager;
-      const editable =
+      const agentWorker =
+        ["agent", "employee"].includes(node.executor.kind) &&
+        node.execution === "task-worker";
+      const runnerLabel = node.executor.kind === "employee"
+        ? "Digital Employee"
+        : "Agent";
+      const ticketRejected =
+        state?.status === "blocked" &&
+        state.note?.startsWith("Digital Employee 输出被拒绝") === true;
+      const activeAgentRun = (props.runs ?? []).some((run) =>
+        ["queued", "running", "waiting_input"].includes(run.status),
+      );
+      const baseEditable =
         ["ready", "running", "waiting"].includes(state?.status) &&
+        canSubmitDeliverable(node, detail.actor, manager);
+      const fallbackEditable =
+        agentWorker &&
+        state?.status === "blocked" &&
+        !activeAgentRun &&
         canSubmitDeliverable(node, detail.actor, manager);
       return jsxRuntime.jsxs("div", {
         className: "pmwf-deliverables",
         children: [
-          node.executor.kind === "agent"
+          ["agent", "employee"].includes(node.executor.kind) &&
+          node.execution !== "task-worker"
             ? jsxRuntime.jsx("div", {
                 className: "pmwf-note info",
                 children: "本节点暂不自动运行；当前由人类代交交付物。",
+              })
+            : null,
+          fallbackEditable
+            ? jsxRuntime.jsx("div", {
+                className: "pmwf-note info",
+                children: ticketRejected
+                  ? `${runnerLabel} 的输出未获授权写入交付物；节点负责人可以人工代交交付物，或在调整 Runtime 后重新派发 ${runnerLabel}。`
+                  : `${runnerLabel} 未完成本次运行；节点负责人可以人工代交交付物，或重新派发 ${runnerLabel}。`,
               })
             : null,
           jsxRuntime.jsx("div", {
@@ -341,6 +390,14 @@ window.__ModuleLoader__.load({
           node.deliverables.map((requirement) => {
             const key = `${instance.id}:${node.id}:${requirement.key}`;
             const currentState = state?.deliverables?.[requirement.key];
+            const agentOutputAccepted =
+              agentWorker &&
+              state?.status === "ready" &&
+              !activeAgentRun &&
+              currentState?.status === "submitted";
+            const editable =
+              (baseEditable && !activeAgentRun && !agentOutputAccepted) ||
+              fallbackEditable;
             const submissions = (detail.submissions ?? []).filter(
               (item) =>
                 item.nodeId === node.id &&
@@ -470,7 +527,9 @@ window.__ModuleLoader__.load({
                                 children:
                                   props.busy === `deliverable:${key}`
                                     ? "提交中"
-                                    : "提交交付物",
+                                    : fallbackEditable
+                                      ? "人工代交"
+                                      : "提交交付物",
                               }),
                               requirement.type === "text"
                                 ? jsxRuntime.jsxs("span", {
@@ -492,6 +551,240 @@ window.__ModuleLoader__.load({
               },
               requirement.key,
             );
+          }),
+        ],
+      });
+    }
+
+    const AGENT_RUN_STATUS = {
+      queued: { label: "排队中", tone: "waiting" },
+      running: { label: "运行中", tone: "current" },
+      waiting_input: { label: "等待补充", tone: "waiting" },
+      succeeded: { label: "已成功", tone: "completed" },
+      failed: { label: "失败", tone: "blocked" },
+      timeout: { label: "超时", tone: "blocked" },
+      cancelled: { label: "已取消", tone: "waiting" },
+      interrupted: { label: "已中断", tone: "blocked" },
+    };
+
+    function agentRunStatusLabel(value) {
+      return AGENT_RUN_STATUS[value]?.label ?? value;
+    }
+
+    function AgentRunPanel(props) {
+      const { node, state, runs, busy, act, workspaceId, instanceId } = props;
+      const runnerKind =
+        node.executor.kind === "employee" ||
+        runs.some((run) => run.principalType === "digital-employee")
+          ? "Digital Employee"
+          : "Agent";
+      const runnerName = (run) =>
+        run.payload.employeeName ?? run.payload.profileName;
+      if (node.execution !== "task-worker") return null;
+      const active =
+        runs.find((run) =>
+          ["queued", "running", "waiting_input"].includes(run.status),
+        ) ?? null;
+      const latest = runs[0] ?? null;
+      const retryable =
+        latest !== null &&
+        ["failed", "timeout", "interrupted", "cancelled"].includes(
+          latest.status,
+        );
+      const outputRejected =
+        state?.status === "blocked" &&
+        state.note?.startsWith("Agent 未按约定输出「交付说明」") === true;
+      const ticketRejected =
+        latest?.status === "succeeded" &&
+        state?.status === "blocked" &&
+        state.note?.startsWith("Digital Employee 输出被拒绝") === true;
+      const latestRunLabel =
+        latest?.status === "succeeded" && outputRejected
+          ? "已成功 · 输出未通过交付校验"
+          : latest?.status === "succeeded" && ticketRejected
+            ? "已成功 · 输出被票据拒绝"
+            : agentRunStatusLabel(latest?.status);
+      const serviceRecoverable =
+        active === null &&
+        latest === null &&
+        state?.status === "blocked" &&
+        /^(Agent Profile|Digital Employee)/.test(state.note || "");
+      const canDispatch =
+        (state?.status === "ready" || serviceRecoverable) && active === null;
+      const canRetry =
+        (retryable ||
+          (latest?.status === "succeeded" &&
+            (outputRejected || ticketRejected))) &&
+        active === null &&
+        state !== null &&
+        ["ready", "blocked"].includes(state.status);
+      const triggerLabel =
+        latest?.trigger === "auto-on-ready" ? "自动派发" : "手动派发";
+      return jsxRuntime.jsxs("div", {
+        className: "pmwf-deliverables",
+        children: [
+          jsxRuntime.jsx("div", {
+            className: "pmwf-deliverable-heading",
+            children: `${runnerKind} 运行`,
+          }),
+          active !== null
+            ? jsxRuntime.jsxs("div", {
+                className: "pmwf-deliverable",
+                children: [
+                  jsxRuntime.jsxs("div", {
+                    className: "pmwf-deliverable-title",
+                    children: [
+                      jsxRuntime.jsx("strong", {
+                        children: runnerName(active),
+                      }),
+                      jsxRuntime.jsx("span", {
+                        className: "pmwf-deliverable-state",
+                        children: agentRunStatusLabel(active.status),
+                      }),
+                      jsxRuntime.jsx("span", {
+                        children: `第 ${active.runSeq} 次`,
+                      }),
+                    ],
+                  }),
+                  jsxRuntime.jsx("div", {
+                    className: "pmwf-deliverable-meta",
+                    children: `开始 ${timeShort(active.startedAt)} · 超时上限 ${formatDuration(active.timeoutMs)}`,
+                  }),
+                ],
+              })
+            : latest !== null
+              ? jsxRuntime.jsxs("div", {
+                  className: "pmwf-deliverable",
+                  children: [
+                    jsxRuntime.jsxs("div", {
+                      className: "pmwf-deliverable-title",
+                      children: [
+                        jsxRuntime.jsx("strong", {
+                          children: runnerName(latest),
+                        }),
+                        jsxRuntime.jsx("span", {
+                          className: "pmwf-deliverable-state",
+                          children: latestRunLabel,
+                        }),
+                        jsxRuntime.jsx("span", {
+                          children: `第 ${latest.runSeq} 次 · ${triggerLabel}`,
+                        }),
+                      ],
+                    }),
+                    latest.error
+                      ? jsxRuntime.jsx("div", {
+                          className: "pmwf-deliverable-meta",
+                          children: latest.error,
+                        })
+                      : latest.output?.summary
+                        ? jsxRuntime.jsx("div", {
+                            className: "pmwf-deliverable-meta",
+                            children: latest.output.summary.slice(0, 200),
+                          })
+                        : null,
+                    latest.startedAt || latest.endedAt
+                      ? jsxRuntime.jsx(
+                          "div",
+                          {
+                            className: "pmwf-deliverable-meta",
+                            children: `开始 ${timeShort(latest.startedAt) || "—"} · 结束 ${timeShort(latest.endedAt) || "—"}`,
+                          },
+                          "latest-time",
+                        )
+                      : null,
+                    latest.promptSnapshot
+                      ? jsxRuntime.jsx("details", {
+                          children: [
+                            jsxRuntime.jsx(
+                              "summary",
+                              {
+                                className: "pmwf-deliverable-meta",
+                                children: "查看运行提示词",
+                              },
+                              "summary",
+                            ),
+                            jsxRuntime.jsx(
+                              "pre",
+                              {
+                                className: "pmwf-deliverable-meta",
+                                style: {
+                                  whiteSpace: "pre-wrap",
+                                  margin: "4px 0 0",
+                                },
+                                children: latest.promptSnapshot.slice(0, 2_000),
+                              },
+                              "prompt",
+                            ),
+                          ],
+                        })
+                      : null,
+                  ],
+                })
+              : jsxRuntime.jsx("div", {
+                  className: "pmwf-deliverable-meta",
+                  children: `尚未派发过 ${runnerKind} 运行。`,
+                }),
+          jsxRuntime.jsxs("div", {
+            className: "pmwf-actions",
+            children: [
+              canDispatch && !canRetry
+                ? jsxRuntime.jsx(
+                    "button",
+                    {
+                      type: "button",
+                      className: "pmwf-btn small",
+                      disabled: busy !== "",
+                      onClick: () =>
+                        act(
+                          `agent-dispatch:${instanceId}:${node.id}`,
+                          "/api/collab/workflow/agent-runs/dispatch",
+                          { workspaceId, instanceId, nodeId: node.id },
+                          `已派发 ${runnerKind} 运行`,
+                        ),
+                      children: `派发 ${runnerKind}`,
+                    },
+                    "dispatch",
+                  )
+                : null,
+              active !== null
+                ? jsxRuntime.jsx(
+                    "button",
+                    {
+                      type: "button",
+                      className: "pmwf-btn secondary small",
+                      disabled: busy !== "",
+                      onClick: () =>
+                        act(
+                          `agent-cancel:${active.id}`,
+                          "/api/collab/workflow/agent-runs/cancel",
+                          { workspaceId, runId: active.id },
+                          `已取消 ${runnerKind} 运行`,
+                        ),
+                      children: "取消运行",
+                    },
+                    "cancel",
+                  )
+                : null,
+              canRetry
+                ? jsxRuntime.jsx(
+                    "button",
+                    {
+                      type: "button",
+                      className: "pmwf-btn secondary small",
+                      disabled: busy !== "",
+                      onClick: () =>
+                        act(
+                          `agent-retry:${latest.id}`,
+                          "/api/collab/workflow/agent-runs/retry",
+                          { workspaceId, runId: latest.id },
+                          `已重新派发 ${runnerKind} 运行`,
+                        ),
+                      children: `重新派发 ${runnerKind}`,
+                    },
+                    "retry",
+                  )
+                : null,
+            ],
           }),
         ],
       });
@@ -619,6 +912,7 @@ window.__ModuleLoader__.load({
 
     function WorkflowTab(props) {
       const sessionId = props.sessionId;
+      const { viewRequest, completeViewRequest } = props;
       const workspaceSnapshot = props.useWorkspaces?.((state) => state);
       const sessionSnapshot = props.useSessions?.((state) => state);
       const nativeWorkspace = workspaceSnapshot?.items?.find((item) =>
@@ -638,7 +932,7 @@ window.__ModuleLoader__.load({
       const [workspaceOptions, setWorkspaceOptions] = react.useState([]);
       const [definitions, setDefinitions] = react.useState([]);
       const [instances, setInstances] = react.useState([]);
-      const [sessionOnly, setSessionOnly] = react.useState(true);
+      const [sessionOnly, setSessionOnly] = react.useState(false);
       const [statusFilter, setStatusFilter] = react.useState("all");
       const [query, setQuery] = react.useState("");
       const [openId, setOpenId] = react.useState("");
@@ -651,6 +945,7 @@ window.__ModuleLoader__.load({
       const [deliverableDrafts, setDeliverableDrafts] = react.useState({});
       const [deliverableFiles, setDeliverableFiles] = react.useState({});
       const [startDefinitionId, setStartDefinitionId] = react.useState("");
+      const [approvalNote, setApprovalNote] = react.useState("");
 
       const notify = (text) => {
         setError("");
@@ -670,17 +965,14 @@ window.__ModuleLoader__.load({
       const effectiveWorkspaceId = nativeWorkspace?.workspaceId ?? workspaceId;
       const selectedDefinition =
         definitions.find(
-          (item) =>
-            item.id === startDefinitionId && item.status === "active",
-        ) ??
-        definitions.find(
-          (item) => item.status === "active",
-        );
+          (item) => item.id === startDefinitionId && item.status === "active",
+        ) ?? definitions.find((item) => item.status === "active");
       const canStart = Boolean(
         (selectedDefinition &&
           ["owner", "member"].includes(me?.workspaceRole ?? "")) ||
         me?.role === "admin",
       );
+      const canManage = me?.role === "admin" || me?.workspaceRole === "owner";
 
       react.useEffect(() => {
         if (getToken() === null) {
@@ -802,7 +1094,7 @@ window.__ModuleLoader__.load({
           try {
             const result = await request(
               `/api/collab/workflow/instances/detail?workspaceId=${encodeURIComponent(effectiveWorkspaceId)}&instanceId=${encodeURIComponent(instanceId)}`,
-              );
+            );
             setDetail(result);
             return result;
           } catch (cause) {
@@ -832,14 +1124,26 @@ window.__ModuleLoader__.load({
         [effectiveWorkspaceId],
       );
 
+      const refreshOpenDetail = react.useCallback(async () => {
+        if (!openId) return;
+        const loaded = await loadDetail(openId);
+        if (!loaded) return;
+        const childIds = Object.values(loaded.instance.nodes ?? {})
+          .map((state) => state.childInstanceId)
+          .filter(Boolean);
+        await Promise.all(childIds.map((childId) => loadNestedDetail(childId)));
+      }, [loadDetail, loadNestedDetail, openId]);
+
       react.useEffect(() => {
         if (phase !== "ready" || !effectiveWorkspaceId) return;
         load();
         const timer = setInterval(() => {
-          if (document.visibilityState === "visible") load();
+          if (document.visibilityState !== "visible") return;
+          load();
+          refreshOpenDetail();
         }, 8000);
         return () => clearInterval(timer);
-      }, [load, phase, effectiveWorkspaceId]);
+      }, [load, refreshOpenDetail, phase, effectiveWorkspaceId]);
 
       react.useEffect(() => {
         setDetail(null);
@@ -856,12 +1160,29 @@ window.__ModuleLoader__.load({
           const childIds = Object.values(loaded?.instance?.nodes ?? {})
             .map((state) => state.childInstanceId)
             .filter(Boolean);
-          await Promise.all(childIds.map((childId) => loadNestedDetail(childId)));
+          await Promise.all(
+            childIds.map((childId) => loadNestedDetail(childId)),
+          );
         }
       };
 
+      react.useEffect(() => {
+        if (viewRequest?.view !== "pluginmax-workflow") return;
+        const instanceId = String(viewRequest.focus ?? "");
+        if (instanceId) {
+          setSessionOnly(false);
+          setStatusFilter("all");
+          setQuery("");
+          void expand(instanceId);
+        }
+        completeViewRequest?.();
+      }, [completeViewRequest, expand, viewRequest]);
+
       const act = async (key, path, body, message) => {
-        if (busy) return;
+        if (busy) {
+          setError("请等待当前操作完成。");
+          return;
+        }
         setBusy(key);
         try {
           await request(path, { method: "POST", body: JSON.stringify(body) });
@@ -878,11 +1199,29 @@ window.__ModuleLoader__.load({
           }
           setGateForm(null);
           setDecisionValues("{}");
+          setApprovalNote("");
         } catch (cause) {
           fail(cause);
         } finally {
           setBusy("");
         }
+      };
+
+      const openWorkflowTemplateSettings = () => {
+        const trigger = Array.from(
+          document.querySelectorAll("button[aria-haspopup='dialog']"),
+        ).at(0);
+        if (!(trigger instanceof HTMLButtonElement)) {
+          setError("未找到设置入口。");
+          return;
+        }
+        trigger.click();
+        window.setTimeout(() => {
+          const item = Array.from(
+            document.querySelectorAll("[role='dialog'] nav button"),
+          ).find((button) => button.textContent?.trim() === "工作流");
+          if (item instanceof HTMLButtonElement) item.click();
+        }, 60);
       };
 
       const setDeliverableDraft = (key, value) =>
@@ -1013,8 +1352,7 @@ window.__ModuleLoader__.load({
                   className: `pmwf-dot ${pillClass(childStatus)}`,
                 }),
                 jsxRuntime.jsxs("strong", {
-                  children:
-                    childInstance?.title ?? "子流程实例加载中…",
+                  children: childInstance?.title ?? "子流程实例加载中…",
                 }),
                 jsxRuntime.jsx("span", {
                   children: childDefinition
@@ -1040,13 +1378,12 @@ window.__ModuleLoader__.load({
                     const actionable =
                       state?.status === "ready" ||
                       (approvalKey !== undefined &&
-                        ["ready", "waiting"].includes(state?.status));
+                        state?.status === "waiting" &&
+                        state?.enteredAt !== undefined);
                     const pendingApproverNames =
                       node.type === "approval"
                         ? Object.values(state?.approvals ?? {})
-                            .filter(
-                              (approval) => approval.status === "pending",
-                            )
+                            .filter((approval) => approval.status === "pending")
                             .map((approval) =>
                               approverLabel(approval.approver, memberNames),
                             )
@@ -1107,6 +1444,7 @@ window.__ModuleLoader__.load({
                                               instanceId: childInstanceId,
                                               nodeId: node.id,
                                               decision: "approved",
+                                              note: approvalNote || undefined,
                                             },
                                             `已通过「${node.name}」`,
                                           ),
@@ -1124,6 +1462,7 @@ window.__ModuleLoader__.load({
                                               instanceId: childInstanceId,
                                               nodeId: node.id,
                                               decision: "rejected",
+                                              note: approvalNote || undefined,
                                             },
                                             `已否决「${node.name}」`,
                                           ),
@@ -1276,6 +1615,16 @@ window.__ModuleLoader__.load({
                     disabled: busy !== "",
                     children: "刷新",
                   }),
+                  jsxRuntime.jsx("button", {
+                    type: "button",
+                    className: "pmwf-btn secondary small",
+                    disabled: busy !== "" || !canManage,
+                    title: canManage
+                      ? "打开工作流模板管理"
+                      : "需要工作区 Owner 或全局管理员权限",
+                    onClick: openWorkflowTemplateSettings,
+                    children: "模板管理",
+                  }),
                 ],
               }),
               !canStart
@@ -1329,7 +1678,8 @@ window.__ModuleLoader__.load({
                           jsxRuntime.jsx("button", {
                             type: "button",
                             className: "pmwf-btn pmwf-start-submit",
-                            disabled: busy === "start" || !selectedDefinition?.id,
+                            disabled:
+                              busy === "start" || !selectedDefinition?.id,
                             children: busy === "start" ? "启动中" : "启动",
                           }),
                         ],
@@ -1423,9 +1773,9 @@ window.__ModuleLoader__.load({
                                             const actionable =
                                               state?.status === "ready" ||
                                               (approvalKey !== undefined &&
-                                                ["ready", "waiting"].includes(
-                                                  state?.status,
-                                                ));
+                                                state?.status === "waiting" &&
+                                                state?.enteredAt !==
+                                                  undefined);
                                             const canCountersign =
                                               node.type === "approval" &&
                                               approvalKey !== undefined;
@@ -1485,8 +1835,8 @@ window.__ModuleLoader__.load({
                                                             ? ` · 进入 ${timeShort(state.enteredAt)}`
                                                             : "",
                                                           state?.note
-                                                          ? ` · ${state.note}`
-                                                          : "",
+                                                            ? ` · ${state.note}`
+                                                            : "",
                                                         ],
                                                       }),
                                                       outgoingLoopRule
@@ -1495,10 +1845,11 @@ window.__ModuleLoader__.load({
                                                             {
                                                               className:
                                                                 "pmwf-note warning",
-                                                              children: loopHint(
-                                                                outgoingLoopRule,
-                                                                detail.instance,
-                                                              ),
+                                                              children:
+                                                                loopHint(
+                                                                  outgoingLoopRule,
+                                                                  detail.instance,
+                                                                ),
                                                             },
                                                           )
                                                         : null,
@@ -1556,11 +1907,45 @@ window.__ModuleLoader__.load({
                                                             },
                                                           )
                                                         : null,
+                                                      node.executor.kind ===
+                                                        "agent" ||
+                                                      node.executor.kind ===
+                                                        "employee"
+                                                        ? AgentRunPanel({
+                                                            node,
+                                                            state,
+                                                            runs: (
+                                                              detail.agentRuns ??
+                                                              []
+                                                            ).filter(
+                                                              (run) =>
+                                                                run.instanceId ===
+                                                                  instance.id &&
+                                                                run.nodeId ===
+                                                                  node.id,
+                                                            ),
+                                                            busy,
+                                                            act,
+                                                            workspaceId:
+                                                              effectiveWorkspaceId,
+                                                            instanceId:
+                                                              instance.id,
+                                                          })
+                                                        : null,
                                                       DeliverablePanel({
                                                         node,
                                                         state,
                                                         detail,
                                                         instance,
+                                                        runs: (
+                                                          detail.agentRuns ?? []
+                                                        ).filter(
+                                                          (run) =>
+                                                            run.instanceId ===
+                                                              instance.id &&
+                                                            run.nodeId ===
+                                                              node.id,
+                                                        ),
                                                         isManager,
                                                         busy,
                                                         drafts:
@@ -1621,12 +2006,14 @@ window.__ModuleLoader__.load({
                                                                               },
                                                                               `已完成「${node.name}」`,
                                                                             ),
-                                                                        children: completeButtonLabel(
-                                                                          node,
-                                                                          detail.actor,
-                                                                          isManager,
-                                                                          memberNames,
-                                                                        ),
+                                                                        children:
+                                                                          completeButtonLabel(
+                                                                            node,
+                                                                            detail.actor,
+                                                                            isManager,
+                                                                            memberNames,
+                                                                            state,
+                                                                          ),
                                                                       },
                                                                     )
                                                                   : null,
@@ -1635,8 +2022,20 @@ window.__ModuleLoader__.load({
                                                                 approvalKey
                                                                   ? [
                                                                       jsxRuntime.jsx(
-                                                                        "button",
+                                                                        "input",
                                                                         {
+                                                                          type: "text",
+                                                                          className: "pmwf-input small",
+                                                                          placeholder: "审批意见（可选）",
+                                                                          value: approvalNote,
+                                                                          onChange: (event) => setApprovalNote(event.target.value),
+                                                                          style: { minWidth: 160, flex: "1 1 120px" },
+                                                                        },
+                                                                        "approval-note",
+                                                                      ),
+                                                                      jsxRuntime.jsx(
+                                                                        "button",
+                                                                {
                                                                           type: "button",
                                                                           className:
                                                                             "pmwf-btn small",
@@ -1650,11 +2049,12 @@ window.__ModuleLoader__.load({
                                                                                 "/api/collab/workflow/approvals/decide",
                                                                                 {
                                                                                   instanceId:
-                                                                                    instance.id,
+                                                                                  instance.id,
                                                                                   nodeId:
                                                                                     node.id,
                                                                                   decision:
                                                                                     "approved",
+                                                                                  note: approvalNote || undefined,
                                                                                 },
                                                                                 "已通过审批",
                                                                               ),
@@ -1679,11 +2079,12 @@ window.__ModuleLoader__.load({
                                                                                 "/api/collab/workflow/approvals/decide",
                                                                                 {
                                                                                   instanceId:
-                                                                                    instance.id,
+                                                                                  instance.id,
                                                                                   nodeId:
                                                                                     node.id,
                                                                                   decision:
                                                                                     "rejected",
+                                                                                  note: approvalNote || undefined,
                                                                                 },
                                                                                 "已否决审批",
                                                                               ),
@@ -2505,8 +2906,8 @@ window.__ModuleLoader__.load({
     exports.apply = (ctx) => {
       if (!window.__pluginmaxWorkflowStartBound) {
         window.__pluginmaxWorkflowStartBound = true;
-        document.addEventListener("click", startWorkflowFromTab);
-      }
+          document.addEventListener("click", startWorkflowFromTab);
+        }
       ctx.slots.inject("conversation.view", () =>
         ctx.slots.register(
           {
