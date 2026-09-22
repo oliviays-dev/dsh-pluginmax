@@ -469,13 +469,13 @@
         </div>
 
         <nav class="primary-nav" id="globalTabs" aria-label="全局功能">
-          <button class="nav-item active" data-global="task" type="button" aria-label="任务管理" title="任务管理">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
-            <span class="nav-label">任务管理</span>
-          </button>
           <button class="nav-item" data-global="workbench" type="button" aria-label="工作台" title="工作台">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
             <span class="nav-label">工作台</span>
+          </button>
+          <button class="nav-item active" data-global="task" type="button" aria-label="任务管理" title="任务管理">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+            <span class="nav-label">任务管理</span>
           </button>
           <button class="nav-item" data-global="workflow" type="button" aria-label="工作流" title="工作流">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M10 6h4a2 2 0 0 1 2 2v2M14 18h-4a2 2 0 0 1-2-2v-2"/></svg>
@@ -537,7 +537,7 @@
             <div class="page-head">
               <div>
                 <h1>工作流</h1>
-                <div class="page-sub" id="workflowScope">全局能力 · 全部项目</div>
+                <div class="page-sub">全局能力</div>
               </div>
               <div class="head-actions">
                 <select id="workflowProjectFilter" class="compact" aria-label="按项目筛选工作流">
@@ -565,7 +565,7 @@
           <div>
             <h1>任务与 Issue</h1>
             <div class="page-sub">
-              <span id="taskScope"></span> · 指派给人员、数字员工或角色；角色任务由具备该角色的人认领。
+              指派给人员、数字员工或角色；角色任务由具备该角色的人认领。
             </div>
           </div>
           <div class="head-actions">
@@ -1035,8 +1035,6 @@
       const session = currentSession();
       const owner = session?.workspace || "其他";
       $("#breadcrumbWorkspace").textContent = owner;
-      $("#taskScope").textContent = `范围 · ${state.taskProject || "全部项目"}`;
-      $("#workflowScope").textContent = `范围 · ${state.workflowProject || "全部项目"}`;
     }
 
     function renderWorkspaceNav() {
