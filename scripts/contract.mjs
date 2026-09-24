@@ -58,12 +58,29 @@ for (const pluginName of pluginNames) {
   if (existsSync(clientSourcePath)) {
     const clientSource = readFileSync(clientSourcePath, "utf8");
     check(
-      /exports\.inject\s*=\s*\["slots"\]/.test(clientSource),
+      /exports\.inject\s*=\s*\["slots"(?:\s*,\s*"[^"]+")*\]/.test(
+        clientSource,
+      ),
       `${pluginName}: client must declare its slots service dependency`,
     );
+    const validSlots = [
+      "root",
+      "sidebar",
+      "conversation.view",
+      "settings.section",
+      "sidebar.footer.action",
+      "shell.overlay",
+      "pluginmax.global",
+    ];
+    const replacesRoot = /ctx\.slots\.register\(\s*\{\s*name:\s*"root"/.test(
+      clientSource,
+    );
     check(
-      /ctx\.slots\.inject\(\s*"settings\.section"/.test(clientSource),
-      `${pluginName}: client must register through the settings.section slot`,
+      replacesRoot ||
+        validSlots.some((slot) =>
+          new RegExp(`ctx\\.slots\\.inject\\(\\s*"${slot}"`).test(clientSource),
+        ),
+      `${pluginName}: client must register through a known DSH slot (${validSlots.join(", ")})`,
     );
     check(
       !clientSource.includes("ctx.inject("),
@@ -72,6 +89,19 @@ for (const pluginName of pluginNames) {
     check(
       readFileSync(join(dir, "lib/client.js"), "utf8") === clientSource,
       `${pluginName}: built client bundle must match client/index.js`,
+    );
+  }
+
+  const serverSourcePath = join(dir, "src/index.ts");
+  if (existsSync(serverSourcePath)) {
+    const serverSource = readFileSync(serverSourcePath, "utf8");
+    const toolRegistrations =
+      serverSource.match(/ctx\.tools\.register\(/g)?.length ?? 0;
+    const outputDeclarations =
+      serverSource.match(/(^|\s)output:\s*/g)?.length ?? 0;
+    check(
+      outputDeclarations >= toolRegistrations,
+      `${pluginName}: every tool registration must declare an output contract`,
     );
   }
 
