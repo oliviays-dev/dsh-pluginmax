@@ -717,7 +717,10 @@ describe("dsh-collab-meeting", () => {
   });
 
   it("lets authorized participants remove users and avatars", async () => {
-    const reports: Array<{ delegationId: string; finalize?: boolean }> = [];
+    const reports: Array<{
+      delegationId: string;
+      finalize: boolean | undefined;
+    }> = [];
     service.setDelegationReporter({
       generateDelegationReport: async (delegationId, _transcript, options) => {
         reports.push({ delegationId, finalize: options.finalize });

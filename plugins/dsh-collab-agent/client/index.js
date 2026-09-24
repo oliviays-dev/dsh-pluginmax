@@ -479,8 +479,12 @@ window.__ModuleLoader__.load({
       });
     }
 
+    // 设置 > Agent 页面已下线。实现保留在 AgentSettings 里，
+    // 如需恢复把 AGENT_SETTINGS_ENABLED 改成 true 即可。
+    const AGENT_SETTINGS_ENABLED = false;
     exports.inject = ["slots"];
-    exports.apply = (ctx) =>
+    exports.apply = (ctx) => {
+      if (!AGENT_SETTINGS_ENABLED) return;
       ctx.slots.inject("settings.section", () =>
         ctx.slots.register(
           {
@@ -493,6 +497,7 @@ window.__ModuleLoader__.load({
           () => jsxRuntime.jsx(AgentSettings, {}),
         ),
       );
+    };
 
     return module.exports;
   },

@@ -78,7 +78,27 @@ importers:
         specifier: 4.4.3
         version: 4.4.3
 
+  plugins/dsh-collab-shell: {}
+
   plugins/dsh-collab-space:
+    dependencies:
+      '@pluginmax/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+
+  plugins/dsh-collab-task:
+    dependencies:
+      '@pluginmax/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+
+  plugins/dsh-collab-teammate:
     dependencies:
       '@pluginmax/shared':
         specifier: workspace:*

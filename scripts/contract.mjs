@@ -58,19 +58,28 @@ for (const pluginName of pluginNames) {
   if (existsSync(clientSourcePath)) {
     const clientSource = readFileSync(clientSourcePath, "utf8");
     check(
-      /exports\.inject\s*=\s*\["slots"\]/.test(clientSource),
+      /exports\.inject\s*=\s*\["slots"(?:\s*,\s*"[^"]+")*\]/.test(
+        clientSource,
+      ),
       `${pluginName}: client must declare its slots service dependency`,
     );
     const validSlots = [
+      "root",
+      "sidebar",
       "conversation.view",
       "settings.section",
       "sidebar.footer.action",
       "shell.overlay",
+      "pluginmax.global",
     ];
+    const replacesRoot = /ctx\.slots\.register\(\s*\{\s*name:\s*"root"/.test(
+      clientSource,
+    );
     check(
-      validSlots.some((slot) =>
-        new RegExp(`ctx\\.slots\\.inject\\(\\s*"${slot}"`).test(clientSource),
-      ),
+      replacesRoot ||
+        validSlots.some((slot) =>
+          new RegExp(`ctx\\.slots\\.inject\\(\\s*"${slot}"`).test(clientSource),
+        ),
       `${pluginName}: client must register through a known DSH slot (${validSlots.join(", ")})`,
     );
     check(

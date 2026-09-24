@@ -83,14 +83,6 @@ window.__ModuleLoader__.load({
       gap: 8,
       flexWrap: "wrap",
     };
-    const tabs = {
-      display: "flex",
-      gap: 3,
-      padding: 3,
-      border: "0.5px solid var(--dsw-alias-border-l2)",
-      borderRadius: 7,
-      background: "var(--dsw-alias-bg-layer-2)",
-    };
     const textarea = {
       ...input,
       minHeight: 70,
@@ -1614,7 +1606,6 @@ window.__ModuleLoader__.load({
       const [phase, setPhase] = react.useState("loading");
       const [error, setError] = react.useState("");
       const [notice, setNotice] = react.useState("");
-      const [tab, setTab] = react.useState("directory");
       const [me, setMe] = react.useState(null);
       const [employees, setEmployees] = react.useState([]);
       const [personas, setPersonas] = react.useState([]);
@@ -1697,48 +1688,12 @@ window.__ModuleLoader__.load({
         void refresh();
       }, [reload]);
 
-      react.useEffect(() => {
-        if (!isAdmin || tab !== "governance") return;
-        const load = async () => {
-          const params = new URLSearchParams({ limit: "200" });
-          if (govWorkspace !== "all") params.set("workspaceId", govWorkspace);
-          if (govEmployee !== "all") params.set("employeeId", govEmployee);
-          try {
-            const result = await request(
-              `/api/collab/employee/governance?${params}`,
-            );
-            const selected =
-              govWorkspace === "all"
-                ? workspaces
-                : workspaces.filter(
-                    (workspace) => workspace.id === govWorkspace,
-                  );
-            const runs = (
-              await Promise.all(
-                selected.map((workspace) =>
-                  request(
-                    `/api/collab/agent/runs?workspaceId=${encodeURIComponent(workspace.id)}`,
-                  ).catch(() => ({ runs: [] })),
-                ),
-              )
-            ).flatMap((item) => item.runs ?? []);
-            setGovernance(result);
-            setAgentRuns(runs);
-            setError("");
-          } catch (cause) {
-            setError(friendly(cause));
-          }
-        };
-        void load();
-      }, [isAdmin, tab, reload, govWorkspace, govEmployee, workspaces]);
-
       const loadDetail = async (employeeId) => {
         try {
           const result = await request(
             `/api/collab/employee/detail?employeeId=${encodeURIComponent(employeeId)}`,
           );
           setDetail(result);
-          setTab("directory");
           setError("");
         } catch (cause) {
           setError(friendly(cause));
@@ -2144,27 +2099,6 @@ window.__ModuleLoader__.load({
       const humans = employees.filter(
         (item) => item.kind === "human" && item.status !== "archived",
       );
-      const tabButton = (id, label) =>
-        h(
-          "button",
-          {
-            style: {
-              ...ghost,
-              border: 0,
-              background:
-                tab === id
-                  ? "var(--dsw-alias-button-primary-fill)"
-                  : "transparent",
-              color:
-                tab === id
-                  ? "var(--dsw-alias-label-primary-foreground)"
-                  : "var(--dsw-alias-label-primary)",
-            },
-            onClick: () => setTab(id),
-          },
-          label,
-        );
-
       const directoryView = h(
         "div",
         { style: { display: "grid", gap: 16 } },
@@ -2652,17 +2586,6 @@ window.__ModuleLoader__.load({
                 )
               : null,
             h(
-              "div",
-              { style: row },
-              isAdmin
-                ? h(
-                    "button",
-                    { style: primary, onClick: () => setTab("digital") },
-                    "创建数字员工",
-                  )
-                : null,
-            ),
-            h(
               "table",
               { style: table },
               h(
@@ -2686,7 +2609,34 @@ window.__ModuleLoader__.load({
                     h(
                       "td",
                       { style: cell },
-                      h("strong", null, employee.displayName),
+                      h(
+                        "strong",
+                        null,
+                        employee.displayName,
+                        (employee.tags ?? []).some((tag) =>
+                          tag.startsWith("ai-teammate:"),
+                        )
+                          ? h(
+                              "span",
+                              {
+                                style: {
+                                  marginLeft: 6,
+                                  padding: "1px 6px",
+                                  borderRadius: 999,
+                                  border:
+                                    "0.5px solid color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 40%,transparent)",
+                                  background:
+                                    "color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 12%,transparent)",
+                                  color:
+                                    "var(--dsw-alias-accent-primary,#4f8ef7)",
+                                  fontSize: 10,
+                                  fontWeight: 500,
+                                },
+                              },
+                              "AI Teammate 托管",
+                            )
+                          : null,
+                      ),
                       h("div", { style: muted }, `Employee ID：${employee.id}`),
                     ),
                     h(
@@ -3140,6 +3090,22 @@ window.__ModuleLoader__.load({
                     { style: muted },
                     `${statusLabel(item.status)} · 主人：${item.ownerName}`,
                   ),
+                ),
+                h(
+                  "div",
+                  {
+                    style:
+                      item.teammateName === undefined
+                        ? muted
+                        : {
+                            ...muted,
+                            color:
+                              "var(--dsw-alias-accent-primary,#4f8ef7)",
+                          },
+                  },
+                  item.teammateName === undefined
+                    ? "来源：未关联 AI Teammate"
+                    : `来自：${item.teammateName}`,
                 ),
                 h("div", { style: muted }, `目标：${item.objective}`),
                 h(
@@ -3658,6 +3624,14 @@ window.__ModuleLoader__.load({
         );
       }
 
+      // 数字员工 / 分身委托 / 治理中心 已下线，实现暂时保留，
+      // 待后续「新建员工 / 调整汇报关系」复用。
+      void digitalView;
+      void delegationView;
+      void governanceView;
+      void setGovernance;
+      void setAgentRuns;
+
       return h(
         "div",
         { style: panel },
@@ -3665,19 +3639,24 @@ window.__ModuleLoader__.load({
           "div",
           { style: row },
           h("strong", { style: { fontSize: 15 } }, "员工平台"),
-          h(
-            "div",
-            { style: tabs },
-            tabButton("directory", "目录"),
-            tabButton("digital", "数字员工"),
-            tabButton("delegations", "分身委托"),
-            tabButton("governance", "治理中心"),
-          ),
+          h("div", { style: { flex: 1 } }),
           h(
             "button",
             { style: ghost, onClick: () => setReload((value) => value + 1) },
             "刷新",
           ),
+        ),
+        h(
+          "div",
+          {
+            style: {
+              marginTop: 10,
+              color: "var(--dsw-alias-label-tertiary)",
+              fontSize: 11.5,
+              lineHeight: 1.6,
+            },
+          },
+          "数字员工与分身委托已统一到左侧「AI Teammates」管理。",
         ),
         me
           ? h(
@@ -3692,29 +3671,27 @@ window.__ModuleLoader__.load({
         notice
           ? h("div", { style: { ...muted, color: "#4fc487" } }, notice)
           : null,
-        tab === "directory"
-          ? directoryView
-          : tab === "digital"
-            ? digitalView
-            : tab === "delegations"
-              ? delegationView
-        : tab === "governance"
-                ? governanceView
-                : directoryView,
+        directoryView,
       );
+    }
+
+    function WorkstationGlobalPage(props) {
+      const { useShellRoute, ...tabProps } = props;
+      const route = useShellRoute?.((state) => state.route);
+      if (route !== "workbench") return null;
+      return h(WorkstationTab, tabProps);
     }
 
     exports.inject = ["slots"];
     exports.apply = (ctx) => {
-      ctx.slots.inject("conversation.view", () =>
+      ctx.slots.inject("pluginmax.global", () =>
         ctx.slots.register(
           {
-            name: "conversation.view",
+            name: "pluginmax.global",
             id: "pluginmax-workstation",
             order: 34,
-            label: () => "工作台",
           },
-          WorkstationTab,
+          WorkstationGlobalPage,
         ),
       );
       ctx.slots.inject("settings.section", () =>

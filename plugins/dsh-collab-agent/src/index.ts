@@ -76,10 +76,31 @@ export interface AgentHandleLike {
   dispose(): Promise<void>;
 }
 
+export interface AgentSetupContextLike {
+  readonly tools?: {
+    restrict(filter: { readonly allow: readonly string[] }): void;
+    get(name: string): unknown;
+  };
+  get?(key: "agentPresets"): {
+    mount(agentCtx: AgentSetupContextLike, presetId: string): Promise<void>;
+  } | undefined;
+}
+
 export interface AgentsRegistryLike {
+  get?(sessionId: string): unknown;
   create(options: {
     readonly sessionId: string;
     readonly meta?: { readonly cwd?: string };
+    readonly setup?: (agentCtx: AgentSetupContextLike) => Promise<void> | void;
+    readonly agentOptions?: {
+      readonly provider: string;
+      readonly model: string;
+      readonly reasoningEffort?: string;
+    };
+  }): Promise<AgentHandleLike>;
+  resume?(options: {
+    readonly resumeSessionId: string;
+    readonly setup?: (agentCtx: AgentSetupContextLike) => Promise<void> | void;
     readonly agentOptions?: {
       readonly provider: string;
       readonly model: string;
@@ -94,6 +115,55 @@ export interface AgentDefaultModelLike {
     readonly model: string;
     readonly reasoningEffort?: string;
   };
+}
+
+export interface AgentSessionLike {
+  readonly id: string;
+  snapshotEvents(): readonly AgentSessionEventLike[];
+}
+
+export interface AgentSessionEventLike {
+  readonly type: string;
+  readonly data?: unknown;
+}
+
+export interface AgentRunProgress {
+  readonly text: string;
+  readonly updatedAt: string;
+}
+
+export interface AgentRunProgress {
+  readonly text: string;
+  readonly updatedAt: string;
+}
+
+export interface AgentSessionsLike {
+  get(sessionId: string): AgentSessionLike | undefined;
+}
+
+export interface AgentSessionPersistenceLike {
+  stat(sessionId: string): Promise<unknown | undefined>;
+}
+
+export interface AgentLike {
+  readonly session: AgentSessionLike;
+  followup(message: unknown): void;
+  whenIdle(): Promise<void>;
+  cancel?(reason: unknown): void;
+}
+
+export interface AgentSessionTitleLike {
+  get?(session: AgentSessionLike): { readonly title: string } | undefined;
+  rename(session: AgentSessionLike, title: string): unknown;
+}
+
+export interface WorkspaceLike {
+  readonly path: string;
+  attachSession(sessionId: string): Promise<void>;
+}
+
+export interface WorkspaceRegistryLike {
+  create(path: string, title?: string): Promise<WorkspaceLike>;
 }
 
 export interface SubagentRunLike {
@@ -120,6 +190,61 @@ function subagentOutputText(result: SubagentResultLike): string {
     )
     .map((block) => block.text)
     .join("\n");
+}
+
+function taskSessionId(run: AgentRun): string {
+  // 一个「任务 + AI Teammate」对应左侧一条独立会话，重跑同一任务复用同一条。
+  // 任务重置执行会话后代数 +1，下一次执行换一条全新会话。
+  const epoch = run.payload.context.taskSessionEpoch;
+  const generation =
+    typeof epoch === "string" && epoch !== "" && epoch !== "0"
+      ? `-r${epoch}`
+      : "";
+  return `de-task-${run.instanceId}-${run.employeeId ?? run.agentProfileId}${generation}`
+    .replace(/[^a-zA-Z0-9._-]/g, "-")
+    .slice(0, 200);
+}
+
+function taskUserMessage(text: string): unknown {
+  return {
+    id: randomUUID(),
+    role: "user",
+    content: [{ type: "text", text }],
+    source: { kind: "user" },
+  };
+}
+
+function lastAssistantText(session: AgentSessionLike, since = 0): string {
+  for (const event of session.snapshotEvents().slice(since).reverse()) {
+    if (event.type !== "assistant/message") continue;
+    const data = event.data as
+      | {
+          readonly message?: {
+            readonly content?: readonly unknown[];
+          };
+        }
+      | undefined;
+    const content = data?.message?.content;
+    if (!Array.isArray(content)) continue;
+    const text = content
+      .flatMap((block) => {
+        if (
+          typeof block !== "object" ||
+          block === null ||
+          !("type" in block) ||
+          !("text" in block) ||
+          block.type !== "text" ||
+          typeof block.text !== "string"
+        ) {
+          return [];
+        }
+        return [block.text];
+      })
+      .join("\n")
+      .trim();
+    if (text !== "") return text;
+  }
+  return "";
 }
 
 export function deliveryReportIssues(
@@ -256,8 +381,9 @@ export class AgentError extends Error {
 
 export interface AgentDispatchInput {
   readonly workspaceId: string;
+  readonly workspacePath?: string | undefined;
   readonly profileId: string;
-  readonly source: "workflow";
+  readonly source: "workflow" | "task";
   readonly instanceId: string;
   readonly nodeId: string;
   readonly dispatchKey: string;
@@ -275,6 +401,10 @@ export interface AgentDispatchInput {
 }
 
 export interface AgentWorkflowHandler {
+  onSettled(run: AgentRun): Promise<void> | void;
+}
+
+export interface AgentTaskHandler {
   onSettled(run: AgentRun): Promise<void> | void;
 }
 
@@ -345,6 +475,30 @@ function buildPrompt(run: AgentRun, profile: AgentProfile): string {
   const hasRequiredText = payload.deliverables.some(
     (item) => item.required && item.type === "text",
   );
+  if (run.source === "task") {
+    const instruction =
+      typeof payload.context.instruction === "string"
+        ? payload.context.instruction.trim()
+        : "";
+    const acceptance =
+      typeof payload.context.acceptance === "string"
+        ? payload.context.acceptance
+            .split("\n")
+            .map((item) => item.trim())
+            .filter(Boolean)
+        : [];
+    if (instruction !== "") return instruction;
+    return [
+      payload.nodeDescription.trim() || payload.instanceTitle,
+      ...(acceptance.length === 0
+        ? []
+        : [
+            "",
+            "验收标准：",
+            ...acceptance.map((item, index) => `${index + 1}. ${item}`),
+          ]),
+    ].join("\n");
+  }
   return [
     "# DSH Pluginmax 工作流 Task Worker",
     "",
@@ -399,6 +553,10 @@ export interface AgentRuntimeDeps {
   readonly subagents: () => SubagentsRuntimeLike | undefined;
   readonly agents: () => AgentsRegistryLike | undefined;
   readonly defaultModel?: () => AgentDefaultModelLike | undefined;
+  readonly workspaces?: () => WorkspaceRegistryLike | undefined;
+  readonly sessions?: () => AgentSessionsLike | undefined;
+  readonly sessionPersistence?: () => AgentSessionPersistenceLike | undefined;
+  readonly sessionTitle?: () => AgentSessionTitleLike | undefined;
   readonly provider?: () => string;
   readonly now?: () => Date;
   readonly onSettled?: (run: AgentRun) => Promise<void> | void;
@@ -424,7 +582,10 @@ const MAX_WORKSPACE_WORKERS = 2;
 export class AgentTaskRuntime {
   private readonly queues = new Map<string, Promise<void>>();
   private readonly tasks = new Set<AgentTask>();
-  private host: Promise<AgentHandleLike> | undefined;
+  private readonly hosts = new Map<string, Promise<AgentHandleLike>>();
+  private readonly homeHandles = new Map<string, Promise<AgentHandleLike>>();
+  private readonly homeQueues = new Map<string, Promise<void>>();
+  private readonly progressBySession = new Map<string, AgentRunProgress>();
   private activeWorkers = 0;
   private readonly waiting: Array<() => void> = [];
   private readonly cancelledRunIds = new Set<string>();
@@ -433,6 +594,56 @@ export class AgentTaskRuntime {
 
   now(): Date {
     return this.deps.now?.() ?? new Date();
+  }
+
+  recordStream(sessionId: string, frame: unknown): void {
+    const current = this.progressBySession.get(sessionId);
+    let text = current?.text ?? "";
+    let changed = false;
+    if (
+      typeof frame === "object" &&
+      frame !== null &&
+      "type" in frame &&
+      frame.type === "chunk" &&
+      "chunk" in frame &&
+      typeof frame.chunk === "object" &&
+      frame.chunk !== null &&
+      "type" in frame.chunk &&
+      frame.chunk.type === "text-delta" &&
+      "text" in frame.chunk &&
+      typeof frame.chunk.text === "string"
+    ) {
+      text += frame.chunk.text;
+      changed = true;
+    }
+    if (!changed && current !== undefined) return;
+    this.progressBySession.set(sessionId, {
+      text,
+      updatedAt: iso(this.now()),
+    });
+  }
+
+  progress(sessionId: string): AgentRunProgress | undefined {
+    return this.progressBySession.get(sessionId);
+  }
+
+  private enqueueHome<T>(
+    sessionId: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const previous = this.homeQueues.get(sessionId) ?? Promise.resolve();
+    const result = previous.catch(() => undefined).then(operation);
+    const tail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.homeQueues.set(sessionId, tail);
+    void tail.finally(() => {
+      if (this.homeQueues.get(sessionId) === tail) {
+        this.homeQueues.delete(sessionId);
+      }
+    });
+    return result;
   }
 
   enqueue(run: AgentRun): void {
@@ -462,15 +673,8 @@ export class AgentTaskRuntime {
       task.controller.abort("runtime disposed");
     }
     this.tasks.clear();
-    const currentHost = this.host;
-    this.host = undefined;
-    if (currentHost !== undefined) {
-      try {
-        await (await currentHost).dispose();
-      } catch {
-        // Host startup failures need no cleanup.
-      }
-    }
+    await this.disposeHosts();
+    await this.disposeHomeHandles();
   }
 
   async waitIdle(): Promise<void> {
@@ -496,25 +700,161 @@ export class AgentTaskRuntime {
     this.waiting.shift()?.();
   }
 
-  private async hostAgent(): Promise<unknown> {
-    if (this.host === undefined) {
+  private async disposeHosts(): Promise<void> {
+    const hosts = [...this.hosts.values()];
+    this.hosts.clear();
+    await Promise.allSettled(
+      hosts.map(async (host) => {
+        try {
+          await (await host).dispose();
+        } catch {
+          // Host startup failures need no cleanup.
+        }
+      }),
+    );
+  }
+
+  private async disposeHomeHandles(): Promise<void> {
+    const handles = [...this.homeHandles.values()];
+    this.homeHandles.clear();
+    await Promise.allSettled(
+      handles.map(async (pending) => {
+        try {
+          const handle = await pending;
+          await handle.dispose();
+        } catch {
+          // Persisted Session logs remain available after handle disposal.
+        }
+      }),
+    );
+  }
+
+  private async hostAgent(workspacePath: string): Promise<unknown> {
+    let current = this.hosts.get(workspacePath);
+    if (current === undefined) {
       const agents = this.deps.agents();
       if (agents === undefined)
         throw new AgentError("not_found", "agent registry is unavailable");
       const model = this.deps.defaultModel?.()?.currentSelection();
-      const current = agents
+      current = agents
         .create({
           sessionId: randomUUID(),
-          meta: { cwd: process.cwd() },
+          meta: { cwd: workspacePath },
           ...(model === undefined ? {} : { agentOptions: model }),
         })
         .catch((cause: unknown) => {
-          if (this.host === current) this.host = undefined;
+          if (this.hosts.get(workspacePath) === current) {
+            this.hosts.delete(workspacePath);
+          }
           throw cause;
         });
-      this.host = current;
+      this.hosts.set(workspacePath, current);
     }
-    return (await this.host).agent;
+    return (await current).agent;
+  }
+
+  private async executeHomeSession(
+    run: AgentRun,
+    profile: AgentProfile,
+    prompt: string,
+    signal: AbortSignal,
+  ): Promise<SubagentResultLike> {
+    if (run.workspacePath === undefined) {
+      throw new AgentError("invalid_input", "task run is missing workspace path");
+    }
+    const workspacePath = run.workspacePath;
+    const agents = this.deps.agents();
+    if (agents === undefined) {
+      throw new AgentError("not_found", "agent registry is unavailable");
+    }
+    const sessionId = taskSessionId(run);
+    const model = this.deps.defaultModel?.()?.currentSelection();
+    const setup = async (agentCtx: AgentSetupContextLike): Promise<void> => {
+      await agentCtx.get?.("agentPresets")?.mount(agentCtx, "standard");
+      const tools = agentCtx.tools;
+      if (tools !== undefined) {
+        const allow = [...new Set(profile.allowedTools)]
+          .filter((name) => tools.get(name) !== undefined);
+        tools.restrict({ allow });
+      }
+    };
+    let pending = this.homeHandles.get(sessionId);
+    if (pending === undefined) {
+      pending = (async () => {
+        const adoptLive = (): AgentHandleLike | undefined => {
+          const live = agents.get?.(sessionId);
+          return live === undefined
+            ? undefined
+            : { agent: live, dispose: async () => undefined };
+        };
+        const live = adoptLive();
+        if (live !== undefined) return live;
+        const persisted = await this.deps.sessionPersistence?.()?.stat(sessionId);
+        try {
+          if (persisted !== undefined) {
+            if (agents.resume === undefined) {
+              throw new AgentError(
+                "conflict",
+                `persisted task session cannot be resumed: ${sessionId}`,
+              );
+            }
+            return await agents.resume({
+              resumeSessionId: sessionId,
+              setup,
+              ...(model === undefined ? {} : { agentOptions: model }),
+            });
+          }
+          return await agents.create({
+            sessionId,
+            meta: { cwd: workspacePath },
+            setup,
+            ...(model === undefined ? {} : { agentOptions: model }),
+          });
+        } catch (cause) {
+          // 会话可能已被本进程内另一个活跃 handle 占用（例如重复启动或热重载）：
+          // 能拿到现存活句柄就复用，避免任务因为写句柄冲突直接失败。
+          const adopted = adoptLive();
+          if (adopted !== undefined) return adopted;
+          throw cause;
+        }
+      })();
+      this.homeHandles.set(sessionId, pending);
+      void pending.catch(() => {
+        if (this.homeHandles.get(sessionId) === pending) {
+          this.homeHandles.delete(sessionId);
+        }
+      });
+    }
+    const handle = await pending;
+    const agent = handle.agent as AgentLike;
+    return await this.enqueueHome(sessionId, async () => {
+      this.progressBySession.set(sessionId, {
+        text: "",
+        updatedAt: iso(this.now()),
+      });
+      await this.attachSession(run, sessionId);
+      if (signal.aborted) {
+        agent.cancel?.({ kind: "user" });
+        throw new Error("worker aborted");
+      }
+      const start = agent.session.snapshotEvents().length;
+      const onAbort = (): void => {
+        agent.cancel?.({ kind: "user" });
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+      try {
+        agent.followup(taskUserMessage(prompt));
+        await agent.whenIdle();
+      } finally {
+        signal.removeEventListener("abort", onAbort);
+      }
+      if (signal.aborted) throw new Error("worker aborted");
+      const output = lastAssistantText(agent.session, start);
+      return {
+        output: output === "" ? [] : [{ type: "text", text: output }],
+        stopReason: "completed",
+      };
+    });
   }
 
   private async saveRun(run: AgentRun): Promise<AgentRun> {
@@ -524,6 +864,56 @@ export class AgentTaskRuntime {
     });
     await this.deps.tables.runs.put(next.id, next);
     return next;
+  }
+
+  private async attachSession(run: AgentRun, sessionId: string): Promise<AgentRun> {
+    const saved = await this.saveRun({ ...run, sessionId });
+    try {
+      const workspaces = this.deps.workspaces?.();
+      if (workspaces !== undefined && run.workspacePath !== undefined) {
+        const workspace = await workspaces.create(run.workspacePath);
+        await workspace.attachSession(sessionId);
+      }
+      const session = this.deps.sessions?.()?.get(sessionId);
+      const title = this.deps.sessionTitle?.();
+      if (session !== undefined && title !== undefined) {
+        const runs = [...this.deps.tables.runs.entries()]
+          .map(([, item]) => item)
+          .filter((item) => item.sessionId === sessionId)
+          .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+        const first = runs[0] ?? run;
+        const employeeName =
+          typeof first.payload.context.employeeName === "string" &&
+          first.payload.context.employeeName.trim() !== ""
+            ? first.payload.context.employeeName.trim()
+            : first.payload.profileName.replace(/\s+runtime$/i, "");
+        // Session 名称：TSK-任务名称-任务号后4位-执行人（去掉空白字符）。
+        const compact = (value: string): string => value.replace(/\s+/g, "");
+        const taskKey = first.instanceId.split("-").at(-1) ?? first.id;
+        const desired = [
+          "TSK",
+          compact(first.payload.instanceTitle),
+          taskKey.slice(-4),
+          compact(employeeName),
+        ]
+          .filter((part) => part !== "")
+          .join("-")
+          .slice(0, 120);
+        // 只有新命名（de-task-*）的任务会话才套用新标题；
+        // 旧的家会话（de-home-*）保留原有名字，避免「新标题 + 旧 id」。
+        if (sessionId.startsWith("de-task-")) {
+          const current = title.get?.(session)?.title?.trim();
+          const systemGenerated =
+            current === undefined ||
+            current.startsWith("TSK-") ||
+            current.includes(" · ");
+          if (systemGenerated) title.rename(session, desired);
+        }
+      }
+    } catch {
+      // Session publication is observability; task execution remains authoritative.
+    }
+    return saved;
   }
 
   private async settle(
@@ -590,6 +980,7 @@ export class AgentTaskRuntime {
       promptSnapshot: prompt,
     });
     const current = this.deps.tables.runs.get(runId)!;
+    const workspacePath = current.workspacePath ?? process.cwd();
     const timer = setTimeout(() => {
       task.timedOut = true;
       task.controller.abort("timeout");
@@ -597,21 +988,32 @@ export class AgentTaskRuntime {
     let started: SubagentRunLike | undefined;
     try {
       await this.acquire(current.workspaceId);
-      started = await subagents.start(this.deps.provider?.() ?? "spawn", {
-        label: `workflow-worker:${profile.name}`,
-        prompt: [{ type: "text", text: prompt }],
-        parent: await this.hostAgent(),
-        ...(current.personaId === undefined
-          ? {}
-          : { persona: current.personaId }),
-        toolFilter: { allow: profile.allowedTools },
-        signal: task.controller.signal,
-      });
       const signal = task.controller.signal;
-      let result = await awaitSubagentResult(started!, signal);
+      let result: SubagentResultLike;
+      if (
+        current.source === "task" &&
+        current.employeeId !== undefined &&
+        current.workspacePath !== undefined
+      ) {
+        result = await this.executeHomeSession(current, profile, prompt, signal);
+      } else {
+        started = await subagents.start(this.deps.provider?.() ?? "spawn", {
+          label: `workflow-worker:${profile.name}`,
+          prompt: [{ type: "text", text: prompt }],
+          parent: await this.hostAgent(workspacePath),
+          ...(current.personaId === undefined
+            ? {}
+            : { persona: current.personaId }),
+          toolFilter: { allow: profile.allowedTools },
+          signal,
+        });
+        result = await awaitSubagentResult(started, signal);
+      }
       const rawOutput = subagentOutputText(result);
       const outputIssues =
-        result.stopReason === "completed" && rawOutput.trim() !== ""
+        current.source === "workflow" &&
+        result.stopReason === "completed" &&
+        rawOutput.trim() !== ""
           ? deliveryReportIssues(rawOutput, current.payload)
           : [];
       if (outputIssues.length > 0 && !this.cancelledRunIds.has(runId)) {
@@ -636,7 +1038,7 @@ export class AgentTaskRuntime {
                   text: buildRepairPrompt(current, rawOutput, outputIssues),
                 },
               ],
-              parent: await this.hostAgent(),
+              parent: await this.hostAgent(workspacePath),
               ...(current.personaId === undefined
                 ? {}
                 : { persona: current.personaId }),
@@ -676,7 +1078,10 @@ export class AgentTaskRuntime {
         });
       } else {
         const finalOutput = subagentOutputText(result);
-        const finalIssues = deliveryReportIssues(finalOutput, current.payload);
+        const finalIssues =
+          current.source === "workflow"
+            ? deliveryReportIssues(finalOutput, current.payload)
+            : [];
         if (finalIssues.length > 0) {
           const evidence = this.deps.tables.runs.get(runId)?.output;
           await this.settle(current, {
@@ -741,15 +1146,7 @@ export class AgentTaskRuntime {
       this.tasks.delete(task);
       this.release();
       if (this.tasks.size === 0) {
-        const currentHost = this.host;
-        this.host = undefined;
-        if (currentHost !== undefined) {
-          try {
-            await (await currentHost).dispose();
-          } catch {
-            // Worker output already settled; cleanup is best effort.
-          }
-        }
+        await this.disposeHosts();
       }
       if (started !== undefined) {
         try {
@@ -769,6 +1166,7 @@ export interface AgentServiceDeps {
 export class AgentRegistryService {
   private queue: Promise<unknown> = Promise.resolve();
   private workflowHandler: AgentWorkflowHandler | undefined;
+  private taskHandler: AgentTaskHandler | undefined;
   private readonly pendingSettles = new Set<string>();
   private flushingSettles = false;
   private runtime: AgentTaskRuntime | undefined;
@@ -930,6 +1328,13 @@ export class AgentRegistryService {
     return this.tables.runs.get(runId);
   }
 
+  progress(runId: string): AgentRunProgress | undefined {
+    const run = this.run(runId);
+    return run?.sessionId === undefined
+      ? undefined
+      : this.runtime?.progress(run.sessionId);
+  }
+
   dispatch(input: AgentDispatchInput): Promise<AgentRun> {
     return this.enqueue(async () => {
       const active = values(this.tables.runs).find(
@@ -942,6 +1347,9 @@ export class AgentRegistryService {
       const run = parseOrInvalid(agentRunSchema, {
         id: `run-${randomUUID()}`,
         workspaceId: input.workspaceId,
+        ...(input.workspacePath === undefined
+          ? {}
+          : { workspacePath: input.workspacePath }),
         agentProfileId: input.profileId,
         ...(input.personaId === undefined
           ? {}
@@ -1042,20 +1450,31 @@ export class AgentRegistryService {
     void this.flushSettles();
   }
 
-  private deliverSettle(run: AgentRun): void {
-    if (run.source !== "workflow") {
-      void this.markSettleDelivered(run.id);
-      return;
+  bindTask(handler: AgentTaskHandler): void {
+    this.taskHandler = handler;
+    for (const run of values(this.tables.runs)) {
+      if (
+        run.source === "task" &&
+        !run.settleDelivered &&
+        TERMINAL_RUN_STATUSES.includes(run.status)
+      ) {
+        this.pendingSettles.add(run.id);
+      }
     }
+    void this.flushSettles();
+  }
+
+  private deliverSettle(run: AgentRun): void {
     this.pendingSettles.add(run.id);
-    // Never await workflow callbacks: cancellation may originate while the
-    // workflow service already holds its own operation lock.
+    // Never await callbacks: cancellation may originate while the owning
+    // service already holds its own operation lock.
     void this.flushSettles();
   }
 
   private async flushSettles(): Promise<void> {
-    const handler = this.workflowHandler;
-    if (handler === undefined) return;
+    if (this.workflowHandler === undefined && this.taskHandler === undefined) {
+      return;
+    }
     if (this.flushingSettles) return;
     this.flushingSettles = true;
     try {
@@ -1065,6 +1484,11 @@ export class AgentRegistryService {
           this.pendingSettles.delete(runId);
           continue;
         }
+        const handler =
+          run.source === "workflow"
+            ? this.workflowHandler
+            : this.taskHandler;
+        if (handler === undefined) continue;
         try {
           await handler.onSettled(run);
           await this.markSettleDelivered(runId);
@@ -1320,6 +1744,30 @@ export function createAgentRoutes(
     },
     {
       kind: "exact",
+      path: "/api/collab/agent/runs/detail",
+      handler: (request, response) => {
+        void runHandler(async () => {
+          assertMethod(request, response, "GET");
+          const workspaceId = queryParam(request, "workspaceId");
+          const runId = queryParam(request, "runId");
+          if (workspaceId === undefined || workspaceId === "")
+            throw new AgentError("invalid_input", "workspaceId is required");
+          if (runId === undefined || runId === "")
+            throw new AgentError("invalid_input", "runId is required");
+          browserActor(requireTeam(), request, workspaceId);
+          const run = service.run(runId);
+          if (run === undefined || run.workspaceId !== workspaceId)
+            throw new AgentError("not_found", "agent run not found");
+          sendJson(response, 200, {
+            ok: true,
+            run,
+            progress: service.progress(runId) ?? null,
+          });
+        }, response);
+      },
+    },
+    {
+      kind: "exact",
       path: "/api/collab/agent/runs/cancel",
       handler: (request, response) => {
         void runHandler(async () => {
@@ -1359,10 +1807,21 @@ export interface AgentContext {
   agents?: AgentsRegistryLike;
   agentDefaultModel?: AgentDefaultModelLike;
   subagents?: SubagentsRuntimeLike;
+  workspaceRegistry?: WorkspaceRegistryLike;
+  sessions?: AgentSessionsLike;
+  sessionTitle?: AgentSessionTitleLike;
   get(key: "collabTeam"): TeamServiceLike | undefined;
   get(key: "collabPersonas"): PersonaServiceLike | undefined;
   get(key: "agents"): AgentsRegistryLike | undefined;
   get(key: "subagents"): SubagentsRuntimeLike | undefined;
+  get(key: "workspaceRegistry"): WorkspaceRegistryLike | undefined;
+  get(key: "sessions"): AgentSessionsLike | undefined;
+  get(key: "sessionPersistence"): AgentSessionPersistenceLike | undefined;
+  get(key: "sessionTitle"): AgentSessionTitleLike | undefined;
+  on?(
+    event: "agent/assistant-stream",
+    listener: (payload: unknown) => void,
+  ): () => void;
   inject(
     keys: readonly ["collabTeam"],
     callback: (
@@ -1385,14 +1844,29 @@ export async function apply(ctx: AgentContext): Promise<void | (() => void)> {
     subagents: () => ctx.get("subagents"),
     agents: () => ctx.get("agents"),
     defaultModel: () => ctx.agentDefaultModel,
+    workspaces: () => ctx.get("workspaceRegistry"),
+    sessions: () => ctx.get("sessions"),
+    sessionPersistence: () => ctx.get("sessionPersistence"),
+    sessionTitle: () => ctx.get("sessionTitle"),
     onSettled: (run) => service.onRuntimeSettled(run),
   });
   service.attachRuntime(runtime);
+  const streamDisposer = ctx.on?.("agent/assistant-stream", (payload) => {
+    const value = payload as
+      | {
+          readonly agent?: { readonly session?: { readonly id?: string } };
+          readonly frame?: unknown;
+        }
+      | undefined;
+    const sessionId = value?.agent?.session?.id;
+    if (sessionId !== undefined) runtime.recordStream(sessionId, value?.frame);
+  });
   ctx.provide("collabAgent", service);
   // Let sibling runtime plugins finish mounting before replaying persisted runs.
   const restoreTimer = setTimeout(() => service.restore(), 0);
   ctx.effect(() => () => {
     clearTimeout(restoreTimer);
+    streamDisposer?.();
     void runtime.dispose();
     void domain.close();
   });

@@ -7,9 +7,13 @@ import {
   type AgentActor,
   type AgentProfile,
   type AgentRun,
+  type AgentSessionsLike,
+  type AgentSessionTitleLike,
   type AgentWorkflowHandler,
+  type AgentsRegistryLike,
   type SubagentsRuntimeLike,
   type WebRouteLike,
+  type WorkspaceRegistryLike,
 } from "./index.js";
 
 class FakeTable<V> {
@@ -95,10 +99,30 @@ function fakeSubagents() {
 
 function fakeAgents() {
   return {
-    create: async () => ({
-      agent: { fake: true },
-      dispose: async () => undefined,
-    }),
+    create: async ({ sessionId }: { sessionId: string }) => {
+      const events: Array<{ type: string; data?: unknown }> = [];
+      return {
+        agent: {
+          session: {
+            id: sessionId,
+            snapshotEvents: () => events,
+          },
+          followup: () => {
+            events.push({
+              type: "assistant/message",
+              data: {
+                message: {
+                  content: [{ type: "text", text: "home session response" }],
+                },
+              },
+            });
+          },
+          whenIdle: async () => undefined,
+          cancel: () => undefined,
+        },
+        dispose: async () => undefined,
+      };
+    },
   };
 }
 
@@ -144,7 +168,15 @@ interface Harness {
   settled: AgentRun[];
 }
 
-function harness(options: { now?: () => Date } = {}): Harness {
+function harness(
+  options: {
+    now?: () => Date;
+    workspaces?: WorkspaceRegistryLike;
+    sessions?: AgentSessionsLike;
+    sessionTitle?: AgentSessionTitleLike;
+    agents?: () => AgentsRegistryLike;
+  } = {},
+): Harness {
   const current = tables();
   const service = new AgentRegistryService(current, options);
   const subagents = fakeSubagents();
@@ -152,7 +184,16 @@ function harness(options: { now?: () => Date } = {}): Harness {
   const runtime = new AgentTaskRuntime({
     tables: current,
     subagents: () => subagents.runtime,
-    agents: fakeAgents,
+    agents: options.agents ?? fakeAgents,
+    ...(options.workspaces === undefined
+      ? {}
+      : { workspaces: () => options.workspaces }),
+    ...(options.sessions === undefined
+      ? {}
+      : { sessions: () => options.sessions }),
+    ...(options.sessionTitle === undefined
+      ? {}
+      : { sessionTitle: () => options.sessionTitle }),
     onSettled: (run) => {
       settled.push(run);
       return service.onRuntimeSettled(run);
@@ -210,6 +251,365 @@ describe("agent profile registry", () => {
 });
 
 describe("agent task runtime", () => {
+  it("delivers task runs to the task handler with a task-specific prompt", async () => {
+    const { service, runtime, subagents } = harness({ now });
+    const settled: AgentRun[] = [];
+    service.bindTask({
+      onSettled: (run) => {
+        settled.push(run);
+      },
+    });
+    await createProfile(service);
+    const run = await service.dispatch(
+      dispatchInput({
+        source: "task",
+        instanceId: "TSK-1",
+        nodeId: "task",
+        dispatchKey: "task:TSK-1:1",
+        payload: {
+          instanceTitle: "处理客户反馈",
+          nodeName: "任务执行",
+          nodeDescription: "整理风险，并给出下一步建议。",
+          profileName: "Backend Agent",
+          deliverables: [],
+          context: { taskId: "TSK-1" },
+        },
+      }),
+    );
+    await vi.waitFor(() => expect(subagents.runs.length).toBe(1));
+    expect(subagents.runs[0]!.spec.prompt[0]!.text).toContain(
+      "整理风险，并给出下一步建议。",
+    );
+    subagents.runs[0]!.outcome = {
+      output: [{ type: "text", text: "已整理风险，并给出下一步建议。" }],
+      stopReason: "completed",
+    };
+    subagents.runs[0]!.resolve();
+    await runtime.waitIdle();
+    await vi.waitFor(() => expect(settled).toHaveLength(1));
+    expect(settled[0]).toMatchObject({
+      id: run.id,
+      source: "task",
+      instanceId: "TSK-1",
+      status: "succeeded",
+    });
+    expect(service.run(run.id)!.settleDelivered).toBe(true);
+  });
+
+  it("attaches live task-worker sessions to the target workspace", async () => {
+    const attached: string[] = [];
+    const renamed: Array<{ id: string; title: string }> = [];
+    const workspaces: WorkspaceRegistryLike = {
+      create: async (path) => ({
+        path,
+        attachSession: async (sessionId) => {
+          attached.push(sessionId);
+        },
+      }),
+    };
+    const sessions: AgentSessionsLike = {
+      get: (sessionId) => ({
+        id: sessionId,
+        snapshotEvents: () => [],
+      }),
+    };
+    const sessionTitle: AgentSessionTitleLike = {
+      rename: (session, title) => {
+        renamed.push({ id: session.id, title });
+      },
+    };
+    const { service, runtime, subagents } = harness({
+      now,
+      workspaces,
+      sessions,
+      sessionTitle,
+    });
+    await createProfile(service);
+    const run = await service.dispatch(
+      dispatchInput({
+        source: "task",
+        employeeId: "pluginmax-de",
+        workspacePath: "/tmp/pluginmax-workspace",
+        instanceId: "TSK-2",
+        nodeId: "task",
+        dispatchKey: "task:TSK-2:1",
+      }),
+    );
+    const sessionId = "de-task-TSK-2-pluginmax-de";
+    await vi.waitFor(() => expect(attached).toEqual([sessionId]));
+    expect(subagents.runs).toHaveLength(0);
+    expect(service.run(run.id)?.sessionId).toBe(sessionId);
+    expect(renamed).toEqual([
+      {
+        id: sessionId,
+        title: "TSK-订单导出-2-BackendAgent",
+      },
+    ]);
+    await runtime.waitIdle();
+    expect(service.run(run.id)?.output?.summary).toBe("home session response");
+  });
+
+  it("gives every task its own session for the same DE", async () => {
+    const attached: string[] = [];
+    const renamed: Array<{ id: string; title: string }> = [];
+    const workspaces: WorkspaceRegistryLike = {
+      create: async (path) => ({
+        path,
+        attachSession: async (sessionId) => {
+          attached.push(sessionId);
+        },
+      }),
+    };
+    const sessions: AgentSessionsLike = {
+      get: (sessionId) => ({
+        id: sessionId,
+        snapshotEvents: () => [],
+      }),
+    };
+    const sessionTitle: AgentSessionTitleLike = {
+      rename: (session, title) => {
+        renamed.push({ id: session.id, title });
+      },
+    };
+    const { service, runtime, subagents } = harness({
+      now,
+      workspaces,
+      sessions,
+      sessionTitle,
+    });
+    await createProfile(service);
+    const first = await service.dispatch(
+      dispatchInput({
+        source: "task",
+        employeeId: "pluginmax-de",
+        workspacePath: "/tmp/pluginmax-workspace",
+        instanceId: "TSK-A",
+        nodeId: "task",
+        dispatchKey: "task:TSK-A:1",
+      }),
+    );
+    const second = await service.dispatch(
+      dispatchInput({
+        source: "task",
+        employeeId: "pluginmax-de",
+        workspacePath: "/tmp/pluginmax-workspace",
+        instanceId: "TSK-B",
+        nodeId: "task",
+        dispatchKey: "task:TSK-B:1",
+      }),
+    );
+    await runtime.waitIdle();
+    await vi.waitFor(() => expect(attached).toHaveLength(2));
+    const firstSession = service.run(first.id)?.sessionId;
+    const secondSession = service.run(second.id)?.sessionId;
+    expect(firstSession).toBe("de-task-TSK-A-pluginmax-de");
+    expect(secondSession).toBe("de-task-TSK-B-pluginmax-de");
+    expect(firstSession).not.toBe(secondSession);
+    expect(subagents.runs).toHaveLength(0);
+    expect(renamed.map((item) => item.title).sort()).toEqual([
+      "TSK-订单导出-A-BackendAgent",
+      "TSK-订单导出-B-BackendAgent",
+    ]);
+  });
+
+  it("routes follow-up instructions to the session of their own task", async () => {
+    const attached: string[] = [];
+    const workspaces: WorkspaceRegistryLike = {
+      create: async (path) => ({
+        path,
+        attachSession: async (sessionId) => {
+          attached.push(sessionId);
+        },
+      }),
+    };
+    const sessions: AgentSessionsLike = {
+      get: (sessionId) => ({
+        id: sessionId,
+        snapshotEvents: () => [],
+      }),
+    };
+    const { service, runtime } = harness({
+      now,
+      workspaces,
+      sessions,
+      sessionTitle: { rename: () => undefined },
+    });
+    await createProfile(service);
+    const dispatchFor = (taskId: string, runSeq: number) =>
+      service.dispatch(
+        dispatchInput({
+          source: "task",
+          employeeId: "pluginmax-de",
+          workspacePath: "/tmp/pluginmax-workspace",
+          instanceId: taskId,
+          nodeId: "task",
+          attempt: 1,
+          runSeq,
+          maxAttempts: 1,
+          dispatchKey: `task:${taskId}:${String(runSeq)}`,
+        }),
+      );
+    const taskAFirst = await dispatchFor("TSK-A", 1);
+    const taskASecond = await dispatchFor("TSK-A", 2);
+    const taskBFirst = await dispatchFor("TSK-B", 1);
+    await runtime.waitIdle();
+    await vi.waitFor(() => expect(attached).toHaveLength(3));
+    const sessionsOf = [taskAFirst, taskASecond, taskBFirst].map(
+      (run) => service.run(run.id)?.sessionId,
+    );
+    expect(sessionsOf[0]).toBe("de-task-TSK-A-pluginmax-de");
+    expect(sessionsOf[1]).toBe("de-task-TSK-A-pluginmax-de");
+    expect(sessionsOf[2]).toBe("de-task-TSK-B-pluginmax-de");
+    expect(new Set(sessionsOf).size).toBe(2);
+  });
+
+  it("reuses the live handle when the session is already owned", async () => {
+    const events: Array<{ type: string; data?: unknown }> = [];
+    const liveAgent = {
+      session: { id: "session", snapshotEvents: () => events },
+      followup: () => {
+        events.push({
+          type: "assistant/message",
+          data: {
+            message: {
+              content: [{ type: "text", text: "adopted response" }],
+            },
+          },
+        });
+      },
+      whenIdle: async () => undefined,
+      cancel: () => undefined,
+    };
+    let lookups = 0;
+    const agents: AgentsRegistryLike = {
+      get: () => {
+        lookups += 1;
+        return lookups >= 2 ? liveAgent : undefined;
+      },
+      create: async () => {
+        throw new Error(
+          'session "de-task-TSK-C-pluginmax-de" is already owned by an active write handle',
+        );
+      },
+    };
+    const { service, runtime } = harness({
+      now,
+      agents: () => agents,
+      workspaces: {
+        create: async (path) => ({
+          path,
+          attachSession: async () => undefined,
+        }),
+      },
+      sessions: {
+        get: (sessionId) => ({ id: sessionId, snapshotEvents: () => [] }),
+      },
+      sessionTitle: { rename: () => undefined },
+    });
+    await createProfile(service);
+    const run = await service.dispatch(
+      dispatchInput({
+        source: "task",
+        employeeId: "pluginmax-de",
+        workspacePath: "/tmp/pluginmax-workspace",
+        instanceId: "TSK-C",
+        nodeId: "task",
+        dispatchKey: "task:TSK-C:1",
+      }),
+    );
+    await runtime.waitIdle();
+    await vi.waitFor(() =>
+      expect(service.run(run.id)?.output?.summary).toBe("adopted response"),
+    );
+    expect(service.run(run.id)?.status).toBe("succeeded");
+  });
+
+  it("starts a fresh session after the task session is reset", async () => {
+    const attached: string[] = [];
+    const workspaces: WorkspaceRegistryLike = {
+      create: async (path) => ({
+        path,
+        attachSession: async (sessionId) => {
+          attached.push(sessionId);
+        },
+      }),
+    };
+    const sessions: AgentSessionsLike = {
+      get: (sessionId) => ({ id: sessionId, snapshotEvents: () => [] }),
+    };
+    const { service, runtime } = harness({
+      now,
+      workspaces,
+      sessions,
+      sessionTitle: { rename: () => undefined },
+    });
+    await createProfile(service);
+    const base = dispatchInput({
+      source: "task",
+      employeeId: "pluginmax-de",
+      workspacePath: "/tmp/pluginmax-workspace",
+      instanceId: "TSK-R",
+      nodeId: "task",
+      dispatchKey: "task:TSK-R:1",
+    });
+    const first = await service.dispatch(base);
+    const second = await service.dispatch({
+      ...base,
+      runSeq: 2,
+      dispatchKey: "task:TSK-R:2",
+      payload: { ...base.payload, context: { taskSessionEpoch: "1" } },
+    });
+    await runtime.waitIdle();
+    await vi.waitFor(() => expect(attached).toHaveLength(2));
+    expect(service.run(first.id)?.sessionId).toBe("de-task-TSK-R-pluginmax-de");
+    expect(service.run(second.id)?.sessionId).toBe(
+      "de-task-TSK-R-pluginmax-de-r1",
+    );
+  });
+
+  it("names the task session as TSK-任务名称-任务号后4位-执行人", async () => {
+    const renamed: Array<{ id: string; title: string }> = [];
+    const workspaces: WorkspaceRegistryLike = {
+      create: async (path) => ({
+        path,
+        attachSession: async () => undefined,
+      }),
+    };
+    const sessions: AgentSessionsLike = {
+      get: (sessionId) => ({ id: sessionId, snapshotEvents: () => [] }),
+    };
+    const { service, runtime } = harness({
+      now,
+      workspaces,
+      sessions,
+      sessionTitle: {
+        rename: (session, title) => {
+          renamed.push({ id: session.id, title });
+        },
+      },
+    });
+    await createProfile(service);
+    const base = dispatchInput({
+      source: "task",
+      employeeId: "pluginmax-de",
+      workspacePath: "/tmp/pluginmax-workspace",
+      instanceId: "TSK-MUDUHMTX-0089",
+      nodeId: "task",
+      dispatchKey: "task:TSK-MUDUHMTX-0089:1",
+    });
+    await service.dispatch({
+      ...base,
+      payload: {
+        ...base.payload,
+        instanceTitle: "正在测试 05",
+        context: { employeeName: "DE 测小白" },
+      },
+    });
+    await runtime.waitIdle();
+    await vi.waitFor(() => expect(renamed).toHaveLength(1));
+    expect(renamed[0]?.title).toBe("TSK-正在测试05-0089-DE测小白");
+  });
+
   it("is idempotent per dispatch key and records successful output", async () => {
     const { service, runtime, subagents, settled } = harness({ now });
     const handler: AgentWorkflowHandler = { onSettled: () => undefined };

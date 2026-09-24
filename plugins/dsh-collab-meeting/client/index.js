@@ -21,8 +21,13 @@ window.__ModuleLoader__.load({
       toggle() { this.open = !this.open; this.emit(); },
       close() { this.open = false; this.emit(); },
       subscribe(fn) { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; },
-      emit() { for (const fn of this.listeners) fn(this.open); },
+      emit() {
+        window.__pluginmaxShell?.setMeetingOpen(this.open);
+        for (const fn of this.listeners) fn(this.open);
+      },
     };
+
+    window.__pluginmaxMeeting = store;
 
     function usePanelOpen() {
       const [open, setOpen] = react.useState(store.open);
@@ -653,23 +658,6 @@ window.__ModuleLoader__.load({
       });
     }
 
-    function ChatIcon() {
-      return jsxRuntime.jsxs("svg", {
-        "aria-hidden": true,
-        fill: "none",
-        height: 16,
-        stroke: "currentColor",
-        strokeLinecap: "round",
-        strokeLinejoin: "round",
-        strokeWidth: 1.8,
-        viewBox: "0 0 24 24",
-        width: 16,
-        children: [
-          jsxRuntime.jsx("path", { d: "M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" }),
-        ],
-      });
-    }
-
     function CopyIcon() {
       return jsxRuntime.jsxs("svg", {
         "aria-hidden": true,
@@ -738,37 +726,6 @@ window.__ModuleLoader__.load({
         hour12: false,
       });
     }
-
-    /* ── sidebar toggle button (sidebar.footer.action slot) ── */
-
-    const MeetingToggle = ({ wide }) => {
-      const open = usePanelOpen();
-      return jsxRuntime.jsx("button", {
-        type: "button",
-        "aria-label": "会议",
-        "aria-expanded": open,
-        style: {
-          alignItems: "center",
-          background: open ? "rgba(79, 142, 247, 0.14)" : "transparent",
-          border: 0,
-          borderRadius: 5,
-          color: open
-            ? "var(--dsw-alias-accent-primary, #4f8ef7)"
-            : "var(--dsw-alias-label-secondary)",
-          cursor: "pointer",
-          display: "flex",
-          font: "inherit",
-          fontSize: 12,
-          gap: 9,
-          height: 30,
-          justifyContent: wide ? "flex-start" : "center",
-          padding: wide ? "0 9px" : 0,
-          width: "100%",
-        },
-        onClick: () => store.toggle(),
-        children: [jsxRuntime.jsx(ChatIcon, {}), wide ? "会议" : null].filter(Boolean),
-      });
-    };
 
     /* ── meeting panel (shell.overlay slot) ── */
 
@@ -1066,6 +1023,8 @@ window.__ModuleLoader__.load({
       const [agentOpen, setAgentOpen] = react.useState(false);
       const [personas, setPersonas] = react.useState([]);
       const [personaId, setPersonaId] = react.useState("");
+      const [teammates, setTeammates] = react.useState([]);
+      const [teammateId, setTeammateId] = react.useState("");
       const [agentBusy, setAgentBusy] = react.useState(false);
       const [delegationNoticeBusy, setDelegationNoticeBusy] = react.useState("");
       const [autoSpeak, setAutoSpeak] = react.useState("mentions");
@@ -1134,6 +1093,39 @@ window.__ModuleLoader__.load({
       const participantById = new Map(
         (detail?.participants ?? []).map((p) => [p.id, p.displayName ?? p.id]),
       );
+      const personaNameById = new Map(
+        personas.map((persona) => [persona.id, persona.name ?? persona.id]),
+      );
+      const senderParticipantFor = (message) =>
+        (detail?.participants ?? []).find(
+          (participant) =>
+            participant.kind === message.senderKind &&
+            participant.refId === message.senderId,
+        );
+      const agentIdentity = (message) => {
+        const participant = senderParticipantFor(message);
+        const persona = participant?.personaId === undefined
+          ? undefined
+          : personaNameById.get(participant.personaId) ?? participant.personaId;
+        if (
+          participant?.source === "spawned" ||
+          participant?.ownerName !== undefined
+        ) {
+          const owner = participant?.ownerName ?? "未标明 owner";
+          return {
+            header: `AI 分身 · ${message.senderName} · ${owner} 的分身`,
+            metaPrefix: `${owner} 的分身 · `,
+          };
+        }
+        return {
+          header: [
+            `数字员工 · ${message.senderName}`,
+            persona === undefined ? "" : ` · 角色 ${persona}`,
+            participant?.seatId === undefined ? "" : ` · 席位 ${participant.seatId}`,
+          ].join(""),
+          metaPrefix: "数字员工 · ",
+        };
+      };
       const meetingSeats = detail?.meeting?.seats ?? [];
       const canManageSeats = detail?.canManageSeats === true;
       const humanSeatOptions = [
@@ -1307,6 +1299,16 @@ window.__ModuleLoader__.load({
             );
             if (!disposed) setPersonas(result.personas ?? []);
           } catch { setPersonas([]); }
+          try {
+            const result = await request("/api/collab/teammates");
+            if (!disposed) {
+              setTeammates(
+                (result.teammates ?? []).filter(
+                  (item) => item.state === "active",
+                ),
+              );
+            }
+          } catch { setTeammates([]); }
         })();
         return () => { disposed = true; };
       }, [agentOpen, workspaceId]);
@@ -1391,21 +1393,27 @@ window.__ModuleLoader__.load({
       };
 
       const dispatchAgent = async () => {
-        if (personaId === "" || meetingId === "" || agentBusy) return;
+        if ((personaId === "" && teammateId === "") || meetingId === "" || agentBusy) return;
         const persona = personas.find((p) => p.id === personaId);
+        const teammate = teammates.find((item) => item.id === teammateId);
         setAgentBusy(true);
         try {
           await request("/api/collab/meeting/agent/dispatch", {
             method: "POST",
             body: JSON.stringify({
               meetingId,
-              personaId,
+              ...(teammateId === ""
+                ? { personaId }
+                : {
+                    teammateId,
+                    teammateName: teammate?.name ?? teammateId,
+                  }),
               ...(avatarNickname.trim() !== "" ? { displayName: avatarNickname.trim() } : {}),
               autoSpeak,
               initialGreeting,
             }),
           });
-          notify(`已派遣分身「${persona?.name ?? personaId}」`);
+          notify(`已派遣分身「${teammate?.name ?? persona?.name ?? personaId}」`);
           setAvatarNickname("");
           await load();
         } catch (cause) { fail(cause); }
@@ -1789,7 +1797,16 @@ window.__ModuleLoader__.load({
                     jsxRuntime.jsx("span", { style: { transform: participantsOpen ? "none" : "rotate(-90deg)" }, children: "▾" }),
                   ],
                 }),
-                participantsOpen ? jsxRuntime.jsx("div", { style: participantListStyle, children:
+                participantsOpen ? jsxRuntime.jsx("div", {
+                  style: editingSeat
+                    ? {
+                        ...participantListStyle,
+                        maxHeight: "none",
+                        overflowY: "visible",
+                        paddingBottom: 14,
+                      }
+                    : participantListStyle,
+                  children:
                   (detail.participants ?? []).filter((p) => p.status !== "left").map((p) => {
                     const isMe = p.refId === detail.actorId && p.kind === "human";
                     const isPending = p.status === "pending";
@@ -1818,6 +1835,7 @@ window.__ModuleLoader__.load({
                         jsxRuntime.jsxs("div", { style: { alignItems: "center", display: "flex", gap: 3 }, children: [
                           isMe ? jsxRuntime.jsx("span", { style: selfParticipantTagStyle, children: "我" }) : null,
                           p.kind === "agent" ? jsxRuntime.jsx("span", { style: { ...badgeStyle, background: "rgba(79,142,247,0.18)", color: "var(--dsw-alias-accent-primary, #4f8ef7)" }, children: participantType }) : null,
+                          p.kind === "agent" && p.personaId !== undefined ? jsxRuntime.jsx("span", { style: participantTagStyle, children: `角色 ${personaNameById.get(p.personaId) ?? p.personaId}` }) : null,
                           avatarExpired ? jsxRuntime.jsx("span", { style: { ...participantTagStyle, color: "var(--dsw-alias-state-error-primary, #e5534b)" }, children: "已到期" }) : null,
                           p.leader ? jsxRuntime.jsx("span", { style: { ...participantTagStyle, color: "var(--dsw-alias-state-warning-primary, #e2a737)" }, children: "Leader" }) : null,
                           isPending ? jsxRuntime.jsx("span", { style: participantTagStyle, children: "待认领" }) : null,
@@ -1872,6 +1890,7 @@ window.__ModuleLoader__.load({
 	                    const mentions = msg.mentions ?? [];
 	                    const mentionNames = mentions.map((id) => participantById.get(id) ?? id);
 	                    const directedToMe = mentions.includes(myParticipant?.id);
+	                    const identity = msg.senderKind === "agent" ? agentIdentity(msg) : undefined;
 	                      return jsxRuntime.jsxs("div", {
 	                        style: { alignSelf: isSelf ? "flex-end" : "flex-start", maxWidth: "88%" },
 	                        children: [
@@ -1879,11 +1898,11 @@ window.__ModuleLoader__.load({
 	                            ...(msg.senderKind === "agent" ? { ...bubbleOtherStyle, borderColor: "var(--dsw-alias-accent-primary, #4f8ef7)" } : isSelf ? bubbleSelfStyle : bubbleOtherStyle),
 	                            ...(directedToMe ? { boxShadow: "0 0 0 1px var(--dsw-alias-accent-primary, #4f8ef7)" } : {}),
 	                          }, children: [
-	                            msg.senderKind === "agent" ? jsxRuntime.jsx("div", { style: { color: "var(--dsw-alias-accent-primary, #4f8ef7)", fontSize: 9, fontWeight: 700, marginBottom: 3 }, children: "AI 分身" }) : null,
+	                            identity !== undefined ? jsxRuntime.jsx("div", { style: { color: "var(--dsw-alias-accent-primary, #4f8ef7)", fontSize: 9, fontWeight: 700, marginBottom: 3 }, children: identity.header }) : null,
 	                            renderMarkdown(msg.content),
 	                          ] }),
 	                          jsxRuntime.jsx("div", { style: { ...metaStyle, textAlign: isSelf ? "right" : "left" }, children: [
-	                            msg.senderKind === "agent" ? "AI · " : "",
+	                            identity?.metaPrefix ?? "",
 	                            msg.senderName,
 	                            mentions.length === 0 ? " · 群发" : directedToMe ? " · 定向给我" : mentions.length >= activeOthers.length && activeOthers.length > 0 ? " · @所有人" : ` · 定向给${mentionNames.join("、")}`,
 	                            ` · ${timeShort(msg.createdAt)}`,
@@ -1929,10 +1948,20 @@ window.__ModuleLoader__.load({
                   agentOpen ? jsxRuntime.jsxs("div", { style: { display: "grid", gap: 5 }, children: [
                     jsxRuntime.jsxs("select", {
                       style: selectStyle,
+                      value: teammateId,
+                      onChange: (event) => setTeammateId(event.target.value),
+                      children: [
+                        jsxRuntime.jsx("option", { value: "", children: "选择 AI Teammate（可选，优先于人设）" }),
+                        ...teammates.map((item) => jsxRuntime.jsx("option", { value: item.id, children: `${item.name} · ${item.ownerName}` }, item.id)),
+                      ],
+                    }),
+                    jsxRuntime.jsxs("select", {
+                      style: selectStyle,
                       value: personaId,
+                      disabled: teammateId !== "",
                       onChange: (event) => setPersonaId(event.target.value),
                       children: [
-                        jsxRuntime.jsx("option", { value: "", children: "选择人设…" }),
+                        jsxRuntime.jsx("option", { value: "", children: teammateId === "" ? "选择人设…" : "已由 AI Teammate 提供人设" }),
                         ...personas.map((p) => jsxRuntime.jsx("option", { value: p.id, children: p.name ?? p.id }, p.id)),
                       ],
                     }),
@@ -1959,7 +1988,7 @@ window.__ModuleLoader__.load({
                       jsxRuntime.jsx("input", { type: "checkbox", checked: initialGreeting, onChange: (event) => setInitialGreeting(event.target.checked) }),
                       "派遣后先自我介绍",
                     ] }),
-                    jsxRuntime.jsx("button", { type: "button", style: primaryBtnStyle, disabled: personaId === "" || agentBusy, onClick: dispatchAgent, children: agentBusy ? "正在派遣…" : "派遣分身" }),
+                    jsxRuntime.jsx("button", { type: "button", style: primaryBtnStyle, disabled: (personaId === "" && teammateId === "") || agentBusy, onClick: dispatchAgent, children: agentBusy ? "正在派遣…" : "派遣分身" }),
                   ] }) : null,
                 ] }) : null,
                 joined ? jsxRuntime.jsxs("form", { style: { ...inputSecStyle, flexDirection: "column", position: "relative" }, onSubmit: sendMessage, children: [
@@ -2195,12 +2224,6 @@ window.__ModuleLoader__.load({
 
     exports.inject = ["slots"];
     exports.apply = (ctx) => {
-      ctx.slots.inject("sidebar.footer.action", () =>
-        ctx.slots.register(
-          { name: "sidebar.footer.action", id: "pluginmax-meeting-toggle", order: 10 },
-          MeetingToggle,
-        ),
-      );
       ctx.slots.inject("shell.overlay", () =>
         ctx.slots.register(
           { name: "shell.overlay", id: "pluginmax-meeting-panel", order: 10 },

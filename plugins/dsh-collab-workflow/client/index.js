@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
 .pmwf-filter{flex:none;border-radius:5px;padding:4px 7px;color:#4c9aff;background:#172a40;font-size:11px;white-space:nowrap}
 .pmwf-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
 .pmwf-search{min-width:170px;flex:1 1 190px}
-.pmwf-select,.pmwf-input,.pmwf-area{border:0.5px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);border-radius:6px;padding:7px 9px;font:inherit;font-size:13px;min-width:0;width:100%}
+.pmwf-select,.pmwf-input,.pmwf-area{border:0.5px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);border-radius:6px;padding:7px 9px;font:inherit;font-size:13px;min-width:0;width:100%;box-sizing:border-box}
 .pmwf-select{width:auto;min-width:112px}
 .pmwf-btn{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:6px;min-height:33px;padding:7px 11px;font:inherit;font-size:13px;cursor:pointer;background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground)}
 .pmwf-btn.secondary{background:transparent;border:0.5px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-primary)}
@@ -62,13 +62,16 @@ window.__ModuleLoader__.load({
 .pmwf-deliverable-value{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
 .pmwf-deliverable-form{display:grid;gap:6px}.pmwf-file{font:inherit;font-size:12px;color:var(--dsw-alias-label-primary)}
 .pmwf-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.pmwf-note{padding:8px 10px;border-radius:6px;font-size:12px;line-height:1.45;overflow-wrap:anywhere}
-.pmwf-note.success{color:#37b76a;background:#16301f}.pmwf-note.error{color:#e26d6d;background:#3d2222}.pmwf-note.warning{color:#d99a26;background:#372c14}.pmwf-note.info{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2)}
+.pmwf-note{box-sizing:border-box;padding:8px 10px;border:1px solid transparent;border-radius:6px;font-size:12px;line-height:1.45;overflow-wrap:anywhere;width:100%}
+.pmwf-note.success{color:var(--dsw-alias-state-success-primary,#1f8f53);background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#1f8f53) 12%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary,#1f8f53) 28%,transparent)}.pmwf-note.error{color:var(--dsw-alias-state-error-primary,#e5534b);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 12%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 28%,transparent)}.pmwf-note.warning{color:var(--dsw-alias-state-warning-primary,#d99a26);background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d99a26) 12%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d99a26) 28%,transparent)}.pmwf-note.info{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-border-l2)}
 .pmwf-empty{padding:34px 16px;color:var(--dsw-alias-label-secondary);font-size:13px;text-align:center;line-height:1.6}
-.pmwf-section{border-top:0.5px solid var(--dsw-alias-border-l2);padding-top:16px;display:grid;gap:12px}
-.pmwf-card{border:1px solid var(--dsw-alias-border-l2);border-radius:7px;padding:11px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));display:grid;gap:9px}
+.pmwf-section{border-top:0;padding-top:0;display:grid;gap:12px;min-width:0;max-width:100%}
+.pmwf-card{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;padding:11px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));display:grid;gap:9px;min-width:0;max-width:100%}
 .pmwf-title{margin:0;font-size:15px}.pmwf-label{color:var(--dsw-alias-label-secondary);font-size:12px}
 .pmwf-grid{display:grid;gap:9px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.pmwf-section .pmwf-row{align-items:center;min-width:0;max-width:100%}
+.pmwf-section .pmwf-select{flex:1 1 260px;width:auto;min-width:0;max-width:100%}
+.pmwf-section input[type=file]{max-width:100%;min-width:0}
 .pmwf-issues{margin:0;padding-left:18px;font-size:12px;line-height:1.55}
 .pmwf-graph{display:grid;gap:6px}.pmwf-graph-node{display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:5px;background:var(--dsw-alias-bg-layer-2);font-size:12px}
 .pmwf-graph-node.branch{margin-left:16px}.pmwf-type{margin-left:auto;color:var(--dsw-alias-label-secondary);font-size:10.5px}
@@ -354,6 +357,11 @@ window.__ModuleLoader__.load({
       const ticketRejected =
         state?.status === "blocked" &&
         state.note?.startsWith("Digital Employee 输出被拒绝") === true;
+      const latestRun = props.runs?.[0];
+      const staleInterruptedRun =
+        ["interrupted", "cancelled", "failed", "timeout"].includes(
+          latestRun?.status ?? "",
+        ) && state?.status === "running";
       const activeAgentRun = (props.runs ?? []).some((run) =>
         ["queued", "running", "waiting_input"].includes(run.status),
       );
@@ -362,7 +370,7 @@ window.__ModuleLoader__.load({
         canSubmitDeliverable(node, detail.actor, manager);
       const fallbackEditable =
         agentWorker &&
-        state?.status === "blocked" &&
+        (state?.status === "blocked" || staleInterruptedRun) &&
         !activeAgentRun &&
         canSubmitDeliverable(node, detail.actor, manager);
       return jsxRuntime.jsxs("div", {
@@ -617,7 +625,8 @@ window.__ModuleLoader__.load({
             (outputRejected || ticketRejected))) &&
         active === null &&
         state !== null &&
-        ["ready", "blocked"].includes(state.status);
+        (["ready", "blocked"].includes(state.status) ||
+          (latest?.status === "interrupted" && state.status === "running"));
       const triggerLabel =
         latest?.trigger === "auto-on-ready" ? "自动派发" : "手动派发";
       return jsxRuntime.jsxs("div", {
@@ -1169,6 +1178,14 @@ window.__ModuleLoader__.load({
       react.useEffect(() => {
         if (viewRequest?.view !== "pluginmax-workflow") return;
         const instanceId = String(viewRequest.focus ?? "");
+        const requestedWorkspaceId = String(viewRequest.workspaceId ?? "");
+        if (requestedWorkspaceId) setWorkspaceId(requestedWorkspaceId);
+        if (
+          requestedWorkspaceId &&
+          requestedWorkspaceId !== effectiveWorkspaceId
+        ) {
+          return;
+        }
         if (instanceId) {
           setSessionOnly(false);
           setStatusFilter("all");
@@ -1176,7 +1193,7 @@ window.__ModuleLoader__.load({
           void expand(instanceId);
         }
         completeViewRequest?.();
-      }, [completeViewRequest, expand, viewRequest]);
+      }, [completeViewRequest, effectiveWorkspaceId, expand, viewRequest]);
 
       const act = async (key, path, body, message) => {
         if (busy) {
@@ -2902,21 +2919,46 @@ window.__ModuleLoader__.load({
       });
     }
 
+    function WorkflowGlobalPage(props) {
+      const { useShellRoute, ...tabProps } = props;
+      const route = useShellRoute?.((state) => state.route);
+      const [viewRequest, setViewRequest] = react.useState(null);
+      react.useEffect(() => {
+        const navigate = (event) => {
+          const target = event.detail ?? {};
+          if (target.plugin !== "workflow" || !target.instanceId) return;
+          setViewRequest({
+            view: "pluginmax-workflow",
+            focus: target.instanceId,
+            workspaceId: target.workspaceId,
+          });
+        };
+        window.addEventListener("pluginmax:collab-navigate", navigate);
+        return () =>
+          window.removeEventListener("pluginmax:collab-navigate", navigate);
+      }, []);
+      if (route !== "workflow") return null;
+      return jsxRuntime.jsx(WorkflowTab, {
+        ...tabProps,
+        viewRequest,
+        completeViewRequest: () => setViewRequest(null),
+      });
+    }
+
     exports.inject = ["slots"];
     exports.apply = (ctx) => {
       if (!window.__pluginmaxWorkflowStartBound) {
         window.__pluginmaxWorkflowStartBound = true;
           document.addEventListener("click", startWorkflowFromTab);
         }
-      ctx.slots.inject("conversation.view", () =>
+      ctx.slots.inject("pluginmax.global", () =>
         ctx.slots.register(
           {
-            name: "conversation.view",
+            name: "pluginmax.global",
             id: "pluginmax-workflow",
             order: 30,
-            label: () => "工作流",
           },
-          WorkflowTab,
+          WorkflowGlobalPage,
         ),
       );
       ctx.slots.inject("settings.section", () =>

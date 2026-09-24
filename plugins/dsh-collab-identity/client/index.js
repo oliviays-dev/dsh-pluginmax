@@ -12,10 +12,13 @@ window.__ModuleLoader__.load({
       background: "var(--dsw-alias-bg-base)",
       border: "0.5px solid var(--dsw-alias-border-l3)",
       borderRadius: 6,
+      boxSizing: "border-box",
       color: "var(--dsw-alias-label-primary)",
       font: "inherit",
+      fontSize: 13,
+      height: 36,
       minWidth: 0,
-      padding: "7px 9px",
+      padding: "0 10px",
       width: "100%",
     };
     const buttonStyle = {
@@ -23,13 +26,17 @@ window.__ModuleLoader__.load({
       background: "var(--dsw-alias-button-primary-fill)",
       border: 0,
       borderRadius: 6,
+      boxSizing: "border-box",
       color: "var(--dsw-alias-label-primary-foreground)",
       cursor: "pointer",
       display: "inline-flex",
       font: "inherit",
+      fontSize: 13,
       gap: 6,
+      height: 36,
       justifyContent: "center",
-      padding: "7px 12px",
+      padding: "0 14px",
+      whiteSpace: "nowrap",
     };
     const secondaryButtonStyle = {
       ...buttonStyle,
@@ -57,6 +64,7 @@ window.__ModuleLoader__.load({
       paddingTop: 16,
     };
     const formStyle = {
+      alignItems: "end",
       display: "grid",
       gap: 9,
       gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
@@ -254,7 +262,7 @@ window.__ModuleLoader__.load({
       return message;
     }
 
-    const IdentitySection = () => {
+    const IdentitySection = ({ surface = "identity" } = {}) => {
       const [phase, setPhase] = react.useState("loading");
       const [message, setMessage] = react.useState("");
       const [error, setError] = react.useState("");
@@ -364,9 +372,14 @@ window.__ModuleLoader__.load({
           }
         }
         load();
+        const handleTokenChange = () => {
+          if (!disposed) void load();
+        };
+        window.addEventListener("pluginmax:collab-token", handleTokenChange);
         return () => {
           disposed = true;
           controller.abort();
+          window.removeEventListener("pluginmax:collab-token", handleTokenChange);
         };
         }, [loadAdmin, workspaceId]);
 
@@ -590,6 +603,9 @@ window.__ModuleLoader__.load({
       const activeWorkspace = workspaces.find(
         (workspace) => workspace.id === workspaceId,
       );
+      const workspaceNameById = new Map(
+        workspaces.map((workspace) => [workspace.id, workspaceLabel(workspace)]),
+      );
       const noWorkspace = !activeWorkspace;
 
       const loginFields = jsxRuntime.jsxs(jsxRuntime.Fragment, {
@@ -627,6 +643,24 @@ window.__ModuleLoader__.load({
           children: jsxRuntime.jsx("p", { children: "正在加载身份..." }),
         });
       }
+      if (surface === "identity" && phase !== "ready") {
+        return jsxRuntime.jsxs("section", {
+          "data-pluginmax-identity": true,
+          style: {
+            color: "var(--dsw-alias-label-primary)",
+            display: "grid",
+            gap: 12,
+            padding: 4,
+          },
+          children: [
+            jsxRuntime.jsx("h2", { style: { fontSize: 18, margin: 0 }, children: "协作身份" }),
+            jsxRuntime.jsx("p", {
+              style: { color: "var(--dsw-alias-label-secondary)", margin: 0 },
+              children: "请先在「账号管理」中登录，再管理工作区成员和审计记录。",
+            }),
+          ],
+        });
+      }
 
       return jsxRuntime.jsxs("section", {
         "data-pluginmax-identity": true,
@@ -642,9 +676,9 @@ window.__ModuleLoader__.load({
             children: [
               jsxRuntime.jsx("h2", {
                 style: { fontSize: 18, margin: 0 },
-                children: "协作身份",
+                children: surface === "account" ? "账号管理" : "协作身份",
               }),
-              me === null
+              me === null || surface !== "account"
                 ? null
                 : jsxRuntime.jsx("button", {
                     type: "button",
@@ -666,7 +700,7 @@ window.__ModuleLoader__.load({
                 style: { color: "var(--dsw-alias-state-error-primary)", margin: 0 },
                 children: error,
               }),
-          phase === "bootstrap"
+          surface === "account" && phase === "bootstrap"
             ? jsxRuntime.jsxs("form", {
                 onSubmit: submitBootstrap,
                 style: formStyle,
@@ -685,7 +719,7 @@ window.__ModuleLoader__.load({
                 ],
               })
             : null,
-          phase === "login"
+          surface === "account" && phase === "login"
             ? jsxRuntime.jsxs("form", {
                 onSubmit: submitLogin,
                 style: formStyle,
@@ -704,7 +738,7 @@ window.__ModuleLoader__.load({
                 ],
               })
             : null,
-          phase !== "ready" || me === null
+          surface !== "account" || phase !== "ready" || me === null
             ? null
             : jsxRuntime.jsxs(jsxRuntime.Fragment, {
                 children: [
@@ -803,7 +837,7 @@ window.__ModuleLoader__.load({
             ? null
             : jsxRuntime.jsxs(jsxRuntime.Fragment, {
                 children: [
-                  jsxRuntime.jsxs(Panel, {
+                  surface === "account" ? jsxRuntime.jsxs(Panel, {
                     title: "账号",
                     action: jsxRuntime.jsx("button", {
                       type: "button",
@@ -897,6 +931,7 @@ window.__ModuleLoader__.load({
                             disabled: saving,
                             style: {
                               ...buttonStyle,
+                              gridColumn: "1 / -1",
                               justifySelf: "start",
                               opacity: saving ? 0.6 : 1,
                             },
@@ -955,8 +990,8 @@ window.__ModuleLoader__.load({
                         ],
                       }),
                     ],
-                  }),
-	                  jsxRuntime.jsxs(Panel, {
+                  }) : null,
+	                  surface === "identity" ? jsxRuntime.jsxs(Panel, {
 	                    title: "工作区成员",
 	                    children: [
 	                      jsxRuntime.jsxs("div", {
@@ -1221,8 +1256,8 @@ window.__ModuleLoader__.load({
                         ],
                       }),
                     ],
-                  }),
-                  jsxRuntime.jsx(Panel, {
+                  }) : null,
+                  surface === "identity" ? jsxRuntime.jsx(Panel, {
                     title: "审计时间线",
                     children: jsxRuntime.jsxs("table", {
                       style: tableStyle,
@@ -1269,7 +1304,9 @@ window.__ModuleLoader__.load({
                                   }),
                                   jsxRuntime.jsx("td", {
                                     style: cellStyle,
-                                    children: event.workspaceId ?? "-",
+                                    children: event.workspaceId === undefined
+                                      ? "-"
+                                      : workspaceNameById.get(event.workspaceId) ?? event.workspaceId,
                                   }),
                                 ],
                               },
@@ -1279,7 +1316,7 @@ window.__ModuleLoader__.load({
                         }),
                       ],
                     }),
-                  }),
+                  }) : null,
                 ],
               }),
         ],
@@ -1287,7 +1324,19 @@ window.__ModuleLoader__.load({
     };
 
     exports.inject = ["slots"];
-    exports.apply = (ctx) =>
+    exports.apply = (ctx) => {
+      ctx.slots.inject("settings.section", () =>
+        ctx.slots.register(
+          {
+            name: "settings.section",
+            id: "pluginmax-account-management",
+            order: 79,
+            label: () => "账号管理",
+            inject: () => ({}),
+          },
+          () => jsxRuntime.jsx(IdentitySection, { surface: "account" }),
+        ),
+      );
       ctx.slots.inject("settings.section", () =>
         ctx.slots.register(
           {
@@ -1297,9 +1346,10 @@ window.__ModuleLoader__.load({
             label: () => "协作身份",
             inject: () => ({}),
           },
-          () => jsxRuntime.jsx(IdentitySection, {}),
+          () => jsxRuntime.jsx(IdentitySection, { surface: "identity" }),
         ),
       );
+    };
 
     return module.exports;
   },

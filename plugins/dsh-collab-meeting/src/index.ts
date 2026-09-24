@@ -557,6 +557,24 @@ export interface AgentDefaultModelLike {
   };
 }
 
+/** 会议派遣时按 AI Teammate 定义开通/复用运行时身份。 */
+interface TeammateRuntimeLike {
+  ensureRuntime(input: {
+    readonly teammateId: string;
+    readonly workspaceId: string;
+    readonly actor: {
+      readonly userId: string;
+      readonly name: string;
+      readonly role: "admin" | "owner" | "member" | "guest";
+    };
+  }): Promise<{
+    readonly teammateId: string;
+    readonly employeeId: string;
+    readonly profileId: string;
+    readonly personaId?: string | undefined;
+  }>;
+}
+
 export interface MeetingDeliveryEnvelope {
   readonly meetingId: string;
   readonly messageId: string;
@@ -2290,6 +2308,7 @@ export interface MeetingContext {
   get(key: "agents"): AgentsServiceLike | undefined;
   get(key: "subagents"): SubagentsRuntimeLike | undefined;
   get(key: "collabEmployee"): EmployeeServiceLike | undefined;
+  get(key: "collabTeammateRuntime"): TeammateRuntimeLike | undefined;
   inject(
     keys: readonly ["collabEmployee"],
     callback: (
@@ -2418,6 +2437,7 @@ export function createMeetingRoutes(
     readonly subagents?: () => SubagentsRuntimeLike | undefined;
     readonly runtime?: () => MeetingRuntime | undefined;
     readonly employees?: () => EmployeeServiceLike | undefined;
+    readonly teammateRuntime?: () => TeammateRuntimeLike | undefined;
   } = {},
 ): WebRouteLike[] {
   const memberNames = (workspaceId: string) =>
@@ -2959,7 +2979,9 @@ export function createMeetingRoutes(
         const body = parseOrInvalid(
           z.object({
             meetingId: z.string().min(1).max(160),
-            personaId: idSchema,
+            personaId: idSchema.optional(),
+            teammateId: idSchema.optional(),
+            teammateName: displayNameSchema.optional(),
             basePersonaId: idSchema.optional(),
             parentSessionId: idSchema.optional(),
             displayName: displayNameSchema.optional(),
@@ -3008,15 +3030,54 @@ export function createMeetingRoutes(
         }
         const ownerName =
           memberNames(meeting.workspaceId).get(actor.id) ?? requester.displayName;
+        const teammateRuntime = dependencies.teammateRuntime?.();
+        let teammatePersonaId: string | undefined;
+        if (body.teammateId !== undefined) {
+          if (teammateRuntime === undefined) {
+            throw new MeetingError(
+              "not_found",
+              "AI Teammate runtime is unavailable",
+            );
+          }
+          const ensured = await teammateRuntime.ensureRuntime({
+            teammateId: body.teammateId,
+            workspaceId: meeting.workspaceId,
+            actor: {
+              userId: actor.id,
+              name: ownerName,
+              role: actor.globalRole ?? actor.workspaceRole ?? "member",
+            },
+          });
+          teammatePersonaId = ensured.personaId;
+        }
+        const personaId = body.personaId ?? teammatePersonaId;
+        if (personaId === undefined) {
+          throw new MeetingError(
+            "invalid_input",
+            "personaId or teammateId is required",
+          );
+        }
+        const ownerWorkspaceRole =
+          actor.workspaceRole === "owner" || actor.workspaceRole === "member"
+            ? actor.workspaceRole
+            : actor.globalRole === "admin"
+              ? "owner"
+              : undefined;
         const delegation = await employees.createDelegation(actor.id, {
           displayName:
             body.displayName ??
             `${ownerName} · ${meeting.title.slice(0, 20)} 分身`,
-          personaId: body.personaId,
+          personaId,
+          ...(body.teammateId === undefined
+            ? {}
+            : {
+                teammateId: body.teammateId,
+                ...(body.teammateName === undefined
+                  ? {}
+                  : { teammateName: body.teammateName }),
+              }),
           workspaceId: meeting.workspaceId,
-          ownerWorkspaceRole:
-            actor.workspaceRole ??
-            (actor.globalRole === "admin" ? "owner" : undefined),
+          ...(ownerWorkspaceRole === undefined ? {} : { ownerWorkspaceRole }),
           contextType: "meeting",
           contextId: meeting.id,
           objective:
@@ -3033,7 +3094,7 @@ export function createMeetingRoutes(
           actor,
           {
             meetingId: meeting.id,
-            personaId: body.personaId,
+            personaId,
             ...(body.basePersonaId === undefined
               ? {}
               : { basePersonaId: body.basePersonaId }),
@@ -3424,6 +3485,7 @@ export async function apply(ctx: MeetingContext): Promise<void | (() => void)> {
       subagents: () => ctx.get("subagents"),
       runtime: () => runtime,
       employees: () => ctx.get("collabEmployee"),
+      teammateRuntime: () => ctx.get("collabTeammateRuntime"),
     }).map((route) => ctx.webServer.register(route)) as Array<() => void>;
   });
   const employeeFiber = ctx.inject(["collabEmployee"], (child) => {

@@ -5,6 +5,9 @@
       "path": "packages/shared"
     },
     {
+      "path": "plugins/dsh-collab-shell"
+    },
+    {
       "path": "plugins/dsh-pluginmax-canary"
     },
     {
@@ -20,10 +23,16 @@
       "path": "plugins/dsh-collab-workflow"
     },
     {
+      "path": "plugins/dsh-collab-task"
+    },
+    {
       "path": "plugins/dsh-collab-agent"
     },
     {
       "path": "plugins/dsh-collab-employee"
+    },
+    {
+      "path": "plugins/dsh-collab-teammate"
     }
   ]
 }

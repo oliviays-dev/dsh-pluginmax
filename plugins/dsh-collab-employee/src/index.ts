@@ -614,6 +614,8 @@ export function createEmployeeRoutes(
             z.object({
               displayName: z.string().trim().min(1).max(80).optional(),
               personaId: z.string().trim().min(1).max(120).optional(),
+              teammateId: z.string().trim().min(1).max(120).optional(),
+              teammateName: z.string().trim().min(1).max(80).optional(),
               workspaceId: z.string().min(1),
               contextType: delegationContextSchema,
               contextId: z.string().min(1),

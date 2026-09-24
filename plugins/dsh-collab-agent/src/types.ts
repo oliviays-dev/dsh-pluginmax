@@ -58,12 +58,13 @@ export const agentRunStatusSchema = z.enum([
 export const agentRunSchema = z.object({
   id: z.string().min(1).max(180),
   workspaceId: z.string().min(1).max(160),
+  workspacePath: z.string().max(500).optional(),
   agentProfileId: z.string().regex(idPattern),
   personaId: z.string().regex(idPattern).optional(),
   employeeId: z.string().regex(idPattern).optional(),
   principalType: z.enum(["transitional-agent", "digital-employee"]).optional(),
   ticketId: z.string().regex(idPattern).optional(),
-  source: z.literal("workflow"),
+  source: z.enum(["workflow", "task"]),
   instanceId: z.string().min(1).max(160),
   nodeId: z.string().regex(idPattern),
   dispatchKey: z.string().min(1).max(400),
@@ -75,6 +76,7 @@ export const agentRunSchema = z.object({
   timeoutMs: z.number().int().min(1_000).max(3_600_000),
   payload: agentRunPayloadSchema,
   promptSnapshot: z.string().max(60_000).optional(),
+  sessionId: z.string().min(1).max(200).optional(),
   output: z
     .object({
       summary: z.string().max(60_000),

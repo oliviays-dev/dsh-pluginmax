@@ -121,6 +121,12 @@ const STATUS_LABELS: Record<EmployeeStatus, string> = {
   archived: "归档",
 };
 
+const DELEGATION_CONTEXT_LABELS = {
+  meeting: "会议委托",
+  task: "任务委托",
+  review: "评审委托",
+} as const;
+
 function parseOrInvalid<T>(schema: SchemaLike<T>, value: unknown): T {
   const result = schema.safeParse(value);
   if (!result.success || result.data === undefined) {
@@ -1257,8 +1263,8 @@ export class EmployeeService {
         impact:
           item.contextType === "meeting"
             ? "该会议中的自动发言和跟进已暂停。"
-            : item.contextType === "workflow"
-              ? "相关工作流的自动化执行和跟进已暂停。"
+            : item.contextType === "task"
+              ? "该任务的自动化执行和跟进已暂停。"
               : "相关事项的自动化跟进已暂停。",
         suggestedActions: ["extend", "resume", "reassign"],
       }));
@@ -1269,6 +1275,8 @@ export class EmployeeService {
     input: {
       displayName?: string | undefined;
       personaId?: string | undefined;
+      teammateId?: string | undefined;
+      teammateName?: string | undefined;
       workspaceId: string;
       ownerWorkspaceRole?: WorkspaceRole | undefined;
       contextType: Delegation["contextType"];
@@ -1307,10 +1315,20 @@ export class EmployeeService {
         ownerId: owner.id,
         ownerAuthUserId: ownerAuthUserId,
         ownerName: owner.displayName,
-        displayName: input.displayName ?? `${owner.displayName} · 分身`,
+        displayName:
+          input.displayName ??
+          (input.teammateName === undefined
+            ? `${owner.displayName} · 分身`
+            : `${input.teammateName} · ${DELEGATION_CONTEXT_LABELS[input.contextType]}`),
         ...(input.personaId === undefined
           ? {}
           : { personaId: input.personaId }),
+        ...(input.teammateId === undefined
+          ? {}
+          : { teammateId: input.teammateId }),
+        ...(input.teammateName === undefined
+          ? {}
+          : { teammateName: input.teammateName }),
         workspaceId: input.workspaceId,
         contextType: input.contextType,
         contextId: input.contextId,

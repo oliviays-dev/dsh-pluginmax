@@ -1050,6 +1050,32 @@ describe("workflow agent nodes", () => {
     expect(settled.status).toBe("completed");
   });
 
+  it("retries a run retired after restart while the node remains running", async () => {
+    const { agent, service } = await agentHarness();
+    const definition = await importedFixture(service, "agent-node.md");
+    const instance = await service.startInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "Agent 重启恢复",
+    });
+    const run = agent.runs(instance.id, "development")[0]!;
+    agent.settle(run.id, {
+      ...run,
+      status: "interrupted",
+      error: "服务重启导致运行中断，可重试或转人工",
+    });
+
+    expect(service.instance(instance.id)!.nodes.development?.status).toBe(
+      "running",
+    );
+    const retried = await service.retryAgentRun(member, run.id);
+    expect(agent.runs(instance.id, "development")).toHaveLength(2);
+    expect(retried.nodes.development).toMatchObject({
+      status: "running",
+      note: "Agent 运行中 · 第 2 次",
+    });
+  });
+
   it("dispatches employee nodes through mapped runtime and preserves the principal", async () => {
     const { agent, employee, service } = await employeeHarness();
     const definition = await importedFixture(service, "employee-node.md");

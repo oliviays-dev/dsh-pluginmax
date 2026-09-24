@@ -1428,7 +1428,12 @@ export class WorkflowService {
           "conflict",
           "只有失败、超时、中断、已取消、输出无效或输出被票据拒绝的运行可以重试",
         );
-      if (!["ready", "blocked"].includes(state.status))
+      const recoveredInterruption =
+        run.status === "interrupted" && state.status === "running";
+      if (
+        !["ready", "blocked"].includes(state.status) &&
+        !recoveredInterruption
+      )
         throw new WorkflowError("conflict", "节点当前不能重试 Agent 运行");
       const reset = await this.putInstance({
         ...instance,

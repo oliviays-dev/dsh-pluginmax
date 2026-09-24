@@ -131,6 +131,9 @@ export const delegationSchema = z.object({
   ownerName: shortTextSchema,
   displayName: shortTextSchema,
   personaId: idSchema.optional(),
+  /** 委托来源的 AI Teammate（会议/任务派遣时写入，用于与 AI Teammates 对齐）。 */
+  teammateId: idSchema.optional(),
+  teammateName: shortTextSchema.optional(),
   workspaceId: idSchema,
   contextType: delegationContextSchema,
   contextId: idSchema,
