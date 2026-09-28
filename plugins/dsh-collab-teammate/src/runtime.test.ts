@@ -88,7 +88,11 @@ function setup() {
     workspaceId: string;
     legacyAgentProfileId?: string | undefined;
   }> = [];
-  const agentProfiles: Array<{ id: string; personaId?: string }> = [];
+  const agentProfiles: Array<{
+    id: string;
+    personaId?: string;
+    visibility?: "workspace" | "platform";
+  }> = [];
 
   const runtime = new TeammateRuntime({
     teammates,
@@ -161,6 +165,7 @@ function setup() {
         const record = {
           id: `agent-${String(agentProfiles.length + 1)}`,
           ...(input.personaId === undefined ? {} : { personaId: input.personaId }),
+          visibility: input.visibility ?? "workspace",
         };
         agentProfiles.push(record);
         return record;
@@ -245,6 +250,7 @@ describe("teammate runtime provisioning", () => {
     expect(ensured.profileId).toBe("agent-1");
     expect(personas.has(`persona-${platform.id}`)).toBe(true);
     expect(agentProfiles).toHaveLength(1);
+    expect(agentProfiles[0]?.visibility).toBe("platform");
     expect(employees.size).toBe(1);
     const employee = employees.get("digital-1");
     expect(employee?.tags).toEqual([

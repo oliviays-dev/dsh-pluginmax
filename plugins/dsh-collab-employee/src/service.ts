@@ -270,9 +270,14 @@ export class EmployeeService {
   }
 
   private byAuthUserId(authUserId: string): Employee | undefined {
-    return this.employeeValues().find(
+    const matches = this.employeeValues().filter(
       (employee) =>
         employee.kind === "human" && employee.authUserId === authUserId,
+    );
+    return (
+      matches.find((employee) => employee.status === "active") ??
+      matches.find((employee) => employee.status !== "archived") ??
+      matches[0]
     );
   }
 
@@ -349,9 +354,35 @@ export class EmployeeService {
   syncIdentityUsers(users: readonly PublicIdentityUser[]): Promise<void> {
     return this.enqueue(async () => {
       const timestamp = this.timestamp();
+      const currentAuthUserIds = new Set(
+        users.map((user) => parseOrInvalid(employeeSchema.shape.id, user.id)),
+      );
+      for (const employee of this.employeeValues()) {
+        if (
+          employee.kind !== "human" ||
+          employee.authUserId === undefined ||
+          employee.status === "archived" ||
+          currentAuthUserIds.has(employee.authUserId)
+        ) {
+          continue;
+        }
+        await this.tables.employees.put(
+          employee.id,
+          employeeSchema.parse({
+            ...employee,
+            status: "archived",
+            updatedAt: timestamp,
+          }),
+        );
+      }
       for (const user of users) {
         const authUserId = parseOrInvalid(employeeSchema.shape.id, user.id);
-        const existing = this.byAuthUserId(authUserId);
+        const existing = this.employeeValues().find(
+          (employee) =>
+            employee.kind === "human" &&
+            employee.authUserId === authUserId &&
+            employee.status !== "archived",
+        );
         if (existing !== undefined) {
           if (existing.displayName === user.name) continue;
           await this.tables.employees.put(

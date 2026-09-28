@@ -88,7 +88,8 @@
     }
     .shell.left-closed .account-button > span:nth-child(2),
     .shell.left-closed .account-button small { display: none; }
-    .right-body { flex: 1; min-height: 0; overflow: auto; padding-bottom: 16px; }
+    .right-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding-bottom: 12px; }
+    #meetingContent { flex: 1; min-height: 0; display: flex; flex-direction: column; }
     .workspace-switch {
       width: 100%; min-height: 42px; display: grid; grid-template-columns: 28px minmax(0,1fr) 14px;
       align-items: center; gap: 8px; padding: 6px 8px; text-align: left;
@@ -272,17 +273,22 @@
     .meeting-picker-option strong { font-size: 12px; }
     .meeting-picker-option small { margin-top: 2px; color: var(--faint); font-size: 10px; }
     .meeting-picker-empty { padding: 16px 10px; color: var(--faint); text-align: center; font-size: 11.5px; }
-    .meeting-rail-search-wrap { position: relative; margin-bottom: 10px; }
-    .meeting-rail-search {
-      display: flex; align-items: center; gap: 8px; padding: 8px 10px;
-      border: 1px solid var(--line-strong); border-radius: 7px; background: var(--surface);
-    }
-    .meeting-rail-search svg { width: 14px; height: 14px; flex: none; color: var(--faint); }
-    .meeting-rail-search input { min-height: 0; padding: 0; border: 0; background: transparent; font-size: 11.5px; }
     .meeting-card-combined { position: relative; }
+    .meeting-shell { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .meeting-shell > .meeting-card { flex: none; }
     .meeting-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
-    .meeting-card-head .meeting-name { min-width: 0; }
-    .meeting-rail-search-wrap .meeting-picker-menu { top: calc(100% + 6px); }
+    .meeting-card-copy { min-width: 0; }
+    .meeting-switch { position: relative; flex: none; }
+    .meeting-switch-trigger {
+      width: 26px; height: 26px; display: grid; place-items: center; padding: 0;
+      border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface-2);
+      color: var(--muted);
+    }
+    .meeting-switch-trigger:hover,
+    .meeting-switch-trigger[aria-expanded="true"] { border-color: var(--accent); color: var(--text); background: var(--accent-soft); }
+    .meeting-switch-trigger svg { width: 13px; height: 13px; transition: transform .16s ease; }
+    .meeting-switch-trigger[aria-expanded="true"] svg { transform: rotate(180deg); }
+    .meeting-switch .meeting-picker-menu { top: calc(100% + 6px); right: 0; left: auto; width: 274px; }
     .workspace-main { min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
     .session-bar {
       flex: none; min-height: 49px; display: flex; align-items: center; gap: 16px;
@@ -700,6 +706,7 @@
     .link-row strong { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     .workflow-list, .workbench-list, .chat, .meeting-participants { display: grid; gap: 10px; }
+    .workflow-list[hidden] { display: none; }
     .workflow-item { padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
     .workflow-top { display: flex; align-items: flex-start; gap: 10px; }
     .workflow-top h3 { margin: 0; flex: 1; min-width: 0; font-size: 14px; overflow-wrap: anywhere; }
@@ -709,6 +716,45 @@
     .step.done { color: var(--green); background: var(--green-soft); }
     .workflow-bottom { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 12px; }
     .workflow-bottom small { color: var(--faint); }
+    .workflow-template-validation { padding: 9px 10px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); background: var(--surface); font-size: 11px; line-height: 1.55; }
+    .workflow-template-validation.valid { color: var(--green); border-color: rgba(52,212,126,.35); background: var(--green-soft); }
+    .workflow-template-validation.invalid { color: #e9c68c; border-color: rgba(232,163,61,.35); background: var(--amber-soft); }
+    .workflow-node-list { display: grid; gap: 8px; }
+    .workflow-node-branch-head {
+      display: inline-flex; align-items: center; gap: 7px; margin: 0 0 7px -5px;
+      color: #cbb8f6; font-size: 10.5px; font-weight: 650;
+    }
+    .workflow-node-branch-head small { color: var(--faint); font-size: 10px; font-weight: 500; }
+    .workflow-node-card {
+      position: relative; display: grid; grid-template-columns: 40px minmax(0,1fr); gap: 10px;
+      padding: 11px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface);
+    }
+    .workflow-node-card.branch-node { border-color: rgba(167,139,250,.23); background: linear-gradient(90deg, rgba(129,95,205,.09), var(--surface) 32%); }
+    .workflow-node-card.branch-child { margin-left: 18px; }
+    .workflow-node-card.branch-child:not(:last-child)::after { top: 18px; }
+    .workflow-node-card:not(:last-child)::after {
+      content: ""; position: absolute; left: 35px; top: 38px; bottom: -9px; width: 1px; background: var(--line-strong);
+    }
+    .workflow-node-index {
+      position: relative; z-index: 1; width: 36px; height: 28px; display: grid; place-items: center;
+      border: 1px solid rgba(79,142,247,.35); border-radius: 7px; color: #cfe0ff; background: var(--accent-soft);
+      font-size: 10px; font-weight: 700;
+    }
+    .workflow-node-index.parallel { color: #d8c5ff; border-color: rgba(167,139,250,.48); background: var(--purple-soft); }
+    .workflow-node-main { min-width: 0; }
+    .workflow-node-title { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+    .workflow-node-title strong { font-size: 12.5px; }
+    .workflow-node-meta { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 6px; color: var(--faint); font-size: 10.5px; }
+    .workflow-node-meta b { color: #c9d3df; font-weight: 600; }
+    .workflow-node-main p { margin: 7px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+    .workflow-node-editor-block { display: grid; gap: 9px; }
+    .workflow-node-editors { display: grid; gap: 9px; }
+    .workflow-node-editor { padding: 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); }
+    .workflow-node-editor-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 9px; }
+    .workflow-node-editor-head strong { font-size: 11.5px; }
+    .workflow-node-editor-grid { display: grid; grid-template-columns: 72px minmax(0,1.25fr) minmax(0,.95fr); gap: 8px; }
+    .workflow-node-editor-grid .wide { grid-column: 1 / -1; }
+    .workflow-node-editor-grid textarea { min-height: 64px; }
     .employee-module { padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
     .employee-head { display: flex; align-items: center; gap: 10px; }
     .employee-head h3 { margin: 0; flex: 1; min-width: 0; font-size: 14px; }
@@ -856,7 +902,8 @@
       display: grid; grid-template-columns: 270px minmax(0,1fr);
       align-items: start;
     }
-    #profileManageButton.active { color: #fff; border-color: var(--accent); background: var(--accent); }
+    #profileManageButton.active,
+    #workflowTemplateManageButton.active { color: #fff; border-color: var(--accent); background: var(--accent); }
     .profile-sidebar { min-width: 0; padding: 10px; border-right: 1px solid var(--line); }
     .profile-search {
       display: flex; align-items: center; gap: 7px; margin-bottom: 8px; padding: 7px 9px;
@@ -995,6 +1042,25 @@
     .meeting-detail-timeline { display: grid; gap: 8px; }
     .meeting-detail-event { display: grid; grid-template-columns: 58px minmax(0,1fr); gap: 9px; color: var(--muted); font-size: 11.5px; line-height: 1.55; }
     .meeting-detail-event time { color: var(--faint); font-size: 10.5px; }
+    .meeting-composer {
+      flex: none; margin-top: 10px; padding: 10px; border: 1px solid rgba(79,142,247,.62); border-radius: 8px;
+      background: rgba(79,142,247,.1); box-shadow: 0 0 0 3px rgba(79,142,247,.1);
+      animation: meetingComposerAttention 2.4s ease-in-out infinite;
+    }
+    @keyframes meetingComposerAttention {
+      0%, 100% { border-color: rgba(79,142,247,.62); box-shadow: 0 0 0 3px rgba(79,142,247,.1); }
+      50% { border-color: rgba(148,192,255,.92); box-shadow: 0 0 0 5px rgba(79,142,247,.17); }
+    }
+    .meeting-composer-label { display: flex; align-items: center; gap: 6px; color: #b8d3ff; font-size: 11px; font-weight: 700; }
+    .meeting-composer-label svg { width: 13px; height: 13px; flex: none; }
+    .meeting-composer textarea {
+      width: 100%; min-height: 48px; margin-top: 8px; padding: 8px 9px; border: 1px solid rgba(79,142,247,.32);
+      border-radius: 6px; background: rgba(10,14,20,.78); color: var(--text); font-size: 11.5px; line-height: 1.5; resize: vertical;
+    }
+    .meeting-composer textarea:focus { border-color: rgba(148,192,255,.8); outline: none; box-shadow: 0 0 0 2px rgba(79,142,247,.16); }
+    .meeting-composer-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 7px; }
+    .meeting-composer-hint { color: var(--faint); font-size: 9.5px; }
+    .meeting-composer-foot .primary { flex: none; }
     .meeting-card { padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
     .meeting-name { font-size: 13px; font-weight: 700; }
     .meeting-meta { color: var(--faint); font-size: 10.5px; margin: 4px 0 10px; }
@@ -1030,13 +1096,14 @@
     .meeting-people .avatar { width: 22px; height: 22px; font-size: 9px; }
     .meeting-count { margin-top: 8px; color: var(--faint); font-size: 10.5px; }
     .meeting-settings-button { width: 100%; justify-content: center; margin-top: 10px; }
-    .meeting-section { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
-    .meeting-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+    .meeting-section { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+    .meeting-section-head { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
     .meeting-section-head strong { font-size: 12px; }
     .meeting-section-head span { color: var(--faint); font-size: 10.5px; }
-    .meeting-chat { display: grid; gap: 8px; max-height: 320px; overflow: auto; }
+    .meeting-chat { flex: 1; min-height: 0; display: grid; gap: 8px; overflow: auto; align-content: start; }
     .meeting-message { padding: 8px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); }
     .meeting-message.agent { border-color: rgba(79,142,247,.3); background: var(--accent-soft); }
+    .meeting-message.self { border-color: rgba(52,212,126,.3); background: rgba(52,212,126,.08); }
     .meeting-message-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .meeting-message-head strong { font-size: 11.5px; }
     .meeting-message-head time { color: var(--faint); font-size: 10px; }
@@ -1142,6 +1209,8 @@
       .ai-profile-grid, .ai-editor-grid, .ai-definition-grid { grid-template-columns: 1fr; }
       .ai-editor-grid .wide, .ai-definition-grid .wide { grid-column: auto; }
       .ai-template-grid, .profile-editor-grid, .ai-execution-grid { grid-template-columns: 1fr; }
+      .workflow-node-editor-grid { grid-template-columns: 1fr; }
+      .workflow-node-editor-grid .wide { grid-column: auto; }
       .profile-inline-body { grid-template-columns: 1fr; }
       .profile-sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
       .brief-split { grid-template-columns: 1fr; }
@@ -1240,13 +1309,42 @@
                 <div class="page-sub">全局能力</div>
               </div>
               <div class="head-actions">
+                <button class="ghost" id="workflowTemplateManageButton" type="button" aria-pressed="false">工作流模版管理</button>
                 <select id="workflowProjectFilter" class="compact" aria-label="按项目筛选工作流">
                   <option value="">全部项目</option>
                 </select>
-                <button class="primary" type="button" data-demo="打开工作流库">新建工作流</button>
+                <button class="primary" id="workflowCreateButton" type="button" data-demo="打开工作流库">新建工作流</button>
               </div>
             </div>
             <div class="workflow-list" id="workflowList"></div>
+
+            <section class="profile-inline-view" id="workflowTemplateView" aria-label="工作流模版管理" hidden>
+              <div class="profile-inline-head">
+                <div>
+                  <h2>工作流模版管理</h2>
+                  <div class="profile-inline-sub">可复用工作流定义、节点编排与版本管理</div>
+                  <div class="profile-inline-selected-desc" id="workflowTemplateInlineDesc"></div>
+                </div>
+                <div class="head-actions">
+                  <select class="compact" id="workflowTemplateWorkspace" aria-label="按工作区筛选模版">
+                    <option value="">全部工作区</option>
+                  </select>
+                  <button class="ghost small" id="workflowTemplateRefresh" type="button">刷新</button>
+                  <button class="primary small" id="workflowTemplateCreate" type="button">新建模版</button>
+                  <button class="icon-btn" id="workflowTemplateClose" type="button" aria-label="关闭工作流模版管理">×</button>
+                </div>
+              </div>
+              <div class="profile-inline-body">
+                <div class="profile-sidebar">
+                  <label class="profile-search">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+                    <input id="workflowTemplateSearch" value="" placeholder="搜索模版名称、节点或工作区" autocomplete="off">
+                  </label>
+                  <aside class="profile-list" id="workflowTemplateList" aria-label="工作流模版列表"></aside>
+                </div>
+                <main class="profile-detail" id="workflowTemplateDetail"></main>
+              </div>
+            </section>
           </section>
 
           <section class="view" id="aiTeammatesView" hidden>
@@ -1474,10 +1572,6 @@
                 <button class="ai-tab" data-meeting-list-filter="ongoing" type="button">进行中</button>
                 <button class="ai-tab" data-meeting-list-filter="completed" type="button">已完成</button>
               </div>
-              <label class="meeting-list-search">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
-                <input id="meetingListSearch" value="" placeholder="搜索会议名称或参会人员" autocomplete="off">
-              </label>
             </div>
             <div class="meeting-list-layout">
               <aside class="meeting-directory" id="meetingDirectory" aria-label="会议目录"></aside>
@@ -1490,10 +1584,9 @@
 
       <aside class="rail right" id="meetingRail" aria-label="会议插件">
         <div class="right-head">
-          <div class="rail-title" style="margin:0">会议 <span id="meetingStatus"></span></div>
+          <div class="rail-title" style="margin:0">会议</div>
         </div>
         <div class="right-body">
-          <nav class="meeting-nav" id="meetingNav" aria-label="会议列表"></nav>
           <div id="meetingContent"></div>
         </div>
       </aside>
@@ -1848,6 +1941,183 @@
       {
         id: "WF-189", title: "分身到期通知处理", workspace: "一切皆插件", status: "进行中", updatedAt: "昨天",
         steps: [{ label: "影响识别", status: "done" }, { label: "Owner 通知", status: "active" }, "续期 / 转派"],
+      },
+    ];
+    const workflowTemplates = [
+      {
+        id: "workflow-template-employee-node",
+        name: "Digital Employee 节点执行",
+        code: "employee-node",
+        workspace: "一切皆插件",
+        version: "v1",
+        status: "enabled",
+        updatedAt: "今天 11:44",
+        description: "在流程节点中调度 DE 或数字分身执行，并在节点产出完成后自动流转。",
+        nodes: [
+          {
+            id: "node-context",
+            key: "01",
+            name: "接收任务上下文",
+            owner: "平台编排器",
+            mode: "serial",
+            approvalLogic: "none",
+            dependsOn: "启动",
+            description: "校验任务说明、验收标准和上下文材料是否齐全，缺失时回到发起人补充。",
+          },
+          {
+            id: "node-select-owner",
+            key: "02",
+            name: "选择执行主体",
+            owner: "Profile 负责人",
+            mode: "serial",
+            approvalLogic: "none",
+            dependsOn: "接收任务上下文",
+            description: "根据节点能力要求匹配具备对应 Profile 的 DE 或数字分身。",
+          },
+          {
+            id: "node-de-execute",
+            key: "03.1",
+            name: "上下文补全",
+            owner: "Context Agent / 任务发起人",
+            mode: "parallel",
+            approvalLogic: "none",
+            dependsOn: "选择执行主体",
+            description: "补齐执行所需的业务规则、历史材料和边界条件，作为该分支后续节点的输入。",
+          },
+          {
+            id: "node-de-run",
+            key: "03.1.1",
+            name: "分身执行",
+            owner: "DE / 数字分身",
+            mode: "serial",
+            approvalLogic: "none",
+            dependsOn: "上下文补全",
+            description: "按各自职责执行子任务，保留运行记录、工具调用和产出物来源。",
+          },
+          {
+            id: "node-de-output-review",
+            key: "03.1.2",
+            name: "产出复核",
+            owner: "Quality Reviewer / member",
+            mode: "serial",
+            approvalLogic: "none",
+            dependsOn: "分身执行",
+            description: "复核产出完整性、来源和验收口径，确认该并行分支可以进入汇总节点。",
+          },
+          {
+            id: "node-process-review",
+            key: "03.2",
+            name: "过程校验",
+            owner: "Review Guild / admin",
+            mode: "parallel",
+            approvalLogic: "all",
+            dependsOn: "选择执行主体",
+            description: "并行检查执行过程、工具权限和产出规范，多个审批人全部通过后才允许流转。",
+          },
+          {
+            id: "node-review",
+            key: "04",
+            name: "结果汇总与流转",
+            owner: "流程负责人",
+            mode: "serial",
+            approvalLogic: "none",
+            dependsOn: "产出复核 AND 过程校验",
+            description: "汇总并行结果并检查验收条件；无法自动判断的事项标记为人工决策。",
+          },
+        ],
+        markdown: [
+          "# 工作流：Digital Employee 节点执行",
+          "",
+          "## 触发条件",
+          "- 上游节点产出任务说明、验收标准和上下文。",
+          "",
+          "## 执行节点",
+          "1. 选择具备对应 Profile 能力的 DE 或分身。",
+          "2. 将任务材料与节点目标一起下发。",
+          "3. 等待执行结果，保留运行记录和来源。",
+          "",
+          "## 完成条件",
+          "- 产出物满足验收标准。",
+          "- 无法自动判断的事项明确标记为人工决策。",
+        ].join("\n"),
+      },
+      {
+        id: "workflow-template-gui-from-zero",
+        name: "GUI 从零验收",
+        code: "gui-from-zero",
+        workspace: "员工平台",
+        version: "v1.2",
+        status: "enabled",
+        updatedAt: "昨天 18:20",
+        description: "从需求拆解到界面验收的标准化交付流程，覆盖实现、评审和回归。",
+        nodes: [
+          {
+            id: "node-brief",
+            key: "01",
+            name: "需求确认",
+            owner: "Product Owner / admin",
+            mode: "serial",
+            approvalLogic: "none",
+            dependsOn: "启动",
+            description: "确认页面范围、核心交互和验收口径，形成可执行的输入说明。",
+          },
+          {
+            id: "node-build",
+            key: "02",
+            name: "开发与交付",
+            owner: "Frontend Engineer / member",
+            mode: "serial",
+            approvalLogic: "none",
+            dependsOn: "需求确认",
+            description: "完成页面实现与自测，并提交实现说明、验证结果和已知风险。",
+          },
+          {
+            id: "node-design-review",
+            key: "03.1",
+            name: "设计评审",
+            owner: "Design Reviewer / member",
+            mode: "parallel",
+            approvalLogic: "none",
+            dependsOn: "开发与交付",
+            description: "检查页面状态、关键交互和响应式表现，记录需要修改的阻塞项。",
+          },
+          {
+            id: "node-release-approval",
+            key: "03.2",
+            name: "发布审批",
+            owner: "Review Guild / admin / Olivia",
+            mode: "parallel",
+            approvalLogic: "all",
+            dependsOn: "开发与交付",
+            description: "多个审批人共同完成发布门禁检查，全部通过后才允许进入发布节点。",
+          },
+          {
+            id: "node-release",
+            key: "04",
+            name: "发布与回归",
+            owner: "系统 / deployment",
+            mode: "serial",
+            approvalLogic: "none",
+            dependsOn: "设计评审 AND 发布审批",
+            description: "完成发布动作，并记录桌面端与移动端的回归结果。",
+          },
+        ],
+        markdown: [
+          "# 工作流：GUI 从零验收",
+          "",
+          "## 输入",
+          "- 用户目标、页面范围和验收口径。",
+          "",
+          "## 节点",
+          "1. 交互说明与状态清单。",
+          "2. 页面实现与自测。",
+          "3. 设计评审与可用性检查。",
+          "4. 验收与回归确认。",
+          "",
+          "## 完成条件",
+          "- 关键状态均有实现说明。",
+          "- 桌面与移动端均完成回归。",
+        ].join("\n"),
       },
     ];
     const workbench = [
@@ -2235,6 +2505,8 @@
       detailReturn: null,
       aiTab: "runtime", aiSelectedId: "personal-research-avatar", aiEditing: false, isAdmin: true,
       profileOpen: false, profileSelectedId: "profile-backend-engineer", profileEditing: false, profileSearch: "",
+      workflowTemplateOpen: false, workflowTemplateSelectedId: "workflow-template-employee-node",
+      workflowTemplateEditing: false, workflowTemplateSearch: "", workflowTemplateWorkspace: "", workflowTemplateValidation: null,
       meetingBriefEdit: null, meetingDispatchOpen: false,
       meetingPickerOpen: false, meetingSearch: "", meetingListFilter: "all", meetingListSearch: "", meetingEditing: false,
     };
@@ -2405,6 +2677,17 @@
     }
 
     function renderWorkflow() {
+      const templateMode = ui.workflowTemplateOpen;
+      $("#workflowProjectFilter").hidden = templateMode;
+      $("#workflowCreateButton").hidden = templateMode;
+      $("#workflowList").hidden = templateMode;
+      $("#workflowTemplateView").hidden = !templateMode;
+      $("#workflowTemplateManageButton").classList.toggle("active", templateMode);
+      $("#workflowTemplateManageButton").setAttribute("aria-pressed", String(templateMode));
+      if (templateMode) {
+        renderWorkflowTemplateManager();
+        return;
+      }
       const list = workflows.filter((item) => !state.workflowProject || item.workspace === state.workflowProject);
       $("#workflowList").innerHTML = list.length ? list.map((item) => `
         <article class="workflow-item">
@@ -2421,6 +2704,285 @@
           </div>
         </article>
       `).join("") : '<div class="empty">当前项目没有工作流。</div>';
+    }
+
+    const workflowTemplateById = (id) => workflowTemplates.find((item) => item.id === id) ?? null;
+    const workflowTemplateStatusMeta = (status) => status === "enabled"
+      ? { label: "已启用", className: "active", listEnabled: true }
+      : status === "archived"
+        ? { label: "已归档", className: "inactive", listEnabled: false }
+        : { label: "已停用", className: "inactive", listEnabled: false };
+    const workflowNodeApprovalLogicMeta = (logic) => logic === "all"
+      ? { label: "AND · 全部通过", value: "all" }
+      : logic === "any"
+        ? { label: "OR · 任一通过", value: "any" }
+        : { label: "无需审批", value: "none" };
+    const workflowNodesForTemplate = (template) => Array.isArray(template?.nodes) ? template.nodes : [];
+    const workflowNodeKey = (node, index) => String(node?.key || "").trim() || String(index + 1).padStart(2, "0");
+    const workflowNodeBranchId = (key) => String(key || "").match(/^(\d+\.\d+)(?:\.\d+)?$/)?.[1] || "";
+
+    function formatWorkflowDependencyLabel(value, nodes) {
+      const dependency = String(value || "").trim();
+      if (!dependency) return "无前置依赖";
+      return dependency.split(/\s*(AND|OR)\s*/i).filter(Boolean).map((part) => {
+        const token = part.trim();
+        if (/^(AND|OR)$/i.test(token)) return token.toUpperCase();
+        const references = token.split(/[、,，]/).map((item) => item.trim()).filter(Boolean);
+        return references.map((reference) => {
+          const match = nodes.find((node, index) =>
+            node.name === reference || node.id === reference || workflowNodeKey(node, index) === reference
+          );
+          if (!match) return reference;
+          const matchIndex = nodes.indexOf(match);
+          return `${workflowNodeKey(match, matchIndex)} ${match.name}`;
+        }).join(" / ");
+      }).join(" ");
+    }
+
+    function renderWorkflowNodeCard(node, index, nodes = []) {
+      const approval = workflowNodeApprovalLogicMeta(node.approvalLogic);
+      const nodeKey = workflowNodeKey(node, index);
+      const branchId = workflowNodeBranchId(nodeKey);
+      const branches = [...new Set(nodes.map((item, itemIndex) => workflowNodeBranchId(workflowNodeKey(item, itemIndex))).filter(Boolean))];
+      const previousBranchId = index > 0 ? workflowNodeBranchId(workflowNodeKey(nodes[index - 1], index - 1)) : "";
+      const startsBranch = branchId && branchId !== previousBranchId;
+      const isBranchChild = branchId && nodeKey.split(".").length > 2;
+      const branchLabel = branchId ? `并行分支 ${String.fromCharCode(65 + branches.indexOf(branchId))}` : "";
+      return `
+        <article class="workflow-node-card ${branchId ? "branch-node" : ""} ${isBranchChild ? "branch-child" : ""}">
+          <span class="workflow-node-index ${branchId ? "parallel" : ""}">${escapeHtml(nodeKey)}</span>
+          <div class="workflow-node-main">
+            ${startsBranch ? `<div class="workflow-node-branch-head"><span>${branchLabel}</span><small>编号 ${escapeHtml(branchId)}</small></div>` : ""}
+            <div class="workflow-node-title">
+              <strong>${escapeHtml(node.name || "未命名节点")}</strong>
+            </div>
+            <div class="workflow-node-meta">
+              <span>负责人 / 角色：<b>${escapeHtml(node.owner || "待指定")}</b></span>
+              <span>依赖：<b>${escapeHtml(formatWorkflowDependencyLabel(node.dependsOn, nodes))}</b></span>
+              ${approval.value !== "none" ? `<span>审批逻辑：<b>${approval.label}</b></span>` : ""}
+            </div>
+            ${node.description ? `<p>${escapeHtml(node.description)}</p>` : ""}
+          </div>
+        </article>
+      `;
+    }
+
+    function renderWorkflowNodeEditor(node, index) {
+      const nodeId = node.id || `workflow-node-${Date.now()}-${index}`;
+      return `
+        <section class="workflow-node-editor" data-workflow-node-editor data-node-id="${escapeHtml(nodeId)}">
+          <div class="workflow-node-editor-head">
+            <strong>节点 ${String(index + 1).padStart(2, "0")}</strong>
+            <button class="ghost small" type="button" data-workflow-template-action="remove-node">删除节点</button>
+          </div>
+          <div class="workflow-node-editor-grid">
+            <label class="field"><span class="label">节点编号</span><input data-workflow-node-field="key" value="${escapeHtml(workflowNodeKey(node, index))}" placeholder="如 03.1" required></label>
+            <label class="field"><span class="label">节点名称</span><input data-workflow-node-field="name" value="${escapeHtml(node.name || "")}" placeholder="例如：发布审批" required></label>
+            <label class="field"><span class="label">负责人 / 角色</span><input data-workflow-node-field="owner" value="${escapeHtml(node.owner || "")}" placeholder="例如：Review Guild / admin" required></label>
+            <label class="field"><span class="label">执行方式</span>
+              <select data-workflow-node-field="mode">
+                <option value="serial" ${node.mode !== "parallel" ? "selected" : ""}>串行</option>
+                <option value="parallel" ${node.mode === "parallel" ? "selected" : ""}>并行</option>
+              </select>
+            </label>
+            <label class="field"><span class="label">审批逻辑</span>
+              <select data-workflow-node-field="approvalLogic">
+                <option value="none" ${node.approvalLogic !== "all" && node.approvalLogic !== "any" ? "selected" : ""}>无需审批</option>
+                <option value="all" ${node.approvalLogic === "all" ? "selected" : ""}>AND · 全部通过</option>
+                <option value="any" ${node.approvalLogic === "any" ? "selected" : ""}>OR · 任一通过</option>
+              </select>
+            </label>
+            <label class="field wide"><span class="label">前置依赖</span><input data-workflow-node-field="dependsOn" value="${escapeHtml(node.dependsOn || "")}" placeholder="例如：03.1 AND 03.2；无前置依赖可留空"></label>
+            <label class="field wide"><span class="label">节点说明</span><textarea data-workflow-node-field="description" placeholder="说明该节点的输入、动作与完成条件">${escapeHtml(node.description || "")}</textarea></label>
+          </div>
+        </section>
+      `;
+    }
+
+    function readWorkflowNodesFromForm(form) {
+      return [...form.querySelectorAll("[data-workflow-node-editor]")].map((editor, index) => ({
+        id: editor.dataset.nodeId || `workflow-node-${Date.now()}-${index}`,
+        key: String(editor.querySelector('[data-workflow-node-field="key"]')?.value ?? "").trim() || String(index + 1).padStart(2, "0"),
+        name: String(editor.querySelector('[data-workflow-node-field="name"]')?.value ?? "").trim(),
+        owner: String(editor.querySelector('[data-workflow-node-field="owner"]')?.value ?? "").trim(),
+        mode: String(editor.querySelector('[data-workflow-node-field="mode"]')?.value ?? "serial"),
+        approvalLogic: String(editor.querySelector('[data-workflow-node-field="approvalLogic"]')?.value ?? "none"),
+        dependsOn: String(editor.querySelector('[data-workflow-node-field="dependsOn"]')?.value ?? "").trim(),
+        description: String(editor.querySelector('[data-workflow-node-field="description"]')?.value ?? "").trim(),
+      })).filter((node) => node.name || node.owner || node.dependsOn || node.description);
+    }
+
+    function validateWorkflowTemplate(markdown, nodes = []) {
+      const messages = [];
+      if (!/^#\s*工作流[：:]/m.test(markdown)) messages.push("缺少以“# 工作流：...”开头的一级标题。");
+      if ((markdown.match(/^##\s+/gm) ?? []).length < 2) messages.push("至少需要两个二级段落，例如触发条件、执行节点和完成条件。");
+      if (!/(节点|执行|流程|步骤)/.test(markdown)) messages.push("建议包含节点、执行步骤或流程流转说明。");
+      if (!nodes.length) messages.push("至少需要定义一个工作流节点。");
+      if (nodes.some((node) => !node.key.trim())) messages.push("每个节点都需要填写节点编号。");
+      if (new Set(nodes.map((node) => node.key.trim())).size !== nodes.length) messages.push("节点编号不能重复。");
+      if (nodes.some((node) => !node.name.trim())) messages.push("每个节点都需要填写节点名称。");
+      if (nodes.some((node) => !node.owner.trim())) messages.push("每个节点都需要填写负责人或角色。");
+      return { valid: messages.length === 0, messages };
+    }
+
+    function bumpWorkflowVersion(version) {
+      const match = String(version).match(/^v?(\d+)(?:\.(\d+))?/);
+      if (!match) return "v1.0";
+      return `v${match[1]}.${Number(match[2] ?? 0) + 1}`;
+    }
+
+    function workflowTemplateMatchesSearch(template) {
+      const query = ui.workflowTemplateSearch.trim().toLowerCase();
+      if (!query) return true;
+      const haystack = [
+        template.name, template.code, template.workspace, template.version,
+        template.description, template.markdown,
+        ...workflowNodesForTemplate(template).flatMap((node) => Object.values(node)),
+      ].join(" ").toLowerCase();
+      return query.split(/\s+/).filter(Boolean).every((term) => haystack.includes(term));
+    }
+
+    function renderWorkflowTemplateManager() {
+      const workspaceSelect = $("#workflowTemplateWorkspace");
+      if (workspaceSelect) {
+        workspaceSelect.innerHTML = '<option value="">全部工作区</option>' + workspaces.map((name) =>
+          `<option value="${escapeHtml(name)}" ${name === ui.workflowTemplateWorkspace ? "selected" : ""}>${escapeHtml(name)}</option>`
+        ).join("");
+      }
+      const searchInput = $("#workflowTemplateSearch");
+      if (searchInput && searchInput.value !== ui.workflowTemplateSearch) searchInput.value = ui.workflowTemplateSearch;
+      const visibleTemplates = workflowTemplates.filter((template) =>
+        (!ui.workflowTemplateWorkspace || template.workspace === ui.workflowTemplateWorkspace)
+        && workflowTemplateMatchesSearch(template)
+      );
+      if (!visibleTemplates.some((template) => template.id === ui.workflowTemplateSelectedId)) {
+        ui.workflowTemplateSelectedId = visibleTemplates[0]?.id ?? "";
+      }
+      $("#workflowTemplateList").innerHTML = visibleTemplates.length ? visibleTemplates.map((template) => {
+        const status = workflowTemplateStatusMeta(template.status);
+        return `
+          <button class="profile-list-item ${template.id === ui.workflowTemplateSelectedId ? "active" : ""}" data-workflow-template-id="${template.id}" type="button">
+            <span class="profile-list-dot ${status.listEnabled ? "enabled" : ""}"></span>
+            <span class="profile-list-copy">
+              <strong>${escapeHtml(template.name)}</strong>
+              <small>${escapeHtml(template.code)} · ${escapeHtml(template.version)} · ${status.label}</small>
+            </span>
+            <span class="column-count">${escapeHtml(template.workspace)}</span>
+          </button>
+        `;
+      }).join("") : '<div class="empty compact">没有匹配的工作流模版。</div>';
+      if (!visibleTemplates.length) {
+        $("#workflowTemplateInlineDesc").textContent = "";
+        $("#workflowTemplateDetail").innerHTML = '<div class="empty">没有匹配的工作流模版。</div>';
+        return;
+      }
+      const template = workflowTemplateById(ui.workflowTemplateSelectedId) ?? visibleTemplates[0];
+      ui.workflowTemplateSelectedId = template.id;
+      $("#workflowTemplateInlineDesc").textContent = template.description;
+      const status = workflowTemplateStatusMeta(template.status);
+      const nodes = workflowNodesForTemplate(template);
+      const detail = $("#workflowTemplateDetail");
+      if (ui.workflowTemplateEditing) {
+        const validation = ui.workflowTemplateValidation;
+        detail.innerHTML = `
+          <div class="history-head">
+            <h3>${template.id.startsWith("workflow-template-custom-") ? "新建工作流模版" : `编辑 ${escapeHtml(template.name)}`}</h3>
+            <span>${escapeHtml(template.version)}</span>
+          </div>
+          <form class="profile-editor-grid" data-workflow-template-form>
+            <label class="field"><span class="label">模版名称</span><input name="name" value="${escapeHtml(template.name)}" required></label>
+            <label class="field"><span class="label">模版标识</span><input name="code" value="${escapeHtml(template.code)}" required></label>
+            <label class="field"><span class="label">工作区</span>
+              <select name="workspace">${workspaces.map((name) => `<option value="${escapeHtml(name)}" ${name === template.workspace ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}</select>
+            </label>
+            <label class="field"><span class="label">状态</span>
+              <select name="status">
+                <option value="enabled" ${template.status === "enabled" ? "selected" : ""}>启用</option>
+                <option value="disabled" ${template.status === "disabled" ? "selected" : ""}>停用</option>
+                <option value="archived" ${template.status === "archived" ? "selected" : ""}>归档</option>
+              </select>
+            </label>
+            <label class="field wide"><span class="label">模版说明</span><textarea name="description" required>${escapeHtml(template.description)}</textarea></label>
+            <div class="field wide workflow-node-editor-block">
+              <div class="history-head">
+                <div>
+                  <span class="label">节点说明</span>
+                  <small class="settings-hint">定义节点名称、负责人或角色、串并行方式与前置依赖。</small>
+                </div>
+                <button class="ghost small" type="button" data-workflow-template-action="add-node">新增节点</button>
+              </div>
+              <div class="workflow-node-editors" data-workflow-node-editors>
+                ${nodes.length ? nodes.map(renderWorkflowNodeEditor).join("") : '<div class="empty compact">尚未定义节点，请至少新增一个节点。</div>'}
+              </div>
+            </div>
+            <label class="field wide"><span class="label">工作流定义（Markdown）</span><textarea class="profile-soul" name="markdown" required>${escapeHtml(template.markdown)}</textarea></label>
+            <div class="field wide">
+              <div class="history-head">
+                <span class="label">Markdown 导入</span>
+                <label class="ghost small ai-upload-button" for="workflowMarkdownFile">选择文件</label>
+              </div>
+              <input id="workflowMarkdownFile" type="file" accept=".md,text/markdown,text/plain" hidden>
+              <small class="settings-hint">导入后会替换下方当前定义，仍可在保存前继续编辑。</small>
+            </div>
+            <div class="workflow-template-validation ${validation ? (validation.valid ? "valid" : "invalid") : ""} wide" data-workflow-validation>
+              ${validation
+                ? validation.valid
+                  ? "校验通过：工作流定义结构完整。"
+                  : `校验未通过：<br>${validation.messages.map((message) => `• ${escapeHtml(message)}`).join("<br>")}`
+                : "尚未校验。保存前建议先运行一次校验。"}
+            </div>
+            <div class="head-actions wide">
+              <button class="ghost small" type="button" data-workflow-template-action="cancel-edit">取消</button>
+              <button class="ghost small" type="button" data-workflow-template-action="validate">校验</button>
+              <button class="primary small" type="submit">保存新版本</button>
+            </div>
+          </form>
+        `;
+        return;
+      }
+      detail.innerHTML = `
+        <div class="history-head">
+          <div>
+            <h3 style="margin:0">${escapeHtml(template.name)}</h3>
+            <div class="ai-editor-meta">${escapeHtml(template.code)} · ${escapeHtml(template.workspace)} · ${escapeHtml(template.version)} · 更新 ${escapeHtml(template.updatedAt)}</div>
+          </div>
+          <span class="ai-state ${status.className}">${status.label}</span>
+        </div>
+        <div class="head-actions">
+          <button class="ghost small" type="button" data-workflow-template-action="edit">编辑</button>
+          <button class="ghost small" type="button" data-workflow-template-action="toggle">${template.status === "enabled" ? "停用" : "启用"}</button>
+          <button class="ghost small" type="button" data-workflow-template-action="archive" ${template.status === "archived" ? "disabled" : ""}>归档</button>
+          <button class="ghost small" type="button" data-workflow-template-action="delete">删除</button>
+        </div>
+        <section class="profile-detail-section">
+          <div class="profile-preview-title">模版说明</div>
+          <p class="settings-hint">${escapeHtml(template.description)}</p>
+        </section>
+        <section class="profile-detail-section">
+          <div class="history-head">
+            <div>
+              <div class="profile-preview-title">节点说明</div>
+              <div class="settings-hint">节点名称、负责人 / 角色、串并行方式与前置依赖。</div>
+            </div>
+            <span class="brief-chip">${nodes.length} 个节点</span>
+          </div>
+          <div class="workflow-node-list">
+            ${nodes.length ? nodes.map(renderWorkflowNodeCard).join("") : '<div class="empty compact">尚未定义节点。</div>'}
+          </div>
+        </section>
+        <section class="profile-detail-section">
+          <div class="profile-preview-title">工作流定义</div>
+          <pre class="ai-definition-pre">${escapeHtml(template.markdown)}</pre>
+        </section>
+        <section class="profile-detail-section">
+          <div class="profile-preview-title">版本与状态</div>
+          <div class="head-actions">
+            <span class="brief-chip">当前版本 ${escapeHtml(template.version)}</span>
+            <span class="brief-chip">${status.label}</span>
+            <span class="brief-chip">更新于 ${escapeHtml(template.updatedAt)}</span>
+          </div>
+        </section>
+      `;
     }
 
     function renderWorkbench() {
@@ -2926,7 +3488,7 @@
     function renderMeetingPickerOptions() {
       const container = $("#meetingPickerOptions");
       if (!container) return;
-      const options = visibleMeetings().filter(meetingMatchesSearch);
+      const options = visibleMeetings().filter((item) => item.status === "进行中").filter(meetingMatchesSearch);
       container.innerHTML = options.length ? options.map((item) => `
         <button class="meeting-picker-option ${item.id === ui.currentMeetingId ? "active" : ""}" data-meeting-id="${item.id}" type="button">
           <strong>${escapeHtml(item.title)}</strong>
@@ -3107,51 +3669,65 @@
       const list = visibleMeetings();
       if (!list.some((item) => item.id === ui.currentMeetingId)) ui.currentMeetingId = list[0]?.id;
       const meeting = list.find((item) => item.id === ui.currentMeetingId) ?? list[0];
-      const ongoingCount = list.filter((item) => item.status === "进行中").length;
-      const completedCount = list.filter((item) => item.status === "已完成").length;
-      $("#meetingStatus").textContent = `${list.length} 场 · ${ongoingCount} 进行中 · ${completedCount} 已完成`;
-      $("#meetingNav").innerHTML = `
-        <div class="meeting-rail-search-wrap">
-          <div class="meeting-rail-search">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
-            <input id="meetingPickerSearch" value="${escapeHtml(ui.meetingSearch)}" placeholder="搜索会议名称或参会人员" autocomplete="off">
-          </div>
-          <div class="meeting-picker-menu" id="meetingPickerMenu" ${ui.meetingPickerOpen ? "" : "hidden"}>
-            <div class="meeting-picker-options" id="meetingPickerOptions" role="listbox" aria-label="会议选项"></div>
-          </div>
-        </div>
-      `;
-      renderMeetingPickerOptions();
       if (!meeting) {
         $("#meetingContent").innerHTML = '<div class="empty">当前范围没有会议。</div>';
         return;
       }
       const agentCount = meeting.participants.filter((item) => item.kind === "agent").length;
       $("#meetingContent").innerHTML = `
-        <div class="meeting-card meeting-card-combined">
-          <div class="meeting-name">${meeting.title}</div>
-          <div class="meeting-meta">${meeting.id} · ${meeting.time} · ${meeting.status}</div>
-          ${meeting.description ? `<div class="meeting-desc">${escapeHtml(meeting.description)}</div>` : ""}
-          <div class="meeting-people">
-            ${meeting.participants.map((participant) => renderPersonAvatar(participant)).join("")}
-          </div>
-          <div class="meeting-count">参与者 ${meeting.participants.length} · 分身 ${agentCount}</div>
-          <button class="ghost small meeting-settings-button" type="button" data-open-meeting-settings="true">会议设置（本次嘱咐 / 参与人）</button>
-        </div>
-        <div class="meeting-section">
-          <div class="meeting-section-head"><strong>聊天</strong><span>${(meeting.messages ?? []).length} 条</span></div>
-          <div class="meeting-chat">
-            ${(meeting.messages ?? []).length
-              ? meeting.messages.map((message) => `
-                  <div class="meeting-message ${message.kind}">
-                    <div class="meeting-message-head"><strong>${message.name}</strong><time>${message.time}</time></div>
-                    <div class="meeting-message-text">${message.text}</div>
+        <div class="meeting-shell">
+          <div class="meeting-card meeting-card-combined">
+            <div class="meeting-card-head">
+              <div class="meeting-card-copy">
+                <div class="meeting-name">${meeting.title}</div>
+                <div class="meeting-meta">${meeting.id} · ${meeting.time} · ${meeting.status}</div>
+                ${meeting.description ? `<div class="meeting-desc">${escapeHtml(meeting.description)}</div>` : ""}
+                <div class="meeting-people">
+                  ${meeting.participants.map((participant) => renderPersonAvatar(participant)).join("")}
+                </div>
+                <div class="meeting-count">参与者 ${meeting.participants.length} · 分身 ${agentCount}</div>
+              </div>
+              <div class="meeting-switch">
+                <button class="meeting-switch-trigger" id="meetingPickerTrigger" aria-expanded="${ui.meetingPickerOpen}" aria-label="切换进行中的会议" type="button">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div class="meeting-picker-menu" id="meetingPickerMenu" ${ui.meetingPickerOpen ? "" : "hidden"}>
+                  <div class="meeting-picker-search">
+                    <input id="meetingPickerSearch" value="${escapeHtml(ui.meetingSearch)}" placeholder="搜索会议名称或参会人员" autocomplete="off">
                   </div>
-                `).join("")
-              : '<div class="empty">还没有发言。</div>'}
+                  <div class="meeting-picker-options" id="meetingPickerOptions" role="listbox" aria-label="进行中的会议"></div>
+                </div>
+              </div>
+            </div>
+            <button class="ghost small meeting-settings-button" type="button" data-open-meeting-settings="true">会议设置（本次嘱咐 / 参与人）</button>
+          </div>
+          <div class="meeting-section">
+            <div class="meeting-section-head"><strong>聊天</strong><span>${(meeting.messages ?? []).length} 条</span></div>
+            <div class="meeting-chat">
+              ${(meeting.messages ?? []).length
+                ? meeting.messages.map((message) => `
+                    <div class="meeting-message ${message.kind}">
+                      <div class="meeting-message-head"><strong>${message.name}</strong><time>${message.time}</time></div>
+                      <div class="meeting-message-text">${message.text}</div>
+                    </div>
+                  `).join("")
+                : '<div class="empty">还没有发言。</div>'}
+            </div>
+            <form class="meeting-composer" id="meetingComposer" data-meeting-id="${escapeHtml(meeting.id)}">
+              <div class="meeting-composer-label">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></svg>
+                <span>发消息到会议</span>
+              </div>
+              <textarea name="message" placeholder="输入会议发言，或直接给分身补充指令…" aria-label="发消息到会议"></textarea>
+              <div class="meeting-composer-foot">
+                <span class="meeting-composer-hint">Enter 发送 · Shift + Enter 换行</span>
+                <button class="primary small" type="submit">发送</button>
+              </div>
+            </form>
           </div>
         </div>
       `;
+      renderMeetingPickerOptions();
     }
 
     function renderMeetingSettings() {
@@ -4113,10 +4689,6 @@
       closeMeetingEditor();
       render();
     });
-    $("#meetingListSearch").addEventListener("input", (event) => {
-      ui.meetingListSearch = event.target.value;
-      renderMeetingList();
-    });
     $("#meetingDirectory").addEventListener("click", (event) => {
       const button = event.target.closest("[data-meeting-list-id]");
       if (!button) return;
@@ -4159,37 +4731,65 @@
         toast("会议设置已更新");
       }
     });
-    $("#meetingNav").addEventListener("focusin", (event) => {
+    document.addEventListener("click", (event) => {
+      if (!ui.meetingPickerOpen || !event.target.isConnected || event.target.closest(".meeting-switch")) return;
+      ui.meetingPickerOpen = false;
+      renderMeeting();
+    });
+    $("#meetingContent").addEventListener("click", (event) => {
+      const trigger = event.target.closest("#meetingPickerTrigger");
+      if (trigger) {
+        ui.meetingPickerOpen = !ui.meetingPickerOpen;
+        renderMeeting();
+        const searchInput = $("#meetingPickerSearch");
+        if (ui.meetingPickerOpen && searchInput) searchInput.focus();
+        return;
+      }
+      const option = event.target.closest("[data-meeting-id]");
+      if (option) {
+        ui.currentMeetingId = option.dataset.meetingId;
+        ui.meetingBriefEdit = null;
+        ui.meetingDispatchOpen = false;
+        ui.meetingPickerOpen = false;
+        ui.meetingSearch = "";
+        renderMeeting();
+        return;
+      }
+      if (event.target.closest("[data-open-meeting-settings]")) openMeetingSettings();
+    });
+    $("#meetingContent").addEventListener("focusin", (event) => {
       if (!event.target.closest("#meetingPickerSearch")) return;
       ui.meetingPickerOpen = true;
-      const menu = $("#meetingPickerMenu");
-      if (menu) menu.hidden = false;
+      $("#meetingPickerMenu").hidden = false;
       renderMeetingPickerOptions();
     });
-    $("#meetingNav").addEventListener("input", (event) => {
+    $("#meetingContent").addEventListener("input", (event) => {
       if (!event.target.closest("#meetingPickerSearch")) return;
       ui.meetingSearch = event.target.value;
       ui.meetingPickerOpen = true;
       $("#meetingPickerMenu").hidden = false;
       renderMeetingPickerOptions();
     });
-    $("#meetingNav").addEventListener("click", (event) => {
-      const button = event.target.closest("[data-meeting-id]");
-      if (!button) return;
-      ui.currentMeetingId = button.dataset.meetingId;
-      ui.meetingBriefEdit = null;
-      ui.meetingDispatchOpen = false;
-      ui.meetingPickerOpen = false;
-      ui.meetingSearch = "";
-      render();
-    });
-    document.addEventListener("click", (event) => {
-      if (!ui.meetingPickerOpen || !event.target.isConnected || event.target.closest("#meetingNav")) return;
-      ui.meetingPickerOpen = false;
+    $("#meetingContent").addEventListener("submit", (event) => {
+      const composer = event.target.closest("#meetingComposer");
+      if (!composer) return;
+      event.preventDefault();
+      const meeting = currentMeeting();
+      const textarea = composer.querySelector("textarea");
+      const text = textarea?.value.trim();
+      if (!meeting || !text) return;
+      meeting.messages = [...(meeting.messages ?? []), { name: "Olivia", time: "现在", text, kind: "self" }];
       renderMeeting();
+      const chat = $("#meetingContent .meeting-chat");
+      if (chat) chat.scrollTop = chat.scrollHeight;
+      toast("消息已发送到会议");
     });
-    $("#meetingContent").addEventListener("click", (event) => {
-      if (event.target.closest("[data-open-meeting-settings]")) openMeetingSettings();
+    $("#meetingContent").addEventListener("keydown", (event) => {
+      const textarea = event.target.closest("#meetingComposer textarea");
+      if (textarea && event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        textarea.form?.requestSubmit();
+      }
     });
     $("#meetingDirectoryDetail").addEventListener("click", (event) => {
       const editButton = event.target.closest("[data-edit-brief]");
@@ -4351,6 +4951,199 @@
       state.workflowProject = event.target.value;
       renderWorkflow();
       renderTop();
+    });
+    $("#workflowTemplateManageButton").addEventListener("click", () => {
+      ui.workflowTemplateOpen = !ui.workflowTemplateOpen;
+      ui.workflowTemplateEditing = false;
+      ui.workflowTemplateValidation = null;
+      renderWorkflow();
+    });
+    $("#workflowTemplateClose").addEventListener("click", () => {
+      ui.workflowTemplateOpen = false;
+      ui.workflowTemplateEditing = false;
+      ui.workflowTemplateValidation = null;
+      renderWorkflow();
+    });
+    $("#workflowTemplateSearch").addEventListener("input", (event) => {
+      ui.workflowTemplateSearch = event.target.value;
+      renderWorkflowTemplateManager();
+    });
+    $("#workflowTemplateWorkspace").addEventListener("change", (event) => {
+      ui.workflowTemplateWorkspace = event.target.value;
+      renderWorkflowTemplateManager();
+    });
+    $("#workflowTemplateRefresh").addEventListener("click", () => {
+      renderWorkflowTemplateManager();
+      toast("工作流模版已刷新");
+    });
+    $("#workflowTemplateCreate").addEventListener("click", () => {
+      const id = `workflow-template-custom-${Date.now()}`;
+      workflowTemplates.push({
+        id,
+        name: "未命名工作流模版",
+        code: "custom-workflow",
+        workspace: ui.workflowTemplateWorkspace || workspaces[0] || "",
+        version: "v0.1",
+        status: "disabled",
+        updatedAt: "刚刚",
+        description: "",
+        nodes: [
+          {
+            id: `workflow-node-${Date.now()}-1`,
+            key: "01",
+            name: "输入准备",
+            owner: "发起人 / 平台",
+            mode: "serial",
+            approvalLogic: "none",
+            dependsOn: "启动",
+            description: "确认任务目标、输入材料和完成标准。",
+          },
+          {
+            id: `workflow-node-${Date.now()}-2`,
+            key: "02",
+            name: "节点执行",
+            owner: "待指定",
+            mode: "serial",
+            approvalLogic: "none",
+            dependsOn: "输入准备",
+            description: "由指定负责人或角色执行节点任务并提交产出。",
+          },
+        ],
+        markdown: "# 工作流：未命名工作流\n\n## 触发条件\n\n## 执行节点\n\n## 完成条件\n",
+      });
+      ui.workflowTemplateSelectedId = id;
+      ui.workflowTemplateEditing = true;
+      ui.workflowTemplateValidation = null;
+      renderWorkflowTemplateManager();
+      window.requestAnimationFrame(() => $("#workflowTemplateDetail input[name=\"name\"]")?.focus());
+    });
+    $("#workflowTemplateList").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-workflow-template-id]");
+      if (!button) return;
+      ui.workflowTemplateSelectedId = button.dataset.workflowTemplateId;
+      ui.workflowTemplateEditing = false;
+      ui.workflowTemplateValidation = null;
+      renderWorkflowTemplateManager();
+    });
+    $("#workflowTemplateDetail").addEventListener("click", (event) => {
+      const actionButton = event.target.closest("[data-workflow-template-action]");
+      if (!actionButton) return;
+      const template = workflowTemplateById(ui.workflowTemplateSelectedId);
+      if (!template) return;
+      const action = actionButton.dataset.workflowTemplateAction;
+      if (action === "edit") {
+        ui.workflowTemplateEditing = true;
+        ui.workflowTemplateValidation = null;
+        renderWorkflowTemplateManager();
+        return;
+      }
+      if (action === "cancel-edit") {
+        ui.workflowTemplateEditing = false;
+        ui.workflowTemplateValidation = null;
+        renderWorkflowTemplateManager();
+        return;
+      }
+      if (action === "add-node") {
+        const editorList = $("#workflowTemplateDetail [data-workflow-node-editors]");
+        if (!editorList) return;
+        editorList.querySelector(".empty")?.remove();
+        const index = editorList.querySelectorAll("[data-workflow-node-editor]").length;
+        const node = {
+          id: `workflow-node-${Date.now()}-${index}`,
+          key: String(index + 1).padStart(2, "0"),
+          name: "",
+          owner: "",
+          mode: "serial",
+          approvalLogic: "none",
+          dependsOn: "",
+          description: "",
+        };
+        editorList.insertAdjacentHTML("beforeend", renderWorkflowNodeEditor(node, index));
+        editorList.lastElementChild?.querySelector('[data-workflow-node-field="name"]')?.focus();
+        return;
+      }
+      if (action === "remove-node") {
+        actionButton.closest("[data-workflow-node-editor]")?.remove();
+        const editorList = $("#workflowTemplateDetail [data-workflow-node-editors]");
+        if (editorList && !editorList.querySelector("[data-workflow-node-editor]")) {
+          editorList.innerHTML = '<div class="empty compact">尚未定义节点，请至少新增一个节点。</div>';
+        }
+        return;
+      }
+      if (action === "validate") {
+        const form = $("#workflowTemplateDetail [data-workflow-template-form]");
+        if (!form) return;
+        const markdown = String(new FormData(form).get("markdown") ?? "");
+        ui.workflowTemplateValidation = validateWorkflowTemplate(markdown, readWorkflowNodesFromForm(form));
+        const result = $("#workflowTemplateDetail [data-workflow-validation]");
+        if (result) {
+          result.className = `workflow-template-validation ${ui.workflowTemplateValidation.valid ? "valid" : "invalid"} wide`;
+          result.innerHTML = ui.workflowTemplateValidation.valid
+            ? "校验通过：工作流定义结构完整。"
+            : `校验未通过：<br>${ui.workflowTemplateValidation.messages.map((message) => `• ${escapeHtml(message)}`).join("<br>")}`;
+        }
+        return;
+      }
+      if (action === "toggle") {
+        template.status = template.status === "enabled" ? "disabled" : "enabled";
+        template.updatedAt = "刚刚";
+        renderWorkflowTemplateManager();
+        toast(`工作流模版已${template.status === "enabled" ? "启用" : "停用"}`);
+        return;
+      }
+      if (action === "archive") {
+        template.status = "archived";
+        template.updatedAt = "刚刚";
+        renderWorkflowTemplateManager();
+        toast("工作流模版已归档");
+        return;
+      }
+      if (action === "delete") {
+        if (!window.confirm(`确认删除工作流模版「${template.name}」？`)) return;
+        workflowTemplates.splice(workflowTemplates.indexOf(template), 1);
+        ui.workflowTemplateSelectedId = workflowTemplates[0]?.id ?? "";
+        renderWorkflowTemplateManager();
+        toast("工作流模版已删除");
+      }
+    });
+    $("#workflowTemplateDetail").addEventListener("submit", (event) => {
+      const form = event.target.closest("[data-workflow-template-form]");
+      if (!form) return;
+      event.preventDefault();
+      const template = workflowTemplateById(ui.workflowTemplateSelectedId);
+      if (!template) return;
+      const data = new FormData(form);
+      const isNew = template.id.startsWith("workflow-template-custom-");
+      template.name = String(data.get("name") ?? "").trim() || "未命名工作流模版";
+      template.code = String(data.get("code") ?? "").trim() || "custom-workflow";
+      template.workspace = String(data.get("workspace") ?? "");
+      template.status = String(data.get("status") ?? "disabled");
+      template.description = String(data.get("description") ?? "").trim();
+      template.nodes = readWorkflowNodesFromForm(form);
+      template.markdown = String(data.get("markdown") ?? "").trim();
+      template.version = isNew ? "v1.0" : bumpWorkflowVersion(template.version);
+      template.updatedAt = "刚刚";
+      ui.workflowTemplateEditing = false;
+      ui.workflowTemplateValidation = null;
+      renderWorkflowTemplateManager();
+      toast(`已保存 ${template.version} 版本`);
+    });
+    $("#workflowTemplateDetail").addEventListener("change", (event) => {
+      const fileInput = event.target.closest("#workflowMarkdownFile");
+      if (!fileInput?.files?.length) return;
+      const file = fileInput.files[0];
+      const reader = new FileReader();
+      reader.addEventListener("load", () => {
+        const markdownEditor = $("#workflowTemplateDetail textarea[name=\"markdown\"]");
+        if (markdownEditor) markdownEditor.value = String(reader.result ?? "");
+        ui.workflowTemplateValidation = null;
+        const result = $("#workflowTemplateDetail [data-workflow-validation]");
+        if (result) {
+          result.className = "workflow-template-validation wide";
+          result.textContent = `已导入 ${file.name}，保存前可继续编辑并校验。`;
+        }
+      });
+      reader.readAsText(file);
     });
     $("#kanbanBoard").addEventListener("click", (event) => {
       const card = event.target.closest(".task-card");

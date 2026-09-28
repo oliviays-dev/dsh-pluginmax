@@ -157,6 +157,73 @@ describe("dsh-collab-task service", () => {
     expect(created.status).toBe("progress");
   });
 
+  it("reconciles only active workflow task projections", async () => {
+    const tasks = service();
+    const workflowTask = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Stale workflow projection",
+      priority: "P2",
+      status: "progress",
+      receiverType: "human",
+      receiverId: "olivia",
+      receiverName: "Olivia",
+      description: "The workflow node is already complete.",
+      acceptance: ["Projection settles"],
+      autoSubmitReview: true,
+      workflow: {
+        instanceId: "wf-1",
+        nodeId: "confirm",
+        instanceTitle: "Delivery",
+        nodeName: "Confirm",
+        reviewRequired: true,
+      },
+    });
+    await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Ordinary task",
+      priority: "P2",
+      status: "progress",
+      receiverType: "human",
+      receiverId: "olivia",
+      receiverName: "Olivia",
+      description: "Stay untouched by workflow reconciliation.",
+      acceptance: ["No workflow reconciliation"],
+      autoSubmitReview: false,
+    });
+
+    const reconciled: string[] = [];
+    tasks.bindWorkflowActions({
+      assign: () => {},
+      decide: () => {},
+      submit: () => {},
+      reconcile: (task) => {
+        reconciled.push(task.id);
+        return "approved";
+      },
+      events: () => [
+        {
+          id: "workflow-event-1",
+          instanceId: "wf-1",
+          nodeId: "confirm",
+          actorId: "olivia",
+          actorKind: "user",
+          actorName: "Olivia",
+          message: "完成节点：Confirm",
+          at: "2026-09-28T10:00:00.000Z",
+        },
+      ],
+    });
+    await tasks.reconcileWorkflowProjections("workspace-1");
+    expect(reconciled).toEqual([workflowTask.id]);
+    const settled = tasks.get(workflowTask.id);
+    expect(settled.status).toBe("done");
+    expect(settled.workflow?.outcome).toBe("approved");
+    expect(settled.events.at(-1)?.message).toBe("工作流节点完成");
+    expect(
+      settled.events.some((event) => event.id === "workflow-event-1"),
+    ).toBe(true);
+  });
+
   it("auto-submits an agent task for review once the run succeeds", async () => {
     const tasks = service();
     const created = await tasks.create(olivia, {
@@ -221,6 +288,172 @@ describe("dsh-collab-task service", () => {
     expect(completed.events.at(-1)?.message).toContain("返回了执行反馈");
   });
 
+  it("direct-completes a workflow agent task when review is disabled", async () => {
+    const tasks = service();
+    const submitted: string[] = [];
+    tasks.bindWorkflowActions({
+      assign: () => {},
+      decide: () => {},
+      submit: (task) => {
+        submitted.push(task.status);
+      },
+    });
+    const created = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Agent workflow task",
+      priority: "P2",
+      receiverType: "agent",
+      receiverId: "agent-1",
+      receiverName: "Backend DE",
+      description: "Complete the workflow node directly.",
+      acceptance: ["Implementation note ready"],
+      autoSubmitReview: false,
+      workflow: {
+        instanceId: "wf-1",
+        nodeId: "development",
+        instanceTitle: "Delivery",
+        nodeName: "Development",
+        reviewRequired: false,
+      },
+    });
+    const completed = await tasks.attachAgentRun(
+      created.id,
+      {
+        id: "run-direct",
+        instanceId: created.id,
+        status: "succeeded",
+        output: { summary: "Node output ready." },
+      },
+      "Backend DE",
+    );
+    expect(completed.status).toBe("done");
+    expect(completed.progress).toBe(100);
+    expect(completed.steps.map((step) => step.done)).toEqual([true]);
+    expect(submitted).toEqual(["done"]);
+  });
+
+  it("does not direct-complete approval tasks when an agent run succeeds", async () => {
+    const tasks = service();
+    const callbacks: string[] = [];
+    tasks.bindWorkflowActions({
+      assign: () => {},
+      decide: (_task, _actor, decision) => {
+        callbacks.push(decision);
+      },
+      submit: () => {
+        callbacks.push("submitted");
+      },
+    });
+    const created = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Agent approval task",
+      priority: "P2",
+      receiverType: "agent",
+      receiverId: "agent-1",
+      receiverName: "Approver DE",
+      description: "Give an explicit approval decision.",
+      acceptance: ["Decision recorded"],
+      autoSubmitReview: false,
+      workflow: {
+        instanceId: "wf-1",
+        nodeId: "release-approval",
+        instanceTitle: "Delivery",
+        nodeName: "Release Approval",
+        approvalPolicy: "all",
+      },
+    });
+    const completed = await tasks.attachAgentRun(
+      created.id,
+      {
+        id: "run-approval",
+        instanceId: created.id,
+        status: "succeeded",
+        output: { summary: "Review notes ready." },
+      },
+      "Approver DE",
+    );
+    expect(completed.status).toBe("progress");
+    expect(callbacks).toEqual([]);
+  });
+
+  it("syncs workflow task decisions and protects approval assignees", async () => {
+    const tasks = service();
+    const events: Array<{ kind: string; decision?: string | undefined }> = [];
+    tasks.bindWorkflowActions({
+      assign: (task) => {
+        events.push({ kind: "assigned", decision: task.receiverId });
+      },
+      decide: (_task, _actor, decision) => {
+        events.push({ kind: "decision", decision });
+      },
+      submit: (task) => {
+        events.push({ kind: "submitted", decision: task.status });
+      },
+    });
+
+    const execution = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Workflow execution task",
+      priority: "P2",
+      status: "progress",
+      receiverType: "human",
+      receiverId: "olivia",
+      receiverName: "Olivia",
+      description: "Complete the node.",
+      acceptance: ["Node output is ready"],
+      autoSubmitReview: false,
+      workflow: {
+        instanceId: "wf-1",
+        nodeId: "development",
+        instanceTitle: "Delivery",
+        nodeName: "Development",
+        reviewRequired: false,
+      },
+    });
+    const completed = await tasks.submit(olivia, execution.id);
+    expect(completed.status).toBe("done");
+    expect(events).toContainEqual({ kind: "submitted", decision: "progress" });
+
+    const approval = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Workflow approval task",
+      priority: "P2",
+      status: "progress",
+      receiverType: "human",
+      receiverId: "olivia",
+      receiverName: "Olivia",
+      description: "Approve the node.",
+      acceptance: ["Give a decision"],
+      autoSubmitReview: false,
+      workflow: {
+        instanceId: "wf-1",
+        nodeId: "approval",
+        instanceTitle: "Delivery",
+        nodeName: "Approval",
+        approvalPolicy: "all",
+        reviewRequired: false,
+      },
+    });
+    expect(approval.autoSubmitReview).toBe(false);
+    await expect(
+      tasks.assign(olivia, {
+        taskId: approval.id,
+        receiverType: "unassigned",
+      }),
+    ).rejects.toMatchObject({ code: "conflict" });
+    await tasks.assign(olivia, {
+      taskId: approval.id,
+      receiverType: "human",
+      receiverId: "member",
+      receiverName: "Member",
+    });
+    expect(events).toContainEqual({ kind: "assigned", decision: "member" });
+    const rejected = await tasks.reject(olivia, approval.id);
+    expect(rejected.status).toBe("done");
+    expect(rejected.workflow?.outcome).toBe("rejected");
+    expect(events).toContainEqual({ kind: "decision", decision: "rejected" });
+  });
+
   it("does not auto-submit when the agent run fails", async () => {
     const tasks = service();
     const created = await tasks.create(olivia, {
@@ -250,6 +483,137 @@ describe("dsh-collab-task service", () => {
       "Backend DE",
     );
     expect(failed.status).toBe("progress");
+  });
+
+  it("projects workflow status changes without allowing local status ownership", async () => {
+    const tasks = service();
+    const system = { id: "workflow", name: "系统", kind: "system" } as const;
+    const created = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Workflow projection",
+      priority: "P2",
+      status: "progress",
+      receiverType: "agent",
+      receiverId: "agent-1",
+      receiverName: "Backend DE",
+      description: "The workflow controls this task.",
+      acceptance: ["Node output ready"],
+      workflow: {
+        instanceId: "wf-1",
+        nodeId: "development",
+        instanceTitle: "Delivery",
+        nodeName: "Development",
+        reviewRequired: true,
+      },
+    });
+    const projected = await tasks.projectStatus(
+      system,
+      created.id,
+      "review",
+      "Agent 已提交交付物，等待人工 Review",
+    );
+    expect(projected.status).toBe("review");
+    expect(projected.progress).toBeGreaterThanOrEqual(86);
+    expect(projected.events.at(-1)?.message).toContain("等待人工 Review");
+    await expect(
+      tasks.changeStatus(olivia, { taskId: created.id, status: "todo" }),
+    ).rejects.toMatchObject({ code: "conflict" });
+    await expect(
+      tasks.projectStatus(system, created.id, "review", "等待人工 Review"),
+    ).resolves.toStrictEqual(projected);
+    const workflowEvent = await tasks.projectWorkflowEvent(system, created.id, {
+      id: "workflow-event-1",
+      instanceId: "wf-1",
+      nodeId: "development",
+      actorId: "olivia",
+      actorKind: "user",
+      actorName: "Olivia",
+      message: "通过审批：Development",
+      at: "2026-01-01T00:00:00.000Z",
+    });
+    expect(workflowEvent.events.at(-1)).toMatchObject({
+      id: "workflow-event-1",
+      kind: "workflow",
+      actorName: "Olivia",
+      message: "通过审批：Development",
+    });
+    await expect(
+      tasks.projectWorkflowEvent(system, created.id, {
+        id: "workflow-event-1",
+        instanceId: "wf-1",
+        nodeId: "development",
+        actorId: "olivia",
+        actorKind: "user",
+        actorName: "Olivia",
+        message: "通过审批：Development",
+        at: "2026-01-01T00:00:01.000Z",
+      }),
+    ).resolves.toStrictEqual(workflowEvent);
+    const runProjected = await tasks.projectAgentRun(
+      system,
+      created.id,
+      {
+        id: "workflow-run-1",
+        status: "running",
+      },
+      "Backend DE",
+    );
+    expect(runProjected.status).toBe("progress");
+    expect(runProjected.messages.at(-1)).toMatchObject({
+      runId: "workflow-run-1",
+      state: "running",
+      content: "已接收指令，正在执行…",
+    });
+    const failedRun = await tasks.projectAgentRun(
+      system,
+      created.id,
+      {
+        id: "workflow-run-2",
+        status: "failed",
+        error: "Delivery format is invalid",
+      },
+      "Backend DE",
+    );
+    expect(failedRun.status).toBe("todo");
+    expect(failedRun.messages.at(-1)).toMatchObject({
+      runId: "workflow-run-2",
+      state: "failed",
+      content: "Delivery format is invalid",
+    });
+    await expect(
+      tasks.projectAgentRun(
+        system,
+        created.id,
+        {
+          id: "workflow-run-2",
+          status: "failed",
+          error: "Delivery format is invalid",
+        },
+        "Backend DE",
+      ),
+    ).resolves.toStrictEqual(failedRun);
+    await expect(
+      tasks.update(olivia, {
+        taskId: created.id,
+        title: "Changed locally",
+        priority: "P1",
+        description: "This must not bypass the workflow node.",
+        acceptance: ["Local edit rejected"],
+      }),
+    ).rejects.toMatchObject({ code: "conflict" });
+    await expect(
+      tasks.addMessage(olivia, {
+        taskId: created.id,
+        content: "Ordinary execution input",
+      }),
+    ).rejects.toMatchObject({ code: "conflict" });
+    await expect(
+      tasks.toggleStep(olivia, {
+        taskId: created.id,
+        stepId: created.steps[0]!.id,
+        done: true,
+      }),
+    ).rejects.toMatchObject({ code: "conflict" });
   });
 
   it("updates the auto submit flag from the task edit form", async () => {
@@ -477,9 +841,7 @@ describe("dsh-collab-task service", () => {
       ),
     });
     expect(documents).toEqual([]);
-    expect(
-      await collectDocuments({ root, windows: [] }),
-    ).toEqual([]);
+    expect(await collectDocuments({ root, windows: [] })).toEqual([]);
   });
 
   it("falls back to the task owner name and sanitizes upload names", () => {
@@ -783,8 +1145,9 @@ function contextHarness() {
           id,
           instanceId: (input as unknown as { instanceId: string }).instanceId,
           status: "queued",
-          payload: (input as unknown as { payload: { context: Record<string, string> } })
-            .payload,
+          payload: (
+            input as unknown as { payload: { context: Record<string, string> } }
+          ).payload,
         };
         runs.set(id, run);
         dispatched.push({
@@ -875,7 +1238,10 @@ describe("task context delivery", () => {
       fakeRequest({
         method: "POST",
         url: "/api/collab/tasks/comment",
-        body: { taskId: task.id, content: "我们内部再确认一下风险章节的口径。" },
+        body: {
+          taskId: task.id,
+          content: "我们内部再确认一下风险章节的口径。",
+        },
       }),
       discussion.response,
     );
@@ -908,7 +1274,10 @@ describe("task context delivery", () => {
       fakeRequest({
         method: "POST",
         url: "/api/collab/tasks/comment",
-        body: { taskId: task.id, content: "@测小白 风险章节还差一条指标说明。" },
+        body: {
+          taskId: task.id,
+          content: "@测小白 风险章节还差一条指标说明。",
+        },
       }),
       mention.response,
     );

@@ -20,6 +20,8 @@ plugins/dsh-collab-workflow/
 - `commands` / `tools`：Agent 只读与节点操作入口；
 - `settings.section` / `conversation.view`：客户端 UI。
 
+除平台宿主能力外，工作流插件只把 `collabAgent`、`collabEmployee` 和 `collabTasks` 作为可选增强。Agent / Digital Employee 缺席时，节点仍可由责任人人工提交或管理员兜底；Task 模块缺席时，工作流必须用自己的节点状态、事件和 API 完成审批、交付、推进、取消和审计。
+
 不修改上游 `deepseek-harness`，不 patch 既有插件内部模块。
 
 ## 2. 数据域
@@ -161,9 +163,10 @@ interface WorkflowEdge {
 7. 每个 loop 回边必须有 `break` 表达式；
 8. 判断节点必须有条件边或默认边；
 9. 审批节点必须有执行人；
-10. 子流程必须引用同工作区 active 模板；
-11. `executor`、`responsible` 和 `approver` 中的所有用户引用必须是当前工作区成员；
-12. 不可达节点生成 warning。
+10. 子流程必须引用平台内 active 模板；
+11. 模板导入时，`executor`、`responsible` 和 `approver` 中的用户引用必须是平台账号；启动实例时，这些引用必须属于当前工作区；
+12. Agent Profile 在启动实例时校验存在、启用和 task-worker 类型；平台 Profile 与旧结构存量 Profile 跨项目解析，Digital Employee 的项目授权仍在启动实例时校验；
+13. 不可达节点生成 warning。
 
 循环判定不是禁止所有环，而是“受控环”：每个环至少一条回边带 break。运行时把每个节点的进入次数写入上下文 `visits.<nodeId>` 和 `<nodeId>.attempts`，break 表达式为真时进入阻塞。
 
@@ -234,6 +237,10 @@ attempts >= 3 || approved_by_architect == true
 
 服务端从 token 推导用户身份；Agent 工具从执行上下文推导身份。客户端提交的 actor 仅用于显示，不作为授权依据。
 
+### 与任务管理的边界
+
+任务管理不是工作流状态机的存储或决策方。工作流到 Task 的 `create / settle / projectStatus / projectEvent / projectAgentRun` 都是单向投影：Task 缺席、创建失败或刷新失败只影响任务侧可见性，不能阻塞工作流事件落库、审批结论、交付门禁或节点推进。Task 到工作流只允许“改派同步”和“审批/完成结论回传”，且必须校验 Task 确实属于当前工作流节点；工作流详情始终保留原生操作入口。
+
 ## 9. 前端设计
 
 ### 中间页签
@@ -284,6 +291,7 @@ ctx.slots.inject("conversation.view", () =>
 - Expression：比较、布尔、缺变量、类型错误、注入拒绝。
 - Validation：重复 ID、未知引用、无起点、不可达、无 break 循环、未知子流程。
 - Engine：启动、串行、并行汇合、审批 all/any、否决、转交、加签、判断、break、子流程。
+- Optional integration：Task 桥缺席时，人工审批、交付物门禁、服务节点就绪、Agent 成功自动完成都必须继续闭环；Task 桥存在时，失败投影不得反向阻塞工作流。
 - API：认证、same-origin、工作区成员、owner/admin 写入、跨工作区拒绝。
 - Client contract：bundle ESM、声明 `dsh.client`、注册两个已知 slot。
 - GUI：按 `docs/workflow-gui-test-plan.md` 覆盖 PRD 场景。

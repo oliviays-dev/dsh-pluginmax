@@ -181,8 +181,49 @@ window.__ModuleLoader__.load({
       .pmtm-assign-trailing{display:flex;align-items:center;gap:8px;}
       .pmtm-check{width:18px;height:18px;display:grid;place-items:center;border:1px solid var(--dsw-alias-border-l3);border-radius:4px;color:transparent;font-size:11px;}
       .pmtm-assign-item.selected .pmtm-check{border-color:${ACCENT};background:${ACCENT};color:#fff;}
+      .pmtm-profile-manager{flex:1 1 auto;min-width:0;margin-top:12px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);}
+      .pmtm-profile-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:14px 16px;border-bottom:0.5px solid var(--dsw-alias-border-l2);}
+      .pmtm-profile-head h2{margin:0;font-size:16px;}
+      .pmtm-profile-sub{margin-top:4px;color:var(--dsw-alias-label-tertiary);font-size:10.5px;}
+      .pmtm-profile-desc{margin-top:5px;max-width:760px;color:var(--dsw-alias-label-secondary);font-size:10.5px;line-height:1.5;}
+      .pmtm-profile-state{display:inline-flex;align-items:center;height:26px;padding:0 9px;border-radius:999px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:10.5px;}
+      .pmtm-profile-body{display:grid;grid-template-columns:270px minmax(0,1fr);align-items:start;}
+      .pmtm-profile-sidebar{min-width:0;padding:10px;border-right:0.5px solid var(--dsw-alias-border-l2);}
+      .pmtm-profile-search{width:100%;min-height:31px;margin-bottom:8px;padding:6px 9px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:11.5px;}
+      .pmtm-profile-list{display:grid;gap:5px;}
+      .pmtm-profile-item{width:100%;display:grid;grid-template-columns:8px minmax(0,1fr);align-items:start;gap:8px;padding:10px;border:0.5px solid transparent;border-radius:7px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;text-align:left;cursor:pointer;}
+      .pmtm-profile-item:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);}
+      .pmtm-profile-item.active{color:var(--dsw-alias-label-primary);border-color:color-mix(in srgb,${ACCENT} 42%,transparent);background:color-mix(in srgb,${ACCENT} 10%,transparent);}
+      .pmtm-profile-dot{width:7px;height:7px;margin-top:5px;border-radius:50%;background:var(--dsw-alias-label-tertiary);}
+      .pmtm-profile-dot.enabled{background:#34d47e;box-shadow:0 0 0 3px rgba(52,212,126,.1);}
+      .pmtm-profile-copy{min-width:0;}
+      .pmtm-profile-copy strong,.pmtm-profile-copy small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+      .pmtm-profile-copy strong{font-size:12px;}
+      .pmtm-profile-copy small{margin-top:2px;color:var(--dsw-alias-label-tertiary);font-size:10px;}
+      .pmtm-profile-detail{min-width:0;min-height:420px;padding:16px;}
+      .pmtm-profile-detail h3,.pmtm-profile-form h3{margin:0;font-size:15px;}
+      .pmtm-profile-title{display:grid;gap:4px;}
+      .pmtm-profile-title span{color:var(--dsw-alias-label-tertiary);font-size:10.5px;}
+      .pmtm-profile-actions{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap;margin:12px 0;}
+      .pmtm-profile-section-title{margin:15px 0 6px;color:var(--dsw-alias-label-secondary);font-size:11.5px;font-weight:650;}
+      .pmtm-profile-code{margin:0;padding:10px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-base);white-space:pre-wrap;overflow-wrap:anywhere;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.55;}
+      .pmtm-profile-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;}
+      .pmtm-profile-columns ul{margin:0;padding-left:17px;display:grid;gap:5px;color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1.5;}
+      .pmtm-profile-tools{color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1.5;}
+      .pmtm-profile-form{max-width:980px;}
+      .pmtm-profile-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0;}
+      .pmtm-profile-grid label{display:grid;gap:5px;color:var(--dsw-alias-label-secondary);font-size:11px;}
+      .pmtm-profile-grid .wide{grid-column:1 / -1;}
+      .pmtm-profile-grid input,.pmtm-profile-grid select,.pmtm-profile-grid textarea{width:100%;min-height:32px;padding:6px 8px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;}
+      .pmtm-profile-grid textarea{min-height:78px;resize:vertical;}
+      .pmtm-profile-grid textarea.soul{min-height:210px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;}
+      .pmtm-profile-empty{padding:24px 12px;color:var(--dsw-alias-label-tertiary);font-size:11.5px;text-align:center;}
+      .pmtm-profile-empty.tall{padding-top:70px;}
       @media (max-width:1080px){
         .pmtm-layout{grid-template-columns:1fr;}
+        .pmtm-profile-body{grid-template-columns:1fr;}
+        .pmtm-profile-sidebar{border-right:0;border-bottom:0.5px solid var(--dsw-alias-border-l2);}
+        .pmtm-profile-columns,.pmtm-profile-grid{grid-template-columns:1fr;}
         .pmtm-grid{grid-template-columns:1fr;}
         .pmtm-grid .wide{grid-column:auto;}
         .pmtm-toolbar{flex-direction:column;align-items:flex-start;}
@@ -375,6 +416,14 @@ window.__ModuleLoader__.load({
     function AiTeammatesPage() {
       const [teammates, setTeammates] = react.useState([]);
       const [canManagePlatform, setCanManagePlatform] = react.useState(false);
+      const [templateOpen, setTemplateOpen] = react.useState(false);
+      const [profiles, setProfiles] = react.useState([]);
+      const [canManageProfiles, setCanManageProfiles] = react.useState(false);
+      const [profileSelectedId, setProfileSelectedId] = react.useState("");
+      const [profileEditing, setProfileEditing] = react.useState(false);
+      const [profileForm, setProfileForm] = react.useState(null);
+      const [profileSearch, setProfileSearch] = react.useState("");
+      const [profileBusy, setProfileBusy] = react.useState(false);
       const [runningIds, setRunningIds] = react.useState([]);
       const [identity, setIdentity] = react.useState(null);
       const [assignOpen, setAssignOpen] = react.useState(false);
@@ -484,9 +533,30 @@ window.__ModuleLoader__.load({
         }
       }, []);
 
+      const loadProfiles = react.useCallback(async (targetId) => {
+        if (token() === null) return;
+        try {
+          const result = await request("/api/collab/profile-templates");
+          const list = result.profiles ?? [];
+          setProfiles(list);
+          setCanManageProfiles(result.canManage === true);
+          setProfileSelectedId((current) => {
+            if (targetId === "__new__") return targetId;
+            if (targetId !== undefined && list.some((item) => item.id === targetId)) {
+              return targetId;
+            }
+            if (list.some((item) => item.id === current)) return current;
+            return list[0]?.id ?? "";
+          });
+        } catch (cause) {
+          fail(cause);
+        }
+      }, []);
+
       react.useEffect(() => {
         void loadList();
-      }, [loadList]);
+        void loadProfiles();
+      }, [loadList, loadProfiles]);
 
       // 从任务详情返回时恢复到原来的 Teammate 与页签。
       react.useEffect(() => {
@@ -560,6 +630,278 @@ window.__ModuleLoader__.load({
         } finally {
           setBusy(false);
         }
+      };
+
+      const emptyProfileForm = () => ({
+        name: "",
+        role: "",
+        description: "",
+        soul: "",
+        scenarios: "",
+        goals: "",
+        tools: "",
+        active: true,
+      });
+
+      const newProfile = () => {
+        setProfileSelectedId("__new__");
+        setProfileEditing(true);
+        setProfileForm(emptyProfileForm());
+        setError("");
+        setNotice("");
+      };
+
+      const editProfile = () => {
+        const profile = profiles.find((item) => item.id === profileSelectedId);
+        if (profile === undefined) return;
+        setProfileEditing(true);
+        setProfileForm({
+          name: profile.name,
+          role: profile.role,
+          description: profile.description,
+          soul: profile.soul,
+          scenarios: profile.scenarios.join("\n"),
+          goals: profile.goals.join("\n"),
+          tools: profile.tools.join("\n"),
+          active: profile.state === "active",
+        });
+        setError("");
+        setNotice("");
+      };
+
+      const cancelProfileEdit = () => {
+        setProfileEditing(false);
+        setProfileForm(null);
+      };
+
+      const saveProfile = async (event) => {
+        event.preventDefault();
+        if (profileForm === null) return;
+        const data = new FormData(event.currentTarget);
+        const body = {
+          name: String(data.get("name") ?? "").trim(),
+          role: String(data.get("role") ?? "").trim(),
+          description: String(data.get("description") ?? "").trim(),
+          soul: String(data.get("soul") ?? ""),
+          scenarios: String(data.get("scenarios") ?? "")
+            .split("\n")
+            .map((item) => item.trim())
+            .filter(Boolean),
+          goals: String(data.get("goals") ?? "")
+            .split("\n")
+            .map((item) => item.trim())
+            .filter(Boolean),
+          tools: String(data.get("tools") ?? "")
+            .split("\n")
+            .map((item) => item.trim())
+            .filter(Boolean),
+        };
+        try {
+          setProfileBusy(true);
+          if (profileSelectedId === "__new__") {
+            const result = await request("/api/collab/profile-templates/create", {
+              method: "POST",
+              body: { ...body, active: data.get("active") === "true" },
+            });
+            await loadProfiles(result.profile.id);
+          } else {
+            const result = await request("/api/collab/profile-templates/update", {
+              method: "POST",
+              body: { ...body, templateId: profileSelectedId },
+            });
+            await loadProfiles(result.profile.id);
+          }
+          setProfileEditing(false);
+          setProfileForm(null);
+          succeed("Profile 模版已保存。");
+        } catch (cause) {
+          fail(cause);
+        } finally {
+          setProfileBusy(false);
+        }
+      };
+
+      const changeProfileState = async (state) => {
+        try {
+          setProfileBusy(true);
+          await request("/api/collab/profile-templates/state", {
+            method: "POST",
+            body: { templateId: profileSelectedId, state },
+          });
+          await loadProfiles(profileSelectedId);
+          succeed(state === "active" ? "Profile 模版已启用。" : state === "disabled" ? "Profile 模版已停用。" : "Profile 模版已归档。");
+        } catch (cause) {
+          fail(cause);
+        } finally {
+          setProfileBusy(false);
+        }
+      };
+
+      const applyProfile = async () => {
+        if (selected === null) return;
+        try {
+          setProfileBusy(true);
+          await request("/api/collab/teammates/apply-profile", {
+            method: "POST",
+            body: { teammateId: selected.id, templateId: profileSelectedId },
+          });
+          await Promise.all([loadList(selected.id), loadDetail(selected.id)]);
+          setTab("definition");
+          setEditing(false);
+          setForm(null);
+          succeed("已把 Profile 模版应用到当前 Teammate。");
+        } catch (cause) {
+          fail(cause);
+        } finally {
+          setProfileBusy(false);
+        }
+      };
+
+      const renderProfileTemplateManager = () => {
+        const keyword = profileSearch.trim().toLowerCase();
+        const visible = profiles.filter((profile) =>
+          [
+            profile.name,
+            profile.role,
+            profile.description,
+            profile.tools.join(" "),
+            profile.scenarios.join(" "),
+          ].join(" ").toLowerCase().includes(keyword),
+        );
+        const profile = profileSelectedId === "__new__"
+          ? null
+          : profiles.find((item) => item.id === profileSelectedId) ?? null;
+        const stateLabel = profile === null
+          ? "新建"
+          : profile.state === "active"
+            ? "已启用"
+            : profile.state === "disabled"
+              ? "已停用"
+              : "已归档";
+
+        return h(
+          "section",
+          { className: "pmtm-profile-manager", "aria-label": "Profile 模版管理" },
+          h("div", { className: "pmtm-profile-head" },
+            h("div", null,
+              h("h2", null, "Profile模版管理"),
+              h("div", { className: "pmtm-profile-sub" }, "岗位角色的标准化职责与行为定义，全平台共享"),
+              profile !== null && profile.description
+                ? h("div", { className: "pmtm-profile-desc" }, profile.description)
+                : null,
+            ),
+            h("div", { className: "pmtm-head-actions" },
+              profile !== null ? h("span", { className: "pmtm-profile-state" }, stateLabel) : null,
+              canManageProfiles
+                ? h("button", { type: "button", className: "pmtm-btn small", disabled: profileBusy, onClick: newProfile }, "新建 Profile")
+                : null,
+              h("button", {
+                type: "button",
+                className: "pmtm-btn secondary small",
+                "aria-label": "关闭 Profile 模版管理",
+                onClick: () => {
+                  setTemplateOpen(false);
+                  setProfileEditing(false);
+                  setProfileForm(null);
+                },
+              }, "×"),
+            ),
+          ),
+          h("div", { className: "pmtm-profile-body" },
+            h("aside", { className: "pmtm-profile-sidebar" },
+              h("input", {
+                className: "pmtm-profile-search",
+                value: profileSearch,
+                placeholder: "搜索名称、岗位或能力",
+                onChange: (event) => setProfileSearch(event.target.value),
+              }),
+              h("div", { className: "pmtm-profile-list" },
+                visible.length === 0
+                  ? h("div", { className: "pmtm-profile-empty" }, "没有匹配的 Profile 模版。")
+                  : visible.map((item) => h("button", {
+                      key: item.id,
+                      type: "button",
+                      className: `pmtm-profile-item${item.id === profileSelectedId ? " active" : ""}`,
+                      onClick: () => {
+                        setProfileSelectedId(item.id);
+                        setProfileEditing(false);
+                        setProfileForm(null);
+                      },
+                    },
+                      h("span", { className: `pmtm-profile-dot${item.state === "active" ? " enabled" : ""}` }),
+                      h("span", { className: "pmtm-profile-copy" },
+                        h("strong", null, item.name),
+                        h("small", null, `${item.role || "未设岗位"} · ${item.version} · ${item.state === "active" ? "已启用" : item.state === "disabled" ? "已停用" : "已归档"}`),
+                      ),
+                    )),
+              ),
+            ),
+            h("main", { className: "pmtm-profile-detail" },
+              profileEditing && profileForm !== null
+                ? h("form", { className: "pmtm-profile-form", onSubmit: saveProfile },
+                    h("h3", null, profileSelectedId === "__new__" ? "新建 Profile" : "编辑 Profile"),
+                    h("div", { className: "pmtm-profile-grid" },
+                      h("label", null, "模板名称", h("input", { name: "name", defaultValue: profileForm.name, required: true })),
+                      h("label", null, "岗位角色", h("input", { name: "role", defaultValue: profileForm.role })),
+                      h("label", null, "默认状态", h("select", { name: "active", defaultValue: String(profileForm.active) },
+                        h("option", { value: "true" }, "启用"), h("option", { value: "false" }, "停用"))),
+                      h("label", { className: "wide" }, "模板说明", h("textarea", { name: "description", defaultValue: profileForm.description })),
+                      h("label", { className: "wide" }, "标准行为定义（SOUL.md）", h("textarea", { className: "soul", name: "soul", defaultValue: profileForm.soul, required: true })),
+                      h("label", null, "标准职责与场景（每行一项）", h("textarea", { name: "scenarios", defaultValue: profileForm.scenarios })),
+                      h("label", null, "标准目标（每行一项）", h("textarea", { name: "goals", defaultValue: profileForm.goals })),
+                      h("label", { className: "wide" }, "工具白名单（每行一项）", h("textarea", { name: "tools", defaultValue: profileForm.tools })),
+                    ),
+                    h("div", { className: "pmtm-profile-actions" },
+                      h("button", { type: "button", className: "pmtm-btn secondary small", onClick: cancelProfileEdit }, "取消"),
+                      h("button", { type: "submit", className: "pmtm-btn small", disabled: profileBusy }, profileBusy ? "保存中" : "保存 Profile"),
+                    ),
+                  )
+                : profile === null
+                  ? h("div", { className: "pmtm-profile-empty tall" }, "请选择一个 Profile 模版。")
+                  : h(react.Fragment, null,
+                      h("div", { className: "pmtm-profile-title" },
+                        h("h3", null, profile.name),
+                        h("span", null, `${profile.role || "未设岗位"} · ${profile.version} · ${stateLabel}`),
+                      ),
+                      h("div", { className: "pmtm-profile-actions" },
+                        selected !== null && profile.state === "active"
+                          ? h("button", { type: "button", className: "pmtm-btn small", disabled: profileBusy, onClick: () => void applyProfile() }, "应用到当前 Teammate")
+                          : null,
+                        canManageProfiles && profile.state !== "archived"
+                          ? h("button", { type: "button", className: "pmtm-btn secondary small", disabled: profileBusy, onClick: editProfile }, "编辑")
+                          : null,
+                        canManageProfiles && profile.state === "active"
+                          ? h("button", { type: "button", className: "pmtm-btn secondary small", disabled: profileBusy, onClick: () => void changeProfileState("disabled") }, "停用")
+                          : null,
+                        canManageProfiles && profile.state === "disabled"
+                          ? h("button", { type: "button", className: "pmtm-btn small", disabled: profileBusy, onClick: () => void changeProfileState("active") }, "启用")
+                          : null,
+                        canManageProfiles && profile.state !== "archived"
+                          ? h("button", { type: "button", className: "pmtm-btn danger small", disabled: profileBusy, onClick: () => void changeProfileState("archived") }, "归档")
+                          : null,
+                      ),
+                      h("div", { className: "pmtm-profile-section-title" }, "标准行为定义（SOUL.md）"),
+                      h("pre", { className: "pmtm-profile-code" }, profile.soul || "尚未填写。"),
+                      h("div", { className: "pmtm-profile-columns" },
+                        h("section", null,
+                          h("div", { className: "pmtm-profile-section-title" }, "标准职责与场景"),
+                          profile.scenarios.length === 0
+                            ? h("div", { className: "pmtm-profile-empty" }, "尚未填写。")
+                            : h("ul", null, profile.scenarios.map((item, index) => h("li", { key: index }, item))),
+                        ),
+                        h("section", null,
+                          h("div", { className: "pmtm-profile-section-title" }, "标准目标"),
+                          profile.goals.length === 0
+                            ? h("div", { className: "pmtm-profile-empty" }, "尚未填写。")
+                            : h("ul", null, profile.goals.map((item, index) => h("li", { key: index }, item))),
+                        ),
+                      ),
+                      h("div", { className: "pmtm-profile-section-title" }, "工具白名单"),
+                      h("div", { className: "pmtm-profile-tools" }, profile.tools.length === 0 ? "无（不允许工具调用）" : profile.tools.join("、")),
+                    ),
+            ),
+          ),
+        );
       };
 
       const startEdit = () => {
@@ -1745,6 +2087,18 @@ window.__ModuleLoader__.load({
                   "平台管理员",
                 )
               : null,
+            h(
+              "button",
+              {
+                type: "button",
+                className: "pmtm-btn secondary",
+                onClick: () => {
+                  setTemplateOpen(true);
+                  void loadProfiles();
+                },
+              },
+              "Profile模版管理",
+            ),
             canManagePlatform
               ? h(
                   "div",
@@ -1822,22 +2176,24 @@ window.__ModuleLoader__.load({
         ),
         error !== "" ? h("div", { className: "pmtm-error" }, error) : null,
         notice !== "" ? h("div", { className: "pmtm-notice-bar" }, notice) : null,
-        h(
-          "div",
-          { className: "pmtm-layout" },
-          directory,
-          h(
-            "section",
-            { className: "pmtm-panel pmtm-editor", "aria-label": "AI Teammate 详情" },
-            loading && teammates.length === 0
-              ? h("div", { className: "pmtm-empty" }, "加载中…")
-              : selected === null
-                ? h("div", { className: "pmtm-empty" }, "还没有 AI Teammate。")
-                : tab === "runtime"
-                  ? renderRuntime(selected)
-                  : renderDefinition(selected),
-          ),
-        ),
+        templateOpen
+          ? renderProfileTemplateManager()
+          : h(
+              "div",
+              { className: "pmtm-layout" },
+              directory,
+              h(
+                "section",
+                { className: "pmtm-panel pmtm-editor", "aria-label": "AI Teammate 详情" },
+                loading && teammates.length === 0
+                  ? h("div", { className: "pmtm-empty" }, "加载中…")
+                  : selected === null
+                    ? h("div", { className: "pmtm-empty" }, "还没有 AI Teammate。")
+                    : tab === "runtime"
+                      ? renderRuntime(selected)
+                      : renderDefinition(selected),
+              ),
+            ),
         assignOpen
           ? h(
               "div",

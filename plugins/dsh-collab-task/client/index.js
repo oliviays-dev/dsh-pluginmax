@@ -71,6 +71,17 @@ window.__ModuleLoader__.load({
       .pmtask-pill.review{background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#e2a737) 14%,transparent);color:var(--dsw-alias-state-warning-primary,#e2a737);}
       .pmtask-pill.done{background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#34d47e) 14%,transparent);color:var(--dsw-alias-state-success-primary,#34d47e);}
       .pmtask-pill.archived{background:color-mix(in srgb,var(--dsw-alias-label-tertiary) 18%,transparent);color:var(--dsw-alias-label-secondary);}
+      .pmtask-pill.workflow{background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 12%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7);}
+      .pmtask-workflow-meta{display:flex;align-items:center;gap:6px;min-width:0;}
+      .pmtask-workflow-node{overflow:hidden;color:var(--dsw-alias-label-tertiary);font-size:10.5px;text-overflow:ellipsis;white-space:nowrap;}
+      .pmtask-workflow-action{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-top:12px;padding:10px;border:0.5px solid color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 28%,transparent);border-radius:7px;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 7%,transparent);}
+      .pmtask-workflow-action-copy{display:grid;gap:4px;min-width:0;}
+      .pmtask-workflow-action-copy strong{font-size:12.5px;}
+      .pmtask-workflow-action-copy span{color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1.5;}
+      .pmtask-workflow-action-buttons{display:flex;flex:0 0 auto;flex-wrap:wrap;justify-content:flex-end;gap:6px;}
+      .pmtask-workflow-notice{display:flex;align-items:center;gap:10px;padding:10px 12px;border:0.5px dashed var(--dsw-alias-border-l3);border-radius:7px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);}
+      .pmtask-workflow-notice strong{flex:0 0 auto;color:var(--dsw-alias-label-primary);font-size:12.5px;}
+      .pmtask-workflow-notice span{flex:1;font-size:11.5px;line-height:1.5;}
       .pmtask-detail{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,36%);gap:14px;}
       .pmtask-detail-main,.pmtask-detail-side{min-width:0;display:grid;gap:12px;align-content:start;}
       .pmtask-panel{border:0.5px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));padding:12px;}
@@ -166,7 +177,7 @@ window.__ModuleLoader__.load({
       .pmtask-back-btn{height:auto;min-height:30px;padding:4px 9px;font-size:11px;border-width:1px;}
       .pmtask-detail-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,36%);min-height:520px;}
       .pmtask-detail-main{min-width:0;display:block;padding:16px;border-right:1px solid var(--dsw-alias-border-l2);}
-      .pmtask-detail-side{min-width:0;display:flex;flex-direction:column;gap:0;padding-left:18px;background:transparent;}
+      .pmtask-detail-side{min-width:0;display:flex;flex-direction:column;gap:0;padding:0 18px 18px;background:transparent;}
       .pmtask-side-section{margin-top:18px;padding:14px 0 0;border-top:1px solid var(--dsw-alias-border-l2);}
       .pmtask-side-section h3{margin:0 0 8px;font-size:13px;}
       .pmtask-assign-select{position:relative;flex:none;}
@@ -285,7 +296,8 @@ window.__ModuleLoader__.load({
       const headers = { ...options.headers };
       const current = token();
       if (current !== null) headers.authorization = `Bearer ${current}`;
-      if (options.body !== undefined) headers["content-type"] = "application/json";
+      if (options.body !== undefined)
+        headers["content-type"] = "application/json";
       const response = await fetch(path, {
         ...options,
         headers,
@@ -293,7 +305,9 @@ window.__ModuleLoader__.load({
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
-        const error = new Error(body?.error?.message ?? `HTTP ${response.status}`);
+        const error = new Error(
+          body?.error?.message ?? `HTTP ${response.status}`,
+        );
         error.code = body?.error?.code;
         error.status = response.status;
         throw error;
@@ -313,12 +327,66 @@ window.__ModuleLoader__.load({
 
     // 与 AI Teammates 页保持一致的头像：平台=纯蓝环，个人=炫彩环。
     const AVATAR_PRESETS = [
-      { id: "sky", bg: "#d9efff", shirt: "#568fd8", skin: "#f1c5a3", hair: "#244d77", accent: "#ffd166", hairStyle: "wave", glasses: false },
-      { id: "sunset", bg: "#ffe5d8", shirt: "#db6d65", skin: "#d99a76", hair: "#743d2d", accent: "#ff8d7a", hairStyle: "bun", glasses: false },
-      { id: "forest", bg: "#def6e8", shirt: "#3f9d73", skin: "#e3b08d", hair: "#245543", accent: "#67d4a1", hairStyle: "side", glasses: false },
-      { id: "berry", bg: "#f1e2ff", shirt: "#7d59c6", skin: "#efb38f", hair: "#533275", accent: "#c06cff", hairStyle: "bob", glasses: false },
-      { id: "lemon", bg: "#fff3c9", shirt: "#d7a62e", skin: "#d49974", hair: "#414554", accent: "#f2cb45", hairStyle: "wave", glasses: true },
-      { id: "ocean", bg: "#d9f4ff", shirt: "#2f84a8", skin: "#ce9874", hair: "#164f6f", accent: "#4fc3e8", hairStyle: "bun", glasses: true },
+      {
+        id: "sky",
+        bg: "#d9efff",
+        shirt: "#568fd8",
+        skin: "#f1c5a3",
+        hair: "#244d77",
+        accent: "#ffd166",
+        hairStyle: "wave",
+        glasses: false,
+      },
+      {
+        id: "sunset",
+        bg: "#ffe5d8",
+        shirt: "#db6d65",
+        skin: "#d99a76",
+        hair: "#743d2d",
+        accent: "#ff8d7a",
+        hairStyle: "bun",
+        glasses: false,
+      },
+      {
+        id: "forest",
+        bg: "#def6e8",
+        shirt: "#3f9d73",
+        skin: "#e3b08d",
+        hair: "#245543",
+        accent: "#67d4a1",
+        hairStyle: "side",
+        glasses: false,
+      },
+      {
+        id: "berry",
+        bg: "#f1e2ff",
+        shirt: "#7d59c6",
+        skin: "#efb38f",
+        hair: "#533275",
+        accent: "#c06cff",
+        hairStyle: "bob",
+        glasses: false,
+      },
+      {
+        id: "lemon",
+        bg: "#fff3c9",
+        shirt: "#d7a62e",
+        skin: "#d49974",
+        hair: "#414554",
+        accent: "#f2cb45",
+        hairStyle: "wave",
+        glasses: true,
+      },
+      {
+        id: "ocean",
+        bg: "#d9f4ff",
+        shirt: "#2f84a8",
+        skin: "#ce9874",
+        hair: "#164f6f",
+        accent: "#4fc3e8",
+        hairStyle: "bun",
+        glasses: true,
+      },
     ];
 
     function avatarHair(preset) {
@@ -326,59 +394,146 @@ window.__ModuleLoader__.load({
       if (preset.hairStyle === "bun") {
         return [
           h("circle", { key: "bun", cx: 47, cy: 14, r: 6, fill }),
-          h("path", { key: "bun-body", d: "M16 29c0-12 7-19 16-19 9 0 16 7 16 19-5-3-8-8-9-12-5 7-14 11-23 12Z", fill }),
+          h("path", {
+            key: "bun-body",
+            d: "M16 29c0-12 7-19 16-19 9 0 16 7 16 19-5-3-8-8-9-12-5 7-14 11-23 12Z",
+            fill,
+          }),
         ];
       }
       if (preset.hairStyle === "side") {
         return [
-          h("path", { key: "side", d: "M17 27c1-11 8-17 17-17 8 0 14 5 15 15-7-1-11-5-14-10-4 6-11 10-18 12Z", fill }),
+          h("path", {
+            key: "side",
+            d: "M17 27c1-11 8-17 17-17 8 0 14 5 15 15-7-1-11-5-14-10-4 6-11 10-18 12Z",
+            fill,
+          }),
         ];
       }
       if (preset.hairStyle === "bob") {
         return [
-          h("path", { key: "bob", d: "M16 28c0-12 7-18 16-18s16 7 16 18v13h-6V30c-7 1-13-1-19-6-1 5-3 8-7 10Z", fill }),
+          h("path", {
+            key: "bob",
+            d: "M16 28c0-12 7-18 16-18s16 7 16 18v13h-6V30c-7 1-13-1-19-6-1 5-3 8-7 10Z",
+            fill,
+          }),
         ];
       }
       return [
-        h("path", { key: "wave", d: "M16 29c0-12 7-19 17-19 10 0 16 7 16 19-4-2-7-6-9-10-5 6-14 9-24 10Z", fill }),
+        h("path", {
+          key: "wave",
+          d: "M16 29c0-12 7-19 17-19 10 0 16 7 16 19-4-2-7-6-9-10-5 6-14 9-24 10Z",
+          fill,
+        }),
       ];
     }
 
     function avatarArt(value, key) {
       if (typeof value === "string" && value.startsWith("data:image/")) {
-        return h("img", { key, className: "pmtask-avatar-art", src: value, alt: "" });
+        return h("img", {
+          key,
+          className: "pmtask-avatar-art",
+          src: value,
+          alt: "",
+        });
       }
       const preset =
         AVATAR_PRESETS.find((item) => item.id === value) ?? AVATAR_PRESETS[0];
       const children = [
         h("rect", { key: "bg", width: 64, height: 64, fill: preset.bg }),
-        h("circle", { key: "a1", cx: 52, cy: 12, r: 10, fill: preset.accent, opacity: 0.28 }),
-        h("circle", { key: "a2", cx: 10, cy: 52, r: 14, fill: preset.accent, opacity: 0.18 }),
-        h("rect", { key: "neck", x: 28, y: 39, width: 8, height: 11, rx: 4, fill: preset.skin }),
-        h("path", { key: "shirt", d: "M9 64c2-13 11-20 23-20s21 7 23 20Z", fill: preset.shirt }),
+        h("circle", {
+          key: "a1",
+          cx: 52,
+          cy: 12,
+          r: 10,
+          fill: preset.accent,
+          opacity: 0.28,
+        }),
+        h("circle", {
+          key: "a2",
+          cx: 10,
+          cy: 52,
+          r: 14,
+          fill: preset.accent,
+          opacity: 0.18,
+        }),
+        h("rect", {
+          key: "neck",
+          x: 28,
+          y: 39,
+          width: 8,
+          height: 11,
+          rx: 4,
+          fill: preset.skin,
+        }),
+        h("path", {
+          key: "shirt",
+          d: "M9 64c2-13 11-20 23-20s21 7 23 20Z",
+          fill: preset.shirt,
+        }),
         h("circle", { key: "ear-l", cx: 18, cy: 30, r: 4, fill: preset.skin }),
         h("circle", { key: "ear-r", cx: 46, cy: 30, r: 4, fill: preset.skin }),
         h("circle", { key: "face", cx: 32, cy: 29, r: 16, fill: preset.skin }),
         ...avatarHair(preset),
-        h("circle", { key: "eye-l", cx: 25.5, cy: 31, r: 1.8, fill: "#20232a" }),
-        h("circle", { key: "eye-r", cx: 38.5, cy: 31, r: 1.8, fill: "#20232a" }),
-        h("path", { key: "mouth", d: "M27 38c3 3 7 3 10 0", fill: "none", stroke: "#9a5c52", strokeWidth: 1.8, strokeLinecap: "round" }),
+        h("circle", {
+          key: "eye-l",
+          cx: 25.5,
+          cy: 31,
+          r: 1.8,
+          fill: "#20232a",
+        }),
+        h("circle", {
+          key: "eye-r",
+          cx: 38.5,
+          cy: 31,
+          r: 1.8,
+          fill: "#20232a",
+        }),
+        h("path", {
+          key: "mouth",
+          d: "M27 38c3 3 7 3 10 0",
+          fill: "none",
+          stroke: "#9a5c52",
+          strokeWidth: 1.8,
+          strokeLinecap: "round",
+        }),
       ];
       if (preset.glasses) {
         children.push(
-          h("g", { key: "glasses", fill: "none", stroke: preset.hair, strokeWidth: 1.8 }, [
-            h("circle", { key: "g1", cx: 25.5, cy: 31, r: 4 }),
-            h("circle", { key: "g2", cx: 38.5, cy: 31, r: 4 }),
-            h("path", { key: "g3", d: "M29.5 31h5" }),
-          ]),
+          h(
+            "g",
+            {
+              key: "glasses",
+              fill: "none",
+              stroke: preset.hair,
+              strokeWidth: 1.8,
+            },
+            [
+              h("circle", { key: "g1", cx: 25.5, cy: 31, r: 4 }),
+              h("circle", { key: "g2", cx: 38.5, cy: 31, r: 4 }),
+              h("path", { key: "g3", d: "M29.5 31h5" }),
+            ],
+          ),
         );
       }
       children.push(
-        h("circle", { key: "shine", cx: 42, cy: 24, r: 3, fill: "#fff", opacity: 0.2 }),
+        h("circle", {
+          key: "shine",
+          cx: 42,
+          cy: 24,
+          r: 3,
+          fill: "#fff",
+          opacity: 0.2,
+        }),
       );
       return h(
         "svg",
-        { key, className: "pmtask-avatar-art", viewBox: "0 0 64 64", "aria-hidden": "true" },
+        {
+          key,
+          className: "pmtask-avatar-art",
+          viewBox: "0 0 64 64",
+          "aria-hidden": "true",
+        },
         children,
       );
     }
@@ -441,6 +596,19 @@ window.__ModuleLoader__.load({
       return RUNNING_MESSAGE_STATES.includes(latestRunState(task));
     }
 
+    function workflowSourceLabel(task) {
+      return task?.workflow?.approvalPolicy !== undefined
+        ? "工作流审批"
+        : "工作流";
+    }
+
+    function workflowReviewLabel(task) {
+      if (task?.workflow?.approvalPolicy !== undefined) return "审批动作驱动";
+      return task?.workflow?.reviewRequired === false
+        ? "无需人工 Review"
+        : "需要人工 Review";
+    }
+
     function isArchived(task) {
       const value = task?.archivedAt;
       return value !== undefined && value !== null && value !== "";
@@ -476,12 +644,18 @@ window.__ModuleLoader__.load({
     }
 
     function receiverKindLabel(type) {
-      return type === "agent" ? "DE / 分身" : type === "role" ? "角色认领" : "人员";
+      return type === "agent"
+        ? "DE / 分身"
+        : type === "role"
+          ? "角色认领"
+          : "人员";
     }
 
     function receiverOptionLabel(item) {
       const name = item?.name ?? "";
-      return item?.type === "agent" && item?.source === "personal" && item?.ownerName
+      return item?.type === "agent" &&
+        item?.source === "personal" &&
+        item?.ownerName
         ? `${name}（${item.ownerName}）`
         : name;
     }
@@ -533,15 +707,38 @@ window.__ModuleLoader__.load({
       let index = 0;
       while (match !== null) {
         if (match.index > cursor) {
-          nodes.push(h(RichText, { text: value.slice(cursor, match.index), key: `text-${index}` }));
+          nodes.push(
+            h(RichText, {
+              text: value.slice(cursor, match.index),
+              key: `text-${index}`,
+            }),
+          );
         }
         const token = match[0];
         if (token.startsWith("`")) {
-          nodes.push(h("code", { className: "pmtask-md-code", key: `code-${index}` }, token.slice(1, -1)));
+          nodes.push(
+            h(
+              "code",
+              { className: "pmtask-md-code", key: `code-${index}` },
+              token.slice(1, -1),
+            ),
+          );
         } else if (token.startsWith("**") || token.startsWith("__")) {
-          nodes.push(h("strong", { key: `strong-${index}` }, ...renderInlineMarkdown(token.slice(2, -2))));
+          nodes.push(
+            h(
+              "strong",
+              { key: `strong-${index}` },
+              ...renderInlineMarkdown(token.slice(2, -2)),
+            ),
+          );
         } else if (token.startsWith("~~")) {
-          nodes.push(h("del", { key: `del-${index}` }, ...renderInlineMarkdown(token.slice(2, -2))));
+          nodes.push(
+            h(
+              "del",
+              { key: `del-${index}` },
+              ...renderInlineMarkdown(token.slice(2, -2)),
+            ),
+          );
         } else if (token.startsWith("[")) {
           const separator = token.lastIndexOf("](");
           const label = token.slice(1, separator);
@@ -549,7 +746,8 @@ window.__ModuleLoader__.load({
           let safeHref = null;
           try {
             const url = new URL(href);
-            if (url.protocol === "http:" || url.protocol === "https:") safeHref = url.href;
+            if (url.protocol === "http:" || url.protocol === "https:")
+              safeHref = url.href;
           } catch {
             safeHref = null;
           }
@@ -568,14 +766,22 @@ window.__ModuleLoader__.load({
                 ),
           );
         } else {
-          nodes.push(h("em", { key: `em-${index}` }, ...renderInlineMarkdown(token.slice(1, -1))));
+          nodes.push(
+            h(
+              "em",
+              { key: `em-${index}` },
+              ...renderInlineMarkdown(token.slice(1, -1)),
+            ),
+          );
         }
         cursor = match.index + token.length;
         index += 1;
         match = pattern.exec(value);
       }
       if (cursor < value.length) {
-        nodes.push(h(RichText, { text: value.slice(cursor), key: `text-${index}` }));
+        nodes.push(
+          h(RichText, { text: value.slice(cursor), key: `text-${index}` }),
+        );
       }
       return nodes;
     }
@@ -639,7 +845,10 @@ window.__ModuleLoader__.load({
           blocks.push(
             h(
               "div",
-              { className: "pmtask-md-table-wrap", key: `table-${blocks.length}` },
+              {
+                className: "pmtask-md-table-wrap",
+                key: `table-${blocks.length}`,
+              },
               h(
                 "table",
                 { className: "pmtask-md-table" },
@@ -701,7 +910,9 @@ window.__ModuleLoader__.load({
           continue;
         }
         if (/^ {0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
-          blocks.push(h("hr", { className: "pmtask-md-hr", key: `hr-${blocks.length}` }));
+          blocks.push(
+            h("hr", { className: "pmtask-md-hr", key: `hr-${blocks.length}` }),
+          );
           index += 1;
           continue;
         }
@@ -711,7 +922,10 @@ window.__ModuleLoader__.load({
           blocks.push(
             h(
               `h${level}`,
-              { className: "pmtask-md-heading", key: `heading-${blocks.length}` },
+              {
+                className: "pmtask-md-heading",
+                key: `heading-${blocks.length}`,
+              },
               ...renderInlineMarkdown(heading[2]),
             ),
           );
@@ -751,7 +965,11 @@ window.__ModuleLoader__.load({
               "ul",
               { className: "pmtask-md-list", key: `ul-${blocks.length}` },
               ...items.map((item, itemIndex) =>
-                h("li", { key: `li-${itemIndex}` }, ...renderInlineMarkdown(item)),
+                h(
+                  "li",
+                  { key: `li-${itemIndex}` },
+                  ...renderInlineMarkdown(item),
+                ),
               ),
             ),
           );
@@ -771,7 +989,11 @@ window.__ModuleLoader__.load({
               "ol",
               { className: "pmtask-md-list", key: `ol-${blocks.length}` },
               ...items.map((item, itemIndex) =>
-                h("li", { key: `li-${itemIndex}` }, ...renderInlineMarkdown(item)),
+                h(
+                  "li",
+                  { key: `li-${itemIndex}` },
+                  ...renderInlineMarkdown(item),
+                ),
               ),
             ),
           );
@@ -800,7 +1022,10 @@ window.__ModuleLoader__.load({
             paragraph.flatMap((item, itemIndex) =>
               itemIndex === 0
                 ? renderInlineMarkdown(item)
-                : [h("br", { key: `br-${itemIndex}` }), ...renderInlineMarkdown(item)],
+                : [
+                    h("br", { key: `br-${itemIndex}` }),
+                    ...renderInlineMarkdown(item),
+                  ],
             ),
           ),
         );
@@ -894,6 +1119,7 @@ window.__ModuleLoader__.load({
       const [searchDraft, setSearchDraft] = react.useState("");
       const [priority, setPriority] = react.useState("");
       const [receiver, setReceiver] = react.useState("");
+      const [source, setSource] = react.useState("");
       const [selectedId, setSelectedId] = react.useState("");
       const [highlightedId, setHighlightedId] = react.useState("");
       const [archivedOnly, setArchivedOnly] = react.useState(false);
@@ -939,71 +1165,78 @@ window.__ModuleLoader__.load({
         setError(message);
       };
 
-      const load = react.useCallback(async (silent = false) => {
-        if (token() === null) {
-          setError("请先在账号管理中登录。");
-          setLoading(false);
-          return;
-        }
-        try {
-          if (!silent) setLoading(true);
-          const [meResult, workspaceResult] = await Promise.all([
-            request("/api/collab/auth/me"),
-            request("/api/collab/team/workspaces"),
-          ]);
-          const options = workspaceResult.workspaces ?? [];
-          const accessibleOptions = options.filter(
-            (workspace) =>
-              meResult.user?.role === "admin" || workspace.isMember === true,
-          );
-          setCurrentUser(meResult.user);
-          setWorkspaces(accessibleOptions);
-          const activeWorkspaceFilter = accessibleOptions.some(
-            (workspace) => workspace.id === workspaceFilter,
-          )
-            ? workspaceFilter
-            : "";
-          if (activeWorkspaceFilter !== workspaceFilter) {
-            setWorkspaceFilter(activeWorkspaceFilter);
+      const load = react.useCallback(
+        async (silent = false) => {
+          if (token() === null) {
+            setError("请先在账号管理中登录。");
+            setLoading(false);
+            return;
           }
-          const requested = accessibleOptions.filter(
-            (workspace) =>
-              activeWorkspaceFilter === "" ||
-              workspace.id === activeWorkspaceFilter,
-          );
-          const target =
-            requested.length === 0 ? accessibleOptions : requested;
-          const results = await Promise.all(
-            target.map((workspace) =>
-              request(
-                `/api/collab/tasks/bootstrap?workspaceId=${encodeURIComponent(workspace.id)}`,
+          try {
+            if (!silent) setLoading(true);
+            const [meResult, workspaceResult] = await Promise.all([
+              request("/api/collab/auth/me"),
+              request("/api/collab/team/workspaces"),
+            ]);
+            const options = workspaceResult.workspaces ?? [];
+            const accessibleOptions = options.filter(
+              (workspace) =>
+                meResult.user?.role === "admin" || workspace.isMember === true,
+            );
+            setCurrentUser(meResult.user);
+            setWorkspaces(accessibleOptions);
+            const activeWorkspaceFilter = accessibleOptions.some(
+              (workspace) => workspace.id === workspaceFilter,
+            )
+              ? workspaceFilter
+              : "";
+            if (activeWorkspaceFilter !== workspaceFilter) {
+              setWorkspaceFilter(activeWorkspaceFilter);
+            }
+            const requested = accessibleOptions.filter(
+              (workspace) =>
+                activeWorkspaceFilter === "" ||
+                workspace.id === activeWorkspaceFilter,
+            );
+            const target =
+              requested.length === 0 ? accessibleOptions : requested;
+            const results = await Promise.all(
+              target.map((workspace) =>
+                request(
+                  `/api/collab/tasks/bootstrap?workspaceId=${encodeURIComponent(workspace.id)}`,
+                ),
               ),
-            ),
-          );
-          const mergedTasks = results.flatMap((result) => result.tasks ?? []);
-          const mergedDirectory = {
-            humans: [],
-            agents: [],
-            roles: [],
-          };
-          for (const result of results) {
-            for (const key of ["humans", "agents", "roles"]) {
-              for (const item of result.directory?.[key] ?? []) {
-                if (!mergedDirectory[key].some((candidate) => candidate.id === item.id)) {
-                  mergedDirectory[key].push(item);
+            );
+            const mergedTasks = results.flatMap((result) => result.tasks ?? []);
+            const mergedDirectory = {
+              humans: [],
+              agents: [],
+              roles: [],
+            };
+            for (const result of results) {
+              for (const key of ["humans", "agents", "roles"]) {
+                for (const item of result.directory?.[key] ?? []) {
+                  if (
+                    !mergedDirectory[key].some(
+                      (candidate) => candidate.id === item.id,
+                    )
+                  ) {
+                    mergedDirectory[key].push(item);
+                  }
                 }
               }
             }
+            setTasks(mergedTasks);
+            setDirectory(mergedDirectory);
+            setError("");
+            if (!silent) setLoading(false);
+          } catch (cause) {
+            setLoading(false);
+            fail(cause, { global: true });
           }
-          setTasks(mergedTasks);
-          setDirectory(mergedDirectory);
-          setError("");
-          if (!silent) setLoading(false);
-        } catch (cause) {
-          setLoading(false);
-          fail(cause, { global: true });
-        }
-      }, [workspaceFilter]);
+        },
+        [workspaceFilter],
+      );
 
       react.useEffect(() => {
         void load();
@@ -1021,10 +1254,14 @@ window.__ModuleLoader__.load({
                   typeof pending.returnTeammateId === "string"
                     ? pending.returnTeammateId
                     : "",
-                tab: pending.returnTab === "definition" ? "definition" : "runtime",
+                tab:
+                  pending.returnTab === "definition" ? "definition" : "runtime",
               }
             : null;
-        if (typeof pending.workspaceId === "string" && pending.workspaceId !== "") {
+        if (
+          typeof pending.workspaceId === "string" &&
+          pending.workspaceId !== ""
+        ) {
           setWorkspaceFilter(pending.workspaceId);
         }
         setArchivedOnly(false);
@@ -1058,6 +1295,8 @@ window.__ModuleLoader__.load({
         if (ownership === "sent" && !sentByMe) return false;
         if (priority !== "" && task.priority !== priority) return false;
         if (receiver !== "" && task.receiverId !== receiver) return false;
+        if (source === "workflow" && task.workflow === undefined) return false;
+        if (source === "manual" && task.workflow !== undefined) return false;
         if (search.trim() !== "") {
           const terms = search.toLowerCase().split(/\s+/).filter(Boolean);
           const haystack = [
@@ -1133,14 +1372,33 @@ window.__ModuleLoader__.load({
       ];
 
       if (loading) {
-        return h("section", { className: "pmtask" }, h("style", null, styles), h("div", { className: "pmtask-empty" }, "正在加载任务..."));
+        return h(
+          "section",
+          { className: "pmtask" },
+          h("style", null, styles),
+          h("div", { className: "pmtask-empty" }, "正在加载任务..."),
+        );
       }
 
       return h(
         "section",
         { className: "pmtask", "data-task-management": true },
         h("style", null, styles),
-        error !== "" ? h("div", { className: "pmtask-filter pmtask-notice" }, h("span", { style: { color: "var(--dsw-alias-state-error-primary,#e5534b)" } }, error)) : null,
+        error !== ""
+          ? h(
+              "div",
+              { className: "pmtask-filter pmtask-notice" },
+              h(
+                "span",
+                {
+                  style: {
+                    color: "var(--dsw-alias-state-error-primary,#e5534b)",
+                  },
+                },
+                error,
+              ),
+            )
+          : null,
         h(TaskPageHeader, {
           workspaces,
           workspaceFilter,
@@ -1155,8 +1413,9 @@ window.__ModuleLoader__.load({
           ? h(TaskDetail, {
               task: selected,
               workspaceTitle:
-                workspaces.find((workspace) => workspace.id === selected.workspaceId)?.title ??
-                selected.workspaceId,
+                workspaces.find(
+                  (workspace) => workspace.id === selected.workspaceId,
+                )?.title ?? selected.workspaceId,
               directory,
               currentUser,
               pendingAssignee,
@@ -1186,6 +1445,8 @@ window.__ModuleLoader__.load({
               setPriority,
               receiver,
               setReceiver,
+              source,
+              setSource,
               directoryOptions,
               onCreate: (status = "todo") => {
                 setCreateStatus(status);
@@ -1278,7 +1539,11 @@ window.__ModuleLoader__.load({
             },
             h("option", { value: "" }, "全部项目"),
             ...workspaces.map((workspace) =>
-              h("option", { value: workspace.id, key: workspace.id }, workspace.title),
+              h(
+                "option",
+                { value: workspace.id, key: workspace.id },
+                workspace.title,
+              ),
             ),
           ),
           h(
@@ -1318,6 +1583,8 @@ window.__ModuleLoader__.load({
         setPriority,
         receiver,
         setReceiver,
+        source,
+        setSource,
         directoryOptions,
         onCreate,
         onOpen,
@@ -1346,7 +1613,11 @@ window.__ModuleLoader__.load({
           ),
           h(
             "select",
-            { className: "pmtask-select", value: priority, onChange: (event) => setPriority(event.target.value) },
+            {
+              className: "pmtask-select",
+              value: priority,
+              onChange: (event) => setPriority(event.target.value),
+            },
             h("option", { value: "" }, "全部优先级"),
             h("option", { value: "P1" }, "P1"),
             h("option", { value: "P2" }, "P2"),
@@ -1354,7 +1625,11 @@ window.__ModuleLoader__.load({
           ),
           h(
             "select",
-            { className: "pmtask-select", value: receiver, onChange: (event) => setReceiver(event.target.value) },
+            {
+              className: "pmtask-select",
+              value: receiver,
+              onChange: (event) => setReceiver(event.target.value),
+            },
             h("option", { value: "" }, "全部接收方"),
             directoryOptions.some((item) => item.type === "human")
               ? h(
@@ -1405,6 +1680,18 @@ window.__ModuleLoader__.load({
               : null,
           ),
           h(
+            "select",
+            {
+              className: "pmtask-select",
+              value: source,
+              onChange: (event) => setSource(event.target.value),
+              "aria-label": "按来源筛选任务",
+            },
+            h("option", { value: "" }, "全部来源"),
+            h("option", { value: "workflow" }, "工作流"),
+            h("option", { value: "manual" }, "手动"),
+          ),
+          h(
             "div",
             { className: "pmtask-search" },
             h("input", {
@@ -1418,7 +1705,11 @@ window.__ModuleLoader__.load({
             }),
             h(
               "button",
-              { className: "pmtask-btn secondary", type: "button", onClick: applySearch },
+              {
+                className: "pmtask-btn secondary",
+                type: "button",
+                onClick: applySearch,
+              },
               "搜索",
             ),
           ),
@@ -1481,12 +1772,14 @@ window.__ModuleLoader__.load({
             setDropReady(true);
           },
           onDragLeave: (event) => {
-            if (!event.currentTarget.contains(event.relatedTarget)) setDropReady(false);
+            if (!event.currentTarget.contains(event.relatedTarget))
+              setDropReady(false);
           },
           onDrop: (event) => {
             event.preventDefault();
             setDropReady(false);
-            const taskId = event.dataTransfer.getData("text/plain") || dragId.current;
+            const taskId =
+              event.dataTransfer.getData("text/plain") || dragId.current;
             if (taskId !== "") void onDrop(taskId, status.key);
           },
         },
@@ -1518,12 +1811,13 @@ window.__ModuleLoader__.load({
                 key: task.id,
                 className: `pmtask-card${taskHasActiveRun(task) ? " running" : ""}${isArchived(task) ? " archived" : ""}${task.id === highlightedId ? " highlighted" : ""}`,
                 "data-task-id": task.id,
-                draggable: !isArchived(task),
+                draggable: !isArchived(task) && task.workflow === undefined,
                 tabIndex: 0,
                 role: "button",
                 onClick: () => onOpen(task.id),
                 onKeyDown: (event) => {
-                  if (event.key === "Enter" || event.key === " ") onOpen(task.id);
+                  if (event.key === "Enter" || event.key === " ")
+                    onOpen(task.id);
                 },
                 onDragStart: (event) => {
                   if (isArchived(task)) return;
@@ -1533,7 +1827,8 @@ window.__ModuleLoader__.load({
                   event.dataTransfer.effectAllowed = "move";
                   event.currentTarget.classList.add("dragging");
                 },
-                onDragEnd: (event) => event.currentTarget.classList.remove("dragging"),
+                onDragEnd: (event) =>
+                  event.currentTarget.classList.remove("dragging"),
               },
               h(
                 "div",
@@ -1549,11 +1844,33 @@ window.__ModuleLoader__.load({
                   : null,
               ),
               h("div", { className: "pmtask-title" }, task.title),
+              task.workflow !== undefined
+                ? h(
+                    "div",
+                    { className: "pmtask-workflow-meta" },
+                    h(
+                      "span",
+                      { className: "pmtask-pill workflow" },
+                      workflowSourceLabel(task),
+                    ),
+                    h(
+                      "span",
+                      { className: "pmtask-workflow-node" },
+                      `${task.workflow.nodeName}${task.workflow.nodeAttempt === undefined ? "" : ` · 第 ${task.workflow.nodeAttempt} 轮`}`,
+                    ),
+                  )
+                : null,
               h("div", { className: "pmtask-desc" }, task.description),
               h(
                 "div",
                 { className: "pmtask-meta" },
-                h("span", { className: `pmtask-pill ${task.priority === "P1" ? "p1" : ""}` }, task.priority),
+                h(
+                  "span",
+                  {
+                    className: `pmtask-pill ${task.priority === "P1" ? "p1" : ""}`,
+                  },
+                  task.priority,
+                ),
                 isArchived(task)
                   ? h("span", { className: "pmtask-pill archived" }, "已归档")
                   : null,
@@ -1581,7 +1898,13 @@ window.__ModuleLoader__.load({
               ),
             ),
           ),
-          tasks.length === 0 ? h("div", { className: "pmtask-empty", style: { padding: "20px 8px" } }, "暂无任务") : null,
+          tasks.length === 0
+            ? h(
+                "div",
+                { className: "pmtask-empty", style: { padding: "20px 8px" } },
+                "暂无任务",
+              )
+            : null,
         ),
       );
     }
@@ -1618,11 +1941,7 @@ window.__ModuleLoader__.load({
             "aria-modal": "true",
             "aria-label": title,
           },
-          h(
-            "div",
-            { className: "pmtask-modal-head" },
-            h("h2", null, title),
-          ),
+          h("div", { className: "pmtask-modal-head" }, h("h2", null, title)),
           h("p", { className: "pmtask-confirm-text" }, description),
           h(
             "div",
@@ -1692,6 +2011,7 @@ window.__ModuleLoader__.load({
       const mine = taskBelongsTo(task, currentUser, directory);
       const sent = currentUser !== null && task.createdBy === currentUser.id;
       const archived = isArchived(task);
+      const isApprovalTask = task.workflow?.approvalPolicy !== undefined;
       const canClaim = task.receiverType === "role" && task.status === "todo";
       const insertMention = (name) => {
         const input = messageRef.current;
@@ -1704,8 +2024,7 @@ window.__ModuleLoader__.load({
           token === null
             ? `${before}${replacement}${after}`
             : `${before.slice(0, token.index)}${replacement}${after}`;
-        const nextCursor =
-          (token?.index ?? before.length) + replacement.length;
+        const nextCursor = (token?.index ?? before.length) + replacement.length;
         setMessage(next);
         setMentionOpen(false);
         requestAnimationFrame(() => {
@@ -1764,7 +2083,9 @@ window.__ModuleLoader__.load({
               content,
               attachments: uploaded,
             },
-            task.receiverType === "agent" ? "执行指令已发送" : `已发送给 ${receiverDisplay(task)}`,
+            task.receiverType === "agent"
+              ? "执行指令已发送"
+              : `已发送给 ${receiverDisplay(task)}`,
           );
           setMessage("");
           setAttachments([]);
@@ -1934,11 +2255,13 @@ window.__ModuleLoader__.load({
         }
       };
       const chooseAssignee = (type, id) => {
-        const item = directoryOptions.find((candidate) => candidate.type === type && candidate.id === id);
+        const item = directoryOptions.find(
+          (candidate) => candidate.type === type && candidate.id === id,
+        );
         setPendingAssignee({
           type,
           id: type === "unassigned" ? "" : id,
-          name: type === "unassigned" ? "待指派" : item?.name ?? id,
+          name: type === "unassigned" ? "待指派" : (item?.name ?? id),
           option: type === "unassigned" ? undefined : item,
         });
         setAssignOpen(false);
@@ -1954,13 +2277,58 @@ window.__ModuleLoader__.load({
               receiverId: pendingAssignee.id,
               receiverName: pendingAssignee.name,
             },
-            pendingAssignee.type === "unassigned" ? "接收方已恢复为待指派" : `已确认指派给 ${pendingAssignee.name}`,
+            pendingAssignee.type === "unassigned"
+              ? "接收方已恢复为待指派"
+              : `已确认指派给 ${pendingAssignee.name}`,
           );
           setPendingAssignee(null);
         } catch (cause) {
           fail(cause);
         }
       };
+
+      const openWorkflow = () => {
+        const workflowLink = task.links.find(
+          (link) => link.type === "workflow",
+        );
+        const instanceId = task.workflow?.instanceId ?? workflowLink?.id;
+        if (!instanceId) return;
+        window.__pluginmaxShell?.setRoute("workflow");
+        window.dispatchEvent(
+          new CustomEvent("pluginmax:collab-navigate", {
+            detail: {
+              plugin: "workflow",
+              instanceId,
+              workspaceId: task.workspaceId,
+            },
+          }),
+        );
+      };
+      const workflowActionCopy = (() => {
+        if (isApprovalTask) {
+          return task.status === "review"
+            ? "当前审批待处理，可以在下方直接给出结论，或进入工作流查看完整审批记录。"
+            : "审批结论由工作流控制，请进入工作流查看当前状态。";
+        }
+        if (task.receiverType === "agent") {
+          const latestRun = [...task.messages]
+            .reverse()
+            .find((item) => item.kind === "agent");
+          return ["failed", "timeout", "cancelled", "interrupted"].includes(
+            latestRun?.state,
+          )
+            ? "Agent 最近一次运行未完成；请进入工作流详情查看结果、重试或人工代交。"
+            : task.status === "progress"
+              ? "Agent 正在执行工作流节点；派发、取消、重试和交付物处理请在工作流详情完成。"
+              : "工作流 Agent 产出由工作流节点控制，请进入工作流查看和执行后续动作。";
+        }
+        if (task.status === "review") {
+          return "节点产出已提交，请在工作流详情执行 Review 或使用下方结论操作。";
+        }
+        return task.workflow?.reviewRequired === false
+          ? "请在工作流详情完成节点；任务状态会随工作流自动同步。"
+          : "请在工作流详情提交交付物并完成节点；任务状态会随工作流自动同步。";
+      })();
 
       const myAgent =
         currentUser === null
@@ -1996,16 +2364,19 @@ window.__ModuleLoader__.load({
               type: previewKind,
               name: receiverPreview,
             });
-      const composerHint =
-        archived
-          ? "任务已归档 · 复原后可继续发送指令"
-          : task.receiverType === "unassigned"
-            ? "暂无接收方 · 任务待指派"
-            : task.receiverType === "agent"
-              ? `发送给 ${receiverDisplay(task)}${task.status === "progress" ? " · Agent 执行中" : ""}`
-              : `发送给 ${receiverDisplay(task)}`;
+      const composerHint = archived
+        ? "任务已归档 · 复原后可继续发送指令"
+        : task.receiverType === "unassigned"
+          ? "暂无接收方 · 任务待指派"
+          : task.receiverType === "agent"
+            ? `发送给 ${receiverDisplay(task)}${task.status === "progress" ? " · Agent 执行中" : ""}`
+            : `发送给 ${receiverDisplay(task)}`;
       const history = [
-        ...task.messages.map((item) => ({ kind: "message", at: item.at, item })),
+        ...task.messages.map((item) => ({
+          kind: "message",
+          at: item.at,
+          item,
+        })),
         ...task.events
           .filter((event) => event.kind !== "message")
           .map((event) => ({ kind: "event", at: event.at, event })),
@@ -2090,7 +2461,11 @@ window.__ModuleLoader__.load({
                       h(
                         "span",
                         { className: "pmtask-receiver-option-copy" },
-                        h("span", { className: "pmtask-receiver-option-name" }, "待指派"),
+                        h(
+                          "span",
+                          { className: "pmtask-receiver-option-name" },
+                          "待指派",
+                        ),
                       ),
                     ),
                     ...directoryOptions.map((item) =>
@@ -2187,11 +2562,19 @@ window.__ModuleLoader__.load({
                         },
                         task.priority,
                       ),
+                      task.workflow !== undefined
+                        ? h(
+                            "span",
+                            { className: "pmtask-pill workflow" },
+                            workflowSourceLabel(task),
+                          )
+                        : null,
                       h(
                         "button",
                         {
                           className: "pmtask-icon-btn",
                           type: "button",
+                          hidden: task.workflow !== undefined,
                           disabled: archived,
                           title: archived
                             ? "任务已归档，复原后可编辑"
@@ -2278,18 +2661,70 @@ window.__ModuleLoader__.load({
                         h(
                           "strong",
                           null,
-                         `${task.priority} · ${task.due || "不限"}`,
+                          `${task.priority} · ${task.due || "不限"}`,
                         ),
                       ),
-                      task.receiverType === "agent"
+                      task.workflow?.approvalPolicy !== undefined
                         ? h(
                             "div",
                             { className: "pmtask-field" },
-                            "完成后自动提交Review",
+                            "审批规则",
                             h(
                               "strong",
                               null,
-                              task.autoSubmitReview !== false ? "已开启" : "已关闭",
+                              task.workflow.approvalPolicy === "any"
+                                ? "或签（任一审批人通过即可）"
+                                : "并签（全部审批人通过后才完成）",
+                            ),
+                          )
+                        : null,
+                      task.workflow !== undefined
+                        ? h(
+                            "div",
+                            { className: "pmtask-field" },
+                            "Review 策略",
+                            h("strong", null, workflowReviewLabel(task)),
+                          )
+                        : task.receiverType === "agent"
+                          ? h(
+                              "div",
+                              { className: "pmtask-field" },
+                              "完成后自动提交Review",
+                              h(
+                                "strong",
+                                null,
+                                task.autoSubmitReview !== false
+                                  ? "已开启"
+                                  : "已关闭",
+                              ),
+                            )
+                          : null,
+                      task.workflow !== undefined
+                        ? h(
+                            "div",
+                            { className: "pmtask-field" },
+                            "工作流节点",
+                            h(
+                              "strong",
+                              null,
+                              `${task.workflow.nodeName}${task.workflow.nodeAttempt === undefined ? "" : ` · 第 ${task.workflow.nodeAttempt} 轮`}`,
+                            ),
+                          )
+                        : null,
+                      task.workflow?.outcome !== undefined
+                        ? h(
+                            "div",
+                            { className: "pmtask-field" },
+                            "工作流结论",
+                            h(
+                              "strong",
+                              null,
+                              {
+                                approved: "已通过",
+                                rejected: "已退回",
+                                cancelled: "已取消",
+                                superseded: "已被新一轮替代",
+                              }[task.workflow.outcome] ?? task.workflow.outcome,
                             ),
                           )
                         : null,
@@ -2301,352 +2736,437 @@ window.__ModuleLoader__.load({
                           "任务已归档：内容、状态、回复与执行指令均已锁定，点「复原」后可继续操作。",
                         )
                       : null,
+                    task.workflow !== undefined
+                      ? h(
+                          "div",
+                          { className: "pmtask-workflow-action" },
+                          h(
+                            "div",
+                            { className: "pmtask-workflow-action-copy" },
+                            h("strong", null, "由工作流节点驱动"),
+                            h("span", null, workflowActionCopy),
+                          ),
+                          h(
+                            "div",
+                            { className: "pmtask-workflow-action-buttons" },
+                            h(
+                              "button",
+                              {
+                                className: "pmtask-btn",
+                                type: "button",
+                                onClick: openWorkflow,
+                              },
+                              "打开工作流节点",
+                            ),
+                            isApprovalTask && task.status === "review"
+                              ? h(
+                                  "button",
+                                  {
+                                    className: "pmtask-btn secondary",
+                                    type: "button",
+                                    onClick: () =>
+                                      void action("approve", "审批已通过"),
+                                  },
+                                  "通过审批",
+                                )
+                              : null,
+                            isApprovalTask && task.status === "review"
+                              ? h(
+                                  "button",
+                                  {
+                                    className: "pmtask-btn secondary",
+                                    type: "button",
+                                    onClick: () =>
+                                      void action("reject", "审批已退回"),
+                                  },
+                                  "退回审批",
+                                )
+                              : null,
+                            archived
+                              ? h(
+                                  "button",
+                                  {
+                                    className: "pmtask-btn secondary",
+                                    type: "button",
+                                    onClick: () => void restoreTask(),
+                                  },
+                                  "复原",
+                                )
+                              : null,
+                          ),
+                        )
+                      : h(
+                          "div",
+                          { className: "pmtask-actions" },
+                          canClaim
+                            ? h(
+                                "button",
+                                {
+                                  className: "pmtask-btn secondary",
+                                  type: "button",
+                                  disabled: archived,
+                                  title: lockedTip,
+                                  onClick: () =>
+                                    void action("claim", "已认领任务"),
+                                },
+                                "认领",
+                              )
+                            : null,
+                          mine && task.status === "todo"
+                            ? h(
+                                "button",
+                                {
+                                  className: "pmtask-btn secondary",
+                                  type: "button",
+                                  disabled: archived,
+                                  title: lockedTip,
+                                  onClick: () =>
+                                    void action("start", "任务已开始"),
+                                },
+                                "开始",
+                              )
+                            : null,
+                          mine &&
+                            task.status === "progress" &&
+                            task.workflow?.approvalPolicy === undefined
+                            ? h(
+                                "button",
+                                {
+                                  className: "pmtask-btn secondary",
+                                  type: "button",
+                                  disabled: archived,
+                                  title: lockedTip,
+                                  onClick: () =>
+                                    void action("submit", "已提交验收"),
+                                },
+                                "提交验收",
+                              )
+                            : null,
+                          mine &&
+                            (task.status === "review" ||
+                              (task.workflow?.approvalPolicy !== undefined &&
+                                task.status === "progress"))
+                            ? h(
+                                "button",
+                                {
+                                  className: "pmtask-btn secondary",
+                                  type: "button",
+                                  disabled: archived,
+                                  title: lockedTip,
+                                  onClick: () =>
+                                    void action("approve", "任务已完成"),
+                                },
+                                isApprovalTask ? "通过审批" : "通过",
+                              )
+                            : null,
+                          mine &&
+                            (task.status === "review" ||
+                              (task.workflow?.approvalPolicy !== undefined &&
+                                task.status === "progress"))
+                            ? h(
+                                "button",
+                                {
+                                  className: "pmtask-btn secondary",
+                                  type: "button",
+                                  disabled: archived,
+                                  title: lockedTip,
+                                  onClick: () =>
+                                    void action("reject", "已退回"),
+                                },
+                                isApprovalTask ? "退回审批" : "退回",
+                              )
+                            : null,
+                          sent &&
+                            task.status !== "done" &&
+                            task.receiverType !== "unassigned"
+                            ? h(
+                                "button",
+                                {
+                                  className: "pmtask-btn secondary",
+                                  type: "button",
+                                  disabled: archived,
+                                  title: lockedTip,
+                                  onClick: () =>
+                                    void action("nudge", "已提醒接收方"),
+                                },
+                                "催办",
+                              )
+                            : null,
+                          mine &&
+                            task.receiverType === "human" &&
+                            task.status !== "done" &&
+                            myAgent !== undefined
+                            ? h(
+                                "button",
+                                {
+                                  className: "pmtask-btn secondary",
+                                  type: "button",
+                                  disabled: archived,
+                                  title: lockedTip,
+                                  onClick: async () => {
+                                    try {
+                                      await mutate(
+                                        "/api/collab/tasks/assign",
+                                        {
+                                          taskId: task.id,
+                                          receiverType: "agent",
+                                          receiverId: myAgent.id,
+                                          receiverName: myAgent.name,
+                                        },
+                                        "已派给我的分身",
+                                      );
+                                    } catch (cause) {
+                                      fail(cause);
+                                    }
+                                  },
+                                },
+                                "派我的分身执行",
+                              )
+                            : null,
+                          task.receiverType === "agent"
+                            ? h(
+                                "button",
+                                {
+                                  className: "pmtask-btn secondary",
+                                  type: "button",
+                                  disabled: archived,
+                                  title: archived
+                                    ? "任务已归档，复原后可回复"
+                                    : "直接在下方输入框补充指令，发送给执行本任务的 Agent",
+                                  onClick: () => focusComposer(),
+                                },
+                                "人工回复",
+                              )
+                            : null,
+                          task.receiverType === "agent" && !archived
+                            ? h(
+                                "button",
+                                {
+                                  className: "pmtask-btn secondary",
+                                  type: "button",
+                                  title:
+                                    "另起一条新会话并重新注入完整任务上下文；旧会话保留为只读",
+                                  onClick: () => void resetSession(),
+                                },
+                                "重置会话",
+                              )
+                            : null,
+                          archived
+                            ? h(
+                                "button",
+                                {
+                                  className: "pmtask-btn secondary",
+                                  type: "button",
+                                  onClick: () => void restoreTask(),
+                                },
+                                "复原",
+                              )
+                            : h(
+                                "button",
+                                {
+                                  className: "pmtask-btn secondary",
+                                  type: "button",
+                                  onClick: () => setConfirmArchive(true),
+                                },
+                                "归档",
+                              ),
+                        ),
+                  ),
+              task.workflow !== undefined
+                ? null
+                : h(
+                    "div",
+                    { className: "pmtask-composer" },
                     h(
                       "div",
-                      { className: "pmtask-actions" },
-                      canClaim
-                        ? h(
-                            "button",
-                            {
-                              className: "pmtask-btn secondary",
-                              type: "button",
-                              disabled: archived,
-                              title: lockedTip,
-                              onClick: () => void action("claim", "已认领任务"),
-                            },
-                            "认领",
-                          )
+                      { className: "pmtask-composer-toolbar" },
+                      h(
+                        "button",
+                        {
+                          className: "pmtask-tool-btn",
+                          type: "button",
+                          disabled: archived,
+                          title: archived
+                            ? "任务已归档，复原后可编辑"
+                            : "插入表情",
+                          "aria-label": "插入表情",
+                          onClick: () => setMessage((current) => `${current}☺`),
+                        },
+                        "☺",
+                      ),
+                      h(
+                        "label",
+                        {
+                          className: "pmtask-tool-btn",
+                          title: archived
+                            ? "任务已归档，复原后可上传附件"
+                            : "上传附件",
+                          style: archived
+                            ? { opacity: 0.5, pointerEvents: "none" }
+                            : undefined,
+                          "aria-label": "上传附件",
+                        },
+                        h(
+                          "svg",
+                          {
+                            viewBox: "0 0 24 24",
+                            fill: "none",
+                            stroke: "currentColor",
+                            strokeWidth: 2,
+                            strokeLinecap: "round",
+                            "aria-hidden": "true",
+                          },
+                          h("path", {
+                            d: "m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48",
+                          }),
+                        ),
+                        h("input", {
+                          type: "file",
+                          multiple: true,
+                          hidden: true,
+                          disabled: archived,
+                          onChange: (event) => {
+                            const picked = Array.from(event.target.files ?? []);
+                            event.target.value = "";
+                            if (picked.length === 0) return;
+                            setAttachments((current) => [
+                              ...current,
+                              ...picked,
+                            ]);
+                          },
+                        }),
+                      ),
+                      h(
+                        "button",
+                        {
+                          className: "pmtask-tool-btn",
+                          type: "button",
+                          disabled: archived,
+                          title: archived
+                            ? "任务已归档，复原后可 @ 成员"
+                            : "插入 @ 提及",
+                          "aria-haspopup": "listbox",
+                          "aria-expanded": mentionOpen,
+                          onClick: () => {
+                            if (archived) return;
+                            setMentionQuery("");
+                            setMentionOpen((value) => !value);
+                          },
+                        },
+                        "@",
+                      ),
+                      mentionOpen
+                        ? h(MentionMenu, {
+                            directory,
+                            query: mentionQuery,
+                            onPick: insertMention,
+                          })
                         : null,
-                      mine && task.status === "todo"
-                        ? h(
-                            "button",
-                            {
-                              className: "pmtask-btn secondary",
-                              type: "button",
-                              disabled: archived,
-                              title: lockedTip,
-                              onClick: () => void action("start", "任务已开始"),
-                            },
-                            "开始",
-                          )
-                        : null,
-                      mine && task.status === "progress"
-                        ? h(
-                            "button",
-                            {
-                              className: "pmtask-btn secondary",
-                              type: "button",
-                              disabled: archived,
-                              title: lockedTip,
-                              onClick: () => void action("submit", "已提交验收"),
-                            },
-                            "提交验收",
-                          )
-                        : null,
-                      task.status === "review"
-                        ? h(
-                            "button",
-                            {
-                              className: "pmtask-btn secondary",
-                              type: "button",
-                              disabled: archived,
-                              title: lockedTip,
-                              onClick: () => void action("approve", "任务已完成"),
-                            },
-                            "通过",
-                          )
-                        : null,
-                      task.status === "review"
-                        ? h(
-                            "button",
-                            {
-                              className: "pmtask-btn secondary",
-                              type: "button",
-                              disabled: archived,
-                              title: lockedTip,
-                              onClick: () => void action("reject", "已退回"),
-                            },
-                            "退回",
-                          )
-                        : null,
-                      sent &&
-                      task.status !== "done" &&
-                      task.receiverType !== "unassigned"
-                        ? h(
-                            "button",
-                            {
-                              className: "pmtask-btn secondary",
-                              type: "button",
-                              disabled: archived,
-                              title: lockedTip,
-                              onClick: () => void action("nudge", "已提醒接收方"),
-                            },
-                            "催办",
-                          )
-                        : null,
-                      mine &&
-                      task.receiverType === "human" &&
-                      task.status !== "done" &&
-                      myAgent !== undefined
-                        ? h(
-                            "button",
-                            {
-                              className: "pmtask-btn secondary",
-                              type: "button",
-                              disabled: archived,
-                              title: lockedTip,
-                              onClick: async () => {
-                                try {
-                                  await mutate(
-                                    "/api/collab/tasks/assign",
-                                    {
-                                      taskId: task.id,
-                                      receiverType: "agent",
-                                      receiverId: myAgent.id,
-                                      receiverName: myAgent.name,
-                                    },
-                                    "已派给我的分身",
-                                  );
-                                } catch (cause) {
-                                  fail(cause);
-                                }
-                              },
-                            },
-                            "派我的分身执行",
-                          )
-                        : null,
-                      task.receiverType === "agent"
-                        ? h(
-                            "button",
-                            {
-                              className: "pmtask-btn secondary",
-                              type: "button",
-                              disabled: archived,
-                              title: archived
-                                ? "任务已归档，复原后可回复"
-                                : "直接在下方输入框补充指令，发送给执行本任务的 Agent",
-                              onClick: () => focusComposer(),
-                            },
-                            "人工回复",
-                          )
-                        : null,
-                      task.receiverType === "agent" && !archived
-                        ? h(
-                            "button",
-                            {
-                              className: "pmtask-btn secondary",
-                              type: "button",
-                              title:
-                                "另起一条新会话并重新注入完整任务上下文；旧会话保留为只读",
-                              onClick: () => void resetSession(),
-                            },
-                            "重置会话",
-                          )
-                        : null,
-                      archived
-                        ? h(
-                            "button",
-                            {
-                              className: "pmtask-btn secondary",
-                              type: "button",
-                              onClick: () => void restoreTask(),
-                            },
-                            "复原",
-                          )
-                        : h(
-                            "button",
-                            {
-                              className: "pmtask-btn secondary",
-                              type: "button",
-                              onClick: () => setConfirmArchive(true),
-                            },
-                            "归档",
-                          ),
                     ),
-                  ),
-              h(
-                "div",
-                { className: "pmtask-composer" },
-                h(
-                  "div",
-                  { className: "pmtask-composer-toolbar" },
-                  h(
-                    "button",
-                    {
-                      className: "pmtask-tool-btn",
-                      type: "button",
-                      disabled: archived,
-                      title: archived ? "任务已归档，复原后可编辑" : "插入表情",
-                      "aria-label": "插入表情",
-                      onClick: () =>
-                        setMessage((current) => `${current}☺`),
-                    },
-                    "☺",
-                  ),
-                  h(
-                    "label",
-                    {
-                      className: "pmtask-tool-btn",
-                      title: archived
-                        ? "任务已归档，复原后可上传附件"
-                        : "上传附件",
-                      style: archived
-                        ? { opacity: 0.5, pointerEvents: "none" }
-                        : undefined,
-                      "aria-label": "上传附件",
-                    },
-                    h(
-                      "svg",
-                      {
-                        viewBox: "0 0 24 24",
-                        fill: "none",
-                        stroke: "currentColor",
-                        strokeWidth: 2,
-                        strokeLinecap: "round",
-                        "aria-hidden": "true",
-                      },
-                      h("path", {
-                        d: "m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48",
-                      }),
-                    ),
-                    h("input", {
-                      type: "file",
-                      multiple: true,
-                      hidden: true,
-                      disabled: archived,
+                    h("textarea", {
+                      ref: messageRef,
+                      className: "pmtask-composer-input",
+                      rows: 4,
+                      value: message,
+                      readOnly: archived,
+                      placeholder: archived
+                        ? "任务已归档，复原后可继续发送指令"
+                        : "输入 / 补充给执行 Agent 的指令，或反馈任务进展。可 @ 人员、DE 和分身",
                       onChange: (event) => {
-                        const picked = Array.from(event.target.files ?? []);
-                        event.target.value = "";
-                        if (picked.length === 0) return;
-                        setAttachments((current) => [...current, ...picked]);
+                        const value = event.target.value;
+                        setMessage(value);
+                        const cursor =
+                          event.target.selectionStart ?? value.length;
+                        const token = value
+                          .slice(0, cursor)
+                          .match(/@([^@\s]*)$/);
+                        setMentionOpen(token !== null);
+                        setMentionQuery(token?.[1] ?? "");
+                      },
+                      onKeyDown: (event) => {
+                        if (
+                          event.key === "Enter" &&
+                          (event.metaKey || event.ctrlKey)
+                        ) {
+                          event.preventDefault();
+                          void sendMessage();
+                        }
+                        if (event.key === "Escape") setMentionOpen(false);
                       },
                     }),
-                  ),
-                  h(
-                    "button",
-                    {
-                      className: "pmtask-tool-btn",
-                      type: "button",
-                      disabled: archived,
-                      title: archived ? "任务已归档，复原后可 @ 成员" : "插入 @ 提及",
-                      "aria-haspopup": "listbox",
-                      "aria-expanded": mentionOpen,
-                      onClick: () => {
-                        if (archived) return;
-                        setMentionQuery("");
-                        setMentionOpen((value) => !value);
-                      },
-                    },
-                    "@",
-                  ),
-                  mentionOpen
-                    ? h(MentionMenu, {
-                        directory,
-                        query: mentionQuery,
-                        onPick: insertMention,
-                      })
-                    : null,
-                ),
-                h("textarea", {
-                  ref: messageRef,
-                  className: "pmtask-composer-input",
-                  rows: 4,
-                  value: message,
-                  readOnly: archived,
-                  placeholder:
-                    archived
-                      ? "任务已归档，复原后可继续发送指令"
-                      : "输入 / 补充给执行 Agent 的指令，或反馈任务进展。可 @ 人员、DE 和分身",
-                  onChange: (event) => {
-                    const value = event.target.value;
-                    setMessage(value);
-                    const cursor =
-                      event.target.selectionStart ?? value.length;
-                    const token = value
-                      .slice(0, cursor)
-                      .match(/@([^@\s]*)$/);
-                    setMentionOpen(token !== null);
-                    setMentionQuery(token?.[1] ?? "");
-                  },
-                  onKeyDown: (event) => {
-                    if (
-                      event.key === "Enter" &&
-                      (event.metaKey || event.ctrlKey)
-                    ) {
-                      event.preventDefault();
-                      void sendMessage();
-                    }
-                    if (event.key === "Escape") setMentionOpen(false);
-                  },
-                }),
-                attachments.length > 0
-                  ? h(
-                      "div",
-                      { className: "pmtask-attachments" },
-                      ...attachments.map((file, index) =>
-                        h(
-                          "span",
-                          {
-                            className: "pmtask-attachment",
-                            key: `${file.name}:${index}`,
-                          },
-                          "📎 ",
-                          h("span", null, file.name),
-                          h(
-                            "button",
-                            {
-                              type: "button",
-                              "aria-label": `移除附件 ${file.name}`,
-                              onClick: () =>
-                                setAttachments((current) =>
-                                  current.filter(
-                                    (_candidate, candidateIndex) =>
-                                      candidateIndex !== index,
-                                  ),
-                                ),
-                            },
-                            "×",
+                    attachments.length > 0
+                      ? h(
+                          "div",
+                          { className: "pmtask-attachments" },
+                          ...attachments.map((file, index) =>
+                            h(
+                              "span",
+                              {
+                                className: "pmtask-attachment",
+                                key: `${file.name}:${index}`,
+                              },
+                              "📎 ",
+                              h("span", null, file.name),
+                              h(
+                                "button",
+                                {
+                                  type: "button",
+                                  "aria-label": `移除附件 ${file.name}`,
+                                  onClick: () =>
+                                    setAttachments((current) =>
+                                      current.filter(
+                                        (_candidate, candidateIndex) =>
+                                          candidateIndex !== index,
+                                      ),
+                                    ),
+                                },
+                                "×",
+                              ),
+                            ),
                           ),
+                        )
+                      : null,
+                    h(
+                      "div",
+                      { className: "pmtask-composer-footer" },
+                      h(
+                        "span",
+                        { className: "pmtask-compose-hint" },
+                        composerHint,
+                      ),
+                      h(
+                        "div",
+                        { className: "pmtask-compose-actions" },
+                        h(
+                          "button",
+                          {
+                            className: "pmtask-btn secondary",
+                            type: "button",
+                            onClick: () => {
+                              setMessage("");
+                              setAttachments([]);
+                              setMentionOpen(false);
+                            },
+                          },
+                          "清空",
+                        ),
+                        h(
+                          "button",
+                          {
+                            className: "pmtask-btn",
+                            type: "button",
+                            disabled:
+                              archived ||
+                              (message.trim() === "" &&
+                                attachments.length === 0) ||
+                              task.receiverType === "unassigned",
+                            onClick: () => void sendMessage(),
+                          },
+                          "发送",
                         ),
                       ),
-                    )
-                  : null,
-                h(
-                  "div",
-                  { className: "pmtask-composer-footer" },
-                  h("span", { className: "pmtask-compose-hint" }, composerHint),
-                  h(
-                    "div",
-                    { className: "pmtask-compose-actions" },
-                    h(
-                      "button",
-                      {
-                        className: "pmtask-btn secondary",
-                        type: "button",
-                        onClick: () => {
-                          setMessage("");
-                          setAttachments([]);
-                          setMentionOpen(false);
-                        },
-                      },
-                      "清空",
-                    ),
-                    h(
-                      "button",
-                      {
-                        className: "pmtask-btn",
-                        type: "button",
-                        disabled:
-                          archived ||
-                          (message.trim() === "" && attachments.length === 0) ||
-                          task.receiverType === "unassigned",
-                        onClick: () => void sendMessage(),
-                      },
-                      "发送",
                     ),
                   ),
-                ),
-              ),
               h(
                 "div",
                 { className: "pmtask-detail-section" },
@@ -2696,7 +3216,9 @@ window.__ModuleLoader__.load({
                               ["queued", "running", "waiting_input"].includes(
                                 entry.item.state,
                               )
-                                ? h("span", { className: "pmtask-stream-caret" })
+                                ? h("span", {
+                                    className: "pmtask-stream-caret",
+                                  })
                                 : null,
                             ),
                             entry.item.attachments.length > 0
@@ -2728,7 +3250,9 @@ window.__ModuleLoader__.load({
                           h(
                             "div",
                             { className: "pmtask-event-copy" },
-                            entry.event.message,
+                            entry.event.kind === "workflow"
+                              ? `${entry.event.actorName} ${entry.event.message}`
+                              : entry.event.message,
                             h("time", null, localTime(entry.event.at)),
                           ),
                         ),
@@ -2802,9 +3326,7 @@ window.__ModuleLoader__.load({
                           onSubmit: async (event) => {
                             event.preventDefault();
                             if (archived) return;
-                            const content = (
-                              replyDrafts[item.id] ?? ""
-                            ).trim();
+                            const content = (replyDrafts[item.id] ?? "").trim();
                             if (content === "") return;
                             try {
                               await mutate(
@@ -2957,9 +3479,7 @@ window.__ModuleLoader__.load({
                               );
                             },
                           },
-                          link.type === "meeting"
-                            ? "打开会议"
-                            : "打开工作流",
+                          link.type === "meeting" ? "打开会议" : "打开工作流",
                         ),
                       ),
                     )),
@@ -2980,117 +3500,129 @@ window.__ModuleLoader__.load({
                         { className: "pmtask-timeline-event", key: event.id },
                         h("time", null, localTime(event.at)),
                         h("span", null, event.message),
-                  ),
-                ),
-              ),
-              h(
-                "div",
-                { className: "pmtask-side-section" },
-                h(
-                  "div",
-                  { className: "pmtask-live-head" },
-                  executionRunning
-                    ? h("span", { className: "pmtask-spinner", role: "status", "aria-label": "正在执行" })
-                    : h("span", { className: "pmtask-live-dot" }),
-                  h("h3", null, "DE 执行过程"),
-                  h(
-                    "span",
-                    { className: "pmtask-side-empty" },
-                    executionStatus,
-                  ),
-                ),
-                h(
-                  "div",
-                  { className: "pmtask-live-output", ref: liveOutputRef },
-                  h(MarkdownText, { text: executionText }),
-                ),
-              ),
-              h(
-                "div",
-                { className: "pmtask-side-section" },
-                h(
-                  "div",
-                  { className: "pmtask-live-head" },
-                  h("span", { className: "pmtask-live-dot" }),
-                  h("h3", null, "产出文档"),
-                  h(
-                    "span",
-                    { className: "pmtask-side-empty" },
-                    documents.length === 0 ? "" : `${documents.length} 个文件`,
-                  ),
-                ),
-                documents.length === 0
-                  ? h(
-                      "div",
-                      { className: "pmtask-doc-empty" },
-                      documentsReady ? "暂无产出文档" : "任务工作区不可用",
-                    )
-                  : h(
-                      "div",
-                      { className: "pmtask-doc-list" },
-                      ...documents.map((document) =>
-                        h(
-                          "div",
-                          { className: "pmtask-doc", key: document.id },
-                          h(
-                            "div",
-                            { className: "pmtask-doc-info" },
-                            h(
-                              "button",
-                              {
-                                className: "pmtask-doc-name",
-                                type: "button",
-                                disabled: !document.available,
-                                title: document.available
-                                  ? `下载 ${document.name}`
-                                  : "该附件未存储到工作区",
-                                onClick: () => void downloadDocument(document),
-                              },
-                              h(
-                                "span",
-                                { className: "pmtask-doc-kind" },
-                                document.kind === "uploaded" ? "上传" : "产出",
-                              ),
-                              h("span", null, document.name),
-                            ),
-                            h(
-                              "div",
-                              { className: "pmtask-doc-meta" },
-                              `${document.updatedBy} · ${localTime(document.updatedAt)}`,
-                            ),
-                          ),
-                          document.available
-                            ? h(
-                                "button",
-                                {
-                                  className: "pmtask-tool-btn",
-                                  type: "button",
-                                  title: "在本地文件夹中显示",
-                                  "aria-label": "在本地文件夹中显示",
-                                  onClick: () => void revealDocument(document),
-                                },
-                                h(
-                                  "svg",
-                                  {
-                                    viewBox: "0 0 24 24",
-                                    fill: "none",
-                                    stroke: "currentColor",
-                                    strokeWidth: 2,
-                                    strokeLinecap: "round",
-                                    strokeLinejoin: "round",
-                                    "aria-hidden": "true",
-                                  },
-                                  h("path", {
-                                    d: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z",
-                                  }),
-                                ),
-                              )
-                            : null,
-                        ),
                       ),
                     ),
+                ),
+                task.receiverType === "agent"
+                  ? h(
+                      "div",
+                      { className: "pmtask-side-section" },
+                      h(
+                        "div",
+                        { className: "pmtask-live-head" },
+                        executionRunning
+                          ? h("span", {
+                              className: "pmtask-spinner",
+                              role: "status",
+                              "aria-label": "正在执行",
+                            })
+                          : h("span", { className: "pmtask-live-dot" }),
+                        h("h3", null, "DE 执行过程"),
+                        h(
+                          "span",
+                          { className: "pmtask-side-empty" },
+                          executionStatus,
+                        ),
+                      ),
+                      h(
+                        "div",
+                        { className: "pmtask-live-output", ref: liveOutputRef },
+                        h(MarkdownText, { text: executionText }),
+                      ),
+                    )
+                  : null,
+                h(
+                  "div",
+                  { className: "pmtask-side-section" },
+                  h(
+                    "div",
+                    { className: "pmtask-live-head" },
+                    h("span", { className: "pmtask-live-dot" }),
+                    h("h3", null, "产出文档"),
+                    h(
+                      "span",
+                      { className: "pmtask-side-empty" },
+                      documents.length === 0
+                        ? ""
+                        : `${documents.length} 个文件`,
+                    ),
+                  ),
+                  documents.length === 0
+                    ? h(
+                        "div",
+                        { className: "pmtask-doc-empty" },
+                        documentsReady ? "暂无产出文档" : "任务工作区不可用",
+                      )
+                    : h(
+                        "div",
+                        { className: "pmtask-doc-list" },
+                        ...documents.map((document) =>
+                          h(
+                            "div",
+                            { className: "pmtask-doc", key: document.id },
+                            h(
+                              "div",
+                              { className: "pmtask-doc-info" },
+                              h(
+                                "button",
+                                {
+                                  className: "pmtask-doc-name",
+                                  type: "button",
+                                  disabled: !document.available,
+                                  title: document.available
+                                    ? `下载 ${document.name}`
+                                    : "该附件未存储到工作区",
+                                  onClick: () =>
+                                    void downloadDocument(document),
+                                },
+                                h(
+                                  "span",
+                                  { className: "pmtask-doc-kind" },
+                                  document.kind === "uploaded"
+                                    ? "上传"
+                                    : "产出",
+                                ),
+                                h("span", null, document.name),
+                              ),
+                              h(
+                                "div",
+                                { className: "pmtask-doc-meta" },
+                                `${document.updatedBy} · ${localTime(document.updatedAt)}`,
+                              ),
+                            ),
+                            document.available
+                              ? h(
+                                  "button",
+                                  {
+                                    className: "pmtask-tool-btn",
+                                    type: "button",
+                                    title: "在本地文件夹中显示",
+                                    "aria-label": "在本地文件夹中显示",
+                                    onClick: () =>
+                                      void revealDocument(document),
+                                  },
+                                  h(
+                                    "svg",
+                                    {
+                                      viewBox: "0 0 24 24",
+                                      fill: "none",
+                                      stroke: "currentColor",
+                                      strokeWidth: 2,
+                                      strokeLinecap: "round",
+                                      strokeLinejoin: "round",
+                                      "aria-hidden": "true",
+                                    },
+                                    h("path", {
+                                      d: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z",
+                                    }),
+                                  ),
+                                )
+                              : null,
+                          ),
+                        ),
+                      ),
+                ),
               ),
-            ),
             ),
           ),
           confirmArchive
@@ -3129,9 +3661,12 @@ window.__ModuleLoader__.load({
               title: form.title.trim(),
               priority: form.priority,
               description: form.description.trim(),
-              acceptance: form.acceptance.split("\n").map((item) => item.trim()).filter(Boolean),
+              acceptance: form.acceptance
+                .split("\n")
+                .map((item) => item.trim())
+                .filter(Boolean),
               due: form.due || undefined,
-              ...(task.receiverType === "agent"
+              ...(task.receiverType === "agent" || task.workflow !== undefined
                 ? { autoSubmitReview: form.autoSubmitReview }
                 : {}),
             });
@@ -3149,7 +3684,10 @@ window.__ModuleLoader__.load({
               value: form.title,
               required: true,
               onChange: (event) =>
-                setForm((current) => ({ ...current, title: event.target.value })),
+                setForm((current) => ({
+                  ...current,
+                  title: event.target.value,
+                })),
             }),
           ),
           h(
@@ -3218,7 +3756,7 @@ window.__ModuleLoader__.load({
               setForm((current) => ({ ...current, due: event.target.value })),
           }),
         ),
-        task.receiverType === "agent"
+        task.receiverType === "agent" && task.workflow === undefined
           ? h(
               "label",
               { className: "pmtask-check" },
@@ -3248,7 +3786,11 @@ window.__ModuleLoader__.load({
           { className: "pmtask-compose-actions" },
           h(
             "button",
-            { className: "pmtask-btn secondary", type: "button", onClick: onCancel },
+            {
+              className: "pmtask-btn secondary",
+              type: "button",
+              onClick: onCancel,
+            },
             "取消",
           ),
           h("button", { className: "pmtask-btn", type: "submit" }, "保存内容"),
@@ -3264,13 +3806,14 @@ window.__ModuleLoader__.load({
       onClose,
       onCreated,
     }) {
-      const initialReceiverType = directory.humans.length > 0
-        ? "human"
-        : directory.agents.length > 0
-          ? "agent"
-          : directory.roles.length > 0
-            ? "role"
-            : "unassigned";
+      const initialReceiverType =
+        directory.humans.length > 0
+          ? "human"
+          : directory.agents.length > 0
+            ? "agent"
+            : directory.roles.length > 0
+              ? "role"
+              : "unassigned";
       const initialReceiver =
         initialReceiverType === "human"
           ? directory.humans[0]
@@ -3318,30 +3861,92 @@ window.__ModuleLoader__.load({
       };
       return h(
         "div",
-        { className: "pmtask-mask", onMouseDown: (event) => { if (event.target === event.currentTarget) onClose(); } },
+        {
+          className: "pmtask-mask",
+          onMouseDown: (event) => {
+            if (event.target === event.currentTarget) onClose();
+          },
+        },
         h(
           "form",
           {
             className: "pmtask-modal",
             onSubmit: (event) => {
               event.preventDefault();
-              const acceptance = form.acceptance.split("\n").map((item) => item.trim()).filter(Boolean);
+              const acceptance = form.acceptance
+                .split("\n")
+                .map((item) => item.trim())
+                .filter(Boolean);
               void onCreated({
                 ...form,
                 title: form.title.trim(),
                 description: form.description.trim(),
-                acceptance: acceptance.length ? acceptance : ["按描述完成并自查"],
-                receiverId: form.receiverType === "unassigned" ? undefined : form.receiverId,
-                receiverName: form.receiverType === "unassigned" ? undefined : form.receiverName,
+                acceptance: acceptance.length
+                  ? acceptance
+                  : ["按描述完成并自查"],
+                receiverId:
+                  form.receiverType === "unassigned"
+                    ? undefined
+                    : form.receiverId,
+                receiverName:
+                  form.receiverType === "unassigned"
+                    ? undefined
+                    : form.receiverName,
               });
             },
           },
-          h("div", { className: "pmtask-modal-head" }, h("h2", null, "派发任务 / Issue"), h("button", { className: "pmtask-btn secondary", type: "button", onClick: onClose }, "关闭")),
+          h(
+            "div",
+            { className: "pmtask-modal-head" },
+            h("h2", null, "派发任务 / Issue"),
+            h(
+              "button",
+              {
+                className: "pmtask-btn secondary",
+                type: "button",
+                onClick: onClose,
+              },
+              "关闭",
+            ),
+          ),
           h(
             "div",
             { className: "pmtask-modal-grid" },
-            h("label", { className: "pmtask-field" }, "标题", h("input", { className: "pmtask-input", value: form.title, required: true, onChange: (event) => setForm((current) => ({ ...current, title: event.target.value })) })),
-            h("label", { className: "pmtask-field" }, "类型", h("select", { className: "pmtask-select", value: form.type, onChange: (event) => setForm((current) => ({ ...current, type: event.target.value })) }, h("option", null, "任务"), h("option", null, "缺陷"), h("option", null, "评审"))),
+            h(
+              "label",
+              { className: "pmtask-field" },
+              "标题",
+              h("input", {
+                className: "pmtask-input",
+                value: form.title,
+                required: true,
+                onChange: (event) =>
+                  setForm((current) => ({
+                    ...current,
+                    title: event.target.value,
+                  })),
+              }),
+            ),
+            h(
+              "label",
+              { className: "pmtask-field" },
+              "类型",
+              h(
+                "select",
+                {
+                  className: "pmtask-select",
+                  value: form.type,
+                  onChange: (event) =>
+                    setForm((current) => ({
+                      ...current,
+                      type: event.target.value,
+                    })),
+                },
+                h("option", null, "任务"),
+                h("option", null, "缺陷"),
+                h("option", null, "评审"),
+              ),
+            ),
             h(
               "label",
               { className: "pmtask-field" },
@@ -3353,7 +3958,10 @@ window.__ModuleLoader__.load({
                   value: form.workspaceId,
                   required: true,
                   onChange: (event) =>
-                    setForm((current) => ({ ...current, workspaceId: event.target.value })),
+                    setForm((current) => ({
+                      ...current,
+                      workspaceId: event.target.value,
+                    })),
                 },
                 h(
                   "option",
@@ -3361,7 +3969,11 @@ window.__ModuleLoader__.load({
                   workspaces.length === 0 ? "暂无可用项目" : "请选择项目",
                 ),
                 ...workspaces.map((workspace) =>
-                  h("option", { value: workspace.id, key: workspace.id }, workspace.title),
+                  h(
+                    "option",
+                    { value: workspace.id, key: workspace.id },
+                    workspace.title,
+                  ),
                 ),
               ),
               workspaces.length === 0
@@ -3372,8 +3984,50 @@ window.__ModuleLoader__.load({
                   )
                 : null,
             ),
-            h("label", { className: "pmtask-field" }, "优先级", h("select", { className: "pmtask-select", value: form.priority, onChange: (event) => setForm((current) => ({ ...current, priority: event.target.value })) }, h("option", null, "P1"), h("option", null, "P2"), h("option", null, "P3"))),
-            h("label", { className: "pmtask-field" }, "初始状态", h("select", { className: "pmtask-select", value: form.status, onChange: (event) => setForm((current) => ({ ...current, status: event.target.value })) }, ...STATUSES.map((status) => h("option", { value: status.key, key: status.key }, status.label)))),
+            h(
+              "label",
+              { className: "pmtask-field" },
+              "优先级",
+              h(
+                "select",
+                {
+                  className: "pmtask-select",
+                  value: form.priority,
+                  onChange: (event) =>
+                    setForm((current) => ({
+                      ...current,
+                      priority: event.target.value,
+                    })),
+                },
+                h("option", null, "P1"),
+                h("option", null, "P2"),
+                h("option", null, "P3"),
+              ),
+            ),
+            h(
+              "label",
+              { className: "pmtask-field" },
+              "初始状态",
+              h(
+                "select",
+                {
+                  className: "pmtask-select",
+                  value: form.status,
+                  onChange: (event) =>
+                    setForm((current) => ({
+                      ...current,
+                      status: event.target.value,
+                    })),
+                },
+                ...STATUSES.map((status) =>
+                  h(
+                    "option",
+                    { value: status.key, key: status.key },
+                    status.label,
+                  ),
+                ),
+              ),
+            ),
             h(
               "label",
               { className: "pmtask-field" },
@@ -3393,7 +4047,10 @@ window.__ModuleLoader__.load({
                       ...directory.humans.map((item) =>
                         h(
                           "option",
-                          { value: `human:${item.id}`, key: `human:${item.id}` },
+                          {
+                            value: `human:${item.id}`,
+                            key: `human:${item.id}`,
+                          },
                           item.name,
                         ),
                       ),
@@ -3406,7 +4063,10 @@ window.__ModuleLoader__.load({
                       ...directory.agents.map((item) =>
                         h(
                           "option",
-                          { value: `agent:${item.id}`, key: `agent:${item.id}` },
+                          {
+                            value: `agent:${item.id}`,
+                            key: `agent:${item.id}`,
+                          },
                           item.ownerName
                             ? receiverOptionLabel({ ...item, type: "agent" })
                             : item.name,
@@ -3429,7 +4089,21 @@ window.__ModuleLoader__.load({
                   : null,
               ),
             ),
-            h("label", { className: "pmtask-field" }, "到期时间", h("input", { className: "pmtask-input", type: "date", value: form.due, onChange: (event) => setForm((current) => ({ ...current, due: event.target.value })) })),
+            h(
+              "label",
+              { className: "pmtask-field" },
+              "到期时间",
+              h("input", {
+                className: "pmtask-input",
+                type: "date",
+                value: form.due,
+                onChange: (event) =>
+                  setForm((current) => ({
+                    ...current,
+                    due: event.target.value,
+                  })),
+              }),
+            ),
             form.receiverType === "agent"
               ? h(
                   "label",
@@ -3456,9 +4130,66 @@ window.__ModuleLoader__.load({
                 )
               : null,
           ),
-          h("label", { className: "pmtask-field" }, "描述", h("textarea", { className: "pmtask-area", rows: 4, value: form.description, required: true, placeholder: "补充背景、期望结果、边界和风险。", onChange: (event) => setForm((current) => ({ ...current, description: event.target.value })) })),
-          h("label", { className: "pmtask-field" }, "验收标准（每行一条）", h("textarea", { className: "pmtask-area", rows: 4, value: form.acceptance, placeholder: "例如：失败任务能在 3 次内自动重试", onChange: (event) => setForm((current) => ({ ...current, acceptance: event.target.value })) })),
-          h("div", { className: "pmtask-compose-actions" }, h("button", { className: "pmtask-btn secondary", type: "button", onClick: onClose }, "取消"), h("button", { className: "pmtask-btn", type: "submit", disabled: form.title.trim() === "" || form.description.trim() === "" || form.workspaceId === "" || (form.receiverType !== "unassigned" && form.receiverId === "") }, "派发")),
+          h(
+            "label",
+            { className: "pmtask-field" },
+            "描述",
+            h("textarea", {
+              className: "pmtask-area",
+              rows: 4,
+              value: form.description,
+              required: true,
+              placeholder: "补充背景、期望结果、边界和风险。",
+              onChange: (event) =>
+                setForm((current) => ({
+                  ...current,
+                  description: event.target.value,
+                })),
+            }),
+          ),
+          h(
+            "label",
+            { className: "pmtask-field" },
+            "验收标准（每行一条）",
+            h("textarea", {
+              className: "pmtask-area",
+              rows: 4,
+              value: form.acceptance,
+              placeholder: "例如：失败任务能在 3 次内自动重试",
+              onChange: (event) =>
+                setForm((current) => ({
+                  ...current,
+                  acceptance: event.target.value,
+                })),
+            }),
+          ),
+          h(
+            "div",
+            { className: "pmtask-compose-actions" },
+            h(
+              "button",
+              {
+                className: "pmtask-btn secondary",
+                type: "button",
+                onClick: onClose,
+              },
+              "取消",
+            ),
+            h(
+              "button",
+              {
+                className: "pmtask-btn",
+                type: "submit",
+                disabled:
+                  form.title.trim() === "" ||
+                  form.description.trim() === "" ||
+                  form.workspaceId === "" ||
+                  (form.receiverType !== "unassigned" &&
+                    form.receiverId === ""),
+              },
+              "派发",
+            ),
+          ),
         ),
       );
     }

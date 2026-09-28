@@ -18,6 +18,7 @@ export const agentProfileSchema = z.object({
   defaultModel: agentModelSelectionSchema.optional(),
   allowedTools: z.array(z.string().trim().min(1).max(120)).max(50).default([]),
   ownerUserId: z.string().min(1).max(160),
+  visibility: z.enum(["workspace", "platform"]).optional(),
   status: z.enum(["active", "disabled"]).default("active"),
   createdAt: z.string().datetime({ precision: 3 }),
   updatedAt: z.string().datetime({ precision: 3 }),

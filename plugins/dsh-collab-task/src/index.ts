@@ -197,11 +197,13 @@ interface TaskAgentServiceLike {
 
 interface TaskAgentRunSummary {
   readonly id: string;
-  readonly status: string;
+  readonly status: TaskAgentRun["status"];
   readonly createdAt?: string | undefined;
   readonly startedAt?: string | undefined;
   readonly endedAt?: string | undefined;
   readonly payload?: { readonly profileName?: string | undefined } | undefined;
+  readonly output?: TaskAgentRun["output"] | undefined;
+  readonly error?: string | undefined;
 }
 
 interface AssignmentSeatLike {
@@ -765,6 +767,31 @@ export function createTaskRoutes(
   const agentDisplayName = (task: TaskRecord): string =>
     task.receiverName ?? task.receiverId ?? "Agent";
 
+  const reconcileWorkflowAgentRuns = async (
+    workspaceId: string,
+  ): Promise<void> => {
+    const agentService = agent?.();
+    if (agentService?.runs === undefined) return;
+    for (const task of service.list(workspaceId)) {
+      if (task.workflow === undefined) continue;
+      for (const run of agentService.runs({
+        instanceId: task.workflow.instanceId,
+      })) {
+        if (task.agentRunIds.includes(run.id)) continue;
+        try {
+          await service.projectAgentRun(
+            { id: "workflow", name: "工作流", kind: "system" },
+            task.id,
+            run,
+            run.payload?.profileName ?? task.receiverName ?? "Agent",
+          );
+        } catch {
+          // A later refresh retries the projection without blocking the list.
+        }
+      }
+    }
+  };
+
   const bootstrap = async (
     request: IncomingMessage,
     response: ServerResponse,
@@ -773,6 +800,8 @@ export function createTaskRoutes(
       assertSameOrigin(request);
       const workspaceId = query(request).get("workspaceId") ?? "";
       const currentActor = requireAccess(request, team, workspaceId);
+      await service.reconcileWorkflowProjections(workspaceId);
+      await reconcileWorkflowAgentRuns(workspaceId);
       sendJson(response, 200, {
         ok: true,
         tasks: service.list(workspaceId),
@@ -997,6 +1026,9 @@ export function createTaskRoutes(
       path: "/api/collab/tasks/comment",
       handler: mutate(async (_request, currentActor, body) => {
         const task = await service.addComment(currentActor, body);
+        if (task.workflow !== undefined) {
+          return { task, dispatched: false };
+        }
         if (task.receiverType !== "agent" || task.receiverId === undefined) {
           return { task };
         }

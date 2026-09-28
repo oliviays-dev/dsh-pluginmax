@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  ProfileTemplateService,
   TeammateService,
   canManageTeammate,
   nextVersion,
   type KvTableLike,
+  type ProfileTemplateTables,
   type TeammateTables,
 } from "./service.js";
-import type { Teammate, TeammateEvent } from "./models.js";
+import type { Teammate, TeammateEvent, ProfileTemplate } from "./models.js";
 
 function memoryTable<V>(): KvTableLike<V> {
   const values = new Map<string, V>();
@@ -68,6 +70,60 @@ const admin = { userId: "admin", name: "Admin", role: "admin" as const };
 const peter = { userId: "peter", name: "Peter", role: "member" as const };
 
 describe("dsh-collab-teammate service", () => {
+  it("manages shared Profile templates and applies them to new teammates", async () => {
+    const profilesTable = memoryTable<ProfileTemplate>();
+    const profiles = new ProfileTemplateService({
+      tables: { templates: profilesTable } satisfies ProfileTemplateTables,
+    });
+    const profile = await profiles.create(admin, {
+      name: "Research Partner",
+      role: "研究分析",
+      description: "会前研究与结论总结",
+      soul: "以证据优先，结论明确。",
+      scenarios: ["会前提取分歧"],
+      goals: ["减少研究时间"],
+      tools: ["search", "notes"],
+    });
+    expect(profile.version).toBe("v1.0");
+    expect(profile.state).toBe("active");
+    expect(profiles.list(olivia).map((item) => item.id)).toEqual([profile.id]);
+
+    const teammates = new TeammateService({
+      tables: {
+        teammates: memoryTable<Teammate>(),
+        events: memoryTable<TeammateEvent>(),
+      },
+      profiles,
+    });
+    const created = await teammates.create(olivia, {
+      source: "personal",
+      profileTemplateId: profile.id,
+    });
+    expect(created.profileTemplateId).toBe(profile.id);
+    expect(created.name).toBe("Research Partner");
+    expect(created.role).toBe("研究分析");
+    expect(created.soul).toContain("证据优先");
+    expect(created.scenarios).toEqual(["会前提取分歧"]);
+
+    const updated = await profiles.update(admin, {
+      templateId: profile.id,
+      name: "Research Partner",
+    });
+    expect(updated.version).toBe("v1.1");
+
+    await profiles.changeState(admin, {
+      templateId: profile.id,
+      state: "disabled",
+    });
+    expect(profiles.list(olivia)).toEqual([]);
+    await expect(
+      teammates.applyProfile(peter, {
+        teammateId: created.id,
+        templateId: profile.id,
+      }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+  });
+
   it("creates a personal draft and promotes it on first save", async () => {
     const teammates = service();
     const draft = await teammates.create(olivia, { source: "personal" });

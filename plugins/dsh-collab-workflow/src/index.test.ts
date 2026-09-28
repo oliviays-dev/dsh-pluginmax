@@ -16,6 +16,8 @@ import {
   type WorkflowDomainLike,
   type WorkflowEvent,
   type WorkflowInstance,
+  type WorkflowTaskBridge,
+  type WorkflowTaskRef,
   type WorkflowSubmission,
 } from "./index.js";
 import type {
@@ -139,6 +141,12 @@ function team(): TeamServiceLike {
             { userId: "workflow-member", name: "Member", memberRole: "member" },
           ]
         : [],
+    users: () => [
+      { id: "workflow-admin", name: "Admin" },
+      { id: "workflow-owner", name: "Owner" },
+      { id: "workflow-member", name: "Member" },
+      { id: "flow-member", name: "Flow Member" },
+    ],
   };
 }
 
@@ -152,6 +160,130 @@ async function importedFixture(
     "utf8",
   );
   return service.importDefinition(actor, { workspaceId: "main", sourceMd });
+}
+
+type FakeWorkflowRef = {
+  instanceId: string;
+  nodeId: string;
+  nodeAttempt?: number | undefined;
+  reviewRequired?: boolean | undefined;
+  approvalPolicy?: "all" | "any";
+};
+
+type FakeWorkflowTask = Omit<WorkflowTaskRef, "status"> & {
+  status: WorkflowTaskRef["status"];
+  workflow?: FakeWorkflowRef | undefined;
+  description?: string | undefined;
+  autoSubmitReview?: boolean | undefined;
+};
+
+class FakeTaskBridge implements WorkflowTaskBridge {
+  private nextId = 0;
+  readonly records = new Map<string, FakeWorkflowTask>();
+  readonly outcomes = new Map<
+    string,
+    "approved" | "rejected" | "cancelled" | "superseded"
+  >();
+  readonly projectedStatuses = new Map<
+    string,
+    "todo" | "progress" | "review"
+  >();
+  readonly projectedRuns = new Map<string, string>();
+  readonly projectedEvents = new Map<
+    string,
+    Array<{ id: string; kind: string; message: string }>
+  >();
+
+  get(taskId: string) {
+    return this.records.get(taskId);
+  }
+
+  async create(
+    _actor: Parameters<WorkflowTaskBridge["create"]>[0],
+    input: Record<string, unknown>,
+  ) {
+    const id = `workflow-task-${String(++this.nextId)}`;
+    const task: FakeWorkflowTask = {
+      id,
+      receiverType: input.receiverType as WorkflowTaskRef["receiverType"],
+      receiverId: input.receiverId as string | undefined,
+      receiverName: input.receiverName as string | undefined,
+      status: input.status as WorkflowTaskRef["status"],
+      workflow: input.workflow as FakeWorkflowTask["workflow"],
+      nodeAttempt: input.nodeAttempt as number | undefined,
+      reviewRequired: input.reviewRequired as boolean | undefined,
+      description: input.description as string,
+      autoSubmitReview: input.autoSubmitReview as boolean,
+    };
+    this.records.set(id, task);
+    return task;
+  }
+
+  async projectAssigned(
+    _actor: Parameters<WorkflowTaskBridge["projectAssigned"]>[0],
+    input: Record<string, unknown>,
+  ) {
+    const task = this.records.get(String(input.taskId));
+    if (task === undefined) throw new Error("task not found");
+    Object.assign(task, {
+      receiverType: input.receiverType,
+      receiverId: input.receiverId,
+      receiverName: input.receiverName,
+    });
+    return task;
+  }
+
+  async settle(
+    _actor: Parameters<WorkflowTaskBridge["settle"]>[0],
+    taskId: string,
+    outcome: "approved" | "rejected" | "cancelled" | "superseded",
+  ) {
+    const task = this.records.get(taskId);
+    if (task === undefined) throw new Error("task not found");
+    task.status = "done";
+    this.outcomes.set(taskId, outcome);
+    return task;
+  }
+
+  async projectStatus(
+    _actor: Parameters<WorkflowTaskBridge["create"]>[0],
+    taskId: string,
+    status: "todo" | "progress" | "review",
+  ) {
+    const task = this.records.get(taskId);
+    if (task === undefined) throw new Error("task not found");
+    task.status = status;
+    this.projectedStatuses.set(taskId, status);
+    return task;
+  }
+
+  async projectAgentRun(
+    _actor: Parameters<WorkflowTaskBridge["create"]>[0],
+    taskId: string,
+    run: { id: string },
+  ) {
+    const task = this.records.get(taskId);
+    if (task === undefined) throw new Error("task not found");
+    this.projectedRuns.set(taskId, run.id);
+    return task;
+  }
+
+  async projectEvent(
+    _actor: Parameters<NonNullable<WorkflowTaskBridge["projectEvent"]>>[0],
+    taskId: string,
+    event: Parameters<NonNullable<WorkflowTaskBridge["projectEvent"]>>[2],
+  ) {
+    const task = this.records.get(taskId);
+    if (task === undefined) throw new Error("task not found");
+    const events = this.projectedEvents.get(taskId) ?? [];
+    events.push({
+      id: event.id,
+      kind: event.actorKind,
+      message: event.message,
+    });
+    this.projectedEvents.set(taskId, events);
+    return task;
+  }
 }
 
 class FakeAgentService implements AgentServiceLike {
@@ -340,6 +472,9 @@ describe("workflow parser", () => {
     expect(result.warnings.join(" ")).toContain(
       'node "development" has an agent executor without responsible',
     );
+    expect(result.warnings.join(" ")).toContain(
+      "节点「开发」的 Agent 执行器需要手动派发",
+    );
     expect(result.graph?.nodes).toHaveLength(5);
     expect(result.graph?.edges).toHaveLength(5);
     expect(result.graph?.startNodeIds).toEqual(["requirement-review"]);
@@ -374,7 +509,9 @@ describe("workflow parser", () => {
       timeoutMs: 1_800_000,
       agentProfileId: "backend-agent",
     });
-    expect(enhanced.warnings).toEqual([]);
+    expect(enhanced.warnings).toContain(
+      "节点「开发」的 Agent 执行器需要手动派发；如需就绪后自动启动，请设置 execution: task-worker 和 trigger: auto-on-ready",
+    );
   });
 
   it("rejects an uncontrolled cycle", async () => {
@@ -414,6 +551,9 @@ describe("workflow parser", () => {
       responsible: { kind: "user", id: "workflow-member" },
     });
     expect(node?.agentProfileId).toBeUndefined();
+    expect(result.warnings.join(" ")).not.toContain(
+      "节点「开发」的 Agent 执行器需要手动派发",
+    );
 
     const timeoutResult = parseDefinitionFixture(
       await readFile(
@@ -473,6 +613,35 @@ describe("workflow service", () => {
     ).toHaveLength(1);
   });
 
+  it("reports duplicate key and version during validation", async () => {
+    const first = await importedFixture(service, "product-delivery.md");
+    const result = service.validate(first.sourceMd);
+    expect(result.issues).toContainEqual({
+      level: "error",
+      message: `模板版本已存在：${first.key} v${first.version}。请把元信息里的 version 改成未占用的 v2，或更换流程 key。`,
+    });
+
+    const nextVersion = first.sourceMd.replace("version: 1", "version: 2");
+    await service.importDefinition(owner, {
+      workspaceId: "main",
+      sourceMd: nextVersion,
+    });
+    expect(
+      service
+        .validate(nextVersion)
+        .issues.some((issue) =>
+          issue.message.includes(
+            `模板版本已存在：${first.key} v2。请把元信息里的 version 改成未占用的 v3`,
+          ),
+        ),
+    ).toBe(true);
+    expect(
+      service
+        .validate(first.sourceMd.replace("version: 1", "version: 3"))
+        .issues.some((issue) => issue.message.includes("模板版本已存在")),
+    ).toBe(false);
+  });
+
   it("imports, archives previous versions, and starts an instance", async () => {
     const first = await importedFixture(service, "product-delivery.md");
     const changed = (
@@ -492,6 +661,18 @@ describe("workflow service", () => {
       service.definitions("main").find((item) => item.id === first.id)?.status,
     ).toBe("archived");
     expect(second.status).toBe("active");
+    const disabled = await service.setDefinitionStatus(owner, {
+      workspaceId: "main",
+      definitionId: second.id,
+      status: "disabled",
+    });
+    expect(disabled.status).toBe("disabled");
+    const reactivated = await service.setDefinitionStatus(owner, {
+      workspaceId: "main",
+      definitionId: second.id,
+      status: "active",
+    });
+    expect(reactivated.status).toBe("active");
     const agentDefinition = await importedFixture(service, "agent-node.md");
     await current.definitions.put(first.id, {
       ...first,
@@ -541,6 +722,52 @@ describe("workflow service", () => {
     });
     expect(service.instanceView(instance.id)?.status).toBe("blocked");
     expect(service.instances("main")[0]?.status).toBe("blocked");
+  });
+
+  it("starts a shared template from a different project", async () => {
+    const sharedTeam: TeamServiceLike = {
+      resolveToken: team().resolveToken,
+      members: (workspaceId) =>
+        workspaceId === "project-b"
+          ? [
+              { userId: "admin", name: "Admin", memberRole: "member" },
+              {
+                userId: "flow-member",
+                name: "Flow Member",
+                memberRole: "member",
+              },
+            ]
+          : [],
+      users: () => [
+        { id: "admin", name: "Admin" },
+        { id: "flow-member", name: "Flow Member" },
+      ],
+    };
+    const sharedService = new WorkflowService(current, {
+      now: () => new Date(timestamp),
+      team: () => sharedTeam,
+    });
+    const sourceMd = await readFile(
+      new URL(
+        "../../../docs/fixtures/workflow/gui-from-zero.md",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const definition = await sharedService.importDefinition(owner, {
+      workspaceId: "template-home",
+      sourceMd,
+    });
+    expect(definition.workspaceId).toBe("template-home");
+
+    const instance = await sharedService.startInstance(member, {
+      workspaceId: "project-b",
+      definitionId: definition.id,
+      title: "跨项目启动共享模版",
+    });
+    expect(instance.workspaceId).toBe("project-b");
+    expect(instance.definitionKey).toBe(definition.key);
+    expect(instance.nodes["requirement-confirmation"]?.status).toBe("ready");
   });
 
   it("runs parallel nodes through a join and approval", async () => {
@@ -682,11 +909,13 @@ describe("workflow service", () => {
       ),
     ).toBe(true);
     expect(
-      service.events(instance.id).some(
-        (event) =>
-          event.nodeId === "release-approval" &&
-          event.kind.startsWith("approval."),
-      ),
+      service
+        .events(instance.id)
+        .some(
+          (event) =>
+            event.nodeId === "release-approval" &&
+            event.kind.startsWith("approval."),
+        ),
     ).toBe(false);
   });
 
@@ -742,21 +971,30 @@ describe("workflow service", () => {
   });
 
   it("supports delegation and countersign", async () => {
-    const definition = await importedFixture(service, "product-delivery.md");
-    const instance = await service.startInstance(owner, {
+    const tasks = new FakeTaskBridge();
+    const taskLinkedService = new WorkflowService(current, {
+      now: () => new Date(timestamp),
+      team,
+      tasks: () => tasks,
+    });
+    const definition = await importedFixture(
+      taskLinkedService,
+      "product-delivery.md",
+    );
+    const instance = await taskLinkedService.startInstance(owner, {
       workspaceId: "main",
       definitionId: definition.id,
       title: "审批链",
     });
     await expect(
-      service.countersignApproval(member, {
+      taskLinkedService.countersignApproval(member, {
         instanceId: instance.id,
         nodeId: "requirement-review",
         toId: "missing-user",
         toName: "Missing User",
       }),
     ).rejects.toMatchObject({ code: "invalid_input" });
-    const delegated = await service.delegateApproval(member, {
+    const delegated = await taskLinkedService.delegateApproval(member, {
       instanceId: instance.id,
       nodeId: "requirement-review",
       toId: "workflow-owner",
@@ -765,7 +1003,25 @@ describe("workflow service", () => {
     expect(delegated.nodes["requirement-review"]?.approvals).toMatchObject({
       "requirement-review:workflow-owner": { status: "pending" },
     });
-    const countersigned = await service.countersignApproval(owner, {
+    const delegatedTaskId = delegated.nodes["requirement-review"]!.taskIds[0]!;
+    expect(tasks.records.get(delegatedTaskId)).toMatchObject({
+      receiverType: "human",
+      receiverId: "workflow-owner",
+      receiverName: "Owner",
+    });
+    const staleProjection = tasks.records.get(delegatedTaskId)!;
+    Object.assign(staleProjection, {
+      receiverType: "human",
+      receiverId: "workflow-member",
+      receiverName: "Member",
+    });
+    await taskLinkedService.handleTaskReconcile(staleProjection);
+    expect(tasks.records.get(delegatedTaskId)).toMatchObject({
+      receiverType: "human",
+      receiverId: "workflow-owner",
+      receiverName: "Owner",
+    });
+    const countersigned = await taskLinkedService.countersignApproval(owner, {
       instanceId: instance.id,
       nodeId: "requirement-review",
       toId: "workflow-admin",
@@ -775,7 +1031,7 @@ describe("workflow service", () => {
       Object.values(countersigned.nodes["requirement-review"]!.approvals),
     ).toHaveLength(3);
     await expect(
-      service.countersignApproval(member, {
+      taskLinkedService.countersignApproval(member, {
         instanceId: instance.id,
         nodeId: "requirement-review",
         toId: "auditor-2",
@@ -784,7 +1040,122 @@ describe("workflow service", () => {
     ).rejects.toMatchObject({ code: "forbidden" });
   });
 
-  it("rejects workflow users outside the workspace", async () => {
+  it("creates approval tasks and syncs reassignment and decisions", async () => {
+    const tasks = new FakeTaskBridge();
+    const taskService = new WorkflowService(current, {
+      now: () => new Date(timestamp),
+      team,
+      tasks: () => tasks,
+    });
+    const definition = await importedFixture(
+      taskService,
+      "product-delivery-v2.md",
+    );
+    const instance = await taskService.startInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "审批 Task 联动",
+    });
+    const requirementTaskId = instance.nodes["requirement-review"]!.taskIds[0]!;
+    const requirementTask = tasks.records.get(requirementTaskId)!;
+    expect(requirementTask).toMatchObject({
+      receiverType: "human",
+      receiverId: "workflow-member",
+      status: "review",
+      autoSubmitReview: false,
+    });
+    expect(requirementTask.description).toContain("或签：任一审批人通过即可");
+
+    await taskService.decideApproval(member, {
+      instanceId: instance.id,
+      nodeId: "requirement-review",
+      decision: "approved",
+    });
+    expect(tasks.records.get(requirementTaskId)?.status).toBe("done");
+    expect(
+      tasks.projectedEvents
+        .get(requirementTaskId)
+        ?.some(
+          (event) =>
+            event.kind === "user" && event.message.includes("通过审批"),
+        ),
+    ).toBe(true);
+
+    await taskService.submitDeliverable(member, {
+      instanceId: instance.id,
+      nodeId: "development",
+      requirementKey: "implementation-report",
+      type: "text",
+      value: "完成订单导出接口与数据结构，覆盖权限、并发导出和空结果场景。",
+    });
+    await taskService.completeNode(member, {
+      instanceId: instance.id,
+      nodeId: "development",
+    });
+    await taskService.completeNode(member, {
+      instanceId: instance.id,
+      nodeId: "test-preparation",
+    });
+    const releaseState = taskService.instance(instance.id)!.nodes[
+      "release-approval"
+    ]!;
+    const releaseTaskId = releaseState.taskIds[0]!;
+    const releaseTask = tasks.records.get(releaseTaskId)!;
+    expect(releaseTask).toMatchObject({
+      receiverType: "human",
+      receiverId: "workflow-owner",
+      status: "review",
+      autoSubmitReview: false,
+    });
+    expect(releaseTask.workflow?.approvalPolicy).toBe("all");
+    expect(releaseTask.description).toContain("并签：全部审批人通过后才完成");
+
+    await taskService.handleTaskAssigned(
+      {
+        id: releaseTaskId,
+        workspaceId: "main",
+        receiverType: "human",
+        receiverId: "workflow-admin",
+        receiverName: "Admin",
+        workflow: { instanceId: instance.id, nodeId: "release-approval" },
+      },
+      owner,
+    );
+    const reassigned = taskService.instance(instance.id)!.nodes[
+      "release-approval"
+    ]!;
+    expect(
+      reassigned.approvals["release-approval:workflow-owner"],
+    ).toMatchObject({
+      status: "pending",
+      approver: { kind: "user", id: "workflow-admin", name: "Admin" },
+    });
+    expect(tasks.projectedEvents.get(releaseTaskId)?.at(-1)?.message).toContain(
+      "改派审批 Task",
+    );
+
+    await taskService.decideApproval(
+      {
+        kind: "user",
+        id: "workflow-admin",
+        name: "Admin",
+        workspaceRole: "owner",
+      },
+      {
+        instanceId: instance.id,
+        nodeId: "release-approval",
+        decision: "approved",
+      },
+    );
+    await taskService.decideApproval(member, {
+      instanceId: instance.id,
+      nodeId: "release-approval",
+      decision: "approved",
+    });
+    expect(tasks.records.get(releaseTaskId)?.status).toBe("done");
+  });
+
+  it("allows shared templates to reference accounts outside the source project", async () => {
     const sourceMd = await readFile(
       new URL(
         "../../../docs/fixtures/workflow/product-delivery.md",
@@ -792,15 +1163,23 @@ describe("workflow service", () => {
       ),
       "utf8",
     );
+    const definition = await service.importDefinition(owner, {
+      workspaceId: "template-home",
+      sourceMd,
+    });
+    expect(definition.workspaceId).toBe("template-home");
+
     await expect(
-      service.importDefinition(owner, {
-        workspaceId: "other",
-        sourceMd,
+      service.startInstance(member, {
+        workspaceId: "project-without-members",
+        definitionId: definition.id,
+        title: "项目成员校验",
       }),
     ).rejects.toMatchObject({
       code: "invalid_input",
       message: expect.stringContaining("不是当前工作区成员"),
     });
+    expect(service.instances("project-without-members")).toHaveLength(0);
   });
 
   it("blocks a controlled loop when break becomes true", async () => {
@@ -828,6 +1207,108 @@ describe("workflow service", () => {
     expect(blocked.status).toBe("blocked");
     expect(blocked.nodes.development?.status).toBe("blocked");
     expect(blocked.nodes.development?.note).toContain("已触发 break");
+  });
+
+  it("keeps the workflow authoritative when task projection is unavailable", async () => {
+    const tasks = new FakeTaskBridge();
+    const failingCreate = Object.create(tasks) as FakeTaskBridge;
+    failingCreate.create = async () => {
+      throw new Error("task service down");
+    };
+    const serviceWithCreateFailure = new WorkflowService(current, {
+      now: () => new Date(timestamp),
+      team,
+      tasks: () => failingCreate,
+    });
+    const definition = await importedFixture(
+      serviceWithCreateFailure,
+      "controlled-loop.md",
+    );
+    const started = await serviceWithCreateFailure.startInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "Task 投影失败不阻塞",
+    });
+    expect(started.nodes.confirm?.status).toBe("ready");
+    expect(started.status).toBe("running");
+
+    const validTasks = new FakeTaskBridge();
+    const serviceWithTasks = new WorkflowService(current, {
+      now: () => new Date(timestamp),
+      team,
+      tasks: () => validTasks,
+    });
+    const syncedInstance = await serviceWithTasks.startInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "Task 结算失败不阻塞",
+    });
+    expect(validTasks.records.size).toBeGreaterThan(0);
+    const failingSettle = Object.create(validTasks) as FakeTaskBridge;
+    failingSettle.settle = async () => {
+      throw new Error("task service down");
+    };
+    const serviceWithSettleFailure = new WorkflowService(current, {
+      now: () => new Date(timestamp),
+      team,
+      tasks: () => failingSettle,
+    });
+    await serviceWithSettleFailure.completeNode(owner, {
+      instanceId: syncedInstance.id,
+      nodeId: "confirm",
+    });
+    const completed = serviceWithSettleFailure.instance(syncedInstance.id)!;
+    expect(completed.nodes.confirm?.status).toBe("completed");
+    expect(completed.nodes.development?.status).toBe("ready");
+    expect(completed.status).toBe("running");
+
+    const staleTask = [...validTasks.records.values()].find(
+      (task) =>
+        task.workflow?.instanceId === syncedInstance.id &&
+        task.workflow.nodeId === "confirm",
+    )!;
+    expect(staleTask.status).toBe("progress");
+    await serviceWithTasks.handleTaskReconcile(staleTask);
+    expect(validTasks.records.get(staleTask.id)?.status).toBe("done");
+    expect(validTasks.outcomes.get(staleTask.id)).toBe("approved");
+  });
+
+  it("runs the human and approval lifecycle without an optional task module", async () => {
+    const definition = await importedFixture(service, "controlled-loop.md");
+    const instance = await service.startInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "无任务模块闭环",
+    });
+    expect(instance.status).toBe("running");
+    expect(instance.nodes.confirm?.status).toBe("ready");
+    expect(
+      Object.values(instance.nodes).every(
+        (state) => state.taskIds.length === 0,
+      ),
+    ).toBe(true);
+
+    await service.completeNode(owner, {
+      instanceId: instance.id,
+      nodeId: "confirm",
+    });
+    await service.completeNode(owner, {
+      instanceId: instance.id,
+      nodeId: "development",
+    });
+    await service.decideApproval(member, {
+      instanceId: instance.id,
+      nodeId: "testing",
+      decision: "approved",
+    });
+    const completed = service.instanceView(instance.id)!;
+    expect(completed.status).toBe("running");
+    expect(completed.nodes["release-ready"]?.status).toBe("ready");
+    expect(
+      Object.values(completed.nodes).every(
+        (state) => state.taskIds.length === 0,
+      ),
+    ).toBe(true);
   });
 
   it("reactivates a completed node after a controlled rejection", async () => {
@@ -957,15 +1438,17 @@ describe("workflow service", () => {
 });
 
 describe("workflow agent nodes", () => {
-  async function agentHarness(hasProfile = true) {
+  async function agentHarness(hasProfile = true, withTasks = true) {
     const current = tables();
     const agent = new FakeAgentService(hasProfile);
+    const tasks = new FakeTaskBridge();
     const service = new WorkflowService(current, {
       now: () => new Date(timestamp),
       team,
+      ...(withTasks ? { tasks: () => tasks } : {}),
       agent: () => agent,
     });
-    return { agent, current, service };
+    return { agent, current, tasks, service };
   }
 
   async function employeeHarness(
@@ -990,10 +1473,15 @@ describe("workflow agent nodes", () => {
     return { agent, current, employee, service };
   }
 
-  it("rejects import when the referenced Agent Profile is unavailable", async () => {
+  it("rejects start when the referenced Agent Profile is unavailable", async () => {
     const { service } = await agentHarness(false);
+    const definition = await importedFixture(service, "agent-node.md");
     await expect(
-      importedFixture(service, "agent-node.md"),
+      service.startInstance(member, {
+        workspaceId: "main",
+        definitionId: definition.id,
+        title: "Agent Profile 校验",
+      }),
     ).rejects.toMatchObject({
       code: "invalid_input",
       message: expect.stringContaining("Agent Profile「backend-agent」不存在"),
@@ -1001,7 +1489,7 @@ describe("workflow agent nodes", () => {
   });
 
   it("auto-dispatches a ready Agent node and maps output to the delivery gate", async () => {
-    const { agent, service } = await agentHarness();
+    const { agent, service, tasks } = await agentHarness();
     const definition = await importedFixture(service, "agent-node.md");
     const instance = await service.startInstance(member, {
       workspaceId: "main",
@@ -1009,7 +1497,7 @@ describe("workflow agent nodes", () => {
       title: "Agent 自动执行",
     });
     expect(instance.nodes.development?.status).toBe("running");
-    expect(instance.nodes.development?.assignedTo).toBe("Backend Agent");
+    expect(instance.nodes.development?.assignedTo).toBe("backend-agent");
     expect(agent.dispatchInputs).toHaveLength(1);
     expect(agent.dispatchInputs[0]).toMatchObject({
       profileId: "backend-agent",
@@ -1035,8 +1523,12 @@ describe("workflow agent nodes", () => {
     });
     await service.handleAgentSettle(agent.run(run.id)!);
     const settled = service.instance(instance.id)!;
-    expect(settled.nodes.development?.status).toBe("completed");
-    expect(settled.nodes.development?.note).toContain("Agent 自动完成");
+    expect(settled.nodes.development?.status).toBe("ready");
+    expect(settled.nodes.development?.note).toContain("等待人工 Review");
+    const developmentTaskId = settled.nodes.development?.taskIds[0]!;
+    expect(tasks.records.get(developmentTaskId)?.status).toBe("review");
+    expect(tasks.projectedStatuses.get(developmentTaskId)).toBe("review");
+    expect(tasks.projectedRuns.get(developmentTaskId)).toBe(run.id);
     const submissions = service.submissions(instance.id, {
       nodeId: "development",
     });
@@ -1047,7 +1539,106 @@ describe("workflow agent nodes", () => {
       onBehalfOf: "backend-agent",
       note: `agent-run:${run.id}`,
     });
+    expect(settled.status).toBe("running");
+  });
+
+  it("direct-completes a no-review Agent node and closes its task projection", async () => {
+    const { agent, service, tasks } = await agentHarness();
+    const sourceMd = (
+      await readFile(
+        new URL(
+          "../../../docs/fixtures/workflow/agent-node.md",
+          import.meta.url,
+        ),
+        "utf8",
+      )
+    ).replace(
+      "- execution: task-worker",
+      "- review-required: false\n- execution: task-worker",
+    );
+    const definition = await service.importDefinition(owner, {
+      workspaceId: "main",
+      sourceMd,
+    });
+    const instance = await service.startInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "Agent 无需 Review 直接完成",
+    });
+    const run = agent.runs(instance.id, "development")[0]!;
+    const developmentTaskId = service.instance(instance.id)!.nodes.development!
+      .taskIds[0]!;
+    expect(tasks.records.get(developmentTaskId)).toMatchObject({
+      status: "progress",
+    });
+    expect(tasks.records.get(developmentTaskId)?.workflow).toMatchObject({
+      reviewRequired: false,
+    });
+    agent.settle(run.id, {
+      ...run,
+      status: "succeeded",
+      output: {
+        summary: "## 交付说明\n\n已完成 Agent 执行说明，覆盖接口与风险检查。",
+      },
+    });
+    await service.handleAgentSettle(agent.run(run.id)!);
+    const settled = service.instance(instance.id)!;
+    expect(settled.nodes.development?.status).toBe("completed");
     expect(settled.status).toBe("completed");
+    expect(tasks.records.get(developmentTaskId)?.status).toBe("done");
+    expect(tasks.outcomes.get(developmentTaskId)).toBe("approved");
+    expect(tasks.projectedRuns.get(developmentTaskId)).toBe(run.id);
+  });
+
+  it("direct-completes a no-review Agent node without a task module", async () => {
+    const { agent, service } = await agentHarness(true, false);
+    const sourceMd = (
+      await readFile(
+        new URL(
+          "../../../docs/fixtures/workflow/agent-node.md",
+          import.meta.url,
+        ),
+        "utf8",
+      )
+    ).replace(
+      "- execution: task-worker",
+      "- review-required: false\n- execution: task-worker",
+    );
+    const definition = await service.importDefinition(owner, {
+      workspaceId: "main",
+      sourceMd,
+    });
+    const instance = await service.startInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "无任务模块 Agent 闭环",
+    });
+    expect(instance.nodes.development).toMatchObject({
+      status: "running",
+      assignedTo: "Backend Agent",
+    });
+    expect(instance.nodes.development?.taskIds).toEqual([]);
+    expect(agent.dispatchInputs).toHaveLength(1);
+    expect(
+      agent.dispatchInputs[0]?.payload.context.workflowTaskId,
+    ).toBeUndefined();
+
+    const run = agent.runs(instance.id, "development")[0]!;
+    agent.settle(run.id, {
+      ...run,
+      status: "succeeded",
+      output: {
+        summary: "## 交付说明\n\n已完成 Agent 执行说明，覆盖接口与风险检查。",
+      },
+    });
+    await service.handleAgentSettle(agent.run(run.id)!);
+    const settled = service.instanceView(instance.id)!;
+    expect(settled.nodes.development?.status).toBe("completed");
+    expect(settled.status).toBe("completed");
+    expect(settled.nodes.development?.taskIds).toEqual([]);
+    expect(
+      service.submissions(instance.id, { nodeId: "development" }),
+    ).toHaveLength(1);
   });
 
   it("retries a run retired after restart while the node remains running", async () => {
@@ -1113,7 +1704,7 @@ describe("workflow agent nodes", () => {
       submittedByName: "Backend Engineer 01",
       onBehalfOf: "backend-01",
     });
-    expect(settled.status).toBe("completed");
+    expect(settled.status).toBe("running");
   });
 
   it("recovers an employee node after an automatic ticket failure", async () => {
@@ -1145,7 +1736,11 @@ describe("workflow agent nodes", () => {
   });
 
   it("recovers an employee run whose output was denied by its ticket", async () => {
-    const { agent, employee, service } = await employeeHarness(true, false, true);
+    const { agent, employee, service } = await employeeHarness(
+      true,
+      false,
+      true,
+    );
     const definition = await importedFixture(service, "employee-node.md");
     const instance = await service.startInstance(member, {
       workspaceId: "main",
@@ -1189,9 +1784,10 @@ describe("workflow agent nodes", () => {
       },
     });
     await service.handleAgentSettle(agent.run(secondRun.id)!);
-    expect(service.instance(instance.id)!.nodes.development?.status).toBe(
-      "completed",
-    );
+    const settled = service.instance(instance.id)!;
+    expect(settled.nodes.development?.status).toBe("ready");
+    expect(settled.nodes.development?.note).toContain("等待人工 Review");
+    expect(settled.status).toBe("running");
     expect(employee.authorized).toEqual(["ticket-2"]);
   });
 
@@ -1436,6 +2032,27 @@ describe("workflow routes", () => {
     const payload = response.json() as { instances: WorkflowInstance[] };
     expect(payload.instances).toHaveLength(1);
     expect(payload.instances[0]!.title).toBe("A");
+  });
+
+  it("returns the referenced definition with an instance detail", async () => {
+    const definition = await importedFixture(service, "product-delivery.md");
+    const instance = await service.startInstance(owner, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "Detail",
+    });
+    const response = await call(
+      route("/api/collab/workflow/instances/detail"),
+      fakeRequest(
+        "GET",
+        `/api/collab/workflow/instances/detail?workspaceId=main&instanceId=${instance.id}`,
+        { token: "owner", origin: "http://127.0.0.1:33117" },
+      ),
+    );
+    expect(response.status).toBe(200);
+    const payload = response.json() as { definition?: WorkflowDefinition };
+    expect(payload.definition?.id).toBe(definition.id);
+    expect(payload.definition?.graph.nodes.length).toBeGreaterThan(0);
   });
 
   it("blocks non-manager import", async () => {

@@ -179,6 +179,57 @@ describe("digital employee lifecycle", () => {
     expect(team.users().some((user) => user.id === digital.id)).toBe(false);
   });
 
+  it("archives removed identity projections without changing Digital Employees", async () => {
+    const { employeeService, team } = service([
+      ["gui-owner", "Olivia Yang"],
+      ["gui-member", "Lee Gong"],
+    ]);
+    await employeeService.syncIdentityUsers(team.users());
+    const digital = await employeeService.createDigital("gui-owner", {
+      employeeId: "backend-01",
+      displayName: "Backend Engineer 01",
+      personaId: "backend-engineer",
+      managerEmployeeId: "gui-owner",
+    });
+
+    await employeeService.syncIdentityUsers([
+      { id: "gui-owner", name: "Olivia Yang" },
+    ]);
+    expect(employeeService.getByAuthUserId("gui-member")).toMatchObject({
+      authUserId: "gui-member",
+      status: "archived",
+    });
+    expect(employeeService.get("backend-01")).toMatchObject({
+      status: "draft",
+    });
+  });
+
+  it("creates a fresh identity projection instead of reviving archived history", async () => {
+    const { employeeService, storage, team } = service([
+      ["gui-owner", "Olivia Yang"],
+      ["gui-member", "Lee Gong"],
+    ]);
+    await employeeService.syncIdentityUsers(team.users());
+    const original = employeeService.getByAuthUserId("gui-member");
+    await employeeService.syncIdentityUsers([
+      { id: "gui-owner", name: "Olivia Yang" },
+    ]);
+    await employeeService.syncIdentityUsers(team.users());
+
+    const restored = employeeService.getByAuthUserId("gui-member");
+    expect(restored).toMatchObject({
+      authUserId: "gui-member",
+      displayName: "Lee Gong",
+      status: "active",
+    });
+    expect(restored?.id).not.toBe(original?.id);
+    expect(
+      storage.employees
+        .get(original?.id ?? "")
+        ?.status,
+    ).toBe("archived");
+  });
+
   it("requires Digital Employee personas to exist", async () => {
     const { employeeService } = service();
     await employeeService.syncIdentityUsers(team().users());

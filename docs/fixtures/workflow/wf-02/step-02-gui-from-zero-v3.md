@@ -3,7 +3,7 @@
 ## 元信息
 
 - key: gui-from-zero
-- version: 1
+- version: 3
 - description: 从零验证审批、人工交付物门禁、二次审批和服务节点
 
 ## 节点

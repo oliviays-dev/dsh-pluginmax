@@ -97,6 +97,7 @@ export interface AgentServiceLike {
       readonly description?: string | undefined;
       readonly personaId?: string | undefined;
       readonly runtimeKind?: "task-worker" | "continuable-session" | "connector" | undefined;
+      readonly visibility?: "workspace" | "platform" | undefined;
     },
   ): Promise<{ readonly id: string }>;
   profiles?(workspaceId: string): readonly {
@@ -428,6 +429,7 @@ export class TeammateRuntime {
         description: teammate.description,
         personaId,
         runtimeKind: "task-worker",
+        visibility: teammate.source === "platform" ? "platform" : "workspace",
       },
     );
     const employee = await employees.createDigital(managerAuthUserId, {

@@ -4,7 +4,7 @@
 >
 > 详细回归基线见 `docs/employee-platform-gui-test-plan.md`；本文用于当前版本的快速验收，不重复其全部 F1-F11。
 >
-> 环境说明（2026-09-24）：复用当前 `.tmp/dsh-home` 时，真实登录账号是 `admin / password-123`、`member / password-456`。当前没有 `workflow-owner / workflow-viewer`；截图里的登录失败就是切到了不存在的账号。
+> 环境说明（2026-09-24）：`member / password-456` 在 33124 实测可登录，但它是共享账号，密码可能被其他测试修改。本文改为使用本轮专用 `flow-member` 和 `flow-viewer`。
 
 ## 1. 目标
 
@@ -33,8 +33,8 @@
 | 当前测试项目 | `.tmp/smoke-workspace` | 已注册；`<WS_ID>` 为 `00000000-0000-4000-8000-000000000001` |
 | 全新环境 | `.tmp/dsh-home`，端口 `33118` | 仅在停止当前服务并重建时使用 |
 | Profile A | `admin / password-123` | admin、创建员工、派发、验收 |
-| Profile B | `member / password-456` | 工作区成员、执行人、审批人 |
-| Profile C | `viewer / password-789` | guest、只读边界；当前环境需先在协作身份中创建 |
+| Profile B | `flow-member / Pluginmax#2026` | 本轮专用执行人、审批人 |
+| Profile C | `flow-viewer / Pluginmax#2026` | 本轮专用 guest、只读边界 |
 | 员工数据 | 通过 `AI Teammates` 动态创建 | 旧 `backend-01 / backend-runtime / backend-agent` 属于历史工作区，不能作为当前固定前置 |
 | 工作流文件 | `docs/fixtures/workflow/employee-node.md` | 数字员工工作流闭环 |
 | 工作流文件 | `docs/fixtures/workflow/employee-node-manual.md` | 手动派发与暂停边界 |
@@ -61,12 +61,12 @@ printf '%s\n' \
 | --- | --- | --- | --- |
 | 0 | `cd /Users/oliviayang/Codex/一切皆插件/dsh-pluginmax` | 仓库路径 | `pwd` 与路径一致 |
 | 1 | `corepack pnpm install --frozen-lockfile` | `pnpm-lock.yaml` | 依赖安装完成 |
-| 2 | `corepack pnpm check` | 全部门禁 | typecheck、lint、test、build、contract、pack 全通过；当前实测基线为 12 个测试文件、144 个用例、11 个 plugin bundle，最终以命令实际输出为准 |
+| 2 | `corepack pnpm check` | 全部门禁 | typecheck、lint、test、build、contract、pack 全通过；当前实测基线为 12 个测试文件、149 个用例、11 个 plugin bundle，最终以命令实际输出为准 |
 | 3 | 复用当前服务时跳过；全新环境才执行 `rm -rf .tmp/dsh-home && mkdir -p .tmp && ./scripts/install-profile.sh` | `scripts/install-profile.sh` | 安装 shell、identity、employee、space、roles、meeting、workflow、task、teammate、agent |
 | 4 | 当前环境使用现有 `<ROOT_URL>`；全新环境启动 `vendor/deepseek-harness/apps/cli/lib/bin.js --profile pluginmax --no-open --port 33118`，`DSH_HOME="$PWD/.tmp/dsh-home"` | 上游已构建的 CLI | 终端输出带 token 的 `<ROOT_URL>` |
 | 5 | 建立三个隔离 Chrome Profile，分别打开 `<ROOT_URL>` | Profile A/B/C | 三个账号的 token 不互相覆盖 |
 | 6 | 当前环境直接用 `admin / password-123` 登录；全新环境在 Settings > 账号管理初始化 `admin` | 管理员账号数据 | 左下角账号显示 `Admin · 管理员` |
-| 7 | 在 Settings > 协作身份创建或确认 `member / password-456`、`viewer / password-789` 并加入测试项目 | 基础数据表 | 工作区成员显示 admin / member / viewer |
+| 7 | 在 Settings > 协作身份创建 `flow-member / Pluginmax#2026`、`flow-viewer / Pluginmax#2026`，再把二者加入测试项目 | 基础数据表 | 平台账号创建成功；工作区成员显示 admin / flow-member / flow-viewer |
 | 8 | 当前环境复制 `00000000-0000-4000-8000-000000000001`；全新环境复制新项目 ID，并记录到 `.tmp/gui-evidence/ids.md` | 项目信息 icon | 后续所有 `<WS_ID>` 使用真实值，不手写 |
 
 ## 3. 单点功能测试
@@ -88,9 +88,9 @@ printf '%s\n' \
 
 所需资料：Profile A/B/C。
 
-1. 当前环境从左下角使用 `admin / password-123` 登录；不要尝试未创建的 `workflow-owner`。
+1. 当前环境从左下角使用 `admin / password-123` 登录；不要依赖共享的 `member` 密码。
 2. 打开 Settings > 账号管理，检查当前账号、角色和登录表单。
-3. 在 Settings > 协作身份创建 `member / password-456` 和 `viewer / password-789`，再加入测试项目。
+3. 在 Settings > 协作身份创建 `flow-member / Pluginmax#2026` 和 `flow-viewer / Pluginmax#2026`，再加入测试项目；ID 已存在且密码未知时改用带数字后缀的新账号。
 
 预期：账号切换成功后，任务、员工和工作流重新加载；页面不残留上一账号数据；用户 ID 或密码错误时停留在切换弹窗并显示「用户 ID 或密码不正确」。
 
@@ -98,7 +98,7 @@ printf '%s\n' \
 
 所需资料：左侧 `AI Teammates`、当前测试项目。
 
-1. Settings > 员工 > 目录确认 `Admin` 和 `Member` 为真人员工。
+1. Settings > 员工 > 目录确认 `Admin`、`Flow Member`、`Flow Viewer` 为启用的真人员工；历史环境中已删除平台账号的 `Workflow Owner / Workflow Member / Workflow Viewer` 投影应显示归档，不应显示启用。
 2. 打开 `AI Teammates` > `新建平台 Teammate`，名称填 `Backend Worker`，填写专业角色、基础说明和 SOUL，点击 `保存全局定义`。
 3. 点击 `生效`，确认定义状态从 `草稿 / 已失效` 变为 `已生效`。
 4. 在 `任务管理` 新建任务并指派给 `Backend Worker`；当前实现会自动开始执行，必要时再补发指令。
@@ -106,6 +106,8 @@ printf '%s\n' \
 6. 记录生成的 Employee ID、Agent Profile ID 和 Runtime Profile；暂停、重启各一次；归档留到所有 E2E 完成后验证。
 
 预期：`设置 > Agent` 已下线；执行身份在首次指派并触发任务时自动开通；暂停后新派发被拒绝；旧 `backend-01 / backend-runtime` 不再作为当前环境固定数据。
+
+工作流模板中的 `user:` 引用先按平台账号校验；项目成员关系在启动实例时校验。员工目录只应展示当前平台账号的有效真人投影，账号删除后的历史投影必须归档。
 
 ### F-04 任务看板
 
@@ -169,12 +171,12 @@ printf '%s\n' \
 
 所需资料：`employee-node.md`、`employee-node-manual.md`、`employee-approval.md`、`agent-node-timeout.md`。
 
-1. 用 F-03 记录的 Employee ID 替换 `employee-node.md` 中的 `employee:backend-01`，导入并启动。
+1. 用 F-03 记录的 Employee ID 替换 `employee-node.md` 中的 `employee:backend-01`；打开全局 `工作流 > 模板管理 > 新建模版` 导入，再从 `新建工作流` 弹窗启动。
 2. 检查执行者为 `Backend Worker · 数字员工`，等待派发和运行。
 3. 检查必交交付物；为空时不能完成，满足后由 B 完成。
-4. 用同一 Employee ID 替换 `employee-node-manual.md`，暂停 `Backend Worker` 后尝试派发。
-5. 用同一 Employee ID 替换 `employee-approval.md`，分别用 A/B/C 检查审批入口。
-6. 用 F-03 记录的 Agent Profile ID 替换 `agent-node-timeout.md` 中的 `agent:backend-agent`，等待超时后由 B 人工兜底。
+4. 用同一 Employee ID 替换 `employee-node-manual.md`，通过 `模板管理` 导入；暂停 `Backend Worker` 后尝试派发。
+5. 用同一 Employee ID 替换 `employee-approval.md`，通过 `模板管理` 导入，分别用 A/B/C 检查审批入口。
+6. 用 F-03 记录的 Agent Profile ID 替换 `agent-node-timeout.md` 中的 `agent:backend-agent`，通过 `模板管理` 导入，再从 `新建工作流` 启动并等待超时，由 B 人工兜底。
 
 预期：`设置 > Agent` 已下线，改用 `AI Teammates`；缺授权、缺 Runtime、员工暂停都被明确拒绝；数字员工审批无真人代签；Agent 超时不显示成功；人工兜底前必交交付物仍然生效。
 
@@ -193,6 +195,8 @@ printf '%s\n' \
 
 每个用例必须从正常入口开始，经由真实页面操作闭环，不直接用 API 造中间状态。只有“未来审批节点提前审批”回归使用 API 作为补充证据。
 
+工作流模板统一从 `工作流 > 模板管理 > 新建模版` 导入，实例统一从 `新建工作流` 弹窗启动；同一 `key + version` 已导入时直接复用，不重复保存。
+
 ### E2E-01 真人任务派发、退回、补充和验收
 
 闭环目标：A 派发任务，B 执行，A 退回，B 修订，A 验收通过。
@@ -200,7 +204,7 @@ printf '%s\n' \
 | 角色 | 数据 / 文件 | 前置 |
 | --- | --- | --- |
 | A `admin` | 任务标题 `E2E-01 真人任务闭环` | B 已在项目成员中 |
-| B `member` | 验收项：`完成范围核对`、`记录风险` | 附件 `task-progress.txt` |
+| B `flow-member` | 验收项：`完成范围核对`、`记录风险` | 附件 `task-progress.txt` |
 
 | 步骤 | 操作 | 资料 / 文件 | 预期与证据 |
 | --- | --- | --- | --- |
@@ -257,7 +261,7 @@ printf '%s\n' \
 | 1 | A 在 `AI Teammates` 新建平台 Teammate `Backend Worker`，填写定义并保存 | 定义数据 | Teammate 从草稿发布为 v1.0 |
 | 2 | A 点击 `生效` | AI Teammates | 定义状态为 `已生效` |
 | 3 | A 在任务管理指派任务；系统自动开始执行并开通身份，必要时补发指令 | 任务数据 | 自动生成 Employee、Agent Profile 和 Runtime Profile |
-| 4 | A 用生成的 Employee ID 替换 `employee-node.md` 后导入并启动 `E2E-04 员工交付` | Fixture 副本 | 开发节点执行者为数字员工，自动派发 |
+| 4 | A 用生成的 Employee ID 替换 `employee-node.md`，在 `工作流 > 模板管理 > 新建模版` 导入，再从 `新建工作流` 启动 `E2E-04 员工交付` | Fixture 副本 | 开发节点执行者为数字员工，自动派发 |
 | 5 | 等待运行结束，检查运行记录和交付物 | runId、ticketId | 成功输出进入交付物；失败有原因 |
 | 6 | B 打开实例，确认为责任人 | Profile B | 必交交付物满足前不能完成 |
 | 7 | B 补充并提交 `实现说明`，点击完成 | 交付物文本 | 节点完成，流程推进 |
@@ -288,12 +292,12 @@ printf '%s\n' \
 
 | 步骤 | 操作 | 资料 / 文件 | 预期与证据 |
 | --- | --- | --- | --- |
-| 1 | A 导入 `sub-process.md` 并启动 `E2E-06 审批闭环` | Fixture 文件 | 架构评审 ready，安全复核仍 waiting |
+| 1 | A 在 `工作流 > 模板管理 > 新建模版` 导入 `sub-process.md`，再从 `新建工作流` 启动 `E2E-06 审批闭环` | Fixture 文件 | 架构评审 ready，安全复核仍 waiting |
 | 2 | 架构评审尚未通过时，通过 GUI 或 API 尝试审批安全复核 | 实例 ID、节点 ID | 请求被拒绝，不产生审批记录 |
 | 3 | A 打开架构评审并通过 | Profile A | 节点通过并推进到安全复核 |
 | 4 | B 打开安全复核，填写否决理由并点击 `否决` | `交付说明缺少风险项` | 状态、原因、操作人、时间持久化；刷新不丢 |
 | 5 | A/C 打开同一安全复核 | 隔离 Profile | 非审批人只读，无可用操作按钮 |
-| 6 | A 导入 `employee-approval.md` 并启动 | Fixture 文件 | 节点显示等待专用 runtime decision path |
+| 6 | A 在 `模板管理` 导入 `employee-approval.md` 并从 `新建工作流` 启动 | Fixture 文件 | 节点显示等待专用 runtime decision path |
 | 7 | A/B/C 分别查找数字员工审批按钮 | 三个 Profile | 没有任何浏览器用户可代签 |
 | 8 | A 打开治理中心和审计过滤实例 | 实例 ID | 能看到审批引用、当前等待原因、拒绝结果或审计事件 |
 

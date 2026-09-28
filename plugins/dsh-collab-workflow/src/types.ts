@@ -67,6 +67,7 @@ export const workflowNodeSchema = z.object({
   description: z.string().trim().max(2_000).default(""),
   executor: executorSchema,
   responsible: actorRefSchema.optional(),
+  reviewRequired: z.boolean().default(true),
   execution: z.enum(["manual", "task-worker"]).default("manual"),
   trigger: z
     .enum(["manual-dispatch", "auto-on-ready"])
@@ -139,6 +140,7 @@ export const nodeStateSchema = z.object({
   enteredAt: z.string().optional(),
   completedAt: z.string().optional(),
   childInstanceId: z.string().optional(),
+  taskIds: z.array(z.string().min(1).max(180)).default([]),
 });
 
 export const workflowDefinitionSchema = z.object({
@@ -150,7 +152,7 @@ export const workflowDefinitionSchema = z.object({
   description: z.string().max(2_000).default(""),
   sourceMd: z.string().min(1).max(200_000),
   graph: workflowGraphSchema,
-  status: z.enum(["active", "archived"]),
+  status: z.enum(["active", "disabled", "archived"]),
   createdBy: z.string().min(1).max(160),
   createdAt: z.string().datetime({ precision: 3 }),
   updatedAt: z.string().datetime({ precision: 3 }),

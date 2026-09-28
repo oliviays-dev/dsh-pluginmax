@@ -17,6 +17,19 @@ export const taskLinkSchema = z.object({
   label: z.string().min(1).max(300),
 });
 
+export const taskWorkflowRefSchema = z.object({
+  instanceId: z.string().min(1).max(180),
+  nodeId: z.string().min(1).max(160),
+  instanceTitle: z.string().min(1).max(180),
+  nodeName: z.string().min(1).max(180),
+  approvalPolicy: z.enum(["all", "any"]).optional(),
+  nodeAttempt: z.number().int().positive().optional(),
+  reviewRequired: z.boolean().optional(),
+  outcome: z
+    .enum(["approved", "rejected", "cancelled", "superseded"])
+    .optional(),
+});
+
 export const taskStepSchema = z.object({
   id: z.string().min(1).max(160),
   label: z.string().min(1).max(500),
@@ -40,6 +53,7 @@ export const taskEventSchema = z.object({
     "reply",
     "nudge",
     "closed",
+    "workflow",
     "archived",
     "restored",
   ]),
@@ -111,6 +125,7 @@ export const taskRecordSchema = z.object({
   acceptance: z.array(z.string().min(1).max(500)).min(1).max(30),
   due: z.string().max(40).optional(),
   links: z.array(taskLinkSchema).default([]),
+  workflow: taskWorkflowRefSchema.optional(),
   progress: z.number().int().min(0).max(100),
   /** 执行会话代数：重置会话后 +1，下一次执行换一条全新会话。 */
   sessionEpoch: z.number().int().nonnegative().default(0),

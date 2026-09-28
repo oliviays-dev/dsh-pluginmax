@@ -10,6 +10,7 @@ import {
   taskStatusSchema,
   type TaskRecord,
   type TaskStatus,
+  taskWorkflowRefSchema,
 } from "./types.js";
 
 export interface KvTableLike<V> {
@@ -48,19 +49,46 @@ export interface TaskAgentRun {
   readonly error?: string | undefined;
 }
 
+export interface WorkflowTaskEventProjection {
+  readonly id: string;
+  readonly instanceId: string;
+  readonly nodeId?: string | undefined;
+  readonly actorId: string;
+  readonly actorKind: "user" | "agent" | "employee" | "system";
+  readonly actorName: string;
+  readonly message: string;
+  readonly at: string;
+}
+
 export class TaskError extends Error {
   constructor(
     readonly code:
-      | "invalid_input"
-      | "unauthorized"
-      | "forbidden"
-      | "not_found"
-      | "conflict",
+      "invalid_input" | "unauthorized" | "forbidden" | "not_found" | "conflict",
     message: string,
   ) {
     super(message);
     this.name = "TaskError";
   }
+}
+
+export interface WorkflowTaskActionHandler {
+  assign(task: TaskRecord, actor: TaskActor): Promise<void> | void;
+  decide(
+    task: TaskRecord,
+    actor: TaskActor,
+    decision: "approved" | "rejected",
+  ): Promise<void> | void;
+  submit(task: TaskRecord, actor: TaskActor): Promise<void> | void;
+  reconcile?(
+    task: TaskRecord,
+  ):
+    | Promise<"approved" | "rejected" | "cancelled" | "superseded" | undefined>
+    | ("approved" | "rejected" | "cancelled" | "superseded" | undefined);
+  events?(
+    task: TaskRecord,
+  ):
+    | Promise<readonly WorkflowTaskEventProjection[]>
+    | readonly WorkflowTaskEventProjection[];
 }
 
 const createInputSchema = z.object({
@@ -85,6 +113,7 @@ const createInputSchema = z.object({
     )
     .default([]),
   autoSubmitReview: z.boolean().default(true),
+  workflow: taskWorkflowRefSchema.optional(),
 });
 
 const updateInputSchema = z.object({
@@ -175,10 +204,14 @@ function parseTask(value: unknown): TaskRecord {
 
 function progressForSteps(steps: TaskRecord["steps"]): number {
   if (steps.length === 0) return 0;
-  return Math.round((steps.filter((step) => step.done).length / steps.length) * 100);
+  return Math.round(
+    (steps.filter((step) => step.done).length / steps.length) * 100,
+  );
 }
 
 export class TaskService {
+  private workflowActions: WorkflowTaskActionHandler | undefined;
+
   constructor(
     private readonly tables: TaskTables,
     private readonly options: { readonly now?: () => Date } = {},
@@ -206,6 +239,10 @@ export class TaskService {
     const parsed = parseTask(task);
     await this.tables.tasks.put(parsed.id, parsed);
     return parsed;
+  }
+
+  bindWorkflowActions(handler: WorkflowTaskActionHandler): void {
+    this.workflowActions = handler;
   }
 
   private event(
@@ -236,10 +273,36 @@ export class TaskService {
     return this.require(taskIdValue);
   }
 
-  async create(
-    actor: TaskActor,
-    input: unknown,
-  ): Promise<TaskRecord> {
+  async reconcileWorkflowProjections(workspaceId: string): Promise<void> {
+    if (this.workflowActions?.reconcile === undefined) return;
+    for (const task of this.list(workspaceId)) {
+      if (task.workflow === undefined || task.status === "done") continue;
+      try {
+        const outcome = await this.workflowActions.reconcile(task);
+        if (this.workflowActions.events !== undefined) {
+          const projections = await this.workflowActions.events(task);
+          for (const projection of projections) {
+            await this.projectWorkflowEvent(
+              { id: "workflow", name: "工作流", kind: "system" },
+              task.id,
+              projection,
+            );
+          }
+        }
+        if (outcome !== undefined) {
+          await this.settleProjection(
+            { id: "workflow", name: "工作流", kind: "system" },
+            task.id,
+            outcome,
+          );
+        }
+      } catch {
+        // The next refresh can retry without blocking the task list.
+      }
+    }
+  }
+
+  async create(actor: TaskActor, input: unknown): Promise<TaskRecord> {
     const parsed = parse(createInputSchema, input);
     const at = this.now();
     const steps = parsed.acceptance.map((label) =>
@@ -253,7 +316,9 @@ export class TaskService {
       status: parsed.status,
       priority: parsed.priority,
       receiverType: parsed.receiverType,
-      ...(parsed.receiverId === undefined ? {} : { receiverId: parsed.receiverId }),
+      ...(parsed.receiverId === undefined
+        ? {}
+        : { receiverId: parsed.receiverId }),
       ...(parsed.receiverName === undefined
         ? {}
         : { receiverName: parsed.receiverName }),
@@ -263,6 +328,7 @@ export class TaskService {
       acceptance: parsed.acceptance,
       ...(parsed.due === undefined ? {} : { due: parsed.due }),
       links: parsed.links,
+      ...(parsed.workflow === undefined ? {} : { workflow: parsed.workflow }),
       autoSubmitReview: parsed.autoSubmitReview,
       progress: 0,
       steps,
@@ -281,12 +347,12 @@ export class TaskService {
     return this.put(withEvent);
   }
 
-  async update(
-    actor: TaskActor,
-    input: unknown,
-  ): Promise<TaskRecord> {
+  async update(actor: TaskActor, input: unknown): Promise<TaskRecord> {
     const parsed = parse(updateInputSchema, input);
     const task = this.requireActive(this.require(parsed.taskId));
+    if (task.workflow !== undefined) {
+      throw new TaskError("conflict", "工作流任务内容由工作流节点同步");
+    }
     const steps = parsed.acceptance.map((label, index) =>
       taskStepSchema.parse({
         id: task.steps[index]?.id ?? randomUUID(),
@@ -294,54 +360,84 @@ export class TaskService {
         done: task.steps[index]?.done ?? false,
       }),
     );
-    const updated = this.event(
-      {
-        ...task,
-        title: parsed.title,
-        priority: parsed.priority,
-        description: parsed.description,
-        acceptance: parsed.acceptance,
-        steps,
-        progress: progressForSteps(steps),
-        ...(parsed.due === undefined ? { due: undefined } : { due: parsed.due }),
-        ...(parsed.autoSubmitReview === undefined
-          ? {}
-          : { autoSubmitReview: parsed.autoSubmitReview }),
-        updatedAt: this.now(),
-      },
-      actor,
-      "updated",
-      `${actor.name} 更新了任务内容`,
+    const updated = await this.put(
+      this.event(
+        {
+          ...task,
+          title: parsed.title,
+          priority: parsed.priority,
+          description: parsed.description,
+          acceptance: parsed.acceptance,
+          steps,
+          progress: progressForSteps(steps),
+          ...(parsed.due === undefined
+            ? { due: undefined }
+            : { due: parsed.due }),
+          ...(parsed.autoSubmitReview === undefined
+            ? {}
+            : { autoSubmitReview: parsed.autoSubmitReview }),
+          updatedAt: this.now(),
+        },
+        actor,
+        "updated",
+        `${actor.name} 更新了任务内容`,
+      ),
     );
-    return this.put(updated);
+    return updated;
   }
 
-  async assign(
-    actor: TaskActor,
-    input: unknown,
-  ): Promise<TaskRecord> {
+  async assign(actor: TaskActor, input: unknown): Promise<TaskRecord> {
     const parsed = parse(assignInputSchema, input);
     const task = this.requireActive(this.require(parsed.taskId));
+    if (
+      task.workflow?.approvalPolicy !== undefined &&
+      parsed.receiverType === "unassigned"
+    ) {
+      throw new TaskError("conflict", "审批 Task 必须保留审批人");
+    }
+    if (task.workflow !== undefined) {
+      await this.workflowActions?.assign(
+        {
+          ...task,
+          receiverType: parsed.receiverType,
+          receiverId:
+            parsed.receiverType === "unassigned"
+              ? undefined
+              : parsed.receiverId,
+          receiverName:
+            parsed.receiverType === "unassigned"
+              ? undefined
+              : parsed.receiverName,
+        },
+        actor,
+      );
+    }
     const receiver =
       parsed.receiverType === "unassigned"
         ? "待指派"
         : parsed.receiverName?.trim() || parsed.receiverId || "未知接收方";
-    const updated = this.event(
-      {
-        ...task,
-        receiverType: parsed.receiverType,
-        receiverId:
-          parsed.receiverType === "unassigned" ? undefined : parsed.receiverId,
-        receiverName:
-          parsed.receiverType === "unassigned" ? undefined : parsed.receiverName,
-        status: parsed.receiverType === "unassigned" ? "todo" : task.status,
-        updatedAt: this.now(),
-      },
-      actor,
-      "assigned",
-      `${actor.name} 调整接收方为 ${receiver}`,
+    const updated = await this.put(
+      this.event(
+        {
+          ...task,
+          receiverType: parsed.receiverType,
+          receiverId:
+            parsed.receiverType === "unassigned"
+              ? undefined
+              : parsed.receiverId,
+          receiverName:
+            parsed.receiverType === "unassigned"
+              ? undefined
+              : parsed.receiverName,
+          status: parsed.receiverType === "unassigned" ? "todo" : task.status,
+          updatedAt: this.now(),
+        },
+        actor,
+        "assigned",
+        `${actor.name} 调整接收方为 ${receiver}`,
+      ),
     );
-    return this.put(updated);
+    return updated;
   }
 
   async claim(actor: TaskActor, taskIdValue: string): Promise<TaskRecord> {
@@ -365,35 +461,47 @@ export class TaskService {
     return this.put(updated);
   }
 
-  async changeStatus(
-    actor: TaskActor,
-    input: unknown,
-  ): Promise<TaskRecord> {
+  async changeStatus(actor: TaskActor, input: unknown): Promise<TaskRecord> {
     const parsed = parse(statusInputSchema, input);
     const task = this.require(parsed.taskId);
+    if (task.workflow !== undefined) {
+      throw new TaskError("conflict", "工作流任务状态由工作流同步");
+    }
     return this.setStatus(actor, task, parsed.status, "状态已更新");
   }
 
   async start(actor: TaskActor, taskIdValue: string): Promise<TaskRecord> {
-    return this.setStatus(actor, this.require(taskIdValue), "progress", "开始处理");
+    const task = this.require(taskIdValue);
+    if (task.workflow !== undefined) {
+      throw new TaskError("conflict", "工作流任务状态由工作流同步");
+    }
+    return this.setStatus(actor, task, "progress", "开始处理");
   }
 
   async submit(actor: TaskActor, taskIdValue: string): Promise<TaskRecord> {
-    const task = this.require(taskIdValue);
-    const updatedSteps = task.steps.map((step, index) =>
-      index === 0 ? { ...step, done: true } : step,
-    );
-    const progressed = {
-      ...task,
-      steps: updatedSteps,
-      progress: Math.max(86, progressForSteps(updatedSteps)),
-    };
-    return this.setStatus(actor, progressed, "review", "提交验收");
+    let task = this.require(taskIdValue);
+    if (task.workflow !== undefined) {
+      const reviewRequired = task.workflow.reviewRequired !== false;
+      if (reviewRequired && task.status === "progress") {
+        return this.setStatus(actor, task, "review", "提交验收");
+      }
+      await this.workflowActions?.submit(task, actor);
+      task = this.require(taskIdValue);
+      if (task.status === "done") return task;
+      return this.settleProjection(actor, taskIdValue, "approved");
+    }
+    return this.submitStandaloneTask(actor, task);
   }
 
   async approve(actor: TaskActor, taskIdValue: string): Promise<TaskRecord> {
-    const task = this.require(taskIdValue);
-    return this.setStatus(
+    let task = this.require(taskIdValue);
+    if (task.workflow !== undefined) {
+      await this.workflowActions?.decide(task, actor, "approved");
+      task = this.require(taskIdValue);
+      if (task.status === "done") return task;
+      return this.settleProjection(actor, taskIdValue, "approved");
+    }
+    const approved = await this.setStatus(
       actor,
       {
         ...task,
@@ -403,10 +511,275 @@ export class TaskService {
       "done",
       "验收通过",
     );
+    return approved;
   }
 
   async reject(actor: TaskActor, taskIdValue: string): Promise<TaskRecord> {
-    return this.setStatus(actor, this.require(taskIdValue), "progress", "退回并补充意见");
+    let task = this.require(taskIdValue);
+    if (task.workflow !== undefined) {
+      await this.workflowActions?.decide(task, actor, "rejected");
+      task = this.require(taskIdValue);
+      if (task.status === "done") return task;
+      return this.settleProjection(actor, taskIdValue, "rejected");
+    }
+    const rejected = await this.setStatus(
+      actor,
+      task,
+      "progress",
+      "退回并补充意见",
+    );
+    return rejected;
+  }
+
+  async projectAssigned(
+    actor: TaskActor,
+    input: {
+      taskId: string;
+      receiverType: TaskRecord["receiverType"];
+      receiverId?: string | undefined;
+      receiverName?: string | undefined;
+    },
+  ): Promise<TaskRecord> {
+    const task = this.requireActive(this.require(input.taskId));
+    return this.put(
+      this.event(
+        {
+          ...task,
+          receiverType: input.receiverType,
+          receiverId:
+            input.receiverType === "unassigned" ? undefined : input.receiverId,
+          receiverName:
+            input.receiverType === "unassigned"
+              ? undefined
+              : input.receiverName,
+          status: input.receiverType === "unassigned" ? "todo" : task.status,
+          updatedAt: this.now(),
+        },
+        actor,
+        "assigned",
+        `工作流同步负责人：${input.receiverName ?? input.receiverId ?? "待指派"}`,
+      ),
+    );
+  }
+
+  async settleProjection(
+    actor: TaskActor,
+    taskIdValue: string,
+    outcome: "approved" | "rejected" | "cancelled" | "superseded",
+  ): Promise<TaskRecord> {
+    const task = this.require(taskIdValue);
+    if (
+      task.status === "done" &&
+      task.workflow?.outcome !== undefined &&
+      task.workflow.outcome !== outcome
+    ) {
+      throw new TaskError("conflict", "任务已有最终结论");
+    }
+    if (task.status === "done" && task.workflow?.outcome !== undefined) {
+      return task;
+    }
+    const message =
+      outcome === "approved"
+        ? "工作流节点完成"
+        : outcome === "rejected"
+          ? "工作流节点驳回"
+          : outcome === "cancelled"
+            ? "工作流已取消"
+            : "节点进入新一轮，任务已被替代";
+    return this.put(
+      this.event(
+        {
+          ...task,
+          workflow: {
+            ...task.workflow!,
+            outcome,
+          },
+          steps: task.steps.map((step) => ({ ...step, done: true })),
+          progress: 100,
+          status: "done",
+          updatedAt: this.now(),
+        },
+        actor,
+        "closed",
+        message,
+      ),
+    );
+  }
+
+  async projectStatus(
+    actor: TaskActor,
+    taskIdValue: string,
+    status: Exclude<TaskStatus, "done">,
+    message: string,
+  ): Promise<TaskRecord> {
+    const task = this.require(taskIdValue);
+    if (task.workflow === undefined) {
+      throw new TaskError("conflict", "只有工作流任务支持状态投影");
+    }
+    if (task.status === "done") return task;
+    if (task.status === status) return task;
+    return this.put(
+      this.event(
+        {
+          ...task,
+          status,
+          progress:
+            status === "review"
+              ? Math.max(86, task.progress)
+              : status === "progress"
+                ? Math.max(task.progress, progressForSteps(task.steps))
+                : Math.min(5, task.progress),
+          updatedAt: this.now(),
+        },
+        actor,
+        "status",
+        message,
+      ),
+    );
+  }
+
+  async projectWorkflowEvent(
+    _actor: TaskActor,
+    taskIdValue: string,
+    input: {
+      id: string;
+      instanceId: string;
+      nodeId?: string | undefined;
+      actorId: string;
+      actorKind: "user" | "agent" | "employee" | "system";
+      actorName: string;
+      message: string;
+      at: string;
+    },
+  ): Promise<TaskRecord> {
+    const task = this.require(taskIdValue);
+    if (task.workflow?.instanceId !== input.instanceId) return task;
+    if (input.nodeId !== undefined && task.workflow.nodeId !== input.nodeId) {
+      return task;
+    }
+    if (task.events.some((event) => event.id === input.id)) return task;
+    const event = taskEventSchema.parse({
+      id: input.id,
+      at: input.at,
+      actorId: input.actorId,
+      actorName: input.actorName,
+      kind: "workflow",
+      message: input.message.slice(0, 2000),
+    });
+    return this.put({
+      ...task,
+      events: [...task.events, event],
+      updatedAt: this.now(),
+    });
+  }
+
+  async projectAgentRun(
+    _actor: TaskActor,
+    taskIdValue: string,
+    run: Pick<TaskAgentRun, "id" | "status" | "output" | "error">,
+    receiverName: string,
+  ): Promise<TaskRecord> {
+    const task = this.require(taskIdValue);
+    if (task.workflow === undefined) {
+      throw new TaskError("conflict", "只有工作流任务支持执行投影");
+    }
+    const actor: TaskActor = {
+      id: task.receiverId ?? "agent",
+      name: receiverName,
+      kind: "agent",
+    };
+    const existing = task.messages.find((message) => message.runId === run.id);
+    const content =
+      run.status === "succeeded"
+        ? run.output?.summary?.trim() || "执行完成，但没有返回文本结果。"
+        : ["failed", "timeout", "cancelled", "interrupted"].includes(run.status)
+          ? run.error?.trim() || "Agent 执行未完成。"
+          : "已接收指令，正在执行…";
+    if (
+      existing !== undefined &&
+      existing.state === run.status &&
+      existing.content === content &&
+      task.agentRunIds.includes(run.id) &&
+      !(
+        task.status === "progress" &&
+        ["failed", "timeout", "cancelled", "interrupted"].includes(run.status)
+      )
+    ) {
+      return task;
+    }
+    const message = taskMessageSchema.parse({
+      id: existing?.id ?? run.id,
+      at: existing?.at ?? this.now(),
+      authorId: actor.id,
+      authorName: receiverName,
+      kind: "agent",
+      content,
+      attachments: [],
+      runId: run.id,
+      state: run.status,
+    });
+    const messages =
+      existing === undefined
+        ? [...task.messages, message]
+        : task.messages.map((item) => (item.runId === run.id ? message : item));
+    return this.put(
+      this.event(
+        {
+          ...task,
+          agentRunIds: task.agentRunIds.includes(run.id)
+            ? task.agentRunIds
+            : [...task.agentRunIds, run.id],
+          messages,
+          status:
+            task.status === "done" ||
+            !["queued", "running", "waiting_input"].includes(run.status)
+              ? task.status === "progress" &&
+                ["failed", "timeout", "cancelled", "interrupted"].includes(
+                  run.status,
+                )
+                ? "todo"
+                : task.status
+              : "progress",
+          updatedAt: this.now(),
+        },
+        actor,
+        "message",
+        run.status === "succeeded"
+          ? `${receiverName} 返回了工作流执行反馈`
+          : ["failed", "timeout", "cancelled", "interrupted"].includes(
+                run.status,
+              )
+            ? `${receiverName} 执行未完成`
+            : `${receiverName} 开始执行工作流任务`,
+      ),
+    );
+  }
+
+  private submitStandaloneTask(
+    actor: TaskActor,
+    task: TaskRecord,
+  ): Promise<TaskRecord> {
+    if (!task.autoSubmitReview) {
+      return this.setStatus(
+        actor,
+        {
+          ...task,
+          steps: task.steps.map((step) => ({ ...step, done: true })),
+          progress: 100,
+        },
+        "done",
+        "节点完成（无需 Review）",
+      );
+    }
+    const updatedSteps = task.steps.map((step, index) =>
+      index === 0 ? { ...step, done: true } : step,
+    );
+    const progressed = {
+      ...task,
+      steps: updatedSteps,
+      progress: Math.max(86, progressForSteps(updatedSteps)),
+    };
+    return this.setStatus(actor, progressed, "review", "提交验收");
   }
 
   private async setStatus(
@@ -433,12 +806,12 @@ export class TaskService {
     return this.put(updated);
   }
 
-  async toggleStep(
-    actor: TaskActor,
-    input: unknown,
-  ): Promise<TaskRecord> {
+  async toggleStep(actor: TaskActor, input: unknown): Promise<TaskRecord> {
     const parsed = parse(stepInputSchema, input);
     const task = this.requireActive(this.require(parsed.taskId));
+    if (task.workflow !== undefined) {
+      throw new TaskError("conflict", "工作流任务验收项由工作流节点同步");
+    }
     const steps = task.steps.map((step) =>
       step.id === parsed.stepId ? { ...step, done: parsed.done } : step,
     );
@@ -459,12 +832,15 @@ export class TaskService {
     return this.put(updated);
   }
 
-  async addMessage(
-    actor: TaskActor,
-    input: unknown,
-  ): Promise<TaskRecord> {
+  async addMessage(actor: TaskActor, input: unknown): Promise<TaskRecord> {
     const parsed = parse(messageInputSchema, input);
     const task = this.requireActive(this.require(parsed.taskId));
+    if (task.workflow !== undefined) {
+      throw new TaskError(
+        "conflict",
+        "工作流任务执行请进入工作流节点；任务详情仅保留协作评论",
+      );
+    }
     const message = taskMessageSchema.parse({
       id: randomUUID(),
       at: this.now(),
@@ -475,7 +851,9 @@ export class TaskService {
       attachments: parsed.attachments,
     });
     const status =
-      actor.kind === "agent" && task.status === "todo" ? "progress" : task.status;
+      actor.kind === "agent" && task.status === "todo"
+        ? "progress"
+        : task.status;
     const updated = this.event(
       {
         ...task,
@@ -494,6 +872,9 @@ export class TaskService {
   async resetSession(actor: TaskActor, input: unknown): Promise<TaskRecord> {
     const parsed = parse(sessionResetInputSchema, input);
     const task = this.requireActive(this.require(parsed.taskId));
+    if (task.workflow !== undefined) {
+      throw new TaskError("conflict", "工作流 Agent 会话由工作流节点控制");
+    }
     const updated = this.event(
       {
         ...task,
@@ -542,35 +923,56 @@ export class TaskService {
       name: receiverName,
       kind: "agent",
     };
-    // 仅当任务指派给 Agent、开关开启且当前仍在推进中时，产出物完成才自动进入待验收。
-    const autoSubmit =
+    const isActive =
+      task.archivedAt === undefined &&
+      (task.status === "todo" || task.status === "progress");
+    // 审批 Task 必须由明确的通过/退回动作驱动，Agent 执行成功不能代表审批结论。
+    const isApprovalTask = task.workflow?.approvalPolicy !== undefined;
+    const workflowReviewRequired = task.workflow?.reviewRequired !== false;
+    const workflowReview =
       run.status === "succeeded" &&
       task.receiverType === "agent" &&
-      task.archivedAt === undefined &&
-      task.autoSubmitReview &&
-      (task.status === "todo" || task.status === "progress");
-    const steps = autoSubmit
-      ? task.steps.map((step, index) =>
-          index === 0 ? { ...step, done: true } : step,
-        )
-      : task.steps;
+      isActive &&
+      task.workflow !== undefined &&
+      !isApprovalTask &&
+      workflowReviewRequired;
+    const workflowDirect =
+      run.status === "succeeded" &&
+      task.receiverType === "agent" &&
+      isActive &&
+      task.workflow !== undefined &&
+      !isApprovalTask &&
+      !workflowReviewRequired;
+    const autoReview =
+      run.status === "succeeded" &&
+      task.receiverType === "agent" &&
+      isActive &&
+      task.workflow === undefined &&
+      task.autoSubmitReview;
+    const steps =
+      autoReview || workflowReview || workflowDirect
+        ? task.steps.map((step) => ({ ...step, done: true }))
+        : task.steps;
     const withRun = this.event(
       {
         ...task,
-        agentRunIds:
-          task.agentRunIds.includes(run.id)
-            ? task.agentRunIds
-            : [...task.agentRunIds, run.id],
+        agentRunIds: task.agentRunIds.includes(run.id)
+          ? task.agentRunIds
+          : [...task.agentRunIds, run.id],
         messages,
         steps,
-        progress: autoSubmit
-          ? Math.max(86, progressForSteps(steps))
-          : task.progress,
-        status: autoSubmit
-          ? "review"
-          : task.status === "todo"
-            ? "progress"
-            : task.status,
+        progress: workflowDirect
+          ? 100
+          : autoReview || workflowReview
+            ? Math.max(86, progressForSteps(steps))
+            : task.progress,
+        status: workflowDirect
+          ? "done"
+          : autoReview || workflowReview
+            ? "review"
+            : task.status === "todo"
+              ? "progress"
+              : task.status,
         updatedAt: this.now(),
       },
       actor,
@@ -581,7 +983,43 @@ export class TaskService {
           ? `${receiverName} 执行未完成`
           : `${receiverName} 开始执行任务`,
     );
-    if (!autoSubmit) return this.put(withRun);
+    if (!autoReview && !workflowReview && !workflowDirect)
+      return this.put(withRun);
+    if (workflowReview) {
+      const completed = await this.put(
+        this.event(
+          withRun,
+          actor,
+          "status",
+          `${receiverName} 完成产出物，等待工作流 Review`,
+        ),
+      );
+      return completed;
+    }
+    if (workflowDirect) {
+      const prepared = await this.put(withRun);
+      try {
+        await this.workflowActions?.submit(prepared, actor);
+        const settled = this.require(taskIdValue);
+        return settled.status === "done"
+          ? settled
+          : this.settleProjection(actor, taskIdValue, "approved");
+      } catch (cause) {
+        return this.put(
+          this.event(
+            {
+              ...this.require(taskIdValue),
+              status: "progress",
+              progress: Math.max(progressForSteps(prepared.steps), 86),
+              updatedAt: this.now(),
+            },
+            actor,
+            "status",
+            `工作流节点未完成：${cause instanceof Error ? cause.message : "unknown error"}`,
+          ),
+        );
+      }
+    }
     return this.put(
       this.event(
         withRun,
@@ -621,10 +1059,7 @@ export class TaskService {
     return this.put(updated);
   }
 
-  async addComment(
-    actor: TaskActor,
-    input: unknown,
-  ): Promise<TaskRecord> {
+  async addComment(actor: TaskActor, input: unknown): Promise<TaskRecord> {
     const parsed = parse(commentInputSchema, input);
     const task = this.requireActive(this.require(parsed.taskId));
     const comment = taskCommentSchema.parse({
@@ -649,10 +1084,7 @@ export class TaskService {
     return this.put(updated);
   }
 
-  async replyComment(
-    actor: TaskActor,
-    input: unknown,
-  ): Promise<TaskRecord> {
+  async replyComment(actor: TaskActor, input: unknown): Promise<TaskRecord> {
     const parsed = parse(replyInputSchema, input);
     const task = this.requireActive(this.require(parsed.taskId));
     if (!task.comments.some((comment) => comment.id === parsed.commentId)) {

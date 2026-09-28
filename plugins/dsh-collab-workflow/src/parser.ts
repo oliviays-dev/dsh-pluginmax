@@ -474,6 +474,17 @@ export function parseWorkflowMarkdown(markdown: string): ParseResult {
     const approvers = (fields.get("approver") ?? [])
       .map((value) => parseApprover(value, errors))
       .filter((value): value is Approver => value !== undefined);
+    const reviewText =
+      fields.get("review-required")?.[0] ?? fields.get("review")?.[0];
+    const reviewRequired = reviewText?.toLowerCase() !== "false";
+    if (
+      reviewText !== undefined &&
+      !["true", "false"].includes(reviewText.toLowerCase())
+    ) {
+      errors.push(
+        `node "${nodeId}" has an invalid review-required: ${reviewText}`,
+      );
+    }
     const node: WorkflowNode = {
       id: nodeId,
       name: group.name,
@@ -481,6 +492,7 @@ export function parseWorkflowMarkdown(markdown: string): ParseResult {
       description: fields.get("description")?.[0] ?? "",
       executor,
       responsible: typedResponsible,
+      reviewRequired,
       execution: "manual",
       trigger: "manual-dispatch",
       maxAttempts: 1,
@@ -520,6 +532,11 @@ export function parseWorkflowMarkdown(markdown: string): ParseResult {
       } else {
         errors.push(`node "${nodeId}" has an invalid trigger: ${triggerText}`);
       }
+    }
+    if (executor.kind === "agent" && node.trigger === "manual-dispatch") {
+      warnings.push(
+        `节点「${group.name}」的 Agent 执行器需要手动派发；如需就绪后自动启动，请设置 execution: task-worker 和 trigger: auto-on-ready`,
+      );
     }
     const maxAttemptsText = fields.get("max-attempts")?.[0];
     if (maxAttemptsText !== undefined) {

@@ -7,15 +7,19 @@ import {
 } from "@pluginmax/shared";
 import { z } from "zod";
 import {
+  profileTemplateSchema,
+  profileTemplateStateSchema,
   teammateEventSchema,
   teammateSchema,
   teammateSourceSchema,
   teammateStateSchema,
   type Teammate,
   type TeammateEvent,
+  type ProfileTemplate,
 } from "./models.js";
 import {
   canManageTeammate,
+  ProfileTemplateService,
   TeammateError,
   TeammateService,
   type KvTableLike,
@@ -30,7 +34,11 @@ import {
 
 export { TeammateError, TeammateService, canManageTeammate, nextVersion } from "./service.js";
 export type { Teammate, TeammateEvent } from "./models.js";
-export type { TeammateActor, TeammateTables } from "./service.js";
+export type {
+  TeammateActor,
+  TeammateTables,
+  ProfileTemplateTables,
+} from "./service.js";
 export { TeammateRuntime } from "./runtime.js";
 export type {
   EnsuredRuntime,
@@ -42,6 +50,7 @@ export const name = "dsh-collab-teammate";
 export const inject = ["storageDomain", "webServer"];
 
 type TeammateStorageTableName = "teammates" | "events";
+type ProfileStorageTableName = "profile_templates";
 
 interface DomainSpecLike {
   readonly name: string;
@@ -66,6 +75,19 @@ export const teammateDomainSpec: DomainSpecLike = {
     teammates: { valueSchema: teammateSchema as unknown as z.ZodType<unknown> },
     events: {
       valueSchema: teammateEventSchema as unknown as z.ZodType<unknown>,
+    },
+    profile_templates: {
+      valueSchema: profileTemplateSchema as unknown as z.ZodType<unknown>,
+    },
+  },
+};
+
+export const profileDomainSpec: DomainSpecLike = {
+  name: "collab_teammate_profiles",
+  version: 1,
+  tables: {
+    profile_templates: {
+      valueSchema: profileTemplateSchema as unknown as z.ZodType<unknown>,
     },
   },
 };
@@ -218,6 +240,27 @@ const createBodySchema = z.object({
   source: teammateSourceSchema,
   name: z.string().trim().min(1).max(120).optional(),
   role: z.string().trim().max(120).optional(),
+  profileTemplateId: z.string().trim().min(1).max(160).optional(),
+});
+
+const profileCreateSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  role: z.string().trim().max(120).optional(),
+  description: z.string().max(4_000).optional(),
+  soul: z.string().max(200_000).optional(),
+  scenarios: z.array(z.string().trim().min(1).max(500)).max(50).optional(),
+  goals: z.array(z.string().trim().min(1).max(500)).max(50).optional(),
+  tools: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
+  active: z.boolean().optional(),
+});
+
+const profileUpdateSchema = profileCreateSchema.extend({
+  templateId: z.string().trim().min(1).max(160),
+});
+
+const profileStateSchema = z.object({
+  templateId: z.string().trim().min(1).max(160),
+  state: profileTemplateStateSchema,
 });
 
 const updateBodySchema = z.object({
@@ -359,6 +402,7 @@ export function runningTeammateIds(input: {
 
 export function createTeammateRoutes(
   service: TeammateService,
+  profiles: ProfileTemplateService,
   team: () => TeamServiceLike | undefined,
   tasks: () => TaskServiceLike | undefined,
   workspaces: () => WorkspaceRegistryLike | undefined,
@@ -440,6 +484,62 @@ export function createTeammateRoutes(
             events: service.events(teammate.id),
           });
         }, response),
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/profile-templates",
+      handler: (request, response) =>
+        runHandler(async () => {
+          methods("GET", request);
+          const actor = requirePrincipal(request, requireTeam());
+          sendJson(response, 200, {
+            ok: true,
+            profiles: profiles.list(actor),
+            canManage: actor.role === "admin",
+          });
+        }, response),
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/profile-templates/create",
+      handler: mutate((actor, body) => {
+        const input = parseOrInvalid(profileCreateSchema, body);
+        return profiles.create(actor, input).then((profile) => ({ profile }));
+      }),
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/profile-templates/update",
+      handler: mutate((actor, body) => {
+        const input = parseOrInvalid(profileUpdateSchema, body);
+        return profiles.update(actor, input).then((profile) => ({ profile }));
+      }),
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/profile-templates/state",
+      handler: mutate((actor, body) => {
+        const input = parseOrInvalid(profileStateSchema, body);
+        return profiles
+          .changeState(actor, input)
+          .then((profile) => ({ profile }));
+      }),
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/teammates/apply-profile",
+      handler: mutate((actor, body) => {
+        const input = parseOrInvalid(
+          z.object({
+            teammateId: z.string().trim().min(1).max(160),
+            templateId: z.string().trim().min(1).max(160),
+          }),
+          body,
+        );
+        return service.applyProfile(actor, input).then((teammate) => ({
+          teammate,
+        }));
+      }),
     },
     {
       kind: "exact",
@@ -571,8 +671,8 @@ export function createTeammateRoutes(
 
 export interface TeammateContext {
   storageDomain: {
-    open(spec: typeof teammateDomainSpec): Promise<{
-      table<T>(name: TeammateStorageTableName): KvTableLike<T>;
+    open(spec: typeof teammateDomainSpec | typeof profileDomainSpec): Promise<{
+      table<T>(name: TeammateStorageTableName | ProfileStorageTableName): KvTableLike<T>;
       close(): Promise<void>;
     }>;
   };
@@ -598,11 +698,18 @@ export interface TeammateContext {
 
 export async function apply(ctx: TeammateContext): Promise<void> {
   const domain = await ctx.storageDomain.open(teammateDomainSpec);
+  const profileDomain = await ctx.storageDomain.open(profileDomainSpec);
+  const profileService = new ProfileTemplateService({
+    tables: {
+      templates: profileDomain.table<ProfileTemplate>("profile_templates"),
+    },
+  });
   const service = new TeammateService({
     tables: {
       teammates: domain.table<Teammate>("teammates"),
       events: domain.table<TeammateEvent>("events"),
     },
+    profiles: profileService,
   });
   ctx.provide("collabTeammates", service);
   const runtimeService = new TeammateRuntime({
@@ -615,6 +722,7 @@ export async function apply(ctx: TeammateContext): Promise<void> {
   const identityFiber = ctx.inject(["collabTeam"], (child) => {
     const routes = createTeammateRoutes(
       service,
+      profileService,
       () => child.collabTeam,
       () => ctx.get("collabTasks"),
       () => ctx.get("workspaceRegistry"),
@@ -627,5 +735,6 @@ export async function apply(ctx: TeammateContext): Promise<void> {
   ctx.effect(() => () => {
     identityFiber?.dispose();
     void domain.close();
+    void profileDomain.close();
   });
 }

@@ -163,6 +163,7 @@ function dispatchInput(overrides: Record<string, unknown> = {}) {
 
 interface Harness {
   service: AgentRegistryService;
+  store: ReturnType<typeof tables>;
   runtime: AgentTaskRuntime;
   subagents: ReturnType<typeof fakeSubagents>;
   settled: AgentRun[];
@@ -201,7 +202,7 @@ function harness(
     ...(options.now === undefined ? {} : { now: options.now }),
   });
   service.attachRuntime(runtime);
-  return { service, runtime, subagents, settled };
+  return { service, store: current, runtime, subagents, settled };
 }
 
 const now = () => new Date("2026-09-12T00:00:00.000Z");
@@ -220,7 +221,7 @@ async function createProfile(
 
 describe("agent profile registry", () => {
   it("creates and updates profiles with permission checks", async () => {
-    const { service } = harness();
+    const { service, store } = harness();
     expect(() =>
       service.createProfile(member, {
         workspaceId: "main",
@@ -247,6 +248,57 @@ describe("agent profile registry", () => {
     await createProfile(service);
     expect(service.profile("other", "backend-agent")).toBeUndefined();
     expect(service.profiles("other")).toEqual([]);
+  });
+
+  it("resolves platform profiles across workspaces", async () => {
+    const { service } = harness();
+    await service.createProfile(admin, {
+      workspaceId: "main",
+      id: "backend-agent",
+      name: "Backend Agent",
+      visibility: "platform",
+    });
+    expect(service.profile("other", "backend-agent")).toMatchObject({
+      id: "backend-agent",
+      visibility: "platform",
+      status: "active",
+    });
+    expect(service.profiles("other")).toHaveLength(1);
+    await expect(
+      service.updateProfile(owner, {
+        workspaceId: "other",
+        profileId: "backend-agent",
+        status: "disabled",
+      }),
+    ).rejects.toThrow("platform profile requires a platform administrator");
+    const disabled = await service.updateProfile(admin, {
+      workspaceId: "other",
+      profileId: "backend-agent",
+      status: "disabled",
+    });
+    expect(disabled.status).toBe("disabled");
+  });
+
+  it("treats legacy profiles without visibility as platform profiles", async () => {
+    const { service, store } = harness();
+    const now = new Date("2026-09-20T00:00:00.000Z").toISOString();
+    await store.profiles.put("backend-agent", {
+      id: "backend-agent",
+      workspaceId: "main",
+      name: "Backend Agent",
+      description: "",
+      runtimeKind: "task-worker",
+      allowedTools: [],
+      ownerUserId: "workflow-owner",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    expect(service.profile("other", "backend-agent")).toMatchObject({
+      id: "backend-agent",
+      status: "active",
+    });
+    expect(service.profiles("other")).toHaveLength(1);
   });
 });
 
@@ -318,7 +370,7 @@ describe("agent task runtime", () => {
         renamed.push({ id: session.id, title });
       },
     };
-    const { service, runtime, subagents } = harness({
+    const { service, runtime } = harness({
       now,
       workspaces,
       sessions,
@@ -337,7 +389,6 @@ describe("agent task runtime", () => {
     );
     const sessionId = "de-task-TSK-2-pluginmax-de";
     await vi.waitFor(() => expect(attached).toEqual([sessionId]));
-    expect(subagents.runs).toHaveLength(0);
     expect(service.run(run.id)?.sessionId).toBe(sessionId);
     expect(renamed).toEqual([
       {
@@ -347,6 +398,51 @@ describe("agent task runtime", () => {
     ]);
     await runtime.waitIdle();
     expect(service.run(run.id)?.output?.summary).toBe("home session response");
+  });
+
+  it("runs workflow task workers in a persistent task session", async () => {
+    const attached: string[] = [];
+    const workspaces: WorkspaceRegistryLike = {
+      create: async (path) => ({
+        path,
+        attachSession: async (sessionId) => {
+          attached.push(sessionId);
+        },
+      }),
+    };
+    const sessions: AgentSessionsLike = {
+      get: (sessionId) => ({
+        id: sessionId,
+        snapshotEvents: () => [],
+      }),
+    };
+    const { service } = harness({
+      now,
+      workspaces,
+      sessions,
+    });
+    await createProfile(service);
+    const run = await service.dispatch(
+      dispatchInput({
+        workspacePath: "/tmp/pluginmax-workspace",
+        instanceId: "wf-instance-1",
+        nodeId: "development",
+        dispatchKey: "main:wf-instance-1:development:a1:t0#1",
+        payload: {
+          ...dispatchInput().payload,
+          context: { workflowTaskId: "TSK-MULA26AJ-162E" },
+        },
+      }),
+    );
+    const sessionId = "de-task-TSK-MULA26AJ-162E-development-backend-agent";
+    await vi.waitFor(
+      () => {
+        expect(service.run(run.id)?.sessionId).toBe(sessionId);
+        expect(attached).toContain(sessionId);
+      },
+      { timeout: 1_000, interval: 20 },
+    );
+    expect(service.run(run.id)?.sessionId).toBe(sessionId);
   });
 
   it("gives every task its own session for the same DE", async () => {

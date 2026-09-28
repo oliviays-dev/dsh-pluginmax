@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
 import {
+  profileTemplateSchema,
   teammateEventSchema,
   teammateSchema,
   type Teammate,
   type TeammateEvent,
   type TeammateSource,
   type TeammateState,
+  type ProfileTemplate,
+  type ProfileTemplateState,
 } from "./models.js";
 
 export interface KvTableLike<V> {
@@ -19,6 +22,10 @@ export interface KvTableLike<V> {
 export interface TeammateTables {
   readonly teammates: KvTableLike<Teammate>;
   readonly events: KvTableLike<TeammateEvent>;
+}
+
+export interface ProfileTemplateTables {
+  readonly templates: KvTableLike<ProfileTemplate>;
 }
 
 export interface TeammateActor {
@@ -50,6 +57,29 @@ export interface CreateTeammateInput {
   readonly source: TeammateSource;
   readonly name?: string | undefined;
   readonly role?: string | undefined;
+  readonly profileTemplateId?: string | undefined;
+}
+
+export interface CreateProfileTemplateInput {
+  readonly name: string;
+  readonly role?: string | undefined;
+  readonly description?: string | undefined;
+  readonly soul?: string | undefined;
+  readonly scenarios?: readonly string[] | undefined;
+  readonly goals?: readonly string[] | undefined;
+  readonly tools?: readonly string[] | undefined;
+  readonly active?: boolean | undefined;
+}
+
+export interface UpdateProfileTemplateInput {
+  readonly templateId: string;
+  readonly name: string;
+  readonly role?: string | undefined;
+  readonly description?: string | undefined;
+  readonly soul?: string | undefined;
+  readonly scenarios?: readonly string[] | undefined;
+  readonly goals?: readonly string[] | undefined;
+  readonly tools?: readonly string[] | undefined;
 }
 
 export interface UpdateTeammateInput {
@@ -107,6 +137,158 @@ function randomId(): string {
   return `tm-${randomUUID()}`;
 }
 
+function profileId(): string {
+  return `pt-${randomUUID()}`;
+}
+
+const PROFILE_STATE_TRANSITIONS: Record<
+  ProfileTemplateState,
+  readonly ProfileTemplateState[]
+> = {
+  active: ["disabled", "archived"],
+  disabled: ["active", "archived"],
+  archived: [],
+};
+
+export class ProfileTemplateService {
+  private queue: Promise<void> = Promise.resolve();
+
+  constructor(private readonly options: {
+    readonly tables: ProfileTemplateTables;
+    readonly now?: () => Date;
+  }) {}
+
+  private enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.queue.then(operation);
+    this.queue = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
+
+  private timestamp(): string {
+    return (this.options.now?.() ?? new Date()).toISOString();
+  }
+
+  private values(): ProfileTemplate[] {
+    return [...this.options.tables.templates.entries()].map(
+      ([, value]) => value,
+    );
+  }
+
+  private require(templateId: string): ProfileTemplate {
+    const profile = this.options.tables.templates.get(templateId);
+    if (profile === undefined) {
+      throw new TeammateError("not_found", "Profile 模版不存在");
+    }
+    return profile;
+  }
+
+  list(actor: TeammateActor): ProfileTemplate[] {
+    return this.values()
+      .filter((profile) =>
+        actor.role === "admin" ? true : profile.state === "active",
+      )
+      .sort(
+        (left, right) =>
+          Number(right.state === "active") -
+            Number(left.state === "active") ||
+          right.updatedAt.localeCompare(left.updatedAt) ||
+          left.name.localeCompare(right.name, "zh-Hans-CN"),
+      );
+  }
+
+  get(templateId: string): ProfileTemplate | undefined {
+    return this.options.tables.templates.get(templateId);
+  }
+
+  create(
+    actor: TeammateActor,
+    input: CreateProfileTemplateInput,
+  ): Promise<ProfileTemplate> {
+    return this.enqueue(async () => {
+      if (actor.role !== "admin") {
+        throw new TeammateError("forbidden", "平台管理员可以维护 Profile 模版");
+      }
+      const timestamp = this.timestamp();
+      const profile = profileTemplateSchema.parse({
+        id: profileId(),
+        name: input.name.trim(),
+        role: input.role?.trim() ?? "",
+        description: input.description?.trim() ?? "",
+        soul: input.soul ?? "",
+        scenarios: input.scenarios ?? [],
+        goals: input.goals ?? [],
+        tools: input.tools ?? [],
+        state: input.active === false ? "disabled" : "active",
+        version: "v1.0",
+        createdBy: actor.userId,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      });
+      await this.options.tables.templates.put(profile.id, profile);
+      return profile;
+    });
+  }
+
+  update(
+    actor: TeammateActor,
+    input: UpdateProfileTemplateInput,
+  ): Promise<ProfileTemplate> {
+    return this.enqueue(async () => {
+      if (actor.role !== "admin") {
+        throw new TeammateError("forbidden", "平台管理员可以维护 Profile 模版");
+      }
+      const current = this.require(input.templateId);
+      if (current.state === "archived") {
+        throw new TeammateError("conflict", "归档的 Profile 模版不能编辑");
+      }
+      const next = profileTemplateSchema.parse({
+        ...current,
+        name: input.name.trim(),
+        role: input.role?.trim() ?? current.role,
+        description: input.description?.trim() ?? current.description,
+        soul: input.soul ?? current.soul,
+        scenarios: input.scenarios ?? current.scenarios,
+        goals: input.goals ?? current.goals,
+        tools: input.tools ?? current.tools,
+        version: nextVersion(current.version),
+        updatedAt: this.timestamp(),
+      });
+      await this.options.tables.templates.put(next.id, next);
+      return next;
+    });
+  }
+
+  changeState(
+    actor: TeammateActor,
+    input: { templateId: string; state: ProfileTemplateState },
+  ): Promise<ProfileTemplate> {
+    return this.enqueue(async () => {
+      if (actor.role !== "admin") {
+        throw new TeammateError("forbidden", "平台管理员可以维护 Profile 模版");
+      }
+      const current = this.require(input.templateId);
+      if (
+        !PROFILE_STATE_TRANSITIONS[current.state].includes(input.state)
+      ) {
+        throw new TeammateError(
+          "conflict",
+          `Profile 模版不能从 ${current.state} 改为 ${input.state}`,
+        );
+      }
+      const next = profileTemplateSchema.parse({
+        ...current,
+        state: input.state,
+        updatedAt: this.timestamp(),
+      });
+      await this.options.tables.templates.put(next.id, next);
+      return next;
+    });
+  }
+}
+
 export function nextVersion(current: string): string {
   const match = /^v(\d+)\.(\d+)$/.exec(current.trim());
   if (match === null) return "v1.0";
@@ -125,12 +307,16 @@ export function canManageTeammate(
 }
 
 export class TeammateService {
+  private readonly profiles: ProfileTemplateService | undefined;
   private queue: Promise<void> = Promise.resolve();
 
   constructor(private readonly options: {
     readonly tables: TeammateTables;
     readonly now?: () => Date;
-  }) {}
+    readonly profiles?: ProfileTemplateService;
+  }) {
+    this.profiles = options.profiles;
+  }
 
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {
     const result = this.queue.then(operation);
@@ -191,6 +377,20 @@ export class TeammateService {
     return event;
   }
 
+  private async profileSeed(
+    templateId: string | undefined,
+  ): Promise<ProfileTemplate | undefined> {
+    if (templateId === undefined) return undefined;
+    const profile = await this.profiles?.get(templateId);
+    if (profile === undefined) {
+      throw new TeammateError("not_found", "Profile 模版不存在");
+    }
+    if (profile.state !== "active") {
+      throw new TeammateError("invalid_input", "Profile 模版不可用");
+    }
+    return profile;
+  }
+
   list(): readonly Teammate[] {
     return this.values(this.options.tables.teammates).sort((left, right) => {
       if (left.source !== right.source) {
@@ -221,20 +421,22 @@ export class TeammateService {
         );
       }
       const timestamp = this.timestamp();
+      const profile = await this.profileSeed(input.profileTemplateId);
       const teammate = teammateSchema.parse({
         id: randomId(),
         source: input.source,
-        name: input.name?.trim() || DEFAULT_NAME,
-        role: input.role?.trim() || DEFAULT_ROLE,
+        name: input.name?.trim() || profile?.name || DEFAULT_NAME,
+        role: input.role?.trim() || profile?.role || DEFAULT_ROLE,
         ownerUserId: actor.userId,
         ownerName: input.source === "platform" ? "平台" : actor.name,
-        description: "",
-        soul: DEFAULT_SOUL,
-        scenarios: ["补充第一个工作场景"],
-        goals: ["补充第一个明确目标"],
+        description: profile?.description ?? "",
+        soul: profile?.soul || DEFAULT_SOUL,
+        scenarios: profile?.scenarios ?? ["补充第一个工作场景"],
+        goals: profile?.goals ?? ["补充第一个明确目标"],
         avatar: "",
         state: "draft",
         version: "v0.1",
+        ...(profile === undefined ? {} : { profileTemplateId: profile.id }),
         createdBy: actor.userId,
         createdAt: timestamp,
         updatedAt: timestamp,
@@ -244,9 +446,48 @@ export class TeammateService {
         teammate,
         actor,
         "created",
-        `创建了${input.source === "platform" ? "平台归属" : "个人归属"}定义草稿`,
+        `创建了${input.source === "platform" ? "平台归属" : "个人归属"}定义草稿${
+          profile === undefined ? "" : `，已应用 ${profile.name}`
+        }`,
       );
       return teammate;
+    });
+  }
+
+  async applyProfile(
+    actor: TeammateActor,
+    input: { teammateId: string; templateId: string },
+  ): Promise<Teammate> {
+    const profile = await this.profiles?.get(input.templateId);
+    if (profile === undefined) {
+      throw new TeammateError("not_found", "Profile 模版不存在");
+    }
+    if (profile.state !== "active") {
+      throw new TeammateError("invalid_input", "Profile 模版不可用");
+    }
+    return this.enqueue(async () => {
+      const current = this.requireTeammate(input.teammateId);
+      this.assertCanManage(current, actor);
+      const next = teammateSchema.parse({
+        ...current,
+        profileTemplateId: profile.id,
+        role: profile.role || current.role,
+        description: profile.description || current.description,
+        soul: profile.soul || current.soul,
+        scenarios:
+          profile.scenarios.length > 0 ? profile.scenarios : current.scenarios,
+        goals: profile.goals.length > 0 ? profile.goals : current.goals,
+        version: nextVersion(current.version),
+        updatedAt: this.timestamp(),
+      });
+      await this.options.tables.teammates.put(next.id, next);
+      await this.record(
+        next,
+        actor,
+        "updated",
+        `应用 Profile 模版：${profile.name}`,
+      );
+      return next;
     });
   }
 

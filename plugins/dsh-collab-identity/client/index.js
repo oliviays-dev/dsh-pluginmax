@@ -175,6 +175,36 @@ window.__ModuleLoader__.load({
       });
     }
 
+    function PasswordField({ id, label, value, onChange, ...rest }) {
+      const [visible, setVisible] = react.useState(false);
+      return jsxRuntime.jsxs("label", {
+        htmlFor: id,
+        children: [
+          jsxRuntime.jsx("span", { children: label }),
+          jsxRuntime.jsxs("span", {
+            className: "pmx-auth-password",
+            children: [
+              jsxRuntime.jsx("input", {
+                id,
+                name: id,
+                style: { ...inputStyle, paddingRight: 44 },
+                type: visible ? "text" : "password",
+                value,
+                onChange,
+                ...rest,
+              }),
+              jsxRuntime.jsx("button", {
+                type: "button",
+                "aria-label": visible ? "隐藏密码" : "显示密码",
+                onClick: () => setVisible((current) => !current),
+                children: visible ? "隐藏" : "显示",
+              }),
+            ],
+          }),
+        ],
+      });
+    }
+
     function Panel({ title, action, children }) {
       return jsxRuntime.jsxs("section", {
         style: panelStyle,
@@ -280,6 +310,7 @@ window.__ModuleLoader__.load({
         name: "",
         password: "",
       });
+      const [loginDialogOpen, setLoginDialogOpen] = react.useState(false);
       const [passwordForm, setPasswordForm] = react.useState({
         currentPassword: "",
         newPassword: "",
@@ -388,6 +419,12 @@ window.__ModuleLoader__.load({
         loadAdmin(me).catch(fail);
       }, [loadAdmin, me]);
 
+      react.useEffect(() => {
+        if (surface === "account" && phase === "login") {
+          setLoginDialogOpen(true);
+        }
+      }, [surface, phase]);
+
       const submitBootstrap = async (event) => {
         event.preventDefault();
         if (savingRef.current) return;
@@ -428,6 +465,7 @@ window.__ModuleLoader__.load({
           setToken(result.token);
           setMe(result.user);
           setPhase("ready");
+          setLoginDialogOpen(false);
           notify(`已登录 ${result.user.name}`);
           const activeWorkspaceId = await loadWorkspaces();
           await loadAdmin(result.user, activeWorkspaceId);
@@ -621,10 +659,9 @@ window.__ModuleLoader__.load({
               })),
             autoComplete: "username",
           }),
-          jsxRuntime.jsx(Field, {
+          jsxRuntime.jsx(PasswordField, {
             id: "pluginmax-user-password",
             label: "密码",
-            type: "password",
             value: account.password,
             onChange: (event) =>
               setAccount((current) => ({
@@ -720,20 +757,29 @@ window.__ModuleLoader__.load({
               })
             : null,
           surface === "account" && phase === "login"
-            ? jsxRuntime.jsxs("form", {
-                onSubmit: submitLogin,
-                style: formStyle,
+            ? jsxRuntime.jsxs("div", {
+                style: {
+                  alignItems: "center",
+                  border: "0.5px solid var(--dsw-alias-border-l2)",
+                  borderRadius: 8,
+                  display: "flex",
+                  gap: 10,
+                  justifyContent: "space-between",
+                  padding: 12,
+                },
                 children: [
-                  loginFields,
-                  jsxRuntime.jsx("button", {
-                    type: "submit",
+                  jsxRuntime.jsx("span", {
                     style: {
-                      ...buttonStyle,
-                      gridColumn: "1 / -1",
-                      justifySelf: "start",
+                      color: "var(--dsw-alias-label-secondary)",
+                      fontSize: 13,
                     },
-                    disabled: saving,
-                    children: saving ? "登录中..." : "登录",
+                    children: "当前未登录。",
+                  }),
+                  jsxRuntime.jsx("button", {
+                    type: "button",
+                    style: buttonStyle,
+                    onClick: () => setLoginDialogOpen(true),
+                    children: "登录账号",
                   }),
                 ],
               })
@@ -833,6 +879,57 @@ window.__ModuleLoader__.load({
                   }),
                 ],
               }),
+          surface === "account" && phase === "login" && loginDialogOpen
+            ? jsxRuntime.jsx("div", {
+                className: "pmx-auth-layer",
+                onMouseDown: (event) => {
+                  if (event.target === event.currentTarget) {
+                    setLoginDialogOpen(false);
+                  }
+                },
+                children: jsxRuntime.jsxs("form", {
+                  className: "pmx-auth-card",
+                  onSubmit: submitLogin,
+                  children: [
+                    jsxRuntime.jsxs("div", {
+                      className: "pmx-auth-head",
+                      children: [
+                        jsxRuntime.jsx("h3", { children: "登录账号" }),
+                        jsxRuntime.jsx("p", {
+                          children: "使用 Pluginmax 用户 ID 和密码登录。",
+                        }),
+                      ],
+                    }),
+                    loginFields,
+                    error === ""
+                      ? null
+                      : jsxRuntime.jsx("div", {
+                          className: "pmx-auth-error",
+                          children: error,
+                        }),
+                    jsxRuntime.jsxs("div", {
+                      className: "pmx-auth-actions",
+                      children: [
+                        jsxRuntime.jsx("button", {
+                          type: "button",
+                          onClick: () => setLoginDialogOpen(false),
+                          children: "取消",
+                        }),
+                        jsxRuntime.jsx("button", {
+                          type: "submit",
+                          className: "primary",
+                          disabled:
+                            saving ||
+                            account.userId === "" ||
+                            account.password === "",
+                          children: saving ? "处理中…" : "登录",
+                        }),
+                      ],
+                    }),
+                  ],
+                }),
+              })
+            : null,
           me?.role !== "admin"
             ? null
             : jsxRuntime.jsxs(jsxRuntime.Fragment, {

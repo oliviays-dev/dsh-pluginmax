@@ -81,9 +81,11 @@ export interface AgentSetupContextLike {
     restrict(filter: { readonly allow: readonly string[] }): void;
     get(name: string): unknown;
   };
-  get?(key: "agentPresets"): {
-    mount(agentCtx: AgentSetupContextLike, presetId: string): Promise<void>;
-  } | undefined;
+  get?(key: "agentPresets"):
+    | {
+        mount(agentCtx: AgentSetupContextLike, presetId: string): Promise<void>;
+      }
+    | undefined;
 }
 
 export interface AgentsRegistryLike {
@@ -193,14 +195,18 @@ function subagentOutputText(result: SubagentResultLike): string {
 }
 
 function taskSessionId(run: AgentRun): string {
-  // 一个「任务 + AI Teammate」对应左侧一条独立会话，重跑同一任务复用同一条。
+  // 一个「任务 + AI 执行者」对应左侧一条独立会话，重跑同一任务复用同一条。
   // 任务重置执行会话后代数 +1，下一次执行换一条全新会话。
   const epoch = run.payload.context.taskSessionEpoch;
   const generation =
     typeof epoch === "string" && epoch !== "" && epoch !== "0"
       ? `-r${epoch}`
       : "";
-  return `de-task-${run.instanceId}-${run.employeeId ?? run.agentProfileId}${generation}`
+  const scope =
+    run.source === "workflow"
+      ? `${String(run.payload.context.workflowTaskId ?? run.instanceId)}-${run.nodeId}`
+      : run.instanceId;
+  return `de-task-${scope}-${run.employeeId ?? run.agentProfileId}${generation}`
     .replace(/[^a-zA-Z0-9._-]/g, "-")
     .slice(0, 200);
 }
@@ -394,7 +400,8 @@ export interface AgentDispatchInput {
   readonly timeoutMs: number;
   readonly personaId?: string | undefined;
   readonly employeeId?: string | undefined;
-  readonly principalType?: "transitional-agent" | "digital-employee" | undefined;
+  readonly principalType?:
+    "transitional-agent" | "digital-employee" | undefined;
   readonly ticketId?: string | undefined;
   readonly payload: AgentRun["payload"];
   readonly createdBy: string;
@@ -502,7 +509,7 @@ function buildPrompt(run: AgentRun, profile: AgentProfile): string {
   return [
     "# DSH Pluginmax 工作流 Task Worker",
     "",
-    "你是一次性任务执行者：只处理本次任务，不进入会议，不与主会话对话。",
+    "你是当前工作流节点的任务执行者：只处理当前节点内容，不进入会议，不与主会话对话。",
     "",
     "## 任务",
     `完成节点「${payload.nodeName}」的工作并输出可审核的结果。`,
@@ -760,7 +767,10 @@ export class AgentTaskRuntime {
     signal: AbortSignal,
   ): Promise<SubagentResultLike> {
     if (run.workspacePath === undefined) {
-      throw new AgentError("invalid_input", "task run is missing workspace path");
+      throw new AgentError(
+        "invalid_input",
+        "task run is missing workspace path",
+      );
     }
     const workspacePath = run.workspacePath;
     const agents = this.deps.agents();
@@ -773,8 +783,9 @@ export class AgentTaskRuntime {
       await agentCtx.get?.("agentPresets")?.mount(agentCtx, "standard");
       const tools = agentCtx.tools;
       if (tools !== undefined) {
-        const allow = [...new Set(profile.allowedTools)]
-          .filter((name) => tools.get(name) !== undefined);
+        const allow = [...new Set(profile.allowedTools)].filter(
+          (name) => tools.get(name) !== undefined,
+        );
         tools.restrict({ allow });
       }
     };
@@ -789,7 +800,9 @@ export class AgentTaskRuntime {
         };
         const live = adoptLive();
         if (live !== undefined) return live;
-        const persisted = await this.deps.sessionPersistence?.()?.stat(sessionId);
+        const persisted = await this.deps
+          .sessionPersistence?.()
+          ?.stat(sessionId);
         try {
           if (persisted !== undefined) {
             if (agents.resume === undefined) {
@@ -866,7 +879,10 @@ export class AgentTaskRuntime {
     return next;
   }
 
-  private async attachSession(run: AgentRun, sessionId: string): Promise<AgentRun> {
+  private async attachSession(
+    run: AgentRun,
+    sessionId: string,
+  ): Promise<AgentRun> {
     const saved = await this.saveRun({ ...run, sessionId });
     try {
       const workspaces = this.deps.workspaces?.();
@@ -889,7 +905,13 @@ export class AgentTaskRuntime {
             : first.payload.profileName.replace(/\s+runtime$/i, "");
         // Session 名称：TSK-任务名称-任务号后4位-执行人（去掉空白字符）。
         const compact = (value: string): string => value.replace(/\s+/g, "");
-        const taskKey = first.instanceId.split("-").at(-1) ?? first.id;
+        const taskKey =
+          (typeof first.payload.context.workflowTaskId === "string"
+            ? first.payload.context.workflowTaskId
+            : first.instanceId
+          )
+            .split("-")
+            .at(-1) ?? first.id;
         const desired = [
           "TSK",
           compact(first.payload.instanceTitle),
@@ -990,12 +1012,13 @@ export class AgentTaskRuntime {
       await this.acquire(current.workspaceId);
       const signal = task.controller.signal;
       let result: SubagentResultLike;
-      if (
-        current.source === "task" &&
-        current.employeeId !== undefined &&
-        current.workspacePath !== undefined
-      ) {
-        result = await this.executeHomeSession(current, profile, prompt, signal);
+      if (current.workspacePath !== undefined) {
+        result = await this.executeHomeSession(
+          current,
+          profile,
+          prompt,
+          signal,
+        );
       } else {
         started = await subagents.start(this.deps.provider?.() ?? "spawn", {
           label: `workflow-worker:${profile.name}`,
@@ -1186,6 +1209,11 @@ export class AgentRegistryService {
     return this.deps.now?.() ?? new Date();
   }
 
+  private isPlatformProfile(profile: AgentProfile): boolean {
+    // 旧结构没有 visibility 字段；这些存量执行身份按平台 Profile 兼容。
+    return profile.visibility !== "workspace";
+  }
+
   attachRuntime(runtime: AgentTaskRuntime): void {
     this.runtime = runtime;
   }
@@ -1202,7 +1230,11 @@ export class AgentRegistryService {
 
   profiles(workspaceId: string): AgentProfile[] {
     return values(this.tables.profiles)
-      .filter((profile) => profile.workspaceId === workspaceId)
+      .filter(
+        (profile) =>
+          profile.workspaceId === workspaceId ||
+          this.isPlatformProfile(profile),
+      )
       .sort(
         (left, right) =>
           left.name.localeCompare(right.name) ||
@@ -1212,7 +1244,8 @@ export class AgentRegistryService {
 
   profile(workspaceId: string, profileId: string): AgentProfile | undefined {
     const profile = this.tables.profiles.get(profileId);
-    return profile === undefined || profile.workspaceId !== workspaceId
+    return profile === undefined ||
+      (profile.workspaceId !== workspaceId && !this.isPlatformProfile(profile))
       ? undefined
       : profile;
   }
@@ -1228,6 +1261,7 @@ export class AgentRegistryService {
       runtimeKind?: AgentProfile["runtimeKind"] | undefined;
       defaultModel?: AgentProfile["defaultModel"] | undefined;
       allowedTools?: readonly string[] | undefined;
+      visibility?: AgentProfile["visibility"] | undefined;
     },
   ): Promise<AgentProfile> {
     this.requireManager(actor);
@@ -1251,6 +1285,7 @@ export class AgentRegistryService {
           : { defaultModel: input.defaultModel }),
         allowedTools: input.allowedTools ?? [],
         ownerUserId: actor.id,
+        visibility: input.visibility ?? "workspace",
         status: "active",
         createdAt: timestamp,
         updatedAt: timestamp,
@@ -1277,6 +1312,15 @@ export class AgentRegistryService {
       const profile = this.profile(input.workspaceId, input.profileId);
       if (profile === undefined)
         throw new AgentError("not_found", "agent profile not found");
+      if (
+        profile.workspaceId !== input.workspaceId &&
+        actor.globalRole !== "admin"
+      ) {
+        throw new AgentError(
+          "forbidden",
+          "platform profile requires a platform administrator",
+        );
+      }
       const next = parseOrInvalid(agentProfileSchema, {
         ...profile,
         name: input.name ?? profile.name,
@@ -1485,9 +1529,7 @@ export class AgentRegistryService {
           continue;
         }
         const handler =
-          run.source === "workflow"
-            ? this.workflowHandler
-            : this.taskHandler;
+          run.source === "workflow" ? this.workflowHandler : this.taskHandler;
         if (handler === undefined) continue;
         try {
           await handler.onSettled(run);

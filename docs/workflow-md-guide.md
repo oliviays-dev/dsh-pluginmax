@@ -21,8 +21,8 @@
 
 - id: requirement-review
 - type: approval
-- executor: user:workflow-member
-- approver: 用户:workflow-owner
+- executor: user:flow-member
+- approver: 用户:admin
 - policy: all
 
 ### 开发
@@ -93,8 +93,12 @@
 - id: development
 - type: task
 - executor: user:Alice
+- review-required: false
 - description: 完成后端接口和测试
 ```
+
+- `review-required` 默认 `true`。节点生成的 Task 完成后会先进入人工 Review。
+- 设为 `false` 时，Task 提交后直接完成并驱动工作流节点完成；Agent 普通执行节点在其运行成功后也会走同一条直接完成路径。缺少必填交付物时，工作流仍会保留节点门禁，不会静默推进。
 
 ### 服务 service
 
@@ -126,6 +130,8 @@
 - `policy: all`：所有必签人通过才通过。
 - `policy: any`：任一必签人通过即通过。
 - 否决会优先走 `rejected` 出边；没有 rejected 边则阻塞。
+- 审批节点进入待处理时会自动创建“待 Review”的审批 Task，并标注并签/或签；审批 Task 不展示手动任务的自动 Review 开关。
+- Agent 只能作为审批 Task 的负责人接收处理；Agent 运行成功不会等价于审批通过，仍必须产生明确的通过或退回结论。
 
 ### 判断 decision
 
@@ -174,7 +180,7 @@ executor: employee:<Employee ID>
 
 `用户:` / `agent:` / `employee:` 前缀用于 UI；冒号后的标识分别使用系统用户标识、Agent Profile ID 和 Employee ID。
 
-导入和启动时都会校验 `user:<用户标识>`。这个用户必须是当前工作区的真实成员；不存在、已移出或只是“名字像角色”的标识都会被拒绝。`system:<服务标识>` 表示系统能力。
+导入模板时校验 `user:<用户标识>` 必须是平台账号；在项目中启动实例时再校验这个账号是否是当前工作区的真实成员。不存在、已移出或只是“名字像角色”的标识都会被拒绝。`system:<服务标识>` 表示系统能力。
 
 ### Agent 执行控制
 
@@ -197,7 +203,7 @@ executor: employee:<Employee ID>
 
 派发时会签发绑定到 workflow instance 的 Action Ticket；员工被暂停、票据过期或显式拒绝时，输出不会进入交付物。旧 `agent:<id>` 语法继续可用，但运行记录会标记为过渡 Task Worker。
 
-`agent:<id>` 可以绑定当前工作区的 Agent Profile。下面字段通常一起写在任务节点里：
+`agent:<id>` 绑定 Agent Profile。平台 Teammate 派生的 Profile 和旧结构存量 Profile 可跨项目解析；新建项目私有 Profile 只能在创建它的项目里启动。下面字段通常一起写在任务节点里：
 
 ```md
 - execution: task-worker
@@ -215,10 +221,8 @@ executor: employee:<Employee ID>
 | `timeout`       | `30m`                | 单次 Agent 运行超时，支持 `1s` 到 `1h`。                         |
 | `agent-profile` | executor 的 Agent id | 显式指定 Profile；不填时尝试使用 `executor: agent:<id>` 解析。   |
 
-规则：
-
 - 自动派发必须同时满足 `execution: task-worker` 和 `trigger: auto-on-ready`；
-- 导入和启动时校验 Profile 存在、启用且类型是 `task-worker`；
+- 导入和启动时校验 Profile 存在、启用且类型是 `task-worker`；平台可见 Profile 不要求运行实例使用创建时的项目；
 - Agent 成功输出不会直接完成节点；必须满足 required 交付物，并由责任人确认；
 - 失败、超时、中断或取消后，责任人可以人工代交，owner/admin 可以越过重试上限处理。
 
@@ -232,7 +236,7 @@ executor: employee:<Employee ID>
 
 用户任务可以用它把实际操作人和 `executor` 分开。Agent / Digital Employee 节点建议始终声明人类责任人；未声明时保存会产生 warning，运行期由工作区负责人或管理员处理。
 
-`responsible: user:<id>` 里的用户必须是当前工作区成员；`responsible: employee:<id>` 的数字员工必须启用并有当前工作区授权。
+启动实例时，`responsible: user:<id>` 里的用户必须是当前工作区成员；`responsible: employee:<id>` 的数字员工必须启用并有当前工作区授权。
 
 ### 交付物
 

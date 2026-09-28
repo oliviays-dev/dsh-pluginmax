@@ -11,15 +11,20 @@ window.__ModuleLoader__.load({
     const css = `
 .pmwf{color:var(--dsw-alias-label-primary);font-family:inherit}
 .pmwf *{box-sizing:border-box}
-.pmwf-page{max-width:880px;margin:0 auto;padding:22px 20px 34px}
+.pmwf-page{max-width:none;margin:0;padding:18px 20px 30px}
 .pmwf-context{display:flex;align-items:center;gap:8px;overflow:hidden;color:var(--dsw-alias-label-secondary);font-size:12px;white-space:nowrap}
 .pmwf-context strong{overflow:hidden;text-overflow:ellipsis;color:var(--dsw-alias-label-primary);font-weight:600}
 .pmwf-context span{overflow:hidden;text-overflow:ellipsis}
-.pmwf-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin:22px 0 14px}
+.pmwf-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin:0 0 14px}
 .pmwf-heading h1{margin:0;font-size:19px;line-height:1.25}
-.pmwf-filter{flex:none;border-radius:5px;padding:4px 7px;color:#4c9aff;background:#172a40;font-size:11px;white-space:nowrap}
-.pmwf-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
-.pmwf-search{min-width:170px;flex:1 1 190px}
+.pmwf-heading-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pmwf-filter{flex:none;border:0.5px solid color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 34%,transparent);border-radius:999px;padding:4px 8px;color:var(--dsw-alias-accent-primary,#4f8ef7);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 10%,transparent);font-size:11px;white-space:nowrap}
+.pmwf-inline-feedback{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-state-success-primary,#1f8f53);font-size:11.5px}
+.pmwf-inline-feedback.error{color:var(--dsw-alias-state-error-primary,#e5534b)}
+.pmwf-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;margin-bottom:12px}
+.pmwf-project-filter,.pmwf-status-filter,.pmwf-owner-filter{flex:0 0 180px;width:180px;min-width:0}
+.pmwf-search{min-width:180px;flex:1 1 auto}
+.pmwf-search-submit{flex:0 0 auto;min-width:96px;margin-left:auto}
 .pmwf-select,.pmwf-input,.pmwf-area{border:0.5px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);border-radius:6px;padding:7px 9px;font:inherit;font-size:13px;min-width:0;width:100%;box-sizing:border-box}
 .pmwf-select{width:auto;min-width:112px}
 .pmwf-btn{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:6px;min-height:33px;padding:7px 11px;font:inherit;font-size:13px;cursor:pointer;background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground)}
@@ -27,26 +32,103 @@ window.__ModuleLoader__.load({
 .pmwf-btn.small{min-height:27px;padding:4px 8px;font-size:12px}
 .pmwf-input.small{min-height:27px;padding:4px 8px;font-size:12px;width:auto}
 .pmwf-btn:disabled{opacity:.45;cursor:not-allowed}
+.pmwf-mask{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:20px;background:rgba(0,0,0,.24);backdrop-filter:blur(2px)}
+.pmwf-dialog{width:min(720px,calc(100vw - 40px));height:min(640px,calc(100vh - 40px));overflow:hidden;display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:13px;padding:16px;border:1px solid var(--dsw-alias-border-l3);border-radius:10px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));box-shadow:0 22px 54px rgba(0,0,0,.22)}
+.pmwf-dialog-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.pmwf-dialog-head h3{margin:0;font-size:16px}
+.pmwf-dialog .pmwf-form{min-height:0;overflow:auto;align-content:start;margin-top:0;padding-top:12px;padding-right:2px}
+.pmwf-dialog-field{display:grid;gap:6px;color:var(--dsw-alias-label-secondary);font-size:12px}
+.pmwf-dialog-field>span{font-weight:600;color:var(--dsw-alias-label-primary)}
+.pmwf-template-preview{display:grid;grid-template-rows:auto minmax(0,1fr);min-height:220px;gap:7px;padding:11px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base))}
+.pmwf-template-preview h4{margin:0;font-size:12.5px}
+.pmwf-template-preview-list{display:grid;align-content:start;gap:8px;height:218px;overflow:auto;padding-right:3px}
+.pmwf-template-preview-node{position:relative;display:grid;grid-template-columns:40px minmax(0,1fr);gap:10px;padding:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-base)}
+.pmwf-template-preview-node:not(:last-child)::after{content:"";position:absolute;left:29px;top:38px;bottom:-9px;width:1px;background:var(--dsw-alias-border-l3);}
+.pmwf-template-preview-node.branch{margin-left:18px;border-color:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d99a26) 22%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d99a26) 5%,var(--dsw-alias-bg-base));}
+.pmwf-template-preview-index{position:relative;z-index:1;width:36px;height:28px;display:grid;place-items:center;border:1px solid color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 35%,transparent);border-radius:7px;color:var(--dsw-alias-accent-primary,#4f8ef7);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 10%,transparent);font-size:10px;font-weight:700;}
+.pmwf-template-preview-index.branch{color:var(--dsw-alias-state-warning-primary,#d99a26);border-color:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d99a26) 42%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d99a26) 10%,transparent);}
+.pmwf-template-preview-main{min-width:0}
+.pmwf-template-preview-title{display:flex;align-items:center;flex-wrap:wrap;gap:7px}
+.pmwf-template-preview-title strong{font-size:12.5px}
+.pmwf-template-preview-type{margin-left:auto;color:var(--dsw-alias-label-secondary);font-size:10.5px;white-space:nowrap}
+.pmwf-template-preview-meta{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:5px;color:var(--dsw-alias-label-secondary);font-size:10.5px;line-height:1.45}
+.pmwf-template-preview-meta b{color:var(--dsw-alias-label-primary);font-weight:600}
+.pmwf-template-preview-desc{margin:6px 0 0;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.5}
+.pmwf-dialog-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding-top:12px;border-top:1px solid var(--dsw-alias-border-l2)}
+.pmwf-dialog-actions .pmwf-btn{min-width:88px}
+.pmwf-name-field{margin-top:5px}
+.pmwf-page-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:14px}
+.pmwf-page-head h1{margin:0;font-size:19px;line-height:1.25}
+.pmwf-page-sub{margin-top:3px;color:var(--dsw-alias-label-secondary);font-size:11.5px}
+.pmwf-template-inline{overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base))}
+.pmwf-template-inline-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:14px 16px;border-bottom:1px solid var(--dsw-alias-border-l2)}
+.pmwf-template-inline-head h2{margin:0;font-size:16px}
+.pmwf-template-inline-sub{margin-top:3px;color:var(--dsw-alias-label-tertiary);font-size:10.5px}
+.pmwf-template-inline-desc{max-width:760px;margin-top:5px;color:var(--dsw-alias-label-secondary);font-size:10.5px;line-height:1.5}
+.pmwf-template-inline-body{display:grid;grid-template-columns:270px minmax(0,1fr);align-items:start}
+.pmwf-template-sidebar{min-width:0;height:100%;overflow:auto;padding:10px;border-right:1px solid var(--dsw-alias-border-l2)}
+.pmwf-profile-search{display:flex;align-items:center;gap:7px;margin-bottom:8px;padding:7px 9px;border:1px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-base)}
+.pmwf-profile-search input{min-height:0;padding:0;border:0;background:transparent;font-size:11.5px}
+.pmwf-profile-list{display:grid;gap:5px}
+.pmwf-profile-list-item{width:100%;display:grid;grid-template-columns:8px minmax(0,1fr) auto;align-items:start;gap:8px;padding:10px;border:1px solid transparent;border-radius:7px;background:transparent;color:var(--dsw-alias-label-secondary);text-align:left;cursor:pointer}
+.pmwf-profile-list-item:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2)}
+.pmwf-profile-list-item.active{color:var(--dsw-alias-label-primary);border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 42%,transparent);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 10%,transparent)}
+.pmwf-profile-list-dot{width:7px;height:7px;margin-top:5px;border-radius:50%;background:var(--dsw-alias-label-tertiary)}
+.pmwf-profile-list-dot.enabled{background:var(--dsw-alias-state-success-primary,#34d47e);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-success-primary,#34d47e) 10%,transparent)}
+.pmwf-profile-list-copy{min-width:0}.pmwf-profile-list-copy strong,.pmwf-profile-list-copy small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pmwf-profile-list-copy strong{font-size:12px}.pmwf-profile-list-copy small{margin-top:2px;color:var(--dsw-alias-label-tertiary);font-size:10px}
+.pmwf-archived-toggle{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;margin-top:5px;padding:7px 8px;border:1px dashed var(--dsw-alias-border-l3);border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:10.5px;text-align:left;cursor:pointer}
+.pmwf-archived-toggle:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2)}
+.pmwf-archived-toggle .chevron{display:inline-block;transition:transform .16s ease}
+.pmwf-archived-toggle.open .chevron{transform:rotate(90deg)}
+.pmwf-archived-count{flex:none;min-width:18px;padding:1px 5px;border-radius:999px;background:var(--dsw-alias-bg-layer-2);text-align:center}
+.pmwf-profile-list-item.archived{opacity:.72}
+.pmwf-profile-workspace{color:var(--dsw-alias-label-tertiary);font-size:10px;white-space:nowrap}
+.pmwf-profile-detail{min-width:0;min-height:420px;padding:16px}
+.pmwf-profile-detail-section{margin-top:16px;padding-top:14px;border-top:1px solid var(--dsw-alias-border-l3)}
+.pmwf-profile-detail-section:first-child{margin-top:0;padding-top:0;border-top:0}
+.pmwf-profile-detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.pmwf-node-section-head{display:flex;align-items:center;justify-content:flex-start;gap:8px;padding-bottom:8px;border-bottom:1px solid var(--dsw-alias-border-l2)}
+.pmwf-profile-detail-head h3{margin:0;font-size:15px}
+.pmwf-profile-meta{margin-top:4px;color:var(--dsw-alias-label-tertiary);font-size:10.5px}
+.pmwf-profile-preview-title{margin-bottom:6px;color:var(--dsw-alias-label-primary);font-size:11.5px;font-weight:700}
+.pmwf-profile-node-list{display:grid;gap:8px;padding-top:10px;border-bottom:1px solid var(--dsw-alias-border-l3)}
+.pmwf-profile-node-card{position:relative;display:grid;grid-template-columns:40px minmax(0,1fr);gap:10px;padding:11px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-base)}
+.pmwf-profile-node-card:not(:last-child)::after{content:"";position:absolute;left:35px;top:38px;bottom:-9px;width:1px;background:var(--dsw-alias-border-l3)}
+.pmwf-profile-node-card:last-child::after{content:"";position:absolute;left:35px;top:38px;bottom:-18px;width:1px;background:var(--dsw-alias-border-l3)}
+.pmwf-profile-node-list{margin-bottom:18px}
+.pmwf-profile-node-card.branch{margin-left:18px;border-color:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d99a26) 23%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d99a26) 7%,var(--dsw-alias-bg-base))}
+.pmwf-profile-node-index{position:relative;z-index:1;width:36px;height:28px;display:grid;place-items:center;border:1px solid color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 35%,transparent);border-radius:7px;color:var(--dsw-alias-accent-primary,#4f8ef7);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 10%,transparent);font-size:10px;font-weight:700}
+.pmwf-profile-node-index.branch{color:var(--dsw-alias-state-warning-primary,#d99a26);border-color:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d99a26) 48%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d99a26) 10%,transparent)}
+.pmwf-profile-node-main{min-width:0}.pmwf-profile-node-title{display:flex;align-items:center;flex-wrap:wrap;gap:7px}.pmwf-profile-node-title strong{font-size:12.5px}
+.pmwf-profile-node-meta{display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:6px;color:var(--dsw-alias-label-tertiary);font-size:10.5px}.pmwf-profile-node-meta b{color:var(--dsw-alias-label-primary);font-weight:600}
+.pmwf-profile-node-main p{margin:7px 0 0;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.55}
 .pmwf-list{display:flex;flex-direction:column;gap:8px}
 .pmwf-flow{overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base))}
-.pmwf-summary{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:10px;align-items:center;width:100%;min-height:52px;padding:9px 12px;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.pmwf-summary{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto auto;gap:10px;align-items:center;width:100%;min-height:52px;padding:9px 12px;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .pmwf-summary:hover{background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base))}
+.pmwf-chevron{width:7px;height:7px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;color:var(--dsw-alias-label-tertiary);transform:rotate(45deg);transition:transform .16s ease}
+.pmwf-summary[aria-expanded=true] .pmwf-chevron{transform:rotate(225deg)}
 .pmwf-dot{width:8px;height:8px;border-radius:50%;flex:none}
 .pmwf-dot.running{background:#37b76a}.pmwf-dot.blocked,.pmwf-dot.failed{background:#e26d6d}.pmwf-dot.waiting{background:#d99a26}.pmwf-dot.completed{background:#4c9aff}
 .pmwf-name{min-width:0}.pmwf-name strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13.5px}
 .pmwf-name span{display:block;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:11px}
 .pmwf-time{color:var(--dsw-alias-label-secondary);font-size:11px;white-space:nowrap}
-.pmwf-pill{min-width:48px;border-radius:4px;padding:3px 6px;text-align:center;font-size:10.5px;white-space:nowrap}
+.pmwf-pill{min-width:48px;border-radius:999px;padding:3px 8px;text-align:center;font-size:10.5px;white-space:nowrap}
 .pmwf-pill.running{color:#37b76a;background:#16301f}.pmwf-pill.blocked,.pmwf-pill.failed{color:#e26d6d;background:#3d2222}.pmwf-pill.waiting{color:#d99a26;background:#372c14}.pmwf-pill.completed,.pmwf-pill.cancelled{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2)}
+.pmwf-status-action{display:inline-flex;align-items:center;justify-content:center;min-width:64px;min-height:30px;padding:4px 10px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);font-size:11.5px;white-space:nowrap}
+.pmwf-status-action.running,.pmwf-status-action.completed{color:color-mix(in srgb,var(--dsw-alias-state-success-primary,#34d47e) 72%,var(--dsw-alias-label-primary))}
+.pmwf-status-action.waiting{color:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d99a26) 78%,var(--dsw-alias-label-primary))}
+.pmwf-status-action.blocked,.pmwf-status-action.failed{color:var(--dsw-alias-state-error-primary,#e5534b)}
 .pmwf-detail{border-top:1px solid var(--dsw-alias-border-l2);padding:4px 12px 12px}
 .pmwf-nodes{margin:0;padding:0;list-style:none}
-.pmwf-node{display:grid;grid-template-columns:58px minmax(0,1fr);gap:4px 10px;align-items:start;padding:9px 0;border-bottom:1px solid var(--dsw-alias-border-l2)}
+.pmwf-node{display:grid;grid-template-columns:minmax(0,1fr);gap:7px;align-items:start;padding:9px 0;border-bottom:1px solid var(--dsw-alias-border-l2)}
 .pmwf-node:last-child{border-bottom:0}
 .pmwf-node.branch{margin-left:9px;padding-left:10px;border-left:2px solid var(--dsw-alias-border-l2)}
-.pmwf-state{border-radius:4px;padding:2px 4px;text-align:center;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2);font-size:10px;white-space:nowrap}
-.pmwf-node.completed .pmwf-state{color:#37b76a;background:#16301f}
-.pmwf-node.current .pmwf-state{color:#4c9aff;background:#172a40}
-.pmwf-node.blocked .pmwf-state,.pmwf-node.failed .pmwf-state{color:#e26d6d;background:#3d2222}
+.pmwf-state{justify-self:start;border-radius:999px;padding:3px 8px;text-align:center;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2);font-size:10.5px;white-space:nowrap}
+.pmwf-node.completed .pmwf-state{color:color-mix(in srgb,var(--dsw-alias-state-success-primary,#34d47e) 78%,var(--dsw-alias-label-primary));background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#34d47e) 14%,transparent)}
+.pmwf-node.current .pmwf-state{color:var(--dsw-alias-accent-primary,#4f8ef7);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 14%,transparent)}
+.pmwf-node.waiting .pmwf-state{color:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d99a26) 78%,var(--dsw-alias-label-primary));background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d99a26) 14%,transparent)}
+.pmwf-node.blocked .pmwf-state,.pmwf-node.failed .pmwf-state{color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 80%,var(--dsw-alias-label-primary));background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 14%,transparent)}
 .pmwf-node-main{min-width:0}.pmwf-node-main strong{display:block;font-size:12.5px}.pmwf-node-main span{display:block;margin-top:2px;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.4}
 .pmwf-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
 .pmwf-nested{margin-top:9px;background:var(--dsw-alias-bg-base)}
@@ -57,12 +139,19 @@ window.__ModuleLoader__.load({
 .pmwf-deliverable-heading{color:var(--dsw-alias-label-secondary);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.02em}
 .pmwf-deliverable{display:grid;gap:5px;padding:8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base))}
 .pmwf-deliverable-title{display:flex;align-items:center;gap:7px;flex-wrap:wrap;min-width:0}.pmwf-deliverable-title strong{font-size:12.5px}.pmwf-deliverable-title span{color:var(--dsw-alias-label-secondary);font-size:11px;white-space:nowrap}
-.pmwf-deliverable-state{border-radius:4px;padding:2px 5px !important;background:var(--dsw-alias-bg-base)}.pmwf-deliverable-state.submitted{color:#37b76a;background:#16301f}.pmwf-deliverable-state.rejected{color:#e26d6d;background:#3d2222}
+.pmwf-deliverable-state{border-radius:999px;padding:2px 7px !important;background:color-mix(in srgb,var(--dsw-alias-label-tertiary) 14%,transparent);color:var(--dsw-alias-label-secondary)}.pmwf-deliverable-state.submitted{color:color-mix(in srgb,var(--dsw-alias-state-success-primary,#34d47e) 78%,var(--dsw-alias-label-primary));background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#34d47e) 14%,transparent)}.pmwf-deliverable-state.rejected{color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 80%,var(--dsw-alias-label-primary));background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 14%,transparent)}
 .pmwf-deliverable-description,.pmwf-deliverable-value,.pmwf-deliverable-meta{color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.45;overflow-wrap:anywhere}
 .pmwf-deliverable-value{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
 .pmwf-deliverable-form{display:grid;gap:6px}.pmwf-file{font:inherit;font-size:12px;color:var(--dsw-alias-label-primary)}
+.pmwf-approval-list{display:grid;gap:5px;margin-top:6px}
+.pmwf-approval-row{display:flex;align-items:center;gap:7px;color:var(--dsw-alias-label-secondary);font-size:11px}
+.pmwf-approval-avatar{width:22px;height:22px;flex:none;display:grid;place-items:center;border-radius:50%;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 14%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7);font-size:9px;font-weight:700}
+.pmwf-approval-copy{display:flex;align-items:center;gap:6px;min-width:0}
+.pmwf-approval-copy strong{color:var(--dsw-alias-label-primary);font-size:11.5px}
+.pmwf-approval-status{border-radius:999px;padding:2px 7px;background:var(--dsw-alias-bg-layer-2);font-size:10px;white-space:nowrap}
 .pmwf-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .pmwf-note{box-sizing:border-box;padding:8px 10px;border:1px solid transparent;border-radius:6px;font-size:12px;line-height:1.45;overflow-wrap:anywhere;width:100%}
+.pmwf-validation-issues{display:grid;gap:3px;margin:5px 0 0;padding-left:16px}
 .pmwf-note.success{color:var(--dsw-alias-state-success-primary,#1f8f53);background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#1f8f53) 12%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary,#1f8f53) 28%,transparent)}.pmwf-note.error{color:var(--dsw-alias-state-error-primary,#e5534b);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 12%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 28%,transparent)}.pmwf-note.warning{color:var(--dsw-alias-state-warning-primary,#d99a26);background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d99a26) 12%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d99a26) 28%,transparent)}.pmwf-note.info{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-border-l2)}
 .pmwf-empty{padding:34px 16px;color:var(--dsw-alias-label-secondary);font-size:13px;text-align:center;line-height:1.6}
 .pmwf-section{border-top:0;padding-top:0;display:grid;gap:12px;min-width:0;max-width:100%}
@@ -76,9 +165,23 @@ window.__ModuleLoader__.load({
 .pmwf-graph{display:grid;gap:6px}.pmwf-graph-node{display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:5px;background:var(--dsw-alias-bg-layer-2);font-size:12px}
 .pmwf-graph-node.branch{margin-left:16px}.pmwf-type{margin-left:auto;color:var(--dsw-alias-label-secondary);font-size:10.5px}
 .pmwf-definition-list{display:grid;gap:9px}
+.pmwf-template-layout{display:grid;grid-template-columns:minmax(210px,270px) minmax(0,1fr);gap:12px;min-width:0}
+.pmwf-template-directory{min-width:0;display:grid;align-content:start;gap:6px;padding:9px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base))}
+.pmwf-template-directory-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:3px 4px 7px;color:var(--dsw-alias-label-secondary);font-size:11px;font-weight:650}
+.pmwf-template-item{width:100%;display:grid;gap:2px;border:0.5px solid transparent;border-radius:6px;padding:8px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;text-align:left;cursor:pointer}
+.pmwf-template-item:hover{background:var(--dsw-alias-bg-layer-2)}
+.pmwf-template-item.active{border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 42%,transparent);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 10%,transparent)}
+.pmwf-template-item strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px}
+.pmwf-template-item span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:10.5px}
+.pmwf-template-editor{min-width:0;display:grid;align-content:start;gap:12px}
+.pmwf-template-summary{display:grid;gap:8px;padding:11px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base))}
+.pmwf-template-summary h4{margin:0;font-size:14px}
+.pmwf-template-meta{color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1.5}
 .pmwf-definition{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:9px;padding:9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base))}
 .pmwf-definition strong{font-size:13px}.pmwf-definition span{color:var(--dsw-alias-label-secondary);font-size:11px}
 .pmwf-definition-main{min-width:0}.pmwf-definition-main>div{margin-top:3px;line-height:1.45;overflow-wrap:anywhere}.pmwf-actions-right{display:flex;justify-content:flex-end;gap:6px;flex-wrap:wrap}
+@media(max-width:900px){.pmwf-toolbar{flex-wrap:wrap}.pmwf-project-filter,.pmwf-status-filter,.pmwf-owner-filter{flex:1 1 calc(33.333% - 6px);width:auto}.pmwf-search{flex-basis:100%}.pmwf-search-submit{flex:1 1 100%;margin-left:0;}}
+@media(max-width:760px){.pmwf-template-layout,.pmwf-template-inline-body{grid-template-columns:1fr}.pmwf-template-sidebar{border-right:0;border-bottom:1px solid var(--dsw-alias-border-l2)}}
 @media(max-width:560px){.pmwf-page{padding:18px 12px 28px}.pmwf-heading{flex-direction:column;gap:8px}.pmwf-summary{grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"name name pill" "meta meta time" "spacer spacer spacer";align-items:start;row-gap:6px}.pmwf-name{grid-area:name}.pmwf-name span{white-space:normal}.pmwf-time{grid-area:time}.pmwf-pill{grid-area:pill}.pmwf-select{width:100%}}
 `;
 
@@ -132,11 +235,14 @@ window.__ModuleLoader__.load({
       if (!(target instanceof Element)) return;
       const button = target.closest(".pmwf-start-submit");
       if (!button || button.disabled) return;
-      const form = button.closest(".pmwf-form");
+      const form = button.closest(".pmwf-dialog")?.querySelector(".pmwf-form");
       if (!form) return;
       const workspaceId = form.getAttribute("data-workspace-id") ?? "";
       const sessionId = form.getAttribute("data-session-id") ?? "";
-      const definitionId = form.querySelector("select")?.value ?? "";
+      const definitionId =
+        form.getAttribute("data-definition-id") ??
+        form.querySelector(".pmwf-start-definition")?.value ??
+        "";
       const title = form.querySelector(".pmwf-start-title")?.value.trim() ?? "";
       if (!workspaceId || !definitionId || !title) return;
 
@@ -163,7 +269,7 @@ window.__ModuleLoader__.load({
       } catch (cause) {
         window.dispatchEvent(
           new CustomEvent("pluginmax:workflow-refresh", {
-            detail: { kind: "error", message: friendly(cause) },
+            detail: { kind: "start-error", message: friendly(cause) },
           }),
         );
       } finally {
@@ -178,8 +284,14 @@ window.__ModuleLoader__.load({
           cause.code === "conflict" &&
           /^definition version already exists:/i.test(cause.message)
         ) {
-          return "该模板版本已存在。请把 Markdown 元信息里的 version 改成新版本号，或换一个流程 key。";
-        }
+        return "该模板版本已存在。请把 Markdown 元信息里的 version 改成新版本号，或换一个流程 key。";
+      }
+      if (
+        cause instanceof Error &&
+        cause.message === "active workflow definition not found"
+      ) {
+        return "所选工作流模板不存在或未启用。请刷新页面后重新选择模板。";
+      }
         return cause.message;
       }
       return String(cause);
@@ -263,6 +375,57 @@ window.__ModuleLoader__.load({
       return "未命名工作区";
     }
 
+    function workspaceName(workspace) {
+      return (
+        workspace.title?.trim() ||
+        workspace.path?.trim() ||
+        "未命名项目"
+      );
+    }
+
+    function workflowNodeKey(nodes, index) {
+      return String(index + 1).padStart(2, "0");
+    }
+
+    function workflowNodeDependencyLabel(node, nodes, edges) {
+      const incoming = (edges ?? []).filter((edge) => edge.to === node.id);
+      if (incoming.length === 0) return "无前置依赖";
+      return incoming
+        .map((edge) => {
+          const index = nodes.findIndex((candidate) => candidate.id === edge.from);
+          const source = nodes[index];
+          return source === undefined
+            ? edge.from
+            : `${workflowNodeKey(nodes, index)} ${source.name}`;
+        })
+        .join(incoming.length > 1 ? " AND " : "");
+    }
+
+    function workflowNodeOwnerLabel(node) {
+      const owner = node.responsible ?? node.executor;
+      if (owner === undefined) return "待指定";
+      return owner.label ?? owner.name ?? owner.id ?? owner.kind;
+    }
+
+    function workflowNodeApprovalLabel(node) {
+      if ((node.approvers ?? []).length <= 1) return "";
+      return node.approvalPolicy === "any"
+        ? "OR · 任一通过"
+        : "AND · 全部通过";
+    }
+
+    function dedupeWorkflowDefinitions(definitions) {
+      const byVersion = new Map();
+      for (const definition of definitions) {
+        const key = `${definition.key}:${definition.version}`;
+        const current = byVersion.get(key);
+        if (current === undefined || definition.updatedAt > current.updatedAt) {
+          byVersion.set(key, definition);
+        }
+      }
+      return [...byVersion.values()];
+    }
+
     function executorLabel(node) {
       const kind =
         { system: "系统", user: "用户", agent: "Agent", employee: "数字员工" }[
@@ -280,6 +443,43 @@ window.__ModuleLoader__.load({
             ? "数字员工"
             : "用户";
       return `${kind} · ${name}`;
+    }
+
+    function WorkflowApprovalList({ approvals, memberNames }) {
+      const entries = Object.values(approvals ?? {});
+      if (entries.length === 0) return null;
+      return jsxRuntime.jsx("div", {
+        className: "pmwf-approval-list",
+        children: entries.map((approval, index) => {
+          const name =
+            memberNames.get(approval.approver.id) ??
+            approval.approver.name ??
+            approval.approver.id;
+          return jsxRuntime.jsxs(
+            "div",
+            {
+              className: "pmwf-approval-row",
+              children: [
+                jsxRuntime.jsx("span", {
+                  className: "pmwf-approval-avatar",
+                  children: String(name).slice(0, 2).toUpperCase(),
+                }),
+                jsxRuntime.jsxs("span", {
+                  className: "pmwf-approval-copy",
+                  children: [
+                    jsxRuntime.jsx("strong", { children: name }),
+                    jsxRuntime.jsx("span", {
+                      className: "pmwf-approval-status",
+                      children: statusText(approval.status),
+                    }),
+                  ],
+                }),
+              ],
+            },
+            `${approval.approver.id}:${index}`,
+          );
+        }),
+      });
     }
 
     function deliverableTypeLabel(value) {
@@ -327,9 +527,36 @@ window.__ModuleLoader__.load({
       return responsible?.kind === "user" && responsible.id === actor.id;
     }
 
+    function isSystemServiceNode(node) {
+      return node.type === "service" && node.executor.kind === "system";
+    }
+
+    function workflowNodeStatusText(node, state) {
+      if (
+        isSystemServiceNode(node) &&
+        ["ready", "running"].includes(state?.status ?? "")
+      ) {
+        return "等待系统执行";
+      }
+      return statusText(state?.status ?? "waiting");
+    }
+
+    function systemServiceHint(node, state, manager) {
+      if (!isSystemServiceNode(node) || state?.status !== "ready") return null;
+      const service = node.executor.label ?? node.executor.id;
+      return manager
+        ? `系统服务「${service}」尚未接入自动执行；请确认外部动作已完成，再由 Owner/Admin 手动完成。`
+        : `该节点由系统服务「${service}」执行，不创建个人任务；当前等待系统执行或 Owner/Admin 手动完成。`;
+    }
+
     function completeButtonLabel(node, actor, manager, memberNames, state) {
       const missing = missingDeliverables(node, state);
       if (missing.length > 0) return `缺少 ${missing.length} 项交付物`;
+      if (isSystemServiceNode(node)) {
+        return canCompleteNode(node, actor, manager)
+          ? "管理员完成"
+          : "等待 Owner/Admin 完成";
+      }
       if (canCompleteNode(node, actor, manager)) return "完成";
       if (
         ["agent", "employee"].includes(node.executor.kind) &&
@@ -919,19 +1146,823 @@ window.__ModuleLoader__.load({
       return null;
     }
 
+    const EMPTY_WORKFLOW_MARKDOWN = `# 工作流：新工作流模版
+
+## 触发条件
+- 补充触发说明。
+
+## 执行节点
+1. 定义第一个节点。
+
+## 完成条件
+- 补充完成条件。
+`;
+
+    function WorkflowTemplateManager({
+      workspaceOptions,
+      canManage,
+      onClose,
+    }) {
+      const [definitions, setDefinitions] = react.useState([]);
+      const [workspaceId, setWorkspaceId] = react.useState(
+        workspaceOptions.find((item) => item.isMember)?.id ??
+          workspaceOptions[0]?.id ??
+          "",
+      );
+      const [selectedId, setSelectedId] = react.useState("");
+      const [query, setQuery] = react.useState("");
+      const [editing, setEditing] = react.useState(false);
+      const [sourceMd, setSourceMd] = react.useState("");
+      const [draftWorkspaceId, setDraftWorkspaceId] = react.useState("");
+      const [validation, setValidation] = react.useState(null);
+      const [validatedSourceMd, setValidatedSourceMd] = react.useState("");
+      const [busy, setBusy] = react.useState("");
+      const [error, setError] = react.useState("");
+      const [notice, setNotice] = react.useState("");
+      const [archivedExpanded, setArchivedExpanded] = react.useState(false);
+
+      react.useEffect(() => {
+        if (notice === "" && error === "") return undefined;
+        const timer = window.setTimeout(() => {
+          setNotice("");
+          setError("");
+        }, 5_000);
+        return () => window.clearTimeout(timer);
+      }, [notice, error]);
+
+      const load = react.useCallback(async () => {
+        const workspaceIds =
+          workspaceId === ""
+            ? workspaceOptions.map((item) => item.id)
+            : [workspaceId];
+        if (workspaceIds.length === 0) {
+          setDefinitions([]);
+          return;
+        }
+        try {
+          setBusy("load");
+          const results = await Promise.all(
+            workspaceIds.map((id) =>
+              request(
+                `/api/collab/workflow/definitions?workspaceId=${encodeURIComponent(id)}`,
+              ),
+            ),
+          );
+          setDefinitions(results.flatMap((item) => item.definitions ?? []));
+          setError("");
+        } catch (cause) {
+          setError(friendly(cause));
+        } finally {
+          setBusy("");
+        }
+      }, [workspaceId, workspaceOptions]);
+
+      react.useEffect(() => {
+        void load();
+      }, [load]);
+
+      const globalDefinitions = dedupeWorkflowDefinitions(definitions);
+      const visible = globalDefinitions.filter((item) => {
+        const keyword = query.trim().toLowerCase();
+        if (keyword === "") return true;
+        return [
+          item.name,
+          item.key,
+          item.description,
+          item.sourceMd,
+          ...(item.graph?.nodes ?? []).flatMap((node) => [
+            node.name,
+            node.description,
+            workflowNodeOwnerLabel(node),
+          ]),
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(keyword);
+      });
+      const activeDefinitions = visible.filter(
+        (item) => item.status !== "archived",
+      );
+      const archivedDefinitions = visible.filter(
+        (item) => item.status === "archived",
+      );
+      const listable = archivedExpanded
+        ? [...activeDefinitions, ...archivedDefinitions]
+        : activeDefinitions;
+      const selected =
+        selectedId === "__new__"
+          ? null
+          : listable.find((item) => item.id === selectedId) ??
+            listable[0] ??
+            null;
+
+      react.useEffect(() => {
+        if (editing && selectedId === "__new__") return;
+        if (selected !== null && selected.id !== selectedId) {
+          setSelectedId(selected.id);
+        }
+      }, [editing, selected, selectedId]);
+
+      const renderTemplateItem = (item) =>
+        jsxRuntime.jsxs(
+          "button",
+          {
+            type: "button",
+            className: `pmwf-profile-list-item${item.id === selected?.id ? " active" : ""}${
+              item.status === "archived" ? " archived" : ""
+            }`,
+            onClick: () => {
+              setSelectedId(item.id);
+              setEditing(false);
+              setValidation(null);
+            },
+            children: [
+              jsxRuntime.jsx("span", {
+                className: `pmwf-profile-list-dot${item.status === "active" ? " enabled" : ""}`,
+              }),
+              jsxRuntime.jsxs("span", {
+                className: "pmwf-profile-list-copy",
+                children: [
+                  jsxRuntime.jsx("strong", {
+                    children: item.name,
+                  }),
+                  jsxRuntime.jsx("small", {
+                    children: `${item.key} · v${item.version} · ${
+                      item.status === "active"
+                        ? "已启用"
+                        : item.status === "disabled"
+                          ? "已停用"
+                          : "已归档"
+                    }`,
+                  }),
+                ],
+              }),
+            ],
+          },
+          item.id,
+        );
+
+      const startEditing = (definition) => {
+        setSelectedId(definition?.id ?? "");
+        setSourceMd(definition?.sourceMd ?? EMPTY_WORKFLOW_MARKDOWN);
+        setValidation(null);
+        setValidatedSourceMd("");
+        setEditing(true);
+      };
+
+      const chooseMarkdownFile = (event) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          setSourceMd(String(reader.result ?? ""));
+          setValidation(null);
+          setValidatedSourceMd("");
+        };
+        reader.readAsText(file);
+        event.target.value = "";
+      };
+
+      const validate = async () => {
+        const targetWorkspaceId =
+          workspaceId ||
+          draftWorkspaceId ||
+          workspaceOptions[0]?.id ||
+          "";
+        if (!targetWorkspaceId) return;
+        setBusy("validate");
+        try {
+          const result = await request(
+            "/api/collab/workflow/definitions/validate",
+            {
+              method: "POST",
+              body: JSON.stringify({
+                workspaceId: targetWorkspaceId,
+                sourceMd,
+              }),
+            },
+          );
+          setValidation(result);
+          setValidatedSourceMd(sourceMd);
+          const hasErrors = (result.issues ?? []).some(
+            (issue) => issue.level === "error",
+          );
+          setError(hasErrors ? "校验发现错误" : "");
+          setNotice(hasErrors ? "" : "校验通过");
+        } catch (cause) {
+          const message = friendly(cause);
+          setValidation({
+            issues: [{ level: "error", message }],
+          });
+          setValidatedSourceMd(sourceMd);
+          setError("校验失败");
+        } finally {
+          setBusy("");
+        }
+      };
+
+      const save = async (event) => {
+        event.preventDefault();
+        const targetWorkspaceId =
+          workspaceId ||
+          draftWorkspaceId ||
+          workspaceOptions[0]?.id ||
+          "";
+        if (!targetWorkspaceId) return;
+        setBusy("save");
+        try {
+          const result = await request(
+            "/api/collab/workflow/definitions/import",
+            {
+              method: "POST",
+              body: JSON.stringify({
+                workspaceId: targetWorkspaceId,
+                sourceMd,
+                activate: true,
+              }),
+            },
+          );
+          setEditing(false);
+          setNotice(
+            `已保存「${result.definition.name}」v${result.definition.version}`,
+          );
+          setValidation(null);
+          setValidatedSourceMd("");
+          await load();
+          setSelectedId(result.definition.id);
+        } catch (cause) {
+          const message = friendly(cause);
+          setValidation({
+            issues: [{ level: "error", message }],
+          });
+          setValidatedSourceMd(sourceMd);
+          setError("保存失败");
+        } finally {
+          setBusy("");
+        }
+      };
+
+      const setStatus = async (status) => {
+        if (!selected) return;
+        setBusy(`status:${selected.id}`);
+        try {
+          await request("/api/collab/workflow/definitions/status", {
+            method: "POST",
+            body: JSON.stringify({
+              workspaceId: workspaceId || draftWorkspaceId || selected.workspaceId,
+              definitionId: selected.id,
+              status,
+            }),
+          });
+          setNotice(
+            status === "active"
+              ? "已启用模版"
+              : status === "disabled"
+                ? "已停用模版"
+                : "已归档模版",
+          );
+          await load();
+        } catch (cause) {
+          setError(friendly(cause));
+        } finally {
+          setBusy("");
+        }
+      };
+
+      const nodes = selected?.graph?.nodes ?? [];
+      const edges = selected?.graph?.edges ?? [];
+
+      return jsxRuntime.jsxs("div", {
+        className: "pmwf-template-inline",
+        children: [
+          jsxRuntime.jsxs("div", {
+            className: "pmwf-template-inline-head",
+            children: [
+              jsxRuntime.jsxs("div", {
+                children: [
+                  jsxRuntime.jsx("h2", { children: "工作流模版管理" }),
+                  jsxRuntime.jsx("div", {
+                    className: "pmwf-template-inline-sub",
+                    children:
+                      selected?.description
+                        ? `可复用工作流定义、节点编排与版本管理，${selected.description}`
+                        : "可复用工作流定义、节点编排与版本管理",
+                  }),
+                ],
+              }),
+              jsxRuntime.jsxs("div", {
+                className: "pmwf-heading-actions",
+                children: [
+                  jsxRuntime.jsx("span", {
+                    className: "pmwf-filter",
+                    children: "全平台共享",
+                  }),
+                  notice !== "" || error !== ""
+                    ? jsxRuntime.jsx("span", {
+                        className: `pmwf-inline-feedback${error !== "" ? " error" : ""}`,
+                        children: error !== "" ? error : notice,
+                      })
+                    : null,
+                  jsxRuntime.jsx("button", {
+                    type: "button",
+                    className: "pmwf-btn secondary small",
+                    onClick: () => void load(),
+                    disabled: busy !== "",
+                    children: "刷新",
+                  }),
+                  selectedId === "__new__"
+                    ? null
+                    : jsxRuntime.jsx("button", {
+                        type: "button",
+                        className: "pmwf-btn small",
+                        disabled: !canManage || busy !== "",
+                        onClick: () => {
+                          setEditing(true);
+                          setSelectedId("__new__");
+                          setDraftWorkspaceId(
+                            workspaceId || workspaceOptions[0]?.id || "",
+                          );
+                          setSourceMd(EMPTY_WORKFLOW_MARKDOWN);
+                          setValidation(null);
+                        },
+                        children: "新建模版",
+                      }),
+                  jsxRuntime.jsx("button", {
+                    type: "button",
+                    className: "pmwf-btn secondary small",
+                    onClick: onClose,
+                    "aria-label": "关闭工作流模版管理",
+                    children: "×",
+                  }),
+                ],
+              }),
+            ],
+          }),
+          jsxRuntime.jsxs("div", {
+            className: "pmwf-template-inline-body",
+            children: [
+              jsxRuntime.jsxs("div", {
+                className: "pmwf-template-sidebar",
+                children: [
+                  jsxRuntime.jsx("label", {
+                    className: "pmwf-profile-search",
+                    children: jsxRuntime.jsx("input", {
+                      value: query,
+                      onChange: (event) => setQuery(event.target.value),
+                      placeholder: "搜索模版名称或节点",
+                    }),
+                  }),
+                  jsxRuntime.jsx("div", {
+                    className: "pmwf-profile-list",
+                    children:
+                      selectedId === "__new__" || listable.length > 0 ||
+                      archivedDefinitions.length > 0
+                        ? [
+                            selectedId === "__new__"
+                              ? jsxRuntime.jsxs(
+                                  "button",
+                                  {
+                                    type: "button",
+                                    className:
+                                      "pmwf-profile-list-item active",
+                                    children: [
+                                      jsxRuntime.jsx("span", {
+                                        className: "pmwf-profile-list-dot",
+                                      }),
+                                      jsxRuntime.jsxs("span", {
+                                        className: "pmwf-profile-list-copy",
+                                        children: [
+                                          jsxRuntime.jsx("strong", {
+                                            children: "新工作流模版",
+                                          }),
+                                          jsxRuntime.jsx("small", {
+                                            children:
+                                              "临时模版 · 待保存",
+                                          }),
+                                        ],
+                                      }),
+                                    ],
+                                  },
+                                  "__new__",
+                                )
+                              : null,
+                            ...activeDefinitions.map(renderTemplateItem),
+                            archivedDefinitions.length > 0
+                              ? jsxRuntime.jsxs(
+                                  "button",
+                                  {
+                                    type: "button",
+                                    className: `pmwf-archived-toggle${archivedExpanded ? " open" : ""}`,
+                                    onClick: () =>
+                                      setArchivedExpanded(!archivedExpanded),
+                                    "aria-expanded": archivedExpanded,
+                                    children: [
+                                      jsxRuntime.jsxs("span", {
+                                        children: [
+                                          jsxRuntime.jsx("span", {
+                                            className: "chevron",
+                                            children: "→",
+                                          }),
+                                          ` 已归档模版`,
+                                        ],
+                                      }),
+                                      jsxRuntime.jsx("span", {
+                                        className: "pmwf-archived-count",
+                                        children: archivedDefinitions.length,
+                                      }),
+                                    ],
+                                  },
+                                  "archived-section",
+                                )
+                              : null,
+                            ...(archivedExpanded
+                              ? archivedDefinitions.map(renderTemplateItem)
+                              : []),
+                          ]
+                        : jsxRuntime.jsx("div", {
+                            className: "pmwf-empty",
+                            children: "没有匹配的工作流模版。",
+                          }),
+                  }),
+                ],
+              }),
+              jsxRuntime.jsx("main", {
+                className: "pmwf-profile-detail",
+                children: editing
+                  ? jsxRuntime.jsxs("form", {
+                      onSubmit: save,
+                      children: [
+                        jsxRuntime.jsxs("div", {
+                          className: "pmwf-profile-detail-head",
+                          children: [
+                            jsxRuntime.jsx("h3", {
+                              children: selected
+                                ? `编辑 ${selected.name}`
+                                : "新建工作流模版",
+                            }),
+                            selected
+                              ? jsxRuntime.jsx("span", {
+                                  className: "pmwf-label",
+                                  children: `v${selected.version}`,
+                                })
+                              : null,
+                          ],
+                        }),
+                        jsxRuntime.jsxs("div", {
+                          className: "pmwf-row",
+                          children: [
+                            jsxRuntime.jsx("label", {
+                              className: "pmwf-btn secondary small",
+                              htmlFor: "pmwf-template-markdown-file",
+                              children: "选择 MD 文档",
+                            }),
+                            jsxRuntime.jsx("input", {
+                              id: "pmwf-template-markdown-file",
+                              type: "file",
+                              accept: ".md,.markdown,text/markdown,text/plain",
+                              style: { display: "none" },
+                              onChange: chooseMarkdownFile,
+                            }),
+                          ],
+                        }),
+                        jsxRuntime.jsx("textarea", {
+                          className: "pmwf-area",
+                          rows: 16,
+                          value: sourceMd,
+                          onChange: (event) =>
+                            setSourceMd(event.target.value),
+                          required: true,
+                        }),
+                        validation && validatedSourceMd === sourceMd
+                          ? (() => {
+                              const issues = validation.issues ?? [];
+                              const errors = issues.filter(
+                                (issue) => issue.level === "error",
+                              );
+                              const warnings = issues.filter(
+                                (issue) => issue.level === "warning",
+                              );
+                              const renderIssues = (label, items) =>
+                                items.length === 0
+                                  ? null
+                                  : jsxRuntime.jsxs("div", {
+                                      className: `pmwf-note ${label === "错误" ? "error" : "warning"}`,
+                                      children: [
+                                        jsxRuntime.jsx("strong", {
+                                          children: label,
+                                        }),
+                                        jsxRuntime.jsx(
+                                          "ul",
+                                          {
+                                            className: "pmwf-validation-issues",
+                                            children: items.map((issue, index) =>
+                                              jsxRuntime.jsx(
+                                                "li",
+                                                { children: issue.message },
+                                                `${issue.level}:${index}`,
+                                              ),
+                                            ),
+                                          },
+                                        ),
+                                      ],
+                                    });
+                              return jsxRuntime.jsxs(react.Fragment, {
+                                children: [
+                                  renderIssues("错误", errors),
+                                  renderIssues("警告", warnings),
+                                  errors.length === 0 && warnings.length === 0
+                                    ? jsxRuntime.jsx("div", {
+                                        className: "pmwf-note success",
+                                        children: "校验通过",
+                                      })
+                                    : null,
+                                ],
+                              });
+                            })()
+                          : null,
+                        jsxRuntime.jsxs("div", {
+                          className: "pmwf-dialog-actions",
+                          children: [
+                            jsxRuntime.jsx("button", {
+                              type: "button",
+                              className: "pmwf-btn secondary",
+                              onClick: () => setEditing(false),
+                              children: "取消",
+                            }),
+                            jsxRuntime.jsx("button", {
+                              type: "button",
+                              className: "pmwf-btn secondary",
+                              disabled:
+                                !canManage ||
+                                busy !== "" ||
+                                sourceMd.trim() === "",
+                              onClick: () => void validate(),
+                              children:
+                                busy === "validate" ? "校验中" : "校验",
+                            }),
+                            jsxRuntime.jsx("button", {
+                              type: "submit",
+                              className: "pmwf-btn",
+                              disabled:
+                                !canManage ||
+                                busy !== "" ||
+                                sourceMd.trim() === "",
+                              children: busy === "save" ? "保存中" : "保存新版本",
+                            }),
+                          ],
+                        }),
+                      ],
+                    })
+                  : selected
+                    ? jsxRuntime.jsxs(react.Fragment, {
+                        children: [
+                          jsxRuntime.jsxs("div", {
+                            className: "pmwf-profile-detail-head",
+                            children: [
+                              jsxRuntime.jsxs("div", {
+                                children: [
+                                  jsxRuntime.jsx("h3", {
+                                    children: selected.name,
+                                  }),
+                                  jsxRuntime.jsx("div", {
+                                    className: "pmwf-profile-meta",
+                                    children: `${selected.key} · v${selected.version} · 更新 ${timeShort(selected.updatedAt)}`,
+                                  }),
+                                ],
+                              }),
+                              jsxRuntime.jsx("span", {
+                                className: `pmwf-pill ${selected.status === "active" ? "completed" : selected.status === "disabled" ? "waiting" : "cancelled"}`,
+                                children:
+                                  selected.status === "active"
+                                    ? "已启用"
+                                    : selected.status === "disabled"
+                                      ? "已停用"
+                                      : "已归档",
+                              }),
+                            ],
+                          }),
+                          jsxRuntime.jsxs("div", {
+                            className: "pmwf-heading-actions",
+                            children: [
+                              jsxRuntime.jsx("button", {
+                                type: "button",
+                                className: "pmwf-btn secondary small",
+                                disabled: !canManage,
+                                onClick: () => startEditing(selected),
+                                children: "编辑",
+                              }),
+                              jsxRuntime.jsx("button", {
+                                type: "button",
+                                className: "pmwf-btn secondary small",
+                                disabled: !canManage || busy !== "",
+                                onClick: () =>
+                                  void setStatus(
+                                    selected.status === "active"
+                                      ? "disabled"
+                                      : "active",
+                                  ),
+                                children:
+                                  selected.status === "active"
+                                    ? "停用"
+                                    : "启用",
+                              }),
+                              jsxRuntime.jsx("button", {
+                                type: "button",
+                                className: "pmwf-btn secondary small",
+                                disabled:
+                                  !canManage ||
+                                  selected.status === "archived" ||
+                                  busy !== "",
+                                onClick: () => void setStatus("archived"),
+                                children: "归档",
+                              }),
+                            ],
+                          }),
+                          jsxRuntime.jsxs("section", {
+                            className: "pmwf-profile-detail-section",
+                            children: [
+                              jsxRuntime.jsx("div", {
+                                className: "pmwf-profile-preview-title",
+                                children: "模版说明",
+                              }),
+                              jsxRuntime.jsx("p", {
+                                className: "pmwf-label",
+                                children: selected.description || "暂无说明。",
+                              }),
+                            ],
+                          }),
+                          jsxRuntime.jsxs("section", {
+                            className: "pmwf-profile-detail-section",
+                            children: [
+                              jsxRuntime.jsxs("div", {
+                                className: "pmwf-node-section-head",
+                                children: [
+                                  jsxRuntime.jsx("div", {
+                                    className: "pmwf-profile-preview-title",
+                                    children: "节点说明",
+                                  }),
+                                  jsxRuntime.jsxs("span", {
+                                    className: "pmwf-filter",
+                                    children: [nodes.length, " 个节点"],
+                                  }),
+                                ],
+                              }),
+                              jsxRuntime.jsx("div", {
+                                className: "pmwf-profile-node-list",
+                                children:
+                                  nodes.length > 0
+                                    ? nodes.map((node, index) =>
+                                        jsxRuntime.jsxs(
+                                          "article",
+                                          {
+                                            className: `pmwf-profile-node-card${edges.filter((edge) => edge.to === node.id).length > 1 ? " branch" : ""}`,
+                                            children: [
+                                              jsxRuntime.jsx("span", {
+                                                className: `pmwf-profile-node-index${edges.filter((edge) => edge.to === node.id).length > 1 ? " branch" : ""}`,
+                                                children: workflowNodeKey(
+                                                  nodes,
+                                                  index,
+                                                ),
+                                              }),
+                                              jsxRuntime.jsxs("div", {
+                                                className:
+                                                  "pmwf-profile-node-main",
+                                                children: [
+                                                  jsxRuntime.jsxs("div", {
+                                                    className:
+                                                      "pmwf-profile-node-title",
+                                                    children: [
+                                                      jsxRuntime.jsx(
+                                                        "strong",
+                                                        {
+                                                          children: node.name,
+                                                        },
+                                                      ),
+                                                      jsxRuntime.jsx(
+                                                        "span",
+                                                        {
+                                                          className:
+                                                            "pmwf-profile-workspace",
+                                                          children:
+                                                            nodeTypeLabel(
+                                                              node.type,
+                                                            ),
+                                                        },
+                                                      ),
+                                                    ],
+                                                  }),
+                                                  jsxRuntime.jsxs("div", {
+                                                    className:
+                                                      "pmwf-profile-node-meta",
+                                                    children: [
+                                                      jsxRuntime.jsxs(
+                                                        "span",
+                                                        {
+                                                          children: [
+                                                            "负责人 / 角色：",
+                                                            jsxRuntime.jsx(
+                                                              "b",
+                                                              {
+                                                                children:
+                                                                  workflowNodeOwnerLabel(
+                                                                    node,
+                                                                  ),
+                                                              },
+                                                            ),
+                                                          ],
+                                                        },
+                                                      ),
+                                                      jsxRuntime.jsxs(
+                                                        "span",
+                                                        {
+                                                          children: [
+                                                            "依赖：",
+                                                            jsxRuntime.jsx(
+                                                              "b",
+                                                              {
+                                                                children:
+                                                                  workflowNodeDependencyLabel(
+                                                                    node,
+                                                                    nodes,
+                                                                    edges,
+                                                                  ),
+                                                              },
+                                                            ),
+                                                          ],
+                                                        },
+                                                      ),
+                                                      workflowNodeApprovalLabel(
+                                                        node,
+                                                      )
+                                                        ? jsxRuntime.jsxs(
+                                                            "span",
+                                                            {
+                                                              children: [
+                                                                "审批逻辑：",
+                                                                jsxRuntime.jsx(
+                                                                  "b",
+                                                                  {
+                                                                    children:
+                                                                      workflowNodeApprovalLabel(
+                                                                        node,
+                                                                      ),
+                                                                  },
+                                                                ),
+                                                              ],
+                                                            },
+                                                          )
+                                                        : null,
+                                                    ],
+                                                  }),
+                                                  node.description
+                                                    ? jsxRuntime.jsx("p", {
+                                                        children:
+                                                          node.description,
+                                                      })
+                                                    : null,
+                                                ],
+                                              }),
+                                            ],
+                                          },
+                                          node.id,
+                                        ),
+                                      )
+                                    : jsxRuntime.jsx("div", {
+                                        className: "pmwf-empty",
+                                        children: "尚未定义节点。",
+                                      }),
+                              }),
+                            ],
+                          }),
+                          jsxRuntime.jsxs("section", {
+                            className: "pmwf-profile-detail-section",
+                            children: [
+                              jsxRuntime.jsx("div", {
+                                className: "pmwf-profile-preview-title",
+                                children: "工作流定义",
+                              }),
+                              jsxRuntime.jsx("pre", {
+                                className: "pmwf-md-pre",
+                                children: selected.sourceMd,
+                              }),
+                            ],
+                          }),
+                        ],
+                      })
+                    : jsxRuntime.jsx("div", {
+                        className: "pmwf-empty",
+                        children: "请选择一个工作流模版。",
+                      }),
+              }),
+            ],
+          }),
+        ],
+      });
+    }
+
     function WorkflowTab(props) {
       const sessionId = props.sessionId;
       const { viewRequest, completeViewRequest } = props;
-      const workspaceSnapshot = props.useWorkspaces?.((state) => state);
-      const sessionSnapshot = props.useSessions?.((state) => state);
-      const nativeWorkspace = workspaceSnapshot?.items?.find((item) =>
-        item.sessionIds.includes(sessionId),
-      );
-      const sessionTitle =
-        sessionSnapshot?.byId?.[sessionId]?.displayTitle ??
-        sessionSnapshot?.byId?.[sessionId]?.title ??
-        "当前会话";
-
       const [phase, setPhase] = react.useState("loading");
       const [error, setError] = react.useState("");
       const [notice, setNotice] = react.useState("");
@@ -941,9 +1972,10 @@ window.__ModuleLoader__.load({
       const [workspaceOptions, setWorkspaceOptions] = react.useState([]);
       const [definitions, setDefinitions] = react.useState([]);
       const [instances, setInstances] = react.useState([]);
-      const [sessionOnly, setSessionOnly] = react.useState(false);
       const [statusFilter, setStatusFilter] = react.useState("all");
       const [query, setQuery] = react.useState("");
+      const [searchInput, setSearchInput] = react.useState("");
+      const [ownerFilter, setOwnerFilter] = react.useState("all");
       const [openId, setOpenId] = react.useState("");
       const [detail, setDetail] = react.useState(null);
       const [nestedDetails, setNestedDetails] = react.useState({});
@@ -954,6 +1986,10 @@ window.__ModuleLoader__.load({
       const [deliverableDrafts, setDeliverableDrafts] = react.useState({});
       const [deliverableFiles, setDeliverableFiles] = react.useState({});
       const [startDefinitionId, setStartDefinitionId] = react.useState("");
+      const [startWorkspaceId, setStartWorkspaceId] = react.useState("");
+      const [startOpen, setStartOpen] = react.useState(false);
+      const [startError, setStartError] = react.useState("");
+      const [templateMode, setTemplateMode] = react.useState(false);
       const [approvalNote, setApprovalNote] = react.useState("");
 
       const notify = (text) => {
@@ -971,11 +2007,22 @@ window.__ModuleLoader__.load({
           ),
         [members],
       );
-      const effectiveWorkspaceId = nativeWorkspace?.workspaceId ?? workspaceId;
+      const effectiveWorkspaceId = workspaceId;
+      const startWorkspace =
+        workspaceOptions.find((item) => item.id === startWorkspaceId) ??
+        workspaceOptions.find((item) => item.isMember) ??
+        workspaceOptions[0] ??
+        null;
+      const loadWorkspaceIds =
+        workspaceId === ""
+          ? workspaceOptions.map((item) => item.id)
+          : [workspaceId];
+      const startDefinitions = definitions.filter(
+        (item) => item.status === "active",
+      );
       const selectedDefinition =
-        definitions.find(
-          (item) => item.id === startDefinitionId && item.status === "active",
-        ) ?? definitions.find((item) => item.status === "active");
+        startDefinitions.find((item) => item.id === startDefinitionId) ??
+        startDefinitions[0];
       const canStart = Boolean(
         (selectedDefinition &&
           ["owner", "member"].includes(me?.workspaceRole ?? "")) ||
@@ -999,15 +2046,13 @@ window.__ModuleLoader__.load({
             setMe(meResult.user);
             const options = workspaceResult.workspaces ?? [];
             setWorkspaceOptions(options);
-            const nativeId = workspaceSnapshot?.items?.find((item) =>
-              item.sessionIds.includes(sessionId),
-            )?.workspaceId;
             const initial =
-              options.find((item) => item.id === nativeId)?.id ??
+              options.find((item) => item.id === viewRequest?.workspaceId)
+                ?.id ??
               options.find((item) => item.isMember)?.id ??
-              options[0]?.id ??
               "";
             setWorkspaceId(initial);
+            setStartWorkspaceId(initial);
             setPhase("ready");
           } catch (cause) {
             if (!disposed) {
@@ -1031,41 +2076,51 @@ window.__ModuleLoader__.load({
 
       const load = react.useCallback(
         async (silent = true) => {
-          if (!effectiveWorkspaceId) return;
+          if (loadWorkspaceIds.length === 0) {
+            setDefinitions([]);
+            setInstances([]);
+            setMembers([]);
+            return;
+          }
           try {
-            const querySession =
-              sessionOnly && sessionId
-                ? `&sessionId=${encodeURIComponent(sessionId)}`
-                : "";
-            const results = await Promise.allSettled([
-              request(
-                `/api/collab/workflow/definitions?workspaceId=${encodeURIComponent(effectiveWorkspaceId)}`,
+            const [definitionResults, results] = await Promise.all([
+              Promise.all(
+                workspaceOptions.map((workspace) =>
+                  request(
+                    `/api/collab/workflow/definitions?workspaceId=${encodeURIComponent(workspace.id)}`,
+                  ).then((result) => result.definitions ?? []),
+                ),
               ),
-              request(
-                `/api/collab/workflow/instances?workspaceId=${encodeURIComponent(effectiveWorkspaceId)}${querySession}`,
-              ),
-              request(
-                `/api/collab/team/members?workspaceId=${encodeURIComponent(effectiveWorkspaceId)}`,
+              Promise.all(
+                loadWorkspaceIds.map(async (currentWorkspaceId) => {
+                  const [instanceResult, memberResult] = await Promise.all([
+                    request(
+                      `/api/collab/workflow/instances?workspaceId=${encodeURIComponent(currentWorkspaceId)}`,
+                    ),
+                    request(
+                      `/api/collab/team/members?workspaceId=${encodeURIComponent(currentWorkspaceId)}`,
+                    ).catch(() => ({ members: [] })),
+                  ]);
+                  return {
+                    workspaceId: currentWorkspaceId,
+                    instances: instanceResult.instances ?? [],
+                    members: memberResult.members ?? [],
+                  };
+                }),
               ),
             ]);
-            const definitionResult =
-              results[0].status === "fulfilled" ? results[0].value : null;
-            const instanceResult =
-              results[1].status === "fulfilled" ? results[1].value : null;
+            setDefinitions(
+              dedupeWorkflowDefinitions(definitionResults.flat()),
+            );
+            setInstances(results.flatMap((item) => item.instances));
             const memberResult =
-              results[2].status === "fulfilled" ? results[2].value : null;
-            if (definitionResult === null || instanceResult === null) {
-              throw results[0].status === "rejected"
-                ? results[0].reason
-                : results[1].reason;
-            }
-            setDefinitions(definitionResult.definitions ?? []);
-            setInstances(instanceResult.instances ?? []);
+              results.find((item) => item.workspaceId === workspaceId) ??
+              results[0];
             if (memberResult !== null) {
-              setMembers(memberResult.members ?? []);
+              setMembers(memberResult.members);
               setMe((current) => {
                 if (!current) return current;
-                const workspaceRole = (memberResult.members ?? []).find(
+                const workspaceRole = memberResult.members.find(
                   (member) => member.userId === current.id,
                 )?.memberRole;
                 return workspaceRole ? { ...current, workspaceRole } : current;
@@ -1077,16 +2132,24 @@ window.__ModuleLoader__.load({
             if (!silent) fail(cause);
           }
         },
-        [effectiveWorkspaceId, sessionOnly, sessionId],
+        [loadWorkspaceIds.join("|"), workspaceId],
       );
 
       react.useEffect(() => {
         const synchronize = async (event) => {
           const detail = event.detail ?? {};
+          if (detail.kind === "start-error") {
+            setNotice("");
+            setError("");
+            setStartError(detail.message ?? "操作失败");
+            return;
+          }
           if (detail.kind === "error") {
             setNotice("");
             setError(detail.message ?? "操作失败");
           } else {
+            if (detail.kind === "success") setStartOpen(false);
+            setStartError("");
             setError("");
             setNotice(detail.message ?? "已刷新");
           }
@@ -1098,11 +2161,11 @@ window.__ModuleLoader__.load({
       }, [load]);
 
       const loadDetail = react.useCallback(
-        async (instanceId) => {
-          if (!instanceId || !effectiveWorkspaceId) return;
+        async (instanceId, targetWorkspaceId = effectiveWorkspaceId) => {
+          if (!instanceId || !targetWorkspaceId) return;
           try {
             const result = await request(
-              `/api/collab/workflow/instances/detail?workspaceId=${encodeURIComponent(effectiveWorkspaceId)}&instanceId=${encodeURIComponent(instanceId)}`,
+              `/api/collab/workflow/instances/detail?workspaceId=${encodeURIComponent(targetWorkspaceId)}&instanceId=${encodeURIComponent(instanceId)}`,
             );
             setDetail(result);
             return result;
@@ -1114,11 +2177,11 @@ window.__ModuleLoader__.load({
       );
 
       const loadNestedDetail = react.useCallback(
-        async (instanceId) => {
-          if (!instanceId || !effectiveWorkspaceId) return null;
+        async (instanceId, targetWorkspaceId = effectiveWorkspaceId) => {
+          if (!instanceId || !targetWorkspaceId) return null;
           try {
             const result = await request(
-              `/api/collab/workflow/instances/detail?workspaceId=${encodeURIComponent(effectiveWorkspaceId)}&instanceId=${encodeURIComponent(instanceId)}`,
+              `/api/collab/workflow/instances/detail?workspaceId=${encodeURIComponent(targetWorkspaceId)}&instanceId=${encodeURIComponent(instanceId)}`,
             );
             setNestedDetails((current) => ({
               ...current,
@@ -1135,16 +2198,22 @@ window.__ModuleLoader__.load({
 
       const refreshOpenDetail = react.useCallback(async () => {
         if (!openId) return;
-        const loaded = await loadDetail(openId);
+        const instance = instances.find((item) => item.id === openId);
+        const targetWorkspaceId = instance?.workspaceId ?? effectiveWorkspaceId;
+        const loaded = await loadDetail(openId, targetWorkspaceId);
         if (!loaded) return;
         const childIds = Object.values(loaded.instance.nodes ?? {})
           .map((state) => state.childInstanceId)
           .filter(Boolean);
-        await Promise.all(childIds.map((childId) => loadNestedDetail(childId)));
-      }, [loadDetail, loadNestedDetail, openId]);
+        await Promise.all(
+          childIds.map((childId) =>
+            loadNestedDetail(childId, targetWorkspaceId),
+          ),
+        );
+      }, [effectiveWorkspaceId, instances, loadDetail, loadNestedDetail, openId]);
 
       react.useEffect(() => {
-        if (phase !== "ready" || !effectiveWorkspaceId) return;
+        if (phase !== "ready" || loadWorkspaceIds.length === 0) return;
         load();
         const timer = setInterval(() => {
           if (document.visibilityState !== "visible") return;
@@ -1152,7 +2221,7 @@ window.__ModuleLoader__.load({
           refreshOpenDetail();
         }, 8000);
         return () => clearInterval(timer);
-      }, [load, refreshOpenDetail, phase, effectiveWorkspaceId]);
+      }, [load, refreshOpenDetail, phase, loadWorkspaceIds.join("|")]);
 
       react.useEffect(() => {
         setDetail(null);
@@ -1165,12 +2234,17 @@ window.__ModuleLoader__.load({
         setDetail(null);
         setGateForm(null);
         if (next) {
-          const loaded = await loadDetail(next);
+          const instance = instances.find((item) => item.id === next);
+          const targetWorkspaceId =
+            instance?.workspaceId ?? effectiveWorkspaceId;
+          const loaded = await loadDetail(next, targetWorkspaceId);
           const childIds = Object.values(loaded?.instance?.nodes ?? {})
             .map((state) => state.childInstanceId)
             .filter(Boolean);
           await Promise.all(
-            childIds.map((childId) => loadNestedDetail(childId)),
+            childIds.map((childId) =>
+              loadNestedDetail(childId, targetWorkspaceId),
+            ),
           );
         }
       };
@@ -1187,7 +2261,6 @@ window.__ModuleLoader__.load({
           return;
         }
         if (instanceId) {
-          setSessionOnly(false);
           setStatusFilter("all");
           setQuery("");
           void expand(instanceId);
@@ -1225,20 +2298,10 @@ window.__ModuleLoader__.load({
       };
 
       const openWorkflowTemplateSettings = () => {
-        const trigger = Array.from(
-          document.querySelectorAll("button[aria-haspopup='dialog']"),
-        ).at(0);
-        if (!(trigger instanceof HTMLButtonElement)) {
-          setError("未找到设置入口。");
-          return;
-        }
-        trigger.click();
-        window.setTimeout(() => {
-          const item = Array.from(
-            document.querySelectorAll("[role='dialog'] nav button"),
-          ).find((button) => button.textContent?.trim() === "工作流");
-          if (item instanceof HTMLButtonElement) item.click();
-        }, 60);
+        setTemplateMode(true);
+        setStartOpen(false);
+        setError("");
+        setNotice("");
       };
 
       const setDeliverableDraft = (key, value) =>
@@ -1423,15 +2486,9 @@ window.__ModuleLoader__.load({
                                 children: executorLabel(node),
                               }),
                               node.type === "approval"
-                                ? jsxRuntime.jsx("span", {
-                                    children: Object.values(
-                                      state?.approvals ?? {},
-                                    )
-                                      .map(
-                                        (approval) =>
-                                          `${approverLabel(approval.approver, memberNames)}：${statusText(approval.status)}`,
-                                      )
-                                      .join("；"),
+                                ? jsxRuntime.jsx(WorkflowApprovalList, {
+                                    approvals: state?.approvals,
+                                    memberNames,
                                   })
                                 : null,
                               node.type === "approval" &&
@@ -1500,14 +2557,53 @@ window.__ModuleLoader__.load({
         });
       };
 
+      const currentOwnerIds = (instance) => {
+        const definition =
+          definitions.find(
+            (item) => item.definitionId === instance.definitionId,
+          ) ??
+          definitions.find((item) => item.id === instance.definitionId);
+        const nodes = new Map(
+          (definition?.graph?.nodes ?? []).map((node) => [node.id, node]),
+        );
+        return new Set(
+          Object.entries(instance.nodes ?? {}).flatMap(([nodeId, state]) => {
+            if (["completed", "skipped"].includes(state.status)) return [];
+            const node = nodes.get(nodeId);
+            const ownerId = node?.responsible?.id ?? node?.executor?.id;
+            return ownerId === undefined ? [] : [ownerId];
+          }),
+        );
+      };
+      const ownerOptions = [];
+      const seenOwnerIds = new Set();
+      for (const instance of instances) {
+        for (const ownerId of currentOwnerIds(instance)) {
+          if (seenOwnerIds.has(ownerId)) continue;
+          seenOwnerIds.add(ownerId);
+          ownerOptions.push({
+            id: ownerId,
+            name: memberNames.get(ownerId) ?? ownerId,
+          });
+        }
+      }
+
       const filtered = instances.filter((item) => {
         if (statusFilter !== "all" && item.status !== statusFilter)
           return false;
+        if (ownerFilter !== "all" && !currentOwnerIds(item).has(ownerFilter))
+          return false;
         if (query.trim() === "") return true;
         const needle = query.trim().toLowerCase();
+        const definition =
+          definitions.find(
+            (candidate) => candidate.definitionId === item.definitionId,
+          ) ??
+          definitions.find((candidate) => candidate.id === item.definitionId);
         return (
           item.title.toLowerCase().includes(needle) ||
-          item.definitionKey.toLowerCase().includes(needle)
+          item.definitionKey.toLowerCase().includes(needle) ||
+          (definition?.name ?? "").toLowerCase().includes(needle)
         );
       });
 
@@ -1545,6 +2641,44 @@ window.__ModuleLoader__.load({
         });
       }
 
+      if (templateMode) {
+        return jsxRuntime.jsxs("div", {
+          className: "pmwf",
+          children: [
+            jsxRuntime.jsx("style", { children: css }),
+            jsxRuntime.jsxs("div", {
+              className: "pmwf-page",
+              children: [
+                jsxRuntime.jsxs("div", {
+                  className: "pmwf-page-head",
+                  children: [
+                    jsxRuntime.jsxs("div", {
+                      children: [
+                        jsxRuntime.jsx("h1", { children: "工作流" }),
+                      ],
+                    }),
+                    jsxRuntime.jsx("button", {
+                      type: "button",
+                      className: "pmwf-btn small",
+                      onClick: () => setTemplateMode(false),
+                      children: "模版管理",
+                    }),
+                  ],
+                }),
+                jsxRuntime.jsx(WorkflowTemplateManager, {
+                  workspaceOptions,
+                  canManage,
+                  onClose: () => {
+                    setTemplateMode(false);
+                    void load(true);
+                  },
+                }),
+              ],
+            }),
+          ],
+        });
+      }
+
       return jsxRuntime.jsxs("div", {
         className: "pmwf",
         children: [
@@ -1553,33 +2687,32 @@ window.__ModuleLoader__.load({
             className: "pmwf-page",
             children: [
               jsxRuntime.jsxs("div", {
-                className: "pmwf-context",
-                children: [
-                  jsxRuntime.jsx("strong", {
-                    children: workspaceOptions.find(
-                      (item) => item.id === effectiveWorkspaceId,
-                    )
-                      ? workspaceLabel(
-                          workspaceOptions.find(
-                            (item) => item.id === effectiveWorkspaceId,
-                          ),
-                        )
-                      : (nativeWorkspace?.title ?? "工作区加载中"),
-                  }),
-                  jsxRuntime.jsx("span", { children: `/ ${sessionTitle}` }),
-                ],
-              }),
-              jsxRuntime.jsxs("div", {
                 className: "pmwf-heading",
                 children: [
-                  jsxRuntime.jsx("h1", { children: "项目工作流" }),
+                  jsxRuntime.jsx("h1", { children: "工作流管理" }),
                   jsxRuntime.jsxs("div", {
-                    className: "pmwf-filter",
+                    className: "pmwf-heading-actions",
                     children: [
-                      sessionOnly ? "当前会话相关" : "工作区全部",
-                      " · ",
-                      filtered.length,
-                      " 条",
+                      jsxRuntime.jsx("button", {
+                        type: "button",
+                        className: "pmwf-btn secondary",
+                        disabled: busy !== "" || !canManage,
+                        title: canManage
+                          ? "打开工作流模板管理"
+                          : "需要工作区 Owner 或全局管理员权限",
+                        onClick: openWorkflowTemplateSettings,
+                        children: "模板管理",
+                      }),
+                      jsxRuntime.jsx("button", {
+                        type: "button",
+                        className: "pmwf-btn",
+                        disabled: !canStart || busy !== "",
+                        onClick: () => {
+                          setStartError("");
+                          setStartOpen(true);
+                        },
+                        children: "新建工作流",
+                      }),
                     ],
                   }),
                 ],
@@ -1587,15 +2720,32 @@ window.__ModuleLoader__.load({
               jsxRuntime.jsxs("div", {
                 className: "pmwf-toolbar",
                 children: [
-                  jsxRuntime.jsxs("button", {
-                    type: "button",
-                    className: "pmwf-btn secondary",
-                    "aria-pressed": sessionOnly,
-                    onClick: () => setSessionOnly(!sessionOnly),
-                    children: [sessionOnly ? "查看工作区全部" : "只看当前会话"],
+                  jsxRuntime.jsxs("select", {
+                    className: "pmwf-select pmwf-project-filter",
+                    value: effectiveWorkspaceId,
+                    onChange: (event) => {
+                      setWorkspaceId(event.target.value);
+                      setStartWorkspaceId(event.target.value);
+                      setOpenId("");
+                      setDetail(null);
+                    },
+                    "aria-label": "选择项目",
+                    children: [
+                      jsxRuntime.jsx("option", {
+                        value: "",
+                        children: "全部项目",
+                      }),
+                      ...workspaceOptions.map((item) =>
+                        jsxRuntime.jsx(
+                          "option",
+                          { value: item.id, children: workspaceName(item) },
+                          item.id,
+                        ),
+                      ),
+                    ],
                   }),
                   jsxRuntime.jsxs("select", {
-                    className: "pmwf-select",
+                    className: "pmwf-select pmwf-status-filter",
                     value: statusFilter,
                     onChange: (event) => setStatusFilter(event.target.value),
                     "aria-label": "按状态过滤",
@@ -1619,28 +2769,39 @@ window.__ModuleLoader__.load({
                       ),
                     ],
                   }),
+                  jsxRuntime.jsxs("select", {
+                    className: "pmwf-select pmwf-owner-filter",
+                    value: ownerFilter,
+                    onChange: (event) => setOwnerFilter(event.target.value),
+                    "aria-label": "按当前节点负责人筛选",
+                    children: [
+                      jsxRuntime.jsx("option", {
+                        value: "all",
+                        children: "全部负责人",
+                      }),
+                      ...ownerOptions.map((owner) =>
+                        jsxRuntime.jsx(
+                          "option",
+                          { value: owner.id, children: owner.name },
+                          owner.id,
+                        ),
+                      ),
+                    ],
+                  }),
                   jsxRuntime.jsx("input", {
                     className: "pmwf-input pmwf-search",
-                    value: query,
-                    onChange: (event) => setQuery(event.target.value),
+                    value: searchInput,
+                    onChange: (event) => setSearchInput(event.target.value),
+                    onKeyDown: (event) => {
+                      if (event.key === "Enter") setQuery(searchInput.trim());
+                    },
                     placeholder: "搜索流程标题或模板",
                   }),
                   jsxRuntime.jsx("button", {
                     type: "button",
-                    className: "pmwf-btn secondary",
-                    onClick: () => load(false),
-                    disabled: busy !== "",
-                    children: "刷新",
-                  }),
-                  jsxRuntime.jsx("button", {
-                    type: "button",
-                    className: "pmwf-btn secondary small",
-                    disabled: busy !== "" || !canManage,
-                    title: canManage
-                      ? "打开工作流模板管理"
-                      : "需要工作区 Owner 或全局管理员权限",
-                    onClick: openWorkflowTemplateSettings,
-                    children: "模板管理",
+                    className: "pmwf-btn secondary pmwf-search-submit",
+                    onClick: () => setQuery(searchInput.trim()),
+                    children: "搜索",
                   }),
                 ],
               }),
@@ -1651,53 +2812,318 @@ window.__ModuleLoader__.load({
                       "访客不能发起流程；需要工作区成员、负责人或管理员权限。",
                   })
                 : null,
-              canStart
+              startOpen && canStart
                 ? jsxRuntime.jsxs("div", {
-                    "data-workspace-id": effectiveWorkspaceId,
-                    "data-session-id": sessionId ?? "",
-                    className: "pmwf-form",
+                    className: "pmwf-mask",
+                    onMouseDown: (event) => {
+                      if (event.target === event.currentTarget) setStartOpen(false);
+                    },
                     children: [
                       jsxRuntime.jsxs("div", {
-                        className: "pmwf-row",
+                        className: "pmwf-dialog",
                         children: [
-                          jsxRuntime.jsxs("select", {
-                            className: "pmwf-select",
-                            value: selectedDefinition?.id ?? "",
-                            required: true,
-                            onChange: (event) =>
-                              setStartDefinitionId(event.target.value),
+                          jsxRuntime.jsxs("div", {
+                            className: "pmwf-dialog-head",
                             children: [
-                              jsxRuntime.jsx("option", {
-                                value: "",
-                                children: "选择流程模板",
+                              jsxRuntime.jsx("h3", { children: "新建工作流" }),
+                              jsxRuntime.jsx("button", {
+                                type: "button",
+                                className: "pmwf-btn secondary small",
+                                onClick: () => setStartOpen(false),
+                                children: "关闭",
                               }),
-                              ...definitions
-                                .filter((item) => item.status === "active")
-                                .map((item) =>
-                                  jsxRuntime.jsx(
-                                    "option",
-                                    {
-                                      value: item.id,
-                                      children: `${item.name} v${item.version}`,
-                                    },
-                                    item.id,
-                                  ),
-                                ),
                             ],
                           }),
-                          jsxRuntime.jsx("input", {
-                            className: "pmwf-input pmwf-start-title",
-                            style: { flex: 1, minWidth: 180 },
-                            defaultValue: "",
-                            placeholder: "例如：订单导出功能",
-                            required: true,
+                          jsxRuntime.jsxs("div", {
+                            "data-workspace-id": startWorkspace?.id ?? "",
+                            "data-session-id": sessionId ?? "",
+                            "data-definition-id": selectedDefinition?.id ?? "",
+                            className: "pmwf-form",
+                            children: [
+                              startError
+                                ? jsxRuntime.jsx("div", {
+                                    className: "pmwf-note error",
+                                    role: "alert",
+                                    children: startError,
+                                  })
+                                : null,
+                              jsxRuntime.jsxs("label", {
+                                className: "pmwf-dialog-field",
+                                children: [
+                                  jsxRuntime.jsx("span", {
+                                    children: "工作流名称",
+                                  }),
+                                  jsxRuntime.jsx("input", {
+                                    className: "pmwf-input pmwf-start-title",
+                                    placeholder: "例如：订单导出功能",
+                                    required: true,
+                                  }),
+                                ],
+                              }),
+                              jsxRuntime.jsxs("label", {
+                                className: "pmwf-dialog-field",
+                                children: [
+                                  jsxRuntime.jsx("span", {
+                                    children: "项目归属",
+                                  }),
+                                  jsxRuntime.jsxs("select", {
+                                    className:
+                                      "pmwf-select pmwf-start-definition",
+                                    value: startWorkspace?.id ?? "",
+                                    onChange: (event) => {
+                                      setStartWorkspaceId(event.target.value);
+                                      setStartDefinitionId("");
+                                    },
+                                    children: workspaceOptions
+                                      .filter(
+                                        (item) =>
+                                          item.isMember ||
+                                          me?.role === "admin",
+                                      )
+                                      .map((item) =>
+                                        jsxRuntime.jsx(
+                                          "option",
+                                          {
+                                            value: item.id,
+                                            children: workspaceName(item),
+                                          },
+                                          item.id,
+                                        ),
+                                      ),
+                                  }),
+                                ],
+                              }),
+                              jsxRuntime.jsxs("label", {
+                                className: "pmwf-dialog-field",
+                                children: [
+                                  jsxRuntime.jsx("span", {
+                                    children: "工作流模版",
+                                  }),
+                                  jsxRuntime.jsxs("select", {
+                                    className: "pmwf-select",
+                                    value: selectedDefinition?.id ?? "",
+                                    required: true,
+                                    onChange: (event) =>
+                                      setStartDefinitionId(event.target.value),
+                                    children: [
+                                      jsxRuntime.jsx("option", {
+                                        value: "",
+                                        children: "选择流程模版",
+                                      }),
+                                      ...startDefinitions.map((item) =>
+                                        jsxRuntime.jsx(
+                                          "option",
+                                          {
+                                            value: item.id,
+                                            children: `${item.name} v${item.version}`,
+                                          },
+                                          item.id,
+                                        ),
+                                      ),
+                                    ],
+                                  }),
+                                ],
+                              }),
+                              selectedDefinition
+                                ? jsxRuntime.jsxs("div", {
+                                    className: "pmwf-template-preview",
+                                    children: [
+                                      jsxRuntime.jsx("h4", {
+                                        children: "节点预览",
+                                      }),
+                                      jsxRuntime.jsx("div", {
+                                        className:
+                                          "pmwf-template-preview-list",
+                                        children:
+                                          selectedDefinition.graph?.nodes
+                                            ?.length > 0
+                                            ? selectedDefinition.graph.nodes.map(
+                                                (node, index, nodes) =>
+                                                  jsxRuntime.jsxs(
+                                                    "div",
+                                                    {
+                                                      className:
+                                                        `pmwf-template-preview-node${(selectedDefinition.graph.edges ?? []).filter((edge) => edge.to === node.id).length > 1 ? " branch" : ""}`,
+                                                      children: [
+                                                        jsxRuntime.jsx(
+                                                          "span",
+                                                          {
+                                                            className:
+                                                              `pmwf-template-preview-index${(selectedDefinition.graph.edges ?? []).filter((edge) => edge.to === node.id).length > 1 ? " branch" : ""}`,
+                                                            children:
+                                                              workflowNodeKey(
+                                                                nodes,
+                                                                index,
+                                                              ),
+                                                          },
+                                                        ),
+                                                        jsxRuntime.jsxs(
+                                                          "div",
+                                                          {
+                                                            className:
+                                                              "pmwf-template-preview-main",
+                                                            children: [
+                                                              jsxRuntime.jsxs(
+                                                                "div",
+                                                                {
+                                                                  className:
+                                                                    "pmwf-template-preview-title",
+                                                                  children: [
+                                                                    jsxRuntime.jsx(
+                                                                      "strong",
+                                                                      {
+                                                                        children:
+                                                                          node.name,
+                                                                      },
+                                                                    ),
+                                                                    jsxRuntime.jsx(
+                                                                      "span",
+                                                                      {
+                                                                        className:
+                                                                          "pmwf-template-preview-type",
+                                                                        children:
+                                                                          nodeTypeLabel(
+                                                                            node.type,
+                                                                          ),
+                                                                      },
+                                                                    ),
+                                                                  ],
+                                                                },
+                                                              ),
+                                                              jsxRuntime.jsxs(
+                                                                "div",
+                                                                {
+                                                                  className:
+                                                                    "pmwf-template-preview-meta",
+                                                                  children: [
+                                                                    jsxRuntime.jsxs(
+                                                                      "span",
+                                                                      {
+                                                                        children: [
+                                                                          "负责人 / 角色：",
+                                                                          jsxRuntime.jsx(
+                                                                            "b",
+                                                                            {
+                                                                              children:
+                                                                                workflowNodeOwnerLabel(
+                                                                                  node,
+                                                                                ),
+                                                                            },
+                                                                          ),
+                                                                        ],
+                                                                      },
+                                                                    ),
+                                                                    jsxRuntime.jsxs(
+                                                                      "span",
+                                                                      {
+                                                                        children: [
+                                                                          "依赖：",
+                                                                          jsxRuntime.jsx(
+                                                                            "b",
+                                                                            {
+                                                                              children:
+                                                                                workflowNodeDependencyLabel(
+                                                                                  node,
+                                                                                  nodes,
+                                                                                  selectedDefinition
+                                                                                    .graph
+                                                                                    .edges,
+                                                                                ),
+                                                                            },
+                                                                          ),
+                                                                        ],
+                                                                      },
+                                                                    ),
+                                                                    workflowNodeApprovalLabel(
+                                                                      node,
+                                                                    ) === ""
+                                                                      ? null
+                                                                      : jsxRuntime.jsxs(
+                                                                          "span",
+                                                                          {
+                                                                            children: [
+                                                                              "审批逻辑：",
+                                                                              jsxRuntime.jsx(
+                                                                                "b",
+                                                                                {
+                                                                                  children:
+                                                                                    workflowNodeApprovalLabel(
+                                                                                      node,
+                                                                                    ),
+                                                                                },
+                                                                              ),
+                                                                            ],
+                                                                          },
+                                                                        ),
+                                                                    node.type === "task"
+                                                                      ? jsxRuntime.jsxs(
+                                                                          "span",
+                                                                          {
+                                                                            children: [
+                                                                              "完成后：",
+                                                                              jsxRuntime.jsx(
+                                                                                "b",
+                                                                                {
+                                                                                  children:
+                                                                                    node.reviewRequired === false
+                                                                                      ? "直接完成"
+                                                                                      : "人工Review",
+                                                                                },
+                                                                              ),
+                                                                            ],
+                                                                          },
+                                                                        )
+                                                                      : null,
+                                                                  ],
+                                                                },
+                                                              ),
+                                                              node.description
+                                                                ? jsxRuntime.jsx(
+                                                                    "p",
+                                                                    {
+                                                                      className:
+                                                                        "pmwf-template-preview-desc",
+                                                                      children:
+                                                                        node.description,
+                                                                    },
+                                                                  )
+                                                                : null,
+                                                            ],
+                                                          },
+                                                        ),
+                                                      ],
+                                                    },
+                                                    node.id,
+                                                  ),
+                                              )
+                                            : jsxRuntime.jsx("span", {
+                                                className: "pmwf-label",
+                                                children:
+                                                  "该模版暂无可预览节点。",
+                                              }),
+                                      }),
+                                    ],
+                                  })
+                                : null,
+                            ],
                           }),
-                          jsxRuntime.jsx("button", {
-                            type: "button",
-                            className: "pmwf-btn pmwf-start-submit",
-                            disabled:
-                              busy === "start" || !selectedDefinition?.id,
-                            children: busy === "start" ? "启动中" : "启动",
+                          jsxRuntime.jsxs("div", {
+                            className: "pmwf-dialog-actions",
+                            children: [
+                              jsxRuntime.jsx("button", {
+                                type: "button",
+                                className: "pmwf-btn secondary",
+                                onClick: () => setStartOpen(false),
+                                children: "取消",
+                              }),
+                              jsxRuntime.jsx("button", {
+                                type: "button",
+                                className: "pmwf-btn pmwf-start-submit",
+                                disabled:
+                                  busy === "start" || !selectedDefinition?.id,
+                                children: busy === "start" ? "启动中" : "启动",
+                              }),
+                            ],
                           }),
                         ],
                       }),
@@ -1708,14 +3134,15 @@ window.__ModuleLoader__.load({
               filtered.length === 0
                 ? jsxRuntime.jsx("div", {
                     className: "pmwf-empty",
-                    children: sessionOnly
-                      ? "当前会话没有相关流程实例。\n可切换到工作区全部，或发起新流程。"
-                      : "当前工作区暂无流程实例。",
+                    children: "当前项目暂无流程实例。",
                   })
                 : jsxRuntime.jsx("div", {
                     className: "pmwf-list",
                     children: filtered.map((instance) => {
                       const definition =
+                        (detail?.instance?.id === instance.id
+                          ? detail.definition
+                          : undefined) ??
                         definitions.find(
                           (item) => item.definitionId === instance.definitionId,
                         ) ??
@@ -1756,11 +3183,15 @@ window.__ModuleLoader__.load({
                                   children: timeShort(instance.updatedAt),
                                 }),
                                 jsxRuntime.jsx("span", {
-                                  className: `pmwf-pill ${pillClass(instance.status)}`,
+                                  className: `pmwf-status-action ${pillClass(instance.status)}`,
                                   children: statusBadgeText(
                                     instance,
                                     definition,
                                   ),
+                                }),
+                                jsxRuntime.jsx("span", {
+                                  className: "pmwf-chevron",
+                                  "aria-hidden": true,
                                 }),
                               ],
                             }),
@@ -1834,9 +3265,9 @@ window.__ModuleLoader__.load({
                                                 children: [
                                                   jsxRuntime.jsx("span", {
                                                     className: "pmwf-state",
-                                                    children: statusText(
-                                                      state?.status ??
-                                                        "waiting",
+                                                    children: workflowNodeStatusText(
+                                                      node,
+                                                      state,
                                                     ),
                                                   }),
                                                   jsxRuntime.jsxs("div", {
@@ -1893,20 +3324,11 @@ window.__ModuleLoader__.load({
                                                         : null,
                                                       node.type === "approval"
                                                         ? jsxRuntime.jsx(
-                                                            "span",
+                                                            WorkflowApprovalList,
                                                             {
-                                                              children:
-                                                                Object.values(
-                                                                  state?.approvals ??
-                                                                    {},
-                                                                )
-                                                                  .map(
-                                                                    (
-                                                                      approval,
-                                                                    ) =>
-                                                                      `${approverLabel(approval.approver, memberNames)}：${statusText(approval.status)}`,
-                                                                  )
-                                                                  .join("；"),
+                                                              approvals:
+                                                                state?.approvals,
+                                                              memberNames,
                                                             },
                                                           )
                                                         : null,
@@ -1977,6 +3399,26 @@ window.__ModuleLoader__.load({
                                                         onDownload:
                                                           downloadDeliverable,
                                                       }),
+                                                      systemServiceHint(
+                                                        node,
+                                                        state,
+                                                        isManager,
+                                                      )
+                                                        ? jsxRuntime.jsx(
+                                                            "div",
+                                                            {
+                                                              className:
+                                                                "pmwf-note info",
+                                                              children:
+                                                                systemServiceHint(
+                                                                  node,
+                                                                  state,
+                                                                  isManager,
+                                                                ),
+                                                            },
+                                                            "system-service-hint",
+                                                          )
+                                                        : null,
                                                       actionable
                                                         ? jsxRuntime.jsxs(
                                                             "div",
@@ -2484,6 +3926,7 @@ window.__ModuleLoader__.load({
       const [startTitle, setStartTitle] = react.useState("");
       const [busy, setBusy] = react.useState("");
       const [showArchived, setShowArchived] = react.useState(false);
+      const [selectedDefinitionId, setSelectedDefinitionId] = react.useState("");
       const notify = (text) => {
         setError("");
         setNotice(text);
@@ -2506,6 +3949,10 @@ window.__ModuleLoader__.load({
         (item) => item.status === "archived",
       );
       const visibleDefinitions = showArchived ? definitions : activeDefinitions;
+      const selectedDefinition =
+        visibleDefinitions.find((item) => item.id === selectedDefinitionId) ??
+        visibleDefinitions[0] ??
+        null;
 
       const load = react.useCallback(
         async (silent = false) => {
@@ -2545,6 +3992,16 @@ window.__ModuleLoader__.load({
       react.useEffect(() => {
         load();
       }, [load]);
+
+      react.useEffect(() => {
+        if (
+          selectedDefinitionId !== "" &&
+          visibleDefinitions.some((item) => item.id === selectedDefinitionId)
+        ) {
+          return;
+        }
+        setSelectedDefinitionId(visibleDefinitions[0]?.id ?? "");
+      }, [selectedDefinitionId, visibleDefinitions]);
 
       const validate = async () => {
         setBusy("validate");
@@ -2616,7 +4073,10 @@ window.__ModuleLoader__.load({
         className: "pmwf-section",
         children: [
           jsxRuntime.jsx("style", { children: css }),
-          jsxRuntime.jsx("h3", { className: "pmwf-title", children: "工作流" }),
+          jsxRuntime.jsx("h3", {
+            className: "pmwf-title",
+            children: "工作流模板管理",
+          }),
           jsxRuntime.jsxs("div", {
             className: "pmwf-row",
             children: [
@@ -2635,7 +4095,7 @@ window.__ModuleLoader__.load({
                 children: workspaces.map((item) =>
                   jsxRuntime.jsx(
                     "option",
-                    { value: item.id, children: workspaceLabel(item) },
+                    { value: item.id, children: workspaceName(item) },
                     item.id,
                   ),
                 ),
@@ -2656,111 +4116,147 @@ window.__ModuleLoader__.load({
               })
             : null,
           jsxRuntime.jsx(Feedback, { error, notice }),
-          jsxRuntime.jsx("div", {
-            className: "pmwf-definition-list",
-            children: visibleDefinitions.map((item) =>
-              jsxRuntime.jsxs(
-                "div",
-                {
-                  className: "pmwf-definition",
-                  children: [
-                    jsxRuntime.jsxs("div", {
-                      className: "pmwf-definition-main",
+          jsxRuntime.jsxs("div", {
+            className: "pmwf-template-layout",
+            children: [
+              jsxRuntime.jsxs("aside", {
+                className: "pmwf-template-directory",
+                children: [
+                  jsxRuntime.jsxs("div", {
+                    className: "pmwf-template-directory-head",
+                    children: [
+                      jsxRuntime.jsx("span", { children: "工作流模板" }),
+                      jsxRuntime.jsx("span", {
+                        children: visibleDefinitions.length,
+                      }),
+                    ],
+                  }),
+                  visibleDefinitions.map((item) =>
+                    jsxRuntime.jsxs(
+                      "button",
+                      {
+                        type: "button",
+                        className: `pmwf-template-item${item.id === selectedDefinition?.id ? " active" : ""}`,
+                        onClick: () => setSelectedDefinitionId(item.id),
+                        children: [
+                          jsxRuntime.jsx("strong", {
+                            children: `${item.name} v${item.version}`,
+                          }),
+                          jsxRuntime.jsx("span", {
+                            children: `${item.key} · ${item.status === "active" ? "启用" : "归档"}`,
+                          }),
+                        ],
+                      },
+                      item.id,
+                    ),
+                  ),
+                  visibleDefinitions.length === 0
+                    ? jsxRuntime.jsx("p", {
+                        className: "pmwf-label",
+                        children: "当前项目还没有流程模板。",
+                      })
+                    : null,
+                  archivedDefinitions.length > 0
+                    ? jsxRuntime.jsx("button", {
+                        type: "button",
+                        className: "pmwf-btn secondary small",
+                        onClick: () => setShowArchived(!showArchived),
+                        children: showArchived
+                          ? "仅显示启用模板"
+                          : `查看已归档 ${archivedDefinitions.length}`,
+                      })
+                    : null,
+                ],
+              }),
+              jsxRuntime.jsx("div", {
+                className: "pmwf-template-editor",
+                children: selectedDefinition
+                  ? jsxRuntime.jsxs("div", {
+                      className: "pmwf-template-summary",
                       children: [
-                        jsxRuntime.jsxs("strong", {
-                          children: [item.name, ` v${item.version}`],
+                        jsxRuntime.jsx("h4", {
+                          children: `${selectedDefinition.name} v${selectedDefinition.version}`,
                         }),
                         jsxRuntime.jsx("div", {
-                          children: `${item.key} · ${item.status === "active" ? "启用" : "归档"} · ${timeShort(item.updatedAt)}`,
+                          className: "pmwf-template-meta",
+                          children: `${selectedDefinition.key} · ${selectedDefinition.status === "active" ? "启用中" : "已归档"} · 更新 ${timeShort(selectedDefinition.updatedAt)}`,
                         }),
+                        canManage
+                          ? jsxRuntime.jsxs("div", {
+                              className: "pmwf-actions-right",
+                              children: [
+                                jsxRuntime.jsx("button", {
+                                  type: "button",
+                                  className: "pmwf-btn secondary small",
+                                  disabled:
+                                    busy !== "" ||
+                                    selectedDefinition.status === "active",
+                                  onClick: async () => {
+                                    setBusy(`status:${selectedDefinition.id}`);
+                                    try {
+                                      await request(
+                                        "/api/collab/workflow/definitions/status",
+                                        {
+                                          method: "POST",
+                                          body: JSON.stringify({
+                                            workspaceId,
+                                            definitionId: selectedDefinition.id,
+                                            status: "active",
+                                          }),
+                                        },
+                                      );
+                                      notify("已启用模板");
+                                      await load(true);
+                                    } catch (cause) {
+                                      fail(cause);
+                                    } finally {
+                                      setBusy("");
+                                    }
+                                  },
+                                  children: "启用",
+                                }),
+                                jsxRuntime.jsx("button", {
+                                  type: "button",
+                                  className: "pmwf-btn secondary small",
+                                  disabled:
+                                    busy !== "" ||
+                                    selectedDefinition.status === "archived",
+                                  onClick: async () => {
+                                    setBusy(`status:${selectedDefinition.id}`);
+                                    try {
+                                      await request(
+                                        "/api/collab/workflow/definitions/status",
+                                        {
+                                          method: "POST",
+                                          body: JSON.stringify({
+                                            workspaceId,
+                                            definitionId: selectedDefinition.id,
+                                            status: "archived",
+                                          }),
+                                        },
+                                      );
+                                      notify("已归档模板");
+                                      await load(true);
+                                    } catch (cause) {
+                                      fail(cause);
+                                    } finally {
+                                      setBusy("");
+                                    }
+                                  },
+                                  children: "归档",
+                                }),
+                              ],
+                            })
+                          : null,
                       ],
+                    })
+                  : jsxRuntime.jsx("div", {
+                      className: "pmwf-empty",
+                      children: "选择一个模板查看详情，或在下方导入新版本。",
                     }),
-                    canManage
-                      ? jsxRuntime.jsxs("div", {
-                          className: "pmwf-actions-right",
-                          children: [
-                            jsxRuntime.jsx("button", {
-                              type: "button",
-                              className: "pmwf-btn secondary small",
-                              disabled: busy !== "" || item.status === "active",
-                              onClick: async () => {
-                                setBusy(`status:${item.id}`);
-                                try {
-                                  await request(
-                                    "/api/collab/workflow/definitions/status",
-                                    {
-                                      method: "POST",
-                                      body: JSON.stringify({
-                                        workspaceId,
-                                        definitionId: item.id,
-                                        status: "active",
-                                      }),
-                                    },
-                                  );
-                                  notify("已启用模板");
-                                  await load(true);
-                                } catch (cause) {
-                                  fail(cause);
-                                } finally {
-                                  setBusy("");
-                                }
-                              },
-                              children: "启用",
-                            }),
-                            jsxRuntime.jsx("button", {
-                              type: "button",
-                              className: "pmwf-btn secondary small",
-                              disabled:
-                                busy !== "" || item.status === "archived",
-                              onClick: async () => {
-                                setBusy(`status:${item.id}`);
-                                try {
-                                  await request(
-                                    "/api/collab/workflow/definitions/status",
-                                    {
-                                      method: "POST",
-                                      body: JSON.stringify({
-                                        workspaceId,
-                                        definitionId: item.id,
-                                        status: "archived",
-                                      }),
-                                    },
-                                  );
-                                  notify("已归档模板");
-                                  await load(true);
-                                } catch (cause) {
-                                  fail(cause);
-                                } finally {
-                                  setBusy("");
-                                }
-                              },
-                              children: "归档",
-                            }),
-                          ],
-                        })
-                      : null,
-                  ],
-                },
-                item.id,
-              ),
-            ),
+              }),
+            ],
           }),
-          definitions.length === 0
-            ? jsxRuntime.jsx("p", {
-                className: "pmwf-label",
-                children: "当前工作区还没有流程模板。",
-              })
-            : null,
-          archivedDefinitions.length > 0
-            ? jsxRuntime.jsx("button", {
-                type: "button",
-                className: "pmwf-btn secondary small",
-                onClick: () => setShowArchived(!showArchived),
-                children: showArchived
-                  ? "仅显示启用模板"
-                  : `查看全部（${archivedDefinitions.length} 个已归档模板）`,
-              })
-            : null,
           jsxRuntime.jsxs("form", {
             className: "pmwf-card",
             onSubmit: importDefinition,
@@ -2959,18 +4455,6 @@ window.__ModuleLoader__.load({
             order: 30,
           },
           WorkflowGlobalPage,
-        ),
-      );
-      ctx.slots.inject("settings.section", () =>
-        ctx.slots.register(
-          {
-            name: "settings.section",
-            id: "pluginmax-workflow",
-            order: 84,
-            label: () => "工作流",
-            inject: () => ({}),
-          },
-          () => jsxRuntime.jsx(WorkflowSettings, {}),
         ),
       );
     };
