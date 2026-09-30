@@ -32,7 +32,12 @@ import {
   type PersonaServiceLike,
 } from "./runtime.js";
 
-export { TeammateError, TeammateService, canManageTeammate, nextVersion } from "./service.js";
+export {
+  TeammateError,
+  TeammateService,
+  canManageTeammate,
+  nextVersion,
+} from "./service.js";
 export type { Teammate, TeammateEvent } from "./models.js";
 export type {
   TeammateActor,
@@ -241,6 +246,8 @@ const createBodySchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
   role: z.string().trim().max(120).optional(),
   profileTemplateId: z.string().trim().min(1).max(160).optional(),
+  execution: z.enum(["builtin", "external"]).optional(),
+  externalRuntimeId: z.string().trim().min(1).max(160).optional(),
 });
 
 const profileCreateSchema = z.object({
@@ -267,6 +274,8 @@ const updateBodySchema = z.object({
   teammateId: z.string().trim().min(1).max(160),
   name: z.string().trim().min(1).max(120),
   source: teammateSourceSchema.optional(),
+  execution: z.enum(["builtin", "external"]).optional(),
+  externalRuntimeId: z.string().trim().min(1).max(160).optional(),
   role: z.string().trim().max(120).optional(),
   description: z.string().max(4_000).optional(),
   soul: z.string().max(200_000).optional(),
@@ -422,13 +431,17 @@ export function createTeammateRoutes(
       throw new TeammateError("invalid_input", "method not allowed");
     }
   };
-  const mutate = (
-    handler: (
-      actor: TeammateActor,
-      body: unknown,
-    ) => Promise<unknown> | unknown,
-  ) =>
-    async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
+  const mutate =
+    (
+      handler: (
+        actor: TeammateActor,
+        body: unknown,
+      ) => Promise<unknown> | unknown,
+    ) =>
+    async (
+      request: IncomingMessage,
+      response: ServerResponse,
+    ): Promise<void> => {
       await runHandler(async () => {
         const actor = requirePrincipal(request, requireTeam());
         const body = await readBody(request);
@@ -562,7 +575,9 @@ export function createTeammateRoutes(
       path: "/api/collab/teammates/state",
       handler: mutate((actor, body) => {
         const input = parseOrInvalid(stateBodySchema, body);
-        return service.changeState(actor, input).then((teammate) => ({ teammate }));
+        return service
+          .changeState(actor, input)
+          .then((teammate) => ({ teammate }));
       }),
     },
     {
@@ -619,9 +634,7 @@ export function createTeammateRoutes(
         runHandler(async () => {
           methods("GET", request);
           const actor = requirePrincipal(request, requireTeam());
-          const teammate = service.get(
-            query(request).get("teammateId") ?? "",
-          );
+          const teammate = service.get(query(request).get("teammateId") ?? "");
           const collected = collectAccessibleTasks({
             team: requireTeam(),
             actor,
@@ -662,7 +675,9 @@ export function createTeammateRoutes(
                 })),
               };
             });
-          collected.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+          collected.sort((left, right) =>
+            right.updatedAt.localeCompare(left.updatedAt),
+          );
           sendJson(response, 200, { ok: true, tasks: collected });
         }, response),
     },
@@ -672,7 +687,9 @@ export function createTeammateRoutes(
 export interface TeammateContext {
   storageDomain: {
     open(spec: typeof teammateDomainSpec | typeof profileDomainSpec): Promise<{
-      table<T>(name: TeammateStorageTableName | ProfileStorageTableName): KvTableLike<T>;
+      table<T>(
+        name: TeammateStorageTableName | ProfileStorageTableName,
+      ): KvTableLike<T>;
       close(): Promise<void>;
     }>;
   };

@@ -53,6 +53,8 @@ export const teammateSchema = z.object({
   personaId: idSchema.optional(),
   employeeId: idSchema.optional(),
   profileTemplateId: idSchema.optional(),
+  execution: z.enum(["builtin", "external"]).optional(),
+  externalRuntimeId: idSchema.optional(),
   createdBy: z.string().min(1).max(160),
   createdAt: isoTimeSchema,
   updatedAt: isoTimeSchema,
@@ -89,7 +91,5 @@ export type TeammateSource = z.infer<typeof teammateSourceSchema>;
 export type TeammateState = z.infer<typeof teammateStateSchema>;
 export type Teammate = z.infer<typeof teammateSchema>;
 export type TeammateEvent = z.infer<typeof teammateEventSchema>;
-export type ProfileTemplateState = z.infer<
-  typeof profileTemplateStateSchema
->;
+export type ProfileTemplateState = z.infer<typeof profileTemplateStateSchema>;
 export type ProfileTemplate = z.infer<typeof profileTemplateSchema>;

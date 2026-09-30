@@ -10,12 +10,20 @@ import { z } from "zod";
 import {
   agentProfileSchema,
   agentRunSchema,
+  externalAgentRuntimeSchema,
   type AgentProfile,
   type AgentRun,
   type AgentRunStatus,
+  type ExternalAgentRuntime,
 } from "./types.js";
+import {
+  ExternalAgentProcessRunner,
+  externalSessionId,
+  probeExternalRuntime,
+  type ExternalAgentRunner,
+} from "./external.js";
 
-export type { AgentProfile, AgentRun };
+export type { AgentProfile, AgentRun, ExternalAgentRuntime };
 
 export const name = "dsh-collab-agent";
 export const inject = ["storageDomain", "webServer", "agentDefaultModel"];
@@ -39,6 +47,7 @@ export interface DomainSpecLike {
 export interface AgentDomainLike {
   table(name: "profiles"): KvTableLike<AgentProfile>;
   table(name: "runs"): KvTableLike<AgentRun>;
+  table(name: "external_runtimes"): KvTableLike<ExternalAgentRuntime>;
   close(): Promise<void>;
 }
 
@@ -367,6 +376,7 @@ export interface AgentActor {
   readonly name?: string | undefined;
   readonly globalRole?: "admin" | "owner" | "member" | "guest" | undefined;
   readonly workspaceRole?: "owner" | "member" | "guest" | undefined;
+  readonly workspaceId?: string | undefined;
 }
 
 export class AgentError extends Error {
@@ -458,8 +468,171 @@ export const agentDomainSpec = {
     runs: {
       valueSchema: agentRunSchema as unknown as z.ZodType<unknown>,
     },
+    external_runtimes: {
+      valueSchema: externalAgentRuntimeSchema as unknown as z.ZodType<unknown>,
+    },
   },
 } as const;
+
+export class ExternalAgentRuntimeService {
+  private queue: Promise<unknown> = Promise.resolve();
+
+  constructor(
+    private readonly table: KvTableLike<ExternalAgentRuntime>,
+    private readonly deps: { readonly now?: () => Date } = {},
+  ) {}
+
+  private enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    const next = this.queue.then(operation, operation);
+    this.queue = next.catch(() => undefined);
+    return next;
+  }
+
+  private now(): Date {
+    return this.deps.now?.() ?? new Date();
+  }
+
+  list(workspaceId?: string): ExternalAgentRuntime[] {
+    return values(this.table)
+      .filter(
+        (runtime) =>
+          runtime.status !== "archived" &&
+          (workspaceId === undefined ||
+            runtime.workspaceId === undefined ||
+            runtime.workspaceId === workspaceId),
+      )
+      .sort(
+        (left, right) =>
+          left.name.localeCompare(right.name, "zh-Hans-CN") ||
+          left.id.localeCompare(right.id),
+      );
+  }
+
+  get(runtimeId: string): ExternalAgentRuntime | undefined {
+    return this.table.get(runtimeId);
+  }
+
+  private require(runtimeId: string): ExternalAgentRuntime {
+    const runtime = this.get(runtimeId);
+    if (runtime === undefined)
+      throw new AgentError("not_found", "外部 Agent 运行时不存在");
+    return runtime;
+  }
+
+  private assertCanManage(
+    runtime: ExternalAgentRuntime,
+    actor: AgentActor,
+  ): void {
+    if (actor.globalRole === "admin") return;
+    if (
+      runtime.workspaceId !== undefined &&
+      runtime.workspaceId === actor.workspaceId &&
+      actor.workspaceRole === "owner"
+    )
+      return;
+    throw new AgentError(
+      "forbidden",
+      "平台或项目 Owner/Admin 才能管理外部 Agent 运行时",
+    );
+  }
+
+  create(
+    actor: AgentActor,
+    input: {
+      readonly workspaceId?: string | undefined;
+      readonly id?: string | undefined;
+      readonly name: string;
+      readonly provider: ExternalAgentRuntime["provider"];
+      readonly protocol: ExternalAgentRuntime["protocol"];
+      readonly command: string;
+      readonly args?: readonly string[] | undefined;
+      readonly status?: ExternalAgentRuntime["status"] | undefined;
+      readonly visibility?: ExternalAgentRuntime["visibility"] | undefined;
+    },
+  ): Promise<ExternalAgentRuntime> {
+    this.assertCanManage(
+      {
+        id: input.id ?? "__new__",
+        name: input.name,
+        provider: input.provider,
+        protocol: input.protocol,
+        command: input.command,
+        args: [],
+        status: input.status ?? "active",
+        visibility: input.visibility ?? "platform",
+        ownerUserId: actor.id,
+        ...(input.workspaceId === undefined
+          ? {}
+          : { workspaceId: input.workspaceId }),
+        createdAt: iso(this.now()),
+        updatedAt: iso(this.now()),
+      },
+      actor,
+    );
+    return this.enqueue(async () => {
+      const timestamp = iso(this.now());
+      const id = input.id?.trim() || `ext-${randomUUID().slice(0, 8)}`;
+      if (this.table.get(id) !== undefined)
+        throw new AgentError("conflict", "外部 Agent 运行时已存在");
+      const record = parseOrInvalid(externalAgentRuntimeSchema, {
+        ...input,
+        id,
+        ownerUserId: actor.id,
+        status: input.status ?? "active",
+        visibility: input.visibility ?? "platform",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      });
+      await this.table.put(record.id, record);
+      return record;
+    });
+  }
+
+  update(
+    actor: AgentActor,
+    input: {
+      readonly runtimeId: string;
+      readonly name?: string | undefined;
+      readonly command?: string | undefined;
+      readonly args?: readonly string[] | undefined;
+      readonly status?: ExternalAgentRuntime["status"] | undefined;
+    },
+  ): Promise<ExternalAgentRuntime> {
+    return this.enqueue(async () => {
+      const current = this.require(input.runtimeId);
+      this.assertCanManage(current, actor);
+      const next = parseOrInvalid(externalAgentRuntimeSchema, {
+        ...current,
+        name: input.name ?? current.name,
+        command: input.command ?? current.command,
+        args: input.args ?? current.args,
+        status: input.status ?? current.status,
+        updatedAt: iso(this.now()),
+      });
+      await this.table.put(next.id, next);
+      return next;
+    });
+  }
+
+  markProbe(
+    runtimeId: string,
+    result: { readonly ok: boolean; readonly message: string },
+  ): Promise<ExternalAgentRuntime | undefined> {
+    return this.enqueue(async () => {
+      const current = this.get(runtimeId);
+      if (current === undefined) return undefined;
+      const next = parseOrInvalid(externalAgentRuntimeSchema, {
+        ...current,
+        lastProbeAt: iso(this.now()),
+        lastProbeOk: result.ok,
+        lastProbeMessage: result.message.slice(0, 500),
+        updatedAt: iso(this.now()),
+      });
+      await this.table.put(next.id, next);
+      return next;
+    });
+  }
+}
 
 function buildPrompt(run: AgentRun, profile: AgentProfile): string {
   const payload = run.payload;
@@ -565,6 +738,9 @@ export interface AgentRuntimeDeps {
   readonly sessionPersistence?: () => AgentSessionPersistenceLike | undefined;
   readonly sessionTitle?: () => AgentSessionTitleLike | undefined;
   readonly provider?: () => string;
+  readonly externalRuntimes?: () =>
+    KvTableLike<ExternalAgentRuntime> | undefined;
+  readonly externalRunner?: () => ExternalAgentRunner | undefined;
   readonly now?: () => Date;
   readonly onSettled?: (run: AgentRun) => Promise<void> | void;
 }
@@ -965,14 +1141,44 @@ export class AgentTaskRuntime {
       });
       return;
     }
+    const isExternal = profile.execution === "external";
     const subagents = this.deps.subagents();
-    if (subagents === undefined) {
+    if (!isExternal && subagents === undefined) {
       await this.settle(claimed, {
         status: "failed",
-        error: "Agent 运行时不可用，可转人工代交",
+        error: "内置 Agent 运行时不可用，可转人工代交",
         endedAt: iso(this.now()),
       });
       return;
+    }
+    if (isExternal) {
+      if (profile.externalRuntimeId === undefined) {
+        await this.settle(claimed, {
+          status: "failed",
+          error: "外部 Agent 运行时未绑定",
+          endedAt: iso(this.now()),
+        });
+        return;
+      }
+      const runtime = this.deps
+        .externalRuntimes?.()
+        ?.get(profile.externalRuntimeId);
+      if (runtime === undefined || runtime.status !== "active") {
+        await this.settle(claimed, {
+          status: "failed",
+          error: "外部 Agent 运行时不存在或已停用",
+          endedAt: iso(this.now()),
+        });
+        return;
+      }
+      if (claimed.workspacePath === undefined) {
+        await this.settle(claimed, {
+          status: "failed",
+          error: "外部 Agent 执行需要项目工作区",
+          endedAt: iso(this.now()),
+        });
+        return;
+      }
     }
     const task: AgentTask = {
       runId,
@@ -1012,6 +1218,115 @@ export class AgentTaskRuntime {
       await this.acquire(current.workspaceId);
       const signal = task.controller.signal;
       let result: SubagentResultLike;
+      if (isExternal) {
+        const runner = this.deps.externalRunner?.();
+        const externalRuntime = this.deps
+          .externalRuntimes?.()
+          ?.get(profile.externalRuntimeId ?? "");
+        if (runner === undefined || externalRuntime === undefined) {
+          throw new AgentError("conflict", "外部 Agent 运行时不可用");
+        }
+        if (current.workspacePath === undefined) {
+          throw new AgentError(
+            "invalid_input",
+            "外部 Agent 执行需要项目工作区",
+          );
+        }
+        const sessionId = externalSessionId(runId);
+        this.progressBySession.set(sessionId, {
+          text: "",
+          updatedAt: iso(this.now()),
+        });
+        await this.saveRun({
+          ...current,
+          status: "running",
+          startedAt: iso(this.now()),
+          promptSnapshot: prompt,
+          sessionId,
+        });
+        const live = this.deps.tables.runs.get(runId)!;
+        const result = await runner.execute({
+          runId,
+          runtime: externalRuntime,
+          prompt,
+          workspacePath: current.workspacePath,
+          signal,
+          onProgress: (text) => {
+            this.progressBySession.set(sessionId, {
+              text,
+              updatedAt: iso(this.now()),
+            });
+          },
+        });
+        if (result.sessionId !== undefined) {
+          const withExternal = this.deps.tables.runs.get(runId) ?? live;
+          await this.saveRun({
+            ...withExternal,
+            externalSessionId: result.sessionId,
+          });
+        }
+        if (this.cancelledRunIds.has(runId)) return;
+        if (task.cancelReason === "cancelled") {
+          await this.settle(this.deps.tables.runs.get(runId) ?? live, {
+            status: "cancelled",
+            endedAt: iso(this.now()),
+          });
+        } else if (task.timedOut) {
+          await this.settle(this.deps.tables.runs.get(runId) ?? live, {
+            status: "timeout",
+            error: "运行超时，已中止",
+            endedAt: iso(this.now()),
+          });
+        } else if (result.stopReason !== "completed") {
+          await this.settle(this.deps.tables.runs.get(runId) ?? live, {
+            status: "failed",
+            error: (result.diagnostic ?? "外部 Agent 执行失败").slice(0, 1_000),
+            endedAt: iso(this.now()),
+          });
+        } else {
+          const outputText = result.output
+            .map((item) => item.text)
+            .join("\n")
+            .trim();
+          if (outputText === "") {
+            await this.settle(this.deps.tables.runs.get(runId) ?? live, {
+              status: "failed",
+              error: "外部 Agent 未返回可用的文本输出",
+              endedAt: iso(this.now()),
+            });
+          } else {
+            const issues =
+              current.source === "workflow"
+                ? deliveryReportIssues(outputText, current.payload)
+                : [];
+            if (issues.length > 0) {
+              await this.settle(this.deps.tables.runs.get(runId) ?? live, {
+                status: "failed",
+                error: `交付报告格式不合格：${issues.join("；")}`.slice(
+                  0,
+                  1_000,
+                ),
+                output: { summary: outputText },
+                endedAt: iso(this.now()),
+              });
+            } else {
+              await this.settle(this.deps.tables.runs.get(runId) ?? live, {
+                status: "succeeded",
+                output: {
+                  summary: outputText,
+                  ...(result.diagnostic === undefined
+                    ? {}
+                    : { stopReason: result.diagnostic.slice(0, 120) }),
+                  endedAt: iso(this.now()),
+                },
+                endedAt: iso(this.now()),
+              });
+            }
+          }
+        }
+        return;
+      }
+      const builtinSubagents = subagents!;
       if (current.workspacePath !== undefined) {
         result = await this.executeHomeSession(
           current,
@@ -1020,16 +1335,19 @@ export class AgentTaskRuntime {
           signal,
         );
       } else {
-        started = await subagents.start(this.deps.provider?.() ?? "spawn", {
-          label: `workflow-worker:${profile.name}`,
-          prompt: [{ type: "text", text: prompt }],
-          parent: await this.hostAgent(workspacePath),
-          ...(current.personaId === undefined
-            ? {}
-            : { persona: current.personaId }),
-          toolFilter: { allow: profile.allowedTools },
-          signal,
-        });
+        started = await builtinSubagents.start(
+          this.deps.provider?.() ?? "spawn",
+          {
+            label: `workflow-worker:${profile.name}`,
+            prompt: [{ type: "text", text: prompt }],
+            parent: await this.hostAgent(workspacePath),
+            ...(current.personaId === undefined
+              ? {}
+              : { persona: current.personaId }),
+            toolFilter: { allow: profile.allowedTools },
+            signal,
+          },
+        );
         result = await awaitSubagentResult(started, signal);
       }
       const rawOutput = subagentOutputText(result);
@@ -1051,7 +1369,7 @@ export class AgentTaskRuntime {
           },
         });
         if (current.runSeq + 1 <= current.maxAttempts) {
-          const repaired = await subagents.start(
+          const repaired = await builtinSubagents.start(
             this.deps.provider?.() ?? "spawn",
             {
               label: `workflow-worker-repair:${profile.name}`,
@@ -1258,6 +1576,8 @@ export class AgentRegistryService {
       name: string;
       description?: string | undefined;
       personaId?: string | undefined;
+      execution?: AgentProfile["execution"] | undefined;
+      externalRuntimeId?: string | undefined;
       runtimeKind?: AgentProfile["runtimeKind"] | undefined;
       defaultModel?: AgentProfile["defaultModel"] | undefined;
       allowedTools?: readonly string[] | undefined;
@@ -1279,6 +1599,12 @@ export class AgentRegistryService {
         ...(input.personaId === undefined
           ? {}
           : { personaId: input.personaId }),
+        ...(input.execution === undefined
+          ? {}
+          : { execution: input.execution }),
+        ...(input.externalRuntimeId === undefined
+          ? {}
+          : { externalRuntimeId: input.externalRuntimeId }),
         runtimeKind: input.runtimeKind ?? "task-worker",
         ...(input.defaultModel === undefined
           ? {}
@@ -1303,6 +1629,8 @@ export class AgentRegistryService {
       name?: string | undefined;
       description?: string | undefined;
       personaId?: string | null | undefined;
+      execution?: AgentProfile["execution"] | undefined;
+      externalRuntimeId?: string | null | undefined;
       allowedTools?: readonly string[] | undefined;
       status?: AgentProfile["status"] | undefined;
     },
@@ -1329,6 +1657,11 @@ export class AgentRegistryService {
           input.personaId === null
             ? undefined
             : (input.personaId ?? profile.personaId),
+        execution: input.execution ?? profile.execution,
+        externalRuntimeId:
+          input.externalRuntimeId === null
+            ? undefined
+            : (input.externalRuntimeId ?? profile.externalRuntimeId),
         allowedTools: input.allowedTools ?? profile.allowedTools,
         status: input.status ?? profile.status,
         updatedAt: iso(this.now()),
@@ -1614,6 +1947,7 @@ function browserActor(
     kind: "user",
     id: principal.userId,
     globalRole: principal.role,
+    workspaceId,
     ...(member === undefined
       ? {}
       : { workspaceRole: member.memberRole as AgentActor["workspaceRole"] }),
@@ -1652,6 +1986,7 @@ export function createAgentRoutes(
   service: AgentRegistryService,
   team: () => TeamServiceLike | undefined,
   personas?: () => PersonaServiceLike | undefined,
+  externalRuntimes?: () => ExternalAgentRuntimeService | undefined,
 ): WebRouteLike[] {
   const requireTeam = (): TeamServiceLike => {
     const value = team();
@@ -1679,6 +2014,113 @@ export function createAgentRoutes(
     },
     {
       kind: "exact",
+      path: "/api/collab/agent/external-runtimes",
+      handler: (request, response) => {
+        void runHandler(async () => {
+          assertMethod(request, response, "GET");
+          const workspaceId = queryParam(request, "workspaceId") ?? "";
+          if (workspaceId === "")
+            throw new AgentError("invalid_input", "workspaceId is required");
+          const actor = browserActor(requireTeam(), request, workspaceId);
+          const runtimeService = externalRuntimes?.();
+          if (runtimeService === undefined)
+            throw new AgentError("not_found", "外部 Agent 服务不可用");
+          sendJson(response, 200, {
+            ok: true,
+            runtimes: runtimeService.list(workspaceId),
+            canManage: isManager(actor),
+          });
+        }, response);
+      },
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/agent/external-runtimes/create",
+      handler: (request, response) => {
+        void runHandler(async () => {
+          assertMethod(request, response, "POST");
+          const body = z
+            .object({
+              workspaceId: z.string().min(1),
+              id: z.string().trim().optional(),
+              name: z.string().trim().min(1).max(120),
+              provider: z.enum(["codex", "workbuddy", "command"]),
+              protocol: z.enum(["codex-jsonl", "plain-text"]),
+              command: z.string().trim().min(1).max(500),
+              args: z.array(z.string().min(1).max(1_000)).max(50).optional(),
+              status: z.enum(["active", "disabled", "archived"]).optional(),
+              visibility: z.enum(["workspace", "platform"]).optional(),
+            })
+            .parse(await readBody(request));
+          const runtimeService = externalRuntimes?.();
+          if (runtimeService === undefined)
+            throw new AgentError("not_found", "外部 Agent 服务不可用");
+          const actor = browserActor(requireTeam(), request, body.workspaceId);
+          const runtime = await runtimeService.create(actor, {
+            ...body,
+            workspaceId: body.workspaceId,
+          });
+          sendJson(response, 201, { ok: true, runtime });
+        }, response);
+      },
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/agent/external-runtimes/update",
+      handler: (request, response) => {
+        void runHandler(async () => {
+          assertMethod(request, response, "POST");
+          const body = z
+            .object({
+              workspaceId: z.string().min(1),
+              runtimeId: z.string().min(1),
+              name: z.string().trim().min(1).max(120).optional(),
+              command: z.string().trim().min(1).max(500).optional(),
+              args: z.array(z.string().min(1).max(1_000)).max(50).optional(),
+              status: z.enum(["active", "disabled", "archived"]).optional(),
+            })
+            .parse(await readBody(request));
+          const runtimeService = externalRuntimes?.();
+          if (runtimeService === undefined)
+            throw new AgentError("not_found", "外部 Agent 服务不可用");
+          const actor = browserActor(requireTeam(), request, body.workspaceId);
+          const runtime = await runtimeService.update(actor, body);
+          sendJson(response, 200, { ok: true, runtime });
+        }, response);
+      },
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/agent/external-runtimes/probe",
+      handler: (request, response) => {
+        void runHandler(async () => {
+          assertMethod(request, response, "POST");
+          const body = z
+            .object({
+              workspaceId: z.string().min(1),
+              runtimeId: z.string().min(1),
+            })
+            .parse(await readBody(request));
+          const runtimeService = externalRuntimes?.();
+          if (runtimeService === undefined)
+            throw new AgentError("not_found", "外部 Agent 服务不可用");
+          const actor = browserActor(requireTeam(), request, body.workspaceId);
+          const current = runtimeService.get(body.runtimeId);
+          if (current === undefined)
+            throw new AgentError("not_found", "外部 Agent 运行时不存在");
+          if (!isManager(actor))
+            throw new AgentError(
+              "forbidden",
+              "workspace owner or admin is required",
+            );
+          const probe = await probeExternalRuntime(current.command);
+          const runtime = await runtimeService.markProbe(body.runtimeId, probe);
+          sendJson(response, 200, { ok: true, runtime, probe });
+        }, response);
+      },
+    },
+    {
+      kind: "exact",
       path: "/api/collab/agent/profiles/create",
       handler: (request, response) => {
         void runHandler(async () => {
@@ -1694,6 +2136,8 @@ export function createAgentRoutes(
               name: z.string().trim().min(1).max(120),
               description: z.string().trim().max(1_000).optional(),
               personaId: z.string().trim().optional(),
+              execution: z.enum(["builtin", "external"]).optional(),
+              externalRuntimeId: z.string().trim().optional(),
               runtimeKind: z
                 .enum(["task-worker", "continuable-session", "connector"])
                 .optional(),
@@ -1735,6 +2179,8 @@ export function createAgentRoutes(
               name: z.string().trim().min(1).max(120).optional(),
               description: z.string().trim().max(1_000).optional(),
               personaId: z.string().trim().nullable().optional(),
+              execution: z.enum(["builtin", "external"]).optional(),
+              externalRuntimeId: z.string().trim().nullable().optional(),
               allowedTools: z
                 .array(z.string().trim().min(1))
                 .max(50)
@@ -1878,11 +2324,16 @@ export async function apply(ctx: AgentContext): Promise<void | (() => void)> {
     profiles: domain.table("profiles"),
     runs: domain.table("runs"),
   });
+  const externalRuntimeService = new ExternalAgentRuntimeService(
+    domain.table("external_runtimes"),
+  );
   const runtime = new AgentTaskRuntime({
     tables: {
       profiles: domain.table("profiles"),
       runs: domain.table("runs"),
     },
+    externalRuntimes: () => domain.table("external_runtimes"),
+    externalRunner: () => new ExternalAgentProcessRunner(),
     subagents: () => ctx.get("subagents"),
     agents: () => ctx.get("agents"),
     defaultModel: () => ctx.agentDefaultModel,
@@ -1917,6 +2368,7 @@ export async function apply(ctx: AgentContext): Promise<void | (() => void)> {
       service,
       () => child.collabTeam,
       () => ctx.get("collabPersonas"),
+      () => externalRuntimeService,
     )) {
       ctx.webServer.register(route);
     }

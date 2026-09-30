@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   AgentRegistryService,
   AgentTaskRuntime,
+  ExternalAgentRuntimeService,
   createAgentRoutes,
   deliveryReportIssues,
   type AgentActor,
@@ -11,10 +12,12 @@ import {
   type AgentSessionTitleLike,
   type AgentWorkflowHandler,
   type AgentsRegistryLike,
+  type ExternalAgentRuntime,
   type SubagentsRuntimeLike,
   type WebRouteLike,
   type WorkspaceRegistryLike,
 } from "./index.js";
+import type { ExternalAgentRunner } from "./external.js";
 
 class FakeTable<V> {
   readonly records = new Map<string, V>();
@@ -48,12 +51,14 @@ function tables() {
 const owner: AgentActor = {
   kind: "user",
   id: "ws-owner",
+  workspaceId: "main",
   workspaceRole: "owner",
 };
 const admin: AgentActor = { kind: "user", id: "root", globalRole: "admin" };
 const member: AgentActor = {
   kind: "user",
   id: "ws-member",
+  workspaceId: "main",
   workspaceRole: "member",
 };
 
@@ -299,6 +304,108 @@ describe("agent profile registry", () => {
       status: "active",
     });
     expect(service.profiles("other")).toHaveLength(1);
+  });
+});
+
+describe("external agent runtime", () => {
+  it("stores runtime configuration and enforces manager permissions", async () => {
+    const table = new FakeTable<ExternalAgentRuntime>();
+    const service = new ExternalAgentRuntimeService(table, { now });
+    expect(() =>
+      service.create(member, {
+        workspaceId: "main",
+        name: "Codex",
+        provider: "codex",
+        protocol: "codex-jsonl",
+        command: "codex",
+        args: [],
+      }),
+    ).toThrow("Owner/Admin");
+    const runtime = await service.create(owner, {
+      workspaceId: "main",
+      name: "Codex",
+      provider: "codex",
+      protocol: "codex-jsonl",
+      command: "codex",
+      args: ["--profile", "work"],
+    });
+    expect(runtime.status).toBe("active");
+    expect(service.list("other")).toEqual([]);
+    expect(service.list("main")).toHaveLength(1);
+    const disabled = await service.update(owner, {
+      runtimeId: runtime.id,
+      status: "disabled",
+    });
+    expect(disabled.status).toBe("disabled");
+  });
+
+  it("routes a dispatch through the selected external runner", async () => {
+    const current = tables();
+    const runtimeTable = new FakeTable<ExternalAgentRuntime>();
+    await runtimeTable.put("codex-local", {
+      id: "codex-local",
+      workspaceId: "main",
+      name: "Codex 本机",
+      provider: "codex",
+      protocol: "codex-jsonl",
+      command: "codex",
+      args: [],
+      status: "active",
+      visibility: "workspace",
+      ownerUserId: "ws-owner",
+      createdAt: now().toISOString(),
+      updatedAt: now().toISOString(),
+    });
+    const service = new AgentRegistryService(current, { now });
+    await service.createProfile(owner, {
+      workspaceId: "main",
+      id: "backend-agent",
+      name: "Backend Agent",
+      execution: "external",
+      externalRuntimeId: "codex-local",
+    });
+    const execute = vi.fn(async () => ({
+      output: [
+        {
+          type: "text" as const,
+          text: "# 交付报告\n\n## 交付说明\n\n外部 Agent 已完成，且满足最少字数要求。",
+        },
+      ],
+      stopReason: "completed" as const,
+      sessionId: "provider-session-1",
+    }));
+    const runner: ExternalAgentRunner = {
+      progress: () => undefined,
+      execute,
+    };
+    const settled: AgentRun[] = [];
+    const runtime = new AgentTaskRuntime({
+      tables: current,
+      subagents: () => undefined,
+      agents: fakeAgents,
+      externalRuntimes: () => runtimeTable,
+      externalRunner: () => runner,
+      onSettled: (run) => {
+        settled.push(run);
+        return service.onRuntimeSettled(run);
+      },
+      now,
+    });
+    service.attachRuntime(runtime);
+    await service.dispatch(dispatchInput({ workspacePath: "/tmp/project" }));
+    await vi.waitFor(() =>
+      expect([...current.runs.records.values()][0]?.status).toBe("succeeded"),
+    );
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({ workspacePath: "/tmp/project" }),
+    );
+    expect(
+      current.runs.records.get([...current.runs.records.keys()][0]!),
+    ).toMatchObject({
+      externalSessionId: "provider-session-1",
+      status: "succeeded",
+    });
+    expect(settled).toHaveLength(1);
   });
 });
 

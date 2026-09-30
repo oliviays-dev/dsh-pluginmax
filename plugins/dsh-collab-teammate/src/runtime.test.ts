@@ -34,9 +34,7 @@ describe("teammate task projection", () => {
       normalizeTaskProgress(
         '无法启动执行：[{"path":["tags",1],"message":"Too big: expected string to have <=32 characters"}]',
       ),
-    ).toBe(
-      "无法启动执行：Too big: expected string to have <=32 characters",
-    );
+    ).toBe("无法启动执行：Too big: expected string to have <=32 characters");
     expect(normalizeTaskProgress("普通执行消息")).toBe("普通执行消息");
   });
 });
@@ -82,7 +80,11 @@ function setup() {
       },
     ],
   ]);
-  const roles: Array<{ employeeId: string; workspaceId: string; role: string }> = [];
+  const roles: Array<{
+    employeeId: string;
+    workspaceId: string;
+    role: string;
+  }> = [];
   const runtimes: Array<{
     employeeId: string;
     workspaceId: string;
@@ -117,7 +119,9 @@ function setup() {
           tags: input.tags ?? [],
           displayName: input.displayName,
           managerEmployeeId: input.managerEmployeeId,
-          ...(input.personaId === undefined ? {} : { personaId: input.personaId }),
+          ...(input.personaId === undefined
+            ? {}
+            : { personaId: input.personaId }),
         });
         return { id };
       },
@@ -164,7 +168,9 @@ function setup() {
       createProfile: async (_actor, input) => {
         const record = {
           id: `agent-${String(agentProfiles.length + 1)}`,
-          ...(input.personaId === undefined ? {} : { personaId: input.personaId }),
+          ...(input.personaId === undefined
+            ? {}
+            : { personaId: input.personaId }),
           visibility: input.visibility ?? "workspace",
         };
         agentProfiles.push(record);
@@ -172,7 +178,15 @@ function setup() {
       },
     }),
   });
-  return { teammates, runtime, personas, employees, roles, runtimes, agentProfiles };
+  return {
+    teammates,
+    runtime,
+    personas,
+    employees,
+    roles,
+    runtimes,
+    agentProfiles,
+  };
 }
 
 async function activeTeammate(
@@ -202,9 +216,12 @@ describe("teammate runtime provisioning", () => {
     expect(runtime.assignable(admin).map((item) => item.id)).toEqual([
       platform.id,
     ]);
-    expect(runtime.assignable(olivia).map((item) => item.id).sort()).toEqual(
-      [platform.id, personal.id].sort(),
-    );
+    expect(
+      runtime
+        .assignable(olivia)
+        .map((item) => item.id)
+        .sort(),
+    ).toEqual([platform.id, personal.id].sort());
     expect(runtime.assignable(admin).some((item) => item.id === draft.id)).toBe(
       false,
     );
@@ -238,8 +255,15 @@ describe("teammate runtime provisioning", () => {
   });
 
   it("provisions one runtime identity and reuses it for later tasks", async () => {
-    const { teammates, runtime, personas, employees, roles, runtimes, agentProfiles } =
-      setup();
+    const {
+      teammates,
+      runtime,
+      personas,
+      employees,
+      roles,
+      runtimes,
+      agentProfiles,
+    } = setup();
     const platform = await activeTeammate(teammates, "platform");
     const ensured = await runtime.ensureRuntime({
       teammateId: platform.id,
@@ -284,7 +308,7 @@ describe("teammate runtime provisioning", () => {
       actor: olivia,
     });
     expect(employees.get(ensured.employeeId)?.managerEmployeeId).toBe(
-     "human-olivia",
+      "human-olivia",
     );
   });
 });
@@ -329,7 +353,11 @@ describe("task running state", () => {
             receiverType: "agent",
             receiverId: "tm-1",
             messages: [
-              { content: "已接收指令，正在执行…", runId: "r1", state: "running" },
+              {
+                content: "已接收指令，正在执行…",
+                runId: "r1",
+                state: "running",
+              },
             ],
           },
           {
@@ -347,9 +375,7 @@ describe("task running state", () => {
           {
             receiverType: "human",
             receiverId: "tm-1",
-            messages: [
-              { content: "人类任务", runId: "r4", state: "running" },
-            ],
+            messages: [{ content: "人类任务", runId: "r4", state: "running" }],
           },
         ],
       }),

@@ -14,6 +14,8 @@ export const agentProfileSchema = z.object({
   name: z.string().trim().min(1).max(120),
   description: z.string().trim().max(1_000).default(""),
   personaId: z.string().trim().regex(idPattern).optional(),
+  execution: z.enum(["builtin", "external"]).optional(),
+  externalRuntimeId: z.string().trim().regex(idPattern).optional(),
   runtimeKind: z.enum(["task-worker", "continuable-session", "connector"]),
   defaultModel: agentModelSelectionSchema.optional(),
   allowedTools: z.array(z.string().trim().min(1).max(120)).max(50).default([]),
@@ -78,6 +80,7 @@ export const agentRunSchema = z.object({
   payload: agentRunPayloadSchema,
   promptSnapshot: z.string().max(60_000).optional(),
   sessionId: z.string().min(1).max(200).optional(),
+  externalSessionId: z.string().min(1).max(200).optional(),
   output: z
     .object({
       summary: z.string().max(60_000),
@@ -100,6 +103,48 @@ export const agentRunSchema = z.object({
 
 export type AgentModelSelection = z.infer<typeof agentModelSelectionSchema>;
 export type AgentProfile = z.infer<typeof agentProfileSchema>;
+
+export const EXTERNAL_AGENT_PROVIDERS = [
+  "codex",
+  "workbuddy",
+  "command",
+] as const;
+export const EXTERNAL_AGENT_PROTOCOLS = ["codex-jsonl", "plain-text"] as const;
+
+const commandSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(500)
+  .refine((value) => value !== "/" && !value.includes("\0"), {
+    message: "command is invalid",
+  });
+
+export const externalAgentRuntimeSchema = z.object({
+  id: z.string().trim().regex(idPattern),
+  workspaceId: z.string().min(1).max(160).optional(),
+  name: z.string().trim().min(1).max(120),
+  provider: z.enum(EXTERNAL_AGENT_PROVIDERS),
+  protocol: z.enum(EXTERNAL_AGENT_PROTOCOLS),
+  command: commandSchema,
+  args: z.array(z.string().min(1).max(1_000)).max(50).default([]),
+  status: z.enum(["active", "disabled", "archived"]).default("active"),
+  visibility: z.enum(["workspace", "platform"]).default("platform"),
+  ownerUserId: z.string().min(1).max(160),
+  createdAt: z.string().datetime({ precision: 3 }),
+  updatedAt: z.string().datetime({ precision: 3 }),
+  lastProbeAt: z.string().datetime({ precision: 3 }).optional(),
+  lastProbeOk: z.boolean().optional(),
+  lastProbeMessage: z.string().max(500).optional(),
+});
+
+export type ExternalAgentProvider = z.infer<
+  typeof externalAgentRuntimeSchema
+>["provider"];
+export type ExternalAgentProtocol = z.infer<
+  typeof externalAgentRuntimeSchema
+>["protocol"];
+export type ExternalAgentRuntime = z.infer<typeof externalAgentRuntimeSchema>;
 export type AgentDeliverableBrief = z.infer<typeof agentDeliverableBriefSchema>;
 export type AgentRunPayload = z.infer<typeof agentRunPayloadSchema>;
 export type AgentRunStatus = z.infer<typeof agentRunStatusSchema>;

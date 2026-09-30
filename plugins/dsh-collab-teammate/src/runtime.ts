@@ -1,5 +1,9 @@
 import type { Teammate } from "./models.js";
-import { TeammateError, TeammateService, type TeammateActor } from "./service.js";
+import {
+  TeammateError,
+  TeammateService,
+  type TeammateActor,
+} from "./service.js";
 
 export interface PersonaServiceLike {
   get(personaId: string): Promise<unknown>;
@@ -23,7 +27,9 @@ export interface EmployeeServiceLike {
   }[];
   getByAuthUserId(
     authUserId: string,
-  ): { readonly id: string; readonly kind: string; readonly status: string } | undefined;
+  ):
+    | { readonly id: string; readonly kind: string; readonly status: string }
+    | undefined;
   createDigital(
     actorAuthUserId: string,
     input: {
@@ -58,10 +64,11 @@ export interface EmployeeServiceLike {
       readonly status?: "active" | "disabled" | undefined;
       readonly legacyAgentProfileId?: string | undefined;
     },
-  ): Promise<{ readonly id: string; readonly legacyAgentProfileId?: string | undefined }>;
-  listProfiles?(input: {
-    readonly employeeId: string;
-  }): readonly {
+  ): Promise<{
+    readonly id: string;
+    readonly legacyAgentProfileId?: string | undefined;
+  }>;
+  listProfiles?(input: { readonly employeeId: string }): readonly {
     readonly id: string;
     readonly workspaceId: string;
     readonly name: string;
@@ -78,7 +85,9 @@ export interface EmployeeServiceLike {
           readonly displayName: string;
           readonly personaId?: string | undefined;
         };
-        readonly profile: { readonly legacyAgentProfileId?: string | undefined };
+        readonly profile: {
+          readonly legacyAgentProfileId?: string | undefined;
+        };
       }
     | undefined;
 }
@@ -96,7 +105,10 @@ export interface AgentServiceLike {
       readonly name: string;
       readonly description?: string | undefined;
       readonly personaId?: string | undefined;
-      readonly runtimeKind?: "task-worker" | "continuable-session" | "connector" | undefined;
+      readonly execution?: "builtin" | "external" | undefined;
+      readonly externalRuntimeId?: string | undefined;
+      readonly runtimeKind?:
+        "task-worker" | "continuable-session" | "connector" | undefined;
       readonly visibility?: "workspace" | "platform" | undefined;
     },
   ): Promise<{ readonly id: string }>;
@@ -108,6 +120,8 @@ export interface AgentServiceLike {
     readonly status: string;
     readonly allowedTools: readonly string[];
     readonly personaId?: string | undefined;
+    readonly execution?: "builtin" | "external" | undefined;
+    readonly externalRuntimeId?: string | undefined;
   }[];
   updateProfile?(
     actor: {
@@ -168,6 +182,8 @@ export interface TeammateIdentity {
   readonly profileName: string;
   readonly runtimeKind: string;
   readonly personaId?: string | undefined;
+  readonly execution?: "builtin" | "external" | undefined;
+  readonly externalRuntimeId?: string | undefined;
   readonly allowedTools: readonly string[];
   readonly agentStatus: string;
   readonly runtimeStatus: string;
@@ -284,6 +300,12 @@ export class TeammateRuntime {
         ...(profile.personaId === undefined
           ? {}
           : { personaId: profile.personaId }),
+        ...(profile.execution === undefined
+          ? {}
+          : { execution: profile.execution }),
+        ...(profile.externalRuntimeId === undefined
+          ? {}
+          : { externalRuntimeId: profile.externalRuntimeId }),
         allowedTools: profile.allowedTools,
         agentStatus: profile.status,
         runtimeStatus: runtime.status,
@@ -383,12 +405,17 @@ export class TeammateRuntime {
       throw new TeammateError("conflict", "人设服务不可用，无法开通执行身份");
     }
     if (agents === undefined) {
-      throw new TeammateError("conflict", "Agent 注册表不可用，无法开通执行身份");
+      throw new TeammateError(
+        "conflict",
+        "Agent 注册表不可用，无法开通执行身份",
+      );
     }
 
     // 个人归属：owner 是 manager；平台归属：先用当前管理员，后续再独立汇报线。
     const managerAuthUserId =
-      teammate.source === "personal" ? teammate.ownerUserId : input.actor.userId;
+      teammate.source === "personal"
+        ? teammate.ownerUserId
+        : input.actor.userId;
     const manager = employees.getByAuthUserId(managerAuthUserId);
     if (
       manager === undefined ||
@@ -428,6 +455,12 @@ export class TeammateRuntime {
         name: teammate.name,
         description: teammate.description,
         personaId,
+        ...(teammate.execution === undefined
+          ? {}
+          : { execution: teammate.execution }),
+        ...(teammate.externalRuntimeId === undefined
+          ? {}
+          : { externalRuntimeId: teammate.externalRuntimeId }),
         runtimeKind: "task-worker",
         visibility: teammate.source === "platform" ? "platform" : "workspace",
       },
@@ -452,7 +485,11 @@ export class TeammateRuntime {
       name: teammate.name,
       legacyAgentProfileId: profile.id,
     });
-    await this.deps.teammates.bindEmployee(input.actor, teammate.id, employee.id);
+    await this.deps.teammates.bindEmployee(
+      input.actor,
+      teammate.id,
+      employee.id,
+    );
     return {
       teammateId: teammate.id,
       employeeId: employee.id,

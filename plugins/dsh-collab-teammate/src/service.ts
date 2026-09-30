@@ -41,11 +41,7 @@ export interface TeammateServiceOptions {
 export class TeammateError extends Error {
   constructor(
     readonly code:
-      | "invalid_input"
-      | "unauthorized"
-      | "forbidden"
-      | "not_found"
-      | "conflict",
+      "invalid_input" | "unauthorized" | "forbidden" | "not_found" | "conflict",
     message: string,
   ) {
     super(message);
@@ -58,6 +54,8 @@ export interface CreateTeammateInput {
   readonly name?: string | undefined;
   readonly role?: string | undefined;
   readonly profileTemplateId?: string | undefined;
+  readonly execution?: "builtin" | "external" | undefined;
+  readonly externalRuntimeId?: string | undefined;
 }
 
 export interface CreateProfileTemplateInput {
@@ -86,6 +84,8 @@ export interface UpdateTeammateInput {
   readonly teammateId: string;
   readonly name: string;
   readonly source?: TeammateSource | undefined;
+  readonly execution?: "builtin" | "external" | undefined;
+  readonly externalRuntimeId?: string | undefined;
   readonly role?: string | undefined;
   readonly description?: string | undefined;
   readonly soul?: string | undefined;
@@ -153,10 +153,12 @@ const PROFILE_STATE_TRANSITIONS: Record<
 export class ProfileTemplateService {
   private queue: Promise<void> = Promise.resolve();
 
-  constructor(private readonly options: {
-    readonly tables: ProfileTemplateTables;
-    readonly now?: () => Date;
-  }) {}
+  constructor(
+    private readonly options: {
+      readonly tables: ProfileTemplateTables;
+      readonly now?: () => Date;
+    },
+  ) {}
 
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {
     const result = this.queue.then(operation);
@@ -192,8 +194,7 @@ export class ProfileTemplateService {
       )
       .sort(
         (left, right) =>
-          Number(right.state === "active") -
-            Number(left.state === "active") ||
+          Number(right.state === "active") - Number(left.state === "active") ||
           right.updatedAt.localeCompare(left.updatedAt) ||
           left.name.localeCompare(right.name, "zh-Hans-CN"),
       );
@@ -270,9 +271,7 @@ export class ProfileTemplateService {
         throw new TeammateError("forbidden", "平台管理员可以维护 Profile 模版");
       }
       const current = this.require(input.templateId);
-      if (
-        !PROFILE_STATE_TRANSITIONS[current.state].includes(input.state)
-      ) {
+      if (!PROFILE_STATE_TRANSITIONS[current.state].includes(input.state)) {
         throw new TeammateError(
           "conflict",
           `Profile 模版不能从 ${current.state} 改为 ${input.state}`,
@@ -310,11 +309,13 @@ export class TeammateService {
   private readonly profiles: ProfileTemplateService | undefined;
   private queue: Promise<void> = Promise.resolve();
 
-  constructor(private readonly options: {
-    readonly tables: TeammateTables;
-    readonly now?: () => Date;
-    readonly profiles?: ProfileTemplateService;
-  }) {
+  constructor(
+    private readonly options: {
+      readonly tables: TeammateTables;
+      readonly now?: () => Date;
+      readonly profiles?: ProfileTemplateService;
+    },
+  ) {
     this.profiles = options.profiles;
   }
 
@@ -437,6 +438,12 @@ export class TeammateService {
         state: "draft",
         version: "v0.1",
         ...(profile === undefined ? {} : { profileTemplateId: profile.id }),
+        ...(input.execution === undefined
+          ? {}
+          : { execution: input.execution }),
+        ...(input.externalRuntimeId === undefined
+          ? {}
+          : { externalRuntimeId: input.externalRuntimeId }),
         createdBy: actor.userId,
         createdAt: timestamp,
         updatedAt: timestamp,
@@ -496,8 +503,14 @@ export class TeammateService {
       const current = this.requireTeammate(input.teammateId);
       this.assertCanManage(current, actor);
       const wasDraft = current.state === "draft";
-      const nextSource = wasDraft ? (input.source ?? current.source) : current.source;
-      if (nextSource !== current.source && nextSource === "platform" && actor.role !== "admin") {
+      const nextSource = wasDraft
+        ? (input.source ?? current.source)
+        : current.source;
+      if (
+        nextSource !== current.source &&
+        nextSource === "platform" &&
+        actor.role !== "admin"
+      ) {
         throw new TeammateError(
           "forbidden",
           "平台归属定义只有平台管理员可以创建",
@@ -506,7 +519,10 @@ export class TeammateService {
       const teammate = teammateSchema.parse({
         ...current,
         source: nextSource,
-        ownerUserId: nextSource === "platform" ? actor.userId : current.ownerUserId,
+        execution: input.execution ?? current.execution,
+        externalRuntimeId: input.externalRuntimeId ?? current.externalRuntimeId,
+        ownerUserId:
+          nextSource === "platform" ? actor.userId : current.ownerUserId,
         ownerName:
           nextSource === "platform"
             ? "平台"
@@ -529,9 +545,7 @@ export class TeammateService {
         teammate,
         actor,
         "updated",
-        wasDraft
-          ? "保存定义并发布 v1.0"
-          : `更新定义至 ${teammate.version}`,
+        wasDraft ? "保存定义并发布 v1.0" : `更新定义至 ${teammate.version}`,
       );
       return teammate;
     });

@@ -29,12 +29,10 @@ function memoryTable<V>(): KvTableLike<V> {
 
 function service(tables?: TeammateTables): TeammateService {
   return new TeammateService({
-    tables:
-      tables ??
-      {
-        teammates: memoryTable<Teammate>(),
-        events: memoryTable<TeammateEvent>(),
-      },
+    tables: tables ?? {
+      teammates: memoryTable<Teammate>(),
+      events: memoryTable<TeammateEvent>(),
+    },
   });
 }
 
