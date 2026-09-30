@@ -48,7 +48,7 @@
 | 1    | 复用当前 `33124` 服务时，跳到 1.3；需要全新环境时继续                                                                       | 当前 `<ROOT_URL>`               | 不删除正在使用的 `.tmp/dsh-home`                                                |
 | 2    | `cd /Users/oliviayang/Codex/一切皆插件/dsh-pluginmax`                                                                       | 仓库路径                        | `pwd` 正确                                                                      |
 | 3    | 全新环境先停止占用 `33124` 的服务，再执行 `./scripts/bootstrap.sh`                                                          | Git submodule、`pnpm-lock.yaml` | 插件和锁定版 DSH 安装、构建完成                                                 |
-| 4    | `./node_modules/.bin/vitest run` 或 `corepack pnpm check`                                                                   | 已安装依赖                      | 全量测试通过；当前实测为 12 个测试文件、149 个用例                              |
+| 4    | `./node_modules/.bin/vitest run` 或 `corepack pnpm check`                                                                   | 已安装依赖                      | 全量测试通过；当前实测为 12 个测试文件、167 个用例                              |
 | 5    | `rm -rf .tmp/dsh-home .tmp/gui-workflow-workspace && mkdir -p .tmp/gui-workflow-workspace`                                  | 本地临时目录                    | 仅全新环境执行，清理旧数据                                                      |
 | 6    | `./scripts/install-profile.sh`                                                                                              | `scripts/install-profile.sh`    | 安装 shell、identity、employee、roles、meeting、workflow、task、teammate、agent |
 | 7    | `DSH_HOME="$PWD/.tmp/dsh-home" node vendor/deepseek-harness/apps/cli/lib/bin.js --profile pluginmax --no-open --port 33118` | 已构建的 DSH CLI                | 输出带 token 的 `<ROOT_URL>`                                                    |
@@ -168,7 +168,7 @@ corepack pnpm test -- \
   plugins/dsh-collab-teammate/src/runtime.test.ts
 ```
 
-本次直接执行 Vitest 的结果为 `6 passed` 个测试文件、`113 passed` 个用例；其中工作流专项有 38 个用例，新增的 2 个专门覆盖 Task 模块缺席时的独立闭环。
+本次直接执行 Vitest 的结果为 `12 passed` 个测试文件、`167 passed` 个用例；其中工作流专项有 40 个用例，包含 Task 模块缺席时的独立闭环和 Agent 节点人工完成 / 取消。
 
 如果 `corepack pnpm` 因网络或依赖状态检查阻塞，而 `node_modules/.bin/vitest` 已存在，可直接执行：
 
@@ -191,7 +191,7 @@ corepack pnpm test -- \
 | 交付物        | `rejects a deliverable and requires a new submission`、`does not accept an agent reply without the required delivery section`                                                                                                                                                                 |
 | 分支和循环    | `blocks a controlled loop when break becomes true`、`reactivates a completed node after a controlled rejection`、`starts and completes a sub-workflow`                                                                                                                                        |
 | 独立完整性    | `runs the human and approval lifecycle without an optional task module`、`direct-completes a no-review Agent node without a task module`                                                                                                                                                      |
-| Agent 派发    | `auto-dispatches a ready Agent node and maps output to the delivery gate`、`allows the responsible user to recover a timed-out agent node manually`、`supports manual dispatch, cancellation, retry, permissions, and attempt cap`、`runs workflow task workers in a persistent task session` |
+| Agent 派发    | `auto-dispatches a ready Agent node and maps output to the delivery gate`、`allows the responsible user to recover a timed-out agent node manually`、`allows manual intervention to complete a running or blocked Agent node`、`allows manual intervention to cancel an Agent node and closes its task`、`supports manual dispatch, cancellation, retry, permissions, and attempt cap`、`runs workflow task workers in a persistent task session` |
 | Employee 派发 | `dispatches employee nodes through mapped runtime and preserves the principal`、`recovers an employee node after an automatic ticket failure`、`reports a suspended employee as the manual dispatch blocker`                                                                                  |
 | AI Teammates  | `creates a personal draft and promotes it on first save`、`restricts platform definitions to administrators`、`provisions one runtime identity and reuses it for later tasks`、`refuses to dispatch a teammate that is not active`                                                            |
 | 接口边界      | `requires same origin and a valid bearer token`、`blocks non-manager import`、`rejects a member of another workspace`                                                                                                                                                                         |
@@ -331,8 +331,11 @@ corepack pnpm test -- plugins/dsh-collab-workflow/src/index.test.ts \
 10. 另启动一次任务，在运行中重启 `33125` 服务，使用新 token 打开页面并展开实例。
 11. 在 Agent 运行失败后打开任务管理详情，先点一次 `刷新`；再次进入工作流详情后回到任务详情，确认旧任务能补齐运行记录。
 12. 对同一 Agent 节点手动重新派发，回到任务详情确认执行过程、失败原因和结果会跟随最新 run 更新。
+13. 在包含历史跨节点误挂记录的旧环境里，打开任务管理并点一次 `刷新`；检查被误挂的 Task（例如当前环境的 `TSK-MULCGWJF-0173`），确认误挂 run、初始执行消息被清理，状态按工作流权威状态恢复为进行中，并出现清理 / 状态同步事件。
+14. 在 Agent 运行中或失败阻塞后，展开 Agent 运行区域。确认只有 Owner/Admin 能看到人工介入入口；若有 active run，先点击 `取消运行`，补齐全部必交付物，填写选填接管备注后点击 `人工完成`。缺失交付物时按钮必须禁用。检查节点变为完成、时间线出现人工完成事件和备注、关联 Task 关闭。
+15. 再启动一个 Agent 节点，用 Owner/Admin 填写选填备注后点击 `取消节点` 并确认；用责任人账号确认看不到该入口。检查 active run 取消、节点变为已跳过、时间线出现人工取消事件和备注、关联 Task 以取消结论关闭。
 
-预期：`设置 > Agent` 已下线，不再作为入口；AI Teammates 在首次指派并触发任务时会开通执行身份；平台 Teammate 派生的 Agent Profile 可被不同项目的工作流解析，但运行记录和 Task 仍跟随实例项目；自动派发不需要点击；取消、失败、超时都不显示成功；输出未满足交付要求时节点 blocked；责任人可人工代交，owner/admin 可越过重试上限；服务重启后被中断的运行显示可读原因，节点进入阻塞并同时提供 `重新派发` 与人工交付入口，点击重新派发后创建 `runSeq + 1` 的新运行。工作流 Agent Task 会创建 `de-task-*` 独立 session，session 名称使用承载 Task 的 TSK 编号；任务详情能看到执行过程和失败输出，历史缺失的 Agent run 会在补投影后出现，同节点重跑复用同一条 session。
+预期：`设置 > Agent` 已下线，不再作为入口；AI Teammates 在首次指派并触发任务时会开通执行身份；平台 Teammate 派生的 Agent Profile 可被不同项目的工作流解析，但运行记录和 Task 仍跟随实例项目；自动派发不需要点击；取消、失败、超时都不显示成功；输出未满足交付要求时节点 blocked；责任人可人工代交，owner/admin 可越过重试上限；只有 Owner/Admin 可通过 Agent 运行区域显式执行 `人工完成` / `取消节点`；人工完成不绕过必交付物门禁，接管备注选填且留痕；服务重启后被中断的运行显示可读原因，节点进入阻塞并同时提供 `重新派发`、人工交付和人工介入入口，点击重新派发后创建 `runSeq + 1` 的新运行。工作流 Agent Task 会创建 `de-task-*` 独立 session，session 名称使用承载 Task 的 TSK 编号；任务详情能看到执行过程和失败输出，历史缺失的 Agent run 会在补投影后出现，同节点重跑复用同一条 session。Agent run 只投影到相同节点的 Task；刷新会清理历史误挂到其他节点的 run，并把非终态任务恢复为工作流权威状态。
 
 ### WF-10 Digital Employee 派发、票据和暂停
 
@@ -399,18 +402,19 @@ corepack pnpm test -- plugins/dsh-collab-workflow/src/index.test.ts \
 
 使用 `agent-node.md` 和 AI Teammates 自动生成的 Agent Profile。
 
-| 步骤 | 操作                                                                               | 资料 / 文件          | 预期                                                       |
-| ---- | ---------------------------------------------------------------------------------- | -------------------- | ---------------------------------------------------------- |
-| 1    | A 先创建并生效 AI Teammate，记录 Profile ID，再替换并在 `模板管理` 导入 Agent 流程 | `agent-node.md` 副本 | 节点 ready 后自动派发                                      |
-| 2    | 检查 Agent 运行                                                                    | run 详情             | trigger 为自动，状态最终 succeeded / failed / timeout      |
-| 3    | 检查交付物                                                                         | 运行输出             | 满足门禁后进入待确认，不能自动借运行成功跳过 gate          |
-| 4    | `review-required: true` 时由 B 在 Task/工作流确认完成                              | 交付物               | 节点完成并推进                                             |
-| 5    | `review-required: false` 时等待 Agent 成功后的直接完成                             | Task 详情            | Task 已完成且节点推进，但缺失必填交付物时不得推进          |
-| 6    | A 查看治理中心                                                                     | instanceId、runId    | 能追溯 Agent、ticket、输出和确认人                         |
-| 7    | 打开 Task 详情，检查执行过程和左侧 Session                                         | `de-task-*` session  | Task 显示 run 状态、过程输出和失败原因；session 已挂到项目 |
-| 8    | 让 Agent 输出缺少交付标题，再回到 Task 详情刷新                                    | 失败 run             | Task 不会一直停留在“等待输出”；失败原因与工作流一致        |
+| 步骤 | 操作                                                                               | 资料 / 文件          | 预期                                                                               |
+| ---- | ---------------------------------------------------------------------------------- | -------------------- | ---------------------------------------------------------------------------------- |
+| 1    | A 先创建并生效 AI Teammate，记录 Profile ID，再替换并在 `模板管理` 导入 Agent 流程 | `agent-node.md` 副本 | 节点 ready 后自动派发                                                              |
+| 2    | 检查 Agent 运行                                                                    | run 详情             | trigger 为自动，状态最终 succeeded / failed / timeout                              |
+| 3    | 检查交付物                                                                         | 运行输出             | 满足门禁后进入待确认，不能自动借运行成功跳过 gate                                  |
+| 4    | `review-required: true` 时由 B 在 Task/工作流确认完成                              | 交付物               | 节点完成并推进                                                                     |
+| 5    | `review-required: false` 时等待 Agent 成功后的直接完成                             | Task 详情            | Task 已完成且节点推进，但缺失必填交付物时不得推进                                  |
+| 6    | A 查看治理中心                                                                     | instanceId、runId    | 能追溯 Agent、ticket、输出和确认人                                                 |
+| 7    | 打开 Task 详情，检查执行过程和左侧 Session                                         | `de-task-*` session  | Task 显示 run 状态、过程输出和失败原因；session 已挂到项目                         |
+| 8    | 让 Agent 输出缺少交付标题，再回到 Task 详情刷新                                    | 失败 run             | Task 不会一直停留在“等待输出”；失败原因与工作流一致                                |
+| 9    | 同一实例的多个节点 Task 并存时，在任务管理点一次 `刷新`，逐个展开检查              | 同实例多节点 Task    | 每个 Task 只显示自身节点的 run；没有 run 的节点 Task 不会被其他节点 run 改成进行中 |
 
-通过标准：运行状态、交付物状态和节点状态三者可区分且一致；Task 投影只读展示工作流执行事实，不再吞掉失败结果；工作流 Agent 与普通 Agent Task 一样具备可追踪的执行 session。
+通过标准：运行状态、交付物状态和节点状态三者可区分且一致；Task 投影只读展示工作流执行事实，不再吞掉失败结果；工作流 Agent 与普通 Agent Task 一样具备可追踪的执行 session；Task 与 Agent run 的映射按工作流节点隔离。
 
 ### E2E-WF-03 受控返工闭环
 

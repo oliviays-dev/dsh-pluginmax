@@ -807,7 +807,19 @@ window.__ModuleLoader__.load({
     }
 
     function AgentRunPanel(props) {
-      const { node, state, runs, busy, act, workspaceId, instanceId } = props;
+      const {
+        node,
+        state,
+        runs,
+        busy,
+        act,
+        workspaceId,
+        instanceId,
+        actor,
+        isManager,
+        notes,
+        onNoteChange,
+      } = props;
       const runnerKind =
         node.executor.kind === "employee" ||
         runs.some((run) => run.principalType === "digital-employee")
@@ -856,6 +868,13 @@ window.__ModuleLoader__.load({
           (latest?.status === "interrupted" && state.status === "running"));
       const triggerLabel =
         latest?.trigger === "auto-on-ready" ? "自动派发" : "手动派发";
+      const canIntervene =
+        ["ready", "running", "blocked"].includes(state?.status ?? "") &&
+        actor?.kind === "user" &&
+        isManager === true;
+      const missingCount = missingDeliverables(node, state).length;
+      const noteKey = `${instanceId}:${node.id}`;
+      const interventionNote = notes?.[noteKey] ?? "";
       return jsxRuntime.jsxs("div", {
         className: "pmwf-deliverables",
         children: [
@@ -1022,6 +1041,88 @@ window.__ModuleLoader__.load({
                 : null,
             ],
           }),
+          canIntervene
+            ? jsxRuntime.jsxs("div", {
+                className: "pmwf-deliverable",
+                children: [
+                  jsxRuntime.jsx("div", {
+                    className: "pmwf-deliverable-title",
+                    children: "Owner/Admin 人工介入",
+                  }),
+                  jsxRuntime.jsx("input", {
+                    type: "text",
+                    className: "pmwf-input small",
+                    placeholder: "接管备注（选填）",
+                    value: interventionNote,
+                    onChange: (event) =>
+                      onNoteChange?.(noteKey, event.target.value),
+                  }),
+                  jsxRuntime.jsxs("div", {
+                    className: "pmwf-actions",
+                    children: [
+                      jsxRuntime.jsx(
+                        "button",
+                        {
+                          type: "button",
+                          className: "pmwf-btn small",
+                          disabled: busy !== "" || missingCount > 0,
+                          onClick: async () => {
+                            const succeeded = await act(
+                              `agent-complete:${node.id}`,
+                              "/api/collab/workflow/nodes/complete",
+                              {
+                                workspaceId,
+                                instanceId,
+                                nodeId: node.id,
+                                force: true,
+                                note: interventionNote.trim() || undefined,
+                              },
+                              `已人工完成「${node.name}」`,
+                            );
+                            if (succeeded) onNoteChange?.(noteKey, "");
+                          },
+                          children:
+                            missingCount > 0
+                              ? `补齐 ${missingCount} 项交付物后可完成`
+                              : "人工完成",
+                        },
+                        "manual-complete",
+                      ),
+                      jsxRuntime.jsx(
+                        "button",
+                        {
+                          type: "button",
+                          className: "pmwf-btn secondary small",
+                          disabled: busy !== "",
+                          onClick: async () => {
+                            if (
+                              !window.confirm(
+                                `取消「${node.name}」后，该节点会标记为已跳过，关联任务会关闭。继续吗？`,
+                              )
+                            )
+                              return;
+                            const succeeded = await act(
+                              `agent-cancel-node:${node.id}`,
+                              "/api/collab/workflow/nodes/cancel",
+                              {
+                                workspaceId,
+                                instanceId,
+                                nodeId: node.id,
+                                note: interventionNote.trim() || undefined,
+                              },
+                              `已人工取消「${node.name}」`,
+                            );
+                            if (succeeded) onNoteChange?.(noteKey, "");
+                          },
+                          children: "取消节点",
+                        },
+                        "manual-cancel",
+                      ),
+                    ],
+                  }),
+                ],
+              })
+            : null,
         ],
       });
     }
@@ -1991,6 +2092,8 @@ window.__ModuleLoader__.load({
       const [startError, setStartError] = react.useState("");
       const [templateMode, setTemplateMode] = react.useState(false);
       const [approvalNote, setApprovalNote] = react.useState("");
+      const [agentInterventionNotes, setAgentInterventionNotes] =
+        react.useState({});
 
       const notify = (text) => {
         setError("");
@@ -2292,9 +2395,11 @@ window.__ModuleLoader__.load({
           setApprovalNote("");
         } catch (cause) {
           fail(cause);
+          return false;
         } finally {
           setBusy("");
         }
+        return true;
       };
 
       const openWorkflowTemplateSettings = () => {
@@ -2306,6 +2411,8 @@ window.__ModuleLoader__.load({
 
       const setDeliverableDraft = (key, value) =>
         setDeliverableDrafts((current) => ({ ...current, [key]: value }));
+      const setAgentInterventionNote = (key, value) =>
+        setAgentInterventionNotes((current) => ({ ...current, [key]: value }));
       const setDeliverableFile = (key, files) =>
         setDeliverableFiles((current) => ({ ...current, [key]: files }));
       const submitDeliverable = async (node, requirement) => {
@@ -3369,6 +3476,12 @@ window.__ModuleLoader__.load({
                                                               effectiveWorkspaceId,
                                                             instanceId:
                                                               instance.id,
+                                                            actor: detail.actor,
+                                                            isManager,
+                                                            notes:
+                                                              agentInterventionNotes,
+                                                            onNoteChange:
+                                                              setAgentInterventionNote,
                                                           })
                                                         : null,
                                                       DeliverablePanel({

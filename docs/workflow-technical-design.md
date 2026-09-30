@@ -229,7 +229,8 @@ attempts >= 3 || approved_by_architect == true
 | GET  | `/instances`             | 工作区实例；可传 `sessionId` |
 | GET  | `/instances/detail`      | 实例详情与事件               |
 | POST | `/instances/start`       | 启动实例                     |
-| POST | `/nodes/complete`        | 完成任务/服务                |
+| POST | `/nodes/complete`        | 完成任务/服务；Agent 节点可显式 `force=true` 人工兜底 |
+| POST | `/nodes/cancel`          | 人工取消 Agent/Digital Employee 节点         |
 | POST | `/approvals/decide`      | 通过/否决                    |
 | POST | `/approvals/delegate`    | 转交                         |
 | POST | `/approvals/countersign` | 加签                         |

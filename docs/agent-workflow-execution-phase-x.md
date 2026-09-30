@@ -421,6 +421,12 @@ Agent 运行成功后，runtime adapter 根据交付物类型写入候选结果�
 2. UI 明确显示“人工代 Agent 提交”；
 3. 系统记录 onBehalfOf；
 4. 不需要伪造 Agent Run 成功状态。
+5. Agent 运行面板保留“人工完成”和“取消节点”。
+6. 人工完成和取消节点仅允许 workspace owner 或 admin；节点责任人不能越权接管。
+7. “人工完成”仍必须先补齐全部 required deliverables；可先取消 active run，再人工代交并确认完成。
+8. Owner/Admin 可填写选填接管备注；备注随人工完成或人工取消事件留痕。
+9. “取消节点”先取消 active run，再将节点置为 skipped，关联 Task 使用 `cancelled` 结论关闭。
+10. 普通完成仍受 required gate 约束，人工完成也不会绕过 required gate。
 
 ## 13. API
 

@@ -510,16 +510,32 @@
     }
     .board.dragging .drag-hint { opacity: 1; }
 
-    .detail-page { border: 1px solid var(--line); border-radius: var(--radius); background: #14161a; overflow: hidden; }
+    .detail-page {
+      display: flex; flex-direction: column; height: calc(100vh - 148px); min-height: 520px;
+      border: 1px solid var(--line); border-radius: var(--radius); background: #14161a; overflow: hidden;
+    }
+    .stage.detail-stage { display: flex; flex-direction: column; overflow: hidden; padding: 0; }
+    #taskView.detail-active { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+    #taskView.detail-active > .page-head { display: none; }
+    .stage.detail-stage .detail-page { flex: 1; height: auto; min-height: 0; border: 0; border-radius: 0; }
     .detail-page[hidden] { display: none; }
     .detail-top {
       flex: none; display: flex; align-items: center; gap: 10px; padding: 11px 14px;
       border-bottom: 1px solid var(--line); background: rgba(30,33,38,.72);
     }
     .detail-top strong { flex: 1; min-width: 0; font-size: 12.5px; }
-    .detail-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 36%); min-height: 520px; }
-    .detail-main { min-width: 0; padding: 16px; border-right: 1px solid var(--line); }
-    .side-panel { min-width: 0; display: flex; flex-direction: column; background: #111317; }
+    .detail-layout {
+      flex: 1; min-height: 0; overflow: hidden; display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(308px, 34%);
+      grid-template-rows: minmax(0, 1fr);
+    }
+    .detail-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); }
+    .detail-main-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 18px 8px; scrollbar-gutter: stable; }
+    #detailIntro {
+      position: sticky; top: 0; z-index: 6; flex: none;
+      padding: 16px 0 12px; background: #14161a; border-bottom: 1px solid var(--line);
+    }
+    .side-panel { min-width: 0; overflow-y: auto; display: flex; flex-direction: column; background: #111317; scrollbar-gutter: stable; }
     .live-panel { padding: 13px; border-bottom: 1px solid var(--line); }
     .live-head { display: flex; align-items: center; gap: 7px; }
     .live-head h3 { flex: 1; margin: 0; font-size: 13px; }
@@ -573,6 +589,9 @@
     .detail-intro { display: grid; gap: 12px; margin-bottom: 14px; }
     .intro-title { display: flex; align-items: flex-start; gap: 10px; }
     .intro-title h2 { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 1.35; overflow-wrap: anywhere; }
+    .intro-edit-form { display: grid; gap: 12px; }
+    .intro-title .title-input { min-height: 40px; font-size: 17px; font-weight: 650; }
+    .intro-edit-form textarea { min-height: 92px; }
     .intro-title .icon-btn {
       flex: none; width: 30px; height: 30px; margin-top: -2px;
       display: inline-flex; align-items: center; justify-content: center;
@@ -582,14 +601,27 @@
     .intro-title .icon-btn svg { width: 15px; height: 15px; }
     .intro-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 9px; }
     .intro-grid .field { padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: #17191d; }
-    .assign-select { flex: none; }
-    .assign-select .select-trigger { min-width: 190px; max-width: 270px; }
+    .assign-select { position: static; width: 100%; }
+    .assign-select .select-trigger { width: 100%; min-width: 0; max-width: none; }
     .assign-select .select-menu { z-index: 80; }
     .assign-select .select-trigger.pending { border-color: var(--accent); color: var(--accent); }
-    .assign-actions { flex: none; display: flex; align-items: center; gap: 5px; }
+    .section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .section-head h3 { margin-bottom: 0; }
+    .section-head .icon-btn {
+      flex: none; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+      border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--muted);
+    }
+    .section-head .icon-btn:hover { color: var(--text); background: var(--surface-2); }
+    .section-head .icon-btn svg { width: 14px; height: 14px; }
+    .section-head .head-actions { gap: 5px; }
+    .property-edit-form .field select,
+    .property-edit-form .field input[type="date"] { min-height: 32px; font-size: 12.5px; }
+    .receiver-field .assign-actions { display: flex; justify-content: flex-end; margin-top: 7px; }
     .primary.small { min-height: 24px; padding: 2px 7px; font-size: 11px; }
     .instruction-composer {
-      position: relative; border: 1px solid var(--line-strong); border-radius: var(--radius);
+      position: relative; flex: none; margin: 8px 16px 0;
+      border: 1px solid rgba(79,142,247,.52); box-shadow: 0 0 0 1px rgba(79,142,247,.08), 0 12px 32px rgba(0,0,0,.18);
+      border-radius: var(--radius);
       background: #17191d; overflow: visible;
     }
     .instruction-composer[hidden] { display: none; }
@@ -612,7 +644,7 @@
     }
     .mention-trigger:hover, .mention-trigger[aria-expanded="true"] { color: var(--accent); background: var(--accent-soft); }
     .mention-menu {
-      position: absolute; z-index: 12; top: 38px; left: 72px; width: min(320px, calc(100% - 84px));
+      position: absolute; z-index: 12; bottom: calc(100% - 46px); left: 72px; width: min(320px, calc(100% - 84px));
       display: none; padding: 5px; border: 1px solid var(--line-strong); border-radius: 7px;
       background: #1a1d22; box-shadow: 0 16px 36px rgba(0,0,0,.34);
     }
@@ -648,7 +680,8 @@
     .history-head.runtime-section-head { justify-content: space-between; }
     .history-head h3 { margin: 0; }
     .history-head span { color: var(--faint); font-size: 10.5px; }
-    .history-stream { display: grid; gap: 12px; max-height: 480px; overflow-y: auto; padding-right: 3px; }
+    .history-section { margin-top: 4px; }
+    .history-stream { display: grid; gap: 12px; padding: 1px 3px 8px; }
     .history-event, .history-message {
       display: grid; grid-template-columns: 28px minmax(0,1fr); gap: 9px; align-items: start;
     }
@@ -667,11 +700,32 @@
     .history-message .bubble { margin-top: 4px; }
     .bubble .mention { color: var(--accent); background: var(--accent-soft); border-radius: 3px; padding: 0 3px; }
     .message-attachments { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
-    .history-comment { padding: 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); }
+    .history-comment {
+      display: grid; grid-template-columns: 28px minmax(0,1fr); gap: 9px; align-items: start;
+      padding: 2px; border: 0; background: transparent;
+    }
+    .history-comment .comment-avatar { width: 28px; height: 28px; }
+    .reply-comment {
+      flex: none; min-height: 22px; padding: 1px 6px; border: 1px solid var(--line);
+      border-radius: 999px; background: transparent; color: var(--faint); font-size: 10px;
+    }
+    .reply-comment:hover { color: var(--text); border-color: var(--line-strong); background: var(--surface-2); }
     .reply-list { display: grid; gap: 7px; margin-top: 8px; padding-left: 10px; border-left: 2px solid var(--line); }
     .reply-form { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 6px; margin-top: 8px; }
     .reply-form input { min-height: 28px; font-size: 11.5px; }
     .history-comment > button { margin-top: 7px; }
+    .composer-reply-context {
+      display: flex; align-items: center; gap: 7px; margin: 8px 10px 0;
+      padding: 6px 8px; border: 1px solid rgba(79,142,247,.36); border-radius: 6px;
+      background: var(--accent-soft); color: #cfe0ff; font-size: 11px;
+    }
+    .composer-reply-context[hidden] { display: none; }
+    .composer-reply-context span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .composer-reply-context button {
+      flex: none; width: 20px; height: 20px; border: 0; border-radius: 4px;
+      background: transparent; color: #cfe0ff;
+    }
+    .composer-reply-context button:hover { background: rgba(79,142,247,.18); color: #fff; }
 
     .detail { min-width: 0; border: 1px solid var(--line); border-radius: var(--radius); background: #14161a; }
     .detail-inner { padding: 16px; }
@@ -1199,7 +1253,7 @@
       .workspace-menu { position: fixed; top: 62px; left: 10px; right: auto; width: min(300px, calc(100vw - 20px)); }
       .task-layout { grid-template-columns: 1fr; }
       .board { grid-template-columns: repeat(4, 248px); }
-      .detail-layout { grid-template-columns: 1fr; }
+      .detail-layout { grid-template-columns: minmax(0, 1fr) minmax(280px, 38%); }
       .detail-main { border-right: 0; border-bottom: 1px solid var(--line); }
       .assign-row { grid-template-columns: 1fr; }
       .intro-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
@@ -1460,7 +1514,18 @@
               <div class="detail-top" id="detailTop"></div>
               <div class="detail-layout">
                 <div class="detail-main">
-                  <div id="detailIntro"></div>
+                  <div class="detail-main-scroll" id="detailMainScroll">
+                    <div id="detailIntro"></div>
+
+                    <div class="section history-section">
+                      <div class="history-head">
+                        <h3>执行对话</h3>
+                        <span id="historyMeta"></span>
+                      </div>
+                      <div class="history-stream" id="executionHistory"></div>
+                    </div>
+                  </div>
+
                   <div class="instruction-composer">
                     <div class="composer-toolbar">
                       <button class="icon-btn" type="button" data-demo="插入表情" aria-label="插入表情">☺</button>
@@ -1471,7 +1536,11 @@
                       <input id="taskAttachment" type="file" multiple hidden>
                       <div class="mention-menu" id="mentionMenu" role="listbox"></div>
                     </div>
-                    <textarea id="instructionInput" rows="4" placeholder="输入 / 补充给执行 Agent 的指令，或反馈任务进展。可 @ 人员、DE 和分身"></textarea>
+                    <div class="composer-reply-context" id="composerReplyContext" hidden>
+                      <span id="composerReplyText"></span>
+                      <button type="button" id="composerReplyCancel" aria-label="取消回复">×</button>
+                    </div>
+                    <textarea id="instructionInput" rows="3" placeholder="发送执行指令、评论或回复；可 @ 人员、DE 和分身"></textarea>
                     <div class="attachment-list" id="attachmentList" hidden></div>
                     <div class="composer-footer">
                       <span class="mode-label" id="composerHint">发送给当前执行人</span>
@@ -1480,23 +1549,6 @@
                         <button class="primary" type="button" data-action="send-instruction">发送</button>
                       </div>
                     </div>
-                  </div>
-
-                  <div class="section">
-                    <div class="history-head">
-                      <h3>执行历史</h3>
-                      <span id="historyMeta"></span>
-                    </div>
-                    <div class="history-stream" id="executionHistory"></div>
-                  </div>
-
-                  <div class="section">
-                    <h3>评论与回复</h3>
-                    <div class="comment-list" id="commentList"></div>
-                    <form class="comment-form" id="commentForm">
-                      <input name="comment" required placeholder="写下评论，或回复协作成员">
-                      <button class="ghost small" type="submit">评论</button>
-                    </form>
                   </div>
                 </div>
                 <aside class="side-panel" id="detailSide"></aside>
@@ -2486,6 +2538,9 @@
     let selectedId = tasks[0].id;
     let pendingAssignee = null;
     let composerAttachments = [];
+    let composerReplyTo = null;
+    let composerTaskId = null;
+    let historyAutoScroll = false;
     let streamTimer = null;
     let createContext = null;
     let assignmentTeammateId = null;
@@ -2545,6 +2600,8 @@
       $("#boardShell").hidden = ui.detailOpen;
       $("#taskFilterStrip").hidden = ui.detailOpen;
       $("#taskDetail").hidden = !ui.detailOpen;
+      $("#taskView").classList.toggle("detail-active", ui.detailOpen);
+      document.querySelector(".stage").classList.toggle("detail-stage", ui.detailOpen);
       if (ui.detailOpen) return;
       const board = $("#kanbanBoard");
       board.innerHTML = columnDefs.map((column) => {
@@ -4036,61 +4093,111 @@
       `).join("");
     }
 
-    function renderHistory(task) {
-      const executorName = receiverName(task);
-      $("#historyMeta").textContent = `${task.messages.length} 条交互记录 · 执行人 ${executorName}`;
-      const messageNodes = task.messages.map((message) => {
-        const attachments = message.attachments?.length ? `
-          <div class="message-attachments">${message.attachments.map((item) =>
-            `<span class="attachment-chip">📎<span>${escapeHtml(item.name)}</span></span>`
-          ).join("")}</div>` : "";
-        return `
-          <article class="history-message">
-            ${renderPersonAvatar({ name: message.author, kind: message.kind })}
-            <div class="chat-body">
-              <div class="message-head"><strong>${message.author}</strong><span>${message.time}${message.kind === "agent" ? " · Agent" : ""}</span></div>
-              <div class="bubble">${richText(message.text)}${message.streaming ? '<span class="stream-caret"></span>' : ""}</div>
-              ${attachments}
-            </div>
-          </article>
-        `;
-      });
-      const eventNodes = task.events.map((event) => `
-        <article class="history-event">
-          <span class="event-avatar">◉</span>
-          <div class="event-copy">${event.text}<time>${event.time}</time></div>
-        </article>
-      `);
-      const nodes = [...messageNodes, ...eventNodes];
-      $("#executionHistory").innerHTML = nodes.join("") || `<div class="empty">执行人还没有回复记录。</div>`;
-      $("#executionHistory").scrollTop = $("#executionHistory").scrollHeight;
+    function renderComposerContext(task) {
+      const comment = task.comments.find((item) => item.id === composerReplyTo);
+      const node = $("#composerReplyContext");
+      if (!comment) {
+        composerReplyTo = null;
+        node.hidden = true;
+        return;
+      }
+      $("#composerReplyText").textContent = `回复 ${comment.author}：${comment.text}`;
+      node.hidden = false;
     }
 
-    function renderComments(task) {
-      $("#commentList").innerHTML = task.comments.length ? task.comments.map((comment) => `
-        <article class="history-comment">
-          <div class="message-head">
-            ${renderPersonAvatar({ name: comment.author, kind: comment.kind }, "comment-avatar")}
-            <strong>${comment.author}</strong><span>${comment.time}</span>
-          </div>
-          <div class="bubble">${richText(comment.text)}</div>
-          ${comment.replies.map((reply) => `
-            <div class="reply-list">
-              <div class="message-head">
-                ${renderPersonAvatar({ name: reply.author, kind: reply.kind }, "comment-reply-avatar")}
-                <strong>${reply.author}</strong><span>${reply.time}</span>
-              </div>
-              <div class="bubble">${richText(reply.text)}</div>
+    function mentionedAgents(text) {
+      return directory.agent.filter((item) => text.includes(`@${item.name}`));
+    }
+
+    function conversationTime(task, value) {
+      const date = new Date(task.createdAt);
+      if (Number.isNaN(date.getTime())) return 0;
+      const full = String(value).match(/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2})/);
+      const short = String(value).match(/(\d{2}):(\d{2})/);
+      if (full) {
+        date.setMonth(Number(full[1]) - 1, Number(full[2]));
+        date.setHours(Number(full[3]), Number(full[4]), 0, 0);
+      } else if (short) {
+        date.setHours(Number(short[1]), Number(short[2]), 0, 0);
+      }
+      return date.getTime();
+    }
+
+    function conversationMessage(item, variant = "", replyLabel = "") {
+      const attachments = item.attachments?.length ? `
+        <div class="message-attachments">${item.attachments.map((attachment) =>
+          `<span class="attachment-chip">📎<span>${escapeHtml(attachment.name)}</span></span>`
+        ).join("")}</div>` : "";
+      return `
+        <article class="history-message${variant ? ` ${variant}` : ""}"${item.id ? ` id="${item.id}"` : ""}>
+          ${renderPersonAvatar({ name: item.author, kind: item.kind })}
+          <div class="chat-body">
+            <div class="message-head">
+              <strong>${item.author}</strong>
+              <span>${item.time}${item.kind === "agent" ? " · Agent" : ""}${replyLabel ? ` · ${replyLabel}` : ""}</span>
             </div>
-          `).join("")}
-          ${task.archived ? "" : `
-            <form class="reply-form" data-reply-to="${comment.id}">
-              <input name="reply" placeholder="回复 ${comment.author}" required>
-              <button class="ghost small" type="submit">回复</button>
-            </form>
-          `}
+            <div class="bubble">${richText(item.text)}${item.streaming ? '<span class="stream-caret"></span>' : ""}</div>
+            ${attachments}
+          </div>
         </article>
-      `).join("") : '<div class="empty">还没有评论。</div>';
+      `;
+    }
+
+    function renderHistory(task) {
+      const executorName = receiverName(task);
+      const interactionCount = task.messages.length
+        + task.comments.length
+        + task.comments.reduce((total, comment) => total + comment.replies.length, 0);
+      $("#historyMeta").textContent = `${interactionCount} 条交互记录 · 执行人 ${executorName}`;
+
+      const entries = [
+        ...task.messages.map((message, index) => ({
+          time: conversationTime(task, message.time), order: index,
+          html: conversationMessage(message),
+        })),
+        ...task.events.map((event, index) => ({
+          time: conversationTime(task, event.time), order: index,
+          html: `
+            <article class="history-event">
+              <span class="event-avatar">◉</span>
+              <div class="event-copy">${event.text}<time>${event.time}</time></div>
+            </article>
+          `,
+        })),
+      ];
+
+      task.comments.forEach((comment, commentIndex) => {
+        const replyNodes = comment.replies.map((reply) => conversationMessage(reply, "comment-reply", "回复"));
+        entries.push({
+          time: conversationTime(task, comment.time),
+          order: commentIndex,
+          html: `
+            <article class="history-comment" data-comment-id="${comment.id}">
+              ${renderPersonAvatar({ name: comment.author, kind: comment.kind }, "comment-avatar")}
+              <div class="chat-body">
+                <div class="message-head">
+                  <strong>${comment.author}</strong>
+                  <span>${comment.time} · 评论</span>
+                  ${task.archived ? "" : `<button class="reply-comment" data-reply-comment="${comment.id}" type="button">回复</button>`}
+                </div>
+                <div class="bubble">${richText(comment.text)}</div>
+                ${comment.replies.length ? `<div class="reply-list">${replyNodes.join("")}</div>` : ""}
+              </div>
+            </article>
+          `,
+        });
+      });
+
+      entries.sort((left, right) => left.time - right.time || left.order - right.order);
+      const nodes = entries.map((entry) => entry.html);
+      $("#executionHistory").innerHTML = nodes.join("") || `<div class="empty">执行人还没有回复记录。</div>`;
+      const streamNode = $("#detailMainScroll");
+      if (historyAutoScroll) {
+        streamNode.scrollTop = streamNode.scrollHeight;
+      } else {
+        streamNode.scrollTop = 0;
+      }
+      historyAutoScroll = false;
     }
 
     function renderDetail() {
@@ -4111,8 +4218,17 @@
       const archived = Boolean(task.archived);
       const cameFromAi = ui.detailReturn?.type === "ai";
       const returnLabel = cameFromAi ? "← 返回运行态" : "← 看板";
-      if (archived) pendingAssignee = null;
-      const editing = task.editing && !archived;
+      if (composerTaskId !== task.id) {
+        composerReplyTo = null;
+        composerTaskId = task.id;
+      }
+      if (archived) {
+        pendingAssignee = null;
+        task.contentEditing = false;
+        task.propertyEditing = false;
+      }
+      const contentEditing = task.contentEditing && !archived;
+      const propertyEditing = task.propertyEditing && !archived;
       const name = receiverName(task);
       const mine = belongsToMe(task);
       const sentByMe = task.createdBy === me;
@@ -4131,63 +4247,25 @@
       $("#detailTop").innerHTML = `
         <button class="ghost small back-btn" data-action="back-to-board" type="button">${returnLabel}</button>
         <div class="crumb">任务管理 / <b>${task.id} ${task.title}</b></div>
-        <div class="filter-select assign-select" id="assigneeSelect">
-          <button class="select-trigger${pendingAssignee && !archived ? " pending" : ""}${archived ? " ai-disabled" : ""}" id="assigneeButton" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="${archived ? "已归档任务接收方" : "调整接收方"}" ${archived ? "disabled" : ""}>
-            ${receiverAvatar(previewTask.receiverType, previewTask.receiver, receiverPreview)}
-            <span class="select-label">${receiverPreview}</span>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-          </button>
-          <div class="select-menu" id="assigneeMenu" role="listbox" aria-label="接收方选项" hidden>
-            <button class="select-option" data-assign-type="unassigned" data-assign-id="" role="option" aria-selected="${previewTask.receiverType === "unassigned"}" type="button" ${archived ? "disabled" : ""}>${receiverAvatar("unassigned", "", "待指派")}<span>待指派</span></button>
-            <button class="select-option" data-assign-type="human" data-assign-id="olivia" role="option" aria-selected="${previewTask.receiverType === "human" && previewTask.receiver === "olivia"}" type="button" ${archived ? "disabled" : ""}>${receiverAvatar("human", "olivia", "Olivia")}<span>Olivia</span></button>
-            <button class="select-option" data-assign-type="human" data-assign-id="peter" role="option" aria-selected="${previewTask.receiverType === "human" && previewTask.receiver === "peter"}" type="button" ${archived ? "disabled" : ""}>${receiverAvatar("human", "peter", "Peter")}<span>Peter</span></button>
-            <div class="select-group">我的分身</div>
-            ${directory.agent.filter((item) => item.role === "我的分身").map((item) => `
-              <button class="select-option" data-assign-type="agent" data-assign-id="${item.id}" role="option" aria-selected="${previewTask.receiverType === "agent" && previewTask.receiver === item.id}" type="button" ${archived ? "disabled" : ""}>${receiverAvatar("agent", item.id, item.name)}<span>${item.name}</span></button>
-            `).join("")}
-            <div class="select-group">DE</div>
-            ${directory.agent.filter((item) => item.role !== "我的分身").map((item) => `
-              <button class="select-option" data-assign-type="agent" data-assign-id="${item.id}" role="option" aria-selected="${previewTask.receiverType === "agent" && previewTask.receiver === item.id}" type="button" ${archived ? "disabled" : ""}>${receiverAvatar("agent", item.id, item.name)}<span>${item.name}</span></button>
-            `).join("")}
-            <div class="select-group">角色</div>
-            ${directory.role.map((item) => `
-              <button class="select-option" data-assign-type="role" data-assign-id="${item.id}" role="option" aria-selected="${previewTask.receiverType === "role" && previewTask.receiver === item.id}" type="button" ${archived ? "disabled" : ""}>${receiverAvatar("role", item.id, item.name)}<span>${item.name}</span></button>
-            `).join("")}
-          </div>
-        </div>
-        <div class="assign-actions">
-          ${pendingAssignee && !archived ? `<button class="primary small" type="button" data-action="confirm-assignee">确认</button>` : ""}
-        </div>
         <span class="pill ${task.status}">${statusLabel[task.status]}</span>
       `;
 
-      const intro = editing ? `
-        <form class="edit-form" data-edit-form>
-          <div class="edit-row">
-            <label class="field"><span class="label">标题</span><input name="title" value="${escapeHtml(task.title)}" required></label>
-            <label class="field"><span class="label">优先级</span>
-              <select name="priority">
-                <option value="P1" ${task.priority === "P1" ? "selected" : ""}>P1</option>
-                <option value="P2" ${task.priority === "P2" ? "selected" : ""}>P2</option>
-                <option value="P3" ${task.priority === "P3" ? "selected" : ""}>P3</option>
-              </select>
-            </label>
+      const intro = contentEditing ? `
+        <form class="intro-edit-form" data-content-edit-form>
+          <div class="intro-title">
+            <input class="title-input" name="title" value="${escapeHtml(task.title)}" required aria-label="任务标题">
+            <div class="head-actions">
+              <button class="ghost small" type="button" data-action="edit-task" data-edit-scope="content">取消</button>
+              <button class="primary small" type="submit">保存</button>
+            </div>
           </div>
-          <label class="field"><span class="label">描述</span><textarea name="description" required>${escapeHtml(task.description)}</textarea></label>
-          ${task.receiverType === "agent" ? `
-            <label class="check-row">
-              <input type="checkbox" name="autoSubmitReview" ${task.autoSubmitReview === false ? "" : "checked"}>
-              <span>任务完成后自动提交验收<em>开启后自动进入「待Review」，关闭后保留在执行中。</em></span>
-            </label>
-          ` : ""}
-          <div class="head-actions"><button class="ghost small" type="button" data-action="edit-task">取消</button><button class="primary" type="submit">保存内容</button></div>
+          <textarea name="description" required aria-label="任务描述">${escapeHtml(task.description)}</textarea>
         </form>
       ` : `
         <div class="intro-title">
           <h2>${task.title}</h2>
-          <span class="pill ${task.priority === "P1" ? "high" : ""}">${task.priority}</span>
           ${archived ? "" : `
-            <button class="icon-btn" type="button" data-action="edit-task" title="编辑标题、优先级和描述" aria-label="编辑标题、优先级和描述">
+            <button class="icon-btn" type="button" data-action="edit-task" data-edit-scope="content" title="编辑标题和描述" aria-label="编辑标题和描述">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
             </button>
           `}
@@ -4204,20 +4282,6 @@
             </div>
           ` : ""}
           ${intro}
-          ${editing ? "" : `
-            <div class="intro-grid">
-              <div class="field">
-                <span class="label">接收方</span>
-                <span class="value inline-person">${receiverAvatar(task.receiverType, task.receiver, receiverDisplay(task))}<span>${receiverDisplay(task)}</span></span>
-              </div>
-              <div class="field"><span class="label">创建人/创建时间</span><span class="value">${task.createdBy} · ${task.createdAt}</span></div>
-              <div class="field"><span class="label">归属项目</span><span class="value">${escapeHtml(task.workspace)}</span></div>
-              <div class="field"><span class="label">优先级/到期时间</span><span class="value">${task.priority} · ${task.due || "不限"}</span></div>
-              ${task.receiverType === "agent" ? `
-                <div class="field"><span class="label">完成后自动提交Review</span><span class="value">${task.autoSubmitReview === false ? "已关闭" : "已开启"}</span></div>
-              ` : ""}
-            </div>
-          `}
           ${actions.length ? `<div class="actions">${actions.join("")}</div>` : ""}
         </div>
       `;
@@ -4229,12 +4293,123 @@
         : `发送给 ${receiverDisplay(task)}`;
       renderMentionMenu();
       renderAttachments();
+      renderComposerContext(task);
       renderHistory(task);
-      renderComments(task);
       $(".instruction-composer").hidden = archived;
-      $("#commentForm").hidden = archived;
 
       $("#detailSide").innerHTML = `
+        <${propertyEditing ? `form class="section property-edit-form" data-property-edit-form` : `div class="section"`}>
+          <div class="section-head">
+            <h3>属性</h3>
+            ${propertyEditing ? `
+              <div class="head-actions">
+                <button class="ghost small" type="button" data-action="edit-task" data-edit-scope="property">取消</button>
+                <button class="primary small" type="submit">保存</button>
+              </div>
+            ` : archived ? "" : `
+              <button class="icon-btn" type="button" data-action="edit-task" data-edit-scope="property" title="编辑任务属性" aria-label="编辑任务属性">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+              </button>
+            `}
+          </div>
+          <div class="grid">
+            <div class="field">
+              <span class="label">状态</span>
+              <span class="value"><span class="pill ${task.status}">${statusLabel[task.status]}</span></span>
+            </div>
+            <div class="field" id="assigneeSelect">
+              <span class="label">接收方</span>
+              <div class="filter-select assign-select">
+                <button class="select-trigger${pendingAssignee && !archived ? " pending" : ""}${archived ? " ai-disabled" : ""}" id="assigneeButton" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="${archived ? "已归档任务接收方" : "调整接收方"}" ${archived ? "disabled" : ""}>
+                  ${receiverAvatar(previewTask.receiverType, previewTask.receiver, receiverPreview)}
+                  <span class="select-label">${receiverPreview}</span>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div class="select-menu" id="assigneeMenu" role="listbox" aria-label="接收方选项" hidden>
+                  <button class="select-option" data-assign-type="unassigned" data-assign-id="" role="option" aria-selected="${previewTask.receiverType === "unassigned"}" type="button" ${archived ? "disabled" : ""}>${receiverAvatar("unassigned", "", "待指派")}<span>待指派</span></button>
+                  <button class="select-option" data-assign-type="human" data-assign-id="olivia" role="option" aria-selected="${previewTask.receiverType === "human" && previewTask.receiver === "olivia"}" type="button" ${archived ? "disabled" : ""}>${receiverAvatar("human", "olivia", "Olivia")}<span>Olivia</span></button>
+                  <button class="select-option" data-assign-type="human" data-assign-id="peter" role="option" aria-selected="${previewTask.receiverType === "human" && previewTask.receiver === "peter"}" type="button" ${archived ? "disabled" : ""}>${receiverAvatar("human", "peter", "Peter")}<span>Peter</span></button>
+                  <div class="select-group">我的分身</div>
+                  ${directory.agent.filter((item) => item.role === "我的分身").map((item) => `
+                    <button class="select-option" data-assign-type="agent" data-assign-id="${item.id}" role="option" aria-selected="${previewTask.receiverType === "agent" && previewTask.receiver === item.id}" type="button" ${archived ? "disabled" : ""}>${receiverAvatar("agent", item.id, item.name)}<span>${item.name}</span></button>
+                  `).join("")}
+                  <div class="select-group">DE</div>
+                  ${directory.agent.filter((item) => item.role !== "我的分身").map((item) => `
+                    <button class="select-option" data-assign-type="agent" data-assign-id="${item.id}" role="option" aria-selected="${previewTask.receiverType === "agent" && previewTask.receiver === item.id}" type="button" ${archived ? "disabled" : ""}>${receiverAvatar("agent", item.id, item.name)}<span>${item.name}</span></button>
+                  `).join("")}
+                  <div class="select-group">角色</div>
+                  ${directory.role.map((item) => `
+                    <button class="select-option" data-assign-type="role" data-assign-id="${item.id}" role="option" aria-selected="${previewTask.receiverType === "role" && previewTask.receiver === item.id}" type="button" ${archived ? "disabled" : ""}>${receiverAvatar("role", item.id, item.name)}<span>${item.name}</span></button>
+                  `).join("")}
+                </div>
+              </div>
+              <div class="assign-actions">
+                ${pendingAssignee && !archived ? `<button class="primary small" type="button" data-action="confirm-assignee">确认指派</button>` : ""}
+              </div>
+            </div>
+            <div class="field">
+              <span class="label">优先级</span>
+              ${propertyEditing ? `
+                <select name="priority" aria-label="任务优先级">
+                  ${["P1", "P2", "P3"].map((priority) => `<option value="${priority}" ${task.priority === priority ? "selected" : ""}>${priority}</option>`).join("")}
+                </select>
+              ` : `<span class="value">${task.priority}</span>`}
+            </div>
+            <div class="field">
+              <span class="label">到期时间</span>
+              ${propertyEditing ? `<input name="due" type="date" value="${task.due || ""}" aria-label="任务到期时间">` : `<span class="value">${task.due || "不限"}</span>`}
+            </div>
+            <div class="field">
+              <span class="label">归属项目</span>
+              ${propertyEditing ? `
+                <select name="workspace" aria-label="任务归属项目">
+                  ${workspaces.map((workspace) => `<option value="${escapeHtml(workspace)}" ${task.workspace === workspace ? "selected" : ""}>${escapeHtml(workspace)}</option>`).join("")}
+                </select>
+              ` : `<span class="value">${escapeHtml(task.workspace)}</span>`}
+            </div>
+            <div class="field">
+              <span class="label">类型</span>
+              ${propertyEditing ? `
+                <select name="type" aria-label="任务类型">
+                  ${["任务", "评审", "缺陷"].map((type) => `<option value="${type}" ${task.type === type ? "selected" : ""}>${type}</option>`).join("")}
+                </select>
+              ` : `<span class="value">${task.type}</span>`}
+            </div>
+            <div class="field"><span class="label">创建人</span><span class="value">${task.createdBy}</span></div>
+            <div class="field"><span class="label">创建时间</span><span class="value">${task.createdAt}</span></div>
+            ${task.receiverType === "agent" ? `
+              <div class="field wide">
+                <span class="label">完成后自动提交Review</span>
+                ${propertyEditing ? `
+                  <label class="check-row">
+                    <input type="checkbox" name="autoSubmitReview" ${task.autoSubmitReview === false ? "" : "checked"}>
+                    <span>${task.autoSubmitReview === false ? "已关闭" : "已开启"}</span>
+                  </label>
+                ` : `<span class="value">${task.autoSubmitReview === false ? "已关闭" : "已开启"}</span>`}
+              </div>
+            ` : ""}
+          </div>
+        </${propertyEditing ? "form" : "div"}>
+        ${task.latestProgress ? `
+          <div class="section">
+            <h3>最新进展</h3>
+            <div class="description">${escapeHtml(task.latestProgress)}</div>
+          </div>
+        ` : ""}
+        <div class="section">
+          <h3>验收项</h3>
+          <ul class="checklist">
+            ${task.progressSteps.map((step, index) => `
+              <li>
+                <label class="check-row" ${archived ? "hidden" : ""}>
+                  <input type="checkbox" data-step="${index}" ${step.done ? "checked" : ""} ${archived ? "disabled" : ""}>
+                  <span>${escapeHtml(step.label)}</span>
+                </label>
+                ${archived ? `<span class="check ${step.done ? "done" : ""}"></span><span>${escapeHtml(step.label)}</span>` : ""}
+              </li>
+            `).join("")}
+          </ul>
+        </div>
         <div class="section">
           <h3>关联事项</h3>
           ${task.links.length ? task.links.map((link) => `
@@ -4315,26 +4490,49 @@
         return;
       }
       const attachments = composerAttachments.map((item) => ({ name: item.name }));
-      task.messages.push({ author: me, kind: "human", time: "10:24", text, attachments });
-      task.events.push({ time: "09/22 10:24", text: `<b>Olivia</b> 补充了执行指令${attachments.length ? "和附件" : ""}` });
+      const targetAgents = mentionedAgents(text);
+      const comment = task.comments.find((item) => item.id === composerReplyTo);
+      if (comment) {
+        comment.replies.push({ author: me, kind: "human", time: "10:24", text, attachments });
+        task.events.push({ time: "09/22 10:24", text: `<b>Olivia</b> 回复了 <b>${comment.author}</b> 的评论${attachments.length ? "和附件" : ""}` });
+      } else {
+        task.messages.push({ author: me, kind: "human", time: "10:24", text, attachments });
+        task.events.push({ time: "09/22 10:24", text: `<b>Olivia</b> ${comment ? "回复了评论" : "发送了任务消息"}${attachments.length ? "和附件" : ""}` });
+      }
       input.value = "";
+      composerReplyTo = null;
       composerAttachments = [];
+      historyAutoScroll = true;
       renderAttachments();
       renderDetail();
       closeMentionMenu();
-      if (task.receiverType === "agent") {
+      const target = targetAgents[0]
+        ?? (task.receiverType === "agent" ? directory.agent.find((item) => item.id === task.receiver) : null);
+      if (target) {
+        const isAssignee = task.receiverType === "agent" && target.id === task.receiver;
+        if (isAssignee && task.status === "todo") {
+          task.status = "progress";
+          syncProgressForStatus(task);
+        }
+        task.events.push({
+          time: "09/22 10:24",
+          text: `<b>Olivia</b> 触发了 <b>${target.name}</b>${isAssignee ? " 继续执行任务" : " 参与任务讨论"}`,
+        });
+        renderDetail();
+        simulateAgentReply(task, text, target, isAssignee);
+      } else {
         if (task.status === "todo") {
           task.status = "progress";
           syncProgressForStatus(task);
         }
-        simulateAgentReply(task, text);
-      } else {
         toast(`已发送给 ${receiverName(task)}`);
       }
     }
 
-    function simulateAgentReply(task, instruction) {
+    function simulateAgentReply(task, instruction, target = null, isAssignee = task.receiverType === "agent") {
       window.clearTimeout(streamTimer);
+      historyAutoScroll = true;
+      const agent = target ?? directory.agent.find((item) => item.id === task.receiver) ?? { id: task.receiver, name: receiverName(task) };
       const lower = instruction.toLowerCase();
       let reply = "收到，我会结合当前任务上下文执行。";
       if (lower.includes("风险")) {
@@ -4348,7 +4546,7 @@
       } else {
         reply = "已解析补充指令。我会保留原文上下文，执行后在这里流式返回进展。";
       }
-      const message = { author: receiverName(task), kind: "agent", time: "10:24", text: "", streaming: true };
+      const message = { author: agent.name, kind: "agent", time: "10:24", text: "", streaming: true };
       task.messages.push(message);
       renderDetail();
       const chunks = Array.from(reply);
@@ -4359,20 +4557,23 @@
         const caret = $("#streamText");
         const bubble = caret?.closest(".bubble");
         if (bubble) bubble.innerHTML = richText(message.text) + '<span class="stream-caret"></span>';
-        const stream = $("#executionHistory");
+        const stream = $("#detailMainScroll");
         stream.scrollTop = stream.scrollHeight;
         if (index >= chunks.length) {
           window.clearInterval(streamTimer);
           delete message.streaming;
-          task.progress = Math.min(92, task.progress + 4);
-          const nextStep = task.progressSteps.find((item) => !item.done);
-          if (nextStep) nextStep.done = true;
-          syncProgressForStatus(task);
-          task.events.push({ time: "09/22 10:24", text: `<b>${receiverName(task)}</b> 返回了流式执行反馈` });
-          if (task.receiverType === "agent" && task.autoSubmitReview !== false && task.status === "progress") {
+          historyAutoScroll = true;
+          if (isAssignee) {
+            task.progress = Math.min(92, task.progress + 4);
+            const nextStep = task.progressSteps.find((item) => !item.done);
+            if (nextStep) nextStep.done = true;
+            syncProgressForStatus(task);
+          }
+          task.events.push({ time: "09/22 10:24", text: `<b>${agent.name}</b> 返回了流式执行反馈` });
+          if (isAssignee && task.autoSubmitReview !== false && task.status === "progress") {
             task.status = "review";
             syncProgressForStatus(task);
-            task.events.push({ time: "09/22 10:24", text: `<b>${receiverName(task)}</b> 完成产出物，自动提交验收` });
+            task.events.push({ time: "09/22 10:24", text: `<b>${agent.name}</b> 完成产出物，自动提交验收` });
           }
           renderDetail();
           toast("Agent 已返回反馈");
@@ -5206,7 +5407,19 @@
       if (assigneeTrigger) {
         const menu = $("#assigneeMenu");
         menu.hidden = !menu.hidden;
-        $("#assigneeButton").setAttribute("aria-expanded", String(!menu.hidden));
+        const button = $("#assigneeButton");
+        button.setAttribute("aria-expanded", String(!menu.hidden));
+        if (!menu.hidden) {
+          const rect = button.getBoundingClientRect();
+          const width = Math.max(240, rect.width);
+          menu.style.width = `${width}px`;
+          menu.style.left = `${Math.min(Math.max(8, rect.left), window.innerWidth - width - 8)}px`;
+          menu.style.top = `${rect.bottom + 5}px`;
+          const menuHeight = Math.min(menu.offsetHeight || 300, 300);
+          if (rect.bottom + menuHeight + 5 > window.innerHeight - 8) {
+            menu.style.top = `${Math.max(8, rect.top - menuHeight - 5)}px`;
+          }
+        }
         return;
       }
       const assigneeOption = event.target.closest("[data-assign-type]");
@@ -5231,6 +5444,19 @@
         insertMention(mention.dataset.mention);
         return;
       }
+      const replyTrigger = event.target.closest("[data-reply-comment]");
+      if (replyTrigger) {
+        composerReplyTo = replyTrigger.dataset.replyComment;
+        renderDetail();
+        $("#instructionInput").focus();
+        return;
+      }
+      if (event.target.closest("#composerReplyCancel")) {
+        composerReplyTo = null;
+        renderDetail();
+        $("#instructionInput").focus();
+        return;
+      }
       const removeAttachment = event.target.closest("[data-attachment-index]");
       if (removeAttachment) {
         composerAttachments.splice(Number(removeAttachment.dataset.attachmentIndex), 1);
@@ -5240,6 +5466,10 @@
       const stepButton = event.target.closest("[data-step]");
       if (stepButton) {
         const task = tasks.find((item) => item.id === selectedId);
+        if (task?.archived) {
+          toast("已归档任务为只读，不能更新验收项");
+          return;
+        }
         const index = Number(stepButton.dataset.step);
         task.progressSteps[index].done = !task.progressSteps[index].done;
         syncProgressForStatus(task);
@@ -5298,8 +5528,10 @@
       }
       if (action === "clear-composer") {
         $("#instructionInput").value = "";
+        composerReplyTo = null;
         composerAttachments = [];
         renderAttachments();
+        renderDetail();
         closeMentionMenu();
         return;
       }
@@ -5308,7 +5540,14 @@
           toast("已归档任务为只读，不能修改内容");
           return;
         }
-        task.editing = !task.editing;
+        const scope = button.dataset.editScope === "property" ? "property" : "content";
+        if (scope === "content") {
+          task.contentEditing = !task.contentEditing;
+          task.propertyEditing = false;
+        } else {
+          task.propertyEditing = !task.propertyEditing;
+          task.contentEditing = false;
+        }
         renderDetail();
         return;
       }
@@ -5368,55 +5607,43 @@
       render();
     });
     $("#taskDetail").addEventListener("submit", (event) => {
-      const editForm = event.target.closest("[data-edit-form]");
-      if (!editForm) return;
+      const contentForm = event.target.closest("[data-content-edit-form]");
+      const propertyForm = event.target.closest("[data-property-edit-form]");
+      if (!contentForm && !propertyForm) return;
       event.preventDefault();
       const task = tasks.find((item) => item.id === selectedId);
       if (task?.archived) {
         toast("已归档任务为只读，不能修改内容");
         return;
       }
-      const data = new FormData(editForm);
-      task.title = String(data.get("title")).trim();
+      const data = new FormData(contentForm ?? propertyForm);
+      if (contentForm) {
+        task.title = String(data.get("title")).trim();
+        task.description = String(data.get("description")).trim();
+        task.contentEditing = false;
+        task.events.push({ time: "09/22 10:24", text: "<b>Olivia</b> 更新了任务标题和描述" });
+        render();
+        toast("任务内容已更新");
+        return;
+      }
       task.priority = String(data.get("priority"));
-      task.description = String(data.get("description")).trim();
+      task.due = String(data.get("due") || "");
+      task.workspace = String(data.get("workspace"));
+      task.type = String(data.get("type"));
       if (task.receiverType === "agent") {
         task.autoSubmitReview = data.get("autoSubmitReview") === "on";
       }
-      task.editing = false;
-      task.events.push({ time: "09/22 10:24", text: "<b>Olivia</b> 更新了任务内容" });
+      task.propertyEditing = false;
+      task.events.push({ time: "09/22 10:24", text: "<b>Olivia</b> 更新了任务属性" });
       render();
-      toast("任务内容已更新");
+      toast("任务属性已更新");
     });
-    $("#commentList").addEventListener("submit", (event) => {
-      const replyForm = event.target.closest("[data-reply-to]");
-      if (!replyForm) return;
-      event.preventDefault();
-      const task = tasks.find((item) => item.id === selectedId);
-      if (task?.archived) {
-        toast("已归档任务为只读，不能回复评论");
-        return;
+    $("#detailSide").addEventListener("scroll", () => {
+      const menu = $("#assigneeMenu");
+      if (menu && !menu.hidden) {
+        menu.hidden = true;
+        $("#assigneeButton")?.setAttribute("aria-expanded", "false");
       }
-      const comment = task.comments.find((item) => item.id === replyForm.dataset.replyTo);
-      const value = String(new FormData(replyForm).get("reply")).trim();
-      if (!comment || !value) return;
-      comment.replies.push({ author: me, kind: "human", time: "10:24", text: value });
-      renderDetail();
-      toast("回复已发送");
-    });
-    $("#commentForm").addEventListener("submit", (event) => {
-      event.preventDefault();
-      const task = tasks.find((item) => item.id === selectedId);
-      if (task?.archived) {
-        toast("已归档任务为只读，不能新增评论");
-        return;
-      }
-      const value = String(new FormData(event.currentTarget).get("comment")).trim();
-      if (!task || !value) return;
-      task.comments.push({ id: `c-${Date.now()}`, author: me, kind: "human", time: "10:24", text: value, replies: [] });
-      event.currentTarget.reset();
-      renderDetail();
-      toast("评论已添加");
     });
     $("#instructionInput").addEventListener("input", (event) => {
       const cursor = event.target.selectionStart ?? 0;

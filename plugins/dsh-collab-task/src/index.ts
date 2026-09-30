@@ -87,9 +87,7 @@ interface TeammateRuntimeActorLike {
 }
 
 interface TeammateRuntimeLike {
-  assignable(
-    actor: TeammateRuntimeActorLike,
-  ): readonly {
+  assignable(actor: TeammateRuntimeActorLike): readonly {
     readonly id: string;
     readonly name: string;
     readonly ownerName: string;
@@ -138,7 +136,8 @@ interface EmployeeServiceLike {
         readonly profile: {
           readonly name: string;
           readonly legacyAgentProfileId?: string | undefined;
-          readonly budget?: { readonly maxMinutes?: number | undefined } | undefined;
+          readonly budget?:
+            { readonly maxMinutes?: number | undefined } | undefined;
         };
       }
     | undefined;
@@ -167,7 +166,8 @@ interface TaskAgentServiceLike {
     readonly timeoutMs: number;
     readonly personaId?: string | undefined;
     readonly employeeId?: string | undefined;
-    readonly principalType?: "transitional-agent" | "digital-employee" | undefined;
+    readonly principalType?:
+      "transitional-agent" | "digital-employee" | undefined;
     readonly payload: {
       readonly instanceTitle: string;
       readonly nodeName: string;
@@ -197,6 +197,7 @@ interface TaskAgentServiceLike {
 
 interface TaskAgentRunSummary {
   readonly id: string;
+  readonly nodeId?: string | undefined;
   readonly status: TaskAgentRun["status"];
   readonly createdAt?: string | undefined;
   readonly startedAt?: string | undefined;
@@ -256,21 +257,31 @@ const taskQuerySchema = z.object({
   taskId: z.string().min(1).max(160),
 });
 
-function principal(request: IncomingMessage, team: TeamServiceLike): TeamPrincipalLike {
+function principal(
+  request: IncomingMessage,
+  team: TeamServiceLike,
+): TeamPrincipalLike {
   const token = bearerToken({
     get(name) {
       const value = request.headers[name.toLowerCase()];
-      return Array.isArray(value) ? value[0] ?? null : value ?? null;
+      return Array.isArray(value) ? (value[0] ?? null) : (value ?? null);
     },
   });
-  if (token === undefined) throw new TaskError("unauthorized", "bearer token is required");
+  if (token === undefined)
+    throw new TaskError("unauthorized", "bearer token is required");
   const value = team.resolveToken(token);
-  if (value === undefined) throw new TaskError("unauthorized", "invalid or expired token");
+  if (value === undefined)
+    throw new TaskError("unauthorized", "invalid or expired token");
   return value;
 }
 
-function actor(principalValue: TeamPrincipalLike, team: TeamServiceLike): TaskActor {
-  const user = team.users().find((candidate) => candidate.id === principalValue.userId);
+function actor(
+  principalValue: TeamPrincipalLike,
+  team: TeamServiceLike,
+): TaskActor {
+  const user = team
+    .users()
+    .find((candidate) => candidate.id === principalValue.userId);
   return {
     id: principalValue.userId,
     name: user?.name ?? principalValue.userId,
@@ -290,7 +301,9 @@ function canAccess(
 ): boolean {
   return (
     principalValue.role === "admin" ||
-    team.members(workspaceId).some((member) => member.userId === principalValue.userId)
+    team
+      .members(workspaceId)
+      .some((member) => member.userId === principalValue.userId)
   );
 }
 
@@ -356,7 +369,8 @@ function directory(
     .filter(
       (employee) =>
         employee.kind === "digital" &&
-        employees?.employeeWorkspaceTarget(employee.id, workspaceId) !== undefined,
+        employees?.employeeWorkspaceTarget(employee.id, workspaceId) !==
+          undefined,
     )
     .map((employee) => {
       const owner =
@@ -400,9 +414,9 @@ function directory(
   }> = [];
   try {
     const activeAssignments =
-      assignments?.seats?.(workspaceId).filter(
-        (assignment) => assignment.status !== "released",
-      ) ?? [];
+      assignments
+        ?.seats?.(workspaceId)
+        .filter((assignment) => assignment.status !== "released") ?? [];
     roles =
       assignments?.config(workspaceId).seats.map((seat) => ({
         id: seat.id,
@@ -416,8 +430,7 @@ function directory(
           )
           .map((assignment) => assignment.assigneeId)
           .filter(
-            (assigneeId, index, values) =>
-              values.indexOf(assigneeId) === index,
+            (assigneeId, index, values) => values.indexOf(assigneeId) === index,
           ),
       })) ?? [];
   } catch {
@@ -438,7 +451,43 @@ function routeError(response: ServerResponse, cause: unknown): void {
             : cause.code === "not_found"
               ? 404
               : 409;
-    sendJson(response, status, { ok: false, error: { code: cause.code, message: cause.message } });
+    sendJson(response, status, {
+      ok: false,
+      error: { code: cause.code, message: cause.message },
+    });
+    return;
+  }
+  const code =
+    typeof cause === "object" && cause !== null
+      ? (cause as { code?: unknown }).code
+      : undefined;
+  if (
+    cause instanceof Error &&
+    typeof code === "string" &&
+    [
+      "invalid_input",
+      "unauthorized",
+      "forbidden",
+      "not_found",
+      "conflict",
+      "missing_deliverables",
+      "method_not_allowed",
+    ].includes(code)
+  ) {
+    const status =
+      code === "invalid_input" || code === "method_not_allowed"
+        ? 400
+        : code === "unauthorized"
+          ? 401
+          : code === "forbidden"
+            ? 403
+            : code === "not_found"
+              ? 404
+              : 409;
+    sendJson(response, status, {
+      ok: false,
+      error: { code, message: cause.message },
+    });
     return;
   }
   sendJson(response, 500, {
@@ -512,7 +561,9 @@ function buildTaskContext(
       lines.push(
         "",
         "## 关联",
-        ...task.links.map((link) => `- ${link.type}：${link.label}（${link.id}）`),
+        ...task.links.map(
+          (link) => `- ${link.type}：${link.label}（${link.id}）`,
+        ),
       );
     }
   }
@@ -541,7 +592,10 @@ function buildTaskContext(
     lines.push("", "## 上次投递之后的新增讨论", "- 没有新增讨论。");
   }
   lines.push("", "## 本次需要你响应");
-  if (options.triggerContent !== undefined && options.triggerContent.trim() !== "") {
+  if (
+    options.triggerContent !== undefined &&
+    options.triggerContent.trim() !== ""
+  ) {
     lines.push(
       "以下内容 @ 了你，请针对它行动（时间线里的其它内容只是背景）：",
       "",
@@ -568,7 +622,10 @@ async function dispatchTaskInstruction(
   teammates: TeammateRuntimeLike | undefined,
   task: TaskRecord,
   actor: TaskActor,
-  trigger?: { readonly messageId?: string | undefined; readonly content: string },
+  trigger?: {
+    readonly messageId?: string | undefined;
+    readonly content: string;
+  },
 ): Promise<TaskAgentRun> {
   if (task.receiverType !== "agent" || task.receiverId === undefined) {
     throw new TaskError("invalid_input", "task receiver is not an agent");
@@ -621,10 +678,7 @@ async function dispatchTaskInstruction(
     };
   }
   if (target === undefined) {
-    throw new TaskError(
-      "conflict",
-      "该数字员工缺少可用的 Task Worker Profile",
-    );
+    throw new TaskError("conflict", "该数字员工缺少可用的 Task Worker Profile");
   }
   const sessionEpoch = task.sessionEpoch ?? 0;
   const previousRunId = [...task.agentRunIds].reverse().find((runId) => {
@@ -650,7 +704,9 @@ async function dispatchTaskInstruction(
   const lastDeliveredMessageId = trigger?.messageId ?? task.messages.at(-1)?.id;
   const instruction = buildTaskContext(task, {
     firstDelivery,
-    ...(deliveredThrough === undefined ? {} : { deliveredThroughMessageId: deliveredThrough }),
+    ...(deliveredThrough === undefined
+      ? {}
+      : { deliveredThroughMessageId: deliveredThrough }),
     ...(trigger === undefined ? {} : { triggerContent: trigger.content }),
   });
   const runSeq = task.agentRunIds.length + 1;
@@ -668,10 +724,7 @@ async function dispatchTaskInstruction(
     attempt: 1,
     runSeq,
     maxAttempts: 1,
-    timeoutMs: Math.min(
-      3_600_000,
-      Math.max(1_000, timeoutMinutes * 60_000),
-    ),
+    timeoutMs: Math.min(3_600_000, Math.max(1_000, timeoutMinutes * 60_000)),
     ...(target.personaId === undefined ? {} : { personaId: target.personaId }),
     employeeId: target.employeeId,
     principalType: "digital-employee",
@@ -745,9 +798,7 @@ function revealInFileManager(target: string): Promise<void> {
     execFile(command, args, (error) => {
       if (error === null) resolve();
       else
-        reject(
-          new TaskError("conflict", `无法打开本地目录：${error.message}`),
-        );
+        reject(new TaskError("conflict", `无法打开本地目录：${error.message}`));
     });
   });
 }
@@ -771,13 +822,19 @@ export function createTaskRoutes(
     workspaceId: string,
   ): Promise<void> => {
     const agentService = agent?.();
+    await service.reconcileWorkflowProjections(workspaceId);
     if (agentService?.runs === undefined) return;
     for (const task of service.list(workspaceId)) {
       if (task.workflow === undefined) continue;
       for (const run of agentService.runs({
         instanceId: task.workflow.instanceId,
       })) {
-        if (task.agentRunIds.includes(run.id)) continue;
+        if (
+          task.agentRunIds.includes(run.id) &&
+          run.nodeId === task.workflow.nodeId
+        ) {
+          continue;
+        }
         try {
           await service.projectAgentRun(
             { id: "workflow", name: "工作流", kind: "system" },
@@ -790,6 +847,7 @@ export function createTaskRoutes(
         }
       }
     }
+    await service.reconcileWorkflowProjections(workspaceId);
   };
 
   const bootstrap = async (
@@ -800,7 +858,6 @@ export function createTaskRoutes(
       assertSameOrigin(request);
       const workspaceId = query(request).get("workspaceId") ?? "";
       const currentActor = requireAccess(request, team, workspaceId);
-      await service.reconcileWorkflowProjections(workspaceId);
       await reconcileWorkflowAgentRuns(workspaceId);
       sendJson(response, 200, {
         ok: true,
@@ -823,21 +880,25 @@ export function createTaskRoutes(
     }
   };
 
-  const mutate = (
-    handler: (
+  const mutate =
+    (
+      handler: (
+        request: IncomingMessage,
+        actor: TaskActor,
+        body: unknown,
+      ) => Promise<unknown>,
+    ) =>
+    async (
       request: IncomingMessage,
-      actor: TaskActor,
-      body: unknown,
-    ) => Promise<unknown>,
-  ) =>
-    async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
+      response: ServerResponse,
+    ): Promise<void> => {
       try {
         assertSameOrigin(request);
         const body = await readJsonBody(request);
         let workspaceId =
           typeof body === "object" && body !== null && "workspaceId" in body
             ? String((body as { workspaceId?: unknown }).workspaceId ?? "")
-            : query(request).get("workspaceId") ?? "";
+            : (query(request).get("workspaceId") ?? "");
         if (
           workspaceId === "" &&
           typeof body === "object" &&
@@ -850,7 +911,8 @@ export function createTaskRoutes(
         }
         if (
           workspaceId === "" ||
-          (workspaces !== undefined && workspaces.get(workspaceId) === undefined)
+          (workspaces !== undefined &&
+            workspaces.get(workspaceId) === undefined)
         ) {
           throw new TaskError(
             "invalid_input",
@@ -859,7 +921,12 @@ export function createTaskRoutes(
         }
         const currentActor = requireAccess(request, team, workspaceId);
         const result = await handler(request, currentActor, body);
-        sendJson(response, 200, { ok: true, ...(typeof result === "object" && result !== null ? result : { result }) });
+        sendJson(response, 200, {
+          ok: true,
+          ...(typeof result === "object" && result !== null
+            ? result
+            : { result }),
+        });
       } catch (cause) {
         routeError(response, cause);
       }
@@ -868,7 +935,10 @@ export function createTaskRoutes(
   const dispatchTask = async (
     task: TaskRecord,
     currentActor: TaskActor,
-    trigger?: { readonly messageId?: string | undefined; readonly content: string },
+    trigger?: {
+      readonly messageId?: string | undefined;
+      readonly content: string;
+    },
   ): Promise<{ task: TaskRecord; execution: Record<string, string> }> => {
     try {
       const run = await dispatchTaskInstruction(
@@ -944,9 +1014,7 @@ export function createTaskRoutes(
       kind: "exact",
       path: "/api/collab/tasks/assign",
       handler: mutate(async (_request, currentActor, body) => {
-        const taskId = String(
-          (body as { taskId?: unknown }).taskId ?? "",
-        );
+        const taskId = String((body as { taskId?: unknown }).taskId ?? "");
         const before = service.get(taskId);
         const task = await service.assign(currentActor, body);
         const changed =
@@ -966,7 +1034,12 @@ export function createTaskRoutes(
       kind: "exact",
       path: "/api/collab/tasks/claim",
       handler: mutate(async (_request, currentActor, body) => {
-        return { task: await service.claim(currentActor, String((body as { taskId?: unknown }).taskId ?? "")) };
+        return {
+          task: await service.claim(
+            currentActor,
+            String((body as { taskId?: unknown }).taskId ?? ""),
+          ),
+        };
       }),
     },
     {
@@ -1083,10 +1156,12 @@ export function createTaskRoutes(
               : await collectDocuments({
                   root,
                   windows: windowsFromRuns(
-                    (agent?.()?.runs?.({
-                      workspaceId: task.workspaceId,
-                      instanceId: task.id,
-                    }) ?? []).map((run) => ({
+                    (
+                      agent?.()?.runs?.({
+                        workspaceId: task.workspaceId,
+                        instanceId: task.id,
+                      }) ?? []
+                    ).map((run) => ({
                       startedAt: run.startedAt,
                       endedAt: run.endedAt,
                       createdAt: run.createdAt,
@@ -1215,11 +1290,12 @@ export async function apply(ctx: TaskContext): Promise<void> {
   ctx.provide("collabTasks", service);
   ctx.effect(() => () => void domain.close());
   ctx.inject(["collabTeam"], (child) => {
-    const employees = child.get("collabEmployee") as EmployeeServiceLike | undefined;
-    const assignments = child.get("collabAssignment") as AssignmentServiceLike | undefined;
+    const employees = child.get("collabEmployee") as
+      EmployeeServiceLike | undefined;
+    const assignments = child.get("collabAssignment") as
+      AssignmentServiceLike | undefined;
     const workspaces = child.get("workspaceRegistry") as
-      | WorkspaceRegistryLike
-      | undefined;
+      WorkspaceRegistryLike | undefined;
     const disposers = createTaskRoutes(
       service,
       child.collabTeam,
@@ -1227,7 +1303,8 @@ export async function apply(ctx: TaskContext): Promise<void> {
       assignments,
       () => child.get("collabAgent") as TaskAgentServiceLike | undefined,
       workspaces,
-      () => child.get("collabTeammateRuntime") as TeammateRuntimeLike | undefined,
+      () =>
+        child.get("collabTeammateRuntime") as TeammateRuntimeLike | undefined,
     ).map((route) => child.webServer.register(route) as () => void);
     child.effect(() => () => {
       for (const dispose of disposers) dispose();

@@ -314,6 +314,7 @@ export interface WorkflowTaskBridge {
     taskId: string,
     run: {
       readonly id: string;
+      readonly nodeId: string;
       readonly status: AgentRunView["status"];
       readonly output?: AgentRunView["output"];
       readonly error?: string | undefined;
@@ -496,6 +497,7 @@ function values<V>(table: KvTableLike<V>): V[] {
 
 const taskProjectedEventKinds = new Set([
   "node.completed",
+  "node.cancelled",
   "approval.approved",
   "approval.rejected",
   "approval.delegated",
@@ -1229,6 +1231,7 @@ export class WorkflowService {
           taskId,
           {
             id: run.id,
+            nodeId: run.nodeId,
             status: run.status,
             output: run.output,
             error: run.error,
@@ -1330,7 +1333,7 @@ export class WorkflowService {
         const created = await bridge.create(this.taskSystemActor(), {
           workspaceId: instance.workspaceId,
           title: `${instance.title} · ${node.name}`,
-          type: node.type === "approval" ? "工作流审批" : "工作流任务",
+          type: "工作流",
           priority: "P2",
           status: node.type === "approval" ? "review" : "progress",
           receiverType: receiver.type,
@@ -1654,6 +1657,20 @@ export class WorkflowService {
       state,
       projectedAfterAssign,
     );
+    if (outcome === undefined) {
+      const targetStatus = this.projectedTaskStatus(node, state);
+      if (projectedAfterAssign.status !== targetStatus) {
+        await this.syncTaskStatus(
+          task.id,
+          targetStatus,
+          targetStatus === "review"
+            ? "工作流节点等待确认"
+            : targetStatus === "progress"
+              ? "工作流节点同步为进行中"
+              : "工作流节点受阻，等待处理",
+        );
+      }
+    }
     if (outcome === undefined) return;
     try {
       await bridge.settle(this.taskSystemActor(), task.id, outcome);
@@ -1661,6 +1678,24 @@ export class WorkflowService {
       // Keep the next task-list refresh safe to retry.
     }
     return outcome;
+  }
+
+  private projectedTaskStatus(
+    node: WorkflowNode | undefined,
+    state: WorkflowNodeState,
+  ): "todo" | "progress" | "review" {
+    if (node?.type === "approval") return "review";
+    if (state.status === "blocked") return "todo";
+    if (
+      state.status === "ready" &&
+      node !== undefined &&
+      node.reviewRequired !== false &&
+      node.deliverables.length > 0 &&
+      this.missingDeliverables(node, state).length === 0
+    ) {
+      return "review";
+    }
+    return "progress";
   }
 
   async workflowTaskOutcome(task: {
@@ -3019,6 +3054,46 @@ export class WorkflowService {
     );
   }
 
+  private isAgentWorkerNode(node: WorkflowNode): boolean {
+    return (
+      node.type === "task" &&
+      ["agent", "employee"].includes(node.executor.kind) &&
+      node.execution === "task-worker"
+    );
+  }
+
+  private canIntervene(
+    actor: WorkflowActor,
+    _node: WorkflowNode,
+  ): boolean {
+    return actor.kind === "user" && isManager(actor);
+  }
+
+  private async cancelActiveAgentRuns(
+    instance: WorkflowInstance,
+    node: WorkflowNode,
+  ): Promise<void> {
+    const agent = this.options.agent?.();
+    if (agent === undefined) return;
+    const activeRuns = agent
+      .runs(instance.id, node.id)
+      .filter((run) => isAgentRunActive(run));
+    for (const run of activeRuns) {
+      try {
+        await agent.cancel(run.id);
+      } catch (cause) {
+        if (
+          cause instanceof Error &&
+          "code" in cause &&
+          cause.code === "conflict"
+        ) {
+          continue;
+        }
+        throw cause;
+      }
+    }
+  }
+
   private requireTargetMember(
     instance: WorkflowInstance,
     userId: string,
@@ -3481,7 +3556,12 @@ export class WorkflowService {
 
   completeNode(
     actor: WorkflowActor,
-    input: { instanceId: string; nodeId: string; note?: string | undefined },
+    input: {
+      instanceId: string;
+      nodeId: string;
+      note?: string | undefined;
+      force?: boolean | undefined;
+    },
   ): Promise<WorkflowInstance> {
     return this.enqueue(async () => {
       const { instance, node } = this.requireNode(
@@ -3498,7 +3578,9 @@ export class WorkflowService {
       }
       const synced = this.syncDeliverableStates(instance);
       const currentState = synced.nodes[input.nodeId]!;
-      if (currentState.status !== "ready") {
+      const agentIntervention =
+        input.force === true && this.isAgentWorkerNode(node);
+      if (currentState.status !== "ready" && !agentIntervention) {
         throw new WorkflowError(
           "conflict",
           currentState.status === "waiting"
@@ -3506,7 +3588,14 @@ export class WorkflowService {
             : "node is not actionable",
         );
       }
-      if (!this.canAct(actor, instance, node)) {
+      if (agentIntervention) {
+        if (!this.canIntervene(actor, node)) {
+          throw new WorkflowError(
+            "forbidden",
+            "只有工作区负责人或管理员可以人工完成 Agent 节点",
+          );
+        }
+      } else if (!this.canAct(actor, instance, node)) {
         throw new WorkflowError("forbidden", "you cannot complete this node");
       }
       const missing = this.missingDeliverables(node, currentState);
@@ -3516,20 +3605,34 @@ export class WorkflowService {
           `缺少 ${missing.length} 项必交交付物：${missing.map((item) => item.title).join("、")}`,
         );
       }
+      if (agentIntervention) {
+        await this.cancelActiveAgentRuns(instance, node);
+      }
       const timestamp = iso(this.now());
+      const interventionNote =
+        input.note === undefined || input.note.trim() === ""
+          ? agentIntervention
+            ? "人工介入完成"
+            : undefined
+          : agentIntervention
+            ? `人工介入完成：${input.note.trim()}`
+            : input.note;
       instance.nodes[input.nodeId] = {
         ...currentState,
         status: "completed",
         completedAt: timestamp,
-        note: input.note,
+        note: interventionNote,
       };
       const saved = await this.putInstance(this.refreshStatus(instance));
       await this.appendEvent(saved, {
         nodeId: node.id,
         kind: "node.completed",
         actor,
-        message: `完成节点：${node.name}`,
+        message: agentIntervention
+          ? `人工完成节点：${node.name}`
+          : `完成节点：${node.name}`,
         data: {
+          ...(agentIntervention ? { manual: true } : {}),
           ...(input.note === undefined ? {} : { note: input.note }),
           ...(node.deliverables.length === 0
             ? {}
@@ -3550,6 +3653,65 @@ export class WorkflowService {
       await this.settleNodeTasks(saved, node);
       await this.resumeParentIfCompleted(actor, saved);
       return this.advance(actor, saved, node.id);
+    });
+  }
+
+  cancelNode(
+    actor: WorkflowActor,
+    input: { instanceId: string; nodeId: string; note?: string | undefined },
+  ): Promise<WorkflowInstance> {
+    return this.enqueue(async () => {
+      const { instance, node } = this.requireNode(
+        this.instance(input.instanceId),
+        input.nodeId,
+      );
+      if (!this.isAgentWorkerNode(node)) {
+        throw new WorkflowError(
+          "invalid_input",
+          "只有 Agent 或 Digital Employee 节点支持人工取消",
+        );
+      }
+      if (!this.canIntervene(actor, node)) {
+        throw new WorkflowError(
+          "forbidden",
+          "只有工作区负责人或管理员可以取消 Agent 节点",
+        );
+      }
+      const state = instance.nodes[input.nodeId]!;
+      if (["completed", "skipped"].includes(state.status)) {
+        throw new WorkflowError("conflict", "node is already closed");
+      }
+      if (state.status === "waiting") {
+        throw new WorkflowError(
+          "conflict",
+          "node is waiting for upstream nodes",
+        );
+      }
+      await this.cancelActiveAgentRuns(instance, node);
+      const timestamp = iso(this.now());
+      const cancelledNote =
+        input.note === undefined || input.note.trim() === ""
+          ? "人工取消"
+          : `人工取消：${input.note.trim()}`;
+      instance.nodes[input.nodeId] = {
+        ...state,
+        status: "skipped",
+        completedAt: timestamp,
+        note: cancelledNote,
+      };
+      const saved = await this.putInstance(this.refreshStatus(instance));
+      await this.appendEvent(saved, {
+        nodeId: node.id,
+        kind: "node.cancelled",
+        actor,
+        message: `人工取消节点：${node.name}`,
+        data: {
+          manual: true,
+          ...(input.note === undefined ? {} : { note: input.note }),
+        },
+      });
+      await this.settleNodeTasks(saved, node, "cancelled");
+      return saved;
     });
   }
 
@@ -4571,6 +4733,29 @@ export function createWorkflowRoutes(
           instance.workspaceId,
         );
         const result = await service.completeNode(actor, {
+          instanceId: body.instanceId,
+          nodeId: body.nodeId,
+          note: typeof body.note === "string" ? body.note : undefined,
+          force: body.force === true,
+        });
+        sendJson(response, 200, { ok: true, instance: result });
+      },
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/workflow/nodes/cancel",
+      handler: async (request, response) => {
+        assertMethod(request, response, "POST");
+        const body = actionBodySchema.parse(await readBody(request));
+        const instance = service.instance(body.instanceId);
+        if (instance === undefined)
+          throw new WorkflowError("not_found", "workflow instance not found");
+        const actor = browserActor(
+          requireTeam(),
+          request,
+          instance.workspaceId,
+        );
+        const result = await service.cancelNode(actor, {
           instanceId: body.instanceId,
           nodeId: body.nodeId,
           note: typeof body.note === "string" ? body.note : undefined,

@@ -36,6 +36,7 @@ export interface TaskActor {
 export interface TaskAgentRun {
   readonly id: string;
   readonly instanceId: string;
+  readonly nodeId?: string | undefined;
   readonly status:
     | "queued"
     | "running"
@@ -676,12 +677,44 @@ export class TaskService {
   async projectAgentRun(
     _actor: TaskActor,
     taskIdValue: string,
-    run: Pick<TaskAgentRun, "id" | "status" | "output" | "error">,
+    run: Pick<TaskAgentRun, "id" | "status" | "output" | "error"> & {
+      readonly nodeId?: string | undefined;
+    },
     receiverName: string,
   ): Promise<TaskRecord> {
     const task = this.require(taskIdValue);
     if (task.workflow === undefined) {
       throw new TaskError("conflict", "只有工作流任务支持执行投影");
+    }
+    if (run.nodeId !== undefined && run.nodeId !== task.workflow.nodeId) {
+      const hasProjection =
+        task.agentRunIds.includes(run.id) ||
+        task.messages.some((message) => message.runId === run.id);
+      if (!hasProjection) return task;
+      const agentRunIds = task.agentRunIds.filter((id) => id !== run.id);
+      const messages = task.messages.filter(
+        (message) => message.runId !== run.id,
+      );
+      const hasActiveRun = messages.some((message) =>
+        ["queued", "running", "waiting_input"].includes(message.state ?? ""),
+      );
+      return this.put(
+        this.event(
+          {
+            ...task,
+            agentRunIds,
+            messages,
+            status:
+              task.status === "progress" && !hasActiveRun
+                ? "todo"
+                : task.status,
+            updatedAt: this.now(),
+          },
+          { id: "workflow", name: "工作流", kind: "system" },
+          "workflow",
+          "清理不属于当前节点的 Agent 执行记录",
+        ),
+      );
     }
     const actor: TaskActor = {
       id: task.receiverId ?? "agent",
@@ -699,11 +732,7 @@ export class TaskService {
       existing !== undefined &&
       existing.state === run.status &&
       existing.content === content &&
-      task.agentRunIds.includes(run.id) &&
-      !(
-        task.status === "progress" &&
-        ["failed", "timeout", "cancelled", "interrupted"].includes(run.status)
-      )
+      task.agentRunIds.includes(run.id)
     ) {
       return task;
     }

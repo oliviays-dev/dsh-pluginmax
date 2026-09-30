@@ -1244,6 +1244,14 @@ describe("workflow service", () => {
       title: "Task 结算失败不阻塞",
     });
     expect(validTasks.records.size).toBeGreaterThan(0);
+    const readyTask = [...validTasks.records.values()].find(
+      (task) =>
+        task.workflow?.instanceId === syncedInstance.id &&
+        task.workflow.nodeId === "confirm",
+    )!;
+    readyTask.status = "todo";
+    await serviceWithTasks.handleTaskReconcile(readyTask);
+    expect(validTasks.records.get(readyTask.id)?.status).toBe("progress");
     const failingSettle = Object.create(validTasks) as FakeTaskBridge;
     failingSettle.settle = async () => {
       throw new Error("task service down");
@@ -1887,11 +1895,136 @@ describe("workflow agent nodes", () => {
     const recovered = service.instance(instance.id)!;
     expect(recovered.nodes.development?.status).toBe("ready");
     expect(recovered.nodes.development?.note).toContain("人工代交");
-    const completed = await service.completeNode(member, {
+    const completed = await service.completeNode(owner, {
       instanceId: instance.id,
       nodeId: "development",
     });
     expect(completed.nodes.development?.status).toBe("completed");
+  });
+
+  it("allows manual intervention to complete a running or blocked Agent node", async () => {
+    const { agent, service } = await agentHarness();
+    const definition = await importedFixture(service, "agent-node.md");
+    const instance = await service.startInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "Agent 人工完成",
+    });
+    const run = agent.runs(instance.id, "development")[0]!;
+    await expect(
+      service.completeNode(member, {
+        instanceId: instance.id,
+        nodeId: "development",
+        force: true,
+      }),
+    ).rejects.toMatchObject({ code: "forbidden" });
+    await expect(
+      service.completeNode(owner, {
+        instanceId: instance.id,
+        nodeId: "development",
+        force: true,
+      }),
+    ).rejects.toMatchObject({ code: "missing_deliverables" });
+
+    await service.cancelAgentRun(owner, run.id);
+    await service.handleAgentSettle(agent.run(run.id)!);
+    await service.submitDeliverable(owner, {
+      instanceId: instance.id,
+      nodeId: "development",
+      requirementKey: "implementation-report",
+      type: "text",
+      value:
+        "Owner 人工接管完成开发说明：覆盖接口结果、验证范围和上线风险。",
+    });
+    const completed = await service.completeNode(owner, {
+      instanceId: instance.id,
+      nodeId: "development",
+      note: "结果已线下确认",
+      force: true,
+    });
+    expect(completed.nodes.development).toMatchObject({
+      status: "completed",
+      note: "人工介入完成：结果已线下确认",
+    });
+    expect(completed.status).toBe("completed");
+    expect(agent.run(run.id)?.status).toBe("cancelled");
+    expect(
+      service
+        .events(instance.id)
+        .some(
+          (event) =>
+            event.kind === "node.completed" &&
+            event.message === "人工完成节点：开发" &&
+            event.data.manual === true,
+        ),
+    ).toBe(true);
+
+    const failedInstance = await service.startInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "Agent 人工兜底",
+    });
+    const failedRun = agent.runs(failedInstance.id, "development")[0]!;
+    agent.settle(failedRun.id, { status: "failed", error: "worker stopped" });
+    await service.handleAgentSettle(agent.run(failedRun.id)!);
+    await service.submitDeliverable(owner, {
+      instanceId: failedInstance.id,
+      nodeId: "development",
+      requirementKey: "implementation-report",
+      type: "text",
+      value: "失败后由 Owner 补交说明：结果已完成且风险可接受。",
+    });
+    const recovered = await service.completeNode(owner, {
+      instanceId: failedInstance.id,
+      nodeId: "development",
+      force: true,
+    });
+    expect(recovered.nodes.development?.status).toBe("completed");
+  });
+
+  it("allows manual intervention to cancel an Agent node and closes its task", async () => {
+    const { agent, service, tasks: taskService } = await agentHarness();
+    const definition = await importedFixture(service, "agent-node.md");
+    const instance = await service.startInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "Agent 人工取消",
+    });
+    const run = agent.runs(instance.id, "development")[0]!;
+    const taskId = instance.nodes.development?.taskIds[0]!;
+    await expect(
+      service.cancelNode(guest, {
+        instanceId: instance.id,
+        nodeId: "development",
+      }),
+    ).rejects.toMatchObject({ code: "forbidden" });
+
+    await expect(
+      service.cancelNode(member, {
+        instanceId: instance.id,
+        nodeId: "development",
+      }),
+    ).rejects.toMatchObject({ code: "forbidden" });
+
+    const cancelled = await service.cancelNode(owner, {
+      instanceId: instance.id,
+      nodeId: "development",
+      note: "不再需要该分支",
+    });
+    expect(cancelled.nodes.development).toMatchObject({
+      status: "skipped",
+      note: "人工取消：不再需要该分支",
+    });
+    expect(agent.run(run.id)?.status).toBe("cancelled");
+    expect(taskService.get(taskId)?.status).toBe("done");
+    expect(
+      service
+        .events(instance.id)
+        .some(
+          (event) =>
+            event.kind === "node.cancelled" && event.data.manual === true,
+        ),
+    ).toBe(true);
   });
 
   it("supports manual dispatch, cancellation, retry, permissions, and attempt cap", async () => {
@@ -2101,7 +2234,7 @@ describe("workflow apply", () => {
     };
     await apply(ctx as unknown as Parameters<typeof apply>[0]);
     expect(provided).toEqual(["collabWorkflow"]);
-    expect(routes).toHaveLength(21);
+    expect(routes).toHaveLength(22);
     expect(registered).toHaveLength(2);
     const tool = registered.find(
       (item) => (item as { name?: string }).name === "collab_workflow",

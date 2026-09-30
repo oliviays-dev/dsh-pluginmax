@@ -554,6 +554,7 @@ describe("dsh-collab-task service", () => {
       created.id,
       {
         id: "workflow-run-1",
+        nodeId: "development",
         status: "running",
       },
       "Backend DE",
@@ -614,6 +615,71 @@ describe("dsh-collab-task service", () => {
         done: true,
       }),
     ).rejects.toMatchObject({ code: "conflict" });
+  });
+
+  it("removes a stale agent run projected into another workflow node", async () => {
+    const table = memoryTable<TaskRecord>();
+    const tasks = new TaskService({ tasks: table });
+    const system = { id: "workflow", name: "系统", kind: "system" } as const;
+    const created = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Test preparation",
+      priority: "P2",
+      status: "progress",
+      receiverType: "human",
+      receiverId: "olivia",
+      receiverName: "Olivia",
+      description: "Prepare the regression checklist.",
+      acceptance: ["Checklist is ready"],
+      workflow: {
+        instanceId: "wf-1",
+        nodeId: "test-preparation",
+        instanceTitle: "Delivery",
+        nodeName: "Test preparation",
+        reviewRequired: true,
+      },
+    });
+    expect(created.status).toBe("progress");
+
+    // Older builds copied every instance run into every node task. Refreshing
+    // must remove that stale projection instead of treating it as authoritative.
+    table.put(created.id, {
+      ...created,
+      agentRunIds: ["development-run"],
+      messages: [
+        {
+          id: "development-run",
+          at: "2026-01-01T00:00:00.000Z",
+          authorId: "agent-1",
+          authorName: "Backend DE",
+          kind: "agent",
+          content: "已接收指令，正在执行…",
+          attachments: [],
+          runId: "development-run",
+          state: "running",
+        },
+      ],
+    });
+    const repaired = await tasks.projectAgentRun(
+      system,
+      created.id,
+      {
+        id: "development-run",
+        nodeId: "development",
+        status: "succeeded",
+        output: { summary: "Development output belongs elsewhere" },
+      },
+      "Backend DE",
+    );
+    expect(repaired.status).toBe("todo");
+    expect(repaired.messages).toEqual([]);
+    expect(repaired.agentRunIds).not.toContain("development-run");
+    expect(
+      repaired.messages.some((item) => item.runId === "development-run"),
+    ).toBe(false);
+    expect(repaired.events.at(-1)?.message).toBe(
+      "清理不属于当前节点的 Agent 执行记录",
+    );
   });
 
   it("updates the auto submit flag from the task edit form", async () => {
@@ -994,6 +1060,71 @@ function fakeResponse(): {
   };
 }
 
+describe("workflow task action errors", () => {
+  it("keeps workflow permission errors actionable", async () => {
+    const table = memoryTable<TaskRecord>();
+    const tasks = new TaskService({ tasks: table });
+    const created = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Controlled approval",
+      priority: "P2",
+      status: "review",
+      receiverType: "human",
+      receiverId: "olivia",
+      receiverName: "Olivia",
+      description: "Approve the delivery.",
+      acceptance: ["Give a decision"],
+    });
+    table.put(created.id, {
+      ...created,
+      workflow: {
+        instanceId: "wf-1",
+        nodeId: "approval",
+        instanceTitle: "Delivery",
+        nodeName: "Approval",
+        approvalPolicy: "any",
+        nodeAttempt: 1,
+        reviewRequired: false,
+      },
+    });
+    tasks.bindWorkflowActions({
+      assign: async () => undefined,
+      decide: async () => {
+        throw Object.assign(new Error("you are not an approver"), {
+          code: "forbidden",
+          name: "WorkflowError",
+        });
+      },
+      reconcile: async () => undefined,
+      submit: async () => undefined,
+    });
+    const routes = createTaskRoutes(tasks, {
+      resolveToken: (candidate) =>
+        candidate === "token" ? { userId: "admin", role: "admin" } : undefined,
+      users: () => [{ id: "admin", name: "Admin", role: "admin" }],
+      members: () => [{ userId: "admin", memberRole: "owner" }],
+    });
+    const action = routes.find(
+      (candidate) => candidate.path === "/api/collab/tasks/action",
+    );
+    const response = fakeResponse();
+    await action?.handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/action",
+        body: { taskId: created.id, action: "approve" },
+      }),
+      response.response,
+    );
+    const result = response.read();
+    expect(result.status).toBe(403);
+    expect(result.body?.error).toMatchObject({
+      code: "forbidden",
+      message: "you are not an approver",
+    });
+  });
+});
+
 describe("teammate task assignment", () => {
   it("lists AI Teammates as receivers and provisions the runtime on dispatch", async () => {
     const tasks = service();
@@ -1110,6 +1241,100 @@ describe("teammate task assignment", () => {
       personaId: "persona-tm-1",
       source: "task",
     });
+  });
+});
+
+describe("workflow agent run reconciliation", () => {
+  it("cleans a stale run already attached to another node's task", async () => {
+    const table = memoryTable<TaskRecord>();
+    const tasks = new TaskService({ tasks: table });
+    const created = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Test preparation",
+      priority: "P2",
+      status: "progress",
+      receiverType: "human",
+      receiverId: "olivia",
+      receiverName: "Olivia",
+      description: "Prepare the checklist.",
+      acceptance: ["Checklist is ready"],
+      workflow: {
+        instanceId: "wf-1",
+        nodeId: "test-preparation",
+        instanceTitle: "Delivery",
+        nodeName: "Test preparation",
+        reviewRequired: true,
+      },
+    });
+    table.put(created.id, {
+      ...created,
+      agentRunIds: ["development-run"],
+      messages: [
+        {
+          id: "development-run",
+          at: "2026-01-01T00:00:00.000Z",
+          authorId: "agent-1",
+          authorName: "Backend DE",
+          kind: "agent",
+          content: "已接收指令，正在执行…",
+          attachments: [],
+          runId: "development-run",
+          state: "running",
+        },
+      ],
+    });
+    const routes = createTaskRoutes(
+      tasks,
+      {
+        resolveToken: (candidate) =>
+          candidate === "token"
+            ? { userId: "admin", role: "admin" }
+            : undefined,
+        users: () => [{ id: "admin", name: "Admin", role: "admin" }],
+        members: () => [{ userId: "admin", memberRole: "owner" }],
+      },
+      undefined,
+      undefined,
+      () => ({
+        bindTask: () => undefined,
+        dispatch: async () => {
+          throw new Error("not used");
+        },
+        runs: () => [
+          {
+            id: "development-run",
+            nodeId: "development",
+            status: "succeeded" as const,
+            payload: { profileName: "Backend DE" },
+            output: { summary: "Development output belongs elsewhere" },
+          },
+        ],
+      }),
+      {
+        get: () => ({ id: "workspace-1", path: "/tmp/workspace-1" }),
+        list: () => [{ id: "workspace-1", path: "/tmp/workspace-1" }],
+      },
+    );
+    const bootstrap = routes.find(
+      (route) => route.path === "/api/collab/tasks/bootstrap",
+    );
+    const response = fakeResponse();
+    await bootstrap?.handler(
+      fakeRequest({
+        method: "GET",
+        url: "/api/collab/tasks/bootstrap?workspaceId=workspace-1",
+      }),
+      response.response,
+    );
+    expect(response.read().status).toBe(200);
+
+    const repaired = tasks.get(created.id);
+    expect(repaired.status).toBe("todo");
+    expect(repaired.agentRunIds).toEqual([]);
+    expect(repaired.messages).toEqual([]);
+    expect(repaired.events.at(-1)?.message).toBe(
+      "清理不属于当前节点的 Agent 执行记录",
+    );
   });
 });
 

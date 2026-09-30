@@ -65,7 +65,7 @@ window.__ModuleLoader__.load({
       .pmtask-title{font-size:13px;font-weight:650;line-height:1.35;}
       .pmtask-desc{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1.45;}
       .pmtask-meta{display:flex;align-items:center;gap:5px;flex-wrap:wrap;color:var(--dsw-alias-label-secondary);font-size:10.5px;}
-      .pmtask-pill{display:inline-flex;align-items:center;height:20px;border-radius:6px;padding:0 6px;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-base));white-space:nowrap;}
+      .pmtask-pill{display:inline-flex;align-items:center;height:20px;border-radius:6px;padding:0 6px;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-base));font-size:10.5px;line-height:1;white-space:nowrap;}
       .pmtask-pill.p1{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 14%,transparent);color:var(--dsw-alias-state-error-primary,#e5534b);}
       .pmtask-pill.progress{background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 14%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7);}
       .pmtask-pill.review{background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#e2a737) 14%,transparent);color:var(--dsw-alias-state-warning-primary,#e2a737);}
@@ -596,10 +596,8 @@ window.__ModuleLoader__.load({
       return RUNNING_MESSAGE_STATES.includes(latestRunState(task));
     }
 
-    function workflowSourceLabel(task) {
-      return task?.workflow?.approvalPolicy !== undefined
-        ? "工作流审批"
-        : "工作流";
+    function workflowSourceLabel() {
+      return "工作流";
     }
 
     function workflowReviewLabel(task) {
@@ -1136,32 +1134,8 @@ window.__ModuleLoader__.load({
       const notify = () => {
         setError("");
       };
-      const fail = (cause, options = {}) => {
+      const fail = (cause, _options = {}) => {
         const message = cause instanceof Error ? cause.message : String(cause);
-        if (selectedId !== "" && options.global !== true) {
-          setError("");
-          setTasks((current) =>
-            current.map((task) =>
-              task.id === selectedId
-                ? {
-                    ...task,
-                    events: [
-                      ...task.events,
-                      {
-                        id: `local-error-${Date.now()}`,
-                        at: new Date().toISOString(),
-                        actorId: "system",
-                        actorName: "系统",
-                        kind: "error",
-                        message,
-                      },
-                    ],
-                  }
-                : task,
-            ),
-          );
-          return;
-        }
         setError(message);
       };
 
