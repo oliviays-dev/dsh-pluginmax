@@ -96,6 +96,123 @@ describe("dsh-collab-task service", () => {
     ).rejects.toMatchObject({ code: "invalid_input" });
   });
 
+  it("keeps cancelled workflow tasks distinct from completed tasks", async () => {
+    const tasks = service();
+    const system = { id: "workflow", name: "系统", kind: "system" } as const;
+    const created = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Cancelled workflow delivery",
+      priority: "P2",
+      receiverType: "agent",
+      receiverId: "agent-1",
+      receiverName: "Backend DE",
+      description: "A manual workflow cancellation must remain cancelled.",
+      acceptance: ["Run the agent", "Return the delivery"],
+      workflow: {
+        instanceId: "wf-cancel",
+        nodeId: "development",
+        instanceTitle: "Cancelled workflow",
+        nodeName: "Development",
+        reviewRequired: true,
+      },
+    });
+    const reviewing = await tasks.projectStatus(
+      system,
+      created.id,
+      "review",
+      "Agent 已提交交付物",
+    );
+    const cancelled = await tasks.settleProjection(
+      system,
+      created.id,
+      "cancelled",
+    );
+
+    expect(cancelled.status).toBe("cancelled");
+    expect(cancelled.progress).toBe(reviewing.progress);
+    expect(cancelled.steps.every((step) => !step.done)).toBe(true);
+    expect(cancelled.workflow?.outcome).toBe("cancelled");
+    expect(cancelled.events.at(-1)).toMatchObject({
+      kind: "closed",
+      message: "工作流节点已取消",
+    });
+    await expect(
+      tasks.assign(olivia, {
+        taskId: created.id,
+        receiverType: "human",
+        receiverId: "olivia",
+        receiverName: "Olivia",
+      }),
+    ).rejects.toMatchObject({ code: "conflict" });
+    await expect(
+      tasks.changeStatus(olivia, { taskId: created.id, status: "progress" }),
+    ).rejects.toMatchObject({ code: "conflict" });
+    await expect(
+      tasks.addComment(olivia, { taskId: created.id, content: " revisit " }),
+    ).rejects.toMatchObject({ code: "conflict" });
+    await expect(
+      tasks.settleProjection(system, created.id, "approved"),
+    ).rejects.toMatchObject({ code: "conflict" });
+  });
+
+  it("repairs legacy manual cancellations that were stored as approved tasks", async () => {
+    const table = memoryTable<TaskRecord>();
+    const tasks = new TaskService({ tasks: table });
+    const system = { id: "workflow", name: "系统", kind: "system" } as const;
+    const created = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Legacy cancelled projection",
+      priority: "P2",
+      receiverType: "agent",
+      receiverId: "agent-1",
+      receiverName: "Backend DE",
+      description: "Legacy cancellation data should be repaired safely.",
+      acceptance: ["Run the agent"],
+      workflow: {
+        instanceId: "wf-legacy",
+        nodeId: "development",
+        instanceTitle: "Legacy workflow",
+        nodeName: "Development",
+        reviewRequired: true,
+      },
+    });
+    await tasks.settleProjection(system, created.id, "approved");
+    const legacy = table.get(created.id)!;
+    table.put(created.id, {
+      ...legacy,
+      workflow: { ...legacy.workflow!, outcome: "approved" },
+    });
+    tasks.bindWorkflowActions({
+      assign: () => {},
+      decide: () => {},
+      submit: () => {},
+      reconcile: () => "cancelled",
+    });
+
+    await tasks.reconcileWorkflowProjections("workspace-1");
+    const repaired = tasks.get(created.id);
+    expect(repaired.status).toBe("cancelled");
+    expect(repaired.progress).toBe(0);
+    expect(repaired.steps.every((step) => !step.done)).toBe(true);
+    expect(repaired.workflow?.outcome).toBe("cancelled");
+    expect(repaired.events.at(-1)?.message).toBe("修正历史取消状态");
+    table.put(created.id, {
+      ...repaired,
+      progress: 100,
+      steps: repaired.steps.map((step) => ({ ...step, done: true })),
+    });
+    await tasks.reconcileWorkflowProjections("workspace-1");
+    const residualRepaired = tasks.get(created.id);
+    expect(residualRepaired.progress).toBe(0);
+    expect(residualRepaired.steps.every((step) => !step.done)).toBe(true);
+    await tasks.reconcileWorkflowProjections("workspace-1");
+    expect(
+      tasks
+        .get(created.id)
+        .events.filter((event) => event.message === "修正历史取消状态"),
+    ).toHaveLength(2);
+  });
+
   it("records queued and completed agent executions on the task", async () => {
     const tasks = service();
     const created = await tasks.create(olivia, {

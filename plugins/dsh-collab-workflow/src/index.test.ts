@@ -19,6 +19,7 @@ import {
   type WorkflowTaskBridge,
   type WorkflowTaskRef,
   type WorkflowSubmission,
+  workflowTaskBridgeFrom,
 } from "./index.js";
 import type {
   AgentRunView,
@@ -234,7 +235,9 @@ class FakeTaskBridge implements WorkflowTaskBridge {
   }
 
   async projectReceiverDisplay(
-    _actor: Parameters<NonNullable<WorkflowTaskBridge["projectReceiverDisplay"]>>[0],
+    _actor: Parameters<
+      NonNullable<WorkflowTaskBridge["projectReceiverDisplay"]>
+    >[0],
     input: Record<string, unknown>,
   ) {
     const task = this.records.get(String(input.taskId));
@@ -254,7 +257,7 @@ class FakeTaskBridge implements WorkflowTaskBridge {
   ) {
     const task = this.records.get(taskId);
     if (task === undefined) throw new Error("task not found");
-    task.status = "done";
+    task.status = outcome === "cancelled" ? "cancelled" : "done";
     this.outcomes.set(taskId, outcome);
     return task;
   }
@@ -470,6 +473,54 @@ const guest: WorkflowActor = {
   name: "Guest",
   workspaceRole: "guest",
 };
+
+describe("workflow task bridge adapter", () => {
+  it("adapts the task service implementation names to the bridge contract", async () => {
+    const calls: string[] = [];
+    const record: WorkflowTaskRef = {
+      id: "task-1",
+      receiverType: "agent",
+      receiverId: "agent-1",
+      receiverName: "Agent",
+      status: "done",
+    };
+    const bridge = workflowTaskBridgeFrom({
+      get: () => record,
+      create: async () => record,
+      projectAssigned: async () => record,
+      settleProjection: async (
+        _actor: unknown,
+        taskId: string,
+        outcome: "approved" | "rejected" | "cancelled" | "superseded",
+      ) => {
+        calls.push(`${taskId}:${outcome}`);
+        return { ...record, status: "cancelled" };
+      },
+      projectStatus: async () => record,
+      projectWorkflowEvent: async () => record,
+      projectAgentRun: async () => record,
+      bindWorkflowActions: () => {},
+    });
+    expect(bridge).toBeDefined();
+    const settled = await bridge!.settle(
+      { id: "workflow", name: "工作流", kind: "system" },
+      "task-1",
+      "cancelled",
+    );
+    expect(settled.status).toBe("cancelled");
+    expect(calls).toEqual(["task-1:cancelled"]);
+  });
+
+  it("rejects a task service that does not satisfy the required contract", () => {
+    expect(
+      workflowTaskBridgeFrom({
+        get: () => undefined,
+        create: async () => undefined,
+        projectAssigned: async () => undefined,
+      }),
+    ).toBeUndefined();
+  });
+});
 
 describe("workflow parser", () => {
   it("parses parallel branches, approvals, and controlled cycles", async () => {
@@ -1625,7 +1676,9 @@ describe("workflow agent nodes", () => {
       title: "旧显示名同步",
     });
     const taskId = instance.nodes.development?.taskIds[0]!;
-    Object.assign(tasks.records.get(taskId)!, { receiverName: "backend-agent" });
+    Object.assign(tasks.records.get(taskId)!, {
+      receiverName: "backend-agent",
+    });
 
     await service.handleTaskReconcile(tasks.records.get(taskId)!);
 
@@ -1981,8 +2034,7 @@ describe("workflow agent nodes", () => {
       nodeId: "development",
       requirementKey: "implementation-report",
       type: "text",
-      value:
-        "Owner 人工接管完成开发说明：覆盖接口结果、验证范围和上线风险。",
+      value: "Owner 人工接管完成开发说明：覆盖接口结果、验证范围和上线风险。",
     });
     const completed = await service.completeNode(owner, {
       instanceId: instance.id,
@@ -2030,7 +2082,7 @@ describe("workflow agent nodes", () => {
     expect(recovered.nodes.development?.status).toBe("completed");
   });
 
-  it("allows manual intervention to cancel an Agent node and closes its task", async () => {
+  it("allows manual intervention to cancel an Agent node and cancels its task", async () => {
     const { agent, service, tasks: taskService } = await agentHarness();
     const definition = await importedFixture(service, "agent-node.md");
     const instance = await service.startInstance(member, {
@@ -2064,7 +2116,7 @@ describe("workflow agent nodes", () => {
       note: "人工取消：不再需要该分支",
     });
     expect(agent.run(run.id)?.status).toBe("cancelled");
-    expect(taskService.get(taskId)?.status).toBe("done");
+    expect(taskService.get(taskId)?.status).toBe("cancelled");
     expect(
       service
         .events(instance.id)

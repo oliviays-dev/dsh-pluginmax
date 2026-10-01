@@ -211,6 +211,20 @@ function progressForSteps(steps: TaskRecord["steps"]): number {
   );
 }
 
+function isSettled(task: TaskRecord): boolean {
+  return task.status === "done" || task.status === "cancelled";
+}
+
+function requireOpen(task: TaskRecord): TaskRecord {
+  if (isSettled(task)) {
+    throw new TaskError(
+      "conflict",
+      task.status === "cancelled" ? "任务已取消" : "任务已完成",
+    );
+  }
+  return task;
+}
+
 export class TaskService {
   private workflowActions: WorkflowTaskActionHandler | undefined;
 
@@ -279,7 +293,45 @@ export class TaskService {
     if (this.workflowActions?.reconcile === undefined) return;
     for (const task of this.list(workspaceId)) {
       if (task.workflow === undefined) continue;
-      if (task.status === "done") {
+      if (isSettled(task)) {
+        if (task.status === "done" && task.workflow.outcome === "cancelled") {
+          await this.settleProjection(
+            { id: "workflow", name: "工作流", kind: "system" },
+            task.id,
+            "cancelled",
+          );
+          continue;
+        }
+        if (
+          task.status === "cancelled" &&
+          task.workflow.outcome === "cancelled" &&
+          (task.progress === 100 || task.steps.some((step) => step.done))
+        ) {
+          await this.settleProjection(
+            { id: "workflow", name: "工作流", kind: "system" },
+            task.id,
+            "cancelled",
+          );
+          continue;
+        }
+        if (
+          task.status === "done" &&
+          task.workflow.outcome === "approved" &&
+          this.workflowActions.reconcile !== undefined
+        ) {
+          try {
+            const outcome = await this.workflowActions.reconcile(task);
+            if (outcome === "cancelled") {
+              await this.settleProjection(
+                { id: "workflow", name: "工作流", kind: "system" },
+                task.id,
+                "cancelled",
+              );
+            }
+          } catch {
+            // A later refresh can retry the explicit cancellation repair.
+          }
+        }
         try {
           await this.workflowActions.refreshReceiver?.(task);
         } catch {
@@ -359,7 +411,7 @@ export class TaskService {
 
   async update(actor: TaskActor, input: unknown): Promise<TaskRecord> {
     const parsed = parse(updateInputSchema, input);
-    const task = this.requireActive(this.require(parsed.taskId));
+    const task = requireOpen(this.requireActive(this.require(parsed.taskId)));
     if (task.workflow !== undefined) {
       throw new TaskError("conflict", "工作流任务内容由工作流节点同步");
     }
@@ -398,7 +450,7 @@ export class TaskService {
 
   async assign(actor: TaskActor, input: unknown): Promise<TaskRecord> {
     const parsed = parse(assignInputSchema, input);
-    const task = this.requireActive(this.require(parsed.taskId));
+    const task = requireOpen(this.requireActive(this.require(parsed.taskId)));
     if (
       task.workflow?.approvalPolicy !== undefined &&
       parsed.receiverType === "unassigned"
@@ -451,7 +503,7 @@ export class TaskService {
   }
 
   async claim(actor: TaskActor, taskIdValue: string): Promise<TaskRecord> {
-    const task = this.requireActive(this.require(taskIdValue));
+    const task = requireOpen(this.requireActive(this.require(taskIdValue)));
     if (task.receiverType !== "role") {
       throw new TaskError("conflict", "only role tasks can be claimed");
     }
@@ -473,7 +525,7 @@ export class TaskService {
 
   async changeStatus(actor: TaskActor, input: unknown): Promise<TaskRecord> {
     const parsed = parse(statusInputSchema, input);
-    const task = this.require(parsed.taskId);
+    const task = requireOpen(this.require(parsed.taskId));
     if (task.workflow !== undefined) {
       throw new TaskError("conflict", "工作流任务状态由工作流同步");
     }
@@ -481,7 +533,7 @@ export class TaskService {
   }
 
   async start(actor: TaskActor, taskIdValue: string): Promise<TaskRecord> {
-    const task = this.require(taskIdValue);
+    const task = requireOpen(this.require(taskIdValue));
     if (task.workflow !== undefined) {
       throw new TaskError("conflict", "工作流任务状态由工作流同步");
     }
@@ -489,7 +541,7 @@ export class TaskService {
   }
 
   async submit(actor: TaskActor, taskIdValue: string): Promise<TaskRecord> {
-    let task = this.require(taskIdValue);
+    let task = requireOpen(this.require(taskIdValue));
     if (task.workflow !== undefined) {
       const reviewRequired = task.workflow.reviewRequired !== false;
       if (reviewRequired && task.status === "progress") {
@@ -497,18 +549,18 @@ export class TaskService {
       }
       await this.workflowActions?.submit(task, actor);
       task = this.require(taskIdValue);
-      if (task.status === "done") return task;
+      if (isSettled(task)) return task;
       return this.settleProjection(actor, taskIdValue, "approved");
     }
     return this.submitStandaloneTask(actor, task);
   }
 
   async approve(actor: TaskActor, taskIdValue: string): Promise<TaskRecord> {
-    let task = this.require(taskIdValue);
+    let task = requireOpen(this.require(taskIdValue));
     if (task.workflow !== undefined) {
       await this.workflowActions?.decide(task, actor, "approved");
       task = this.require(taskIdValue);
-      if (task.status === "done") return task;
+      if (isSettled(task)) return task;
       return this.settleProjection(actor, taskIdValue, "approved");
     }
     const approved = await this.setStatus(
@@ -525,11 +577,11 @@ export class TaskService {
   }
 
   async reject(actor: TaskActor, taskIdValue: string): Promise<TaskRecord> {
-    let task = this.require(taskIdValue);
+    let task = requireOpen(this.require(taskIdValue));
     if (task.workflow !== undefined) {
       await this.workflowActions?.decide(task, actor, "rejected");
       task = this.require(taskIdValue);
-      if (task.status === "done") return task;
+      if (isSettled(task)) return task;
       return this.settleProjection(actor, taskIdValue, "rejected");
     }
     const rejected = await this.setStatus(
@@ -551,6 +603,7 @@ export class TaskService {
     },
   ): Promise<TaskRecord> {
     const task = this.requireActive(this.require(input.taskId));
+    if (isSettled(task)) return task;
     return this.put(
       this.event(
         {
@@ -615,15 +668,60 @@ export class TaskService {
     outcome: "approved" | "rejected" | "cancelled" | "superseded",
   ): Promise<TaskRecord> {
     const task = this.require(taskIdValue);
-    if (
-      task.status === "done" &&
-      task.workflow?.outcome !== undefined &&
-      task.workflow.outcome !== outcome
-    ) {
-      throw new TaskError("conflict", "任务已有最终结论");
-    }
-    if (task.status === "done" && task.workflow?.outcome !== undefined) {
+    if (isSettled(task) && task.workflow?.outcome !== undefined) {
+      if (task.workflow.outcome !== outcome) {
+        if (
+          task.status === "done" &&
+          task.workflow.outcome === "approved" &&
+          outcome === "cancelled"
+        ) {
+          return this.put(
+            this.event(
+              {
+                ...task,
+                workflow: { ...task.workflow, outcome },
+                status: "cancelled",
+                progress: 0,
+                steps: task.steps.map((step) => ({
+                  ...step,
+                  done: false,
+                })),
+                updatedAt: this.now(),
+              },
+              actor,
+              "closed",
+              "修正历史取消状态",
+            ),
+          );
+        }
+        throw new TaskError("conflict", "任务已有最终结论");
+      }
+      if (
+        outcome === "cancelled" &&
+        task.workflow.outcome === "cancelled" &&
+        (task.status === "done" ||
+          task.progress === 100 ||
+          task.steps.some((step) => step.done))
+      ) {
+        return this.put(
+          this.event(
+            {
+              ...task,
+              status: "cancelled",
+              progress: 0,
+              steps: task.steps.map((step) => ({ ...step, done: false })),
+              updatedAt: this.now(),
+            },
+            actor,
+            "closed",
+            "修正历史取消状态",
+          ),
+        );
+      }
       return task;
+    }
+    if (isSettled(task)) {
+      throw new TaskError("conflict", "任务已有最终结论");
     }
     const message =
       outcome === "approved"
@@ -631,7 +729,7 @@ export class TaskService {
         : outcome === "rejected"
           ? "工作流节点驳回"
           : outcome === "cancelled"
-            ? "工作流已取消"
+            ? "工作流节点已取消"
             : "节点进入新一轮，任务已被替代";
     return this.put(
       this.event(
@@ -641,9 +739,13 @@ export class TaskService {
             ...task.workflow!,
             outcome,
           },
-          steps: task.steps.map((step) => ({ ...step, done: true })),
-          progress: 100,
-          status: "done",
+          ...(outcome === "cancelled"
+            ? {}
+            : {
+                steps: task.steps.map((step) => ({ ...step, done: true })),
+                progress: 100,
+              }),
+          status: outcome === "cancelled" ? "cancelled" : "done",
           updatedAt: this.now(),
         },
         actor,
@@ -656,14 +758,14 @@ export class TaskService {
   async projectStatus(
     actor: TaskActor,
     taskIdValue: string,
-    status: Exclude<TaskStatus, "done">,
+    status: "todo" | "progress" | "review",
     message: string,
   ): Promise<TaskRecord> {
     const task = this.require(taskIdValue);
     if (task.workflow === undefined) {
       throw new TaskError("conflict", "只有工作流任务支持状态投影");
     }
-    if (task.status === "done") return task;
+    if (isSettled(task)) return task;
     if (task.status === status) return task;
     return this.put(
       this.event(
@@ -807,6 +909,7 @@ export class TaskService {
           messages,
           status:
             task.status === "done" ||
+            task.status === "cancelled" ||
             !["queued", "running", "waiting_input"].includes(run.status)
               ? task.status === "progress" &&
                 ["failed", "timeout", "cancelled", "interrupted"].includes(
@@ -883,7 +986,7 @@ export class TaskService {
 
   async toggleStep(actor: TaskActor, input: unknown): Promise<TaskRecord> {
     const parsed = parse(stepInputSchema, input);
-    const task = this.requireActive(this.require(parsed.taskId));
+    const task = requireOpen(this.requireActive(this.require(parsed.taskId)));
     if (task.workflow !== undefined) {
       throw new TaskError("conflict", "工作流任务验收项由工作流节点同步");
     }
@@ -909,7 +1012,7 @@ export class TaskService {
 
   async addMessage(actor: TaskActor, input: unknown): Promise<TaskRecord> {
     const parsed = parse(messageInputSchema, input);
-    const task = this.requireActive(this.require(parsed.taskId));
+    const task = requireOpen(this.requireActive(this.require(parsed.taskId)));
     if (task.workflow !== undefined) {
       throw new TaskError(
         "conflict",
@@ -946,7 +1049,7 @@ export class TaskService {
   /** 重置执行会话：下一次执行换新会话，并重新注入完整上下文。 */
   async resetSession(actor: TaskActor, input: unknown): Promise<TaskRecord> {
     const parsed = parse(sessionResetInputSchema, input);
-    const task = this.requireActive(this.require(parsed.taskId));
+    const task = requireOpen(this.requireActive(this.require(parsed.taskId)));
     if (task.workflow !== undefined) {
       throw new TaskError("conflict", "工作流 Agent 会话由工作流节点控制");
     }
@@ -1076,14 +1179,16 @@ export class TaskService {
       try {
         await this.workflowActions?.submit(prepared, actor);
         const settled = this.require(taskIdValue);
-        return settled.status === "done"
+        return settled.status === "done" || settled.status === "cancelled"
           ? settled
           : this.settleProjection(actor, taskIdValue, "approved");
       } catch (cause) {
+        const current = this.require(taskIdValue);
+        if (isSettled(current)) return current;
         return this.put(
           this.event(
             {
-              ...this.require(taskIdValue),
+              ...current,
               status: "progress",
               progress: Math.max(progressForSteps(prepared.steps), 86),
               updatedAt: this.now(),
@@ -1136,7 +1241,7 @@ export class TaskService {
 
   async addComment(actor: TaskActor, input: unknown): Promise<TaskRecord> {
     const parsed = parse(commentInputSchema, input);
-    const task = this.requireActive(this.require(parsed.taskId));
+    const task = requireOpen(this.requireActive(this.require(parsed.taskId)));
     const comment = taskCommentSchema.parse({
       id: randomUUID(),
       at: this.now(),
@@ -1161,7 +1266,7 @@ export class TaskService {
 
   async replyComment(actor: TaskActor, input: unknown): Promise<TaskRecord> {
     const parsed = parse(replyInputSchema, input);
-    const task = this.requireActive(this.require(parsed.taskId));
+    const task = requireOpen(this.requireActive(this.require(parsed.taskId)));
     if (!task.comments.some((comment) => comment.id === parsed.commentId)) {
       throw new TaskError("not_found", "comment not found");
     }
@@ -1188,7 +1293,7 @@ export class TaskService {
   }
 
   async nudge(actor: TaskActor, taskIdValue: string): Promise<TaskRecord> {
-    const task = this.requireActive(this.require(taskIdValue));
+    const task = requireOpen(this.requireActive(this.require(taskIdValue)));
     return this.put(
       this.event(
         { ...task, updatedAt: this.now() },

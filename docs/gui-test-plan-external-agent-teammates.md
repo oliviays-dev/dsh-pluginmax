@@ -42,7 +42,8 @@ DSH_HOME="$PWD/.tmp/external-agent-home" node vendor/deepseek-harness/apps/cli/l
 本节只测真实 WorkBuddy，不使用 `docs/fixtures/external-agent/` 下的任何文件，也不使用 shell 脚本伪装 WorkBuddy。当前平台通过第一版 `plain-text` 外部运行时承接 WorkBuddy，契约如下：
 
 ```text
-stdin:  UTF-8 平台 Prompt
+argv:   最后一个非选项位置参数是 UTF-8 平台 Prompt
+stdin:  平台不依赖 WorkBuddy 从 stdin 读取 Prompt
 stdout: UTF-8 最终结果
 stderr: 登录、网络、权限、执行诊断
 exit 0: 成功
@@ -50,13 +51,13 @@ exit 0: 成功
 SIGTERM: 取消
 ```
 
-在 macOS 安装包中，WorkBuddy 5.6.2 自带 CLI 2.147.0。本方案的 `<WORKBUDDY_CLI>` 统一表示以下真实可执行文件；不要复制到测试夹具目录，也不要通过包装脚本改名：
+macOS 安装包内置的 CLI 可能缺少运行入口并报 `Cannot find module '../dist/codebuddy'`。本方案的 `<WORKBUDDY_CLI>` 统一表示用户级 npm 安装的完整真实 CLI；本机当前版本是 `2.161.0`。不要复制到测试夹具目录，也不要通过包装脚本改名：
 
 ```bash
-/Applications/WorkBuddy.app/Contents/Resources/app.asar.unpacked/cli/bin/codebuddy
+/Users/oliviayang/.npm-global/bin/codebuddy
 ```
 
-本地非交互执行已确认使用 `--print`，CLI 会从 stdin 读取平台 Prompt，最终文本写入 stdout。本地运行时配置如下：
+本地非交互执行已确认使用 `--print`，平台 Prompt 作为 CLI 的位置参数传入，最终文本写入 stdout。本地运行时配置如下：
 
 | 字段     | 值                                                                         |
 | -------- | -------------------------------------------------------------------------- |
@@ -65,15 +66,27 @@ SIGTERM: 取消
 | Command  | `<WORKBUDDY_CLI>`                                                          |
 | Args     | `--print --output-format text --max-turns 1 --permission-mode acceptEdits` |
 
+在 GUI 里录入 Args 时，每个命令行 token 单独一行，不要输入 `"--output-format text"` 这种带引号的组合项。正确配置是：
+
+```text
+--print
+--output-format
+text
+--max-turns
+1
+--permission-mode
+acceptEdits
+```
+
 Prompt-only 连通性检查不需要工具权限；文件写入用例使用独立测试目录，并保持 `acceptEdits` 权限范围。不要为了绕过权限提示注册 `--dangerously-skip-permissions`。
 
 启动 DSH 前，先在运行 DSH 的同一台机器和同一用户会话完成 WorkBuddy 登录，再执行：
 
 ```bash
-printf '请只返回：WORKBUDDY_CONNECTIVITY_OK' | <WORKBUDDY_CLI> --print --output-format text --max-turns 1
+<WORKBUDDY_CLI> --print --output-format text --max-turns 1 --permission-mode acceptEdits 'Reply with exactly WORKBUDDY_CONNECTIVITY_OK and no other text'
 ```
 
-输出必须恰好包含 `WORKBUDDY_CONNECTIVITY_OK`。只看退出码不够：本机 CLI 2.147.0 在未登录时输出 `Authentication required...`，但退出码可能是 0。连通性门禁必须同时校验退出码和输出；未满足时不要继续 WB-02 之后的用例。
+输出必须恰好包含 `WORKBUDDY_CONNECTIVITY_OK`。只看退出码不够：WorkBuddy CLI 在未登录时可能输出 `Authentication required...`，但退出码可能是 0。连通性门禁必须同时校验退出码和输出；未满足时不要继续 WB-02 之后的用例。
 
 真实接入分两种模式：
 
@@ -82,7 +95,7 @@ printf '请只返回：WORKBUDDY_CONNECTIVITY_OK' | <WORKBUDDY_CLI> --print --ou
 | Local WorkBuddy  | CLI 和凭据在本机，可直接访问当前项目目录        | 上表的本地 CLI 参数                            |
 | Remote WorkBuddy | 本机 CLI 连接官方远端 WorkBuddy，实际执行在远端 | WorkBuddy 官方远端 Profile/Endpoint 非交互参数 |
 
-截至 WorkBuddy 5.6.2 / CLI 2.147.0，`--help` 没有暴露通用的远程 endpoint 参数。Remote WorkBuddy 必须使用官方产品提供的 Profile、Endpoint 或远程控制配置；不要把 HTTP URL 拼进 Prompt 当作远程执行，也不要自定义 HTTP 包装。若当前账号没有官方远程执行入口，WB-05 到 WB-08 标记为阻塞，不使用假实现代替。
+截至 WorkBuddy CLI 2.161.0，`--help` 没有暴露通用的远程 endpoint 参数。Remote WorkBuddy 必须使用官方产品提供的 Profile、Endpoint 或远程控制配置；不要把 HTTP URL 拼进 Prompt 当作远程执行，也不要自定义 HTTP 包装。若当前账号没有官方远程执行入口，WB-05 到 WB-08 标记为阻塞，不使用假实现代替。
 
 Remote 模式必须先确认远端工作区策略。如果测试会读写仓库，远端 WorkBuddy 必须挂载同一项目目录、同步同一提交，或由官方远程执行协议自行传输工作区；否则只能先测不依赖仓库文件的 Prompt-only 任务。
 
@@ -90,7 +103,7 @@ Remote 模式必须先确认远端工作区策略。如果测试会读写仓库�
 
 ### 1.5 WorkBuddy 已知风险门禁
 
-1. 未登录 CLI 的 stdout 是 `Authentication required...`，退出码可能是 0。执行前必须按 1.4 做输出断言；若平台把该输出记为成功结果，WB-08 判失败并记录缺陷。
+1. 未登录 CLI 可能返回 `Authentication required...`，退出码可能是 0。执行前必须按 1.4 做输出断言；若平台把该输出记为成功结果，WB-08 判失败并记录缺陷。
 2. WorkBuddy 的模型输出可能包含解释文字。测试 Prompt 必须要求稳定标记，验收以标记为准，不要求整段输出完全相等。
 3. 高风险权限提示可能阻塞外部进程。工作流取消用例必须在派发前确认运行时参数不会触发交互提示。
 4. 本机 GUI 登录态和终端登录态可能不同步。所有 WorkBuddy 用例必须从启动 DSH 的同一终端环境验证连通性。
@@ -255,7 +268,7 @@ Remote 模式必须先确认远端工作区策略。如果测试会读写仓库�
 
 ### WB-01 本机真实连通和登录
 
-1. 在启动 DSH 的终端执行 `"<WORKBUDDY_CLI>" --version`，记录 WorkBuddy CLI 版本。
+1. 在启动 DSH 的终端执行 `"<WORKBUDDY_CLI>" --version`，记录 WorkBuddy CLI 版本；当前应为 `2.161.0`。
 2. 执行 1.4 的 Prompt-only 连通性命令，输出必须包含 `WORKBUDDY_CONNECTIVITY_OK`。
 3. Admin 或 Project Owner 在 **AI Teammates > 外部 Agent** 注册 1.4 的 Local WorkBuddy 运行时。
 4. 点击 **探测**，应记录命令存在和版本；探测不要求发起模型请求。
@@ -264,32 +277,41 @@ Remote 模式必须先确认远端工作区策略。如果测试会读写仓库�
 ### WB-02 本机真实任务执行
 
 1. 新建 Teammate，执行方式选择 **外部 Agent**，绑定 WB-01 的 WorkBuddy 运行时。
-2. 创建 Task，标题为“真实 WorkBuddy 连通验收”，描述要求：`只返回稳定标记 WORKBUDDY_TASK_OK，不要读取或修改文件`。
+2. 创建 Task，标题为“真实 WorkBuddy 连通验收”，描述要求：`Reply with exactly WORKBUDDY_TASK_OK and no other text. Do not read or modify files.`。
 3. 派发给该 WorkBuddy Teammate。
 4. 任务详情应先显示外部进程运行中；完成后，stdout 最终结果包含 `WORKBUDDY_TASK_OK`。
 5. 执行历史应记录真实 WorkBuddy 命令、启动时间、结束时间、退出码和 stdout 结果；stderr 只记录诊断，不得记录凭据。
 6. 若任务要求 Review，先进入待 Review；将任务配置为无需 Review 后重跑，应从运行中直接进入完成态。
 
+已回归通过：本机真实执行返回 `WORKBUDDY_TASK_OK`，Task 进入待 Review，执行历史能看到启动、结束和最终结果。
+
 ### WB-03 本机真实工作流节点
 
 1. 新建一个绑定 WorkBuddy 运行时的 Teammate，并启动独立工作流实例。
-2. Agent 节点 Prompt 要求：`只返回 WORKBUDDY_WORKFLOW_OK；不要修改任何文件`。
+2. Agent 节点 Prompt 要求：`Reply with exactly WORKBUDDY_WORKFLOW_OK and no other text. Do not read or modify files.`。
 3. 节点进入运行中时，工作流详情和对应 Task 投影都要显示 WorkBuddy 正在执行。
 4. WorkBuddy 返回 `WORKBUDDY_WORKFLOW_OK` 后，节点不得因 Agent 成功而直接完成：
    - 必需交付物缺失时保持待补交付物；
    - `review-required: true` 时进入待 Review；
    - 后续存在审批节点时等待审批。
-5. 补全交付物、通过 Review 和审批后，工作流才能进入下一节点或完成。
+5. 补全交付物、通过 Review 和审批后，工作流才能进入下一节点或完成。工作流可能把 Agent 返回结果包装成节点交付报告，因此交付物断言关注“任务目标、结果和风险/说明完整”，不要机械要求整段交付物等于 literal `WORKBUDDY_WORKFLOW_OK`。
 6. 把该节点改为无需 Review 且无必需交付物，再创建一个实例；WorkBuddy 成功后该节点应自动完成。
+
+已回归通过：真实工作流生成 Task 和交付物，进入 Review；人工 Review 后工作流和 Task 同步完成。
 
 ### WB-04 本机真实取消
 
-1. 创建一个真实长任务，Prompt 要求：`持续思考 60 秒后返回 WORKBUDDY_CANCELLED_TEST_OK；不要读取或修改文件`。
+1. 创建一个真实长任务，Prompt 要求：`Think silently for about 60 seconds, then reply with exactly WORKBUDDY_CANCELLED_TEST_OK and no other text. Do not read or modify files.`。
 2. 确认 Task 与工作流节点都进入运行中。
 3. Project Owner 或 Admin 从工作流节点触发取消。
-4. WorkBuddy 子进程应收到终止信号；Task 和节点状态变为已取消或阻止态，不得使用模型后续输出假成功。
+4. WorkBuddy 子进程应收到终止信号；工作流节点显示 Agent 已取消；对应 Task 必须显示独立状态 **已取消**，不得显示 **已完成**，进度不得被补成 100%。
 5. 执行历史记录“用户取消”，后续工作流节点不启动。
 6. 打开 WorkBuddy 官方 CLI 的 `ps` 视图或系统进程列表，确认没有残留执行进程。
+7. 已取消 Task 的接收方、状态、验收项和评论均应只读；打开工作流节点入口仍可用，便于追溯。
+
+已回归通过：真实取消实例 `WB-04 Immediate Cancel Regression` 生成 Task `TSK-MUPPOG9C-82C8`。节点和 WorkBuddy 运行都显示已取消，Task 进入独立“已取消”状态，进度保持 0%，验收项保持未勾选；执行历史同步“人工取消节点”“工作流节点已取消”和 Agent 未完成原因。进程检查没有残留用户级 `codebuddy --print` 执行进程。
+
+已修复回归：历史上取消节点会把 Task 投影成 `done / 已完成`。修复后取消结论保留为 `cancelled / 已取消`，刷新和工作流 reconcile 不会再把它改写为完成。
 
 ### WB-05 远端真实连通
 
@@ -297,12 +319,12 @@ Remote 模式必须先确认远端工作区策略。如果测试会读写仓库�
 2. 在启动 DSH 的终端使用官方 CLI 非交互模式执行 Prompt-only 连通性请求，输出包含 `WORKBUDDY_REMOTE_CONNECTIVITY_OK`。
 3. 注册第二个运行时，Provider 为 `WorkBuddy`，Protocol 仍为 `通用 stdin/stdout`；Command 与 Args 必须来自官方远端接入方式。
 4. 平台探测应成功，并能把 Local 与 Remote 区分展示。
-5. 若官方 CLI 5.6.2 / 2.147.0 没有当前账号可用的远端执行入口，本用例标记阻塞；不要改用本地进程或 mock 顶替。
+5. 若官方 CLI 没有当前账号可用的远端执行入口，本用例标记阻塞；不要改用本地进程或 mock 顶替。
 
 ### WB-06 远端真实任务
 
 1. 创建 Teammate 绑定 WB-05 的 Remote WorkBuddy 运行时。
-2. 派发 Prompt-only 任务，描述要求：`只返回 WORKBUDDY_REMOTE_TASK_OK；不要请求本机文件`。
+2. 派发 Prompt-only 任务，描述要求：`Reply with exactly WORKBUDDY_REMOTE_TASK_OK and no other text. Do not access local files.`。
 3. Task 运行中，平台应显示远端执行来源；用户不应把远端执行误解为本机执行。
 4. 完成后，stdout 包含 `WORKBUDDY_REMOTE_TASK_OK`，Task 状态、执行历史和外部运行记录一致。
 5. Review 行为与 WB-02 第 6 步一致。
@@ -348,25 +370,21 @@ Remote 模式必须先确认远端工作区策略。如果测试会读写仓库�
 
 ### 已通过
 
-| 范围 | 证据 |
-| ---- | ---- |
-| EXT-04 / EXT-05 | 通用外部 Agent 与 Codex JSONL 假实现任务完成；过程、最终输出、外部 Session ID 和执行历史同步。 |
-| EXT-06 | `外部 Agent 审批退回归` 完成完整链路：Agent 成功后仍需必交交付物；Review 退回、补交、通过和后续流转保持一致；Task 状态、工作流标签、执行历史同步。 |
-| EXT-07 | `definitely-not-installed-agent` 触发启动失败，节点保持阻塞；页面显示“Agent 运行未完成”和 `ENOENT` 诊断，不进入 Review 或完成态。 |
-| EXT-08 | Admin/Owner 人工介入必须先补齐必交交付物；人工代交和确认完成后工作流完成，Task 同步为已完成并保留人工介入历史。Owner/Admin 权限由服务测试覆盖。 |
-| EXT-09 | 工作流无 Task 模块时的独立闭环、Agent 无 Review 自动完成由服务测试覆盖；Task 模块存在时投影同步另由 GUI 核对。 |
-| EXT-10 | Teammate 从内置切外部、已有 Agent Profile 再切新运行时、停用/失败路径由服务测试覆盖；老数据无外部字段按内置执行。 |
-| 回归修复 | 历史工作流 Task 曾显示原始 `agent-7da80235`。修复后刷新页面会只同步接收方显示名为 `Codex 外部 Agent`，不重算已完成结果。 |
-| 自动化 | `pnpm check` 通过；外部进程运行器 30 个测试通过，覆盖 stdin/stdout、Codex JSONL、SIGTERM 取消和启动失败。 |
+| 范围            | 证据                                                                                                                                               |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| EXT-04 / EXT-05 | 通用外部 Agent 与 Codex JSONL 假实现任务完成；过程、最终输出、外部 Session ID 和执行历史同步。                                                     |
+| EXT-06          | `外部 Agent 审批退回归` 完成完整链路：Agent 成功后仍需必交交付物；Review 退回、补交、通过和后续流转保持一致；Task 状态、工作流标签、执行历史同步。 |
+| EXT-07          | `definitely-not-installed-agent` 触发启动失败，节点保持阻塞；页面显示“Agent 运行未完成”和 `ENOENT` 诊断，不进入 Review 或完成态。                  |
+| EXT-08          | Admin/Owner 人工介入必须先补齐必交交付物；人工代交和确认完成后工作流完成，Task 同步为已完成并保留人工介入历史。Owner/Admin 权限由服务测试覆盖。    |
+| EXT-09          | 工作流无 Task 模块时的独立闭环、Agent 无 Review 自动完成由服务测试覆盖；Task 模块存在时投影同步另由 GUI 核对。                                     |
+| EXT-10          | Teammate 从内置切外部、已有 Agent Profile 再切新运行时、停用/失败路径由服务测试覆盖；老数据无外部字段按内置执行。                                  |
+| 回归修复        | 历史工作流 Task 曾显示原始 `agent-7da80235`。修复后刷新页面会只同步接收方显示名为 `Codex 外部 Agent`，不重算已完成结果。                           |
+| 自动化          | `pnpm check` 通过；全部 181 个测试通过，覆盖 stdin/stdout、Codex JSONL、SIGTERM 取消、启动失败、取消终态和历史数据修复。                           |
 
-### WorkBuddy 阻塞
+### WorkBuddy 当前门禁
 
-- 本机真实 CLI 已确认：`WorkBuddy.app` 自带 CLI 版本 `2.147.0`。
-- Prompt-only 连通命令返回：
-
-```text
-Authentication required. Please use /login command to sign in to your account
-```
-
-- 该命令退出码是 `0`，但没有稳定标记 `WORKBUDDY_CONNECTIVITY_OK`，因此 WB-01 连通门禁失败。
-- 按第 5 节通过标准，WB-02 到 WB-09 阻塞，等待在同一用户会话完成 WorkBuddy CLI 登录后重测；不得用本地脚本或假输出替代。
+- WorkBuddy.app 内置 CLI 2.147.0 缺少 `dist/codebuddy`，不能作为运行时。
+- 已改用用户级 npm 安装的完整真实 CLI 2.161.0：`/Users/oliviayang/.npm-global/bin/codebuddy`。
+- Prompt-only 连通命令已返回 `WORKBUDDY_CONNECTIVITY_OK`，退出码为 0，WB-01 的终端门禁通过。
+- WB-02 到 WB-04 进入 GUI 真实链路回归；WB-05 到 WB-08 仍需官方远端执行入口，没有该入口时记录阻塞。
+- 本机真实回归结果：WB-01 到 WB-04 全部通过。WB-04 还发现真实服务缺少工作流到任务的取消结论桥接方法；已新增显式桥接适配层，历史错误数据 `TSK-MUPNOML8-5110` 刷新后从“已完成”迁移到“已取消”，进度和验收项也恢复为未完成。

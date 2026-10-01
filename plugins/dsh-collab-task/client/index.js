@@ -14,6 +14,7 @@ window.__ModuleLoader__.load({
       { key: "progress", label: "进行中" },
       { key: "review", label: "待验收" },
       { key: "done", label: "已完成" },
+      { key: "cancelled", label: "已取消" },
     ];
     const STATUS_LABEL = Object.fromEntries(
       STATUSES.map((status) => [status.key, status.label]),
@@ -40,7 +41,7 @@ window.__ModuleLoader__.load({
       .pmtask-search .pmtask-input{flex:1 1 auto;}
       .pmtask-token{height:28px;border:0;border-radius:6px;padding:0 9px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11.5px;cursor:pointer;}
       .pmtask-token.active{background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 14%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7);}
-      .pmtask-board{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;align-items:stretch;flex:1;min-height:max(420px,calc(100vh - 255px));}
+      .pmtask-board{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;align-items:stretch;flex:1;min-height:max(420px,calc(100vh - 255px));}
       .pmtask-column{min-width:0;min-height:100%;display:flex;flex-direction:column;border:0.5px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
       .pmtask-column.drop-ready{border-color:var(--dsw-alias-accent-primary,#4f8ef7);box-shadow:0 0 0 1px var(--dsw-alias-accent-primary,#4f8ef7);}
       .pmtask-column-head{display:grid;grid-template-columns:8px minmax(0,1fr) auto auto;align-items:center;gap:7px;padding:10px 10px 8px;border-bottom:0.5px solid var(--dsw-alias-border-l2);}
@@ -49,7 +50,7 @@ window.__ModuleLoader__.load({
       .pmtask-column-add{width:24px;height:24px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;}
       .pmtask-column-add:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
       .pmtask-column-dot{width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-label-tertiary);}
-      .pmtask-column-dot.progress{background:#4f8ef7}.pmtask-column-dot.review{background:#e2a737}.pmtask-column-dot.done{background:#34d47e}
+      .pmtask-column-dot.progress{background:#4f8ef7}.pmtask-column-dot.review{background:#e2a737}.pmtask-column-dot.done{background:#34d47e}.pmtask-column-dot.cancelled{background:var(--dsw-alias-state-error-primary,#e5534b)}
       .pmtask-cards{flex:1;display:grid;gap:7px;align-content:start;padding:8px;}
       .pmtask-card{display:grid;gap:7px;padding:10px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-2);cursor:pointer;}
       .pmtask-card:hover{border-color:var(--dsw-alias-border-l4);}
@@ -70,6 +71,7 @@ window.__ModuleLoader__.load({
       .pmtask-pill.progress{background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 14%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7);}
       .pmtask-pill.review{background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#e2a737) 14%,transparent);color:var(--dsw-alias-state-warning-primary,#e2a737);}
       .pmtask-pill.done{background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#34d47e) 14%,transparent);color:var(--dsw-alias-state-success-primary,#34d47e);}
+      .pmtask-pill.cancelled{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 14%,transparent);color:var(--dsw-alias-state-error-primary,#e5534b);}
       .pmtask-pill.archived{background:color-mix(in srgb,var(--dsw-alias-label-tertiary) 18%,transparent);color:var(--dsw-alias-label-secondary);}
       .pmtask-pill.workflow{background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 12%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7);}
       .pmtask-workflow-meta{display:flex;align-items:center;gap:6px;min-width:0;}
@@ -283,9 +285,9 @@ window.__ModuleLoader__.load({
       .pmtask-confirm-actions .pmtask-btn{height:32px;padding:0 12px;font-size:12px;}
       .pmtask-btn.danger-solid{background:var(--dsw-alias-state-error-primary,#e5534b);color:#fff;}
       .pmtask-empty{padding:46px 18px;text-align:center;color:var(--dsw-alias-label-secondary);font-size:12.5px;}
-      @media(max-width:1100px){.pmtask-board{grid-template-columns:repeat(4,260px);overflow-x:auto;}}
+      @media(max-width:1100px){.pmtask-board{grid-template-columns:repeat(5,260px);overflow-x:auto;}}
       @media(max-width:900px){.pmtask-detail-layout{grid-template-columns:1fr}.pmtask-detail-main{border-right:0;border-bottom:0.5px solid var(--dsw-alias-border-l2);}.pmtask-detail-top .pmtask-crumb{flex-basis:100%;order:3}.pmtask-grid-demo{grid-template-columns:repeat(2,minmax(0,1fr));}}
-      @media(max-width:700px){.pmtask{padding:14px}.pmtask-head{flex-direction:column}.pmtask-modal-grid{grid-template-columns:1fr}.pmtask-board{grid-template-columns:repeat(4,240px)}}
+      @media(max-width:700px){.pmtask{padding:14px}.pmtask-head{flex-direction:column}.pmtask-modal-grid{grid-template-columns:1fr}.pmtask-board{grid-template-columns:repeat(5,240px)}}
     `;
 
     function token() {
@@ -576,6 +578,10 @@ window.__ModuleLoader__.load({
 
     function statusLabel(status) {
       return STATUS_LABEL[status] ?? status;
+    }
+
+    function isSettledStatus(status) {
+      return status === "done" || status === "cancelled";
     }
 
     const RUNNING_MESSAGE_STATES = ["queued", "running", "waiting_input"];
@@ -1711,6 +1717,7 @@ window.__ModuleLoader__.load({
             h(TaskColumn, {
               key: status.key,
               status,
+              readOnly: status.key === "cancelled",
               tasks: tasks.filter((task) => task.status === status.key),
               onOpen,
               onCreate,
@@ -1727,6 +1734,7 @@ window.__ModuleLoader__.load({
 
     function TaskColumn({
       status,
+      readOnly,
       tasks,
       onOpen,
       onCreate,
@@ -1742,6 +1750,7 @@ window.__ModuleLoader__.load({
         {
           className: `pmtask-column ${dropReady ? "drop-ready" : ""}`,
           onDragOver: (event) => {
+            if (readOnly) return;
             event.preventDefault();
             setDropReady(true);
           },
@@ -1752,6 +1761,7 @@ window.__ModuleLoader__.load({
           onDrop: (event) => {
             event.preventDefault();
             setDropReady(false);
+            if (readOnly) return;
             const taskId =
               event.dataTransfer.getData("text/plain") || dragId.current;
             if (taskId !== "") void onDrop(taskId, status.key);
@@ -1768,9 +1778,17 @@ window.__ModuleLoader__.load({
             {
               className: "pmtask-column-add",
               type: "button",
-              title: `在${status.label}新建任务`,
-              "aria-label": `在${status.label}新建任务`,
-              onClick: () => onCreate(status.key),
+              hidden: readOnly,
+              title: readOnly
+                ? "已取消状态不接受新建任务"
+                : `在${status.label}新建任务`,
+              "aria-label": readOnly
+                ? "已取消状态不接受新建任务"
+                : `在${status.label}新建任务`,
+              onClick: () => {
+                if (readOnly) return;
+                onCreate(status.key);
+              },
             },
             "+",
           ),
@@ -1785,7 +1803,10 @@ window.__ModuleLoader__.load({
                 key: task.id,
                 className: `pmtask-card${taskHasActiveRun(task) ? " running" : ""}${isArchived(task) ? " archived" : ""}${task.id === highlightedId ? " highlighted" : ""}`,
                 "data-task-id": task.id,
-                draggable: !isArchived(task) && task.workflow === undefined,
+                draggable:
+                  !isArchived(task) &&
+                  task.status !== "cancelled" &&
+                  task.workflow === undefined,
                 tabIndex: 0,
                 role: "button",
                 onClick: () => onOpen(task.id),
@@ -1794,7 +1815,7 @@ window.__ModuleLoader__.load({
                     onOpen(task.id);
                 },
                 onDragStart: (event) => {
-                  if (isArchived(task)) return;
+                  if (isArchived(task) || task.status === "cancelled") return;
                   dragId.current = task.id;
                   onDragStart();
                   event.dataTransfer.setData("text/plain", task.id);
@@ -1985,6 +2006,7 @@ window.__ModuleLoader__.load({
       const mine = taskBelongsTo(task, currentUser, directory);
       const sent = currentUser !== null && task.createdBy === currentUser.id;
       const archived = isArchived(task);
+      const readOnly = archived || task.status === "cancelled";
       const isApprovalTask = task.workflow?.approvalPolicy !== undefined;
       const canClaim = task.receiverType === "role" && task.status === "todo";
       const insertMention = (name) => {
@@ -2044,7 +2066,7 @@ window.__ModuleLoader__.load({
           message.trim() === "" && attachments.length > 0
             ? `已上传附件：${attachments.map((file) => file.name).join("、")}`
             : message.trim();
-        if (archived || content === "") return;
+        if (readOnly || content === "") return;
         try {
           const uploaded = [];
           for (const file of attachments) {
@@ -2148,6 +2170,7 @@ window.__ModuleLoader__.load({
       };
 
       const resetSession = async () => {
+        if (readOnly) return;
         if (
           !window.confirm(
             "重置执行会话会另起一条新会话，下一次执行重新注入完整任务上下文；旧会话保留为只读。确认继续？",
@@ -2165,7 +2188,11 @@ window.__ModuleLoader__.load({
           fail(cause);
         }
       };
-      const lockedTip = archived ? "任务已归档，复原后可操作" : undefined;
+      const lockedTip = archived
+        ? "任务已归档，复原后可操作"
+        : task.status === "cancelled"
+          ? "任务已取消，仅保留记录"
+          : undefined;
       const archiveTask = async () => {
         try {
           await mutate(
@@ -2279,6 +2306,9 @@ window.__ModuleLoader__.load({
         );
       };
       const workflowActionCopy = (() => {
+        if (task.status === "cancelled") {
+          return "工作流节点已取消；此任务保留执行记录，不可继续操作。";
+        }
         if (isApprovalTask) {
           return task.status === "review"
             ? "当前审批待处理，可以在下方直接给出结论，或进入工作流查看完整审批记录。"
@@ -2340,11 +2370,13 @@ window.__ModuleLoader__.load({
             });
       const composerHint = archived
         ? "任务已归档 · 复原后可继续发送指令"
-        : task.receiverType === "unassigned"
-          ? "暂无接收方 · 任务待指派"
-          : task.receiverType === "agent"
-            ? `发送给 ${receiverDisplay(task)}${task.status === "progress" && taskHasActiveRun(task) ? " · Agent 执行中" : task.status === "progress" ? " · 最近一次 Agent 运行未完成" : ""}`
-            : `发送给 ${receiverDisplay(task)}`;
+        : task.status === "cancelled"
+          ? "任务已取消 · 历史记录保留为只读"
+          : task.receiverType === "unassigned"
+            ? "暂无接收方 · 任务待指派"
+            : task.receiverType === "agent"
+              ? `发送给 ${receiverDisplay(task)}${task.status === "progress" && taskHasActiveRun(task) ? " · Agent 执行中" : task.status === "progress" ? " · 最近一次 Agent 运行未完成" : ""}`
+              : `发送给 ${receiverDisplay(task)}`;
       const history = [
         ...task.messages.map((item) => ({
           kind: "message",
@@ -2391,14 +2423,16 @@ window.__ModuleLoader__.load({
                 {
                   className: `pmtask-assign-trigger${pendingAssignee === null ? "" : " pending"}`,
                   type: "button",
-                  disabled: archived,
+                  disabled: readOnly,
                   title: archived
                     ? "任务已归档，复原后可调整接收方"
-                    : "调整接收方",
+                    : task.status === "cancelled"
+                      ? "任务已取消，不可调整接收方"
+                      : "调整接收方",
                   "aria-haspopup": "listbox",
                   "aria-expanded": assignOpen,
                   onClick: () => {
-                    if (archived) return;
+                    if (readOnly) return;
                     setAssignOpen(!assignOpen);
                   },
                 },
@@ -2420,7 +2454,7 @@ window.__ModuleLoader__.load({
                 ),
                 h("span", { "aria-hidden": "true" }, "⌄"),
               ),
-              assignOpen && !archived
+              assignOpen && !readOnly
                 ? h(
                     "div",
                     { className: "pmtask-menu-list" },
@@ -2549,13 +2583,9 @@ window.__ModuleLoader__.load({
                           className: "pmtask-icon-btn",
                           type: "button",
                           hidden: task.workflow !== undefined,
-                          disabled: archived,
-                          title: archived
-                            ? "任务已归档，复原后可编辑"
-                            : "编辑标题、优先级和描述",
-                          "aria-label": archived
-                            ? "任务已归档，复原后可编辑"
-                            : "编辑标题、优先级和描述",
+                          disabled: readOnly,
+                          title: lockedTip ?? "编辑标题、优先级和描述",
+                          "aria-label": lockedTip ?? "编辑标题、优先级和描述",
                           onClick: () => setEditing(true),
                         },
                         h(
@@ -2778,7 +2808,7 @@ window.__ModuleLoader__.load({
                                 {
                                   className: "pmtask-btn secondary",
                                   type: "button",
-                                  disabled: archived,
+                                  disabled: readOnly,
                                   title: lockedTip,
                                   onClick: () =>
                                     void action("claim", "已认领任务"),
@@ -2792,7 +2822,7 @@ window.__ModuleLoader__.load({
                                 {
                                   className: "pmtask-btn secondary",
                                   type: "button",
-                                  disabled: archived,
+                                  disabled: readOnly,
                                   title: lockedTip,
                                   onClick: () =>
                                     void action("start", "任务已开始"),
@@ -2808,7 +2838,7 @@ window.__ModuleLoader__.load({
                                 {
                                   className: "pmtask-btn secondary",
                                   type: "button",
-                                  disabled: archived,
+                                  disabled: readOnly,
                                   title: lockedTip,
                                   onClick: () =>
                                     void action("submit", "已提交验收"),
@@ -2825,7 +2855,7 @@ window.__ModuleLoader__.load({
                                 {
                                   className: "pmtask-btn secondary",
                                   type: "button",
-                                  disabled: archived,
+                                  disabled: readOnly,
                                   title: lockedTip,
                                   onClick: () =>
                                     void action("approve", "任务已完成"),
@@ -2842,7 +2872,7 @@ window.__ModuleLoader__.load({
                                 {
                                   className: "pmtask-btn secondary",
                                   type: "button",
-                                  disabled: archived,
+                                  disabled: readOnly,
                                   title: lockedTip,
                                   onClick: () =>
                                     void action("reject", "已退回"),
@@ -2851,14 +2881,14 @@ window.__ModuleLoader__.load({
                               )
                             : null,
                           sent &&
-                            task.status !== "done" &&
+                            !isSettledStatus(task.status) &&
                             task.receiverType !== "unassigned"
                             ? h(
                                 "button",
                                 {
                                   className: "pmtask-btn secondary",
                                   type: "button",
-                                  disabled: archived,
+                                  disabled: readOnly,
                                   title: lockedTip,
                                   onClick: () =>
                                     void action("nudge", "已提醒接收方"),
@@ -2868,14 +2898,14 @@ window.__ModuleLoader__.load({
                             : null,
                           mine &&
                             task.receiverType === "human" &&
-                            task.status !== "done" &&
+                            !isSettledStatus(task.status) &&
                             myAgent !== undefined
                             ? h(
                                 "button",
                                 {
                                   className: "pmtask-btn secondary",
                                   type: "button",
-                                  disabled: archived,
+                                  disabled: readOnly,
                                   title: lockedTip,
                                   onClick: async () => {
                                     try {
@@ -2903,16 +2933,16 @@ window.__ModuleLoader__.load({
                                 {
                                   className: "pmtask-btn secondary",
                                   type: "button",
-                                  disabled: archived,
-                                  title: archived
-                                    ? "任务已归档，复原后可回复"
-                                    : "直接在下方输入框补充指令，发送给执行本任务的 Agent",
+                                  disabled: readOnly,
+                                  title:
+                                    lockedTip ??
+                                    "直接在下方输入框补充指令，发送给执行本任务的 Agent",
                                   onClick: () => focusComposer(),
                                 },
                                 "人工回复",
                               )
                             : null,
-                          task.receiverType === "agent" && !archived
+                          task.receiverType === "agent" && !readOnly
                             ? h(
                                 "button",
                                 {
@@ -2959,10 +2989,8 @@ window.__ModuleLoader__.load({
                         {
                           className: "pmtask-tool-btn",
                           type: "button",
-                          disabled: archived,
-                          title: archived
-                            ? "任务已归档，复原后可编辑"
-                            : "插入表情",
+                          disabled: readOnly,
+                          title: lockedTip ?? "插入表情",
                           "aria-label": "插入表情",
                           onClick: () => setMessage((current) => `${current}☺`),
                         },
@@ -2972,10 +3000,8 @@ window.__ModuleLoader__.load({
                         "label",
                         {
                           className: "pmtask-tool-btn",
-                          title: archived
-                            ? "任务已归档，复原后可上传附件"
-                            : "上传附件",
-                          style: archived
+                          title: lockedTip ?? "上传附件",
+                          style: readOnly
                             ? { opacity: 0.5, pointerEvents: "none" }
                             : undefined,
                           "aria-label": "上传附件",
@@ -2998,7 +3024,7 @@ window.__ModuleLoader__.load({
                           type: "file",
                           multiple: true,
                           hidden: true,
-                          disabled: archived,
+                          disabled: readOnly,
                           onChange: (event) => {
                             const picked = Array.from(event.target.files ?? []);
                             event.target.value = "";
@@ -3015,14 +3041,12 @@ window.__ModuleLoader__.load({
                         {
                           className: "pmtask-tool-btn",
                           type: "button",
-                          disabled: archived,
-                          title: archived
-                            ? "任务已归档，复原后可 @ 成员"
-                            : "插入 @ 提及",
+                          disabled: readOnly,
+                          title: lockedTip ?? "插入 @ 提及",
                           "aria-haspopup": "listbox",
                           "aria-expanded": mentionOpen,
                           onClick: () => {
-                            if (archived) return;
+                            if (readOnly) return;
                             setMentionQuery("");
                             setMentionOpen((value) => !value);
                           },
@@ -3042,10 +3066,12 @@ window.__ModuleLoader__.load({
                       className: "pmtask-composer-input",
                       rows: 4,
                       value: message,
-                      readOnly: archived,
+                      readOnly: readOnly,
                       placeholder: archived
                         ? "任务已归档，复原后可继续发送指令"
-                        : "输入 / 补充给执行 Agent 的指令，或反馈任务进展。可 @ 人员、DE 和分身",
+                        : task.status === "cancelled"
+                          ? "任务已取消，历史记录为只读"
+                          : "输入 / 补充给执行 Agent 的指令，或反馈任务进展。可 @ 人员、DE 和分身",
                       onChange: (event) => {
                         const value = event.target.value;
                         setMessage(value);
@@ -3130,7 +3156,7 @@ window.__ModuleLoader__.load({
                             className: "pmtask-btn",
                             type: "button",
                             disabled:
-                              archived ||
+                              readOnly ||
                               (message.trim() === "" &&
                                 attachments.length === 0) ||
                               task.receiverType === "unassigned",
@@ -3299,7 +3325,7 @@ window.__ModuleLoader__.load({
                           className: "pmtask-reply-form",
                           onSubmit: async (event) => {
                             event.preventDefault();
-                            if (archived) return;
+                            if (readOnly) return;
                             const content = (replyDrafts[item.id] ?? "").trim();
                             if (content === "") return;
                             try {
@@ -3324,7 +3350,7 @@ window.__ModuleLoader__.load({
                         h("input", {
                           className: "pmtask-input",
                           value: replyDrafts[item.id] ?? "",
-                          disabled: archived,
+                          disabled: readOnly,
                           placeholder: `回复 ${item.authorName}`,
                           onChange: (event) =>
                             setReplyDrafts((current) => ({
@@ -3338,7 +3364,7 @@ window.__ModuleLoader__.load({
                             className: "pmtask-btn secondary",
                             type: "submit",
                             disabled:
-                              archived ||
+                              readOnly ||
                               (replyDrafts[item.id] ?? "").trim() === "",
                           },
                           "回复",
@@ -3356,7 +3382,7 @@ window.__ModuleLoader__.load({
                     className: "pmtask-comment-form",
                     onSubmit: async (event) => {
                       event.preventDefault();
-                      if (archived) return;
+                      if (readOnly) return;
                       const content = comment.trim();
                       if (content === "") return;
                       try {
@@ -3374,10 +3400,12 @@ window.__ModuleLoader__.load({
                   h("input", {
                     className: "pmtask-input",
                     value: comment,
-                    disabled: archived,
+                    disabled: readOnly,
                     placeholder: archived
                       ? "任务已归档，复原后可评论"
-                      : "写下评论，或回复协作成员（评论只有 @ 执行人才会触发执行）",
+                      : task.status === "cancelled"
+                        ? "任务已取消，评论已锁定"
+                        : "写下评论，或回复协作成员（评论只有 @ 执行人才会触发执行）",
                     onChange: (event) => setComment(event.target.value),
                   }),
                   h(
@@ -3385,7 +3413,7 @@ window.__ModuleLoader__.load({
                     {
                       className: "pmtask-btn secondary",
                       type: "submit",
-                      disabled: archived || comment.trim() === "",
+                      disabled: readOnly || comment.trim() === "",
                     },
                     "评论",
                   ),
@@ -3993,12 +4021,13 @@ window.__ModuleLoader__.load({
                       status: event.target.value,
                     })),
                 },
-                ...STATUSES.map((status) =>
-                  h(
-                    "option",
-                    { value: status.key, key: status.key },
-                    status.label,
-                  ),
+                ...STATUSES.filter((status) => status.key !== "cancelled").map(
+                  (status) =>
+                    h(
+                      "option",
+                      { value: status.key, key: status.key },
+                      status.label,
+                    ),
                 ),
               ),
             ),

@@ -1,7 +1,13 @@
 import { z } from "zod";
 
 export const taskIdSchema = z.string().min(1).max(160);
-export const taskStatusSchema = z.enum(["todo", "progress", "review", "done"]);
+export const taskStatusSchema = z.enum([
+  "todo",
+  "progress",
+  "review",
+  "done",
+  "cancelled",
+]);
 export const taskPrioritySchema = z.enum(["P1", "P2", "P3"]);
 export const taskReceiverTypeSchema = z.enum([
   "unassigned",

@@ -245,9 +245,10 @@ export interface WorkflowTaskRef {
   readonly receiverType: "unassigned" | "human" | "agent" | "role";
   readonly receiverId?: string | undefined;
   readonly receiverName?: string | undefined;
-  readonly status: "todo" | "progress" | "review" | "done";
+  readonly status: "todo" | "progress" | "review" | "done" | "cancelled";
   readonly nodeAttempt?: number | undefined;
   readonly reviewRequired?: boolean | undefined;
+  readonly workflow?: { readonly outcome?: string | undefined } | undefined;
 }
 
 export interface WorkflowTaskBridge {
@@ -544,6 +545,58 @@ function taskWorkflowActor(actor: {
           workspaceRole: actor.role === "admin" ? undefined : actor.role,
         }
       : {}),
+  };
+}
+
+type WorkflowTaskServiceCandidate = {
+  get: WorkflowTaskBridge["get"];
+  create: WorkflowTaskBridge["create"];
+  projectAssigned: WorkflowTaskBridge["projectAssigned"];
+  projectReceiverDisplay?: NonNullable<
+    WorkflowTaskBridge["projectReceiverDisplay"]
+  >;
+  settleProjection: WorkflowTaskBridge["settle"];
+  projectStatus: NonNullable<WorkflowTaskBridge["projectStatus"]>;
+  projectWorkflowEvent: NonNullable<WorkflowTaskBridge["projectEvent"]>;
+  projectAgentRun: NonNullable<WorkflowTaskBridge["projectAgentRun"]>;
+  bindWorkflowActions: (handler: unknown) => void;
+};
+
+/** Adapt the task service's implementation names to the stable bridge contract. */
+export function workflowTaskBridgeFrom(
+  value: unknown,
+): WorkflowTaskBridge | undefined {
+  const candidate = value as Partial<WorkflowTaskServiceCandidate> | undefined;
+  if (
+    candidate === undefined ||
+    typeof candidate.get !== "function" ||
+    typeof candidate.create !== "function" ||
+    typeof candidate.projectAssigned !== "function" ||
+    typeof candidate.settleProjection !== "function" ||
+    typeof candidate.projectStatus !== "function" ||
+    typeof candidate.projectWorkflowEvent !== "function" ||
+    typeof candidate.projectAgentRun !== "function"
+  ) {
+    return undefined;
+  }
+  return {
+    get: (taskId) => candidate.get!(taskId),
+    create: (actor, input) => candidate.create!(actor, input),
+    projectAssigned: (actor, input) => candidate.projectAssigned!(actor, input),
+    ...(typeof candidate.projectReceiverDisplay === "function"
+      ? {
+          projectReceiverDisplay: (actor, input) =>
+            candidate.projectReceiverDisplay!(actor, input),
+        }
+      : {}),
+    settle: (actor, taskId, outcome) =>
+      candidate.settleProjection!(actor, taskId, outcome),
+    projectStatus: (actor, taskId, status, message) =>
+      candidate.projectStatus!(actor, taskId, status, message),
+    projectEvent: (actor, taskId, event) =>
+      candidate.projectWorkflowEvent!(actor, taskId, event),
+    projectAgentRun: (actor, taskId, run, receiverName) =>
+      candidate.projectAgentRun!(actor, taskId, run, receiverName),
   };
 }
 
@@ -1256,6 +1309,10 @@ export class WorkflowService {
     return { id: "workflow", name: "工作流", kind: "system" as const };
   }
 
+  private isTaskSettled(task: Pick<WorkflowTaskRef, "status">): boolean {
+    return task.status === "done" || task.status === "cancelled";
+  }
+
   private taskReceiver(
     node: WorkflowNode,
     state: WorkflowNodeState,
@@ -1416,7 +1473,7 @@ export class WorkflowService {
       const task = bridge.get(taskId);
       const changed =
         task !== undefined &&
-        task.status !== "done" &&
+        !this.isTaskSettled(task) &&
         (task.receiverType !== receiver.type ||
           task.receiverId !== receiver.id ||
           task.receiverName !== receiver.name);
@@ -1623,6 +1680,15 @@ export class WorkflowService {
       return "superseded";
     }
     if (!["completed", "skipped"].includes(state.status)) return undefined;
+    if (
+      state.status === "skipped" &&
+      this.events(instance.id).some(
+        (event) =>
+          event.kind === "node.cancelled" && event.nodeId === state.nodeId,
+      )
+    ) {
+      return "cancelled";
+    }
     if (instance.status === "cancelled") return "cancelled";
     if (instance.status === "failed") return "rejected";
     return "approved";
@@ -1643,7 +1709,6 @@ export class WorkflowService {
     const bridge = this.taskBridge();
     const projected = bridge?.get(task.id);
     if (bridge === undefined || projected === undefined) return;
-    if (projected.status === "done") return;
     const definition = this.tables.definitions.get(instance.definitionId);
     const node = definition?.graph.nodes.find(
       (item) => item.id === task.workflow!.nodeId,
@@ -1670,12 +1735,26 @@ export class WorkflowService {
     }
     const projectedAfterAssign = bridge.get(task.id);
     if (projectedAfterAssign === undefined) return;
-    if (projectedAfterAssign.status === "done") return;
     const outcome = this.projectionOutcome(
       instance,
       state,
       projectedAfterAssign,
     );
+    if (this.isTaskSettled(projectedAfterAssign)) {
+      if (
+        projectedAfterAssign.status === "done" &&
+        projectedAfterAssign.workflow?.outcome === "approved" &&
+        outcome === "cancelled"
+      ) {
+        try {
+          await bridge.settle(this.taskSystemActor(), task.id, "cancelled");
+          return "cancelled";
+        } catch {
+          // Keep the next refresh safe; task state remains authoritative if it rejects.
+        }
+      }
+      return;
+    }
     if (outcome === undefined) {
       const targetStatus = this.projectedTaskStatus(node, state);
       if (projectedAfterAssign.status !== targetStatus) {
@@ -1714,7 +1793,7 @@ export class WorkflowService {
     if (bridge === undefined || projected === undefined) return;
     if (
       bridge.projectReceiverDisplay === undefined ||
-      projected.status !== "done"
+      !this.isTaskSettled(projected)
     ) {
       return;
     }
@@ -1804,7 +1883,7 @@ export class WorkflowService {
     if (!["completed", "skipped"].includes(state.status)) return;
     for (const taskId of state.taskIds) {
       const task = bridge.get(taskId);
-      if (task === undefined || task.status === "done") continue;
+      if (task === undefined || this.isTaskSettled(task)) continue;
       try {
         await bridge.settle(this.taskSystemActor(), taskId, outcome);
       } catch {
@@ -3128,10 +3207,7 @@ export class WorkflowService {
     );
   }
 
-  private canIntervene(
-    actor: WorkflowActor,
-    _node: WorkflowNode,
-  ): boolean {
+  private canIntervene(actor: WorkflowActor, _node: WorkflowNode): boolean {
     return actor.kind === "user" && isManager(actor);
   }
 
@@ -5056,6 +5132,7 @@ export async function apply(
 ): Promise<void | (() => void)> {
   const domain = await ctx.storageDomain.open(workflowDomainSpec);
   let injectedTeam: TeamServiceLike | undefined;
+  let injectedTasks: WorkflowTaskBridge | undefined;
   let injectedWorkspaces: WorkflowWorkspaceRegistryLike | undefined;
   const service = new WorkflowService(
     {
@@ -5068,7 +5145,7 @@ export async function apply(
       team: () => injectedTeam,
       agent: () => ctx.get("collabAgent"),
       employee: () => ctx.get("collabEmployee"),
-      tasks: () => ctx.get("collabTasks"),
+      tasks: () => injectedTasks,
       workspaces: () => injectedWorkspaces,
     },
   );
@@ -5084,15 +5161,12 @@ export async function apply(
     });
   });
   ctx.inject(["collabTasks"], (child) => {
-    const tasks = (
-      child as WorkflowContext & { collabTasks?: WorkflowTaskBridge }
-    ).collabTasks;
-    if (tasks === undefined || typeof tasks.create !== "function") return;
-    (
-      tasks as unknown as {
-        bindWorkflowActions: (handler: unknown) => void;
-      }
-    ).bindWorkflowActions({
+    const tasks = (child as WorkflowContext & { collabTasks?: unknown })
+      .collabTasks;
+    const bridge = workflowTaskBridgeFrom(tasks);
+    if (bridge === undefined) return;
+    injectedTasks = bridge;
+    (tasks as WorkflowTaskServiceCandidate).bindWorkflowActions({
       assign: (
         task: Parameters<WorkflowService["handleTaskAssigned"]>[0],
         actor: {
