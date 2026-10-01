@@ -711,6 +711,20 @@ window.__ModuleLoader__.load({
                                 children: "下载",
                               })
                             : null,
+                          props.onReject &&
+                          latest.status === "submitted" &&
+                          manager &&
+                          ["ready", "running", "waiting"].includes(
+                            state?.status ?? "",
+                          )
+                            ? jsxRuntime.jsx("button", {
+                                type: "button",
+                                className: "pmwf-btn secondary small",
+                                disabled: props.busy !== "",
+                                onClick: () => props.onReject(latest.id),
+                                children: "退回",
+                              })
+                            : null,
                         ],
                       })
                     : null,
@@ -2502,6 +2516,23 @@ window.__ModuleLoader__.load({
           setBusy("");
         }
       };
+      const rejectDeliverable = async (submissionId) => {
+        if (busy !== "") return;
+        setBusy(`deliverable-reject:${submissionId}`);
+        try {
+          await request("/api/collab/workflow/deliverables/reject", {
+            method: "POST",
+            body: JSON.stringify({ submissionId }),
+          });
+          notify("已退回交付物");
+          await load();
+          await loadDetail(openId);
+        } catch (cause) {
+          fail(cause);
+        } finally {
+          setBusy("");
+        }
+      };
 
       const pendingApproverKey = (state, actor) =>
         Object.keys(state.approvals ?? {}).find((key) => {
@@ -3511,6 +3542,8 @@ window.__ModuleLoader__.load({
                                                           submitDeliverable,
                                                         onDownload:
                                                           downloadDeliverable,
+                                                        onReject:
+                                                          rejectDeliverable,
                                                       }),
                                                       systemServiceHint(
                                                         node,

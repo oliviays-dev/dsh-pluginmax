@@ -94,6 +94,8 @@ function setup() {
     id: string;
     personaId?: string;
     visibility?: "workspace" | "platform";
+    execution?: "builtin" | "external";
+    externalRuntimeId?: string;
   }> = [];
 
   const runtime = new TeammateRuntime({
@@ -165,16 +167,44 @@ function setup() {
       },
     }),
     agents: () => ({
+      profiles: (workspaceId: string) =>
+        agentProfiles
+          .filter((item) => item.visibility === "platform")
+          .map((item) => ({
+            ...item,
+            workspaceId,
+            name: `Agent ${item.id}`,
+            runtimeKind: "task-worker",
+            status: "active",
+            allowedTools: [],
+          })),
       createProfile: async (_actor, input) => {
         const record = {
           id: `agent-${String(agentProfiles.length + 1)}`,
           ...(input.personaId === undefined
             ? {}
             : { personaId: input.personaId }),
+          ...(input.execution === undefined
+            ? {}
+            : { execution: input.execution }),
+          ...(input.externalRuntimeId === undefined
+            ? {}
+            : { externalRuntimeId: input.externalRuntimeId }),
           visibility: input.visibility ?? "workspace",
         };
         agentProfiles.push(record);
         return record;
+      },
+      updateProfile: async (_actor, input) => {
+        const profile = agentProfiles.find(
+          (item) => item.id === input.profileId,
+        );
+        if (profile === undefined) throw new Error("agent profile not found");
+        if (input.execution !== undefined) profile.execution = input.execution;
+        if (input.externalRuntimeId === null) delete profile.externalRuntimeId;
+        else if (input.externalRuntimeId !== undefined)
+          profile.externalRuntimeId = input.externalRuntimeId;
+        return { id: profile.id, status: "active" };
       },
     }),
   });
@@ -310,6 +340,33 @@ describe("teammate runtime provisioning", () => {
     expect(employees.get(ensured.employeeId)?.managerEmployeeId).toBe(
       "human-olivia",
     );
+  });
+
+  it("syncs an existing execution identity when the teammate channel changes", async () => {
+    const { teammates, runtime, agentProfiles } = setup();
+    const platform = await activeTeammate(teammates, "platform");
+    await runtime.ensureRuntime({
+      teammateId: platform.id,
+      workspaceId: "workspace-1",
+      actor: admin,
+    });
+    await teammates.update(admin, {
+      teammateId: platform.id,
+      name: "测小白",
+      role: "测试",
+      execution: "external",
+      externalRuntimeId: "runtime-new",
+    });
+    const ensured = await runtime.ensureRuntime({
+      teammateId: platform.id,
+      workspaceId: "workspace-1",
+      actor: admin,
+    });
+    expect(ensured.profileId).toBe("agent-1");
+    expect(agentProfiles[0]).toMatchObject({
+      execution: "external",
+      externalRuntimeId: "runtime-new",
+    });
   });
 });
 

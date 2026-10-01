@@ -192,6 +192,7 @@ describe("dsh-collab-task service", () => {
     });
 
     const reconciled: string[] = [];
+    const refreshedReceivers: string[] = [];
     tasks.bindWorkflowActions({
       assign: () => {},
       decide: () => {},
@@ -199,6 +200,9 @@ describe("dsh-collab-task service", () => {
       reconcile: (task) => {
         reconciled.push(task.id);
         return "approved";
+      },
+      refreshReceiver: (task) => {
+        refreshedReceivers.push(task.id);
       },
       events: () => [
         {
@@ -215,6 +219,8 @@ describe("dsh-collab-task service", () => {
     });
     await tasks.reconcileWorkflowProjections("workspace-1");
     expect(reconciled).toEqual([workflowTask.id]);
+    await tasks.reconcileWorkflowProjections("workspace-1");
+    expect(refreshedReceivers).toEqual([workflowTask.id]);
     const settled = tasks.get(workflowTask.id);
     expect(settled.status).toBe("done");
     expect(settled.workflow?.outcome).toBe("approved");
@@ -1140,7 +1146,32 @@ describe("teammate task assignment", () => {
         users: () => [{ id: "admin", name: "Admin", role: "admin" }],
         members: () => [{ userId: "admin", memberRole: "owner" }],
       },
-      undefined,
+      {
+        list: () => [
+          {
+            id: "digital-1",
+            displayName: "测小白",
+            kind: "digital" as const,
+            status: "active",
+            managerEmployeeId: "admin",
+          },
+        ],
+        employeeWorkspaceTarget: () => undefined,
+        workflowTarget: () => ({
+          employee: {
+            id: "digital-1",
+            displayName: "测小白",
+            kind: "digital" as const,
+            status: "active",
+            managerEmployeeId: "admin",
+          },
+          profile: {
+            name: "测小白（旧执行身份）",
+            legacyAgentProfileId: "agent-legacy",
+            budget: { maxMinutes: 5 },
+          },
+        }),
+      },
       undefined,
       () => ({
         bindTask: () => undefined,
@@ -1167,6 +1198,7 @@ describe("teammate task assignment", () => {
             ownerName: "平台",
             source: "platform" as const,
             avatar: "",
+            employeeId: "digital-1",
           },
         ],
         ensureRuntime: async (input) => {
@@ -1206,6 +1238,9 @@ describe("teammate task assignment", () => {
         (agent) => agent.id === "tm-1" && agent.name === "测小白",
       ),
     ).toBe(true);
+    expect(
+      directory.agents.filter((agent) => agent.name === "测小白"),
+    ).toHaveLength(1);
 
     const create = routes.find(
       (route) => route.path === "/api/collab/tasks/create",

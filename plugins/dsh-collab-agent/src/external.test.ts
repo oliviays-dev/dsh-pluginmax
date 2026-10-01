@@ -109,4 +109,46 @@ describe("external agent process runner", () => {
     expect(result.stopReason).toBe("failed");
     expect(result.diagnostic).toContain("ENOENT");
   });
+
+  it("rejects a zero-exit run with no output", async () => {
+    const path = await script("process.exit(0);");
+    const runner = new ExternalAgentProcessRunner();
+    const result = await runner.execute({
+      runId: "run-4",
+      runtime: runtime({ command: "node", args: [path] }),
+      prompt: "hello",
+      workspacePath,
+      signal: new AbortController().signal,
+    });
+    expect(result.stopReason).toBe("failed");
+    expect(result.diagnostic).toBe("Agent returned empty output");
+  });
+
+  it("cancels a long-running process", async () => {
+    const path = await script(
+      [
+        "process.stdout.write('started\\n');",
+        "setInterval(() => {}, 1000);",
+        "process.on('SIGTERM', () => process.exit(0));",
+      ].join("\n"),
+    );
+    const runner = new ExternalAgentProcessRunner();
+    const controller = new AbortController();
+    const chunks: string[] = [];
+    const execution = runner.execute({
+      runId: "run-5",
+      runtime: runtime({ command: "node", args: [path] }),
+      prompt: "hello",
+      workspacePath,
+      signal: controller.signal,
+      onProgress: (text) => chunks.push(text),
+    });
+    for (let index = 0; index < 50 && !chunks.join("").includes("started"); index += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    controller.abort();
+    const result = await execution;
+    expect(chunks.join("")).toContain("started");
+    expect(result.stopReason).toBe("cancelled");
+  });
 });

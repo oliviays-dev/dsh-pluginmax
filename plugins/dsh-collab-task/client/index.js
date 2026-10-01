@@ -2343,7 +2343,7 @@ window.__ModuleLoader__.load({
         : task.receiverType === "unassigned"
           ? "暂无接收方 · 任务待指派"
           : task.receiverType === "agent"
-            ? `发送给 ${receiverDisplay(task)}${task.status === "progress" ? " · Agent 执行中" : ""}`
+            ? `发送给 ${receiverDisplay(task)}${task.status === "progress" && taskHasActiveRun(task) ? " · Agent 执行中" : task.status === "progress" ? " · 最近一次 Agent 运行未完成" : ""}`
             : `发送给 ${receiverDisplay(task)}`;
       const history = [
         ...task.messages.map((item) => ({

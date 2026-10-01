@@ -85,6 +85,7 @@ export interface WorkflowTaskActionHandler {
   ):
     | Promise<"approved" | "rejected" | "cancelled" | "superseded" | undefined>
     | ("approved" | "rejected" | "cancelled" | "superseded" | undefined);
+  refreshReceiver?(task: TaskRecord): Promise<void> | void;
   events?(
     task: TaskRecord,
   ):
@@ -277,7 +278,15 @@ export class TaskService {
   async reconcileWorkflowProjections(workspaceId: string): Promise<void> {
     if (this.workflowActions?.reconcile === undefined) return;
     for (const task of this.list(workspaceId)) {
-      if (task.workflow === undefined || task.status === "done") continue;
+      if (task.workflow === undefined) continue;
+      if (task.status === "done") {
+        try {
+          await this.workflowActions.refreshReceiver?.(task);
+        } catch {
+          // Display-name repair is best effort and retried on the next refresh.
+        }
+        continue;
+      }
       try {
         const outcome = await this.workflowActions.reconcile(task);
         if (this.workflowActions.events !== undefined) {
@@ -559,6 +568,43 @@ export class TaskService {
         actor,
         "assigned",
         `工作流同步负责人：${input.receiverName ?? input.receiverId ?? "待指派"}`,
+      ),
+    );
+  }
+
+  /** Refresh stale display fields without recomputing a completed workflow. */
+  async projectReceiverDisplay(
+    actor: TaskActor,
+    input: {
+      taskId: string;
+      receiverType: TaskRecord["receiverType"];
+      receiverId?: string | undefined;
+      receiverName?: string | undefined;
+    },
+  ): Promise<TaskRecord> {
+    const task = this.require(input.taskId);
+    const receiverId =
+      input.receiverType === "unassigned" ? undefined : input.receiverId;
+    const receiverName =
+      input.receiverType === "unassigned" ? undefined : input.receiverName;
+    if (
+      task.receiverType === input.receiverType &&
+      task.receiverId === receiverId &&
+      task.receiverName === receiverName
+    ) {
+      return task;
+    }
+    return this.put(
+      this.event(
+        {
+          ...task,
+          receiverType: input.receiverType,
+          receiverId,
+          receiverName,
+        },
+        actor,
+        "assigned",
+        `工作流同步负责人：${receiverName ?? receiverId ?? "待指派"}`,
       ),
     );
   }

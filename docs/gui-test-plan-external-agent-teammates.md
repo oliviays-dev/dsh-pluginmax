@@ -10,10 +10,11 @@
 
 ```bash
 lsof -ti tcp:33117 -sTCP:LISTEN
+pnpm --filter dsh-collab-task --filter dsh-collab-workflow --filter dsh-collab-teammate --filter dsh-collab-agent build
 DSH_HOME="$PWD/.tmp/external-agent-home" node vendor/deepseek-harness/apps/cli/lib/bin.js --profile pluginmax --no-open --port 33117
 ```
 
-如果第一条命令有 PID，先停止该测试进程；如果没有 PID，直接启动第二条。启动后从终端复制带 `?token=` 的完整 URL 打开。
+如果第一条命令有 PID，先停止该测试进程；再执行构建和启动。GUI 使用插件 `lib/` 构建产物，只跑源码测试不够。启动后从终端复制带 `?token=` 的完整 URL 打开。
 
 ### 1.2 账号与项目
 
@@ -342,3 +343,30 @@ Remote 模式必须先确认远端工作区策略。如果测试会读写仓库�
 7. WB-01 到 WB-04 必须全部通过；WB-05 到 WB-08 在账号具备官方远端执行能力时必须全部通过，否则必须明确记录阻塞原因。
 8. WB-09 必须通过。任何 WorkBuddy 输出、日志或审计记录中不得泄漏凭据。
 9. 未登录 WorkBuddy 的零退出码输出不得被平台解释为任务成功；若发现该缺陷，真实 WorkBuddy 套件整体判失败。
+
+## 6. 2026-10-01 GUI 回归记录
+
+### 已通过
+
+| 范围 | 证据 |
+| ---- | ---- |
+| EXT-04 / EXT-05 | 通用外部 Agent 与 Codex JSONL 假实现任务完成；过程、最终输出、外部 Session ID 和执行历史同步。 |
+| EXT-06 | `外部 Agent 审批退回归` 完成完整链路：Agent 成功后仍需必交交付物；Review 退回、补交、通过和后续流转保持一致；Task 状态、工作流标签、执行历史同步。 |
+| EXT-07 | `definitely-not-installed-agent` 触发启动失败，节点保持阻塞；页面显示“Agent 运行未完成”和 `ENOENT` 诊断，不进入 Review 或完成态。 |
+| EXT-08 | Admin/Owner 人工介入必须先补齐必交交付物；人工代交和确认完成后工作流完成，Task 同步为已完成并保留人工介入历史。Owner/Admin 权限由服务测试覆盖。 |
+| EXT-09 | 工作流无 Task 模块时的独立闭环、Agent 无 Review 自动完成由服务测试覆盖；Task 模块存在时投影同步另由 GUI 核对。 |
+| EXT-10 | Teammate 从内置切外部、已有 Agent Profile 再切新运行时、停用/失败路径由服务测试覆盖；老数据无外部字段按内置执行。 |
+| 回归修复 | 历史工作流 Task 曾显示原始 `agent-7da80235`。修复后刷新页面会只同步接收方显示名为 `Codex 外部 Agent`，不重算已完成结果。 |
+| 自动化 | `pnpm check` 通过；外部进程运行器 30 个测试通过，覆盖 stdin/stdout、Codex JSONL、SIGTERM 取消和启动失败。 |
+
+### WorkBuddy 阻塞
+
+- 本机真实 CLI 已确认：`WorkBuddy.app` 自带 CLI 版本 `2.147.0`。
+- Prompt-only 连通命令返回：
+
+```text
+Authentication required. Please use /login command to sign in to your account
+```
+
+- 该命令退出码是 `0`，但没有稳定标记 `WORKBUDDY_CONNECTIVITY_OK`，因此 WB-01 连通门禁失败。
+- 按第 5 节通过标准，WB-02 到 WB-09 阻塞，等待在同一用户会话完成 WorkBuddy CLI 登录后重测；不得用本地脚本或假输出替代。

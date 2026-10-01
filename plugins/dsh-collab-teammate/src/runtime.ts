@@ -134,6 +134,8 @@ export interface AgentServiceLike {
       readonly workspaceId: string;
       readonly profileId: string;
       readonly status?: "active" | "disabled" | undefined;
+      readonly execution?: "builtin" | "external" | undefined;
+      readonly externalRuntimeId?: string | null | undefined;
     },
   ): Promise<{ readonly id: string; readonly status: string }>;
   runs?(input: {
@@ -388,6 +390,35 @@ export class TeammateRuntime {
       );
       const profileId = existing?.profile.legacyAgentProfileId;
       if (existing !== undefined && profileId !== undefined) {
+        const agents = this.deps.agents();
+        const profile = agents
+          ?.profiles?.(input.workspaceId)
+          .find((item) => item.id === profileId);
+        const execution = teammate.execution ?? "builtin";
+        const externalRuntimeId =
+          execution === "external" ? teammate.externalRuntimeId : undefined;
+        if (
+          agents?.updateProfile !== undefined &&
+          (profile?.execution !== execution ||
+            profile?.externalRuntimeId !== externalRuntimeId)
+        ) {
+          await agents.updateProfile(
+            {
+              kind: "user",
+              id: input.actor.userId,
+              name: input.actor.name,
+              globalRole: input.actor.role,
+            },
+            {
+              workspaceId: input.workspaceId,
+              profileId,
+              execution,
+              ...(externalRuntimeId === undefined
+                ? { externalRuntimeId: null }
+                : { externalRuntimeId }),
+            },
+          );
+        }
         return {
           teammateId: teammate.id,
           employeeId: teammate.employeeId,

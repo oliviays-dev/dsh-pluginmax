@@ -233,6 +233,20 @@ class FakeTaskBridge implements WorkflowTaskBridge {
     return task;
   }
 
+  async projectReceiverDisplay(
+    _actor: Parameters<NonNullable<WorkflowTaskBridge["projectReceiverDisplay"]>>[0],
+    input: Record<string, unknown>,
+  ) {
+    const task = this.records.get(String(input.taskId));
+    if (task === undefined) throw new Error("task not found");
+    Object.assign(task, {
+      receiverType: input.receiverType,
+      receiverId: input.receiverId,
+      receiverName: input.receiverName,
+    });
+    return task;
+  }
+
   async settle(
     _actor: Parameters<WorkflowTaskBridge["settle"]>[0],
     taskId: string,
@@ -1505,7 +1519,12 @@ describe("workflow agent nodes", () => {
       title: "Agent 自动执行",
     });
     expect(instance.nodes.development?.status).toBe("running");
-    expect(instance.nodes.development?.assignedTo).toBe("backend-agent");
+    expect(instance.nodes.development?.assignedTo).toBe("Backend Agent");
+    const developmentTaskId = instance.nodes.development?.taskIds[0]!;
+    expect(tasks.records.get(developmentTaskId)).toMatchObject({
+      receiverId: "backend-agent",
+      receiverName: "Backend Agent",
+    });
     expect(agent.dispatchInputs).toHaveLength(1);
     expect(agent.dispatchInputs[0]).toMatchObject({
       profileId: "backend-agent",
@@ -1533,7 +1552,6 @@ describe("workflow agent nodes", () => {
     const settled = service.instance(instance.id)!;
     expect(settled.nodes.development?.status).toBe("ready");
     expect(settled.nodes.development?.note).toContain("等待人工 Review");
-    const developmentTaskId = settled.nodes.development?.taskIds[0]!;
     expect(tasks.records.get(developmentTaskId)?.status).toBe("review");
     expect(tasks.projectedStatuses.get(developmentTaskId)).toBe("review");
     expect(tasks.projectedRuns.get(developmentTaskId)).toBe(run.id);
@@ -1596,6 +1614,36 @@ describe("workflow agent nodes", () => {
     expect(tasks.records.get(developmentTaskId)?.status).toBe("done");
     expect(tasks.outcomes.get(developmentTaskId)).toBe("approved");
     expect(tasks.projectedRuns.get(developmentTaskId)).toBe(run.id);
+  });
+
+  it("refreshes stale agent task display names without changing the executor", async () => {
+    const { service, tasks } = await agentHarness();
+    const definition = await importedFixture(service, "agent-node.md");
+    const instance = await service.startInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "旧显示名同步",
+    });
+    const taskId = instance.nodes.development?.taskIds[0]!;
+    Object.assign(tasks.records.get(taskId)!, { receiverName: "backend-agent" });
+
+    await service.handleTaskReconcile(tasks.records.get(taskId)!);
+
+    expect(tasks.records.get(taskId)).toMatchObject({
+      receiverId: "backend-agent",
+      receiverName: "Backend Agent",
+    });
+
+    Object.assign(tasks.records.get(taskId)!, {
+      status: "done",
+      receiverName: "backend-agent",
+    });
+    await service.refreshTaskReceiverDisplay(tasks.records.get(taskId)!);
+
+    expect(tasks.records.get(taskId)).toMatchObject({
+      receiverId: "backend-agent",
+      receiverName: "Backend Agent",
+    });
   });
 
   it("direct-completes a no-review Agent node without a task module", async () => {

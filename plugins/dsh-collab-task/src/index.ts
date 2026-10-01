@@ -93,6 +93,7 @@ interface TeammateRuntimeLike {
     readonly ownerName: string;
     readonly source: "platform" | "personal";
     readonly avatar: string;
+    readonly employeeId?: string | undefined;
   }[];
   ensureRuntime(input: {
     readonly teammateId: string;
@@ -353,6 +354,14 @@ function directory(
     .filter((user) => memberIds.has(user.id))
     .map((user) => ({ id: user.id, name: user.name, role: user.role }));
   const employeeDirectory = employees?.list() ?? [];
+  const teammateEmployeeIds = new Set(
+    teammates !== undefined && actor !== undefined
+      ? teammates
+          .assignable(actor)
+          .map((teammate) => teammate.employeeId)
+          .filter((value): value is string => value !== undefined)
+      : [],
+  );
   const employeeById = new Map(
     employeeDirectory.map((employee) => [employee.id, employee]),
   );
@@ -369,6 +378,7 @@ function directory(
     .filter(
       (employee) =>
         employee.kind === "digital" &&
+        !teammateEmployeeIds.has(employee.id) &&
         employees?.employeeWorkspaceTarget(employee.id, workspaceId) !==
           undefined,
     )
@@ -637,7 +647,20 @@ async function dispatchTaskInstruction(
     task.receiverId,
     task.workspaceId,
   );
-  const employeeProfileId = employeeTarget?.profile.legacyAgentProfileId;
+  const ensured =
+    teammates !== undefined
+      ? await teammates.ensureRuntime({
+          teammateId: task.receiverId,
+          workspaceId: task.workspaceId,
+          actor: {
+            userId: actor.id,
+            name: actor.name,
+            role: actor.role ?? "member",
+          },
+        })
+      : undefined;
+  const employeeProfileId =
+    ensured?.profileId ?? employeeTarget?.profile.legacyAgentProfileId;
   let target:
     | {
         readonly employeeId: string;
@@ -654,20 +677,11 @@ async function dispatchTaskInstruction(
       profileId: employeeProfileId,
       profileName: employeeTarget.profile.name,
       maxMinutes: employeeTarget.profile.budget?.maxMinutes,
-      personaId: employeeTarget.employee.personaId,
+      personaId: employeeTarget.employee.personaId ?? ensured?.personaId,
       employeeName: employeeTarget.employee.displayName,
     };
-  } else if (teammates !== undefined) {
+  } else if (ensured !== undefined) {
     // AI Teammate 首次被指派时，按定义自动开通运行时身份。
-    const ensured = await teammates.ensureRuntime({
-      teammateId: task.receiverId,
-      workspaceId: task.workspaceId,
-      actor: {
-        userId: actor.id,
-        name: actor.name,
-        role: actor.role ?? "member",
-      },
-    });
     target = {
       employeeId: ensured.employeeId,
       profileId: ensured.profileId,

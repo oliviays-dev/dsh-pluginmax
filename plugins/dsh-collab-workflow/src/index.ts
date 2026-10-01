@@ -268,6 +268,14 @@ export interface WorkflowTaskBridge {
     },
     input: Record<string, unknown>,
   ): Promise<WorkflowTaskRef>;
+  projectReceiverDisplay?(
+    actor: {
+      readonly id: string;
+      readonly name: string;
+      readonly kind: "system";
+    },
+    input: Record<string, unknown>,
+  ): Promise<WorkflowTaskRef>;
   settle(
     actor: {
       readonly id: string;
@@ -1248,7 +1256,11 @@ export class WorkflowService {
     return { id: "workflow", name: "工作流", kind: "system" as const };
   }
 
-  private taskReceiver(node: WorkflowNode, state: WorkflowNodeState) {
+  private taskReceiver(
+    node: WorkflowNode,
+    state: WorkflowNodeState,
+    workspaceId: string,
+  ) {
     if (node.type === "approval") {
       const pending = Object.values(state.approvals).find(
         (item) => item.status === "pending",
@@ -1271,10 +1283,14 @@ export class WorkflowService {
       } as const;
     }
     if (["agent", "employee"].includes(node.executor.kind)) {
+      const profileName =
+        node.executor.kind === "agent"
+          ? this.options.agent?.()?.profile(workspaceId, node.executor.id)?.name
+          : undefined;
       return {
         type: "agent",
         id: node.executor.id,
-        name: node.executor.label ?? node.executor.id,
+        name: profileName ?? node.executor.label ?? node.executor.id,
       } as const;
     }
     return undefined;
@@ -1293,7 +1309,7 @@ export class WorkflowService {
     ) {
       return instance;
     }
-    const receiver = this.taskReceiver(node, state);
+    const receiver = this.taskReceiver(node, state, instance.workspaceId);
     if (receiver === undefined) return instance;
     const activeTaskIds: string[] = [];
     const reviewRequired =
@@ -1402,7 +1418,8 @@ export class WorkflowService {
         task !== undefined &&
         task.status !== "done" &&
         (task.receiverType !== receiver.type ||
-          task.receiverId !== receiver.id);
+          task.receiverId !== receiver.id ||
+          task.receiverName !== receiver.name);
       if (task !== undefined && changed) {
         try {
           const assigned = await bridge.projectAssigned(
@@ -1632,11 +1649,12 @@ export class WorkflowService {
       (item) => item.id === task.workflow!.nodeId,
     );
     if (node !== undefined) {
-      const receiver = this.taskReceiver(node, state);
+      const receiver = this.taskReceiver(node, state, instance.workspaceId);
       if (
         receiver !== undefined &&
         (projected.receiverType !== receiver.type ||
-          projected.receiverId !== receiver.id)
+          projected.receiverId !== receiver.id ||
+          projected.receiverName !== receiver.name)
       ) {
         try {
           await bridge.projectAssigned(this.taskSystemActor(), {
@@ -1652,6 +1670,7 @@ export class WorkflowService {
     }
     const projectedAfterAssign = bridge.get(task.id);
     if (projectedAfterAssign === undefined) return;
+    if (projectedAfterAssign.status === "done") return;
     const outcome = this.projectionOutcome(
       instance,
       state,
@@ -1678,6 +1697,53 @@ export class WorkflowService {
       // Keep the next task-list refresh safe to retry.
     }
     return outcome;
+  }
+
+  async refreshTaskReceiverDisplay(task: {
+    readonly id: string;
+    readonly workflow?:
+      { readonly instanceId: string; readonly nodeId: string } | undefined;
+  }): Promise<void> {
+    if (task.workflow === undefined) return;
+    const instance = this.instance(task.workflow.instanceId);
+    const state = instance?.nodes[task.workflow.nodeId];
+    if (instance === undefined || state === undefined) return;
+    if (!state.taskIds.includes(task.id)) return;
+    const bridge = this.taskBridge();
+    const projected = bridge?.get(task.id);
+    if (bridge === undefined || projected === undefined) return;
+    if (
+      bridge.projectReceiverDisplay === undefined ||
+      projected.status !== "done"
+    ) {
+      return;
+    }
+    const definition = this.tables.definitions.get(instance.definitionId);
+    const node = definition?.graph.nodes.find(
+      (item) => item.id === task.workflow!.nodeId,
+    );
+    const receiver =
+      node === undefined
+        ? undefined
+        : this.taskReceiver(node, state, instance.workspaceId);
+    if (
+      receiver === undefined ||
+      (projected.receiverType === receiver.type &&
+        projected.receiverId === receiver.id &&
+        projected.receiverName === receiver.name)
+    ) {
+      return;
+    }
+    try {
+      await bridge.projectReceiverDisplay(this.taskSystemActor(), {
+        taskId: task.id,
+        receiverType: receiver.type,
+        receiverId: receiver.id,
+        receiverName: receiver.name,
+      });
+    } catch {
+      // The next task refresh retries the display repair without blocking.
+    }
   }
 
   private projectedTaskStatus(
@@ -5049,6 +5115,9 @@ export async function apply(
       reconcile: (
         task: Parameters<WorkflowService["handleTaskReconcile"]>[0],
       ) => service.handleTaskReconcile(task),
+      refreshReceiver: (
+        task: Parameters<WorkflowService["handleTaskReconcile"]>[0],
+      ) => service.refreshTaskReceiverDisplay(task),
       events: (task: {
         readonly workflow?:
           { readonly instanceId: string; readonly nodeId: string } | undefined;
