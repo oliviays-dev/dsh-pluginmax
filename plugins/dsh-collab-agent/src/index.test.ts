@@ -9,6 +9,7 @@ import {
   type AgentProfile,
   type AgentRun,
   type AgentSessionsLike,
+  type AgentSessionPersistenceLike,
   type AgentSessionTitleLike,
   type AgentWorkflowHandler,
   type AgentsRegistryLike,
@@ -179,12 +180,21 @@ function harness(
     now?: () => Date;
     workspaces?: WorkspaceRegistryLike;
     sessions?: AgentSessionsLike;
+    sessionPersistence?: AgentSessionPersistenceLike;
     sessionTitle?: AgentSessionTitleLike;
     agents?: () => AgentsRegistryLike;
   } = {},
 ): Harness {
   const current = tables();
-  const service = new AgentRegistryService(current, options);
+  const service = new AgentRegistryService(current, {
+    ...(options.now === undefined ? {} : { now: options.now }),
+    ...(options.sessions === undefined
+      ? {}
+      : { sessions: () => options.sessions }),
+    ...(options.sessionPersistence === undefined
+      ? {}
+      : { sessionPersistence: () => options.sessionPersistence }),
+  });
   const subagents = fakeSubagents();
   const settled: AgentRun[] = [];
   const runtime = new AgentTaskRuntime({
@@ -197,6 +207,9 @@ function harness(
     ...(options.sessions === undefined
       ? {}
       : { sessions: () => options.sessions }),
+    ...(options.sessionPersistence === undefined
+      ? {}
+      : { sessionPersistence: () => options.sessionPersistence }),
     ...(options.sessionTitle === undefined
       ? {}
       : { sessionTitle: () => options.sessionTitle }),
@@ -226,7 +239,7 @@ async function createProfile(
 
 describe("agent profile registry", () => {
   it("creates and updates profiles with permission checks", async () => {
-    const { service, store } = harness();
+    const { service } = harness();
     expect(() =>
       service.createProfile(member, {
         workspaceId: "main",
@@ -246,6 +259,38 @@ describe("agent profile registry", () => {
       status: "disabled",
     });
     expect(disabled.status).toBe("disabled");
+  });
+
+  it("backfills output tokens for legacy runs from persisted sessions", async () => {
+    const current = tables();
+    const persistence = {
+      stat: async () => undefined,
+      open: async () => ({
+        read: async () => [
+          {
+            type: "assistant/message",
+            time: now().getTime(),
+            data: { usage: { outputTokens: 34 } },
+          },
+        ],
+        close: async () => undefined,
+      }),
+    };
+    const service = new AgentRegistryService(current, {
+      now,
+      sessionPersistence: () => persistence,
+    });
+    await createProfile(service);
+    const run = await service.dispatch(dispatchInput());
+    await current.runs.put(run.id, {
+      ...run,
+      status: "succeeded" as const,
+      sessionId: "legacy-session",
+      startedAt: now().toISOString(),
+      endedAt: now().toISOString(),
+    });
+    await service.backfillOutputTokens();
+    expect(service.run(run.id)?.outputTokens).toBe(34);
   });
 
   it("rejects cross-workspace profile access", async () => {
@@ -294,7 +339,7 @@ describe("agent profile registry", () => {
       description: "",
       runtimeKind: "task-worker",
       allowedTools: [],
-      ownerUserId: "workflow-owner",
+      ownerUserId: "flow-owner",
       status: "active",
       createdAt: now,
       updatedAt: now,
@@ -500,11 +545,93 @@ describe("agent task runtime", () => {
     expect(renamed).toEqual([
       {
         id: sessionId,
-        title: "TSK-订单导出-2-BackendAgent",
+        title: "Backend Agent-TSK-订单导出-2",
       },
     ]);
     await runtime.waitIdle();
     expect(service.run(run.id)?.output?.summary).toBe("home session response");
+  });
+
+  it("records only output tokens emitted during the current run window", async () => {
+    const events: Array<{
+      type: string;
+      time?: number;
+      data?: unknown;
+    }> = [];
+    const agents: AgentsRegistryLike = {
+      create: async ({ sessionId }) => ({
+        agent: {
+          session: {
+            id: sessionId,
+            snapshotEvents: () => events,
+          },
+          followup: () => {
+            events.push(
+              {
+                type: "assistant/message",
+                time: now().getTime() - 3_600_000,
+                data: {
+                  usage: { inputTokens: 100, outputTokens: 999 },
+                  message: { content: [{ type: "text", text: "old" }] },
+                },
+              },
+              {
+                type: "assistant/message",
+                time: now().getTime(),
+                data: {
+                  usage: { inputTokens: 20, outputTokens: 12 },
+                  message: { content: [{ type: "text", text: "first" }] },
+                },
+              },
+              {
+                type: "assistant/message",
+                time: now().getTime(),
+                data: {
+                  usage: { inputTokens: 5, outputTokens: 8 },
+                  message: { content: [{ type: "text", text: "final" }] },
+                },
+              },
+            );
+          },
+          whenIdle: async () => undefined,
+          cancel: () => undefined,
+        },
+        dispose: async () => undefined,
+      }),
+    };
+    const sessions: AgentSessionsLike = {
+      get: (sessionId) => ({
+        id: sessionId,
+        snapshotEvents: () => events,
+      }),
+    };
+    const { service, runtime } = harness({
+      now,
+      agents: () => agents,
+      sessions,
+      workspaces: {
+        create: async (path) => ({
+          path,
+          attachSession: async () => undefined,
+        }),
+      },
+    });
+    await createProfile(service);
+    const run = await service.dispatch(
+      dispatchInput({
+        source: "task",
+        employeeId: "pluginmax-de",
+        workspacePath: "/tmp/pluginmax-workspace",
+        instanceId: "TSK-TOKENS",
+        nodeId: "task",
+        dispatchKey: "task:TSK-TOKENS:1",
+      }),
+    );
+    await runtime.waitIdle();
+    expect(service.run(run.id)).toMatchObject({
+      status: "succeeded",
+      outputTokens: 20,
+    });
   });
 
   it("runs workflow task workers in a persistent task session", async () => {
@@ -610,8 +737,8 @@ describe("agent task runtime", () => {
     expect(firstSession).not.toBe(secondSession);
     expect(subagents.runs).toHaveLength(0);
     expect(renamed.map((item) => item.title).sort()).toEqual([
-      "TSK-订单导出-A-BackendAgent",
-      "TSK-订单导出-B-BackendAgent",
+      "Backend Agent-TSK-订单导出-A",
+      "Backend Agent-TSK-订单导出-B",
     ]);
   });
 
@@ -770,7 +897,7 @@ describe("agent task runtime", () => {
     );
   });
 
-  it("names the task session as TSK-任务名称-任务号后4位-执行人", async () => {
+  it("names the task session as 执行人-TSK-任务名称-任务号后4位", async () => {
     const renamed: Array<{ id: string; title: string }> = [];
     const workspaces: WorkspaceRegistryLike = {
       create: async (path) => ({
@@ -810,7 +937,206 @@ describe("agent task runtime", () => {
     });
     await runtime.waitIdle();
     await vi.waitFor(() => expect(renamed).toHaveLength(1));
-    expect(renamed[0]?.title).toBe("TSK-正在测试05-0089-DE测小白");
+    expect(renamed[0]?.title).toBe("DE 测小白-TSK-正在测试05-0089");
+  });
+
+  it("migrates legacy task session titles without a rerun", async () => {
+    const titles = new Map<string, string>();
+    const renamed: Array<{ id: string; title: string }> = [];
+    const { service, runtime, store } = harness({
+      now,
+      sessions: {
+        get: (sessionId) => ({ id: sessionId, snapshotEvents: () => [] }),
+      },
+      sessionTitle: {
+        get: (session) => ({ title: titles.get(session.id) ?? "" }),
+        rename: (session, title) => {
+          titles.set(session.id, title);
+          renamed.push({ id: session.id, title });
+        },
+      },
+    });
+    await createProfile(service);
+    const run = await service.dispatch(
+      dispatchInput({
+        instanceId: "TSK-MUDUHMTX-0089",
+        dispatchKey: "main:TSK-MUDUHMTX-0089:development:a1:t0#1",
+      }),
+    );
+    const sessionId = "de-task-TSK-MUDUHMTX-0089-development-backend-agent";
+    titles.set(sessionId, "TSK-订单导出-development-agent");
+    await store.runs.put(run.id, {
+      ...service.run(run.id)!,
+      sessionId,
+      payload: {
+        ...service.run(run.id)!.payload,
+        context: {
+          employeeName: "DE 测小白",
+          workflowTaskId: "TSK-MUDUHMTX-0089",
+        },
+      },
+    });
+
+    await runtime.migrateLegacySessionTitles();
+
+    expect(renamed).toEqual([
+      { id: sessionId, title: "DE 测小白-TSK-订单导出-0089" },
+    ]);
+  });
+
+  it("migrates persisted legacy titles by briefly resuming their sessions", async () => {
+    const titles = new Map<string, string>();
+    const renamed: Array<{ id: string; title: string }> = [];
+    const resumed: string[] = [];
+    const disposed: string[] = [];
+    const sessionId = "de-task-TSK-MUDUHMTX-0089-development-backend-agent";
+    const { service, runtime, store } = harness({
+      now,
+      sessions: { get: () => undefined },
+      sessionPersistence: {
+        stat: async (candidate) =>
+          candidate === sessionId ? { exists: true } : undefined,
+      },
+      sessionTitle: {
+        get: (session) => ({ title: titles.get(session.id) ?? "" }),
+        rename: (session, title) => {
+          titles.set(session.id, title);
+          renamed.push({ id: session.id, title });
+        },
+      },
+      agents: () => ({
+        create: async () => {
+          throw new Error("create is not used in this test");
+        },
+        resume: async ({ resumeSessionId }) => {
+          resumed.push(resumeSessionId);
+          return {
+            agent: {
+              session: {
+                id: resumeSessionId,
+                snapshotEvents: () => [],
+              },
+            },
+            dispose: async () => {
+              disposed.push(resumeSessionId);
+            },
+          };
+        },
+      }),
+    });
+    await createProfile(service);
+    const run = await service.dispatch(
+      dispatchInput({
+        instanceId: "TSK-MUDUHMTX-0089",
+        dispatchKey: "main:TSK-MUDUHMTX-0089:development:a1:t0#1",
+      }),
+    );
+    titles.set(sessionId, "TSK-订单导出-development-agent");
+    await store.runs.put(run.id, {
+      ...service.run(run.id)!,
+      sessionId,
+      payload: {
+        ...service.run(run.id)!.payload,
+        context: {
+          employeeName: "DE 测小白",
+          workflowTaskId: "TSK-MUDUHMTX-0089",
+        },
+      },
+    });
+
+    await runtime.migrateLegacySessionTitles();
+
+    expect(resumed).toEqual([sessionId]);
+    expect(disposed).toEqual([sessionId]);
+    expect(renamed).toEqual([
+      { id: sessionId, title: "DE 测小白-TSK-订单导出-0089" },
+    ]);
+  });
+
+  it("syncs system task titles to the task-management executor name", async () => {
+    const titles = new Map<string, string>();
+    const renamed: Array<{ id: string; title: string }> = [];
+    const { service, store } = harness({
+      now,
+      sessions: {
+        get: (sessionId) => ({ id: sessionId, snapshotEvents: () => [] }),
+      },
+      sessionTitle: {
+        get: (session) => ({ title: titles.get(session.id) ?? "" }),
+        rename: (session, title) => {
+          titles.set(session.id, title);
+          renamed.push({ id: session.id, title });
+        },
+      },
+    });
+    await createProfile(service);
+    const run = await service.dispatch(
+      dispatchInput({
+        source: "task",
+        nodeId: "task",
+        instanceId: "TSK-MUDUHMTX-0089",
+        dispatchKey: "task:TSK-MUDUHMTX-0089:1",
+      }),
+    );
+    const sessionId = "de-task-TSK-MUDUHMTX-0089-backend-agent";
+    await store.runs.put(run.id, { ...service.run(run.id)!, sessionId });
+    titles.set(sessionId, "BackendAgent-TSK-旧任务-0089");
+    renamed.length = 0;
+
+    await service.syncTaskSessionTitles!(
+      new Map([["TSK-MUDUHMTX-0089", "Pluginmax DE"]]),
+    );
+
+    expect(renamed).toEqual([
+      { id: sessionId, title: "Pluginmax DE-TSK-订单导出-0089" },
+    ]);
+  });
+
+  it("syncs workflow task titles to the task-management executor name", async () => {
+    const titles = new Map<string, string>();
+    const renamed: Array<{ id: string; title: string }> = [];
+    const { service, store } = harness({
+      now,
+      sessions: {
+        get: (sessionId) => ({ id: sessionId, snapshotEvents: () => [] }),
+      },
+      sessionTitle: {
+        get: (session) => ({ title: titles.get(session.id) ?? "" }),
+        rename: (session, title) => {
+          titles.set(session.id, title);
+          renamed.push({ id: session.id, title });
+        },
+      },
+    });
+    await createProfile(service);
+    const run = await service.dispatch(
+      dispatchInput({
+        instanceId: "workflow-instance",
+        dispatchKey: "main:workflow-instance:development:a1:t0#1",
+      }),
+    );
+    const sessionId = "de-task-TSK-MUDUHMTX-0089-development-backend-agent";
+    await store.runs.put(run.id, {
+      ...service.run(run.id)!,
+      sessionId,
+      payload: {
+        ...service.run(run.id)!.payload,
+        context: {
+          ...service.run(run.id)!.payload.context,
+          workflowTaskId: "TSK-MUDUHMTX-0089",
+        },
+      },
+    });
+    titles.set(sessionId, "BackendAgent-TSK-旧任务-0089");
+    renamed.length = 0;
+
+    await service.syncTaskSessionTitles!(
+      new Map([["TSK-MUDUHMTX-0089", "Pluginmax DE"]]),
+    );
+
+    expect(renamed).toEqual([
+      { id: sessionId, title: "Pluginmax DE-TSK-订单导出-0089" },
+    ]);
   });
 
   it("is idempotent per dispatch key and records successful output", async () => {
@@ -860,6 +1186,52 @@ describe("agent task runtime", () => {
     expect(saved.settleDelivered).toBe(true);
     expect(onSettled).toHaveBeenCalledTimes(1);
     expect(settled.map((run) => run.status)).toEqual(["succeeded"]);
+  });
+
+  it("runs meeting minutes with the fixed Chinese conclusion prompt", async () => {
+    const { service, runtime, subagents } = harness({ now });
+    const workflowHandler: AgentWorkflowHandler = {
+      onSettled: () => undefined,
+    };
+    const onWorkflowSettled = vi.spyOn(workflowHandler, "onSettled");
+    service.bindWorkflow(workflowHandler);
+    service.bindTask({ onSettled: () => undefined });
+    await createProfile(service);
+    const run = await service.dispatch(
+      dispatchInput({
+        source: "meeting",
+        instanceId: "MTG-1",
+        nodeId: "meeting-minutes",
+        dispatchKey: "MTG-1:minutes:3:2026-10-09T01:00:00.000Z",
+        payload: {
+          instanceTitle: "周会",
+          nodeName: "会议纪要",
+          nodeDescription: "对齐 R4 进度",
+          profileName: "会议 Facilitator",
+          deliverables: [],
+          context: {
+            transcript: "Olivia: 替代产能锁定在 11 月底。\n李工: 已确认。",
+          },
+        },
+      }),
+    );
+    await vi.waitFor(() => expect(subagents.runs.length).toBe(1));
+    const prompt = subagents.runs[0]!.spec.prompt[0]!.text;
+    expect(prompt).toContain("会议：周会");
+    expect(prompt).toContain("对齐 R4 进度");
+    expect(prompt).toContain("替代产能锁定在 11 月底");
+    expect(prompt).toContain("用中文输出 1-2 句关键结论");
+    subagents.runs[0]!.outcome = {
+      output: [{ type: "text", text: "替代产能锁定在 11 月底；风险已确认。" }],
+      stopReason: "completed",
+    };
+    subagents.runs[0]!.resolve();
+    await runtime.waitIdle();
+    const saved = service.run(run.id)!;
+    expect(saved.status).toBe("succeeded");
+    expect(saved.output?.summary).toBe("替代产能锁定在 11 月底；风险已确认。");
+    // 会议来源的 run 不走 workflow/task 的交付报告修补与 handler。
+    expect(onWorkflowSettled).not.toHaveBeenCalled();
   });
 
   it("marks failed workers and keeps settle pending until bound", async () => {

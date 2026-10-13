@@ -76,6 +76,8 @@ draft ──保存──> inactive ──生效──> active ──暂停──
 | GET | `/api/collab/teammates/runtime?teammateId=` | 只读聚合该 teammate 的任务 |
 | POST | `/api/collab/teammates/create` | `{ source, name?, role? }` |
 | POST | `/api/collab/teammates/update` | 定义字段；草稿可带 `source` 改归属 |
+| POST | `/api/collab/teammates/profile` | 实例资料 `{ teammateId, name, description }`；不动人设内容与版本 |
+| POST | `/api/collab/teammates/leave-workspace` | `{ teammateId, workspaceId, scope, assignmentId? }`；退出项目/项目角色，退出项目时改派未完成任务 |
 | POST | `/api/collab/teammates/state` | `{ teammateId, state }` |
 
 错误码沿用 `EmployeeError` 风格：`invalid_input` / `unauthorized` / `forbidden` / `not_found` / `conflict`。

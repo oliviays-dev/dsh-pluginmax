@@ -71,7 +71,7 @@ Pluginmax 登录 token 保存在浏览器 Profile 的 `localStorage` 中。不�
 
 | 浏览器 Profile | 平台账号 | 全局角色 | 工作区角色 | 用途 |
 | --- | --- | --- | --- | --- |
-| Profile A | `workflow-owner` | admin | owner | 管理员、流程发起人、治理验证 |
+| Profile A | `flow-owner` | admin | owner | 管理员、流程发起人、治理验证 |
 | Profile B | `workflow-member` | member | member | 普通成员、审批人、执行人 |
 | Profile C | `workflow-viewer` | guest | guest | 只读和权限边界验证 |
 
@@ -82,7 +82,7 @@ Pluginmax 登录 token 保存在浏览器 Profile 的 `localStorage` 中。不�
 1. Profile A 打开 2.1 得到的带 token URL。
 2. 打开 Settings >「协作身份」。
 3. 如果显示首次初始化表单，填写：
-   - 用户 ID：`workflow-owner`
+   - 用户 ID：`flow-owner`
    - 显示名称：`Workflow Owner`
    - 初始密码：`Pluginmax#2026`
 4. 完成初始化并登录。
@@ -98,7 +98,7 @@ Pluginmax 登录 token 保存在浏览器 Profile 的 `localStorage` 中。不�
 
 1. Profile A 当前身份为 `Workflow Owner`。
 2. 用户列表出现三个账号。
-3. 工作区成员列表出现 `workflow-owner`、`workflow-member`、`workflow-viewer`。
+3. 工作区成员列表出现 `flow-owner`、`workflow-member`、`workflow-viewer`。
 4. Console 没有未捕获异常。
 
 记录工作区 ID 为 `<WS_ID>`。可通过工作区信息 icon 查看并复制。

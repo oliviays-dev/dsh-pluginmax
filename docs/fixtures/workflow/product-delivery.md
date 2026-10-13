@@ -22,6 +22,7 @@
 - id: development
 - type: task
 - executor: agent:backend-agent
+- responsible: user:workflow-member
 - description: 完成接口、数据结构和回归说明
 
 ### 测试准备
@@ -35,8 +36,8 @@
 
 - id: release-approval
 - type: approval
-- executor: user:workflow-owner
-- approver: 用户:workflow-owner
+- executor: user:flow-owner
+- approver: 用户:flow-owner
 - approver: 用户:workflow-member
 - policy: all
 

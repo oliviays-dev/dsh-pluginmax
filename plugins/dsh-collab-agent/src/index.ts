@@ -135,6 +135,8 @@ export interface AgentSessionLike {
 
 export interface AgentSessionEventLike {
   readonly type: string;
+  /** Unix epoch milliseconds. */
+  readonly time?: number | undefined;
   readonly data?: unknown;
 }
 
@@ -154,6 +156,13 @@ export interface AgentSessionsLike {
 
 export interface AgentSessionPersistenceLike {
   stat(sessionId: string): Promise<unknown | undefined>;
+  open?(
+    sessionId: string,
+    access: "read",
+  ): Promise<{
+    read(): Promise<readonly AgentSessionEventLike[]>;
+    close(): Promise<void>;
+  }>;
 }
 
 export interface AgentLike {
@@ -220,6 +229,33 @@ function taskSessionId(run: AgentRun): string {
     .slice(0, 200);
 }
 
+function desiredTaskSessionTitle(run: AgentRun): string {
+  const employeeName =
+    typeof run.payload.context.employeeName === "string" &&
+    run.payload.context.employeeName.trim() !== ""
+      ? run.payload.context.employeeName.trim()
+      : run.payload.profileName.replace(/\s+runtime$/i, "");
+  // Session 名称：执行人（AI Teammate）-TSK-任务名称-任务号后4位。
+  // 执行人名保留原文空格，和任务管理的显示完全一致；任务名仍压缩空白。
+  const compact = (value: string): string => value.replace(/\s+/g, "");
+  const taskKey =
+    (typeof run.payload.context.workflowTaskId === "string"
+      ? run.payload.context.workflowTaskId
+      : run.instanceId
+    )
+      .split("-")
+      .at(-1) ?? run.id;
+  return [
+    employeeName,
+    "TSK",
+    compact(run.payload.instanceTitle),
+    taskKey.slice(-4),
+  ]
+    .filter((part) => part !== "")
+    .join("-")
+    .slice(0, 120);
+}
+
 function taskUserMessage(text: string): unknown {
   return {
     id: randomUUID(),
@@ -260,6 +296,42 @@ function lastAssistantText(session: AgentSessionLike, since = 0): string {
     if (text !== "") return text;
   }
   return "";
+}
+
+function assistantOutputTokens(
+  session: AgentSessionLike,
+  startedAt: string | undefined,
+  endedAt: string,
+): number | undefined {
+  const start = startedAt === undefined ? undefined : Date.parse(startedAt);
+  const end = Date.parse(endedAt);
+  let total = 0;
+  let found = false;
+  for (const event of session.snapshotEvents()) {
+    if (event.type !== "assistant/message") continue;
+    if (
+      typeof event.time === "number" &&
+      Number.isFinite(event.time) &&
+      ((start !== undefined && event.time < start) ||
+        (Number.isFinite(end) && event.time > end))
+    ) {
+      continue;
+    }
+    const data = event.data as
+      | {
+          readonly usage?: {
+            readonly outputTokens?: unknown;
+          };
+        }
+      | undefined;
+    const value = data?.usage?.outputTokens;
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+      continue;
+    }
+    found = true;
+    total += Math.trunc(value);
+  }
+  return found ? total : undefined;
 }
 
 export function deliveryReportIssues(
@@ -399,7 +471,7 @@ export interface AgentDispatchInput {
   readonly workspaceId: string;
   readonly workspacePath?: string | undefined;
   readonly profileId: string;
-  readonly source: "workflow" | "task";
+  readonly source: "workflow" | "task" | "meeting";
   readonly instanceId: string;
   readonly nodeId: string;
   readonly dispatchKey: string;
@@ -655,6 +727,37 @@ function buildPrompt(run: AgentRun, profile: AgentProfile): string {
   const hasRequiredText = payload.deliverables.some(
     (item) => item.required && item.type === "text",
   );
+  const previousFailure = payload.previousFailure?.trim() ?? "";
+  if (run.source === "meeting") {
+    // 会议纪要：固定输出口径，会议级额外要求走「本次嘱咐」（context.brief）。
+    const transcript =
+      typeof payload.context.transcript === "string"
+        ? payload.context.transcript
+        : "";
+    const brief =
+      typeof payload.context.brief === "string"
+        ? payload.context.brief.trim()
+        : "";
+    const agenda = payload.nodeDescription.trim();
+    return [
+      "# DSH Pluginmax 会议 Facilitator",
+      "",
+      `会议：${payload.instanceTitle}`,
+      agenda === "" ? "" : `议程：${agenda}`,
+      "",
+      "## 会议记录",
+      transcript.trim() === "" ? "（暂无对话）" : transcript,
+      "",
+      ...(brief === "" ? [] : ["## 本次嘱咐", brief, ""]),
+      "## 输出要求",
+      "用中文输出 1-2 句关键结论。",
+      "- 只给结论，不复述讨论过程。",
+      "- 不要输出标题、列表或客套话。",
+      "- 信息不足时明确说明缺少什么，不要编造。",
+    ]
+      .filter((line) => line !== "")
+      .join("\n");
+  }
   if (run.source === "task") {
     const instruction =
       typeof payload.context.instruction === "string"
@@ -687,6 +790,15 @@ function buildPrompt(run: AgentRun, profile: AgentProfile): string {
     "## 任务",
     `完成节点「${payload.nodeName}」的工作并输出可审核的结果。`,
     ...(payload.nodeDescription === "" ? [] : ["", payload.nodeDescription]),
+    ...(previousFailure === ""
+      ? []
+      : [
+          "",
+          "## 上一轮反馈",
+          previousFailure,
+          "",
+          "请逐条修正上述失败或审核不通过的问题；不要重复同类错误。",
+        ]),
     "",
     "## 上下文",
     `- 工作流实例：${payload.instanceTitle}`,
@@ -1074,29 +1186,10 @@ export class AgentTaskRuntime {
           .filter((item) => item.sessionId === sessionId)
           .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
         const first = runs[0] ?? run;
-        const employeeName =
-          typeof first.payload.context.employeeName === "string" &&
-          first.payload.context.employeeName.trim() !== ""
-            ? first.payload.context.employeeName.trim()
-            : first.payload.profileName.replace(/\s+runtime$/i, "");
-        // Session 名称：TSK-任务名称-任务号后4位-执行人（去掉空白字符）。
-        const compact = (value: string): string => value.replace(/\s+/g, "");
-        const taskKey =
-          (typeof first.payload.context.workflowTaskId === "string"
-            ? first.payload.context.workflowTaskId
-            : first.instanceId
-          )
-            .split("-")
-            .at(-1) ?? first.id;
-        const desired = [
-          "TSK",
-          compact(first.payload.instanceTitle),
-          taskKey.slice(-4),
-          compact(employeeName),
-        ]
-          .filter((part) => part !== "")
-          .join("-")
-          .slice(0, 120);
+        const desired = desiredTaskSessionTitle(first);
+        const teammate = desired.includes("-TSK-")
+          ? desired.slice(0, desired.indexOf("-TSK-"))
+          : desired;
         // 只有新命名（de-task-*）的任务会话才套用新标题；
         // 旧的家会话（de-home-*）保留原有名字，避免「新标题 + 旧 id」。
         if (sessionId.startsWith("de-task-")) {
@@ -1104,6 +1197,7 @@ export class AgentTaskRuntime {
           const systemGenerated =
             current === undefined ||
             current.startsWith("TSK-") ||
+            current.startsWith(`${teammate}-TSK-`) ||
             current.includes(" · ");
           if (systemGenerated) title.rename(session, desired);
         }
@@ -1114,15 +1208,169 @@ export class AgentTaskRuntime {
     return saved;
   }
 
+  /** 启动时把历史系统命名迁移到新顺序，用户手动改名不会被覆盖。 */
+  async migrateLegacySessionTitles(): Promise<void> {
+    const sessions = this.deps.sessions?.();
+    const title = this.deps.sessionTitle?.();
+    if (sessions === undefined || title === undefined) return;
+    const agents = this.deps.agents?.();
+    const persistence = this.deps.sessionPersistence?.();
+
+    const firstRunBySession = new Map<string, AgentRun>();
+    for (const [, run] of this.deps.tables.runs.entries()) {
+      if (
+        typeof run.sessionId !== "string" ||
+        !run.sessionId.startsWith("de-task-")
+      )
+        continue;
+      const first = firstRunBySession.get(run.sessionId);
+      if (first === undefined || run.createdAt < first.createdAt) {
+        firstRunBySession.set(run.sessionId, run);
+      }
+    }
+
+    await Promise.allSettled(
+      [...firstRunBySession].map(async ([sessionId, run]) => {
+        const session = sessions.get(sessionId);
+        if (session !== undefined) {
+          const current = title.get?.(session)?.title?.trim();
+          if (current !== undefined && current.startsWith("TSK-")) {
+            title.rename(session, desiredTaskSessionTitle(run));
+          }
+          return;
+        }
+        if (agents?.resume === undefined || persistence === undefined) return;
+        if ((await persistence.stat(sessionId)) === undefined) return;
+        const handle = await agents.resume({ resumeSessionId: sessionId });
+        try {
+          const persistedSession = (
+            handle.agent as {
+              session: AgentSessionLike;
+            }
+          ).session;
+          const current = title.get?.(persistedSession)?.title?.trim();
+          if (current !== undefined && current.startsWith("TSK-")) {
+            title.rename(persistedSession, desiredTaskSessionTitle(run));
+          }
+        } finally {
+          await handle.dispose();
+        }
+      }),
+    );
+  }
+
+  /**
+   * 任务的执行人显示名归任务管理所有；当它后来修正时，用该名称同步
+   * 系统生成的任务会话标题，用户手动改名仍不会被覆盖。
+   */
+  async syncTaskSessionTitles(
+    executorNames: ReadonlyMap<string, string>,
+  ): Promise<void> {
+    const sessions = this.deps.sessions?.();
+    const title = this.deps.sessionTitle?.();
+    if (sessions === undefined || title === undefined) return;
+    const agents = this.deps.agents?.();
+    const persistence = this.deps.sessionPersistence?.();
+
+    const firstRunBySession = new Map<
+      string,
+      { readonly run: AgentRun; readonly taskId: string }
+    >();
+    for (const [, run] of this.deps.tables.runs.entries()) {
+      const taskId =
+        run.source === "task"
+          ? run.instanceId
+          : run.source === "workflow"
+            ? run.payload.context.workflowTaskId
+            : undefined;
+      if (
+        typeof taskId !== "string" ||
+        taskId === "" ||
+        typeof run.sessionId !== "string" ||
+        !run.sessionId.startsWith("de-task-") ||
+        !executorNames.has(taskId)
+      ) {
+        continue;
+      }
+      const first = firstRunBySession.get(run.sessionId);
+      if (first === undefined || run.createdAt < first.run.createdAt) {
+        firstRunBySession.set(run.sessionId, { run, taskId });
+      }
+    }
+
+    await Promise.allSettled(
+      [...firstRunBySession].map(async ([sessionId, { run, taskId }]) => {
+        const executorName = executorNames.get(taskId) ?? "";
+        if (executorName === "") return;
+        const desired = desiredTaskSessionTitle({
+          ...run,
+          payload: {
+            ...run.payload,
+            context: {
+              ...run.payload.context,
+              employeeName: executorName,
+            },
+          },
+        });
+        const legacyTeammate =
+          desiredTaskSessionTitle(run).split("-TSK-")[0] ?? "";
+        const legacyCompactTeammate = legacyTeammate.replace(/\s+/g, "");
+        const renameIfSystemTitle = (session: AgentSessionLike): void => {
+          const current = title.get?.(session)?.title?.trim();
+          const systemGenerated =
+            current === undefined ||
+            current.startsWith("TSK-") ||
+            current.startsWith(`${legacyTeammate}-TSK-`) ||
+            current.startsWith(`${legacyCompactTeammate}-TSK-`) ||
+            current.includes(" · ");
+          if (systemGenerated && current !== desired) {
+            title.rename(session, desired);
+          }
+        };
+        const session = sessions.get(sessionId);
+        if (session !== undefined) {
+          renameIfSystemTitle(session);
+          return;
+        }
+        if (agents?.resume === undefined || persistence === undefined) return;
+        if ((await persistence.stat(sessionId)) === undefined) return;
+        const handle = await agents.resume({ resumeSessionId: sessionId });
+        try {
+          renameIfSystemTitle(
+            (handle.agent as { session: AgentSessionLike }).session,
+          );
+        } finally {
+          await handle.dispose();
+        }
+      }),
+    );
+  }
+
   private async settle(
     run: AgentRun,
-    patch: Partial<Pick<AgentRun, "status" | "output" | "error" | "endedAt">>,
+    patch: Partial<
+      Pick<AgentRun, "status" | "output" | "outputTokens" | "error" | "endedAt">
+    >,
   ): Promise<void> {
     const latest = this.deps.tables.runs.get(run.id);
     if (latest !== undefined && TERMINAL_RUN_STATUSES.includes(latest.status)) {
       return;
     }
-    await this.saveRun({ ...(latest ?? run), ...patch });
+    const next = { ...(latest ?? run), ...patch };
+    const outputTokens =
+      next.outputTokens ??
+      (next.sessionId === undefined || next.endedAt === undefined
+        ? undefined
+        : (() => {
+            const session = this.deps.sessions?.()?.get(next.sessionId);
+            return session === undefined
+              ? undefined
+              : assistantOutputTokens(session, next.startedAt, next.endedAt);
+          })());
+    await this.saveRun({
+      ...next,
+      ...(outputTokens === undefined ? {} : { outputTokens }),
+    });
     const saved = this.deps.tables.runs.get(run.id);
     if (saved === undefined) return;
     await this.deps.onSettled?.(saved);
@@ -1502,6 +1750,8 @@ export class AgentTaskRuntime {
 
 export interface AgentServiceDeps {
   readonly now?: () => Date;
+  readonly sessions?: () => AgentSessionsLike | undefined;
+  readonly sessionPersistence?: () => AgentSessionPersistenceLike | undefined;
 }
 
 export class AgentRegistryService {
@@ -1527,6 +1777,58 @@ export class AgentRegistryService {
     return this.deps.now?.() ?? new Date();
   }
 
+  private withObservedOutputTokens(run: AgentRun): AgentRun {
+    if (run.outputTokens !== undefined || run.sessionId === undefined) {
+      return run;
+    }
+    const session = this.deps.sessions?.()?.get(run.sessionId);
+    if (session === undefined) return run;
+    const outputTokens = assistantOutputTokens(
+      session,
+      run.startedAt,
+      run.endedAt ?? iso(this.now()),
+    );
+    return outputTokens === undefined ? run : { ...run, outputTokens };
+  }
+
+  /** Backfill legacy runs once from their persisted session logs. */
+  async backfillOutputTokens(): Promise<void> {
+    const persistence = this.deps.sessionPersistence?.();
+    if (persistence?.open === undefined) return;
+    for (const run of values(this.tables.runs)) {
+      if (
+        run.outputTokens !== undefined ||
+        run.sessionId === undefined ||
+        !TERMINAL_RUN_STATUSES.includes(run.status)
+      ) {
+        continue;
+      }
+      const live = this.withObservedOutputTokens(run);
+      if (live.outputTokens !== undefined) {
+        await this.tables.runs.put(run.id, live);
+        continue;
+      }
+      try {
+        const handle = await persistence.open(run.sessionId, "read");
+        try {
+          const events = await handle.read();
+          const outputTokens = assistantOutputTokens(
+            { id: run.sessionId, snapshotEvents: () => events },
+            run.startedAt,
+            run.endedAt ?? iso(this.now()),
+          );
+          if (outputTokens !== undefined) {
+            await this.tables.runs.put(run.id, { ...run, outputTokens });
+          }
+        } finally {
+          await handle.close();
+        }
+      } catch {
+        // Missing or unreadable legacy sessions remain observable as zero.
+      }
+    }
+  }
+
   private isPlatformProfile(profile: AgentProfile): boolean {
     // 旧结构没有 visibility 字段；这些存量执行身份按平台 Profile 兼容。
     return profile.visibility !== "workspace";
@@ -1534,6 +1836,15 @@ export class AgentRegistryService {
 
   attachRuntime(runtime: AgentTaskRuntime): void {
     this.runtime = runtime;
+  }
+
+  /** Keep task-session executor labels aligned with task-management receiver names. */
+  syncTaskSessionTitles(
+    executorNames: ReadonlyMap<string, string>,
+  ): Promise<void> {
+    return (
+      this.runtime?.syncTaskSessionTitles(executorNames) ?? Promise.resolve()
+    );
   }
 
   private requireManager(actor: AgentActor): void {
@@ -1698,7 +2009,8 @@ export class AgentRegistryService {
         (left, right) =>
           right.createdAt.localeCompare(left.createdAt) ||
           right.runSeq - left.runSeq,
-      );
+      )
+      .map((run) => this.withObservedOutputTokens(run));
   }
 
   run(runId: string): AgentRun | undefined {
@@ -1862,7 +2174,11 @@ export class AgentRegistryService {
           continue;
         }
         const handler =
-          run.source === "workflow" ? this.workflowHandler : this.taskHandler;
+          run.source === "workflow"
+            ? this.workflowHandler
+            : run.source === "task"
+              ? this.taskHandler
+              : undefined;
         if (handler === undefined) continue;
         try {
           await handler.onSettled(run);
@@ -2310,6 +2626,7 @@ export interface AgentContext {
     event: "agent/assistant-stream",
     listener: (payload: unknown) => void,
   ): () => void;
+  emit?(event: string, payload?: unknown): void;
   inject(
     keys: readonly ["collabTeam"],
     callback: (
@@ -2320,10 +2637,16 @@ export interface AgentContext {
 
 export async function apply(ctx: AgentContext): Promise<void | (() => void)> {
   const domain = await ctx.storageDomain.open(agentDomainSpec);
-  const service = new AgentRegistryService({
-    profiles: domain.table("profiles"),
-    runs: domain.table("runs"),
-  });
+  const service = new AgentRegistryService(
+    {
+      profiles: domain.table("profiles"),
+      runs: domain.table("runs"),
+    },
+    {
+      sessions: () => ctx.get("sessions"),
+      sessionPersistence: () => ctx.get("sessionPersistence"),
+    },
+  );
   const externalRuntimeService = new ExternalAgentRuntimeService(
     domain.table("external_runtimes"),
   );
@@ -2341,9 +2664,23 @@ export async function apply(ctx: AgentContext): Promise<void | (() => void)> {
     sessions: () => ctx.get("sessions"),
     sessionPersistence: () => ctx.get("sessionPersistence"),
     sessionTitle: () => ctx.get("sessionTitle"),
-    onSettled: (run) => service.onRuntimeSettled(run),
+    onSettled: async (run) => {
+      await service.onRuntimeSettled(run);
+      try {
+        ctx.emit?.("collab/agent-run-settled", {
+          runId: run.id,
+          workspaceId: run.workspaceId,
+          status: run.status,
+          source: run.source,
+          instanceId: run.instanceId,
+        });
+      } catch {
+        // Domain events are best-effort.
+      }
+    },
   });
   service.attachRuntime(runtime);
+  await runtime.migrateLegacySessionTitles();
   const streamDisposer = ctx.on?.("agent/assistant-stream", (payload) => {
     const value = payload as
       | {
@@ -2356,7 +2693,10 @@ export async function apply(ctx: AgentContext): Promise<void | (() => void)> {
   });
   ctx.provide("collabAgent", service);
   // Let sibling runtime plugins finish mounting before replaying persisted runs.
-  const restoreTimer = setTimeout(() => service.restore(), 0);
+  const restoreTimer = setTimeout(() => {
+    service.restore();
+    void service.backfillOutputTokens().catch(() => undefined);
+  }, 0);
   ctx.effect(() => () => {
     clearTimeout(restoreTimer);
     streamDisposer?.();

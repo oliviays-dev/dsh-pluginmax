@@ -12,16 +12,24 @@ window.__ModuleLoader__.load({
     const STATE_LABEL = {
       draft: "草稿",
       active: "已生效",
+      disabled: "已停用",
       paused: "已暂停",
       inactive: "已失效",
       archived: "已归档",
     };
-    const SOURCE_LABEL = { platform: "平台归属", personal: "个人归属" };
+    /** 任务优先级平移：存储 P1–P3，产品口径显示 P0–P2。 */
+    const PRIORITY_DISPLAY = { P1: "P0", P2: "P1", P3: "P2" };
+    const priorityLabel = (value) => PRIORITY_DISPLAY[value] ?? value;
     const STATUS_LABEL = {
       todo: "待处理",
       progress: "进行中",
       review: "待验收",
       done: "已完成",
+    };
+    const AUDIT_ACTOR_LABEL = {
+      user: "人工操作",
+      "ai-teammate": "AI Teammate",
+      system: "系统",
     };
     const RUN_STATUS_LABEL = {
       queued: "排队中",
@@ -34,33 +42,105 @@ window.__ModuleLoader__.load({
       interrupted: "已中断",
     };
     const AVATAR_PRESETS = [
-      { id: "sky", name: "晴空", bg: "#d9efff", shirt: "#568fd8", skin: "#f1c5a3", hair: "#244d77", accent: "#ffd166", hairStyle: "wave", glasses: false },
-      { id: "sunset", name: "晚霞", bg: "#ffe5d8", shirt: "#db6d65", skin: "#d99a76", hair: "#743d2d", accent: "#ff8d7a", hairStyle: "bun", glasses: false },
-      { id: "forest", name: "森屿", bg: "#def6e8", shirt: "#3f9d73", skin: "#e3b08d", hair: "#245543", accent: "#67d4a1", hairStyle: "side", glasses: false },
-      { id: "berry", name: "莓果", bg: "#f1e2ff", shirt: "#7d59c6", skin: "#efb38f", hair: "#533275", accent: "#c06cff", hairStyle: "bob", glasses: false },
-      { id: "lemon", name: "柠光", bg: "#fff3c9", shirt: "#d7a62e", skin: "#d49974", hair: "#414554", accent: "#f2cb45", hairStyle: "wave", glasses: true },
-      { id: "ocean", name: "海盐", bg: "#d9f4ff", shirt: "#2f84a8", skin: "#ce9874", hair: "#164f6f", accent: "#4fc3e8", hairStyle: "bun", glasses: true },
+      {
+        id: "sky",
+        name: "晴空",
+        bg: "#d9efff",
+        shirt: "#568fd8",
+        skin: "#f1c5a3",
+        hair: "#244d77",
+        accent: "#ffd166",
+        hairStyle: "wave",
+        glasses: false,
+      },
+      {
+        id: "sunset",
+        name: "晚霞",
+        bg: "#ffe5d8",
+        shirt: "#db6d65",
+        skin: "#d99a76",
+        hair: "#743d2d",
+        accent: "#ff8d7a",
+        hairStyle: "bun",
+        glasses: false,
+      },
+      {
+        id: "forest",
+        name: "森屿",
+        bg: "#def6e8",
+        shirt: "#3f9d73",
+        skin: "#e3b08d",
+        hair: "#245543",
+        accent: "#67d4a1",
+        hairStyle: "side",
+        glasses: false,
+      },
+      {
+        id: "berry",
+        name: "莓果",
+        bg: "#f1e2ff",
+        shirt: "#7d59c6",
+        skin: "#efb38f",
+        hair: "#533275",
+        accent: "#c06cff",
+        hairStyle: "bob",
+        glasses: false,
+      },
+      {
+        id: "lemon",
+        name: "柠光",
+        bg: "#fff3c9",
+        shirt: "#d7a62e",
+        skin: "#d49974",
+        hair: "#414554",
+        accent: "#f2cb45",
+        hairStyle: "wave",
+        glasses: true,
+      },
+      {
+        id: "ocean",
+        name: "海盐",
+        bg: "#d9f4ff",
+        shirt: "#2f84a8",
+        skin: "#ce9874",
+        hair: "#164f6f",
+        accent: "#4fc3e8",
+        hairStyle: "bun",
+        glasses: true,
+      },
     ];
 
     const styles = `
-      .pmtm{min-height:100%;flex:1 1 auto;display:flex;flex-direction:column;padding:18px 20px 30px;color:var(--dsw-alias-label-primary);}
+      /* 页面内边距由 shell 的 .pmx-page 提供，这里不再叠加，保持与工作台一致的内容宽度。 */
+      .pmtm{container-type:inline-size;min-height:100%;flex:1 1 auto;display:flex;flex-direction:column;color:var(--dsw-alias-label-primary);}
       .pmtm *{box-sizing:border-box;}
       .pmtm-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;}
       .pmtm-head h1{margin:0;font-size:19px;line-height:1.3;}
       .pmtm-sub{margin-top:4px;color:var(--dsw-alias-label-secondary);font-size:12px;}
       .pmtm-head-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+      .pmtm-meeting-toggle{width:32px;height:32px;flex:none;display:grid;place-items:center;padding:0;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-secondary);cursor:pointer;}
+      .pmtm-meeting-toggle:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);}
+      .pmtm-meeting-toggle.active{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));border-color:var(--dsw-alias-border-l4,var(--dsw-alias-border-l3));}
+      .pmtm-meeting-toggle svg{width:15px;height:15px;}
       .pmtm-badge{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 9px;border:0.5px solid color-mix(in srgb,${ACCENT} 40%,transparent);border-radius:999px;background:color-mix(in srgb,${ACCENT} 12%,transparent);color:${ACCENT};font-size:10.5px;white-space:nowrap;}
       .pmtm-badge svg{width:12px;height:12px;}
       .pmtm-btn{height:32px;display:inline-flex;align-items:center;justify-content:center;gap:6px;border:0;border-radius:6px;padding:0 12px;background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground);font:inherit;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;}
       .pmtm-btn.secondary{background:transparent;border:0.5px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-primary);font-weight:500;}
       .pmtm-btn.danger{background:transparent;border:0.5px solid color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 45%,transparent);color:var(--dsw-alias-state-error-primary,#e5534b);}
       .pmtm-btn.small{height:26px;padding:0 9px;font-size:11px;}
+      .pmtm-btn.quiet{background:transparent;color:var(--dsw-alias-label-tertiary);font-weight:500;}
+      .pmtm-btn.quiet:hover:not(:disabled){color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);}
+      .pmtm-task-head-actions{display:grid;grid-template-columns:auto 104px;align-items:center;gap:8px;}
+      .pmtm-task-head-actions .pmtm-btn{width:104px;padding:0;}
       .pmtm-btn:disabled{opacity:.45;cursor:not-allowed;}
       .pmtm-toolbar{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-top:16px;}
       .pmtm-tabs{display:inline-flex;align-items:center;gap:3px;padding:3px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);}
       .pmtm-tab{min-height:30px;padding:5px 11px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer;}
       .pmtm-tab:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);}
       .pmtm-tab.active{color:#fff;background:${ACCENT};}
+      .pmtm-toolbar-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;}
+      .pmtm-token{height:32px;border:0;border-radius:6px;padding:0 10px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer;}
+      .pmtm-token.active{background:color-mix(in srgb,${ACCENT} 14%,transparent);color:${ACCENT};}
       .pmtm-toolbar-note{max-width:460px;color:var(--dsw-alias-label-tertiary);font-size:10.5px;line-height:1.5;text-align:right;}
       .pmtm-layout{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:minmax(230px,280px) minmax(0,1fr);gap:14px;align-items:stretch;margin-top:12px;}
       .pmtm-panel{min-width:0;border:0.5px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);}
@@ -68,12 +148,48 @@ window.__ModuleLoader__.load({
       .pmtm-group + .pmtm-group{margin-top:12px;padding-top:11px;border-top:0.5px solid var(--dsw-alias-border-l2);}
       .pmtm-group-title{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:3px 5px 7px;color:var(--dsw-alias-label-tertiary);font-size:10.5px;font-weight:700;}
       .pmtm-group-title span{font-weight:500;}
+      .pmtm-group-label{display:inline-flex;align-items:center;gap:6px;min-width:0;}
+      .pmtm-group-count{color:var(--dsw-alias-label-tertiary);}
+      .pmtm-group-metric{display:inline-flex;align-items:center;gap:4px;flex:none;color:var(--dsw-alias-label-tertiary);font-size:10px;font-weight:500;white-space:nowrap;}
       .pmtm-item{width:100%;display:grid;grid-template-columns:32px minmax(0,1fr) auto;align-items:center;gap:8px;padding:8px;border:0.5px solid transparent;border-radius:7px;background:transparent;color:var(--dsw-alias-label-secondary);text-align:left;cursor:pointer;font:inherit;}
       .pmtm-item:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);}
       .pmtm-item.active{color:var(--dsw-alias-label-primary);border-color:color-mix(in srgb,${ACCENT} 34%,transparent);background:color-mix(in srgb,${ACCENT} 12%,transparent);}
       .pmtm-item-copy{min-width:0;}
       .pmtm-item-copy strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px;}
       .pmtm-item-copy small{display:block;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary);font-size:10px;}
+      .pmtm-load{display:flex;align-items:center;gap:4px;flex-wrap:wrap;min-width:0;margin-top:2px;color:var(--dsw-alias-label-secondary);font-size:10px;}
+      .pmtm-load-value{flex:none;white-space:nowrap;font-weight:700;}
+      .pmtm-load-value .runtime{color:${ACCENT};}
+      .pmtm-load-value .meetings{color:var(--dsw-alias-label-tertiary);font-weight:600;}
+      .pmtm-load-value .tokens{color:var(--dsw-alias-label-secondary);font-weight:600;}
+      .pmtm-load-value .live{color:#34d47e;}
+      .pmtm-load-value .owned{color:var(--dsw-alias-label-secondary);}
+      .pmtm-item-copy .pmtm-state-text{display:block;margin-top:3px;}
+      .pmtm-item-metric{display:grid;justify-items:end;gap:3px;min-width:0;}
+      .pmtm-metric-group{display:grid;justify-items:end;gap:3px;min-width:0;}
+      .pmtm-load-caption{color:var(--dsw-alias-label-tertiary);font-size:9.5px;line-height:1.4;}
+      .pmtm-load-stacked{display:grid;gap:1px;justify-items:end;text-align:right;margin-top:0;font-size:10px;line-height:1.5;}
+      .pmtm-load-stacked .pmtm-load-value{white-space:nowrap;font-weight:700;}
+      .pmtm-load-stacked .pmtm-load-value.runtime{color:${ACCENT};}
+      .pmtm-load-stacked .pmtm-load-value.meetings,
+      .pmtm-load-stacked .pmtm-load-value.owned{color:var(--dsw-alias-label-tertiary);font-weight:600;}
+      .pmtm-load-stacked .pmtm-load-value.tokens{display:inline-flex;align-items:center;gap:3px;color:var(--dsw-alias-label-secondary);font-weight:600;}
+      .pmtm-load-stacked .pmtm-load-value.live{color:#34d47e;}
+      .pmtm-load-card{flex:0 1 230px;width:230px;max-width:min(230px,100%);min-width:0;margin-left:auto;padding:8px 11px;border:0.5px solid color-mix(in srgb,${ACCENT} 34%,transparent);border-radius:7px;background:color-mix(in srgb,${ACCENT} 10%,transparent);}
+      .pmtm-load-card.live{flex:0 1 116px;width:116px;max-width:min(116px,100%);}
+      .pmtm-load-card .label{display:flex;align-items:center;gap:4px;color:var(--dsw-alias-label-tertiary);font-size:10px;white-space:nowrap;}
+      .pmtm-load-card .value{margin-top:2px;font-size:16px;line-height:1.25;white-space:nowrap;}
+      .pmtm-load-card .value .runtime{color:${ACCENT};font-weight:800;}
+      .pmtm-load-card .value .meetings{color:var(--dsw-alias-label-secondary);font-weight:700;}
+      .pmtm-load-card .value .tokens{color:var(--dsw-alias-label-secondary);font-weight:700;}
+      .pmtm-load-card .value .live{color:#34d47e;font-weight:800;}
+      .pmtm-load-card .value .owned{color:var(--dsw-alias-label-secondary);font-weight:700;}
+      .pmtm-info{position:relative;display:inline-grid;place-items:center;width:13px;height:13px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:help;}
+      .pmtm-info:hover{color:${ACCENT};}
+      .pmtm-info svg{width:11px;height:11px;}
+      .pmtm-info-glyph,.pmtm-load svg,.pmtm-load-card svg{width:11px;height:11px;flex:none;}
+      .pmtm-info-pop{position:fixed;left:-9999px;top:-9999px;z-index:60;width:min(300px,calc(100vw - 16px));max-height:calc(100vh - 16px);overflow:auto;padding:9px 10px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:7px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 10px 26px rgba(0,0,0,.18);color:var(--dsw-alias-label-secondary);font-size:10.5px;font-weight:400;line-height:1.55;text-align:left;white-space:pre-line;pointer-events:none;opacity:0;visibility:hidden;transform:translateY(3px);transition:opacity .12s ease,transform .12s ease,visibility .12s;}
+      .pmtm-info:hover .pmtm-info-pop,.pmtm-info:focus-visible .pmtm-info-pop{opacity:1;visibility:visible;transform:translateY(0);}
       .pmtm-state-text{flex:none;font-size:10.5px;white-space:nowrap;}
       .pmtm-state-text.active{color:#34d47e;}
       .pmtm-state-text.paused{color:#e8a33d;}
@@ -85,10 +201,23 @@ window.__ModuleLoader__.load({
       .pmtm-avatar.large{width:42px;height:42px;font-size:12px;}
       .pmtm-avatar-art{width:100%;height:100%;display:block;overflow:hidden;border:2px solid var(--dsw-alias-bg-layer-1);border-radius:50%;background:#20242a;object-fit:cover;}
       .pmtm-editor{padding:16px;min-height:420px;}
-      .pmtm-editor-head{display:flex;align-items:flex-start;gap:12px;}
+      .pmtm-editor-head{display:flex;align-items:flex-start;flex-wrap:wrap;gap:12px;}
+      .pmtm-editor-identity{display:flex;align-items:flex-start;gap:12px;flex:1 1 260px;min-width:min(260px,100%);}
+      .pmtm-editor-metrics{display:flex;align-items:flex-start;gap:9px;flex-wrap:wrap;flex:0 1 auto;min-width:0;}
+      .pmtm-editor-actions{flex:none;display:grid;gap:6px;justify-items:stretch;min-width:104px;margin-left:auto;align-self:flex-start;}
       .pmtm-editor-head h2{margin:0;font-size:18px;line-height:1.3;overflow-wrap:anywhere;}
-      .pmtm-editor-main{flex:1;min-width:0;}
+      .pmtm-editor-main{flex:1 1 220px;min-width:0;}
       .pmtm-meta{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:5px;color:var(--dsw-alias-label-tertiary);font-size:10.5px;}
+      .pmtm-title-row{display:flex;align-items:center;gap:6px;min-width:0;}
+      .pmtm-title-row h2{min-width:0;}
+      .pmtm-icon-btn{flex:none;display:inline-grid;place-items:center;width:22px;height:22px;padding:0;border:0.5px solid transparent;border-radius:5px;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer;}
+      .pmtm-icon-btn:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-layer-2);}
+      .pmtm-icon-btn svg{width:13px;height:13px;}
+      .pmtm-instance-name{font-size:16px;font-weight:600;}
+      .pmtm-instance-desc{margin:7px 0 0;color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1.6;overflow-wrap:anywhere;white-space:pre-wrap;}
+      .pmtm-instance-desc.placeholder{color:var(--dsw-alias-label-tertiary);}
+      .pmtm-instance-desc-input{min-height:62px;margin-top:8px;font-size:12px;line-height:1.6;}
+      .pmtm-instance-edit-actions{display:flex;gap:7px;margin-top:8px;}
       .pmtm-state{display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border-radius:4px;font-size:10px;}
       .pmtm-state.active{color:#34d47e;background:rgba(52,212,126,.13);}
       .pmtm-state.paused{color:#e8a33d;background:rgba(232,163,61,.14);}
@@ -99,18 +228,37 @@ window.__ModuleLoader__.load({
       .pmtm-notice svg{flex:none;width:15px;height:15px;margin-top:1px;}
       .pmtm-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:13px;}
       .pmtm-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:14px;}
+      .pmtm-grid.three{grid-template-columns:repeat(3,minmax(0,1fr));}
       .pmtm-grid.wide-gap{gap:12px;}
       .pmtm-grid .wide{grid-column:1 / -1;}
       .pmtm-field{display:grid;gap:4px;min-width:0;}
       .pmtm-field > .label{color:var(--dsw-alias-label-tertiary);font-size:10.5px;}
       .pmtm-field.card{padding:9px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-base);}
       .pmtm-field .value{color:var(--dsw-alias-label-primary);font-size:12px;line-height:1.55;overflow-wrap:anywhere;white-space:pre-wrap;}
+      .pmtm-code-value{display:flex;align-items:flex-start;gap:4px;min-width:0;}
+      .pmtm-code-value > span:first-child{flex:1;min-width:0;overflow-wrap:anywhere;}
+      .pmtm-code-info{flex:none;display:inline-grid;place-items:center;width:13px;height:13px;margin-top:1px;border:0;border-radius:50%;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:help;}
+      .pmtm-code-info:hover{color:${ACCENT};}
+      .pmtm-code-info svg{width:11px;height:11px;}
       .pmtm-input,.pmtm-area,.pmtm-select{width:100%;min-width:0;min-height:34px;padding:7px 9px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;}
       .pmtm-area{min-height:92px;resize:vertical;}
       .pmtm-area.soul{min-height:210px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.55;}
       .pmtm-block{padding:12px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-base);min-width:0;}
       .pmtm-block h3{margin:0 0 8px;font-size:12.5px;}
       .pmtm-block pre{margin:0;color:var(--dsw-alias-label-primary);white-space:pre-wrap;overflow-wrap:anywhere;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.55;}
+      .pmtm-md{display:grid;gap:6px;color:var(--dsw-alias-label-primary);font-size:11px;line-height:1.65;}
+      .pmtm-md:first-child{margin-top:0;}
+      .pmtm-md p{margin:0;}
+      .pmtm-md h4,.pmtm-md h5,.pmtm-md h6{margin:2px 0 0;font-size:11.5px;line-height:1.45;}
+      .pmtm-md ul,.pmtm-md ol{margin:0;padding-left:17px;display:grid;gap:3px;}
+      .pmtm-md code{padding:1px 4px;border-radius:4px;background:var(--dsw-alias-bg-layer-2);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;}
+      .pmtm-md pre{margin:0;padding:8px;border-radius:6px;background:var(--dsw-alias-bg-layer-2);white-space:pre-wrap;overflow-wrap:anywhere;}
+      .pmtm-md-table-wrap{overflow-x:auto;border:0.5px solid var(--dsw-alias-border-l2);border-radius:6px;}
+      .pmtm-md-table{border-collapse:collapse;width:100%;font-size:11px;}
+      .pmtm-md-table th,.pmtm-md-table td{padding:5px 8px;border-right:0.5px solid var(--dsw-alias-border-l2);border-bottom:0.5px solid var(--dsw-alias-border-l2);text-align:left;vertical-align:top;overflow-wrap:anywhere;}
+      .pmtm-md-table th:last-child,.pmtm-md-table td:last-child{border-right:0;}
+      .pmtm-md-table tbody tr:last-child td{border-bottom:0;}
+      .pmtm-md-table th{background:var(--dsw-alias-bg-layer-2);font-weight:600;}
       .pmtm-rules{margin:0;padding:0;list-style:none;display:grid;gap:6px;}
       .pmtm-rules li{display:flex;gap:6px;color:var(--dsw-alias-label-secondary);font-size:11.5px;}
       .pmtm-rules li::before{content:"";flex:none;width:5px;height:5px;margin-top:6px;border-radius:50%;background:${ACCENT};}
@@ -219,12 +367,98 @@ window.__ModuleLoader__.load({
       .pmtm-profile-grid textarea.soul{min-height:210px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;}
       .pmtm-profile-empty{padding:24px 12px;color:var(--dsw-alias-label-tertiary);font-size:11.5px;text-align:center;}
       .pmtm-profile-empty.tall{padding-top:70px;}
+      /* 运行态四个页签 */
+      .pmtm-runtime-tabs{display:flex;align-items:center;gap:2px;margin-top:16px;border-bottom:0.5px solid var(--dsw-alias-border-l2);}
+      .pmtm-runtime-tab{position:relative;min-height:34px;padding:6px 12px;border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer;white-space:nowrap;}
+      .pmtm-runtime-tab:hover{color:var(--dsw-alias-label-primary);}
+      .pmtm-runtime-tab.active{color:${ACCENT};font-weight:600;}
+      .pmtm-runtime-tab.active::after{content:"";position:absolute;left:8px;right:8px;bottom:-1px;height:2px;border-radius:2px;background:${ACCENT};}
+      .pmtm-runtime-panel{padding-top:14px;}
+      .pmtm-runtime-panel[hidden]{display:none;}
+      .pmtm-runtime-head{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:28px;margin-bottom:10px;}
+      .pmtm-runtime-head h3{margin:0;font-size:13px;white-space:nowrap;}
+      .pmtm-runtime-head-main{display:flex;align-items:center;gap:8px;min-width:0;}
+      .pmtm-runtime-head-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;min-width:0;}
+      .pmtm-runtime-summary{color:var(--dsw-alias-label-tertiary);font-size:10.5px;white-space:nowrap;}
+      /* 工作计划 */
+      .pmtm-plan-composer{display:grid;gap:9px;margin-bottom:14px;padding:12px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-base);}
+      .pmtm-plan-composer textarea{width:100%;min-height:78px;padding:9px 10px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;line-height:1.6;resize:vertical;}
+      .pmtm-plan-composer textarea:focus{outline:none;border-color:color-mix(in srgb,${ACCENT} 60%,transparent);}
+      .pmtm-plan-parsed{min-height:16px;color:var(--dsw-alias-label-tertiary);font-size:10.5px;line-height:1.5;}
+      .pmtm-plan-parsed strong{color:var(--dsw-alias-label-secondary);font-weight:600;}
+      .pmtm-plan-toolbar{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+      .pmtm-plan-controls{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;min-width:0;}
+      .pmtm-plan-control{display:grid;gap:4px;min-width:0;}
+      .pmtm-plan-control > span{color:var(--dsw-alias-label-tertiary);font-size:10px;}
+      .pmtm-plan-control select,.pmtm-plan-control input[type="date"]{height:30px;min-width:128px;padding:0 8px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:11.5px;}
+      .pmtm-plan-check{display:inline-flex;align-items:center;gap:6px;height:30px;color:var(--dsw-alias-label-secondary);font-size:11.5px;white-space:nowrap;cursor:pointer;}
+      .pmtm-plan-check input{width:14px;height:14px;margin:0;accent-color:${ACCENT};}
+      .pmtm-plan-item .pmtm-runtime-main strong{white-space:normal;}
+      .pmtm-plan-desc{margin:0;color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere;}
+      /* 工作队列（P1）：排序、暂停、待确认动作 */
+      .pmtm-queue-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end;}
+      .pmtm-plan-item.pmtm-queue-paused{opacity:.62;}
+      .pmtm-queue-reject{grid-column:1 / -1;display:grid;gap:8px;margin-top:2px;padding:10px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-1);}
+      .pmtm-queue-reject textarea{width:100%;min-height:64px;padding:8px 9px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:1.55;resize:vertical;}
+      .pmtm-queue-reject-actions{display:flex;align-items:center;gap:8px;justify-content:flex-end;}
+      .pmtm-pill.warn{color:#e8a33d;background:rgba(232,163,61,.14);}
+      .pmtm-queue-finished-list{display:grid;gap:6px;}
+      .pmtm-queue-finished{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:8px;padding:7px 10px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);font-size:11.5px;}
+      .pmtm-queue-finished>span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+      /* 角色权限：实例所在项目 + 项目角色/权限 + 退出动作 */
+      .pmtm-role-list{display:grid;gap:9px;}
+      .pmtm-role-card{display:grid;gap:7px;padding:10px 11px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-base);min-width:0;}
+      .pmtm-role-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;min-width:0;}
+      .pmtm-role-head strong{display:block;font-size:12.5px;overflow-wrap:anywhere;}
+      .pmtm-role-head small{display:block;margin-top:2px;color:var(--dsw-alias-label-tertiary);font-size:10.5px;}
+      .pmtm-role-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:7px;border-top:0.5px dashed var(--dsw-alias-border-l2);min-width:0;}
+      .pmtm-role-main{display:grid;gap:2px;min-width:0;justify-items:start;}
+      .pmtm-role-perms{color:var(--dsw-alias-label-secondary);font-size:11px;overflow-wrap:anywhere;}
+      .pmtm-role-main small{color:var(--dsw-alias-label-tertiary);font-size:10.5px;}
+      .pmtm-pill.role{color:${ACCENT};background:color-mix(in srgb,${ACCENT} 14%,transparent);}
+      .pmtm-pill.template{border:0.5px solid var(--dsw-alias-border-l3);background:transparent;color:var(--dsw-alias-label-secondary);}
+      /* 工作日报 */
+      /* 日期区间 + 关键词 + 更新日报固定一行：搜索框可压缩，按钮与日期不换行。 */
+      .pmtm-report-filters{display:flex;align-items:center;gap:8px;flex:0 1 auto;flex-wrap:nowrap;justify-content:flex-end;min-width:0;}
+      .pmtm-report-filters>.pmtm-btn{flex:none;}
+      .pmtm-report-range{flex:none;display:inline-flex;align-items:center;gap:6px;color:var(--dsw-alias-label-tertiary);font-size:10.5px;white-space:nowrap;}
+      .pmtm-report-range input{height:30px;width:122px;padding:0 7px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:11.5px;}
+      .pmtm-report-search{display:inline-flex;flex:1 1 200px;min-width:120px;max-width:420px;align-items:center;gap:6px;height:30px;padding:0 9px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-tertiary);}
+      .pmtm-report-notice{margin:-2px 0 10px;padding:6px 10px;border:0.5px solid color-mix(in srgb,${ACCENT} 30%,transparent);border-radius:6px;background:color-mix(in srgb,${ACCENT} 10%,transparent);color:var(--dsw-alias-label-primary);font-size:11.5px;}
+      .pmtm-report-search svg{width:13px;height:13px;flex:none;}
+      .pmtm-report-search input{flex:1;min-width:0;height:28px;border:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:11.5px;outline:none;}
+      .pmtm-report-card{padding:12px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-base);}
+      .pmtm-report-card + .pmtm-report-card{margin-top:10px;}
+      .pmtm-report-card h3{margin:0 0 3px;font-size:13px;}
+      .pmtm-report-writer{color:var(--dsw-alias-label-tertiary);font-size:10.5px;}
+      .pmtm-report-body{margin-top:9px;}
+      .pmtm-report-history{margin-top:10px;}
+      .pmtm-report-source{margin-top:10px;color:var(--dsw-alias-label-tertiary);font-size:10px;overflow-wrap:anywhere;}
+      .pmtm-report-pending{align-self:center;color:var(--dsw-alias-label-tertiary);font-size:10.5px;}
+      /* 历史执行记录 */
+      .pmtm-audit-list{display:grid;gap:8px;}
+      .pmtm-audit-item{display:grid;grid-template-columns:86px minmax(0,1fr);gap:10px;padding:9px 10px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-base);}
+      .pmtm-audit-item time{color:var(--dsw-alias-label-tertiary);font-size:10.5px;white-space:nowrap;}
+      .pmtm-audit-copy{min-width:0;color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1.55;overflow-wrap:anywhere;}
+      .pmtm-audit-actor{display:block;margin-top:3px;color:var(--dsw-alias-label-tertiary);font-size:10px;}
+      .pmtm-audit-more{display:flex;justify-content:center;margin-top:10px;}
       @media (max-width:1080px){
         .pmtm-layout{grid-template-columns:1fr;}
         .pmtm-profile-body{grid-template-columns:1fr;}
         .pmtm-profile-sidebar{border-right:0;border-bottom:0.5px solid var(--dsw-alias-border-l2);}
         .pmtm-profile-columns,.pmtm-profile-grid{grid-template-columns:1fr;}
-        .pmtm-grid{grid-template-columns:1fr;}
+        .pmtm-grid,.pmtm-grid.three{grid-template-columns:1fr;}
+        .pmtm-grid .wide{grid-column:auto;}
+        .pmtm-toolbar{flex-direction:column;align-items:flex-start;}
+        .pmtm-toolbar-note{max-width:none;text-align:left;}
+        .pmtm-presets{grid-template-columns:repeat(3,minmax(0,1fr));}
+      }
+      @container (max-width:880px){
+        .pmtm-layout{grid-template-columns:1fr;}
+        .pmtm-profile-body{grid-template-columns:1fr;}
+        .pmtm-profile-sidebar{border-right:0;border-bottom:0.5px solid var(--dsw-alias-border-l2);}
+        .pmtm-profile-columns,.pmtm-profile-grid{grid-template-columns:1fr;}
+        .pmtm-grid,.pmtm-grid.three{grid-template-columns:1fr;}
         .pmtm-grid .wide{grid-column:auto;}
         .pmtm-toolbar{flex-direction:column;align-items:flex-start;}
         .pmtm-toolbar-note{max-width:none;text-align:left;}
@@ -238,7 +472,8 @@ window.__ModuleLoader__.load({
 
     async function request(path, options = {}) {
       const headers = { "cache-control": "no-store" };
-      if (options.body !== undefined) headers["content-type"] = "application/json";
+      if (options.body !== undefined)
+        headers["content-type"] = "application/json";
       const current = token();
       if (current !== null) headers.authorization = `Bearer ${current}`;
       const response = await fetch(path, {
@@ -261,6 +496,830 @@ window.__ModuleLoader__.load({
       if (Number.isNaN(parsed.getTime())) return value;
       const pad = (input) => String(input).padStart(2, "0");
       return `${pad(parsed.getMonth() + 1)}/${pad(parsed.getDate())} ${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
+    }
+
+    function auditTimeText(value) {
+      if (typeof value !== "string" || value.trim() === "") return "";
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) return value;
+      const pad = (input) => String(input).padStart(2, "0");
+      const date = `${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())} ${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
+      return parsed.getFullYear() === new Date().getFullYear()
+        ? date
+        : `${parsed.getFullYear()}-${date}`;
+    }
+
+    function runtimeHoursText(value) {
+      if (typeof value !== "number" || !Number.isFinite(value) || value <= 0)
+        return "0 hr";
+      if (value < 0.1) return "<0.1 hr";
+      return `${value.toFixed(1)} hr`;
+    }
+
+    function outputTokensText(value) {
+      if (typeof value !== "number" || !Number.isFinite(value) || value <= 0)
+        return "0";
+      if (value >= 10_000_000) return `${(value / 1_000_000).toFixed(2)} M`;
+      if (value >= 10_000) return `${(value / 1_000).toFixed(2)} K`;
+      return String(Math.trunc(value));
+    }
+
+    const WORK_PLAN_PRIORITY_RANK = { P1: 0, P2: 1, P3: 2 };
+    const WORK_PLAN_PRIORITY_OPTIONS = ["P0", "P1", "P2", "P3"];
+    /** 运行态详情固定四个页签，顺序即为产品口径。 */
+    const RUNTIME_TABS = [
+      { key: "current", label: "当前工作" },
+      { key: "plan", label: "工作计划" },
+      { key: "report", label: "工作日报" },
+      { key: "roles", label: "角色权限" },
+      { key: "audit", label: "历史记录" },
+    ];
+
+    /** 工作区角色与权限的展示口径（与员工档案的 role_assignments 对齐）。 */
+    const WORKSPACE_ROLE_LABEL = {
+      viewer: "只读成员",
+      member: "成员",
+      owner: "Owner",
+    };
+    const PERMISSION_LABEL = {
+      read: "查看",
+      write: "写入",
+      approve: "审批",
+      manage_workspace: "管理工作区",
+      manage_members: "管理成员",
+      manage_roles: "管理角色",
+    };
+
+    /** 产品展示口径 P0–P2 → 任务存储口径 P1–P3。 */
+    function planStoragePriority(display) {
+      if (display === "P0") return "P1";
+      if (display === "P1") return "P2";
+      return "P3";
+    }
+
+    /** 计划项排序：优先级升序，同级按创建时间升序，保持稳定。 */
+    function sortPlanTasks(tasks) {
+      return [...tasks].sort((left, right) => {
+        const gap =
+          (WORK_PLAN_PRIORITY_RANK[left.priority] ?? 9) -
+          (WORK_PLAN_PRIORITY_RANK[right.priority] ?? 9);
+        if (gap !== 0) return gap;
+        return left.createdAt.localeCompare(right.createdAt);
+      });
+    }
+
+    /**
+     * 定义态列表按 Agent 模版聚合：同一模版下的多个实例只占一条记录，
+     * 代表取最早创建的实例（其定义即该模版的当前定义）。
+     */
+    function groupTeammateTemplates(items) {
+      if (arguments.length > 1) {
+        const templates = arguments[1];
+        return templates.map((template) => ({
+          item: template,
+          instanceIds: items
+            .filter((instance) => instance.templateId === template.id)
+            .map((instance) => instance.id),
+        }));
+      }
+      const groups = new Map();
+      for (const item of items) {
+        const key =
+          item.profileTemplateId ?? item.personaId ?? `instance:${item.id}`;
+        const current = groups.get(key);
+        if (current === undefined) {
+          groups.set(key, { item, instanceIds: [item.id] });
+          continue;
+        }
+        current.instanceIds.push(item.id);
+        if (item.createdAt.localeCompare(current.item.createdAt) < 0) {
+          current.item = item;
+        }
+      }
+      return [...groups.values()];
+    }
+
+    /** 工作区角色授权是否已过期（到期时间早于当前时间）。 */
+    function isRoleExpired(assignment) {
+      if (
+        typeof assignment?.expiresAt !== "string" ||
+        assignment.expiresAt === ""
+      ) {
+        return false;
+      }
+      const at = Date.parse(assignment.expiresAt);
+      return Number.isFinite(at) && at <= Date.now();
+    }
+
+    function localIsoDate(date) {
+      const pad = (input) => String(input).padStart(2, "0");
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    }
+
+    function addLocalDays(date, days) {
+      const next = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      next.setDate(next.getDate() + days);
+      return localIsoDate(next);
+    }
+
+    function defaultReportRange() {
+      const today = new Date();
+      return { from: addLocalDays(today, -6), to: localIsoDate(today) };
+    }
+
+    /** 工作计划的自然语言输入与解析预览；选择器值优先于解析预填值。 */
+    function WorkPlanComposer({
+      teammate,
+      canManagePlatform,
+      onCreated,
+      onError,
+      onNotice,
+    }) {
+      const [instruction, setInstruction] = react.useState("");
+      const [parsed, setParsed] = react.useState(null);
+      const [workspaces, setWorkspaces] = react.useState([]);
+      const [projectOverride, setProjectOverride] = react.useState("");
+      const [priorityOverride, setPriorityOverride] = react.useState("");
+      const [dueOverride, setDueOverride] = react.useState("");
+      const [autoSubmitReview, setAutoSubmitReview] = react.useState(true);
+      const [submitting, setSubmitting] = react.useState(false);
+      const [parseError, setParseError] = react.useState("");
+      const active = teammate.state === "active";
+      const trimmed = instruction.trim();
+
+      react.useEffect(() => {
+        setInstruction("");
+        setParsed(null);
+        setWorkspaces([]);
+        setProjectOverride("");
+        setPriorityOverride("");
+        setDueOverride("");
+        setParseError("");
+      }, [teammate.id]);
+
+      react.useEffect(() => {
+        let cancelled = false;
+        void request("/api/collab/team/workspaces")
+          .then((result) => {
+            if (cancelled) return;
+            setWorkspaces(
+              (result.workspaces ?? [])
+                .filter(
+                  (workspace) =>
+                    workspace.isMember === true || canManagePlatform === true,
+                )
+                .map((workspace) => ({
+                  id: workspace.id,
+                  title: workspace.title ?? workspace.id,
+                  isMember: workspace.isMember === true,
+                })),
+            );
+          })
+          .catch(() => {
+            // 项目选择器保持空态，解析接口返回的工作区仍可兜底。
+          });
+        return () => {
+          cancelled = true;
+        };
+      }, [teammate.id, canManagePlatform]);
+
+      react.useEffect(() => {
+        if (trimmed === "") {
+          setParsed(null);
+          setParseError("");
+          return undefined;
+        }
+        let cancelled = false;
+        const timer = window.setTimeout(() => {
+          void request("/api/collab/teammates/work-plans/parse", {
+            method: "POST",
+            body: { teammateId: teammate.id, instruction: trimmed },
+          })
+            .then((result) => {
+              if (!cancelled) {
+                setParsed(result.parsed ?? null);
+                setParseError("");
+              }
+            })
+            .catch((cause) => {
+              if (!cancelled) {
+                setParseError(
+                  cause instanceof Error ? cause.message : "解析失败",
+                );
+              }
+            });
+        }, 320);
+        return () => {
+          cancelled = true;
+          window.clearTimeout(timer);
+        };
+      }, [trimmed, teammate.id]);
+
+      const options = parsed?.workspaces ?? workspaces;
+      const effectiveProject =
+        projectOverride || parsed?.workspaceId || options[0]?.id || "";
+      const effectivePriority = priorityOverride || parsed?.priority || "P2";
+      const effectiveDue = dueOverride || parsed?.due || addLocalDays(new Date(), 1);
+      const recognized = [];
+      if (parsed !== null) {
+        recognized.push(`优先级 ${parsed.priority}`);
+        if (parsed.due) recognized.push(`截止 ${parsed.due}`);
+        if (parsed.workspaceTitle)
+          recognized.push(`项目 ${parsed.workspaceTitle}`);
+      }
+
+      const submit = async (event) => {
+        event.preventDefault();
+        if (!active || submitting) return;
+        if (trimmed === "") {
+          setParseError("请先输入计划说明。");
+          return;
+        }
+        if (effectiveProject === "") {
+          setParseError("没有可用项目，请先加入一个项目。");
+          return;
+        }
+        try {
+          setSubmitting(true);
+          const result = await request("/api/collab/teammates/work-plans", {
+            method: "POST",
+            body: {
+              teammateId: teammate.id,
+              instruction: trimmed,
+              workspaceId: effectiveProject,
+              priority: effectivePriority,
+              due: effectiveDue,
+              autoSubmitReview,
+            },
+          });
+          const task = result.task ?? null;
+          const execution = result.execution ?? {};
+          setInstruction("");
+          setParsed(null);
+          setProjectOverride("");
+          setPriorityOverride("");
+          setDueOverride("");
+          setParseError("");
+          await onCreated();
+          if (execution.error !== undefined) {
+            onError(
+              new Error(`计划项已创建，但 Agent 未能启动：${execution.error}`),
+            );
+          } else if (task !== null) {
+            onNotice(
+              `已创建计划项 ${task.id}，已派发给 ${teammate.name} 执行，可在「当前工作」查看进度。`,
+            );
+          }
+        } catch (cause) {
+          onError(cause);
+        } finally {
+          setSubmitting(false);
+        }
+      };
+
+      return h(
+        "form",
+        { className: "pmtm-plan-composer", onSubmit: submit },
+        h("textarea", {
+          name: "instruction",
+          value: instruction,
+          placeholder:
+            "例如：请预研供应链例外决策材料，汇总安全库存和关键订单影响，9 月 26 日前输出一页结论。",
+          disabled: !active,
+          onChange: (event) => setInstruction(event.target.value),
+          "aria-label": "工作计划说明",
+        }),
+        h(
+          "div",
+          { className: "pmtm-plan-parsed", "aria-live": "polite" },
+          parseError !== ""
+            ? parseError
+            : recognized.length > 0
+              ? `已识别：${recognized.join(" · ")}`
+              : "支持自然语言描述：优先级、项目与截止日期会自动识别，也可以直接修改下方选择器。",
+        ),
+        h(
+          "div",
+          { className: "pmtm-plan-toolbar" },
+          h(
+            "div",
+            { className: "pmtm-plan-controls" },
+            h(
+              "label",
+              { className: "pmtm-plan-control" },
+              h("span", null, "项目"),
+              h(
+                "select",
+                {
+                  value: effectiveProject,
+                  disabled: !active,
+                  onChange: (event) => setProjectOverride(event.target.value),
+                  "aria-label": "项目",
+                },
+                ...(options.length === 0
+                  ? [h("option", { value: "" }, "暂无可创建项目")]
+                  : options.map((option) =>
+                      h(
+                        "option",
+                        { key: option.id, value: option.id },
+                        option.title,
+                      ),
+                    )),
+              ),
+            ),
+            h(
+              "label",
+              { className: "pmtm-plan-control" },
+              h("span", null, "优先级"),
+              h(
+                "select",
+                {
+                  value: effectivePriority,
+                  disabled: !active,
+                  onChange: (event) => setPriorityOverride(event.target.value),
+                  "aria-label": "优先级",
+                },
+                ...WORK_PLAN_PRIORITY_OPTIONS.map((value) =>
+                  h("option", { key: value, value }, value),
+                ),
+              ),
+            ),
+            h(
+              "label",
+              { className: "pmtm-plan-check" },
+              h("input", {
+                type: "checkbox",
+                checked: autoSubmitReview,
+                disabled: !active,
+                onChange: (event) => setAutoSubmitReview(event.target.checked),
+              }),
+              h("span", null, "自动提交 review"),
+            ),
+            h(
+              "label",
+              { className: "pmtm-plan-control" },
+              h("span", null, "截止日期"),
+              h("input", {
+                type: "date",
+                value: effectiveDue,
+                disabled: !active,
+                onChange: (event) => setDueOverride(event.target.value),
+                "aria-label": "截止日期",
+              }),
+            ),
+          ),
+          h(
+            "button",
+            {
+              type: "submit",
+              className: "pmtm-btn small",
+              disabled: !active || submitting,
+              title: active ? "创建计划项" : "Teammate 未生效，不能接收新的工作计划",
+            },
+            submitting ? "创建中…" : "创建计划项",
+          ),
+        ),
+      );
+    }
+
+    function activityFor(activity, teammateId) {
+      return activity.items.find((item) => item.teammateId === teammateId);
+    }
+
+    /**
+     * scope = "instance"：运行态口径，只统计绑定到该数字员工实例的数据；
+     * scope = "template"：定义态口径，按同一 Agent 模版（profile）汇总，多实例共享时数据一致。
+     */
+    function activityScopeFor(activity, teammateId, scope) {
+      const item = activityFor(activity, teammateId);
+      const fallback = { runtimeHours: 0, meetingCount: 0, outputTokens: 0 };
+      if (item === undefined) return fallback;
+      if (item.instance !== undefined || item.template !== undefined) {
+        return (
+          (scope === "template" ? item.template : item.instance) ?? fallback
+        );
+      }
+      // 兼容未分口径的旧接口
+      return {
+        runtimeHours: item.runtimeHours ?? 0,
+        meetingCount: item.meetingCount ?? 0,
+        outputTokens: item.outputTokens ?? 0,
+      };
+    }
+
+    const LIVE_INSTANCES_HELP = "我的 / 平台生效实例数。";
+
+    /** 近 24 小时统计的口径说明（列表标题与详情卡片共用）。 */
+    function loadScopeTitle(scope, generatedAt = "") {
+      return [
+        scope === "template"
+          ? "口径：按同一 Agent 模版（profile）汇总，可能被多个数字员工实例共享。"
+          : "口径：仅统计绑定到该数字员工实例的运行（实例绑定的 Run，以及指派给它的任务运行）。",
+        `统计周期：最近 24 小时，每 30 秒刷新${generatedAt === "" ? "" : `，截至 ${timeShort(generatedAt)}`}。`,
+        "运行时长：Agent 任务运行开始到结束与统计窗口的交集，包含执行和思考时间；排队和等待人工输入不计入。",
+        "参会次数：统计周期内实际参与过的 live 会议去重数，同一会议多次进出只计 1 次。",
+        "Token：仅统计 Agent 输出的 Token，不包含输入 Token。",
+      ].join("\n");
+    }
+
+    function InstanceMetric({
+      liveInstances,
+      teammateId,
+      detailed = false,
+    }) {
+      const counts = liveInstances[teammateId] ?? {};
+      const title = LIVE_INSTANCES_HELP;
+      const value = h(
+        "span",
+        { className: detailed ? "value" : "pmtm-load-value" },
+        h("span", { className: "live" }, `${String(counts.ownCount ?? 0)}`),
+        h("span", { className: "owned" }, `/${String(counts.liveCount ?? 0)}个`),
+      );
+      if (!detailed) {
+        return h(
+          "span",
+          { className: "pmtm-load", title },
+          value,
+          h(InfoIcon, null),
+        );
+      }
+      return h(
+        "div",
+        { className: "pmtm-load-card live" },
+        h(
+          "span",
+          { className: "label" },
+          "Live实例 我的/平台",
+          h(
+            "span",
+            {
+              className: "pmtm-info",
+              tabIndex: 0,
+              role: "button",
+              "aria-label": "Live实例统计说明",
+              title,
+            },
+            h(InfoIcon, null),
+            h("span", { className: "pmtm-info-pop", role: "tooltip" }, title),
+          ),
+        ),
+        value,
+      );
+    }
+
+    function LoadMetric({
+      activity,
+      teammateId,
+      detailed = false,
+      stacked = false,
+      scope = "instance",
+      caption = "",
+      label = "近24h工作负荷",
+    }) {
+      const stats = activityScopeFor(activity, teammateId, scope);
+      const generatedAt = activity.generatedAt || "";
+      const title = loadScopeTitle(scope, generatedAt);
+      const value = h(
+        "span",
+        { className: detailed ? "value" : "pmtm-load-value" },
+        h(
+          "span",
+          { className: "runtime" },
+          runtimeHoursText(stats.runtimeHours),
+        ),
+        " / ",
+        h(
+          "span",
+          { className: "meetings" },
+          `${String(stats.meetingCount ?? 0)}次`,
+        ),
+        " / ",
+        h(
+          "span",
+          { className: "tokens" },
+          `${outputTokensText(stats.outputTokens)} Token`,
+        ),
+      );
+      if (stacked) {
+        return h(
+          "span",
+          { className: "pmtm-load pmtm-load-stacked", title },
+          caption === ""
+            ? null
+            : h("span", { className: "pmtm-load-caption" }, caption),
+          h(
+            "span",
+            { className: "pmtm-load-value runtime" },
+            runtimeHoursText(stats.runtimeHours),
+          ),
+          h(
+            "span",
+            { className: "pmtm-load-value meetings" },
+            `${String(stats.meetingCount ?? 0)}次`,
+          ),
+          h(
+            "span",
+            { className: "pmtm-load-value tokens" },
+            `${outputTokensText(stats.outputTokens)} Token`,
+          ),
+        );
+      }
+      if (!detailed) {
+        return h(
+          "span",
+          { className: "pmtm-load", title },
+          value,
+          h(InfoIcon, null),
+        );
+      }
+      return h(
+        "div",
+        { className: "pmtm-load-card" },
+        h(
+          "span",
+          { className: "label" },
+          label,
+          h(
+            "span",
+            {
+              className: "pmtm-info",
+              tabIndex: 0,
+              role: "button",
+              "aria-label": `${label}统计说明`,
+              title,
+            },
+            h(InfoIcon, null),
+            h("span", { className: "pmtm-info-pop", role: "tooltip" }, title),
+          ),
+        ),
+        value,
+      );
+    }
+
+    function InfoIcon() {
+      return h(
+        "svg",
+        {
+          className: "pmtm-info-glyph",
+          viewBox: "0 0 24 24",
+          width: 11,
+          height: 11,
+          fill: "none",
+          stroke: "currentColor",
+          strokeWidth: 2,
+          strokeLinecap: "round",
+          strokeLinejoin: "round",
+          "aria-hidden": "true",
+        },
+        h("circle", { cx: 12, cy: 12, r: 10 }),
+        h("path", { d: "M12 16v-5" }),
+        h("path", { d: "M12 8h.01" }),
+      );
+    }
+
+    function CodeInfo({ label, code }) {
+      if (code === undefined || code === "") return null;
+      return h(
+        "span",
+        {
+          className: "pmtm-code-info",
+          tabIndex: 0,
+          role: "button",
+          "aria-label": `${label}代码：${code}`,
+          title: code,
+        },
+        h(InfoIcon, null),
+      );
+    }
+
+    function CodeValue({ label, value, code }) {
+      return h(
+        "span",
+        { className: "pmtm-code-value" },
+        h("span", null, value),
+        h(CodeInfo, { label, code }),
+      );
+    }
+
+    function markdownInline(text, keyBase) {
+      const nodes = [];
+      const pattern = /(\*\*([^*]+)\*\*|`([^`]+)`)/g;
+      let cursor = 0;
+      let match = pattern.exec(text);
+      let index = 0;
+      while (match !== null) {
+        if (match.index > cursor) nodes.push(text.slice(cursor, match.index));
+        if (match[2] !== undefined) {
+          nodes.push(h("strong", { key: `${keyBase}-b-${index}` }, match[2]));
+        } else {
+          nodes.push(h("code", { key: `${keyBase}-c-${index}` }, match[3]));
+        }
+        cursor = match.index + match[0].length;
+        index += 1;
+        match = pattern.exec(text);
+      }
+      if (cursor < text.length) nodes.push(text.slice(cursor));
+      return nodes;
+    }
+
+    /** `| a | b |` → ["a", "b"]；首尾竖线可省略。 */
+    function markdownTableCells(line) {
+      return line
+        .trim()
+        .replace(/^\|/, "")
+        .replace(/\|$/, "")
+        .split("|")
+        .map((cell) => cell.trim());
+    }
+
+    function isMarkdownTableSeparator(line) {
+      return /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/.test(
+        line ?? "",
+      );
+    }
+
+    function renderMarkdown(text) {
+      if (typeof text !== "string" || text.trim() === "") {
+        return h("span", null, "尚未填写。");
+      }
+      const lines = text.split(/\r?\n/);
+      const blocks = [];
+      let index = 0;
+      while (index < lines.length) {
+        const line = lines[index];
+        if (line.trim() === "") {
+          index += 1;
+          continue;
+        }
+        if (line.startsWith("```")) {
+          const code = [];
+          index += 1;
+          while (index < lines.length && !lines[index].startsWith("```")) {
+            code.push(lines[index]);
+            index += 1;
+          }
+          index += 1;
+          blocks.push(h("pre", { key: `code-${blocks.length}` }, code.join("\n")));
+          continue;
+        }
+        const heading = line.match(/^(#{1,6})\s+(.*)$/);
+        if (heading !== null) {
+          const Tag = heading[1].length <= 2 ? "h4" : "h5";
+          blocks.push(
+            h(Tag, { key: `heading-${blocks.length}` }, markdownInline(heading[2], `h-${blocks.length}`)),
+          );
+          index += 1;
+          continue;
+        }
+        // GFM 表格：表头 + |---| 分隔行 + 若干数据行。
+        if (
+          line.includes("|") &&
+          index + 1 < lines.length &&
+          isMarkdownTableSeparator(lines[index + 1])
+        ) {
+          const header = markdownTableCells(line);
+          const rows = [];
+          index += 2;
+          while (
+            index < lines.length &&
+            lines[index].includes("|") &&
+            lines[index].trim() !== ""
+          ) {
+            rows.push(markdownTableCells(lines[index]));
+            index += 1;
+          }
+          const tableKey = `table-${blocks.length}`;
+          blocks.push(
+            h(
+              "div",
+              { className: "pmtm-md-table-wrap", key: tableKey },
+              h(
+                "table",
+                { className: "pmtm-md-table" },
+                h(
+                  "thead",
+                  null,
+                  h(
+                    "tr",
+                    null,
+                    ...header.map((cell, cellIndex) =>
+                      h(
+                        "th",
+                        { key: String(cellIndex) },
+                        markdownInline(cell, `${tableKey}-th-${cellIndex}`),
+                      ),
+                    ),
+                  ),
+                ),
+                h(
+                  "tbody",
+                  null,
+                  ...rows.map((row, rowIndex) =>
+                    h(
+                      "tr",
+                      { key: String(rowIndex) },
+                      ...header.map((_, cellIndex) =>
+                        h(
+                          "td",
+                          { key: String(cellIndex) },
+                          markdownInline(
+                            row[cellIndex] ?? "",
+                            `${tableKey}-td-${rowIndex}-${cellIndex}`,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+          continue;
+        }
+        const unordered = line.match(/^\s*[-*+]\s+(.*)$/);
+        if (unordered !== null) {
+          const items = [];
+          while (index < lines.length) {
+            const item = lines[index].match(/^\s*[-*+]\s+(.*)$/);
+            if (item === null) break;
+            items.push(item[1]);
+            index += 1;
+          }
+          blocks.push(
+            h(
+              "ul",
+              { key: `ul-${blocks.length}` },
+              ...items.map((item, itemIndex) =>
+                h("li", { key: String(itemIndex) }, markdownInline(item, `ul-${blocks.length}-${itemIndex}`)),
+              ),
+            ),
+          );
+          continue;
+        }
+        const ordered = line.match(/^\s*\d+[.)]\s+(.*)$/);
+        if (ordered !== null) {
+          const items = [];
+          while (index < lines.length) {
+            const item = lines[index].match(/^\s*\d+[.)]\s+(.*)$/);
+            if (item === null) break;
+            items.push(item[1]);
+            index += 1;
+          }
+          blocks.push(
+            h(
+              "ol",
+              { key: `ol-${blocks.length}` },
+              ...items.map((item, itemIndex) =>
+                h("li", { key: String(itemIndex) }, markdownInline(item, `ol-${blocks.length}-${itemIndex}`)),
+              ),
+            ),
+          );
+          continue;
+        }
+        const paragraph = [line];
+        index += 1;
+        while (
+          index < lines.length &&
+          lines[index].trim() !== "" &&
+          !lines[index].startsWith("```") &&
+          !/^(#{1,6})\s+/.test(lines[index]) &&
+          !/^\s*[-*+]\s+/.test(lines[index]) &&
+          !/^\s*\d+[.)]\s+/.test(lines[index]) &&
+          !(
+            lines[index].includes("|") &&
+            isMarkdownTableSeparator(lines[index + 1])
+          )
+        ) {
+          paragraph.push(lines[index]);
+          index += 1;
+        }
+        blocks.push(
+          h(
+            "p",
+            { key: `p-${blocks.length}` },
+            ...paragraph.flatMap((part, partIndex) =>
+              partIndex === 0
+                ? markdownInline(part, `p-${blocks.length}`)
+                : [" ", ...markdownInline(part, `p-${blocks.length}-${partIndex}`)],
+            ),
+          ),
+        );
+      }
+      return h("div", { className: "pmtm-md" }, ...blocks);
+    }
+
+    function readableEventMessage(event, teammate) {
+      const match = event.message.match(/^绑定执行身份\s+(\S+)$/);
+      if (match !== null) {
+        return `绑定执行身份 ${teammate.name}（${match[1]}）`;
+      }
+      if (
+        event.message.startsWith(`${event.actorName} 复原了该定义`) ||
+        event.message.startsWith(`${event.actorName} 将定义设为「`)
+      ) {
+        return event.message.slice(event.actorName.length).trim();
+      }
+      return event.message;
     }
 
     function hairMarkup(preset) {
@@ -304,22 +1363,65 @@ window.__ModuleLoader__.load({
 
     function avatarArt(value, key) {
       if (typeof value === "string" && value.startsWith("data:image/")) {
-        return h("img", { key, className: "pmtm-avatar-art", src: value, alt: "" });
+        return h("img", {
+          key,
+          className: "pmtm-avatar-art",
+          src: value,
+          alt: "",
+        });
       }
       const preset =
         AVATAR_PRESETS.find((item) => item.id === value) ?? AVATAR_PRESETS[0];
       const children = [
         h("rect", { key: "bg", width: 64, height: 64, fill: preset.bg }),
-        h("circle", { key: "a1", cx: 52, cy: 12, r: 10, fill: preset.accent, opacity: 0.28 }),
-        h("circle", { key: "a2", cx: 10, cy: 52, r: 14, fill: preset.accent, opacity: 0.18 }),
-        h("rect", { key: "neck", x: 28, y: 39, width: 8, height: 11, rx: 4, fill: preset.skin }),
-        h("path", { key: "shirt", d: "M9 64c2-13 11-20 23-20s21 7 23 20Z", fill: preset.shirt }),
+        h("circle", {
+          key: "a1",
+          cx: 52,
+          cy: 12,
+          r: 10,
+          fill: preset.accent,
+          opacity: 0.28,
+        }),
+        h("circle", {
+          key: "a2",
+          cx: 10,
+          cy: 52,
+          r: 14,
+          fill: preset.accent,
+          opacity: 0.18,
+        }),
+        h("rect", {
+          key: "neck",
+          x: 28,
+          y: 39,
+          width: 8,
+          height: 11,
+          rx: 4,
+          fill: preset.skin,
+        }),
+        h("path", {
+          key: "shirt",
+          d: "M9 64c2-13 11-20 23-20s21 7 23 20Z",
+          fill: preset.shirt,
+        }),
         h("circle", { key: "ear-l", cx: 18, cy: 30, r: 4, fill: preset.skin }),
         h("circle", { key: "ear-r", cx: 46, cy: 30, r: 4, fill: preset.skin }),
         h("circle", { key: "face", cx: 32, cy: 29, r: 16, fill: preset.skin }),
         ...hairMarkup(preset),
-        h("circle", { key: "eye-l", cx: 25.5, cy: 31, r: 1.8, fill: "#20232a" }),
-        h("circle", { key: "eye-r", cx: 38.5, cy: 31, r: 1.8, fill: "#20232a" }),
+        h("circle", {
+          key: "eye-l",
+          cx: 25.5,
+          cy: 31,
+          r: 1.8,
+          fill: "#20232a",
+        }),
+        h("circle", {
+          key: "eye-r",
+          cx: 38.5,
+          cy: 31,
+          r: 1.8,
+          fill: "#20232a",
+        }),
         h("path", {
           key: "mouth",
           d: "M27 38c3 3 7 3 10 0",
@@ -333,7 +1435,12 @@ window.__ModuleLoader__.load({
         children.push(
           h(
             "g",
-            { key: "glasses", fill: "none", stroke: preset.hair, strokeWidth: 1.8 },
+            {
+              key: "glasses",
+              fill: "none",
+              stroke: preset.hair,
+              strokeWidth: 1.8,
+            },
             [
               h("circle", { key: "g1", cx: 25.5, cy: 31, r: 4 }),
               h("circle", { key: "g2", cx: 38.5, cy: 31, r: 4 }),
@@ -343,11 +1450,23 @@ window.__ModuleLoader__.load({
         );
       }
       children.push(
-        h("circle", { key: "shine", cx: 42, cy: 24, r: 3, fill: "#fff", opacity: 0.2 }),
+        h("circle", {
+          key: "shine",
+          cx: 42,
+          cy: 24,
+          r: 3,
+          fill: "#fff",
+          opacity: 0.2,
+        }),
       );
       return h(
         "svg",
-        { key, className: "pmtm-avatar-art", viewBox: "0 0 64 64", "aria-hidden": "true" },
+        {
+          key,
+          className: "pmtm-avatar-art",
+          viewBox: "0 0 64 64",
+          "aria-hidden": "true",
+        },
         children,
       );
     }
@@ -413,25 +1532,124 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /*
+     * 字段说明气泡按视口自适应：默认贴在图标上方，
+     * 上方空间不够就翻到下方，左右始终收在可视范围内，避免被窗口裁掉。
+     */
+    const INFO_POP_MARGIN = 8;
+
+    function positionInfoPop(host, pop) {
+      if (host === null || pop === null) return;
+      const anchor = host.getBoundingClientRect();
+      const width = pop.offsetWidth;
+      const height = pop.offsetHeight;
+      if (width === 0 || height === 0) return;
+      const maxLeft = Math.max(
+        INFO_POP_MARGIN,
+        window.innerWidth - INFO_POP_MARGIN - width,
+      );
+      // 默认右缘对齐图标右侧，再整体收进视口。
+      const left = Math.min(
+        Math.max(INFO_POP_MARGIN, anchor.right + 6 - width),
+        maxLeft,
+      );
+      let top = anchor.top - INFO_POP_MARGIN - height;
+      if (top < INFO_POP_MARGIN) top = anchor.bottom + INFO_POP_MARGIN;
+      const maxTop = Math.max(
+        INFO_POP_MARGIN,
+        window.innerHeight - INFO_POP_MARGIN - height,
+      );
+      top = Math.min(Math.max(INFO_POP_MARGIN, top), maxTop);
+      pop.style.left = `${String(Math.round(left))}px`;
+      pop.style.top = `${String(Math.round(top))}px`;
+    }
+
+    function installInfoPopPositioning() {
+      const place = (event) => {
+        const target = event.target;
+        if (!(target instanceof Element)) return;
+        const host = target.closest(".pmtm-info");
+        if (host === null) return;
+        positionInfoPop(host, host.querySelector(".pmtm-info-pop"));
+      };
+      const reposition = () => {
+        for (const host of document.querySelectorAll(
+          ".pmtm-info:hover, .pmtm-info:focus-visible",
+        )) {
+          positionInfoPop(host, host.querySelector(".pmtm-info-pop"));
+        }
+      };
+      document.addEventListener("mouseover", place, true);
+      document.addEventListener("focusin", place, true);
+      document.addEventListener("scroll", reposition, true);
+      window.addEventListener("resize", reposition);
+      return () => {
+        document.removeEventListener("mouseover", place, true);
+        document.removeEventListener("focusin", place, true);
+        document.removeEventListener("scroll", reposition, true);
+        window.removeEventListener("resize", reposition);
+      };
+    }
+
+    function MeetingPanelToggle() {
+      const meetingOpen = react.useSyncExternalStore(
+        (listener) =>
+          window.__pluginmaxMeeting?.subscribe(() =>
+            listener(Boolean(window.__pluginmaxMeeting.open)),
+          ) ?? (() => {}),
+        () => Boolean(window.__pluginmaxMeeting?.open),
+      );
+      return h(
+        "button",
+        {
+          className: `pmtm-meeting-toggle${meetingOpen ? " active" : ""}`,
+          type: "button",
+          "aria-label": "展开会议侧边栏",
+          "aria-pressed": meetingOpen,
+          title: "展开会议侧边栏",
+          onClick: () => window.__pluginmaxMeeting?.toggle(),
+        },
+        h(
+          "svg",
+          {
+            viewBox: "0 0 24 24",
+            fill: "none",
+            stroke: "currentColor",
+            strokeWidth: 2,
+            strokeLinecap: "round",
+            strokeLinejoin: "round",
+            "aria-hidden": true,
+          },
+          h("path", { d: "m22 8-6 4 6 4V8Z" }),
+          h("rect", { x: 2, y: 6, width: 14, height: 12, rx: 2 }),
+        ),
+      );
+    }
+
     function AiTeammatesPage() {
       const [teammates, setTeammates] = react.useState([]);
       const [canManagePlatform, setCanManagePlatform] = react.useState(false);
-      const [templateOpen, setTemplateOpen] = react.useState(false);
-      const [profiles, setProfiles] = react.useState([]);
-      const [canManageProfiles, setCanManageProfiles] = react.useState(false);
-      const [profileSelectedId, setProfileSelectedId] = react.useState("");
-      const [profileEditing, setProfileEditing] = react.useState(false);
-      const [profileForm, setProfileForm] = react.useState(null);
-      const [profileSearch, setProfileSearch] = react.useState("");
-      const [profileBusy, setProfileBusy] = react.useState(false);
+      const [section, setSection] = react.useState("teammate");
+      const [teammateTemplates, setTeammateTemplates] = react.useState([]);
+      const [definitionTemplateId, setDefinitionTemplateId] = react.useState("");
+      const [switchTemplateId, setSwitchTemplateId] = react.useState("");
       const [externalRuntimes, setExternalRuntimes] = react.useState([]);
       const [canManageExternal, setCanManageExternal] = react.useState(false);
       const [externalWorkspaceId, setExternalWorkspaceId] = react.useState("");
-      const [externalManagerOpen, setExternalManagerOpen] = react.useState(false);
+      const [workspaces, setWorkspaces] = react.useState([]);
       const [externalEditing, setExternalEditing] = react.useState(false);
       const [externalForm, setExternalForm] = react.useState(null);
       const [externalBusy, setExternalBusy] = react.useState(false);
       const [runningIds, setRunningIds] = react.useState([]);
+      const [archivedOnly, setArchivedOnly] = react.useState(false);
+      const archivedOnlyRef = react.useRef(false);
+      const backgroundRefresh = react.useRef(false);
+      const [archiveOpen, setArchiveOpen] = react.useState(false);
+      const [activity, setActivity] = react.useState({
+        generatedAt: "",
+        items: [],
+      });
+      const [liveInstances, setLiveInstances] = react.useState({});
       const [identity, setIdentity] = react.useState(null);
       const [assignOpen, setAssignOpen] = react.useState(false);
       const [assignTasks, setAssignTasks] = react.useState([]);
@@ -447,21 +1665,54 @@ window.__ModuleLoader__.load({
       const [detail, setDetail] = react.useState(null);
       const [events, setEvents] = react.useState([]);
       const [runtimeTasks, setRuntimeTasks] = react.useState([]);
+      const [queue, setQueue] = react.useState(null);
+      const [queueBusy, setQueueBusy] = react.useState(false);
+      const [rejectingId, setRejectingId] = react.useState("");
+      const [rejectNote, setRejectNote] = react.useState("");
       const [tab, setTab] = react.useState("runtime");
+      const [runtimeTab, setRuntimeTab] = react.useState("current");
+      const [currentUser, setCurrentUser] = react.useState(null);
+      const [workReports, setWorkReports] = react.useState([]);
+      const [workReportsLoading, setWorkReportsLoading] = react.useState(false);
+      const [workReportGenerating, setWorkReportGenerating] = react.useState(false);
+      const [reportNotice, setReportNotice] = react.useState("");
+      const [reportRange, setReportRange] = react.useState(defaultReportRange);
+      const [reportSearch, setReportSearch] = react.useState("");
+      const [reportQuery, setReportQuery] = react.useState("");
+      const [auditEvents, setAuditEvents] = react.useState([]);
+      const [auditCursor, setAuditCursor] = react.useState("");
+      const [auditLoading, setAuditLoading] = react.useState(false);
       const [editing, setEditing] = react.useState(false);
       const [form, setForm] = react.useState(null);
+      const [instanceEditing, setInstanceEditing] = react.useState(false);
+      const [instanceForm, setInstanceForm] = react.useState({
+        name: "",
+        description: "",
+      });
+      const [instanceBusy, setInstanceBusy] = react.useState(false);
+      const [projectRoles, setProjectRoles] = react.useState([]);
+      const [projectRolesLoading, setProjectRolesLoading] = react.useState(false);
+      const [projectRoleBusy, setProjectRoleBusy] = react.useState("");
       const [busy, setBusy] = react.useState(false);
       const [error, setError] = react.useState("");
       const [notice, setNotice] = react.useState("");
       const [loading, setLoading] = react.useState(true);
 
+      react.useEffect(() => installInfoPopPositioning(), []);
+
       const fail = (cause) => {
+        // 后台轮询失败不弹全局错误条，避免服务重启后留下残留提示。
+        if (backgroundRefresh.current) return;
         setNotice("");
         setError(cause instanceof Error ? cause.message : String(cause));
       };
       const succeed = (message) => {
         setError("");
         setNotice(message);
+      };
+      const setArchivedView = (next) => {
+        archivedOnlyRef.current = next;
+        setArchivedOnly(next);
       };
 
       const loadList = react.useCallback(async (targetId) => {
@@ -477,13 +1728,24 @@ window.__ModuleLoader__.load({
           setTeammates(list);
           setCanManagePlatform(result.canManagePlatform === true);
           setRunningIds(result.runningTeammateIds ?? []);
+          setLiveInstances(result.liveInstanceCounts ?? {});
           setSelectedId((current) => {
-            if (targetId !== undefined && list.some((item) => item.id === targetId)) {
+            const candidates = archivedOnlyRef.current
+              ? list.filter((item) => item.state === "archived")
+              : list.filter((item) => item.state !== "archived");
+            if (
+              targetId !== undefined &&
+              candidates.some((item) => item.id === targetId)
+            ) {
               return targetId;
             }
-            if (list.some((item) => item.id === current)) return current;
-            const personal = list.find((item) => item.source === "personal");
-            return (personal ?? list[0])?.id ?? "";
+            if (candidates.some((item) => item.id === current)) {
+              return current;
+            }
+            const personal = candidates.find(
+              (item) => item.source === "personal",
+            );
+            return (personal ?? candidates[0])?.id ?? "";
           });
           setError("");
         } catch (cause) {
@@ -525,6 +1787,132 @@ window.__ModuleLoader__.load({
         }
       }, []);
 
+      const loadQueue = react.useCallback(async (teammateId) => {
+        if (teammateId === "") {
+          setQueue(null);
+          return;
+        }
+        try {
+          const result = await request(
+            `/api/collab/teammates/work-queue?teammateId=${encodeURIComponent(teammateId)}`,
+          );
+          setQueue(result.queue ?? null);
+        } catch (cause) {
+          fail(cause);
+        }
+      }, []);
+
+      /** 角色权限：读取实例绑定员工档案上的工作区角色授权。 */
+      const loadProjectRoles = react.useCallback(async (teammate) => {
+        const employeeId = teammate?.employeeId ?? "";
+        if (employeeId === "") {
+          setProjectRoles([]);
+          return;
+        }
+        try {
+          setProjectRolesLoading(true);
+          const result = await request(
+            `/api/collab/employee/roles?employeeId=${encodeURIComponent(employeeId)}`,
+          );
+          setProjectRoles(result.roles ?? []);
+        } catch (cause) {
+          fail(cause);
+        } finally {
+          setProjectRolesLoading(false);
+        }
+      }, []);
+
+      const loadWorkReports = react.useCallback(
+        async (teammateId, range, query) => {
+          if (teammateId === "") {
+            setWorkReports([]);
+            return;
+          }
+          try {
+            setWorkReportsLoading(true);
+            const params = new URLSearchParams({ teammateId });
+            if (range.from !== "") params.set("from", range.from);
+            if (range.to !== "") params.set("to", range.to);
+            if (query !== "") params.set("q", query);
+            const result = await request(
+              `/api/collab/teammates/work-reports?${params.toString()}`,
+            );
+            setWorkReports(result.reports ?? []);
+          } catch (cause) {
+            fail(cause);
+          } finally {
+            setWorkReportsLoading(false);
+          }
+        },
+        [],
+      );
+
+      const loadAuditEvents = react.useCallback(
+        async (teammateId, cursor = "") => {
+          if (teammateId === "") {
+            setAuditEvents([]);
+            setAuditCursor("");
+            return;
+          }
+          try {
+            setAuditLoading(true);
+            const params = new URLSearchParams({
+              teammateId,
+              limit: "30",
+            });
+            if (cursor !== "") params.set("cursor", cursor);
+            const [eventResult, auditResult] = await Promise.all([
+              cursor === ""
+                ? request(
+                    `/api/collab/teammates/detail?teammateId=${encodeURIComponent(teammateId)}`,
+                  )
+                : Promise.resolve({ events: [] }),
+              request(`/api/collab/teammates/audit-events?${params.toString()}`),
+            ]);
+            const teammateEvents = (eventResult.events ?? []).map((event) => ({
+              id: event.id,
+              at: new Date(event.at).toISOString(),
+              actorName: event.actorName,
+              actorType: "user",
+              narrative: readableEventMessage(event, eventResult.teammate),
+            }));
+            const auditRows = (auditResult.events ?? []).map((event) => ({
+              id: event.id,
+              at: new Date(event.occurredAt).toISOString(),
+              actorName: event.actor?.name ?? "系统",
+              actorType: event.actor?.type ?? "system",
+              narrative: event.narrative,
+            }));
+            const merged = [...teammateEvents, ...auditRows].sort((left, right) =>
+              right.at.localeCompare(left.at) || right.id.localeCompare(left.id),
+            );
+            setAuditEvents((current) =>
+              cursor === "" ? merged : [...current, ...merged],
+            );
+            setAuditCursor(auditResult.nextCursor ?? "");
+          } catch (cause) {
+            fail(cause);
+          } finally {
+            setAuditLoading(false);
+          }
+        },
+        [],
+      );
+
+      const loadActivity = react.useCallback(async () => {
+        if (token() === null) return;
+        try {
+          const result = await request("/api/collab/teammates/activity");
+          setActivity({
+            generatedAt:
+              typeof result.generatedAt === "string" ? result.generatedAt : "",
+            items: result.items ?? [],
+          });
+        } catch {
+          // 负荷指标失败时保持页面主体可用，下一次轮询会继续重试。
+        }
+      }, []);
+
       const loadIdentity = react.useCallback(async (teammateId) => {
         if (teammateId === "") {
           setIdentity(null);
@@ -540,16 +1928,17 @@ window.__ModuleLoader__.load({
         }
       }, []);
 
-      const loadProfiles = react.useCallback(async (targetId) => {
+      const loadTeammateTemplates = react.useCallback(async (targetId) => {
         if (token() === null) return;
         try {
-          const result = await request("/api/collab/profile-templates");
-          const list = result.profiles ?? [];
-          setProfiles(list);
-          setCanManageProfiles(result.canManage === true);
-          setProfileSelectedId((current) => {
-            if (targetId === "__new__") return targetId;
-            if (targetId !== undefined && list.some((item) => item.id === targetId)) {
+          const result = await request("/api/collab/teammate-templates");
+          const list = result.templates ?? [];
+          setTeammateTemplates(list);
+          setDefinitionTemplateId((current) => {
+            if (
+              targetId !== undefined &&
+              list.some((item) => item.id === targetId)
+            ) {
               return targetId;
             }
             if (list.some((item) => item.id === current)) return current;
@@ -575,8 +1964,43 @@ window.__ModuleLoader__.load({
 
       react.useEffect(() => {
         void loadList();
-        void loadProfiles();
-      }, [loadList, loadProfiles]);
+        void loadTeammateTemplates();
+        void loadActivity();
+      }, [loadList, loadTeammateTemplates, loadActivity]);
+
+      react.useEffect(() => {
+        if (token() === null) return;
+        let cancelled = false;
+        void (async () => {
+          try {
+            const result = await request("/api/collab/auth/me");
+            if (!cancelled) {
+              setCurrentUser(result.user ?? null);
+            }
+          } catch {
+            // 权限判断会回落到“无权限”展示，主体功能不受影响。
+          }
+        })();
+        return () => {
+          cancelled = true;
+        };
+      }, []);
+
+      react.useEffect(() => {
+        if (token() === null) return;
+        let cancelled = false;
+        void (async () => {
+          try {
+            const result = await request("/api/collab/team/workspaces");
+            if (!cancelled) setWorkspaces(result.workspaces ?? []);
+          } catch {
+            // ID fallback is sufficient when workspace titles cannot be loaded.
+          }
+        })();
+        return () => {
+          cancelled = true;
+        };
+      }, []);
 
       // 从任务详情返回时恢复到原来的 Teammate 与页签。
       react.useEffect(() => {
@@ -592,21 +2016,115 @@ window.__ModuleLoader__.load({
         if (pending.tab === "definition" || pending.tab === "runtime") {
           setTab(pending.tab);
         }
+        if (
+          ["current", "plan", "report", "audit"].includes(
+            pending.returnRuntimeTab,
+          )
+        ) {
+          setRuntimeTab(pending.returnRuntimeTab);
+        }
         setEditing(false);
         setForm(null);
       }, []);
 
       // 目录里的运行中转圈需要保持实时，所以列表也定期刷新。
       react.useEffect(() => {
-        const timer = window.setInterval(() => void loadList(), 8_000);
+        const timer = window.setInterval(() => {
+          backgroundRefresh.current = true;
+          void loadList().finally(() => {
+            backgroundRefresh.current = false;
+          });
+        }, 8_000);
         return () => window.clearInterval(timer);
       }, [loadList]);
+
+      react.useEffect(() => {
+        const timer = window.setInterval(() => void loadActivity(), 30_000);
+        return () => window.clearInterval(timer);
+      }, [loadActivity]);
 
       react.useEffect(() => {
         void loadDetail(selectedId);
         void loadIdentity(selectedId);
         if (tab === "runtime") void loadRuntime(selectedId);
       }, [selectedId, tab, loadDetail, loadIdentity, loadRuntime]);
+
+      react.useEffect(() => {
+        setWorkReports([]);
+        setAuditEvents([]);
+        setAuditCursor("");
+        setQueue(null);
+        setRejectingId("");
+        setRejectNote("");
+      }, [selectedId]);
+
+      react.useEffect(() => {
+        if (tab !== "runtime" || runtimeTab !== "plan") return;
+        void loadQueue(selectedId);
+      }, [tab, runtimeTab, selectedId, loadQueue]);
+
+      react.useEffect(() => {
+        if (tab !== "runtime" || runtimeTab !== "roles") return undefined;
+        void loadProjectRoles(detail);
+        // 项目标题随角色一起刷新，拿不到标题时回落到项目 ID。
+        void (async () => {
+          try {
+            const result = await request("/api/collab/team/workspaces");
+            setWorkspaces(result.workspaces ?? []);
+          } catch {
+            // 标题加载失败不影响角色列表。
+          }
+        })();
+        return undefined;
+      }, [tab, runtimeTab, detail, loadProjectRoles]);
+
+      react.useEffect(() => {
+        if (tab !== "runtime" || runtimeTab !== "report") return undefined;
+        const timer = window.setTimeout(
+          () => void loadWorkReports(selectedId, reportRange, reportQuery),
+          260,
+        );
+        return () => window.clearTimeout(timer);
+      }, [
+        tab,
+        runtimeTab,
+        selectedId,
+        reportRange,
+        reportQuery,
+        loadWorkReports,
+      ]);
+
+      react.useEffect(() => {
+        const timer = window.setTimeout(() => setReportQuery(reportSearch), 320);
+        return () => window.clearTimeout(timer);
+      }, [reportSearch]);
+
+      // 日报更新反馈就近显示在工作日报标题下方，3 秒后自动收起。
+      react.useEffect(() => {
+        if (reportNotice === "") return undefined;
+        const timer = window.setTimeout(() => setReportNotice(""), 3_000);
+        return () => window.clearTimeout(timer);
+      }, [reportNotice]);
+
+      // 错误条自动收起，避免网络抖动后残留一条过期提示。
+      react.useEffect(() => {
+        if (error === "") return undefined;
+        const timer = window.setTimeout(() => setError(""), 8_000);
+        return () => window.clearTimeout(timer);
+      }, [error]);
+
+      react.useEffect(() => {
+        if (tab !== "runtime" || runtimeTab !== "audit") return;
+        if (auditEvents.length > 0 || auditLoading) return;
+        void loadAuditEvents(selectedId);
+      }, [
+        tab,
+        runtimeTab,
+        selectedId,
+        auditEvents.length,
+        auditLoading,
+        loadAuditEvents,
+      ]);
 
       react.useEffect(() => {
         if (externalWorkspaceId !== "") {
@@ -636,12 +2154,63 @@ window.__ModuleLoader__.load({
         };
       }, [identity, externalWorkspaceId, loadExternalRuntimes]);
 
-      const selected = detail ?? teammates.find((item) => item.id === selectedId) ?? null;
+      const selected =
+        detail ?? teammates.find((item) => item.id === selectedId) ?? null;
+      const selectedTemplate =
+        teammateTemplates.find((item) => item.id === definitionTemplateId) ??
+        teammateTemplates.find(
+          (item) => selected !== null && item.id === selected.templateId,
+        ) ??
+        null;
+      const selectedTemplateInstances = teammates.filter(
+        (item) => selectedTemplate !== null && item.templateId === selectedTemplate.id,
+      );
+      const canManageSelectedTemplate =
+        selectedTemplate !== null &&
+        (selectedTemplate.source === "platform"
+          ? canManagePlatform
+          : selectedTemplate.ownerUserId === currentUser?.id);
+
+      react.useEffect(() => {
+        const available = teammateTemplates.filter(
+          (item) => item.state !== "archived",
+        );
+        setSwitchTemplateId((current) => {
+          if (available.some((item) => item.id === current)) return current;
+          return selected?.templateId ?? available[0]?.id ?? "";
+        });
+      }, [selected?.id, selected?.templateId, teammateTemplates]);
+
+      const archivedTeammates = teammates.filter(
+        (item) => item.state === "archived",
+      );
+      const visibleTeammates = archivedOnly
+        ? archivedTeammates
+        : teammates.filter((item) => item.state !== "archived");
+
+      react.useEffect(() => {
+        if (visibleTeammates.some((item) => item.id === selectedId)) return;
+        setSelectedId(visibleTeammates[0]?.id ?? "");
+      }, [archivedOnly, teammates, selectedId]);
 
       const selectTeammate = (teammateId) => {
         setSelectedId(teammateId);
         setEditing(false);
         setForm(null);
+        setInstanceEditing(false);
+        setError("");
+        setNotice("");
+      };
+
+      const selectTeammateTemplate = (templateId) => {
+        setDefinitionTemplateId(templateId);
+        const representative = teammates.find(
+          (item) => item.templateId === templateId,
+        );
+        if (representative !== undefined) setSelectedId(representative.id);
+        setEditing(false);
+        setForm(null);
+        setInstanceEditing(false);
         setError("");
         setNotice("");
       };
@@ -649,6 +2218,48 @@ window.__ModuleLoader__.load({
       const createTeammate = async (source) => {
         try {
           setBusy(true);
+          if (tab === "definition") {
+            const used = new Set(
+              teammateTemplates
+                .filter((item) => item.source === source)
+                .map((item) => item.name.toLowerCase()),
+            );
+            const base = "未命名 AI Teammate";
+            let name = base;
+            for (let index = 2; used.has(name.toLowerCase()); index += 1) {
+              name = `${base} (${String(index)})`;
+            }
+            const created = await request("/api/collab/teammate-templates/create", {
+              method: "POST",
+              body: { source, name, active: false },
+            });
+            const instance = await request("/api/collab/teammates/create", {
+              method: "POST",
+              body: { source, templateId: created.template.id },
+            });
+            await Promise.all([
+              loadTeammateTemplates(created.template.id),
+              loadList(instance.teammate.id),
+            ]);
+            setDefinitionTemplateId(created.template.id);
+            setSelectedId(instance.teammate.id);
+            setEditing(true);
+            setForm({
+              name: created.template.name,
+              role: created.template.role,
+              description: created.template.description,
+              soul: created.template.soul,
+              scenarios: created.template.scenarios.join("\n"),
+              goals: created.template.goals.join("\n"),
+              tools: created.template.tools.join("\n"),
+            });
+            succeed(
+              source === "platform"
+                ? "已创建平台模版和你的实例草稿。"
+                : "已创建个人模版和你的实例草稿。",
+            );
+            return;
+          }
           const result = await request("/api/collab/teammates/create", {
             method: "POST",
             body: { source },
@@ -682,128 +2293,20 @@ window.__ModuleLoader__.load({
         }
       };
 
-      const emptyProfileForm = () => ({
-        name: "",
-        role: "",
-        description: "",
-        soul: "",
-        scenarios: "",
-        goals: "",
-        tools: "",
-        active: true,
-      });
-
-      const newProfile = () => {
-        setProfileSelectedId("__new__");
-        setProfileEditing(true);
-        setProfileForm(emptyProfileForm());
-        setError("");
-        setNotice("");
-      };
-
-      const editProfile = () => {
-        const profile = profiles.find((item) => item.id === profileSelectedId);
-        if (profile === undefined) return;
-        setProfileEditing(true);
-        setProfileForm({
-          name: profile.name,
-          role: profile.role,
-          description: profile.description,
-          soul: profile.soul,
-          scenarios: profile.scenarios.join("\n"),
-          goals: profile.goals.join("\n"),
-          tools: profile.tools.join("\n"),
-          active: profile.state === "active",
-        });
-        setError("");
-        setNotice("");
-      };
-
-      const cancelProfileEdit = () => {
-        setProfileEditing(false);
-        setProfileForm(null);
-      };
-
-      const saveProfile = async (event) => {
-        event.preventDefault();
-        if (profileForm === null) return;
-        const data = new FormData(event.currentTarget);
-        const body = {
-          name: String(data.get("name") ?? "").trim(),
-          role: String(data.get("role") ?? "").trim(),
-          description: String(data.get("description") ?? "").trim(),
-          soul: String(data.get("soul") ?? ""),
-          scenarios: String(data.get("scenarios") ?? "")
-            .split("\n")
-            .map((item) => item.trim())
-            .filter(Boolean),
-          goals: String(data.get("goals") ?? "")
-            .split("\n")
-            .map((item) => item.trim())
-            .filter(Boolean),
-          tools: String(data.get("tools") ?? "")
-            .split("\n")
-            .map((item) => item.trim())
-            .filter(Boolean),
-        };
+      const switchTemplate = async () => {
+        if (selected === null || switchTemplateId === "") return;
         try {
-          setProfileBusy(true);
-          if (profileSelectedId === "__new__") {
-            const result = await request("/api/collab/profile-templates/create", {
-              method: "POST",
-              body: { ...body, active: data.get("active") === "true" },
-            });
-            await loadProfiles(result.profile.id);
-          } else {
-            const result = await request("/api/collab/profile-templates/update", {
-              method: "POST",
-              body: { ...body, templateId: profileSelectedId },
-            });
-            await loadProfiles(result.profile.id);
-          }
-          setProfileEditing(false);
-          setProfileForm(null);
-          succeed("Profile 模版已保存。");
-        } catch (cause) {
-          fail(cause);
-        } finally {
-          setProfileBusy(false);
-        }
-      };
-
-      const changeProfileState = async (state) => {
-        try {
-          setProfileBusy(true);
-          await request("/api/collab/profile-templates/state", {
+          setBusy(true);
+          await request("/api/collab/teammates/switch-template", {
             method: "POST",
-            body: { templateId: profileSelectedId, state },
-          });
-          await loadProfiles(profileSelectedId);
-          succeed(state === "active" ? "Profile 模版已启用。" : state === "disabled" ? "Profile 模版已停用。" : "Profile 模版已归档。");
-        } catch (cause) {
-          fail(cause);
-        } finally {
-          setProfileBusy(false);
-        }
-      };
-
-      const applyProfile = async () => {
-        if (selected === null) return;
-        try {
-          setProfileBusy(true);
-          await request("/api/collab/teammates/apply-profile", {
-            method: "POST",
-            body: { teammateId: selected.id, templateId: profileSelectedId },
+            body: { teammateId: selected.id, templateId: switchTemplateId },
           });
           await Promise.all([loadList(selected.id), loadDetail(selected.id)]);
-          setTab("definition");
-          setEditing(false);
-          setForm(null);
-          succeed("已把 Profile 模版应用到当前 Teammate。");
+          succeed("已切换实例引用的模版。");
         } catch (cause) {
           fail(cause);
         } finally {
-          setProfileBusy(false);
+          setBusy(false);
         }
       };
 
@@ -822,25 +2325,36 @@ window.__ModuleLoader__.load({
       };
 
       const changeExternalProvider = (provider) => {
-        setExternalForm((current) => current === null ? current : {
-          ...current,
-          provider,
-          protocol: provider === "codex" ? "codex-jsonl" : "plain-text",
-          name: current.name === "" || current.name.startsWith("外部 Agent")
-            ? provider === "codex"
-              ? "Codex 本机"
-              : provider === "workbuddy"
-                ? "WorkBuddy CLI"
-                : "自定义 Agent 命令"
-            : current.name,
-          command: current.command === "" || ["codex", "workbuddy", "/usr/local/bin/custom-agent"].includes(current.command)
-            ? provider === "codex"
-              ? "codex"
-              : provider === "workbuddy"
-                ? "workbuddy"
-                : "/usr/local/bin/custom-agent"
-            : current.command,
-        });
+        setExternalForm((current) =>
+          current === null
+            ? current
+            : {
+                ...current,
+                provider,
+                protocol: provider === "codex" ? "codex-jsonl" : "plain-text",
+                name:
+                  current.name === "" || current.name.startsWith("外部 Agent")
+                    ? provider === "codex"
+                      ? "Codex 本机"
+                      : provider === "workbuddy"
+                        ? "WorkBuddy CLI"
+                        : "自定义 Agent 命令"
+                    : current.name,
+                command:
+                  current.command === "" ||
+                  [
+                    "codex",
+                    "workbuddy",
+                    "/usr/local/bin/custom-agent",
+                  ].includes(current.command)
+                    ? provider === "codex"
+                      ? "codex"
+                      : provider === "workbuddy"
+                        ? "workbuddy"
+                        : "/usr/local/bin/custom-agent"
+                    : current.command,
+              },
+        );
       };
 
       const saveExternalRuntime = async () => {
@@ -889,7 +2403,9 @@ window.__ModuleLoader__.load({
             },
           });
           await loadExternalRuntimes(externalWorkspaceId);
-          succeed(status === "active" ? "外部 Agent 已启用。" : "外部 Agent 已停用。");
+          succeed(
+            status === "active" ? "外部 Agent 已启用。" : "外部 Agent 已停用。",
+          );
         } catch (cause) {
           fail(cause);
         } finally {
@@ -911,7 +2427,11 @@ window.__ModuleLoader__.load({
             },
           );
           await loadExternalRuntimes(externalWorkspaceId);
-          succeed(result.probe.ok ? "命令探测通过。" : `探测失败：${result.probe.message}`);
+          succeed(
+            result.probe.ok
+              ? "命令探测通过。"
+              : `探测失败：${result.probe.message}`,
+          );
         } catch (cause) {
           fail(cause);
         } finally {
@@ -919,154 +2439,64 @@ window.__ModuleLoader__.load({
         }
       };
 
-      const renderProfileTemplateManager = () => {
-        const keyword = profileSearch.trim().toLowerCase();
-        const visible = profiles.filter((profile) =>
-          [
-            profile.name,
-            profile.role,
-            profile.description,
-            profile.tools.join(" "),
-            profile.scenarios.join(" "),
-          ].join(" ").toLowerCase().includes(keyword),
-        );
-        const profile = profileSelectedId === "__new__"
-          ? null
-          : profiles.find((item) => item.id === profileSelectedId) ?? null;
-        const stateLabel = profile === null
-          ? "新建"
-          : profile.state === "active"
-            ? "已启用"
-            : profile.state === "disabled"
-              ? "已停用"
-              : "已归档";
+      const startInstanceProfileEdit = () => {
+        if (selected === null) return;
+        setInstanceForm({
+          name: selected.name,
+          description: selected.description ?? "",
+        });
+        setInstanceEditing(true);
+      };
 
-        return h(
-          "section",
-          { className: "pmtm-profile-manager", "aria-label": "Profile 模版管理" },
-          h("div", { className: "pmtm-profile-head" },
-            h("div", null,
-              h("h2", null, "Profile模版管理"),
-              h("div", { className: "pmtm-profile-sub" }, "岗位角色的标准化职责与行为定义，全平台共享"),
-              profile !== null && profile.description
-                ? h("div", { className: "pmtm-profile-desc" }, profile.description)
-                : null,
-            ),
-            h("div", { className: "pmtm-head-actions" },
-              profile !== null ? h("span", { className: "pmtm-profile-state" }, stateLabel) : null,
-              canManageProfiles
-                ? h("button", { type: "button", className: "pmtm-btn small", disabled: profileBusy, onClick: newProfile }, "新建 Profile")
-                : null,
-              h("button", {
-                type: "button",
-                className: "pmtm-btn secondary small",
-                "aria-label": "关闭 Profile 模版管理",
-                onClick: () => {
-                  setTemplateOpen(false);
-                  setProfileEditing(false);
-                  setProfileForm(null);
-                },
-              }, "×"),
-            ),
-          ),
-          h("div", { className: "pmtm-profile-body" },
-            h("aside", { className: "pmtm-profile-sidebar" },
-              h("input", {
-                className: "pmtm-profile-search",
-                value: profileSearch,
-                placeholder: "搜索名称、岗位或能力",
-                onChange: (event) => setProfileSearch(event.target.value),
-              }),
-              h("div", { className: "pmtm-profile-list" },
-                visible.length === 0
-                  ? h("div", { className: "pmtm-profile-empty" }, "没有匹配的 Profile 模版。")
-                  : visible.map((item) => h("button", {
-                      key: item.id,
-                      type: "button",
-                      className: `pmtm-profile-item${item.id === profileSelectedId ? " active" : ""}`,
-                      onClick: () => {
-                        setProfileSelectedId(item.id);
-                        setProfileEditing(false);
-                        setProfileForm(null);
-                      },
-                    },
-                      h("span", { className: `pmtm-profile-dot${item.state === "active" ? " enabled" : ""}` }),
-                      h("span", { className: "pmtm-profile-copy" },
-                        h("strong", null, item.name),
-                        h("small", null, `${item.role || "未设岗位"} · ${item.version} · ${item.state === "active" ? "已启用" : item.state === "disabled" ? "已停用" : "已归档"}`),
-                      ),
-                    )),
-              ),
-            ),
-            h("main", { className: "pmtm-profile-detail" },
-              profileEditing && profileForm !== null
-                ? h("form", { className: "pmtm-profile-form", onSubmit: saveProfile },
-                    h("h3", null, profileSelectedId === "__new__" ? "新建 Profile" : "编辑 Profile"),
-                    h("div", { className: "pmtm-profile-grid" },
-                      h("label", null, "模板名称", h("input", { name: "name", defaultValue: profileForm.name, required: true })),
-                      h("label", null, "岗位角色", h("input", { name: "role", defaultValue: profileForm.role })),
-                      h("label", null, "默认状态", h("select", { name: "active", defaultValue: String(profileForm.active) },
-                        h("option", { value: "true" }, "启用"), h("option", { value: "false" }, "停用"))),
-                      h("label", { className: "wide" }, "模板说明", h("textarea", { name: "description", defaultValue: profileForm.description })),
-                      h("label", { className: "wide" }, "标准行为定义（SOUL.md）", h("textarea", { className: "soul", name: "soul", defaultValue: profileForm.soul, required: true })),
-                      h("label", null, "标准职责与场景（每行一项）", h("textarea", { name: "scenarios", defaultValue: profileForm.scenarios })),
-                      h("label", null, "标准目标（每行一项）", h("textarea", { name: "goals", defaultValue: profileForm.goals })),
-                      h("label", { className: "wide" }, "工具白名单（每行一项）", h("textarea", { name: "tools", defaultValue: profileForm.tools })),
-                    ),
-                    h("div", { className: "pmtm-profile-actions" },
-                      h("button", { type: "button", className: "pmtm-btn secondary small", onClick: cancelProfileEdit }, "取消"),
-                      h("button", { type: "submit", className: "pmtm-btn small", disabled: profileBusy }, profileBusy ? "保存中" : "保存 Profile"),
-                    ),
-                  )
-                : profile === null
-                  ? h("div", { className: "pmtm-profile-empty tall" }, "请选择一个 Profile 模版。")
-                  : h(react.Fragment, null,
-                      h("div", { className: "pmtm-profile-title" },
-                        h("h3", null, profile.name),
-                        h("span", null, `${profile.role || "未设岗位"} · ${profile.version} · ${stateLabel}`),
-                      ),
-                      h("div", { className: "pmtm-profile-actions" },
-                        selected !== null && profile.state === "active"
-                          ? h("button", { type: "button", className: "pmtm-btn small", disabled: profileBusy, onClick: () => void applyProfile() }, "应用到当前 Teammate")
-                          : null,
-                        canManageProfiles && profile.state !== "archived"
-                          ? h("button", { type: "button", className: "pmtm-btn secondary small", disabled: profileBusy, onClick: editProfile }, "编辑")
-                          : null,
-                        canManageProfiles && profile.state === "active"
-                          ? h("button", { type: "button", className: "pmtm-btn secondary small", disabled: profileBusy, onClick: () => void changeProfileState("disabled") }, "停用")
-                          : null,
-                        canManageProfiles && profile.state === "disabled"
-                          ? h("button", { type: "button", className: "pmtm-btn small", disabled: profileBusy, onClick: () => void changeProfileState("active") }, "启用")
-                          : null,
-                        canManageProfiles && profile.state !== "archived"
-                          ? h("button", { type: "button", className: "pmtm-btn danger small", disabled: profileBusy, onClick: () => void changeProfileState("archived") }, "归档")
-                          : null,
-                      ),
-                      h("div", { className: "pmtm-profile-section-title" }, "标准行为定义（SOUL.md）"),
-                      h("pre", { className: "pmtm-profile-code" }, profile.soul || "尚未填写。"),
-                      h("div", { className: "pmtm-profile-columns" },
-                        h("section", null,
-                          h("div", { className: "pmtm-profile-section-title" }, "标准职责与场景"),
-                          profile.scenarios.length === 0
-                            ? h("div", { className: "pmtm-profile-empty" }, "尚未填写。")
-                            : h("ul", null, profile.scenarios.map((item, index) => h("li", { key: index }, item))),
-                        ),
-                        h("section", null,
-                          h("div", { className: "pmtm-profile-section-title" }, "标准目标"),
-                          profile.goals.length === 0
-                            ? h("div", { className: "pmtm-profile-empty" }, "尚未填写。")
-                            : h("ul", null, profile.goals.map((item, index) => h("li", { key: index }, item))),
-                        ),
-                      ),
-                      h("div", { className: "pmtm-profile-section-title" }, "工具白名单"),
-                      h("div", { className: "pmtm-profile-tools" }, profile.tools.length === 0 ? "无（不允许工具调用）" : profile.tools.join("、")),
-                    ),
-            ),
-          ),
-        );
+      const cancelInstanceProfileEdit = () => {
+        setInstanceEditing(false);
+      };
+
+      const saveInstanceProfileEdit = async () => {
+        if (selected === null || instanceBusy) return;
+        const name = instanceForm.name.trim();
+        if (name === "") {
+          fail(new Error("实例名称不能为空。"));
+          return;
+        }
+        try {
+          setInstanceBusy(true);
+          const result = await request("/api/collab/teammates/profile", {
+            method: "POST",
+            body: {
+              teammateId: selected.id,
+              name,
+              description: instanceForm.description,
+            },
+          });
+          setInstanceEditing(false);
+          await loadList(result.teammate.id);
+          await loadDetail(result.teammate.id);
+          succeed("实例信息已更新。");
+        } catch (cause) {
+          fail(cause);
+        } finally {
+          setInstanceBusy(false);
+        }
       };
 
       const startEdit = () => {
+        if (tab === "definition") {
+          if (selectedTemplate === null) return;
+          setForm({
+            name: selectedTemplate.name,
+            role: selectedTemplate.role,
+            description: selectedTemplate.description,
+            soul: selectedTemplate.soul,
+            scenarios: selectedTemplate.scenarios.join("\n"),
+            goals: selectedTemplate.goals.join("\n"),
+            tools: selectedTemplate.tools.join("\n"),
+          });
+          setEditing(true);
+          setError("");
+          setNotice("");
+          return;
+        }
         if (selected === null) return;
         setForm({
           source: selected.source,
@@ -1091,6 +2521,55 @@ window.__ModuleLoader__.load({
       };
 
       const saveEdit = async () => {
+        if (tab === "definition") {
+          if (selectedTemplate === null || form === null) return;
+          try {
+            setBusy(true);
+            if (
+              selectedTemplate.source === "platform" &&
+              !window.confirm(
+                "这是平台模版。保存后会影响后续使用该模版的实例。",
+              )
+            ) {
+              return;
+            }
+            await request("/api/collab/teammate-templates/update", {
+              method: "POST",
+              body: {
+                templateId: selectedTemplate.id,
+                name: form.name,
+                role: form.role,
+                description: form.description,
+                soul: form.soul,
+                scenarios: form.scenarios
+                  .split("\n")
+                  .map((item) => item.trim())
+                  .filter(Boolean),
+                goals: form.goals
+                  .split("\n")
+                  .map((item) => item.trim())
+                  .filter(Boolean),
+                tools: form.tools
+                  .split("\n")
+                  .map((item) => item.trim())
+                  .filter(Boolean),
+              },
+            });
+            setEditing(false);
+            setForm(null);
+            await Promise.all([
+              loadTeammateTemplates(selectedTemplate.id),
+              loadList(selected?.id),
+              loadDetail(selected?.id ?? ""),
+            ]);
+            succeed("模版已保存。");
+          } catch (cause) {
+            fail(cause);
+          } finally {
+            setBusy(false);
+          }
+          return;
+        }
         if (selected === null || form === null) return;
         try {
           setBusy(true);
@@ -1121,7 +2600,10 @@ window.__ModuleLoader__.load({
                 .filter(Boolean),
               avatar: form.avatar,
               execution: form.execution,
-              externalRuntimeId: form.execution === "external" ? form.externalRuntimeId : undefined,
+              externalRuntimeId:
+                form.execution === "external"
+                  ? form.externalRuntimeId
+                  : undefined,
             },
           });
           setEditing(false);
@@ -1137,6 +2619,38 @@ window.__ModuleLoader__.load({
       };
 
       const changeState = async (nextState) => {
+        if (tab === "definition") {
+          if (selectedTemplate === null) return;
+          const label =
+            nextState === "active"
+              ? "生效"
+              : nextState === "disabled"
+                ? "停用"
+                : "归档";
+          if (
+            selectedTemplate.source === "platform" &&
+            !window.confirm(`确认${label}这个平台模版吗？`)
+          ) {
+            return;
+          }
+          try {
+            setBusy(true);
+            const result = await request("/api/collab/teammate-templates/state", {
+              method: "POST",
+              body: { templateId: selectedTemplate.id, state: nextState },
+            });
+            await Promise.all([
+              loadTeammateTemplates(result.template.id),
+              loadList(selected?.id),
+            ]);
+            succeed(`${result.template.name} 已${label}`);
+          } catch (cause) {
+            fail(cause);
+          } finally {
+            setBusy(false);
+          }
+          return;
+        }
         if (selected === null) return;
         const label =
           nextState === "active"
@@ -1146,18 +2660,8 @@ window.__ModuleLoader__.load({
             : nextState === "paused"
               ? "暂停"
               : nextState === "inactive"
-                ? selected.source === "platform"
-                  ? "全局失效"
-                  : "失效"
+                ? "失效"
                 : "归档";
-        if (
-          selected.source === "platform" &&
-          !window.confirm(
-            `这是平台归属定义。确认${label}后，变更会应用到全平台的所有实例。`,
-          )
-        ) {
-          return;
-        }
         try {
           setBusy(true);
           const result = await request("/api/collab/teammates/state", {
@@ -1167,6 +2671,42 @@ window.__ModuleLoader__.load({
           await loadList(result.teammate.id);
           await loadDetail(result.teammate.id);
           succeed(`${result.teammate.name} 已${label}`);
+        } catch (cause) {
+          fail(cause);
+        } finally {
+          setBusy(false);
+        }
+      };
+
+      const archiveTeammate = async () => {
+        if (selected === null) return;
+        try {
+          setBusy(true);
+          const result = await request("/api/collab/teammates/state", {
+            method: "POST",
+            body: { teammateId: selected.id, state: "archived" },
+          });
+          setArchiveOpen(false);
+          const nextSelected =
+            teammates
+              .filter(
+                (item) => item.id !== selected.id && item.state !== "archived",
+              )
+              .at(0)?.id ?? "";
+          setArchivedView(false);
+          setSelectedId(nextSelected);
+          await Promise.all([
+            loadList(nextSelected),
+            loadDetail(nextSelected),
+            loadIdentity(nextSelected),
+            loadRuntime(nextSelected),
+          ]);
+          const transferred = result.transferredTaskIds?.length ?? 0;
+          succeed(
+            transferred > 0
+              ? `${result.teammate.name} 已归档，${transferred} 个未完成任务已转给 Owner。`
+              : `${result.teammate.name} 已归档。`,
+          );
         } catch (cause) {
           fail(cause);
         } finally {
@@ -1197,13 +2737,14 @@ window.__ModuleLoader__.load({
         }
       };
 
-      const openTask = (task) => {
+      const openTask = (task, returnRuntimeTab = runtimeTab) => {
         window.__pluginmaxPendingTask = {
           taskId: task.id,
           workspaceId: task.workspaceId,
           returnRoute: "teammates",
           returnTeammateId: selected?.id ?? "",
           returnTab: tab,
+          returnRuntimeTab,
         };
         window.dispatchEvent(
           new CustomEvent("pluginmax:navigate", { detail: { route: "task" } }),
@@ -1274,58 +2815,336 @@ window.__ModuleLoader__.load({
         }
       };
 
+      const generateWorkReport = async (teammate) => {
+        if (workReportGenerating) return;
+        try {
+          setWorkReportGenerating(true);
+          const result = await request(
+            "/api/collab/teammates/work-reports/generate",
+            {
+              method: "POST",
+              body: { teammateId: teammate.id },
+            },
+          );
+          const report = result.report ?? null;
+          const today = localIsoDate(new Date());
+          setReportRange(defaultReportRange());
+          setReportSearch("");
+          setReportQuery("");
+          await loadWorkReports(
+            teammate.id,
+            defaultReportRange(),
+            "",
+          );
+          await loadAuditEvents(teammate.id);
+          setReportNotice(
+            result.generation === "fallback"
+              ? `${today} 日报模型生成失败，已保存模板快照，可稍后重试。`
+              : `已更新 ${today} 工作日报。`,
+          );
+          if (report === null) {
+            setRuntimeTab("report");
+          }
+        } catch (cause) {
+          fail(cause);
+        } finally {
+          setWorkReportGenerating(false);
+        }
+      };
+
+      /** 队列视图的公共刷新：队列 + 运行态列表。 */
+      const refreshQueueViews = async (teammateId) => {
+        await Promise.all([loadQueue(teammateId), loadRuntime(teammateId)]);
+      };
+
+      /**
+       * 让实例退出项目或项目里的某个角色。
+       * 退出整个项目时，该项目下尚未完成的任务会按服务端口径改派，并在提示里回显接收人。
+       */
+      const leaveProject = async (teammate, workspaceId, assignment) => {
+        const workspaceTitle =
+          workspaces.find((item) => item.id === workspaceId)?.title ??
+          workspaceId;
+        const wholeProject = assignment === undefined;
+        const activeRoles = projectRoles.filter(
+          (item) =>
+            item.workspaceId === workspaceId &&
+            item.status === "active" &&
+            !isRoleExpired(item),
+        );
+        const pendingTasks = runtimeTasks.filter(
+          (task) =>
+            task.workspaceId === workspaceId &&
+            !task.archived &&
+            task.status !== "done" &&
+            task.status !== "cancelled",
+        );
+        const roleLabel = (role) => WORKSPACE_ROLE_LABEL[role] ?? role;
+        const confirmed = window.confirm(
+          wholeProject
+            ? `让「${teammate.name}」退出项目「${workspaceTitle}」？\n\n· 撤销该项目下 ${String(activeRoles.length)} 条生效角色授权（历史记录保留）\n· 该项目下尚未完成的 ${String(pendingTasks.length)} 个任务将改派给实例 owner；实例 owner 不是项目成员时改派给项目 owner`
+            : `让「${teammate.name}」退出项目「${workspaceTitle}」的角色「${roleLabel(assignment.role)}」？\n\n角色授权会被撤销，历史记录保留；已指派的任务保持不变。`,
+        );
+        if (!confirmed) return;
+        try {
+          setProjectRoleBusy(`${workspaceId}:${assignment?.id ?? "*"}`);
+          const result = await request(
+            "/api/collab/teammates/leave-workspace",
+            {
+              method: "POST",
+              body: {
+                teammateId: teammate.id,
+                workspaceId,
+                scope: wholeProject ? "workspace" : "role",
+                ...(assignment === undefined
+                  ? {}
+                  : { assignmentId: assignment.id }),
+              },
+            },
+          );
+          await Promise.all([
+            loadProjectRoles(teammate),
+            loadList(teammate.id),
+            loadDetail(teammate.id),
+            loadRuntime(teammate.id),
+          ]);
+          const moved = (result.reassignedTaskIds ?? []).length;
+          const receiverName = result.receiver?.name ?? "实例 owner";
+          succeed(
+            moved === 0
+              ? wholeProject
+                ? `已让「${teammate.name}」退出项目「${workspaceTitle}」。`
+                : `已退出角色「${roleLabel(assignment.role)}」。`
+              : `已退出项目「${workspaceTitle}」，${String(moved)} 个未完成任务已改派给 ${receiverName}。`,
+          );
+        } catch (cause) {
+          fail(cause);
+        } finally {
+          setProjectRoleBusy("");
+        }
+      };
+
+      /** 队列内上移/下移：只重排同一工作区内的待启动任务。 */
+      const moveQueueItem = async (teammate, task, delta) => {
+        if (queueBusy || queue === null) return;
+        const siblings = queue.planned.filter(
+          (item) => item.workspaceId === task.workspaceId,
+        );
+        const index = siblings.findIndex((item) => item.id === task.id);
+        const next = index + delta;
+        if (index < 0 || next < 0 || next >= siblings.length) return;
+        const ordered = [...siblings];
+        const [moved] = ordered.splice(index, 1);
+        ordered.splice(next, 0, moved);
+        try {
+          setQueueBusy(true);
+          await request("/api/collab/tasks/queue/reorder", {
+            method: "POST",
+            body: {
+              workspaceId: task.workspaceId,
+              orderedTaskIds: ordered.map((item) => item.id),
+            },
+          });
+          await refreshQueueViews(teammate.id);
+        } catch (cause) {
+          fail(cause);
+        } finally {
+          setQueueBusy(false);
+        }
+      };
+
+      /** 暂停 / 恢复出队（不影响正在执行的任务）。 */
+      const toggleQueuePause = async (teammate, task) => {
+        if (queueBusy) return;
+        try {
+          setQueueBusy(true);
+          await request("/api/collab/tasks/queue/item", {
+            method: "POST",
+            body: {
+              taskId: task.id,
+              queueState: task.queueState === "paused" ? "idle" : "paused",
+            },
+          });
+          await refreshQueueViews(teammate.id);
+        } catch (cause) {
+          fail(cause);
+        } finally {
+          setQueueBusy(false);
+        }
+      };
+
+      /**
+       * 待确认动作：通过 / 退回并补充。
+       * 退回需要填原因：第一次点击展开输入框，填写后再确认。
+       */
+      const confirmQueueTask = async (teammate, task, action) => {
+        if (queueBusy) return;
+        if (action === "reject" && rejectNote.trim() === "") {
+          setRejectingId(task.id);
+          return;
+        }
+        try {
+          setQueueBusy(true);
+          await request("/api/collab/tasks/confirm", {
+            method: "POST",
+            body: {
+              taskId: task.id,
+              action,
+              ...(action === "reject" ? { note: rejectNote.trim() } : {}),
+            },
+          });
+          setRejectingId("");
+          setRejectNote("");
+          await refreshQueueViews(teammate.id);
+          await loadDetail(teammate.id);
+          succeed(
+            action === "approve"
+              ? `已通过 ${task.id}`
+              : `已退回 ${task.id}，补充说明后会自动重新执行`,
+          );
+        } catch (cause) {
+          fail(cause);
+        } finally {
+          setQueueBusy(false);
+        }
+      };
+
       const readFile = (file, onLoad) => {
         const reader = new FileReader();
-        reader.addEventListener("load", () => onLoad(String(reader.result ?? "")));
+        reader.addEventListener("load", () =>
+          onLoad(String(reader.result ?? "")),
+        );
         reader.readAsText(file);
       };
 
       const readImage = (file, onLoad) => {
         const reader = new FileReader();
-        reader.addEventListener("load", () => onLoad(String(reader.result ?? "")));
+        reader.addEventListener("load", () =>
+          onLoad(String(reader.result ?? "")),
+        );
         reader.readAsDataURL(file);
       };
 
-      const directoryGroups = [
-        {
-          key: "platform",
-          label: SOURCE_LABEL.platform,
-          items: teammates.filter((item) => item.source === "platform"),
-        },
-        {
-          key: "personal",
-          label: SOURCE_LABEL.personal,
-          items: teammates.filter((item) => item.source === "personal"),
-        },
-      ];
+      /**
+       * 归属（平台/个人）是模版概念，只用于定义态分组；
+       * 运行态列的是实例，实例一律归 owner，按平铺列表展示。
+       */
+      const directoryGroups =
+        tab === "definition"
+          ? [
+              {
+                key: "platform",
+                label: "平台模版",
+                items: teammateTemplates.filter(
+                  (item) => item.source === "platform",
+                ),
+              },
+              {
+                key: "personal",
+                label: "个人模版",
+                items: teammateTemplates.filter(
+                  (item) => item.source === "personal",
+                ),
+              },
+            ].map((group) => ({
+              ...group,
+              entries: groupTeammateTemplates(
+                visibleTeammates,
+                group.items.filter((item) => item.state !== "archived"),
+              ),
+            }))
+          : [
+              {
+                key: "instances",
+                label: "全部实例",
+                items: visibleTeammates,
+                entries: visibleTeammates.map((item) => ({
+                  item,
+                  instanceIds: [item.id],
+                })),
+              },
+            ];
 
       const directory = h(
         "aside",
-        { className: "pmtm-panel pmtm-directory", "aria-label": "AI Teammates 列表" },
-        directoryGroups.map((group) =>
-          h(
+        {
+          className: "pmtm-panel pmtm-directory",
+          "aria-label": "AI Teammates 列表",
+        },
+        directoryGroups.map((group) => {
+          const groupMetricTitle =
+            tab === "definition"
+              ? `${loadScopeTitle("template", activity.generatedAt || "")}\n\n${LIVE_INSTANCES_HELP}`
+              : loadScopeTitle("instance", activity.generatedAt || "");
+          return h(
             "section",
             { className: "pmtm-group", key: group.key },
             h(
               "div",
               { className: "pmtm-group-title" },
-              group.label,
-              h("span", null, String(group.items.length)),
+              h(
+                "span",
+                { className: "pmtm-group-label" },
+                group.label,
+                h(
+                  "span",
+                  { className: "pmtm-group-count" },
+                  String(group.entries.length),
+                ),
+              ),
+              h(
+                "span",
+                { className: "pmtm-group-metric" },
+                "近24小时",
+                h(
+                  "span",
+                  {
+                    className: "pmtm-info",
+                    tabIndex: 0,
+                    role: "button",
+                    "aria-label":
+                      tab === "definition"
+                        ? "模版近24小时统计说明"
+                        : "实例近24小时统计说明",
+                    title: groupMetricTitle,
+                  },
+                  h(InfoIcon, null),
+                  h(
+                    "span",
+                    { className: "pmtm-info-pop", role: "tooltip" },
+                    groupMetricTitle,
+                  ),
+                ),
+              ),
             ),
-            group.items.length === 0
+            group.entries.length === 0
               ? h(
                   "div",
-                  { className: "pmtm-empty", style: { padding: "14px", fontSize: 11.5 } },
+                  {
+                    className: "pmtm-empty",
+                    style: { padding: "14px", fontSize: 11.5 },
+                  },
                   "暂无定义",
                 )
-              : group.items.map((item) =>
+              : group.entries.map(({ item, instanceIds }) =>
                   h(
                     "button",
                     {
                       key: item.id,
                       type: "button",
-                      className: `pmtm-item${item.id === selectedId ? " active" : ""}`,
-                      onClick: () => selectTeammate(item.id),
+                      className: `pmtm-item${
+                        tab === "definition"
+                          ? item.id === definitionTemplateId
+                            ? " active"
+                            : ""
+                          : instanceIds.includes(selectedId)
+                            ? " active"
+                            : ""
+                      }`,
+                      onClick: () =>
+                        tab === "definition"
+                          ? selectTeammateTemplate(item.id)
+                          : selectTeammate(item.id),
                     },
                     h(TeammateAvatar, { teammate: item }),
                     h(
@@ -1335,26 +3154,10 @@ window.__ModuleLoader__.load({
                       h(
                         "small",
                         null,
-                        `${item.role || "待定义"} · ${item.ownerName}`,
+                        tab === "definition"
+                          ? `${item.role || "待定义"} · ${String(instanceIds.length)} 个实例`
+                          : `${item.role || "待定义"} · ${item.ownerName}`,
                       ),
-                    ),
-                    h(
-                      "span",
-                      {
-                        style: {
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 6,
-                        },
-                      },
-                      runningIds.includes(item.id)
-                        ? h("span", {
-                            className: "pmtm-tick",
-                            role: "status",
-                            title: "有任务正在执行",
-                            "aria-label": "有任务正在执行",
-                          })
-                        : null,
                       h(
                         "span",
                         {
@@ -1364,15 +3167,65 @@ window.__ModuleLoader__.load({
                         STATE_LABEL[item.state] ?? item.state,
                       ),
                     ),
+                    h(
+                      "span",
+                      { className: "pmtm-item-metric" },
+                      tab === "runtime" && runningIds.includes(item.id)
+                        ? h("span", {
+                            className: "pmtm-tick",
+                            role: "status",
+                            title: "有任务正在执行",
+                            "aria-label": "有任务正在执行",
+                          })
+                        : null,
+                      h(LoadMetric, {
+                        activity,
+                        teammateId:
+                          tab === "definition"
+                            ? (instanceIds[0] ?? "")
+                            : item.id,
+                        stacked: true,
+                        ...(tab === "definition" ? { scope: "template" } : {}),
+                      }),
+                    ),
                   ),
                 ),
-          ),
-        ),
+          );
+        }),
       );
 
-      const renderRuntime = (teammate) => {
+      const renderCurrentWorkTab = () => {
         const current = runtimeTasks.filter((task) => !task.archived);
         const archived = runtimeTasks.filter((task) => task.archived);
+        // 分类统计口径与「工作计划」队列摘要一致：按任务状态分组计数。
+        const statusCounts = new Map();
+        for (const task of current) {
+          const key = typeof task.status === "string" ? task.status : "";
+          statusCounts.set(key, (statusCounts.get(key) ?? 0) + 1);
+        }
+        const statusSummary = [
+          ["todo", STATUS_LABEL.todo],
+          ["progress", STATUS_LABEL.progress],
+          ["review", STATUS_LABEL.review],
+          ["done", STATUS_LABEL.done],
+          ["cancelled", "已取消"],
+        ]
+          .filter(
+            ([status]) => status !== "cancelled" || statusCounts.has(status),
+          )
+          .map(
+            ([status, label]) =>
+              `${label} ${String(statusCounts.get(status) ?? 0)}`,
+          );
+        for (const [status, count] of statusCounts) {
+          if (
+            !["todo", "progress", "review", "done", "cancelled"].includes(
+              status,
+            )
+          ) {
+            statusSummary.push(`${status || "未知"} ${String(count)}`);
+          }
+        }
         const item = (task, isArchived) =>
           h(
             "article",
@@ -1380,7 +3233,12 @@ window.__ModuleLoader__.load({
               key: task.id,
               className: `pmtm-runtime-item status-${isArchived ? "archived" : task.status}`,
             },
-            task.running ? h("span", { className: "pmtm-spinner", "aria-label": "Agent 正在运行" }) : null,
+            task.running
+              ? h("span", {
+                  className: "pmtm-spinner",
+                  "aria-label": "Agent 正在运行",
+                })
+              : null,
             h(
               "div",
               { className: "pmtm-runtime-main" },
@@ -1408,7 +3266,12 @@ window.__ModuleLoader__.load({
                         : [...current, task.id],
                     ),
                 }),
-                task.running ? h("span", { className: "pmtm-caret", "aria-hidden": "true" }) : null,
+                task.running
+                  ? h("span", {
+                      className: "pmtm-caret",
+                      "aria-hidden": "true",
+                    })
+                  : null,
               ),
               (task.runs ?? []).length > 0
                 ? h(
@@ -1455,9 +3318,7 @@ window.__ModuleLoader__.load({
                                     : [...current, task.id],
                                 ),
                             },
-                            expandedRunIds.includes(task.id)
-                              ? "折叠"
-                              : "展开",
+                            expandedRunIds.includes(task.id) ? "折叠" : "展开",
                           )
                         : null,
                     ),
@@ -1525,13 +3386,23 @@ window.__ModuleLoader__.load({
             ),
             h(
               "div",
-              { style: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" } },
+              {
+                style: {
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  flexWrap: "wrap",
+                  justifyContent: "flex-end",
+                },
+              },
               h(
                 "span",
                 { className: `pmtm-pill ${task.status}` },
                 STATUS_LABEL[task.status] ?? task.status,
               ),
-              isArchived ? h("span", { className: "pmtm-pill" }, "已归档") : null,
+              isArchived
+                ? h("span", { className: "pmtm-pill" }, "已归档")
+                : null,
               h(
                 "button",
                 {
@@ -1548,56 +3419,38 @@ window.__ModuleLoader__.load({
           null,
           h(
             "div",
-            { className: "pmtm-editor-head" },
-            h(TeammateAvatar, { teammate, className: "large" }),
+            { className: "pmtm-runtime-head" },
             h(
               "div",
-              { className: "pmtm-editor-main" },
-              h("h2", null, teammate.name),
+              { className: "pmtm-runtime-head-main" },
+              h("h3", null, "当前跟进事项"),
               h(
-                "div",
-                { className: "pmtm-meta" },
-                h("span", { className: `pmtm-state ${teammate.state}` }, STATE_LABEL[teammate.state] ?? teammate.state),
-                h("span", null, teammate.role || "待定义"),
-                h("span", null, `最近同步于 ${timeShort(teammate.updatedAt)}`),
+                "span",
+                { className: "pmtm-runtime-summary" },
+                statusSummary.join(" · "),
               ),
             ),
             h(
-              "button",
-              {
-                type: "button",
-                className: "pmtm-btn secondary small",
-                onClick: () => setTab("definition"),
-              },
-              teammate.source === "platform" ? "查看 DE 定义" : "查看 Avatar 定义",
+              "div",
+              { className: "pmtm-runtime-head-actions" },
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "pmtm-btn small",
+                  onClick: () => void openAssign(),
+                },
+                "安排任务",
+              ),
             ),
           ),
           h(
             "div",
-            { style: { marginTop: 16 } },
-            h(
-              "div",
-              { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 } },
-              h("h3", { style: { margin: 0, fontSize: 13 } }, "当前跟进事项"),
-              h(
-                "div",
-                { style: { display: "flex", alignItems: "center", gap: 8 } },
-                h("span", { className: "pmtm-count" }, String(current.length)),
-                h(
-                  "button",
-                  {
-                    type: "button",
-                    className: "pmtm-btn small",
-                    onClick: () => void openAssign(),
-                  },
-                  "安排任务",
-                ),
-              ),
-            ),
+            null,
             current.length === 0
               ? h(
                   "div",
-                  { className: "pmtm-empty", style: { marginTop: 10 } },
+                  { className: "pmtm-empty" },
                   "当前没有进行或已完成的任务。",
                 )
               : h(
@@ -1610,12 +3463,29 @@ window.__ModuleLoader__.load({
             ? null
             : h(
                 "div",
-                { style: { marginTop: 16, paddingTop: 14, borderTop: "0.5px solid var(--dsw-alias-border-l2)" } },
+                {
+                  style: {
+                    marginTop: 16,
+                    paddingTop: 14,
+                    borderTop: "0.5px solid var(--dsw-alias-border-l2)",
+                  },
+                },
                 h(
                   "div",
-                  { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 } },
+                  {
+                    style: {
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 8,
+                    },
+                  },
                   h("h3", { style: { margin: 0, fontSize: 13 } }, "已归档"),
-                  h("span", { className: "pmtm-count" }, String(archived.length)),
+                  h(
+                    "span",
+                    { className: "pmtm-count" },
+                    String(archived.length),
+                  ),
                 ),
                 h(
                   "div",
@@ -1623,39 +3493,1089 @@ window.__ModuleLoader__.load({
                   archived.map((task) => item(task, true)),
                 ),
               ),
+        );
+      };
+
+      const renderPlanTab = (teammate) => {
+        const planned = queue?.planned ?? [];
+        const running = queue?.running ?? [];
+        const review = queue?.review ?? [];
+        const finished = queue?.finished ?? [];
+        const pendingInput = new Set(queue?.pendingInput ?? []);
+        const targetName = (task) => task.receiverName ?? teammate.name;
+        const meta = (task) =>
+          [
+            priorityLabel(task.priority),
+            task.workspaceTitle || task.workspaceId,
+            targetName(task),
+            task.due === undefined ? "截止不限" : `截止 ${task.due}`,
+          ].join(" · ");
+        const latestOf = (task, fallback) =>
+          h(
+            "div",
+            { className: "pmtm-latest", style: { marginTop: 0 } },
+            h("span", { className: "label" }, fallback),
+            h(
+              "span",
+              { className: "text", style: { WebkitLineClamp: 3 } },
+              task.description || task.latestProgress || "暂无说明。",
+            ),
+          );
+        const plannedItem = (task, index) => {
+          const siblings = planned.filter(
+            (item) => item.workspaceId === task.workspaceId,
+          );
+          const position = siblings.findIndex((item) => item.id === task.id);
+          return h(
+            "article",
+            {
+              key: task.id,
+              className: `pmtm-runtime-item status-todo pmtm-plan-item${task.queueState === "paused" ? " pmtm-queue-paused" : ""}`,
+            },
+            h(
+              "div",
+              { className: "pmtm-runtime-main" },
+              h("strong", null, `${task.id} · ${task.title}`),
+              h(
+                "small",
+                null,
+                `队列第 ${String(index + 1)} 位 · ${meta(task)}`,
+              ),
+            ),
+            h("div", { className: "pmtm-runtime-body" }, latestOf(task, "计划说明")),
+            h(
+              "div",
+              { className: "pmtm-queue-actions" },
+              task.queueState === "paused"
+                ? h("span", { className: "pmtm-pill warn" }, "已暂停")
+                : null,
+              task.autoRunEligible === false
+                ? h("span", { className: "pmtm-pill" }, "仅人工")
+                : null,
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "pmtm-btn quiet small",
+                  disabled: queueBusy || position <= 0,
+                  title: "上移",
+                  "aria-label": "上移",
+                  onClick: () => void moveQueueItem(teammate, task, -1),
+                },
+                "↑",
+              ),
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "pmtm-btn quiet small",
+                  disabled: queueBusy || position === siblings.length - 1,
+                  title: "下移",
+                  "aria-label": "下移",
+                  onClick: () => void moveQueueItem(teammate, task, 1),
+                },
+                "↓",
+              ),
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "pmtm-btn secondary small",
+                  disabled: queueBusy,
+                  onClick: () => void toggleQueuePause(teammate, task),
+                },
+                task.queueState === "paused" ? "恢复" : "暂停",
+              ),
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "pmtm-btn secondary small",
+                  onClick: () => openTask(task, "plan"),
+                },
+                "查看详情",
+              ),
+            ),
+          );
+        };
+        const reviewItem = (task) =>
+          h(
+            "article",
+            { key: task.id, className: "pmtm-runtime-item status-review pmtm-plan-item" },
+            h(
+              "div",
+              { className: "pmtm-runtime-main" },
+              h("strong", null, `${task.id} · ${task.title}`),
+              h("small", null, meta(task)),
+            ),
+            h("div", { className: "pmtm-runtime-body" }, latestOf(task, "最新进展")),
+            h(
+              "div",
+              { className: "pmtm-queue-actions" },
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "pmtm-btn small",
+                  disabled: queueBusy,
+                  onClick: () => void confirmQueueTask(teammate, task, "approve"),
+                },
+                "通过",
+              ),
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "pmtm-btn secondary small",
+                  disabled: queueBusy,
+                  onClick: () => void confirmQueueTask(teammate, task, "reject"),
+                },
+                "退回并补充",
+              ),
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "pmtm-btn secondary small",
+                  onClick: () => openTask(task, "plan"),
+                },
+                "查看详情",
+              ),
+            ),
+            rejectingId === task.id
+              ? h(
+                  "div",
+                  { className: "pmtm-queue-reject" },
+                  h("textarea", {
+                    value: rejectNote,
+                    placeholder: "说明需要补充什么（必填），确认后任务会重新排队执行",
+                    "aria-label": "退回说明",
+                    onChange: (event) => setRejectNote(event.target.value),
+                  }),
+                  h(
+                    "div",
+                    { className: "pmtm-queue-reject-actions" },
+                    h(
+                      "button",
+                      {
+                        type: "button",
+                        className: "pmtm-btn small",
+                        disabled: queueBusy || rejectNote.trim() === "",
+                        onClick: () => void confirmQueueTask(teammate, task, "reject"),
+                      },
+                      "确认退回",
+                    ),
+                    h(
+                      "button",
+                      {
+                        type: "button",
+                        className: "pmtm-btn quiet small",
+                        onClick: () => {
+                          setRejectingId("");
+                          setRejectNote("");
+                        },
+                      },
+                      "取消",
+                    ),
+                  ),
+                )
+              : null,
+          );
+        const runningItem = (task) =>
+          h(
+            "article",
+            { key: task.id, className: "pmtm-runtime-item status-progress pmtm-plan-item" },
+            h(
+              "div",
+              { className: "pmtm-runtime-main" },
+              h("strong", null, `${task.id} · ${task.title}`),
+              h("small", null, meta(task)),
+            ),
+            h("div", { className: "pmtm-runtime-body" }, latestOf(task, "最新进展")),
+            h(
+              "div",
+              { className: "pmtm-queue-actions" },
+              pendingInput.has(task.id)
+                ? h("span", { className: "pmtm-pill warn" }, "待补充")
+                : h("span", { className: "pmtm-pill progress" }, "执行中"),
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "pmtm-btn secondary small",
+                  onClick: () => openTask(task, "plan"),
+                },
+                "查看详情",
+              ),
+            ),
+          );
+        const finishedItem = (task) =>
+          h(
+            "div",
+            { key: task.id, className: "pmtm-queue-finished" },
+            h("span", null, `${task.id} · ${task.title}`),
+            h(
+              "span",
+              { className: `pmtm-pill ${task.status}` },
+              STATUS_LABEL[task.status] ?? task.status,
+            ),
+            h(
+              "button",
+              {
+                type: "button",
+                className: "pmtm-btn quiet small",
+                onClick: () => openTask(task, "plan"),
+              },
+              "查看详情",
+            ),
+          );
+        const section = (key, label, count, body, empty) =>
+          h(
+            "div",
+            { key, style: { marginTop: 14 } },
+            h(
+              "div",
+              { className: "pmtm-runtime-head" },
+              h(
+                "div",
+                { className: "pmtm-runtime-head-main" },
+                h("h3", null, label),
+                h("span", { className: "pmtm-count" }, String(count)),
+              ),
+            ),
+            body ?? h("div", { className: "pmtm-empty" }, empty),
+          );
+        return h(
+          "div",
+          null,
+          h(
+            "div",
+            { className: "pmtm-runtime-head" },
+            h(
+              "div",
+              { className: "pmtm-runtime-head-main" },
+              h("h3", null, "工作队列"),
+              h(
+                "span",
+                { className: "pmtm-runtime-summary" },
+                `待启动 ${String(planned.length)} · 执行中 ${String(running.length)} · 待确认 ${String(review.length)}`,
+              ),
+            ),
+            h(
+              "div",
+              { className: "pmtm-runtime-head-actions" },
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "pmtm-btn secondary small",
+                  disabled: queueBusy,
+                  onClick: () => void refreshQueueViews(teammate.id),
+                },
+                "刷新",
+              ),
+            ),
+          ),
+          h(WorkPlanComposer, {
+            teammate,
+            canManagePlatform,
+            onCreated: async () => {
+              await Promise.all([
+                refreshQueueViews(teammate.id),
+                loadDetail(teammate.id),
+              ]);
+            },
+            onError: fail,
+            onNotice: succeed,
+          }),
+          queue === null
+            ? h("div", { className: "pmtm-empty" }, "队列加载中…")
+            : null,
+          section(
+            "planned",
+            "待启动",
+            planned.length,
+            planned.length === 0
+              ? null
+              : h(
+                  "div",
+                  { className: "pmtm-runtime" },
+                  planned.map((task, index) => plannedItem(task, index)),
+                ),
+            "当前没有待启动的工作计划。",
+          ),
+          section(
+            "review",
+            "待确认",
+            review.length,
+            review.length === 0
+              ? null
+              : h("div", { className: "pmtm-runtime" }, review.map(reviewItem)),
+            "没有等待你确认的任务。",
+          ),
+          section(
+            "running",
+            "执行中",
+            running.length,
+            running.length === 0
+              ? null
+              : h("div", { className: "pmtm-runtime" }, running.map(runningItem)),
+            "当前没有正在执行的任务。",
+          ),
+          finished.length === 0
+            ? null
+            : section(
+                "finished",
+                "已完成 / 已归档",
+                finished.length,
+                h(
+                  "div",
+                  { className: "pmtm-queue-finished-list" },
+                  finished.slice(0, 10).map(finishedItem),
+                ),
+              ),
+        );
+      };
+
+      const renderReportsTab = (teammate) => {
+        // 工作日报是实例的产出：实例 owner 或平台管理员可以更新，与模版归属无关。
+        const manageable =
+          currentUser?.id === teammate.ownerUserId ||
+          canManagePlatform === true;
+        const defaultRange = defaultReportRange();
+        const latest = workReports[0] ?? null;
+        const history = workReports.slice(1);
+        const filtered =
+          reportRange.from !== defaultRange.from ||
+          reportRange.to !== defaultRange.to ||
+          reportQuery.trim() !== "";
+        const emptyText = filtered
+          ? "没有匹配的工作日报。"
+          : "还没有工作日报，可以点击右侧「更新日报」生成。";
+        const reportCard = (report) =>
+          h(
+            "article",
+            { className: "pmtm-report-card", key: report.id },
+            h("h3", null, report.title || `${report.reportDate} 工作日报`),
+            h(
+              "small",
+              { className: "pmtm-report-writer" },
+              `撰写人：${report.author?.name ?? teammate.name}（${teammate.id}） · 撰写时间：${timeShort(report.generatedAt)}`,
+            ),
+            h(
+              "div",
+              { className: "pmtm-md pmtm-report-body" },
+              renderMarkdown(report.contentMarkdown ?? ""),
+            ),
+            (report.sourceRefs ?? []).length === 0
+              ? null
+              : h(
+                  "div",
+                  { className: "pmtm-report-source" },
+                  `来源引用：${(report.sourceRefs ?? []).join("、")}`,
+                ),
+          );
+        return h(
+          "div",
+          null,
+          h(
+            "div",
+            { className: "pmtm-runtime-head" },
+            h(
+              "div",
+              { className: "pmtm-runtime-head-main" },
+              h("h3", null, "工作日报"),
+            ),
+            h(
+              "div",
+              { className: "pmtm-report-filters" },
+              h(
+                "label",
+                { className: "pmtm-report-range" },
+                h("input", {
+                  type: "date",
+                  value: reportRange.from,
+                  "aria-label": "工作日报开始日期",
+                  onChange: (event) =>
+                    setReportRange((current) => ({
+                      ...current,
+                      from: event.target.value,
+                    })),
+                }),
+                h("span", null, "至"),
+                h("input", {
+                  type: "date",
+                  value: reportRange.to,
+                  "aria-label": "工作日报结束日期",
+                  onChange: (event) =>
+                    setReportRange((current) => ({
+                      ...current,
+                      to: event.target.value,
+                    })),
+                }),
+              ),
+              h(
+                "label",
+                { className: "pmtm-report-search" },
+                h(
+                  "svg",
+                  {
+                    viewBox: "0 0 24 24",
+                    fill: "none",
+                    stroke: "currentColor",
+                    strokeWidth: 2,
+                    strokeLinecap: "round",
+                    "aria-hidden": true,
+                  },
+                  h("circle", { cx: 11, cy: 11, r: 7 }),
+                  h("path", { d: "m20 20-3.6-3.6" }),
+                ),
+                h("input", {
+                  type: "search",
+                  value: reportSearch,
+                  placeholder: "关键词",
+                  "aria-label": "搜索工作日报",
+                  onChange: (event) => setReportSearch(event.target.value),
+                }),
+              ),
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "pmtm-btn small",
+                  disabled: workReportGenerating || !manageable,
+                  title: manageable
+                    ? "生成或更新今日工作日报"
+                    : "没有权限更新该实例的工作日报",
+                  onClick: () => void generateWorkReport(teammate),
+                },
+                workReportGenerating ? "更新中" : "更新日报",
+              ),
+            ),
+          ),
+          reportNotice === ""
+            ? null
+            : h(
+                "div",
+                {
+                  className: "pmtm-report-notice",
+                  role: "status",
+                  "aria-live": "polite",
+                },
+                reportNotice,
+              ),
+          workReportsLoading
+            ? h("div", { className: "pmtm-empty" }, "加载中…")
+            : latest === null
+              ? h("div", { className: "pmtm-empty" }, emptyText)
+              : reportCard(latest),
           h(
             "div",
             { style: { marginTop: 16 } },
-            h("h3", { style: { margin: "0 0 10px", fontSize: 13 } }, "最近活动"),
-            events.length === 0
-              ? h("div", { className: "pmtm-empty" }, "暂无运行记录。")
-              : h(
-                  "div",
-                  { className: "pmtm-timeline" },
-                  events.map((event) =>
+            h(
+              "div",
+              { className: "pmtm-runtime-head" },
+              h(
+                "div",
+                { className: "pmtm-runtime-head-main" },
+                h("h3", null, "历史记录"),
+                h(
+                  "span",
+                  { className: "pmtm-count" },
+                  String(history.length),
+                ),
+              ),
+            ),
+            latest === null
+              ? null
+              : history.length === 0
+                ? h(
+                    "div",
+                    { className: "pmtm-empty" },
+                    "没有更早的历史快照。",
+                  )
+                : h(
+                    "div",
+                    null,
+                    ...history.map((report) => reportCard(report)),
+                  ),
+          ),
+        );
+      };
+
+      const renderRolesTab = (teammate) => {
+        const employeeId = teammate.employeeId ?? "";
+        const active = projectRoles.filter(
+          (item) => item.status === "active" && !isRoleExpired(item),
+        );
+        const groups = new Map();
+        for (const item of active) {
+          const list = groups.get(item.workspaceId) ?? [];
+          list.push(item);
+          groups.set(item.workspaceId, list);
+        }
+        const workspaceTitle = (workspaceId) =>
+          workspaces.find((item) => item.id === workspaceId)?.title ??
+          workspaceId;
+        const pendingCount = (workspaceId) =>
+          runtimeTasks.filter(
+            (task) =>
+              task.workspaceId === workspaceId &&
+              !task.archived &&
+              task.status !== "done" &&
+              task.status !== "cancelled",
+          ).length;
+        const roleRow = (workspaceId, assignment) => {
+          const busyKey = `${workspaceId}:${assignment.id}`;
+          return h(
+            "div",
+            { key: assignment.id, className: "pmtm-role-row" },
+            h(
+              "div",
+              { className: "pmtm-role-main" },
+              h(
+                "span",
+                { className: "pmtm-pill role" },
+                WORKSPACE_ROLE_LABEL[assignment.role] ?? assignment.role,
+              ),
+              h(
+                "span",
+                { className: "pmtm-role-perms" },
+                (assignment.permissions ?? [])
+                  .map(
+                    (permission) =>
+                      PERMISSION_LABEL[permission] ?? permission,
+                  )
+                  .join(" · ") || "无权限项",
+              ),
+              h(
+                "small",
+                null,
+                assignment.expiresAt === undefined
+                  ? `授予于 ${timeShort(assignment.createdAt)} · 长期有效`
+                  : `有效期至 ${timeShort(assignment.expiresAt)}`,
+              ),
+            ),
+            h(
+              "button",
+              {
+                type: "button",
+                className: "pmtm-btn quiet small",
+                disabled: projectRoleBusy !== "",
+                onClick: () =>
+                  void leaveProject(teammate, workspaceId, assignment),
+              },
+              projectRoleBusy === busyKey ? "退出中…" : "退出角色",
+            ),
+          );
+        };
+        const groupCard = (entry) => {
+          const [workspaceId, assignments] = entry;
+          const busyKey = `${workspaceId}:*`;
+          const pending = pendingCount(workspaceId);
+          return h(
+            "section",
+            { key: workspaceId, className: "pmtm-role-card" },
+            h(
+              "div",
+              { className: "pmtm-role-head" },
+              h(
+                "div",
+                null,
+                h("strong", null, workspaceTitle(workspaceId)),
+                h(
+                  "small",
+                  null,
+                  `${String(assignments.length)} 个生效角色${
+                    pending === 0
+                      ? ""
+                      : ` · ${String(pending)} 个未完成任务将改派`
+                  }`,
+                ),
+              ),
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "pmtm-btn secondary small",
+                  disabled: projectRoleBusy !== "",
+                  onClick: () => void leaveProject(teammate, workspaceId),
+                },
+                projectRoleBusy === busyKey ? "退出中…" : "退出项目",
+              ),
+            ),
+            ...[...assignments]
+              .sort((left, right) => left.role.localeCompare(right.role))
+              .map((assignment) => roleRow(workspaceId, assignment)),
+          );
+        };
+        return h(
+          "div",
+          null,
+          h(
+            "div",
+            { className: "pmtm-runtime-head" },
+            h(
+              "div",
+              { className: "pmtm-runtime-head-main" },
+              h("h3", null, "项目角色"),
+              h(
+                "span",
+                { className: "pmtm-runtime-summary" },
+                groups.size === 0
+                  ? "暂无生效角色"
+                  : `${String(groups.size)} 个项目 · ${String(active.length)} 个生效角色`,
+              ),
+            ),
+            h(
+              "div",
+              { className: "pmtm-runtime-head-actions" },
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "pmtm-btn secondary small",
+                  disabled: projectRolesLoading,
+                  onClick: () => void loadProjectRoles(teammate),
+                },
+                projectRolesLoading ? "刷新中…" : "刷新",
+              ),
+            ),
+          ),
+          employeeId === ""
+            ? h(
+                "div",
+                { className: "pmtm-empty" },
+                "该实例还没有绑定员工档案，暂无项目角色。",
+              )
+            : projectRolesLoading && projectRoles.length === 0
+              ? h("div", { className: "pmtm-empty" }, "角色加载中…")
+              : groups.size === 0
+                ? h(
+                    "div",
+                    { className: "pmtm-empty" },
+                    "该实例当前没有参与任何项目。",
+                  )
+                : h(
+                    "div",
+                    { className: "pmtm-role-list" },
+                    ...[...groups.entries()].map(groupCard),
+                  ),
+        );
+      };
+
+      const renderAuditTab = () =>
+        h(
+          "div",
+          null,
+          h(
+            "div",
+            { className: "pmtm-runtime-head" },
+            h(
+              "div",
+              { className: "pmtm-runtime-head-main" },
+              h("h3", null, "历史执行记录"),
+              h(
+                "span",
+                { className: "pmtm-count" },
+                String(auditEvents.length),
+              ),
+            ),
+          ),
+          auditEvents.length === 0
+            ? h(
+                "div",
+                { className: "pmtm-empty" },
+                auditLoading ? "加载中…" : "暂无历史执行记录。",
+              )
+            : h(
+                "div",
+                { className: "pmtm-audit-list" },
+                ...auditEvents.map((event) =>
+                  h(
+                    "div",
+                    { className: "pmtm-audit-item", key: event.id },
+                    h("time", null, auditTimeText(event.at)),
                     h(
                       "div",
-                      { className: "pmtm-event", key: event.id },
-                      h("time", null, timeShort(event.at)),
-                      h("span", null, event.message),
+                      { className: "pmtm-audit-copy" },
+                      event.narrative,
+                      h(
+                        "span",
+                        { className: "pmtm-audit-actor" },
+                        `${event.actorName} · ${AUDIT_ACTOR_LABEL[event.actorType] ?? "操作"}`,
+                      ),
                     ),
                   ),
                 ),
+                auditCursor === ""
+                  ? null
+                  : h(
+                      "div",
+                      { className: "pmtm-audit-more" },
+                      h(
+                        "button",
+                        {
+                          type: "button",
+                          className: "pmtm-btn secondary small",
+                          disabled: auditLoading,
+                          onClick: () =>
+                            void loadAuditEvents(
+                              selectedId,
+                              auditCursor,
+                            ),
+                        },
+                        auditLoading ? "加载中…" : "加载更多",
+                      ),
+                    ),
+              ),
+        );
+
+      const renderRuntime = (teammate) => {
+        const template =
+          teammate.templateId === undefined
+            ? null
+            : {
+                name: teammate.templateName ?? teammate.templateId,
+                kind:
+                  (teammate.templateSource ?? teammate.source) === "platform"
+                    ? "平台模版"
+                    : "个人模版",
+                instances: teammates.filter(
+                  (item) => item.templateId === teammate.templateId,
+                ).length,
+              };
+        return h(
+          "div",
+          null,
+          h(
+            "div",
+            { className: "pmtm-editor-head" },
+            h(
+              "div",
+              { className: "pmtm-editor-identity" },
+              h(TeammateAvatar, { teammate, className: "large" }),
+              h(
+                "div",
+                { className: "pmtm-editor-main" },
+                instanceEditing
+                  ? h("input", {
+                      type: "text",
+                      className: "pmtm-input pmtm-instance-name",
+                      value: instanceForm.name,
+                      maxLength: 120,
+                      placeholder: "实例名称",
+                      "aria-label": "实例名称",
+                      onChange: (event) =>
+                        setInstanceForm((current) => ({
+                          ...current,
+                          name: event.target.value,
+                        })),
+                      onKeyDown: (event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          void saveInstanceProfileEdit();
+                        }
+                      },
+                    })
+                  : h(
+                      "div",
+                      { className: "pmtm-title-row" },
+                      h("h2", null, teammate.name),
+                      h(
+                        "button",
+                        {
+                          type: "button",
+                          className: "pmtm-icon-btn",
+                          title: "编辑实例名称与描述",
+                          "aria-label": "编辑实例名称与描述",
+                          onClick: startInstanceProfileEdit,
+                        },
+                        h(
+                          "svg",
+                          {
+                            viewBox: "0 0 24 24",
+                            fill: "none",
+                            stroke: "currentColor",
+                            strokeWidth: 1.8,
+                            strokeLinecap: "round",
+                            strokeLinejoin: "round",
+                          },
+                          h("path", {
+                            d: "M12 20h9",
+                          }),
+                          h("path", {
+                            d: "M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z",
+                          }),
+                        ),
+                      ),
+                    ),
+                h(
+                  "div",
+                  { className: "pmtm-meta" },
+                  h(
+                    "span",
+                    { className: `pmtm-state ${teammate.state}` },
+                    STATE_LABEL[teammate.state] ?? teammate.state,
+                  ),
+                  h("span", null, teammate.role || "待定义"),
+                  h("span", null, `最近同步于 ${timeShort(teammate.updatedAt)}`),
+                  h(
+                    "span",
+                    {
+                      className: "pmtm-pill template",
+                      title:
+                        template === null
+                          ? "该实例没有关联模版，按独立定义运行"
+                          : `同模版实例 ${String(template.instances)} 个`,
+                    },
+                    template === null
+                      ? "模版：未关联（独立定义）"
+                      : `模版：${template.name}（${template.kind}）`,
+                  ),
+                ),
+                instanceEditing
+                  ? h(
+                      react.Fragment,
+                      null,
+                      h("textarea", {
+                        className: "pmtm-area pmtm-instance-desc-input",
+                        value: instanceForm.description,
+                        maxLength: 4_000,
+                        placeholder:
+                          "描述这个实例负责什么、边界在哪，供指派和复盘时参考…",
+                        "aria-label": "实例描述",
+                        onChange: (event) =>
+                          setInstanceForm((current) => ({
+                            ...current,
+                            description: event.target.value,
+                          })),
+                      }),
+                      h(
+                        "div",
+                        { className: "pmtm-instance-edit-actions" },
+                        h(
+                          "button",
+                          {
+                            type: "button",
+                            className: "pmtm-btn primary small",
+                            disabled:
+                              instanceBusy || instanceForm.name.trim() === "",
+                            onClick: () => void saveInstanceProfileEdit(),
+                          },
+                          instanceBusy ? "保存中…" : "保存",
+                        ),
+                        h(
+                          "button",
+                          {
+                            type: "button",
+                            className: "pmtm-btn quiet small",
+                            disabled: instanceBusy,
+                            onClick: cancelInstanceProfileEdit,
+                          },
+                          "取消",
+                        ),
+                      ),
+                    )
+                  : h(
+                      "p",
+                      {
+                        className: `pmtm-instance-desc${
+                          teammate.description ? "" : " placeholder"
+                        }`,
+                      },
+                      teammate.description || "暂无描述",
+                    ),
+              ),
+            ),
+            h(
+              "div",
+              { className: "pmtm-editor-metrics" },
+              h(LoadMetric, {
+                activity,
+                teammateId: teammate.id,
+                detailed: true,
+                scope: "instance",
+                label: "实例近24h工作负荷",
+              }),
+            ),
+            h(
+              "div",
+              { className: "pmtm-editor-actions" },
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "pmtm-btn secondary small",
+                  onClick: () => setTab("definition"),
+                },
+                "人设定义",
+              ),
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "pmtm-btn quiet small",
+                  disabled: busy || runningIds.includes(teammate.id),
+                  title: runningIds.includes(teammate.id)
+                    ? "运行中的实例不能归档"
+                    : "归档运行态实例",
+                  onClick: () => setArchiveOpen(true),
+                },
+                "归档实例",
+              ),
+            ),
+          ),
+          teammate.state === "paused"
+            ? h(
+                "div",
+                { className: "pmtm-notice" },
+                "该分身已暂停，当前不会接收新任务或继续自动跟进。",
+              )
+            : null,
+          h(
+            "div",
+            {
+              className: "pmtm-runtime-tabs",
+              role: "tablist",
+              "aria-label": "AI Teammate 运行态内容",
+            },
+            ...RUNTIME_TABS.map((item) =>
+              h(
+                "button",
+                {
+                  key: item.key,
+                  type: "button",
+                  role: "tab",
+                  id: `pmtm-runtime-tab-${item.key}`,
+                  "aria-selected": runtimeTab === item.key,
+                  "aria-controls": `pmtm-runtime-panel-${item.key}`,
+                  className: `pmtm-runtime-tab${runtimeTab === item.key ? " active" : ""}`,
+                  onClick: () => setRuntimeTab(item.key),
+                },
+                item.label,
+              ),
+            ),
+          ),
+          h(
+            "div",
+            {
+              id: "pmtm-runtime-panel-current",
+              role: "tabpanel",
+              "aria-labelledby": "pmtm-runtime-tab-current",
+              className: "pmtm-runtime-panel",
+              hidden: runtimeTab !== "current",
+            },
+            renderCurrentWorkTab(),
+          ),
+          h(
+            "div",
+            {
+              id: "pmtm-runtime-panel-plan",
+              role: "tabpanel",
+              "aria-labelledby": "pmtm-runtime-tab-plan",
+              className: "pmtm-runtime-panel",
+              hidden: runtimeTab !== "plan",
+            },
+            renderPlanTab(teammate),
+          ),
+          h(
+            "div",
+            {
+              id: "pmtm-runtime-panel-report",
+              role: "tabpanel",
+              "aria-labelledby": "pmtm-runtime-tab-report",
+              className: "pmtm-runtime-panel",
+              hidden: runtimeTab !== "report",
+            },
+            renderReportsTab(teammate),
+          ),
+          h(
+            "div",
+            {
+              id: "pmtm-runtime-panel-roles",
+              role: "tabpanel",
+              "aria-labelledby": "pmtm-runtime-tab-roles",
+              className: "pmtm-runtime-panel",
+              hidden: runtimeTab !== "roles",
+            },
+            renderRolesTab(teammate),
+          ),
+          h(
+            "div",
+            {
+              id: "pmtm-runtime-panel-audit",
+              role: "tabpanel",
+              "aria-labelledby": "pmtm-runtime-tab-audit",
+              className: "pmtm-runtime-panel",
+              hidden: runtimeTab !== "audit",
+            },
+            renderAuditTab(),
           ),
         );
       };
 
       const renderActions = (teammate) => {
+        if (tab === "definition") {
+          if (selectedTemplate === null || !canManageSelectedTemplate) {
+            return null;
+          }
+          const buttons = [
+            h(
+              "button",
+              {
+                key: "edit",
+                type: "button",
+                className: "pmtm-btn secondary small",
+                onClick: startEdit,
+                disabled: selectedTemplate.state === "archived",
+              },
+              "编辑模版",
+            ),
+          ];
+          if (selectedTemplate.state === "active") {
+            buttons.push(
+              h(
+                "button",
+                {
+                  key: "disable",
+                  type: "button",
+                  className: "pmtm-btn secondary small",
+                  onClick: () => changeState("disabled"),
+                },
+                "停用",
+              ),
+            );
+          } else if (selectedTemplate.state === "disabled") {
+            buttons.push(
+              h(
+                "button",
+                {
+                  key: "activate",
+                  type: "button",
+                  className: "pmtm-btn secondary small",
+                  onClick: () => changeState("active"),
+                },
+                "生效",
+              ),
+              h(
+                "button",
+                {
+                  key: "archive",
+                  type: "button",
+                  className: "pmtm-btn secondary small",
+                  onClick: () => changeState("archived"),
+                },
+                "归档",
+              ),
+            );
+          }
+          return h("div", { className: "pmtm-actions" }, buttons);
+        }
         const manageable =
-          teammate.source === "personal" || canManagePlatform === true;
+          canManagePlatform === true || teammate.ownerUserId === currentUser?.id;
         if (!manageable) return null;
-        const buttons = [
-          h(
-            "button",
-            { key: "edit", type: "button", className: "pmtm-btn secondary small", onClick: startEdit },
-            "编辑定义",
-          ),
-        ];
+        const buttons = [];
         if (teammate.state === "archived") {
           buttons.push(
             h(
@@ -1680,9 +4600,11 @@ window.__ModuleLoader__.load({
                 type: "button",
                 className: "pmtm-btn secondary small",
                 onClick: () =>
-                  changeState(teammate.source === "personal" ? "paused" : "inactive"),
+                  changeState(
+                    teammate.source === "personal" ? "paused" : "inactive",
+                  ),
               },
-              teammate.source === "personal" ? "暂停" : "全局失效",
+              "暂停",
             ),
           );
         } else {
@@ -1699,23 +4621,6 @@ window.__ModuleLoader__.load({
             ),
           );
         }
-        if (
-          teammate.source === "personal" &&
-          !["inactive", "archived", "draft"].includes(teammate.state)
-        ) {
-          buttons.push(
-            h(
-              "button",
-              {
-                key: "invalidate",
-                type: "button",
-                className: "pmtm-btn secondary small",
-                onClick: () => changeState("inactive"),
-              },
-              "失效",
-            ),
-          );
-        }
         buttons.push(
           h(
             "button",
@@ -1723,7 +4628,11 @@ window.__ModuleLoader__.load({
               key: "archive",
               type: "button",
               className: "pmtm-btn secondary small",
-              onClick: () => changeState("archived"),
+              disabled: busy || runningIds.includes(teammate.id),
+              title: runningIds.includes(teammate.id)
+                ? "运行中的实例不能归档"
+                : "归档运行态实例",
+              onClick: () => setArchiveOpen(true),
             },
             "归档",
           ),
@@ -1733,21 +4642,28 @@ window.__ModuleLoader__.load({
 
       const renderEditor = (teammate) => {
         const setField = (key, value) =>
-          setForm((current) => (current === null ? current : { ...current, [key]: value }));
+          setForm((current) =>
+            current === null ? current : { ...current, [key]: value },
+          );
         return h(
           "div",
           null,
           h(
             "div",
             { className: "pmtm-editor-head" },
-            h(TeammateAvatar, { teammate: { ...teammate, avatar: form.avatar }, className: "large" }),
+            h(TeammateAvatar, {
+              teammate: { ...teammate, avatar: form.avatar },
+              className: "large",
+            }),
             h(
               "div",
               { className: "pmtm-editor-main" },
               h(
                 "h2",
                 null,
-                teammate.state === "draft" ? "新建 AI Teammate" : `编辑 ${teammate.name}`,
+                teammate.state === "draft"
+                  ? "新建 AI Teammate"
+                  : `编辑 ${teammate.name}`,
               ),
               h(
                 "div",
@@ -1770,7 +4686,9 @@ window.__ModuleLoader__.load({
                     strokeLinecap: "round",
                     strokeLinejoin: "round",
                   },
-                  h("path", { d: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" }),
+                  h("path", {
+                    d: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z",
+                  }),
                   h("path", { d: "M12 8v4M12 16h.01" }),
                 ),
                 h(
@@ -1812,14 +4730,23 @@ window.__ModuleLoader__.load({
                           className: `pmtm-preset${form.avatar === preset.id ? " active" : ""}`,
                           onClick: () => setField("avatar", preset.id),
                         },
-                        h(TeammateAvatar, { teammate: { source: teammate.source, avatar: preset.id, name: preset.name } }),
+                        h(TeammateAvatar, {
+                          teammate: {
+                            source: teammate.source,
+                            avatar: preset.id,
+                            name: preset.name,
+                          },
+                        }),
                         h("span", null, preset.name),
                       ),
                     ),
                   ),
                   h(
                     "label",
-                    { className: "pmtm-btn secondary small", style: { marginTop: 8, cursor: "pointer" } },
+                    {
+                      className: "pmtm-btn secondary small",
+                      style: { marginTop: 8, cursor: "pointer" },
+                    },
                     "上传图片",
                     h("input", {
                       type: "file",
@@ -1869,16 +4796,24 @@ window.__ModuleLoader__.load({
                     {
                       className: "pmtm-select",
                       value: form.source,
-                      onChange: (event) => setField("source", event.target.value),
+                      onChange: (event) =>
+                        setField("source", event.target.value),
                     },
                     h("option", { value: "personal" }, "个人归属 · 本人"),
                     canManagePlatform
-                      ? h("option", { value: "platform" }, "平台归属 · 全平台共享")
+                      ? h(
+                          "option",
+                          { value: "platform" },
+                          "平台归属 · 全平台共享",
+                        )
                       : null,
                   )
                 : h("input", {
                     className: "pmtm-input",
-                    value: teammate.source === "platform" ? "平台" : teammate.ownerName,
+                    value:
+                      teammate.source === "platform"
+                        ? "平台"
+                        : teammate.ownerName,
                     disabled: true,
                   }),
             ),
@@ -1891,7 +4826,8 @@ window.__ModuleLoader__.load({
                 {
                   className: "pmtm-select",
                   value: form.execution,
-                  onChange: (event) => setField("execution", event.target.value),
+                  onChange: (event) =>
+                    setField("execution", event.target.value),
                 },
                 h("option", { value: "builtin" }, "内置执行"),
                 h("option", { value: "external" }, "外部 Agent"),
@@ -1907,7 +4843,8 @@ window.__ModuleLoader__.load({
                     {
                       className: "pmtm-select",
                       value: form.externalRuntimeId,
-                      onChange: (event) => setField("externalRuntimeId", event.target.value),
+                      onChange: (event) =>
+                        setField("externalRuntimeId", event.target.value),
                     },
                     h("option", { value: "" }, "请选择运行时"),
                     externalRuntimes
@@ -1926,7 +4863,11 @@ window.__ModuleLoader__.load({
               "label",
               { className: "pmtm-field" },
               h("span", { className: "label" }, "当前版本"),
-              h("input", { className: "pmtm-input", value: teammate.version, disabled: true }),
+              h("input", {
+                className: "pmtm-input",
+                value: teammate.version,
+                disabled: true,
+              }),
             ),
             h(
               "label",
@@ -1935,7 +4876,8 @@ window.__ModuleLoader__.load({
               h("textarea", {
                 className: "pmtm-area",
                 value: form.description,
-                onChange: (event) => setField("description", event.target.value),
+                onChange: (event) =>
+                  setField("description", event.target.value),
               }),
             ),
             h(
@@ -1943,11 +4885,21 @@ window.__ModuleLoader__.load({
               { className: "pmtm-field wide" },
               h(
                 "div",
-                { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 } },
+                {
+                  style: {
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 8,
+                  },
+                },
                 h("span", { className: "label" }, "SOUL.md"),
                 h(
                   "label",
-                  { className: "pmtm-btn secondary small", style: { cursor: "pointer" } },
+                  {
+                    className: "pmtm-btn secondary small",
+                    style: { cursor: "pointer" },
+                  },
                   "上传 .md",
                   h("input", {
                     type: "file",
@@ -1993,10 +4945,17 @@ window.__ModuleLoader__.load({
             ),
             h(
               "div",
-              { className: "pmtm-actions wide", style: { gridColumn: "1 / -1" } },
+              {
+                className: "pmtm-actions wide",
+                style: { gridColumn: "1 / -1" },
+              },
               h(
                 "button",
-                { type: "button", className: "pmtm-btn secondary small", onClick: cancelEdit },
+                {
+                  type: "button",
+                  className: "pmtm-btn secondary small",
+                  onClick: cancelEdit,
+                },
                 "取消",
               ),
               h(
@@ -2007,7 +4966,8 @@ window.__ModuleLoader__.load({
                   disabled:
                     busy ||
                     form.name.trim() === "" ||
-                    (form.execution === "external" && form.externalRuntimeId === ""),
+                    (form.execution === "external" &&
+                      form.externalRuntimeId === ""),
                   onClick: () => void saveEdit(),
                 },
                 form.source === "platform" ? "保存全局定义" : "保存定义",
@@ -2049,7 +5009,7 @@ window.__ModuleLoader__.load({
                   type: "button",
                   className: "pmtm-btn secondary small",
                   onClick: () => {
-                    setExternalManagerOpen(false);
+                    setSection("teammate");
                     setExternalEditing(false);
                     setExternalForm(null);
                   },
@@ -2267,7 +5227,337 @@ window.__ModuleLoader__.load({
         );
       };
 
+      const renderTemplateEditor = () => {
+        if (selectedTemplate === null) return h("div", { className: "pmtm-empty" }, "请选择模版。");
+        const setField = (key, value) =>
+          setForm((current) =>
+            current === null ? current : { ...current, [key]: value },
+          );
+        return h(
+          "div",
+          null,
+          h(
+            "div",
+            { className: "pmtm-editor-head" },
+            h(
+              "div",
+              { className: "pmtm-editor-main" },
+              h("h2", null, `编辑模版：${selectedTemplate.name}`),
+              h(
+                "div",
+                { className: "pmtm-meta" },
+                `归属：${selectedTemplate.source === "platform" ? "平台" : "个人"} · ${selectedTemplate.version}`,
+              ),
+            ),
+          ),
+          selectedTemplate.source === "platform"
+            ? h(
+                "div",
+                { className: "pmtm-notice" },
+                "平台模版由平台管理员维护；任何活跃用户都可以基于它创建自己的实例。",
+              )
+            : null,
+          h(
+            "div",
+            { className: "pmtm-grid" },
+            h(
+              "label",
+              { className: "pmtm-field" },
+              h("span", { className: "label" }, "名称"),
+              h("input", {
+                className: "pmtm-input",
+                value: form.name,
+                onChange: (event) => setField("name", event.target.value),
+              }),
+            ),
+            h(
+              "label",
+              { className: "pmtm-field" },
+              h("span", { className: "label" }, "专业角色"),
+              h("input", {
+                className: "pmtm-input",
+                value: form.role,
+                onChange: (event) => setField("role", event.target.value),
+              }),
+            ),
+            h(
+              "label",
+              { className: "pmtm-field" },
+              h("span", { className: "label" }, "当前版本"),
+              h("input", {
+                className: "pmtm-input",
+                value: selectedTemplate.version,
+                disabled: true,
+              }),
+            ),
+            h(
+              "label",
+              { className: "pmtm-field wide" },
+              h("span", { className: "label" }, "基础说明"),
+              h("textarea", {
+                className: "pmtm-area",
+                value: form.description,
+                onChange: (event) => setField("description", event.target.value),
+              }),
+            ),
+            h(
+              "div",
+              { className: "pmtm-field wide" },
+              h(
+                "div",
+                {
+                  style: {
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 8,
+                  },
+                },
+                h("span", { className: "label" }, "SOUL.md"),
+                h(
+                  "label",
+                  {
+                    className: "pmtm-btn secondary small",
+                    style: { cursor: "pointer" },
+                  },
+                  "上传 .md",
+                  h("input", {
+                    type: "file",
+                    accept: ".md,text/markdown,text/plain",
+                    style: { display: "none" },
+                    onChange: (event) => {
+                      const file = event.target.files?.[0];
+                      if (file !== undefined) {
+                        readFile(file, (value) => {
+                          setField("soul", value);
+                          succeed(`已载入 ${file.name}`);
+                        });
+                      }
+                    },
+                  }),
+                ),
+              ),
+              h("textarea", {
+                className: "pmtm-area soul",
+                value: form.soul,
+                onChange: (event) => setField("soul", event.target.value),
+              }),
+            ),
+            h(
+              "label",
+              { className: "pmtm-field" },
+              h("span", { className: "label" }, "场景行为（每行一项）"),
+              h("textarea", {
+                className: "pmtm-area",
+                value: form.scenarios,
+                onChange: (event) => setField("scenarios", event.target.value),
+              }),
+            ),
+            h(
+              "label",
+              { className: "pmtm-field" },
+              h("span", { className: "label" }, "工作目标（每行一项）"),
+              h("textarea", {
+                className: "pmtm-area",
+                value: form.goals,
+                onChange: (event) => setField("goals", event.target.value),
+              }),
+            ),
+            h(
+              "label",
+              { className: "pmtm-field" },
+              h("span", { className: "label" }, "工具（每行一项）"),
+              h("textarea", {
+                className: "pmtm-area",
+                value: form.tools,
+                onChange: (event) => setField("tools", event.target.value),
+              }),
+            ),
+            h(
+              "div",
+              {
+                className: "pmtm-actions wide",
+                style: { gridColumn: "1 / -1" },
+              },
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "pmtm-btn secondary small",
+                  onClick: cancelEdit,
+                },
+                "取消",
+              ),
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "pmtm-btn small",
+                  disabled: busy || form.name.trim() === "",
+                  onClick: () => void saveEdit(),
+                },
+                selectedTemplate.source === "platform"
+                  ? "保存平台模版"
+                  : "保存个人模版",
+              ),
+            ),
+          ),
+        );
+      };
+
+      const renderTemplateDefinition = () => {
+        if (selectedTemplate === null) {
+          return h("div", { className: "pmtm-empty" }, "暂无 Agent 模版。");
+        }
+        const instances = selectedTemplateInstances;
+        const representative = instances[0];
+        return h(
+          "div",
+          null,
+          h(
+            "div",
+            { className: "pmtm-editor-head" },
+            h(
+              "div",
+              { className: "pmtm-editor-identity" },
+              h(TeammateAvatar, { teammate: selectedTemplate, className: "large" }),
+              h(
+                "div",
+                { className: "pmtm-editor-main" },
+                h("h2", null, selectedTemplate.name),
+                h(
+                  "div",
+                  { className: "pmtm-meta" },
+                  h(
+                    "span",
+                    { className: `pmtm-state ${selectedTemplate.state}` },
+                    STATE_LABEL[selectedTemplate.state] ?? selectedTemplate.state,
+                  ),
+                  h(
+                    "span",
+                    null,
+                    `归属：${selectedTemplate.source === "platform" ? "平台" : "个人"}`,
+                  ),
+                  h("span", null, selectedTemplate.role || "待定义"),
+                  h("span", null, `${String(instances.length)} 个实例 · ${selectedTemplate.version}`),
+                ),
+              ),
+            ),
+            h(
+              "div",
+              { className: "pmtm-editor-metrics" },
+              h(LoadMetric, {
+                activity,
+                teammateId: representative?.id ?? "",
+                detailed: true,
+                scope: "template",
+                label: "模版近24h工作负荷",
+              }),
+            ),
+          ),
+          renderActions(selectedTemplate),
+          h(
+            "div",
+            { className: "pmtm-grid" },
+            h(
+              "div",
+              { className: "pmtm-field card" },
+              h("span", { className: "label" }, "模版状态"),
+              h(
+                "span",
+                { className: "value" },
+                selectedTemplate.state === "active"
+                  ? "可用于创建新实例和派发"
+                  : "只阻止新派发，不级联改实例状态",
+              ),
+            ),
+            h(
+              "div",
+              { className: "pmtm-field card" },
+              h("span", { className: "label" }, "定义版本"),
+              h(
+                "span",
+                { className: "value" },
+                `${selectedTemplate.version} · ${timeShort(selectedTemplate.updatedAt)} 更新`,
+              ),
+            ),
+            h(
+              "div",
+              { className: "pmtm-field card wide" },
+              h("span", { className: "label" }, "基础说明"),
+              h("span", { className: "value" }, selectedTemplate.description || "尚未填写。"),
+            ),
+          ),
+          h(
+            "div",
+            { className: "pmtm-grid wide-gap" },
+            h(
+              "section",
+              { className: "pmtm-block" },
+              h("h3", null, "SOUL.md"),
+              renderMarkdown(selectedTemplate.soul),
+            ),
+            h(
+              "section",
+              { className: "pmtm-block" },
+              h("h3", null, "场景行为"),
+              selectedTemplate.scenarios.length === 0
+                ? h("div", { style: { color: "var(--dsw-alias-label-tertiary)", fontSize: 11.5 } }, "尚未填写。")
+                : h(
+                    "ul",
+                    { className: "pmtm-rules" },
+                    selectedTemplate.scenarios.map((item, index) =>
+                      h("li", { key: `scenario-${String(index)}` }, item),
+                    ),
+                  ),
+              h("h3", { style: { marginTop: 12 } }, "工作目标"),
+              selectedTemplate.goals.length === 0
+                ? h("div", { style: { color: "var(--dsw-alias-label-tertiary)", fontSize: 11.5 } }, "尚未填写。")
+                : h(
+                    "ul",
+                    { className: "pmtm-rules" },
+                    selectedTemplate.goals.map((item, index) =>
+                      h("li", { key: `goal-${String(index)}` }, item),
+                    ),
+                  ),
+              h("h3", { style: { marginTop: 12 } }, "工具"),
+              selectedTemplate.tools.length === 0
+                ? h("div", { style: { color: "var(--dsw-alias-label-tertiary)", fontSize: 11.5 } }, "未限制工具清单。")
+                : h(
+                    "ul",
+                    { className: "pmtm-rules" },
+                    selectedTemplate.tools.map((item, index) =>
+                      h("li", { key: `tool-${String(index)}` }, item),
+                    ),
+                  ),
+            ),
+            h(
+              "section",
+              { className: "pmtm-block", style: { gridColumn: "1 / -1" } },
+              h("h3", null, "使用该模版的实例"),
+              instances.length === 0
+                ? h("div", { style: { color: "var(--dsw-alias-label-tertiary)", fontSize: 11.5 } }, "暂无实例。")
+                : h(
+                    "ul",
+                    { className: "pmtm-rules" },
+                    instances.map((item) =>
+                      h(
+                        "li",
+                        { key: item.id },
+                        `${item.name} · ${item.ownerName} · ${STATE_LABEL[item.state] ?? item.state}`,
+                      ),
+                    ),
+                  ),
+            ),
+          ),
+        );
+      };
+
       const renderDefinition = (teammate) => {
+        if (tab === "definition") {
+          if (editing && form !== null) return renderTemplateEditor();
+          return renderTemplateDefinition();
+        }
         if (editing && form !== null) return renderEditor(teammate);
         return h(
           "div",
@@ -2275,45 +5565,103 @@ window.__ModuleLoader__.load({
           h(
             "div",
             { className: "pmtm-editor-head" },
-            h(TeammateAvatar, { teammate, className: "large" }),
             h(
               "div",
-              { className: "pmtm-editor-main" },
-              h("h2", null, teammate.name),
+              { className: "pmtm-editor-identity" },
+              h(TeammateAvatar, { teammate, className: "large" }),
               h(
                 "div",
-                { className: "pmtm-meta" },
-                h("span", { className: `pmtm-state ${teammate.state}` }, STATE_LABEL[teammate.state] ?? teammate.state),
-                h("span", null, `归属：${teammate.source === "platform" ? "平台" : teammate.ownerName}`),
-                h("span", null, teammate.role || "待定义"),
-                h("span", null, teammate.version),
+                { className: "pmtm-editor-main" },
+                h("h2", null, teammate.name),
+                h(
+                  "div",
+                  { className: "pmtm-meta" },
+                  h(
+                    "span",
+                    { className: `pmtm-state ${teammate.state}` },
+                    STATE_LABEL[teammate.state] ?? teammate.state,
+                  ),
+                  h(
+                    "span",
+                    null,
+                    `创建人：${teammate.ownerName}`,
+                  ),
+                  h("span", null, teammate.role || "待定义"),
+                  h("span", null, teammate.version),
+                ),
               ),
+            ),
+            h(
+              "div",
+              { className: "pmtm-editor-metrics" },
+              h(InstanceMetric, {
+                liveInstances,
+                teammateId: teammate.id,
+                detailed: true,
+              }),
+              h(LoadMetric, {
+                activity,
+                teammateId: teammate.id,
+                detailed: true,
+                scope: "template",
+                label: "模版近24h工作负荷",
+              }),
             ),
           ),
           renderActions(teammate),
-          teammate.source === "platform"
+          canManagePlatform === true || teammate.ownerUserId === currentUser?.id
             ? h(
-                "div",
-                { className: "pmtm-notice" },
+                "section",
+                { className: "pmtm-block", style: { marginTop: 14 } },
+                h("h3", null, "引用模版"),
                 h(
-                  "svg",
+                  "div",
                   {
-                    viewBox: "0 0 24 24",
-                    fill: "none",
-                    stroke: "currentColor",
-                    strokeWidth: 2,
-                    strokeLinecap: "round",
-                    strokeLinejoin: "round",
+                    style: {
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                    },
                   },
-                  h("path", { d: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" }),
-                  h("path", { d: "M12 8v4M12 16h.01" }),
-                ),
-                h(
-                  "span",
-                  null,
-                  "平台归属定义会共享给全平台。编辑、生效或失效将作用于该 DE 的全平台实例行为，仅平台管理员可操作。",
+                  h(
+                    "select",
+                    {
+                      className: "pmtm-input",
+                      value: switchTemplateId,
+                      onChange: (event) =>
+                        setSwitchTemplateId(event.target.value),
+                      "aria-label": "选择 AI Teammate 模版",
+                    },
+                    teammateTemplates
+                      .filter((item) => item.state !== "archived")
+                      .map((item) =>
+                        h(
+                          "option",
+                          { value: item.id, key: item.id },
+                          `${item.name} · ${
+                            item.source === "platform" ? "平台模版" : "个人模版"
+                          }`,
+                        ),
+                      ),
+                  ),
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "pmtm-btn secondary small",
+                      disabled:
+                        busy ||
+                        switchTemplateId === "" ||
+                        switchTemplateId === teammate.templateId,
+                      onClick: () => void switchTemplate(),
+                    },
+                    "切换模版",
+                  ),
                 ),
               )
+            : null,
+          teammate.source === "platform"
+            ? null
             : h(
                 "div",
                 { className: "pmtm-notice info" },
@@ -2376,21 +5724,56 @@ window.__ModuleLoader__.load({
                 )
               : h(
                   "div",
-                  { className: "pmtm-grid", style: { marginTop: 8 } },
+                  { className: "pmtm-grid three", style: { marginTop: 8 } },
                   ...[
-                    ["项目", identity.workspaceId],
+                    [
+                      "项目",
+                      h(CodeValue, {
+                        label: "项目",
+                        value:
+                          workspaces.find((item) => item.id === identity.workspaceId)
+                            ?.title ?? "项目",
+                        code: identity.workspaceId,
+                      }),
+                    ],
                     [
                       "Agent Profile",
-                      `${identity.profileName} · ${identity.profileId}`,
+                      h(CodeValue, {
+                        label: "Agent Profile",
+                        value: identity.profileName,
+                        code: identity.profileId,
+                      }),
                     ],
-                    ["执行类型", identity.runtimeKind],
+                    [
+                      "执行类型",
+                      identity.runtimeKind === "task-worker"
+                        ? "任务执行"
+                        : identity.runtimeKind === "continuable-session"
+                          ? "持续会话"
+                          : identity.runtimeKind === "connector"
+                            ? "连接通道"
+                            : identity.runtimeKind,
+                    ],
                     [
                       "执行通道",
                       identity.execution === "external"
-                        ? `外部 Agent · ${identity.externalRuntimeId}`
+                        ? h(CodeValue, {
+                            label: "执行通道",
+                            value: "外部 Agent",
+                            code: identity.externalRuntimeId,
+                          })
                         : "内置执行",
                     ],
-                    ["Persona", identity.personaId ?? "未设置"],
+                    [
+                      "Persona",
+                      identity.personaId === undefined
+                        ? "未设置"
+                        : h(CodeValue, {
+                            label: "Persona",
+                            value: `${teammate.name} 人设`,
+                            code: identity.personaId,
+                          }),
+                    ],
                     [
                       "工具白名单",
                       identity.allowedTools.length === 0
@@ -2417,20 +5800,32 @@ window.__ModuleLoader__.load({
             h(
               "div",
               { className: "pmtm-field card" },
-              h("span", { className: "label" }, "归属"),
-              h("span", { className: "value" }, teammate.source === "platform" ? "平台" : teammate.ownerName),
+              h("span", { className: "label" }, "创建人"),
+              h(
+                "span",
+                { className: "value" },
+                teammate.ownerName,
+              ),
             ),
             h(
               "div",
               { className: "pmtm-field card" },
               h("span", { className: "label" }, "定义版本"),
-              h("span", { className: "value" }, `${teammate.version} · ${timeShort(teammate.updatedAt)} 更新`),
+              h(
+                "span",
+                { className: "value" },
+                `${teammate.version} · ${events[0]?.actorName ?? teammate.createdBy} ${timeShort(teammate.updatedAt)} 更新`,
+              ),
             ),
             h(
               "div",
               { className: "pmtm-field card wide" },
               h("span", { className: "label" }, "基础说明"),
-              h("span", { className: "value" }, teammate.description || "尚未填写。"),
+              h(
+                "span",
+                { className: "value" },
+                teammate.description || "尚未填写。",
+              ),
             ),
           ),
           h(
@@ -2440,26 +5835,48 @@ window.__ModuleLoader__.load({
               "section",
               { className: "pmtm-block" },
               h("h3", null, "SOUL.md"),
-              h("pre", null, teammate.soul || "尚未填写。"),
+              renderMarkdown(teammate.soul),
             ),
             h(
               "section",
               { className: "pmtm-block" },
               h("h3", null, "场景行为"),
               teammate.scenarios.length === 0
-                ? h("div", { style: { color: "var(--dsw-alias-label-tertiary)", fontSize: 11.5 } }, "尚未填写。")
+                ? h(
+                    "div",
+                    {
+                      style: {
+                        color: "var(--dsw-alias-label-tertiary)",
+                        fontSize: 11.5,
+                      },
+                    },
+                    "尚未填写。",
+                  )
                 : h(
                     "ul",
                     { className: "pmtm-rules" },
-                    teammate.scenarios.map((item, index) => h("li", { key: index }, item)),
+                    teammate.scenarios.map((item, index) =>
+                      h("li", { key: index }, item),
+                    ),
                   ),
               h("h3", { style: { marginTop: 12 } }, "工作目标"),
               teammate.goals.length === 0
-                ? h("div", { style: { color: "var(--dsw-alias-label-tertiary)", fontSize: 11.5 } }, "尚未填写。")
+                ? h(
+                    "div",
+                    {
+                      style: {
+                        color: "var(--dsw-alias-label-tertiary)",
+                        fontSize: 11.5,
+                      },
+                    },
+                    "尚未填写。",
+                  )
                 : h(
                     "ul",
                     { className: "pmtm-rules" },
-                    teammate.goals.map((item, index) => h("li", { key: index }, item)),
+                    teammate.goals.map((item, index) =>
+                      h("li", { key: index }, item),
+                    ),
                   ),
             ),
             h(
@@ -2467,7 +5884,16 @@ window.__ModuleLoader__.load({
               { className: "pmtm-block", style: { gridColumn: "1 / -1" } },
               h("h3", null, "最近变更"),
               events.length === 0
-                ? h("div", { style: { color: "var(--dsw-alias-label-tertiary)", fontSize: 11.5 } }, "暂无变更记录。")
+                ? h(
+                    "div",
+                    {
+                      style: {
+                        color: "var(--dsw-alias-label-tertiary)",
+                        fontSize: 11.5,
+                      },
+                    },
+                    "暂无变更记录。",
+                  )
                 : h(
                     "div",
                     { className: "pmtm-timeline" },
@@ -2476,7 +5902,11 @@ window.__ModuleLoader__.load({
                         "div",
                         { className: "pmtm-event", key: event.id },
                         h("time", null, timeShort(event.at)),
-                        h("span", null, `${event.actorName} · ${event.message}`),
+                        h(
+                          "span",
+                          null,
+                          `${event.actorName} · ${readableEventMessage(event, teammate)}`,
+                        ),
                       ),
                     ),
                   ),
@@ -2517,6 +5947,60 @@ window.__ModuleLoader__.load({
             left.id.localeCompare(right.id),
         );
 
+      const archivedToggle = h(
+        "button",
+        {
+          type: "button",
+          className: `pmtm-token${archivedOnly ? " active" : ""}`,
+          "aria-pressed": archivedOnly,
+          title: "在运行列表与已归档实例之间切换",
+          onClick: () => setArchivedView(!archivedOnlyRef.current),
+        },
+        archivedOnly ? "返回运行列表" : `已归档 ${archivedTeammates.length}`,
+      );
+
+      const createActions = canManagePlatform
+        ? h(
+            "div",
+            { className: "pmtm-toolbar-actions" },
+            h(
+              "button",
+              {
+                type: "button",
+                className: "pmtm-btn secondary",
+                disabled: busy,
+                onClick: () => void createTeammate("personal"),
+              },
+              "新建个人 Teammate",
+            ),
+            h(
+              "button",
+              {
+                type: "button",
+                className: "pmtm-btn",
+                disabled: busy,
+                onClick: () => void createTeammate("platform"),
+              },
+              "新建平台 Teammate",
+            ),
+            archivedToggle,
+          )
+        : h(
+            "div",
+            { className: "pmtm-toolbar-actions" },
+            h(
+              "button",
+              {
+                type: "button",
+                className: "pmtm-btn",
+                disabled: busy,
+                onClick: () => void createTeammate("personal"),
+              },
+              "新建 Teammate",
+            ),
+            archivedToggle,
+          );
+
       return h(
         "div",
         { className: "pmtm" },
@@ -2524,11 +6008,7 @@ window.__ModuleLoader__.load({
         h(
           "div",
           { className: "pmtm-head" },
-          h(
-            "div",
-            null,
-            h("h1", null, "AI Teammates"),
-          ),
+          h("div", null, h("h1", null, "AI Teammates")),
           h(
             "div",
             { className: "pmtm-head-actions" },
@@ -2546,7 +6026,9 @@ window.__ModuleLoader__.load({
                       strokeLinecap: "round",
                       strokeLinejoin: "round",
                     },
-                    h("path", { d: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" }),
+                    h("path", {
+                      d: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z",
+                    }),
                     h("path", { d: "m9 12 2 2 4-4" }),
                   ),
                   "平台管理员",
@@ -2556,119 +6038,105 @@ window.__ModuleLoader__.load({
               "button",
               {
                 type: "button",
-                className: "pmtm-btn secondary",
-                onClick: () => {
-                  setTemplateOpen(true);
-                  void loadProfiles();
-                },
+                role: "tab",
+                className: `pmtm-tab${section === "teammate" ? " active" : ""}`,
+                "aria-selected": section === "teammate",
+                onClick: () => setSection("teammate"),
               },
-              "Profile模版管理",
+              "AI Teammate 管理",
             ),
             h(
               "button",
               {
                 type: "button",
-                className: "pmtm-btn secondary",
+                role: "tab",
+                className: `pmtm-tab${section === "external" ? " active" : ""}`,
+                "aria-selected": section === "external",
                 onClick: () => {
-                  setExternalManagerOpen(true);
+                  setSection("external");
                   if (externalWorkspaceId !== "")
                     void loadExternalRuntimes(externalWorkspaceId);
                 },
               },
-              "外部 Agent",
+              "外部 Agent 管理",
             ),
-            canManagePlatform
-              ? h(
-                  "div",
-                  { style: { display: "flex", alignItems: "center", gap: 8 } },
-                  h(
-                    "button",
-                    {
-                      type: "button",
-                      className: "pmtm-btn secondary",
-                      disabled: busy,
-                      onClick: () => void createTeammate("personal"),
-                    },
-                    "新建个人 Teammate",
-                  ),
-                  h(
-                    "button",
-                    {
-                      type: "button",
-                      className: "pmtm-btn",
-                      disabled: busy,
-                      onClick: () => void createTeammate("platform"),
-                    },
-                    "新建平台 Teammate",
-                  ),
-                )
-              : h(
+            h(MeetingPanelToggle),
+          ),
+        ),
+        section === "teammate"
+          ? h(
+              "div",
+              { className: "pmtm-toolbar" },
+              h(
+                "div",
+                {
+                  className: "pmtm-tabs",
+                  role: "tablist",
+                  "aria-label": "AI Teammates 查看方式",
+                },
+                h(
                   "button",
                   {
                     type: "button",
-                    className: "pmtm-btn",
-                    disabled: busy,
-                    onClick: () => void createTeammate("personal"),
+                    role: "tab",
+                    className: `pmtm-tab${tab === "runtime" ? " active" : ""}`,
+                    "aria-selected": tab === "runtime",
+                    onClick: () => {
+                      setTab("runtime");
+                      setEditing(false);
+                      setForm(null);
+                    },
                   },
-                  "新建 Teammate",
+                  "运行态管理",
                 ),
-          ),
-        ),
-        h(
-          "div",
-          { className: "pmtm-toolbar" },
-          h(
-            "div",
-            { className: "pmtm-tabs", role: "tablist", "aria-label": "AI Teammates 查看方式" },
-            h(
-              "button",
-              {
-                type: "button",
-                role: "tab",
-                className: `pmtm-tab${tab === "runtime" ? " active" : ""}`,
-                "aria-selected": tab === "runtime",
-                onClick: () => {
-                  setTab("runtime");
-                  setEditing(false);
-                  setForm(null);
-                },
-              },
-              "运行态管理",
-            ),
-            h(
-              "button",
-              {
-                type: "button",
-                role: "tab",
-                className: `pmtm-tab${tab === "definition" ? " active" : ""}`,
-                "aria-selected": tab === "definition",
-                onClick: () => {
-                  setTab("definition");
-                  setEditing(false);
-                  setForm(null);
-                },
-              },
-              "定义态管理",
-            ),
-          ),
-        ),
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    role: "tab",
+                    className: `pmtm-tab${tab === "definition" ? " active" : ""}`,
+                    "aria-selected": tab === "definition",
+                    onClick: () => {
+                      setDefinitionTemplateId(
+                        selected?.templateId ?? teammateTemplates[0]?.id ?? "",
+                      );
+                      setTab("definition");
+                      setEditing(false);
+                      setForm(null);
+                    },
+                  },
+                  "定义态管理",
+                ),
+              ),
+              createActions,
+            )
+          : null,
         error !== "" ? h("div", { className: "pmtm-error" }, error) : null,
-        notice !== "" ? h("div", { className: "pmtm-notice-bar" }, notice) : null,
-        externalManagerOpen
+        notice !== ""
+          ? h("div", { className: "pmtm-notice-bar" }, notice)
+          : null,
+        section === "external"
           ? renderExternalManager()
-          : templateOpen
-            ? renderProfileTemplateManager()
-            : h(
+          : h(
                 "div",
                 { className: "pmtm-layout" },
                 directory,
                 h(
                   "section",
-                  { className: "pmtm-panel pmtm-editor", "aria-label": "AI Teammate 详情" },
+                  {
+                    className: "pmtm-panel pmtm-editor",
+                    "aria-label": "AI Teammate 详情",
+                  },
                   loading && teammates.length === 0
                     ? h("div", { className: "pmtm-empty" }, "加载中…")
-                    : selected === null
-                      ? h("div", { className: "pmtm-empty" }, "还没有 AI Teammate。")
+                    : tab === "definition"
+                      ? renderDefinition(null)
+                      : selected === null
+                      ? h(
+                          "div",
+                          { className: "pmtm-empty" },
+                          "还没有 AI Teammate。",
+                        )
                       : tab === "runtime"
                         ? renderRuntime(selected)
                         : renderDefinition(selected),
@@ -2680,7 +6148,8 @@ window.__ModuleLoader__.load({
               {
                 className: "pmtm-mask",
                 onClick: (event) => {
-                  if (event.target === event.currentTarget) setAssignOpen(false);
+                  if (event.target === event.currentTarget)
+                    setAssignOpen(false);
                 },
               },
               h(
@@ -2751,7 +6220,8 @@ window.__ModuleLoader__.load({
                       {
                         "aria-label": "任务状态",
                         value: assignStatus,
-                        onChange: (event) => setAssignStatus(event.target.value),
+                        onChange: (event) =>
+                          setAssignStatus(event.target.value),
                       },
                       h("option", { value: "" }, "任务状态"),
                       h("option", { value: "todo" }, "待处理"),
@@ -2763,26 +6233,30 @@ window.__ModuleLoader__.load({
                       {
                         "aria-label": "优先级",
                         value: assignPriority,
-                        onChange: (event) => setAssignPriority(event.target.value),
+                        onChange: (event) =>
+                          setAssignPriority(event.target.value),
                       },
                       h("option", { value: "" }, "优先级"),
-                      h("option", { value: "P1" }, "P1"),
-                      h("option", { value: "P2" }, "P2"),
-                      h("option", { value: "P3" }, "P3"),
+                      h("option", { value: "P1" }, "P0"),
+                      h("option", { value: "P2" }, "P1"),
+                      h("option", { value: "P3" }, "P2"),
                     ),
                     h(
                       "select",
                       {
                         "aria-label": "项目名称",
                         value: assignProject,
-                        onChange: (event) => setAssignProject(event.target.value),
+                        onChange: (event) =>
+                          setAssignProject(event.target.value),
                       },
                       h("option", { value: "" }, "项目名称"),
                       ...[
                         ...new Set(
                           assignTasks.map((task) => task.workspaceTitle),
                         ),
-                      ].map((title) => h("option", { value: title, key: title }, title)),
+                      ].map((title) =>
+                        h("option", { value: title, key: title }, title),
+                      ),
                     ),
                     h(
                       "span",
@@ -2837,10 +6311,17 @@ window.__ModuleLoader__.load({
                             h(
                               "span",
                               { className: "pmtm-assign-trailing" },
-                              h("span", { className: "pmtm-pill" }, task.priority),
                               h(
                                 "span",
-                                { className: "pmtm-check", "aria-hidden": "true" },
+                                { className: "pmtm-pill" },
+                                priorityLabel(task.priority),
+                              ),
+                              h(
+                                "span",
+                                {
+                                  className: "pmtm-check",
+                                  "aria-hidden": "true",
+                                },
                                 "✓",
                               ),
                             ),
@@ -2877,6 +6358,69 @@ window.__ModuleLoader__.load({
               ),
             )
           : null,
+        archiveOpen && selected !== null
+          ? h(
+              "div",
+              {
+                className: "pmtm-mask",
+                onClick: (event) => {
+                  if (event.target === event.currentTarget && !busy)
+                    setArchiveOpen(false);
+                },
+              },
+              h(
+                "div",
+                {
+                  className: "pmtm-dialog",
+                  role: "dialog",
+                  "aria-modal": "true",
+                  "aria-label": `归档 ${selected.name}`,
+                },
+                h(
+                  "div",
+                  { className: "pmtm-dialog-head" },
+                  h("h2", null, `归档 ${selected.name}`),
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "pmtm-btn secondary small",
+                      disabled: busy,
+                      onClick: () => setArchiveOpen(false),
+                    },
+                    "关闭",
+                  ),
+                ),
+                h(
+                  "div",
+                  {
+                    className: "pmtm-dialog-body",
+                    style: {
+                      margin: "14px 0 18px",
+                      color: "var(--dsw-alias-label-secondary)",
+                      fontSize: 12.5,
+                      lineHeight: 1.6,
+                    },
+                  },
+                  `归档后该运行实例将从默认列表隐藏。${selected.ownerName} 将接管名下未归档且未完成的任务；历史已完成任务保持原责任人。`,
+                ),
+                h(
+                  "div",
+                  { className: "pmtm-dialog-foot" },
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "pmtm-btn danger",
+                      disabled: busy,
+                      onClick: () => void archiveTeammate(),
+                    },
+                    busy ? "归档中…" : "确认归档",
+                  ),
+                ),
+              ),
+            )
+          : null,
       );
     }
 
@@ -2887,6 +6431,15 @@ window.__ModuleLoader__.load({
     }
 
     exports.inject = ["slots"];
+    // 仅供构建期单元测试使用的纯函数出口，不参与运行时装配。
+    exports.__test = {
+      runtimeTabs: () => RUNTIME_TABS.map((tab) => ({ ...tab })),
+      sortPlanTasks,
+      planStoragePriority,
+      groupTeammateTemplates,
+      markdownTableCells,
+      isMarkdownTableSeparator,
+    };
     exports.apply = (ctx) => {
       ctx.slots.inject("pluginmax.global", () =>
         ctx.slots.register(

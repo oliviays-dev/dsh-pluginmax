@@ -3682,8 +3682,13 @@ window.__ModuleLoader__.load({
       return h(WorkstationTab, tabProps);
     }
 
-    exports.inject = ["slots"];
-    exports.apply = (ctx) => {
+    /**
+     * 「工作台」全局路由已由 dsh-collab-workbench 插件承接
+     * （工作台与管理驾驶舱 PRD）。员工平台页（WorkstationTab）的实现与接口
+     * 全部保留，仅不再注册到 pluginmax.global，避免与工作台页面叠加渲染；
+     * 待后续「新建员工 / 调整汇报关系」复用时可重新接入。
+     */
+    function registerWorkstationGlobalPage(ctx) {
       ctx.slots.inject("pluginmax.global", () =>
         ctx.slots.register(
           {
@@ -3694,6 +3699,11 @@ window.__ModuleLoader__.load({
           WorkstationGlobalPage,
         ),
       );
+    }
+    void registerWorkstationGlobalPage;
+
+    exports.inject = ["slots"];
+    exports.apply = (ctx) => {
       ctx.slots.inject("settings.section", () =>
         ctx.slots.register(
           {

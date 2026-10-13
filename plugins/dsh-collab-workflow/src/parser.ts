@@ -439,9 +439,24 @@ export function parseWorkflowMarkdown(markdown: string): ParseResult {
       errors.push(`node "${nodeId}" responsible must be a user or employee`);
       continue;
     }
-    if (executor.kind === "agent" && typedResponsible === undefined) {
+    const earlyReviewText =
+      fields.get("review-required")?.[0] ?? fields.get("review")?.[0];
+    const reviewIsRequired = earlyReviewText?.toLowerCase() !== "false";
+    if (
+      executor.kind === "agent" &&
+      typedResponsible === undefined &&
+      reviewIsRequired
+    ) {
+      errors.push(
+        `节点「${nodeId}」的执行者是 Agent 且需要人工 Review（review: true），必须指定 responsible: user:<用户ID> 作为交付责任人`,
+      );
+    } else if (
+      executor.kind === "agent" &&
+      typedResponsible === undefined &&
+      !reviewIsRequired
+    ) {
       warnings.push(
-        `node "${nodeId}" has an agent executor without responsible; workspace owner/admin will handle it`,
+        `节点「${nodeId}」的执行者是 Agent 且设置了 review: false，未指定 responsible；Agent 失败时需工作区负责人或管理员介入。建议添加 responsible: user:<用户ID>`,
       );
     }
     for (const deliverable of deliverables) {
@@ -572,7 +587,7 @@ export function parseWorkflowMarkdown(markdown: string): ParseResult {
     }
     if (node.trigger === "auto-on-ready" && node.execution !== "task-worker") {
       errors.push(
-        `node "${nodeId}" trigger auto-on-ready requires execution: task-worker`,
+        `节点「${nodeId}」设置了 trigger: auto-on-ready，但缺少 execution: task-worker；请添加 execution: task-worker 以启用自动派发`,
       );
     }
     if (type === "subworkflow") {
@@ -633,8 +648,6 @@ export function parseWorkflowMarkdown(markdown: string): ParseResult {
     );
     if (!controlled) {
       errors.push(`cycle requires a break condition: ${cycle.join(" -> ")}`);
-    } else {
-      warnings.push(`controlled cycle: ${cycle.join(" -> ")}`);
     }
   }
   for (const node of nodes) {

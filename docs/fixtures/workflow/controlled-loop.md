@@ -13,13 +13,14 @@
 
 - id: confirm
 - type: task
-- executor: user:workflow-owner
+- executor: user:flow-owner
 
 ### 开发
 
 - id: development
 - type: task
 - executor: agent:backend-agent
+- responsible: user:workflow-member
 
 ### 测试
 

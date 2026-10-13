@@ -54,7 +54,7 @@ DSH_HOME="$PWD/.tmp/dsh-home" node \
 | Profile   | 账号                     | 工作区身份                    |
 | --------- | ------------------------ | ----------------------------- |
 | Profile A | admin / owner 测试账号   | 全局管理员，工作区 owner      |
-| Profile B | workflow-owner 测试账号  | 工作区 owner                  |
+| Profile B | flow-owner 测试账号  | 工作区 owner                  |
 | Profile C | workflow-member 测试账号 | 工作区 member，后续节点责任人 |
 
 每个 Profile 分别完成登录后，记录各自的登录成功提示。

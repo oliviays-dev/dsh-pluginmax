@@ -19,14 +19,28 @@ window.__ModuleLoader__.load({
     const STATUS_LABEL = Object.fromEntries(
       STATUSES.map((status) => [status.key, status.label]),
     );
+    /**
+     * 任务优先级平移：存储仍是 P1–P3（兼容历史数据），产品口径统一显示为 P0–P2。
+     * 存储 P1 = 显示 P0（最高档），P2 = P1，P3 = P2。
+     */
+    const PRIORITY_DISPLAY = { P1: "P0", P2: "P1", P3: "P2" };
+    const priorityLabel = (value) => PRIORITY_DISPLAY[value] ?? value;
 
     const styles = `
-      .pmtask{min-height:100%;display:flex;flex-direction:column;padding:18px 20px 30px;color:var(--dsw-alias-label-primary);}
+      /* 页面内边距由 shell 的 .pmx-page 提供，这里不再叠加，保持与工作台一致的内容宽度。 */
+      .pmtask{min-height:100%;display:flex;flex-direction:column;color:var(--dsw-alias-label-primary);}
       .pmtask *{box-sizing:border-box;}
       .pmtask-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:14px;}
       .pmtask-head h1{margin:0;font-size:19px;line-height:1.3;}
       .pmtask-sub{margin-top:4px;color:var(--dsw-alias-label-secondary);font-size:12px;}
       .pmtask-head-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+      .pmtask-meeting-toggle{width:32px;height:32px;flex:none;display:grid;place-items:center;padding:0;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-secondary);cursor:pointer;}
+      .pmtask-meeting-toggle:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);}
+      .pmtask-meeting-toggle.active{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));border-color:var(--dsw-alias-border-l4,var(--dsw-alias-border-l3));}
+      .pmtask-meeting-toggle svg{width:15px;height:15px;}
+      .pmtask-iconbtn{width:28px;height:28px;flex:none;display:grid;place-items:center;padding:0;border:1px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-secondary);cursor:pointer;}
+      .pmtask-iconbtn:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);}
+      .pmtask-iconbtn svg{width:14px;height:14px;}
       .pmtask-select,.pmtask-input,.pmtask-area{height:34px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;padding:0 9px;min-width:0;}
       .pmtask-area{height:auto;padding:8px 9px;resize:vertical;}
       .pmtask-btn{height:34px;display:inline-flex;align-items:center;justify-content:center;gap:6px;border:0;border-radius:6px;padding:0 12px;background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground);font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap;}
@@ -41,7 +55,7 @@ window.__ModuleLoader__.load({
       .pmtask-search .pmtask-input{flex:1 1 auto;}
       .pmtask-token{height:28px;border:0;border-radius:6px;padding:0 9px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11.5px;cursor:pointer;}
       .pmtask-token.active{background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 14%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7);}
-      .pmtask-board{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;align-items:stretch;flex:1;min-height:max(420px,calc(100vh - 255px));}
+      .pmtask-board{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:12px;align-items:stretch;flex:1;min-height:max(420px,calc(100vh - 255px));}
       .pmtask-column{min-width:0;min-height:100%;display:flex;flex-direction:column;border:0.5px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
       .pmtask-column.drop-ready{border-color:var(--dsw-alias-accent-primary,#4f8ef7);box-shadow:0 0 0 1px var(--dsw-alias-accent-primary,#4f8ef7);}
       .pmtask-column-head{display:grid;grid-template-columns:8px minmax(0,1fr) auto auto;align-items:center;gap:7px;padding:10px 10px 8px;border-bottom:0.5px solid var(--dsw-alias-border-l2);}
@@ -134,7 +148,7 @@ window.__ModuleLoader__.load({
       .pmtask-icon-btn:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
       .pmtask-mention-menu{position:absolute;left:0;bottom:calc(100% + 6px);z-index:35;width:min(330px,100%);max-height:280px;overflow:auto;padding:6px;border:1px solid var(--dsw-alias-border-l3);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));box-shadow:0 14px 34px rgba(0,0,0,.18);}
       .pmtask-mention-group{padding:7px 8px 3px;color:var(--dsw-alias-label-tertiary);font-size:10px;font-weight:650;}
-      .pmtask-mention-item{width:100%;display:grid;grid-template-columns:26px minmax(0,1fr);align-items:center;gap:8px;border:0;border-radius:6px;padding:7px;background:transparent;color:var(--dsw-alias-label-primary);text-align:left;font:inherit;cursor:pointer;}
+      .pmtask-mention-item{width:100%;display:grid;grid-template-columns:minmax(0,1fr);align-items:center;gap:8px;border:0;border-radius:6px;padding:7px;background:transparent;color:var(--dsw-alias-label-primary);text-align:left;font:inherit;cursor:pointer;}
       .pmtask-mention-item:hover{background:var(--dsw-alias-bg-layer-2);}
       .pmtask-mention-item strong,.pmtask-mention-item small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
       .pmtask-mention-item strong{font-size:12px;}
@@ -162,12 +176,25 @@ window.__ModuleLoader__.load({
       .pmtask-link{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);}
       .pmtask-menu{position:relative;}
       .pmtask-assign-trigger{height:auto;min-height:32px;display:inline-flex;align-items:center;gap:7px;border:1px solid var(--dsw-alias-border-l3);border-radius:6px;padding:7px 9px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;font-weight:400;cursor:pointer;}
-      .pmtask-assign-trigger-content{min-width:0;display:flex;align-items:center;gap:7px;}
+      .pmtask-assign-trigger-content{min-width:0;display:flex;align-items:center;gap:7px;flex:1;}
       .pmtask-assign-trigger-copy{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
       .pmtask-menu-list{position:absolute;right:auto;left:0;top:calc(100% + 5px);z-index:20;min-width:200px;max-height:300px;overflow-y:auto;display:grid;gap:2px;padding:4px;border:1px solid var(--dsw-alias-border-l3);border-radius:8px;background:var(--dsw-alias-bg-layer-2);box-shadow:0 14px 34px rgba(0,0,0,.28);}
       .pmtask-menu-list button{min-height:28px;text-align:left;border:0;border-radius:4px;padding:5px 7px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer;}
       .pmtask-menu-list button:hover{background:var(--dsw-alias-bg-layer-3);}
       .pmtask-receiver-option{display:flex;align-items:center;gap:8px;min-width:220px;}
+      .pmtask-filter-menu{flex:none;}
+      .pmtask-filter-trigger{width:156px;justify-content:flex-start;}
+      .pmtask-filter-trigger-prefix{flex:none;white-space:nowrap;}
+      .pmtask-filter-trigger-copy{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;}
+      .pmtask-filter-chevron{width:16px;height:16px;flex:none;margin-left:auto;color:var(--dsw-alias-label-secondary);}
+      .pmtask-filter-option{width:100%;display:flex;align-items:center;gap:8px;padding:6px 7px;}
+      .pmtask-filter-option-copy{min-width:0;flex:1;display:grid;gap:1px;}
+      .pmtask-filter-option-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+      .pmtask-filter-option-meta{color:var(--dsw-alias-label-tertiary);font-size:10px;}
+      .pmtask-filter-group{padding:8px 7px 2px;color:var(--dsw-alias-label-tertiary);font-size:10px;font-weight:650;}
+      .pmtask-filter-symbol{width:20px;height:20px;flex:none;display:grid;place-items:center;border-radius:6px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary);font-size:10px;font-weight:700;}
+      .pmtask-filter-symbol.all{background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 13%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7);}
+      .pmtask-filter-symbol.p1{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 14%,transparent);color:var(--dsw-alias-state-error-primary,#e5534b);}
       .pmtask-receiver-option-copy{min-width:0;display:grid;gap:1px;}
       .pmtask-receiver-option-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
       .pmtask-receiver-option-meta{color:var(--dsw-alias-label-tertiary);font-size:10px;}
@@ -213,7 +240,8 @@ window.__ModuleLoader__.load({
       .pmtask-history-head span{color:var(--dsw-alias-label-tertiary);font-size:10.5px;white-space:nowrap;}
       .pmtask-history{display:grid;gap:12px;max-height:240px;overflow-y:auto;padding-right:3px;}
       .pmtask-history-message,.pmtask-history-event{display:grid;grid-template-columns:28px minmax(0,1fr);gap:9px;align-items:start;}
-      .pmtask-history-message .pmtask-avatar,.pmtask-history-event .pmtask-event-avatar{width:28px;height:28px;border-radius:50%;}
+      .pmtask-history-message>*,.pmtask-history-event>*{min-width:0;}
+      .pmtask-history-message .pmtask-avatar,.pmtask-history-message .pmtask-ring,.pmtask-history-event .pmtask-event-avatar{width:28px;height:28px;border-radius:50%;}
       .pmtask-history-comment .pmtask-avatar{width:22px;height:22px;border-radius:50%;font-size:9px;}
       .pmtask-reply-list .pmtask-avatar{width:20px;height:20px;border-radius:50%;font-size:9px;}
       .pmtask-avatar.human{background:#2f9e66;color:#fff;}
@@ -285,9 +313,9 @@ window.__ModuleLoader__.load({
       .pmtask-confirm-actions .pmtask-btn{height:32px;padding:0 12px;font-size:12px;}
       .pmtask-btn.danger-solid{background:var(--dsw-alias-state-error-primary,#e5534b);color:#fff;}
       .pmtask-empty{padding:46px 18px;text-align:center;color:var(--dsw-alias-label-secondary);font-size:12.5px;}
-      @media(max-width:1100px){.pmtask-board{grid-template-columns:repeat(5,260px);overflow-x:auto;}}
+      @media(max-width:1100px){.pmtask-board{grid-auto-columns:260px;overflow-x:auto;}}
       @media(max-width:900px){.pmtask-detail-layout{grid-template-columns:1fr}.pmtask-detail-main{border-right:0;border-bottom:0.5px solid var(--dsw-alias-border-l2);}.pmtask-detail-top .pmtask-crumb{flex-basis:100%;order:3}.pmtask-grid-demo{grid-template-columns:repeat(2,minmax(0,1fr));}}
-      @media(max-width:700px){.pmtask{padding:14px}.pmtask-head{flex-direction:column}.pmtask-modal-grid{grid-template-columns:1fr}.pmtask-board{grid-template-columns:repeat(5,240px)}}
+      @media(max-width:700px){.pmtask-head{flex-direction:column}.pmtask-modal-grid{grid-template-columns:1fr}.pmtask-board{grid-auto-columns:240px}}
     `;
 
     function token() {
@@ -670,8 +698,12 @@ window.__ModuleLoader__.load({
         return task.receiverId === currentUser.id;
       }
       if (task.receiverType === "agent") {
+        // 老任务的责任人还是员工身份 id，目录里以 teammate 实例为准，需要按 employeeId 兜底匹配。
         const receiver = directory.agents.find(
-          (item) => item.id === task.receiverId,
+          (item) =>
+            item.id === task.receiverId ||
+            (item.employeeId !== undefined &&
+              item.employeeId === task.receiverId),
         );
         return receiver?.ownerAuthUserId === currentUser.id;
       }
@@ -683,6 +715,170 @@ window.__ModuleLoader__.load({
         );
       }
       return false;
+    }
+
+    /**
+     * 任务关注按钮由 dsh-collab-workbench 提供：服务端持久化、跨页面同步。
+     * 该插件未安装时按钮不渲染，任务页保持原样。
+     */
+    function TaskFollowButton(props) {
+      const [ready, setReady] = react.useState(
+        () => typeof window.__pluginmaxFollow?.FollowButton === "function",
+      );
+      react.useEffect(() => {
+        if (ready) return undefined;
+        const onReady = () => setReady(true);
+        window.addEventListener("pluginmax:follow-ready", onReady);
+        return () =>
+          window.removeEventListener("pluginmax:follow-ready", onReady);
+      }, [ready]);
+      const Button = window.__pluginmaxFollow?.FollowButton;
+      if (!ready || typeof Button !== "function") return null;
+      return h(Button, {
+        type: "task",
+        id: props.taskId,
+        compact: props.compact !== false,
+        workspaceId: props.workspaceId,
+        workflowInstanceId: props.workflowInstanceId,
+      });
+    }
+
+    function receiverFilterKey(task) {
+      return `${task.receiverType}:${task.receiverId}`;
+    }
+
+    function FilterDropdown({
+      value,
+      onChange,
+      options,
+      ariaLabel,
+      width = 156,
+    }) {
+      const [open, setOpen] = react.useState(false);
+      const menuRef = react.useRef(null);
+      const selected = options.find((option) => option.value === value);
+
+      react.useEffect(() => {
+        if (!open) return undefined;
+        const close = (event) => {
+          if (menuRef.current?.contains(event.target)) return;
+          setOpen(false);
+        };
+        const cancel = (event) => {
+          if (event.key === "Escape") setOpen(false);
+        };
+        window.document.addEventListener("pointerdown", close);
+        window.document.addEventListener("keydown", cancel);
+        return () => {
+          window.document.removeEventListener("pointerdown", close);
+          window.document.removeEventListener("keydown", cancel);
+        };
+      }, [open]);
+
+      let lastGroup = "";
+      return h(
+        "div",
+        { className: "pmtask-menu pmtask-filter-menu", ref: menuRef },
+        h(
+          "button",
+          {
+            className: "pmtask-assign-trigger pmtask-filter-trigger",
+            type: "button",
+            style: { width },
+            "aria-haspopup": "listbox",
+            "aria-expanded": open,
+            "aria-label": ariaLabel,
+            onClick: () => setOpen(!open),
+          },
+          h(
+            "span",
+            { className: "pmtask-assign-trigger-content" },
+            selected?.triggerPrefix
+              ? h(
+                  "span",
+                  { className: "pmtask-filter-trigger-prefix" },
+                  selected.triggerPrefix,
+                )
+              : null,
+            h(
+              "span",
+              { className: "pmtask-filter-trigger-copy" },
+              selected?.triggerLabel ?? selected?.label ?? "请选择",
+            ),
+            h(
+              "svg",
+              {
+                className: "pmtask-filter-chevron",
+                "aria-hidden": true,
+                fill: "none",
+                viewBox: "0 0 24 24",
+              },
+              h("path", {
+                d: "m6 9 6 6 6-6",
+                stroke: "currentColor",
+                strokeLinecap: "round",
+                strokeLinejoin: "round",
+                strokeWidth: 1.8,
+              }),
+            ),
+          ),
+        ),
+        open
+          ? h(
+              "div",
+              { className: "pmtask-menu-list", role: "listbox" },
+              ...options.map((option, index) => {
+                const group =
+                  option.group !== undefined && option.group !== lastGroup
+                    ? option.group
+                    : "";
+                lastGroup = option.group ?? lastGroup;
+                return h(Fragment, { key: option.value }, [
+                  group !== ""
+                    ? h("div", { className: "pmtask-filter-group" }, group)
+                    : null,
+                  h(
+                    "button",
+                    {
+                      className: "pmtask-filter-option",
+                      type: "button",
+                      role: "option",
+                      "aria-selected": option.value === value,
+                      onClick: () => {
+                        onChange(option.value);
+                        setOpen(false);
+                      },
+                    },
+                    h(
+                      "span",
+                      { className: "pmtask-filter-option-copy" },
+                      h(
+                        "span",
+                        { className: "pmtask-filter-option-name" },
+                        option.label,
+                      ),
+                      option.description !== undefined
+                        ? h(
+                            "span",
+                            { className: "pmtask-filter-option-meta" },
+                            option.description,
+                          )
+                        : null,
+                    ),
+                  ),
+                ]);
+              }),
+            )
+          : null,
+      );
+    }
+
+    function filterSymbol({ label, className = "", icon = null }) {
+      return h(
+        "span",
+        { className: `pmtask-filter-symbol ${className}`.trim() },
+        icon ?? label,
+      );
     }
 
     function RichText({ text }) {
@@ -1070,11 +1266,7 @@ window.__ModuleLoader__.load({
                 key: `${group.key}:${item.id}`,
                 onClick: () => onPick(item.name),
               },
-              h(
-                "span",
-                { className: `pmtask-avatar ${group.key}` },
-                group.key === "roles" ? "R" : initials(item.name),
-              ),
+              h("span", null),
               h(
                 "span",
                 null,
@@ -1118,11 +1310,11 @@ window.__ModuleLoader__.load({
         roles: [],
       });
       const [currentUser, setCurrentUser] = react.useState(null);
-      const [ownership, setOwnership] = react.useState("mine");
+      const [ownership, setOwnership] = react.useState("all");
       const [search, setSearch] = react.useState("");
       const [searchDraft, setSearchDraft] = react.useState("");
       const [priority, setPriority] = react.useState("");
-      const [receiver, setReceiver] = react.useState("");
+      const [receiver, setReceiver] = react.useState("me");
       const [source, setSource] = react.useState("");
       const [selectedId, setSelectedId] = react.useState("");
       const [highlightedId, setHighlightedId] = react.useState("");
@@ -1271,10 +1463,28 @@ window.__ModuleLoader__.load({
         const sentByMe =
           currentUser !== null && task.createdBy === currentUser.id;
         if (archivedOnly !== isArchived(task)) return false;
-        if (ownership === "mine" && !belongsToMe) return false;
         if (ownership === "sent" && !sentByMe) return false;
         if (priority !== "" && task.priority !== priority) return false;
-        if (receiver !== "" && task.receiverId !== receiver) return false;
+        if (receiver === "me" && !belongsToMe) return false;
+        if (receiver !== "me" && receiver !== "all") {
+          const separator = receiver.indexOf(":");
+          const receiverType = receiver.slice(0, separator);
+          const receiverId = receiver.slice(separator + 1);
+          // 选中某个 Agent 时，同时兼容责任人仍是其员工身份 id 的老任务。
+          const agentEntry =
+            receiverType === "agent"
+              ? directory.agents.find((item) => item.id === receiverId)
+              : undefined;
+          const matchesLegacyId =
+            agentEntry?.employeeId !== undefined &&
+            task.receiverId === agentEntry.employeeId;
+          if (
+            task.receiverType !== receiverType ||
+            (task.receiverId !== receiverId && !matchesLegacyId)
+          ) {
+            return false;
+          }
+        }
         if (source === "workflow" && task.workflow === undefined) return false;
         if (source === "manual" && task.workflow !== undefined) return false;
         if (search.trim() !== "") {
@@ -1413,6 +1623,7 @@ window.__ModuleLoader__.load({
             })
           : h(TaskBoard, {
               tasks: visibleTasks,
+              currentUser,
               archivedOnly,
               archivedCount: tasks.filter((task) => isArchived(task)).length,
               setArchivedOnly,
@@ -1477,6 +1688,11 @@ window.__ModuleLoader__.load({
                     setWorkspaceFilter(task.workspaceId);
                     setOwnership("sent");
                   }
+                  setReceiver(
+                    task.receiverType === "unassigned" || task.receiverId === ""
+                      ? "all"
+                      : receiverFilterKey(task),
+                  );
                 } catch (cause) {
                   fail(cause);
                 }
@@ -1493,6 +1709,11 @@ window.__ModuleLoader__.load({
       onRefresh,
       onCreate,
     }) {
+      const meetingOpen = react.useSyncExternalStore(
+        (listener) =>
+          window.__pluginmaxMeeting?.subscribe(() => listener(Boolean(window.__pluginmaxMeeting.open))) ?? (() => {}),
+        () => Boolean(window.__pluginmaxMeeting?.open),
+      );
       return h(
         "header",
         { className: "pmtask-head" },
@@ -1529,11 +1750,26 @@ window.__ModuleLoader__.load({
           h(
             "button",
             {
-              className: "pmtask-btn secondary",
+              className: "pmtask-iconbtn",
               type: "button",
+              "aria-label": "刷新任务列表",
+              title: "刷新",
               onClick: onRefresh,
             },
-            "刷新",
+            h(
+              "svg",
+              {
+                viewBox: "0 0 24 24",
+                fill: "none",
+                stroke: "currentColor",
+                strokeWidth: 2,
+                strokeLinecap: "round",
+                strokeLinejoin: "round",
+                "aria-hidden": true,
+              },
+              h("path", { d: "M21 12a9 9 0 1 1-3-6.7" }),
+              h("path", { d: "M21 3v6h-6" }),
+            ),
           ),
           h(
             "button",
@@ -1543,6 +1779,31 @@ window.__ModuleLoader__.load({
               onClick: () => onCreate("todo"),
             },
             "新建任务",
+          ),
+          h(
+            "button",
+            {
+              className: `pmtask-meeting-toggle${meetingOpen ? " active" : ""}`,
+              type: "button",
+              "aria-label": "展开会议侧边栏",
+              "aria-pressed": meetingOpen,
+              title: "展开会议侧边栏",
+              onClick: () => window.__pluginmaxMeeting?.toggle(),
+            },
+            h(
+              "svg",
+              {
+                viewBox: "0 0 24 24",
+                fill: "none",
+                stroke: "currentColor",
+                strokeWidth: 2,
+                strokeLinecap: "round",
+                strokeLinejoin: "round",
+                "aria-hidden": true,
+              },
+              h("path", { d: "m22 8-6 4 6 4V8Z" }),
+              h("rect", { x: 2, y: 6, width: 14, height: 12, rx: 2 }),
+            ),
           ),
         ),
       );
@@ -1566,6 +1827,7 @@ window.__ModuleLoader__.load({
         source,
         setSource,
         directoryOptions,
+        currentUser,
         onCreate,
         onOpen,
         onDrop,
@@ -1573,92 +1835,102 @@ window.__ModuleLoader__.load({
         onDragStart,
         highlightedId,
       } = props;
+      const currentUserOption = directoryOptions.find(
+        (item) => item.type === "human" && item.id === currentUser?.id,
+      );
+      const senderOptions = [
+        {
+          value: "all",
+          label: "全部",
+          description: "查看所有派出方创建的任务",
+          triggerPrefix: "派出方：",
+          triggerLabel: "全部",
+          group: "范围",
+        },
+      ];
+      if (currentUser !== null && currentUserOption !== undefined) {
+        senderOptions.push({
+          value: "sent",
+          label: `我（${currentUser.name}）`,
+          description: "只看我派出的任务",
+          triggerPrefix: "派出方：",
+          triggerLabel: `我（${currentUser.name}）`,
+          group: "范围",
+        });
+      }
+      const receiverOptions = [
+        {
+          value: "all",
+          label: "全部",
+          description: "查看所有责任人的任务",
+          triggerPrefix: "责任人：",
+          triggerLabel: "全部",
+          group: "范围",
+        },
+      ];
+      if (currentUser !== null) {
+        receiverOptions.push({
+          value: "me",
+          label: `我（${currentUser.name}）`,
+          description: "指派给我、我的分身或我所在角色",
+          triggerPrefix: "责任人：",
+          triggerLabel: `我（${currentUser.name}）`,
+          group: "常用",
+        });
+      }
+      for (const item of directoryOptions) {
+        receiverOptions.push({
+          value: `${item.type}:${item.id}`,
+          label: receiverOptionLabel(item),
+          description: receiverKindLabel(item.type),
+          triggerPrefix: "责任人：",
+          triggerLabel: receiverOptionLabel(item),
+          group: receiverKindLabel(item.type),
+        });
+      }
+      const priorityOptions = [
+        {
+          value: "",
+          label: "全部",
+          description: "不按优先级过滤",
+          triggerPrefix: "",
+          triggerLabel: "全部优先级",
+        },
+        ...["P1", "P2", "P3"].map((item) => ({
+          value: item,
+          label: priorityLabel(item),
+          description: item === "P1" ? "最高优先级" : undefined,
+          triggerPrefix: "",
+          triggerLabel: priorityLabel(item),
+        })),
+      ];
       return h(
         Fragment,
         null,
         h(
           "div",
           { className: "pmtask-filter", role: "search" },
-          h(
-            "select",
-            {
-              className: "pmtask-select",
-              value: ownership,
-              onChange: (event) => setOwnership(event.target.value),
-              "aria-label": "按派出方筛选任务",
-            },
-            h("option", { value: "all" }, "全部派出方"),
-            h("option", { value: "sent" }, "我派出的"),
-            h("option", { value: "mine" }, "我接收的"),
-          ),
-          h(
-            "select",
-            {
-              className: "pmtask-select",
-              value: priority,
-              onChange: (event) => setPriority(event.target.value),
-            },
-            h("option", { value: "" }, "全部优先级"),
-            h("option", { value: "P1" }, "P1"),
-            h("option", { value: "P2" }, "P2"),
-            h("option", { value: "P3" }, "P3"),
-          ),
-          h(
-            "select",
-            {
-              className: "pmtask-select",
-              value: receiver,
-              onChange: (event) => setReceiver(event.target.value),
-            },
-            h("option", { value: "" }, "全部接收方"),
-            directoryOptions.some((item) => item.type === "human")
-              ? h(
-                  "optgroup",
-                  { label: "人员" },
-                  ...directoryOptions
-                    .filter((item) => item.type === "human")
-                    .map((item) =>
-                      h(
-                        "option",
-                        { value: item.id, key: `${item.type}:${item.id}` },
-                        item.name,
-                      ),
-                    ),
-                )
-              : null,
-            directoryOptions.some((item) => item.type === "agent")
-              ? h(
-                  "optgroup",
-                  { label: "DE / 分身" },
-                  ...directoryOptions
-                    .filter((item) => item.type === "agent")
-                    .map((item) =>
-                      h(
-                        "option",
-                        { value: item.id, key: `${item.type}:${item.id}` },
-                        item.ownerName
-                          ? receiverOptionLabel({ ...item, type: "agent" })
-                          : item.name,
-                      ),
-                    ),
-                )
-              : null,
-            directoryOptions.some((item) => item.type === "role")
-              ? h(
-                  "optgroup",
-                  { label: "角色" },
-                  ...directoryOptions
-                    .filter((item) => item.type === "role")
-                    .map((item) =>
-                      h(
-                        "option",
-                        { value: item.id, key: `${item.type}:${item.id}` },
-                        item.name,
-                      ),
-                    ),
-                )
-              : null,
-          ),
+          h(FilterDropdown, {
+            value: ownership,
+            onChange: setOwnership,
+            options: senderOptions,
+            ariaLabel: "按派出方筛选任务",
+            width: 203,
+          }),
+          h(FilterDropdown, {
+            value: receiver,
+            onChange: setReceiver,
+            options: receiverOptions,
+            ariaLabel: "按责任人筛选任务",
+            width: 203,
+          }),
+          h(FilterDropdown, {
+            value: priority,
+            onChange: setPriority,
+            options: priorityOptions,
+            ariaLabel: "按优先级筛选任务",
+            width: 109,
+          }),
           h(
             "select",
             {
@@ -1681,7 +1953,7 @@ window.__ModuleLoader__.load({
               onKeyDown: (event) => {
                 if (event.key === "Enter") applySearch();
               },
-              placeholder: "搜索任务标题、ID、描述或接收方",
+              placeholder: "搜索任务标题、ID、描述或责任人",
             }),
             h(
               "button",
@@ -1713,7 +1985,10 @@ window.__ModuleLoader__.load({
         h(
           "div",
           { className: "pmtask-board" },
-          ...STATUSES.map((status) =>
+          ...(tasks.some((task) => task.status === "cancelled")
+            ? STATUSES
+            : STATUSES.filter((status) => status.key !== "cancelled")
+          ).map((status) =>
             h(TaskColumn, {
               key: status.key,
               status,
@@ -1829,14 +2104,23 @@ window.__ModuleLoader__.load({
                 "div",
                 { className: "pmtask-card-top" },
                 h("span", { className: "pmtask-id" }, task.id),
-                taskHasActiveRun(task)
-                  ? h("span", {
-                      className: "pmtask-spinner",
-                      role: "status",
-                      title: "Agent 正在执行",
-                      "aria-label": "Agent 正在执行",
-                    })
-                  : null,
+                h(
+                  "div",
+                  { style: { display: "flex", alignItems: "center", gap: 6 } },
+                  taskHasActiveRun(task)
+                    ? h("span", {
+                        className: "pmtask-spinner",
+                        role: "status",
+                        title: "Agent 正在执行",
+                        "aria-label": "Agent 正在执行",
+                      })
+                    : null,
+                  h(TaskFollowButton, {
+                    taskId: task.id,
+                    workspaceId: task.workspaceId,
+                    workflowInstanceId: task.workflow?.instanceId,
+                  }),
+                ),
               ),
               h("div", { className: "pmtask-title" }, task.title),
               task.workflow !== undefined
@@ -1864,7 +2148,7 @@ window.__ModuleLoader__.load({
                   {
                     className: `pmtask-pill ${task.priority === "P1" ? "p1" : ""}`,
                   },
-                  task.priority,
+                  priorityLabel(task.priority),
                 ),
                 isArchived(task)
                   ? h("span", { className: "pmtask-pill archived" }, "已归档")
@@ -1874,15 +2158,6 @@ window.__ModuleLoader__.load({
                   : h(
                       "span",
                       { className: "pmtask-assignee" },
-                      h(ReceiverAvatar, {
-                        option: directoryOptions.find(
-                          (item) =>
-                            item.type === task.receiverType &&
-                            item.id === task.receiverId,
-                        ),
-                        kind: task.receiverType,
-                        name: task.receiverName ?? task.receiverId ?? "待指派",
-                      }),
                       h(
                         "span",
                         { className: "pmtask-assignee-name" },
@@ -1979,12 +2254,6 @@ window.__ModuleLoader__.load({
         mutate,
         fail,
       } = props;
-      const receiverOption =
-        task.receiverType === "agent"
-          ? directory.agents.find((item) => item.id === task.receiverId)
-          : task.receiverType === "role"
-            ? directory.roles.find((item) => item.id === task.receiverId)
-            : directory.humans.find((item) => item.id === task.receiverId);
       const [editing, setEditing] = react.useState(false);
       const [message, setMessage] = react.useState("");
       const [attachments, setAttachments] = react.useState([]);
@@ -2279,7 +2548,7 @@ window.__ModuleLoader__.load({
               receiverName: pendingAssignee.name,
             },
             pendingAssignee.type === "unassigned"
-              ? "接收方已恢复为待指派"
+              ? "责任人已恢复为待指派"
               : `已确认指派给 ${pendingAssignee.name}`,
           );
           setPendingAssignee(null);
@@ -2373,7 +2642,7 @@ window.__ModuleLoader__.load({
         : task.status === "cancelled"
           ? "任务已取消 · 历史记录保留为只读"
           : task.receiverType === "unassigned"
-            ? "暂无接收方 · 任务待指派"
+            ? "暂无责任人 · 任务待指派"
             : task.receiverType === "agent"
               ? `发送给 ${receiverDisplay(task)}${task.status === "progress" && taskHasActiveRun(task) ? " · Agent 执行中" : task.status === "progress" ? " · 最近一次 Agent 运行未完成" : ""}`
               : `发送给 ${receiverDisplay(task)}`;
@@ -2391,6 +2660,14 @@ window.__ModuleLoader__.load({
           right.at.localeCompare(left.at) ||
           (left.kind === right.kind ? 0 : left.kind === "message" ? -1 : 1),
       );
+      const historyAvatar = (item) => {
+        const kind = item.kind === "agent" ? "agent" : "human";
+        const options = kind === "agent" ? directory.agents : directory.humans;
+        const option = options.find(
+          (candidate) => candidate.id === item.authorId,
+        );
+        return h(ReceiverAvatar, { option, kind, name: item.authorName });
+      };
       return h(
         "div",
         { className: "pmtask-detail" },
@@ -2415,6 +2692,12 @@ window.__ModuleLoader__.load({
               "任务管理 / ",
               h("b", null, `${task.id} ${task.title}`),
             ),
+            h(TaskFollowButton, {
+              taskId: task.id,
+              compact: false,
+              workspaceId: task.workspaceId,
+              workflowInstanceId: task.workflow?.instanceId,
+            }),
             h(
               "div",
               { className: "pmtask-menu pmtask-assign-select" },
@@ -2425,10 +2708,10 @@ window.__ModuleLoader__.load({
                   type: "button",
                   disabled: readOnly,
                   title: archived
-                    ? "任务已归档，复原后可调整接收方"
+                    ? "任务已归档，复原后可调整责任人"
                     : task.status === "cancelled"
-                      ? "任务已取消，不可调整接收方"
-                      : "调整接收方",
+                      ? "任务已取消，不可调整责任人"
+                      : "调整责任人",
                   "aria-haspopup": "listbox",
                   "aria-expanded": assignOpen,
                   onClick: () => {
@@ -2439,13 +2722,6 @@ window.__ModuleLoader__.load({
                 h(
                   "span",
                   { className: "pmtask-assign-trigger-content" },
-                  previewKind === "unassigned"
-                    ? h("span", { className: "pmtask-avatar system" }, "—")
-                    : h(ReceiverAvatar, {
-                        option: previewOption,
-                        kind: previewKind,
-                        name: previewLabel,
-                      }),
                   h(
                     "span",
                     { className: "pmtask-assign-trigger-copy" },
@@ -2465,7 +2741,6 @@ window.__ModuleLoader__.load({
                         className: "pmtask-receiver-option",
                         onClick: () => chooseAssignee("unassigned", ""),
                       },
-                      h("span", { className: "pmtask-avatar system" }, "—"),
                       h(
                         "span",
                         { className: "pmtask-receiver-option-copy" },
@@ -2485,11 +2760,6 @@ window.__ModuleLoader__.load({
                           key: `${item.type}:${item.id}`,
                           onClick: () => chooseAssignee(item.type, item.id),
                         },
-                        h(ReceiverAvatar, {
-                          option: item,
-                          kind: item.type,
-                          name: receiverOptionLabel(item),
-                        }),
                         h(
                           "span",
                           { className: "pmtask-receiver-option-copy" },
@@ -2568,7 +2838,7 @@ window.__ModuleLoader__.load({
                         {
                           className: `pmtask-pill ${task.priority === "P1" ? "p1" : ""}`,
                         },
-                        task.priority,
+                        priorityLabel(task.priority),
                       ),
                       task.workflow !== undefined
                         ? h(
@@ -2619,17 +2889,10 @@ window.__ModuleLoader__.load({
                       h(
                         "div",
                         { className: "pmtask-field" },
-                        "接收方",
+                        "责任人",
                         h(
                           "strong",
                           { className: "pmtask-assignee" },
-                          h(ReceiverAvatar, {
-                            option: receiverOption,
-                            kind: task.receiverType,
-                            name:
-                              task.receiverName ?? task.receiverId ?? "待指派",
-                            className: "lg",
-                          }),
                           h(
                             "span",
                             { className: "pmtask-assignee-name" },
@@ -2644,13 +2907,6 @@ window.__ModuleLoader__.load({
                         h(
                           "strong",
                           { className: "pmtask-assignee" },
-                          h(ReceiverAvatar, {
-                            option: directory.humans.find(
-                              (item) => item.id === task.createdBy,
-                            ),
-                            kind: "human",
-                            name: task.createdByName,
-                          }),
                           h(
                             "span",
                             { className: "pmtask-assignee-name" },
@@ -2665,7 +2921,7 @@ window.__ModuleLoader__.load({
                         h(
                           "strong",
                           null,
-                          `${task.priority} · ${task.due || "不限"}`,
+                          `${priorityLabel(task.priority)} · ${task.due || "不限"}`,
                         ),
                       ),
                       task.workflow?.approvalPolicy !== undefined
@@ -2891,7 +3147,7 @@ window.__ModuleLoader__.load({
                                   disabled: readOnly,
                                   title: lockedTip,
                                   onClick: () =>
-                                    void action("nudge", "已提醒接收方"),
+                                    void action("nudge", "已提醒责任人"),
                                 },
                                 "催办",
                               )
@@ -3191,11 +3447,7 @@ window.__ModuleLoader__.load({
                             className: "pmtask-history-message",
                             key: `message:${entry.item.id}`,
                           },
-                          h(
-                            "span",
-                            { className: `pmtask-avatar ${entry.item.kind}` },
-                            initials(entry.item.authorName),
-                          ),
+                          historyAvatar(entry.item),
                           h(
                             "div",
                             { className: "pmtask-message-body" },
@@ -3280,11 +3532,6 @@ window.__ModuleLoader__.load({
                       h(
                         "div",
                         { className: "pmtask-message-head" },
-                        h(
-                          "span",
-                          { className: `pmtask-avatar ${item.kind}` },
-                          initials(item.authorName),
-                        ),
                         h("strong", null, item.authorName),
                         h("span", null, localTime(item.at)),
                       ),
@@ -3300,13 +3547,6 @@ window.__ModuleLoader__.load({
                                 h(
                                   "div",
                                   { className: "pmtask-message-head" },
-                                  h(
-                                    "span",
-                                    {
-                                      className: `pmtask-avatar ${reply.kind}`,
-                                    },
-                                    initials(reply.authorName),
-                                  ),
                                   h("strong", null, reply.authorName),
                                   h("span", null, localTime(reply.at)),
                                 ),
@@ -3707,9 +3947,9 @@ window.__ModuleLoader__.load({
                     priority: event.target.value,
                   })),
               },
-              h("option", null, "P1"),
-              h("option", null, "P2"),
-              h("option", null, "P3"),
+              h("option", { value: "P1" }, "P0"),
+              h("option", { value: "P2" }, "P1"),
+              h("option", { value: "P3" }, "P2"),
             ),
           ),
         ),
@@ -4001,9 +4241,9 @@ window.__ModuleLoader__.load({
                       priority: event.target.value,
                     })),
                 },
-                h("option", null, "P1"),
-                h("option", null, "P2"),
-                h("option", null, "P3"),
+                h("option", { value: "P1" }, "P0"),
+                h("option", { value: "P2" }, "P1"),
+                h("option", { value: "P3" }, "P2"),
               ),
             ),
             h(
@@ -4034,7 +4274,7 @@ window.__ModuleLoader__.load({
             h(
               "label",
               { className: "pmtask-field" },
-              "接收人",
+              "责任人",
               h(
                 "select",
                 {

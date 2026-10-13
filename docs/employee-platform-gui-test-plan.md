@@ -89,7 +89,7 @@ Pluginmax 登录 token 保存在同一浏览器 Profile 的 `localStorage` 中�
 
 | Profile | 账号 | 全局角色 | 工作区角色 | 用途 |
 | --- | --- | --- | --- | --- |
-| Profile A | `workflow-owner` | admin | owner | 管理员、创建数字员工、发起工作流、治理验证 |
+| Profile A | `flow-owner` | admin | owner | 管理员、创建数字员工、发起工作流、治理验证 |
 | Profile B | `workflow-member` | member | member | 普通成员、审批人、责任人、执行确认 |
 | Profile C | `workflow-viewer` | guest | guest | 只读和权限边界验证 |
 
@@ -119,7 +119,7 @@ Safari 可改用三个不同浏览器 Profile/隔离窗口方案；若无法隔�
 4. 等待该工作区在左侧列表和中间工作区上下文中加载完成，确认不是「暂无可用工作区」。
 5. 打开 Settings >「协作身份」。
 6. 如果出现首次初始化表单，填写：
-   1. 用户 ID：`workflow-owner`
+   1. 用户 ID：`flow-owner`
    2. 显示名称：`Workflow Owner`
    3. 初始密码：`Pluginmax#2026`
 7. 完成初始化并保持登录。
@@ -473,7 +473,7 @@ Digital Employee 的 Runtime Profile 必须映射到一个 Task Worker Profile �
 
 所需材料：
 
-1. 操作人：Profile A，登录 `workflow-owner`，全局管理员。Runtime Profile 是挂在数字员工上的执行限制，不是 Profile A 自己的用户配置。
+1. 操作人：Profile A，登录 `flow-owner`，全局管理员。Runtime Profile 是挂在数字员工上的执行限制，不是 Profile A 自己的用户配置。
 2. 被限制对象：数字员工 `Backend Engineer 01 / backend-01`。
 3. `backend-01` 已按 F3.2-F3.4 启用；目标工作区已有 F4.1 的 `<WS_ID> / member / read, write` 授权；Task Worker Profile `backend-agent` 已按 F3.1 创建。
 4. 可复用 F4.4 的 `docs/fixtures/workflow/employee-node-manual.md`。若 F4.4 后没有可用实例，按第 6 步新建。
@@ -1407,7 +1407,7 @@ ok
 
 - 阶段 / 用例：F7.2 / J1
 - 环境：macOS + Chrome Profile A + port 33117
-- 账号：workflow-owner
+- 账号：flow-owner
 - 工作区：`<WS_ID>`
 - 对象：employee `backend-01`, instance `<INSTANCE_ID>`, node `development`
 - 复现步骤：

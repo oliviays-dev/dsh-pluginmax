@@ -87,6 +87,8 @@ export const taskMessageSchema = z.object({
     .enum([
       "queued",
       "running",
+      /** Agent 判断信息不足，等待人工补充后继续（反馈项）。 */
+      "waiting_input",
       "succeeded",
       "failed",
       "timeout",
@@ -142,6 +144,17 @@ export const taskRecordSchema = z.object({
   messages: z.array(taskMessageSchema).default([]),
   comments: z.array(taskCommentSchema).default([]),
   events: z.array(taskEventSchema).default([]),
+  // ---- 队列（工作计划）----
+  /** 人工排序序号（越小越先）；缺省表示尚未人工排序，按 draft 顺序。 */
+  queueSeq: z.number().int().nonnegative().optional(),
+  /** 队列级状态：blocked=依赖未满足，paused=人工暂停出队。 */
+  queueState: z.enum(["idle", "blocked", "paused"]).default("idle"),
+  /** 前置任务：全部完成前不出队。 */
+  dependsOn: z.array(z.string().min(1).max(160)).max(50).default([]),
+  /** 是否参与自动执行时段；false=只在人工触发时执行。 */
+  autoRunEligible: z.boolean().default(true),
+  /** 反馈项：Agent 判断信息不足，等待人工补充后才能继续。 */
+  needsInput: z.boolean().default(false),
   archivedAt: z.string().min(1).max(40).optional(),
   // Reserved hook for the recycle bin: a soft-deleted task keeps `deletedAt`
   // set until it is restored or purged. Nothing writes it yet.

@@ -131,6 +131,7 @@ export const nodeStateSchema = z.object({
       z.object({
         approver: approverSchema,
         status: z.enum(["pending", "approved", "rejected", "delegated"]),
+        source: z.enum(["countersign"]).optional(),
         at: z.string().optional(),
         note: z.string().max(500).optional(),
       }),

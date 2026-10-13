@@ -947,6 +947,11 @@ export interface DelegationReporterLike {
 
 export class MeetingService {
   private delegationReporter: DelegationReporterLike | undefined;
+  /**
+   * 对话内容变化（发言、worker 回复、散会）时触发一次。
+   * 仅由写入路径调用，读取 / 轮询路径绝不触发；实现方负责异步与去重。
+   */
+  onTranscriptChanged: ((meetingId: string) => void) | undefined;
 
   setDelegationReporter(reporter: DelegationReporterLike | undefined): void {
     this.delegationReporter = reporter;
@@ -2050,6 +2055,7 @@ export class MeetingService {
       createdAt: timestamp,
     };
     await this.tables.messages.put(message.id, parseMessage(message));
+    this.onTranscriptChanged?.(meeting.id);
     return this.transcript(meeting.id).at(-1) ?? message;
   }
 
@@ -2101,6 +2107,7 @@ export class MeetingService {
       createdAt: timestamp,
     };
     await this.tables.messages.put(message.id, parseMessage(message));
+    this.onTranscriptChanged?.(meeting.id);
     return message;
   }
 
@@ -2188,7 +2195,188 @@ export class MeetingService {
       });
       await this.reportForDelegation({ ...participant, status: "left" }, true);
     }
+    this.onTranscriptChanged?.(closed.id);
     return closed;
+  }
+}
+
+/* ── 会议纪要 Facilitator ── */
+
+/** 平台归属「会议 Facilitator」AI Teammate 的固定 id（数据种子）。 */
+export const MEETING_FACILITATOR_TEAMMATE_ID = "meeting-facilitator";
+/** 纪要 run 的节点 id：工作台按它筛选会议来源的 agent run。 */
+export const MEETING_MINUTES_NODE_ID = "meeting-minutes";
+/** 角色模块里默认 facilitator 席位的 id（dsh-collab-roles 物化时补齐）。 */
+export const MEETING_FACILITATOR_SEAT_ID = "facilitator";
+
+const MEETING_MINUTES_TIMEOUT_MS = 120_000;
+/** 纪要 prompt 的对话窗口：保留最近若干条，并对总长度截尾，避免超过 run 的 prompt 上限。 */
+const MEETING_MINUTES_WINDOW = 40;
+const MEETING_MINUTES_TRANSCRIPT_LIMIT = 24_000;
+
+interface MeetingMinutesRunLike {
+  readonly dispatchKey: string;
+  readonly status: string;
+}
+
+interface MeetingMinutesAgentServiceLike {
+  dispatch(input: {
+    readonly workspaceId: string;
+    readonly profileId: string;
+    readonly source: "meeting";
+    readonly instanceId: string;
+    readonly nodeId: string;
+    readonly dispatchKey: string;
+    readonly trigger: "manual-dispatch" | "auto-on-ready";
+    readonly attempt: number;
+    readonly runSeq: number;
+    readonly maxAttempts: number;
+    readonly timeoutMs: number;
+    readonly personaId?: string | undefined;
+    readonly employeeId?: string | undefined;
+    readonly principalType?:
+      | "transitional-agent"
+      | "digital-employee"
+      | undefined;
+    readonly payload: {
+      readonly instanceTitle: string;
+      readonly nodeName: string;
+      readonly nodeDescription: string;
+      readonly profileName: string;
+      readonly context: Record<string, string | number | boolean>;
+      readonly deliverables: readonly unknown[];
+    };
+    readonly createdBy: string;
+  }): Promise<unknown>;
+  runs(filter: {
+    readonly workspaceId?: string;
+    readonly instanceId?: string;
+    readonly nodeId?: string;
+  }): readonly MeetingMinutesRunLike[];
+}
+
+/**
+ * 会议纪要生成：会议关闭或对话内容变化时，用 Facilitator 的平台运行身份
+ * （teammate runtime ensureRuntime）派发一次 agent run，结果写进 run 的
+ * output.summary。只在写入事件里触发，读取 / 轮询路径不会调模型。
+ */
+export class FacilitatorMinutesService {
+  private readonly running = new Map<string, Promise<void>>();
+
+  constructor(
+    private readonly deps: {
+      readonly meetings: MeetingService;
+      readonly agents: () => MeetingMinutesAgentServiceLike | undefined;
+      readonly teammateRuntime: () => TeammateRuntimeLike | undefined;
+      readonly team: () => TeamServiceLike | undefined;
+    },
+  ) {}
+
+  /** 事件触发入口：按会议串行，失败静默（卡片走散会摘要回退链）。 */
+  schedule(meetingId: string): void {
+    const previous = this.running.get(meetingId) ?? Promise.resolve();
+    const next = previous
+      .catch(() => undefined)
+      .then(() => this.generate(meetingId))
+      .catch(() => undefined)
+      .finally(() => {
+        if (this.running.get(meetingId) === next) {
+          this.running.delete(meetingId);
+        }
+      });
+    this.running.set(meetingId, next);
+  }
+
+  async waitIdle(): Promise<void> {
+    while (this.running.size > 0) {
+      await Promise.allSettled([...this.running.values()]);
+    }
+  }
+
+  /**
+   * 平台 teammate 的首次运行身份需要 workspace owner / admin 才能开通；
+   * 优先用会议创建者（若是 owner），否则取该 workspace 的第一位 owner。
+   */
+  private actorFor(
+    meeting: Meeting,
+  ): { userId: string; name: string; role: "owner" } | undefined {
+    const team = this.deps.team?.();
+    if (team === undefined) return undefined;
+    const members = team.members(meeting.workspaceId);
+    const candidate =
+      members.find(
+        (member) =>
+          member.userId === meeting.createdBy && member.memberRole === "owner",
+      ) ?? members.find((member) => member.memberRole === "owner");
+    if (candidate === undefined) return undefined;
+    return {
+      userId: candidate.userId,
+      name: candidate.name ?? candidate.userId,
+      role: "owner",
+    };
+  }
+
+  private async generate(meetingId: string): Promise<void> {
+    const agents = this.deps.agents?.();
+    const teammateRuntime = this.deps.teammateRuntime?.();
+    if (agents === undefined || teammateRuntime === undefined) return;
+    const meeting = this.deps.meetings.get(meetingId);
+    const transcript = this.deps.meetings.transcript(meetingId);
+    const last = transcript.at(-1);
+    if (last === undefined) return;
+    // 无对话（只有加入/关闭等系统消息）不调模型，卡片直接显示「暂无对话记录」。
+    const dialogue = transcript.filter(
+      (message) => message.senderKind !== "system",
+    );
+    if (dialogue.length === 0) return;
+    // 缓存 key：会议 id + 最后一条消息（条数 + 时间）。
+    const dispatchKey = `${meetingId}:minutes:${last.sequence}:${last.createdAt}`;
+    const existing = agents.runs({
+      workspaceId: meeting.workspaceId,
+      instanceId: meetingId,
+      nodeId: MEETING_MINUTES_NODE_ID,
+    });
+    if (existing.some((run) => run.dispatchKey === dispatchKey)) return;
+    const actor = this.actorFor(meeting);
+    if (actor === undefined) return;
+    const ensured = await teammateRuntime.ensureRuntime({
+      teammateId: MEETING_FACILITATOR_TEAMMATE_ID,
+      workspaceId: meeting.workspaceId,
+      actor,
+    });
+    await agents.dispatch({
+      workspaceId: meeting.workspaceId,
+      profileId: ensured.profileId,
+      source: "meeting",
+      instanceId: meetingId,
+      nodeId: MEETING_MINUTES_NODE_ID,
+      dispatchKey,
+      trigger: "auto-on-ready",
+      attempt: 1,
+      runSeq: 1,
+      maxAttempts: 1,
+      timeoutMs: MEETING_MINUTES_TIMEOUT_MS,
+      ...(ensured.personaId === undefined
+        ? {}
+        : { personaId: ensured.personaId }),
+      employeeId: ensured.employeeId,
+      principalType: "digital-employee",
+      payload: {
+        instanceTitle: meeting.title,
+        nodeName: "会议纪要",
+        nodeDescription: meeting.agenda,
+        profileName: "会议 Facilitator",
+        context: {
+          transcript: dialogue
+            .slice(-MEETING_MINUTES_WINDOW)
+            .map((message) => `${message.senderName}: ${message.content}`)
+            .join("\n")
+            .slice(-MEETING_MINUTES_TRANSCRIPT_LIMIT),
+        },
+        deliverables: [],
+      },
+      createdBy: actor.userId,
+    });
   }
 }
 
@@ -2306,6 +2494,7 @@ export interface MeetingContext {
   get(key: "collabAssignment"): AssignmentServiceLike | undefined;
   get(key: "collabPersonas"): PersonaServiceLike | undefined;
   get(key: "agents"): AgentsServiceLike | undefined;
+  get(key: "collabAgent"): MeetingMinutesAgentServiceLike | undefined;
   get(key: "subagents"): SubagentsRuntimeLike | undefined;
   get(key: "collabEmployee"): EmployeeServiceLike | undefined;
   get(key: "collabTeammateRuntime"): TeammateRuntimeLike | undefined;
@@ -2497,14 +2686,34 @@ export function createMeetingRoutes(
             workspaceId: idSchema,
             title: titleSchema,
             agenda: textSchema.optional(),
+            displayName: displayNameSchema.optional(),
             parentSessionId: idSchema.optional(),
           }),
           await readBody(request),
         );
         const actor = browserActor(team, request, body.workspaceId);
+        const meeting = await meetings.create(actor, body);
+        const participant = await meetings.join(
+          actor,
+          meeting.id,
+          body.displayName ?? `用户-${actor.id.slice(0, 6)}`,
+        );
+        const assignments = dependencies.assignments?.();
+        if (assignments !== undefined) {
+          // 每个会议默认带一个「会议 Facilitator」席位；未认领时保持
+          // 「待认领 / 未启动」态，由现有 seat sync 生成参会人。
+          try {
+            await meetings.pullSeats(actor, meeting.id, assignments, [
+              MEETING_FACILITATOR_SEAT_ID,
+            ]);
+          } catch {
+            // 工作区未物化角色或席位缺失时跳过；建会本身不受影响。
+          }
+        }
         sendJson(response, 201, {
           ok: true,
-          meeting: await meetings.create(actor, body),
+          meeting,
+          participant,
         });
       },
     },
@@ -3475,9 +3684,22 @@ export async function apply(ctx: MeetingContext): Promise<void | (() => void)> {
   ctx.provide("collabMeeting", meetings);
   ctx.effect(() => () => void domain.close());
   ctx.effect(() => () => void runtime.dispose());
+  // 纪要：只在写入事件里触发；读取 / 轮询路径不调模型。
+  let teamService: TeamServiceLike | undefined;
+  const minutes = new FacilitatorMinutesService({
+    meetings,
+    agents: () => ctx.get("collabAgent"),
+    teammateRuntime: () => ctx.get("collabTeammateRuntime"),
+    team: () => teamService,
+  });
+  meetings.onTranscriptChanged = (meetingId) => minutes.schedule(meetingId);
+  ctx.effect(() => () => {
+    void minutes.waitIdle();
+  });
   registerMeetingInterfaces(ctx, meetings);
   let routeDisposers: Array<() => void> = [];
   const identityFiber = ctx.inject(["collabTeam"], (child) => {
+    teamService = child.collabTeam;
     routeDisposers = createMeetingRoutes(meetings, child.collabTeam, {
       assignments: () => ctx.get("collabAssignment"),
       agents: () => ctx.get("agents"),

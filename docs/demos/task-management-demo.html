@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>任务管理 · 交互 Demo</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
   <style>
     :root {
       --bg: #101215;
@@ -54,20 +56,21 @@
     }
     .rail.right { width: 322px; display: flex; flex-direction: column; border-right: 0; border-left: 1px solid var(--line); }
     .rail-head { flex: none; position: relative; z-index: 4; display: flex; align-items: center; gap: 8px; }
-    .mode-switch {
-      flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 3px;
-      border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
+    .brand-lockup {
+      flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
+      padding: 5px 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
     }
-    .mode-tab {
-      min-height: 30px; border: 0; border-radius: 5px; background: transparent;
-      color: var(--muted); font-size: 12.5px; font-weight: 650;
+    .brand-mark {
+      width: 30px; height: 30px; flex: none; display: grid; place-items: center;
+      border-radius: 7px; background: #0f1b2f; color: #8fd3ff; font-size: 14px; font-weight: 800;
     }
-    .mode-tab.active { color: #fff; background: var(--accent); }
-    .mode-tab:not(.active):hover { color: var(--text); background: var(--surface-2); }
+    .brand-copy { min-width: 0; overflow: hidden; }
+    .brand-copy strong { display: block; color: var(--text); font-size: 12.5px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .brand-copy small { display: block; color: var(--faint); font-size: 9.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .rail-body { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
     .shell.left-closed .rail.left { padding: 12px 15px; }
     .shell.left-closed .rail-head { justify-content: center; }
-    .shell.left-closed .mode-switch,
+    .shell.left-closed .brand-copy,
     .shell.left-closed .rail-body,
     .shell.left-closed .nav-label { display: none; }
     .shell.left-closed .primary-nav {
@@ -514,8 +517,10 @@
       display: flex; flex-direction: column; height: calc(100vh - 148px); min-height: 520px;
       border: 1px solid var(--line); border-radius: var(--radius); background: #14161a; overflow: hidden;
     }
-    .stage.detail-stage { display: flex; flex-direction: column; overflow: hidden; padding: 0; }
-    #taskView.detail-active { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+    .stage.detail-stage { position: relative; display: block; overflow: hidden; padding: 0; }
+    #taskView.detail-active {
+      position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; min-height: 0;
+    }
     #taskView.detail-active > .page-head { display: none; }
     .stage.detail-stage .detail-page { flex: 1; height: auto; min-height: 0; border: 0; border-radius: 0; }
     .detail-page[hidden] { display: none; }
@@ -991,8 +996,36 @@
     .ai-runtime-list { display: grid; gap: 8px; margin-top: 14px; }
     .ai-runtime-empty { display: grid; justify-items: center; gap: 9px; }
     .ai-runtime-empty .primary { justify-self: center; }
+    .ai-runtime-tabs {
+      display: inline-flex; align-items: center; gap: 3px; margin-top: 15px; padding: 3px;
+      border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
+    }
+    .ai-runtime-tab { min-height: 28px; padding: 4px 11px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); font-size: 12px; }
+    .ai-runtime-tab:hover { color: var(--text); background: var(--surface-2); }
+    .ai-runtime-tab.active { color: #fff; background: var(--accent); }
+    .work-plan-composer {
+      margin-top: 12px; padding: 11px; border: 1px solid var(--line); border-radius: 9px;
+      background: var(--surface); box-shadow: 0 4px 14px rgba(0,0,0,.12);
+    }
+    .work-plan-composer:focus-within { border-color: rgba(79,142,247,.54); }
+    .work-plan-composer textarea { min-height: 68px; resize: vertical; border: 0; padding: 2px 2px 0; background: transparent; }
+    .work-plan-composer textarea:focus { outline: none; }
+    .work-plan-parsed { min-height: 17px; margin: 6px 2px 8px; color: var(--muted); font-size: 10.5px; line-height: 1.5; }
+    .work-plan-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+    .work-plan-controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+    .work-plan-control {
+      display: inline-flex; align-items: center; gap: 5px; min-height: 28px; padding: 2px 8px;
+      border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); color: var(--muted); font-size: 10.5px; white-space: nowrap;
+    }
+    .work-plan-control select { min-height: 24px; min-width: 0; border: 0; padding: 0; background: transparent; color: var(--text); font-size: 10.5px; }
+    .work-plan-control input[type="date"] { min-height: 24px; border: 0; padding: 0; background: transparent; color: var(--text); font-size: 10.5px; }
+    .work-plan-control input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(.72); }
+    .work-plan-control input[type="checkbox"] { width: 12px; height: 12px; margin: 0; accent-color: var(--accent); }
+    .work-plan-control span { color: var(--muted); }
+    .work-plan-parsed { min-height: 17px; margin-top: 8px; color: var(--muted); font-size: 10.5px; line-height: 1.5; }
     .ai-runtime-item { position: relative; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 12px; align-items: center; padding: 11px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); }
     .ai-runtime-item:hover { border-color: rgba(79,142,247,.34); background: var(--surface-2); }
+    .ai-runtime-item.status-todo { border-left: 3px solid var(--faint); }
     .ai-runtime-item.status-progress { border-left: 3px solid var(--accent); background: linear-gradient(90deg, var(--accent-soft), var(--surface) 32%); }
     .ai-runtime-item.status-review { border-left: 3px solid var(--purple); background: linear-gradient(90deg, var(--purple-soft), var(--surface) 32%); }
     .ai-runtime-item.status-done { border-left: 3px solid var(--green); background: linear-gradient(90deg, var(--green-soft), var(--surface) 32%); }
@@ -1037,6 +1070,81 @@
     }
     .pill.archived { color: var(--faint); background: var(--surface-3); }
     .ai-archive-block { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+    .runtime-tab-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: nowrap; margin: 15px 0 10px; }
+    .runtime-tab-head h3 { margin: 0; font-size: 16px; font-weight: 650; line-height: 1.3; }
+    .runtime-tab-head .head-actions { flex-wrap: nowrap; margin-left: auto; }
+    .scope-instance {
+      display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 10px 11px;
+      border: 1px solid var(--line); border-radius: 7px; background: var(--surface);
+    }
+    .scope-instance-main { flex: 1; min-width: 0; }
+    .scope-instance-main strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+    .scope-instance-main small { display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-size: 10.5px; }
+    .scope-instance-model { flex: none; max-width: 45%; color: var(--muted); font-size: 10.5px; line-height: 1.45; text-align: right; }
+    .ai-scope-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 9px; margin-top: 12px; }
+    .ai-scope-card { min-width: 0; padding: 11px; border: 1px solid var(--line); border-left: 3px solid var(--green); border-radius: 7px; background: var(--surface); }
+    .ai-scope-card.pending { border-left-color: var(--amber); }
+    .ai-scope-card-head { display: flex; align-items: center; gap: 8px; }
+    .ai-scope-mark {
+      flex: none; width: 26px; height: 26px; display: grid; place-items: center;
+      border-radius: 6px; background: var(--surface-3); color: var(--muted); font-size: 11px; font-weight: 700;
+    }
+    .ai-scope-card-copy { flex: 1; min-width: 0; }
+    .ai-scope-card-copy strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+    .ai-scope-card-copy small { display: block; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-size: 10px; }
+    .ai-scope-card-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 9px; color: var(--faint); font-size: 10.5px; line-height: 1.5; }
+    .ai-scope-card-scope { display: block; margin-top: 7px; color: var(--muted); font-size: 10.5px; line-height: 1.5; }
+    .perm-groups { display: grid; gap: 12px; }
+    .perm-group-title { margin: 0 0 7px; color: var(--faint); font-size: 10.5px; font-weight: 700; }
+    .perm-list { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; }
+    .perm-row {
+      min-width: 0; display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: start; gap: 10px;
+      padding: 10px 11px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface);
+    }
+    .perm-copy { min-width: 0; }
+    .perm-copy strong { display: block; color: var(--text); font-size: 12px; }
+    .perm-copy small { display: block; margin-top: 3px; color: var(--faint); font-size: 10.5px; line-height: 1.5; }
+    .perm-state { flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 4px; font-size: 10px; white-space: nowrap; }
+    .perm-state.allow { color: var(--green); background: var(--green-soft); }
+    .perm-state.confirm { color: var(--amber); background: var(--amber-soft); }
+    .perm-state.readonly { color: var(--muted); background: var(--surface-3); }
+    .perm-state.deny { color: var(--red); background: var(--red-soft); }
+    .ai-scope-footnote { margin-top: 12px; }
+    .work-report-toolbar { align-items: center; }
+    .work-report-filters { display: flex; align-items: center; justify-content: flex-end; gap: 7px; flex-wrap: nowrap; min-width: 0; }
+    .work-report-range { flex: none; display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); }
+    .work-report-range span { color: var(--faint); font-size: 10.5px; white-space: nowrap; }
+    .work-report-range input { width: 94px; min-height: 0; border: 0; padding: 0; background: transparent; color: var(--text); font-size: 11px; }
+    .work-report-range input::-webkit-calendar-picker-indicator { filter: invert(.72); }
+    .work-report-search { flex: 0 0 221px; min-width: 221px; display: flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); }
+    .work-report-search svg { flex: none; width: 13px; height: 13px; color: var(--faint); }
+    .work-report-search input { min-height: 0; border: 0; padding: 0; background: transparent; color: var(--text); font-size: 11px; }
+    .work-report-generate { flex: none; min-height: 28px; white-space: nowrap; }
+    .work-report-card { margin-top: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); }
+    .work-report-head { margin-bottom: 8px; }
+    .work-report-head h3 { margin: 0; font-size: 14px; }
+    .work-report-writer { display: block; margin-top: 5px; color: var(--faint); font-size: 10.5px; }
+    .markdown-body { min-width: 0; color: var(--muted); font-size: 11.5px; line-height: 1.72; }
+    .markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 { margin: 12px 0 6px; color: var(--text); font-size: 12px; line-height: 1.45; }
+    .markdown-body > :first-child { margin-top: 0; }
+    .markdown-body > :last-child { margin-bottom: 0; }
+    .markdown-body p { margin: 6px 0; overflow-wrap: anywhere; }
+    .markdown-body ul, .markdown-body ol { margin: 6px 0; padding-left: 18px; }
+    .markdown-body li { margin: 3px 0; overflow-wrap: anywhere; }
+    .markdown-body code { padding: 1px 4px; border-radius: 4px; color: #b9d2f7; background: rgba(79,142,247,.12); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; }
+    .markdown-body blockquote { margin: 8px 0; padding: 6px 10px; border-left: 3px solid var(--line-strong); color: var(--faint); background: var(--surface-2); }
+    .markdown-body hr { margin: 10px 0; border: 0; border-top: 1px solid var(--line); }
+    .markdown-body a { color: var(--accent); }
+    .markdown-fallback { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; font-family: inherit; }
+    .work-report-history.timeline { position: relative; gap: 12px; margin-top: 9px; padding-left: 18px; }
+    .work-report-history.timeline::before { content: ""; position: absolute; top: 7px; bottom: 7px; left: 5px; width: 1px; background: var(--line); }
+    .work-report-history .event { position: relative; display: block; }
+    .work-report-history .event::before { content: ""; position: absolute; top: 16px; left: -16.5px; width: 7px; height: 7px; border: 1px solid var(--line-strong); border-radius: 50%; background: var(--surface-2); }
+    .ai-audit-section { margin-top: 0; padding-top: 0; border-top: 0; }
+    .ai-audit-section .timeline { position: relative; margin-top: 0; padding-left: 18px; }
+    .ai-audit-section .timeline::before { content: ""; position: absolute; top: 7px; bottom: 7px; left: 5px; width: 1px; background: var(--line); }
+    .ai-audit-section .event { position: relative; grid-template-columns: 74px minmax(0, 1fr); }
+    .ai-audit-section .event::before { content: ""; position: absolute; top: 7px; left: -16.5px; width: 7px; height: 7px; border: 1px solid var(--line-strong); border-radius: 50%; background: var(--surface-2); }
     .ai-disabled { opacity: .52; }
     .chat {
       max-width: 820px; padding-top: 4px;
@@ -1080,6 +1188,10 @@
     .meeting-detail-meta-line { margin-top: 5px; color: var(--muted); font-size: 11.5px; }
     .meeting-detail-desc { margin: 14px 0 0; color: #c8d1dc; font-size: 12.5px; line-height: 1.65; }
     .meeting-detail-section { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+    .meeting-summary-block { padding: 9px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); }
+    .meeting-summary-block + .meeting-summary-block { margin-top: 8px; }
+    .meeting-summary-block strong { display: block; margin-bottom: 3px; color: var(--text); font-size: 12px; }
+    .meeting-summary-block p { margin: 0; color: var(--muted); font-size: 11.5px; line-height: 1.55; }
     .meeting-member-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 7px; }
     .meeting-member-chip { min-width: 0; display: grid; grid-template-columns: 26px minmax(0,1fr); align-items: center; gap: 7px; padding: 7px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); }
     .meeting-member-chip .avatar { width: 26px; height: 26px; font-size: 9px; }
@@ -1238,6 +1350,396 @@
     .footer { display: flex; justify-content: flex-end; gap: 8px; }
     .icon-btn { width: 28px; height: 28px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); }
     .icon-btn:hover { color: var(--text); background: var(--surface-2); }
+    .workbench-shell { display: grid; gap: 16px; margin-top: 16px; }
+    .workbench-shell[hidden], .workbench-cockpit[hidden] { display: none; }
+    .wb-card {
+      position: relative; min-width: 0; display: flex; flex-direction: column; overflow: hidden;
+      border: 1px solid var(--line); border-radius: var(--radius); background: #14161a;
+    }
+    .wb-card-head {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: nowrap;
+      padding: 14px 16px 12px; border-bottom: 1px solid var(--line); cursor: grab;
+    }
+    .wb-card-head button, .wb-card-head a, .wb-card-head input, .wb-card-head select, .wb-card-head textarea { cursor: pointer; }
+    .wb-card.dragging .wb-card-head { cursor: grabbing; }
+    .wb-card-head .wb-head-copy, .wb-card-head .wb-card-title { flex: 1 1 140px; min-width: 0; }
+    .wb-card-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .wb-card-title h2 {
+      flex: none; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis;
+      font-size: 14px; line-height: 1.3; white-space: nowrap;
+    }
+    .wb-card-title .count {
+      flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      color: var(--faint); font-size: 11px; font-weight: 500; line-height: 1.2;
+    }
+    .wb-card-head .head-actions { flex: 0 1 auto; min-width: 0; margin-left: auto; flex-wrap: nowrap; }
+    .wb-head-copy { min-width: 0; }
+    .wb-eyebrow {
+      display: block; margin-bottom: 3px; color: var(--faint); font-size: 10.5px;
+      text-transform: uppercase; letter-spacing: .05em;
+    }
+    .wb-head-copy p { margin: 3px 0 0; color: var(--muted); font-size: 11.5px; }
+    .wb-head-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .wb-card-body { flex: 1; min-height: 0; padding: 14px 16px 16px; overflow: auto; }
+    .wb-card.resized .wb-card-body { overscroll-behavior: contain; }
+    .wb-card.dragging { opacity: .46; border-color: rgba(79,142,247,.72); box-shadow: 0 18px 38px rgba(0,0,0,.26); }
+    .wb-canvas .wb-card.drop-target { border-color: var(--accent); background: #16202f; }
+    .wb-resize-handle { position: absolute; z-index: 3; touch-action: none; }
+    .wb-resize-handle {
+      right: 4px; bottom: 4px; width: 16px; height: 16px;
+      border-top: 2px solid var(--line-strong); border-left: 2px solid var(--line-strong);
+      border-radius: 0 0 4px 0; transform: rotate(-45deg); cursor: nwse-resize; color: transparent;
+    }
+    .wb-resize-handle:hover, .wb-card.resizing .wb-resize-handle { border-color: var(--accent); }
+    .wb-resize-edge {
+      top: 0; right: 0; bottom: 22px; width: 18px; height: auto; margin: 0;
+      border: 0; border-radius: 0; background: transparent; cursor: ew-resize;
+    }
+    .wb-resize-edge::before {
+      content: ""; position: absolute; top: 0; right: 0; bottom: 0; width: 3px;
+      background: var(--accent); opacity: .16; transition: opacity .15s;
+    }
+    .wb-resize-edge:hover, .wb-card.resizing .wb-resize-edge { background: rgba(79,142,247,.08); }
+    .wb-resize-edge:hover::before, .wb-card.resizing .wb-resize-edge::before { opacity: 1; }
+    .wb-card.resizing { user-select: none; }
+    .wb-card.resizing::after {
+      content: ""; position: absolute; inset: 0; border: 1px solid rgba(79,142,247,.6);
+      border-radius: inherit; pointer-events: none;
+    }
+    .wb-canvas {
+      display: grid; min-width: 0; gap: 16px;
+      grid-template-columns: repeat(6, minmax(0, 1fr)); align-items: start;
+    }
+    .wb-canvas .wb-card { grid-column: span var(--wb-cols, 2); scroll-margin: 24px; }
+    .head-actions { flex-wrap: wrap; }
+    .metric-row { display: flex; gap: 10px; min-width: 0; overflow-x: auto; }
+    .wb-icon-button {
+      width: 28px; height: 28px; flex: none; display: grid; place-items: center; padding: 0;
+      border: 1px solid var(--line-strong); border-radius: 5px; background: var(--surface); color: var(--muted);
+    }
+    .wb-icon-button:hover { color: var(--text); background: var(--surface-2); }
+    .wb-icon-button[hidden] { display: none; }
+    .wb-icon-button svg { width: 14px; height: 14px; }
+    .wb-icon-button:disabled { color: var(--faint); cursor: not-allowed; }
+    .wb-icon-button.refreshing svg { animation: workbench-spin .9s linear infinite; }
+    @keyframes workbench-spin { to { transform: rotate(360deg); } }
+    .workbench-page-head { align-items: center; justify-content: space-between; }
+    .workbench-page-head .head-actions { margin-left: auto; justify-content: flex-end; }
+    .layout-manager { width: min(520px, 100%); }
+    .layout-save-row {
+      display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px;
+      padding-bottom: 12px; border-bottom: 1px solid var(--line);
+    }
+    .layout-list { display: grid; gap: 8px; margin-top: 12px; }
+    .layout-item {
+      display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center;
+      padding: 10px 11px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2);
+    }
+    .layout-item.active { border-color: rgba(79,142,247,.58); background: rgba(79,142,247,.08); }
+    .layout-item-copy {
+      min-width: 0; padding: 0; border: 0; background: transparent; color: inherit;
+      cursor: pointer; font: inherit; text-align: left;
+    }
+    .layout-item-copy strong { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--text); font-size: 12.5px; }
+    .layout-item-copy span {
+      display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis;
+      color: var(--faint); font-size: 10.5px; white-space: nowrap;
+    }
+    .layout-badge {
+      flex: none; padding: 1px 5px; border-radius: 4px;
+      color: var(--green); background: var(--green-soft); font-size: 10px; font-weight: 650;
+    }
+    .layout-actions { display: flex; flex: none; gap: 5px; }
+    .layout-help { margin: 10px 0 0; color: var(--faint); font-size: 10.5px; }
+    .workbench-mode-tabs {
+      display: inline-flex; align-items: center; gap: 2px; padding: 3px;
+      border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface);
+    }
+    .workbench-mode-tabs .mode-tab {
+      min-height: 30px; padding: 4px 12px; border: 0; border-radius: 5px;
+      background: transparent; color: var(--muted); font-size: 12.5px; font-weight: 650; white-space: nowrap;
+    }
+    .workbench-mode-tabs .mode-tab.active { color: #fff; background: var(--accent); }
+    .workbench-mode-tabs .mode-tab:not(.active):hover { color: var(--text); background: var(--surface-2); }
+    .workbench-cockpit {
+      min-width: 0; display: block; padding: 0; border: 0; background: transparent;
+    }
+    .cockpit-head {
+      display: flex; align-items: center; justify-content: space-between; gap: 14px;
+      padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: #14161a;
+    }
+    .cockpit-view-tabs {
+      flex: none; display: inline-flex; align-items: center; gap: 2px; padding: 3px;
+      border: 1px solid var(--line-strong); border-radius: 7px; background: var(--surface);
+    }
+    .cockpit-view-tab {
+      min-height: 29px; padding: 4px 11px; border: 0; border-radius: 5px;
+      background: transparent; color: var(--muted); font-size: 12px; font-weight: 650;
+    }
+    .cockpit-view-tab.active { color: #fff; background: var(--accent); }
+    .cockpit-view-tab:not(.active):hover { color: var(--text); background: var(--surface-2); }
+    .cockpit-scope-wrap { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+    .cockpit-scope {
+      min-width: 0; display: flex; align-items: center; gap: 9px;
+      padding-left: 12px; border-left: 1px solid var(--line);
+    }
+    .cockpit-scope[hidden] { display: none; }
+    .cockpit-scope-mark {
+      width: 30px; height: 30px; flex: none; display: grid; place-items: center;
+      border: 1px solid rgba(79,142,247,.34); border-radius: 7px; color: #9fc4ff; background: var(--accent-soft);
+    }
+    .cockpit-scope-mark svg { width: 15px; height: 15px; }
+    .cockpit-scope-copy { min-width: 0; }
+    .cockpit-scope-copy strong { display: block; color: var(--text); font-size: 12.5px; }
+    .cockpit-scope-copy small { display: block; margin-top: 2px; color: var(--faint); font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cockpit-live {
+      flex: none; display: inline-flex; align-items: center; gap: 6px;
+      color: var(--muted); font-size: 10.5px; white-space: nowrap;
+    }
+    .cockpit-live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px rgba(52,212,126,.11); }
+    .cockpit-summary {
+      display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 12px;
+    }
+    .cockpit-summary[hidden], .cockpit-grid[hidden] { display: none; }
+    .cockpit-stat {
+      min-width: 0; padding: 11px 12px; border: 1px solid var(--line); border-radius: 8px; background: #14161a;
+    }
+    .cockpit-stat-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--faint); font-size: 10.5px; }
+    .cockpit-stat strong { display: block; margin-top: 6px; color: var(--text); font-size: 22px; line-height: 1.1; }
+    .cockpit-stat small { display: block; margin-top: 5px; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: 10.5px; white-space: nowrap; }
+    .cockpit-stat.warn strong { color: var(--amber); }
+    .cockpit-stat.risk strong { color: var(--red); }
+    .cockpit-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+    .cockpit-panel {
+      min-width: 0; display: flex; flex-direction: column; overflow: hidden;
+      border: 1px solid var(--line); border-radius: 8px; background: #14161a;
+    }
+    .cockpit-span-4 { grid-column: span 4; }
+    .cockpit-span-5 { grid-column: span 5; }
+    .cockpit-span-6 { grid-column: span 6; }
+    .cockpit-span-7 { grid-column: span 7; }
+    .cockpit-span-8 { grid-column: span 8; }
+    .cockpit-span-12 { grid-column: span 12; }
+    .cockpit-panel-head {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      padding: 11px 13px 10px; border-bottom: 1px solid var(--line);
+    }
+    .cockpit-panel-title { min-width: 0; }
+    .cockpit-panel-title h3 { margin: 0; font-size: 13px; line-height: 1.3; }
+    .cockpit-panel-title p { margin: 3px 0 0; color: var(--faint); font-size: 10.5px; }
+    .cockpit-panel-meta { flex: none; display: inline-flex; align-items: center; gap: 6px; color: var(--faint); font-size: 10.5px; white-space: nowrap; }
+    .cockpit-panel-body { flex: 1; min-height: 0; padding: 4px 13px 12px; }
+    .cockpit-list { display: grid; }
+    .cockpit-row {
+      min-width: 0; display: grid; align-items: center; gap: 10px; padding: 10px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .cockpit-row:last-child { border-bottom: 0; }
+    .cockpit-progress-row { grid-template-columns: minmax(0, 1.6fr) 118px minmax(88px, .7fr) auto; }
+    .cockpit-item-main { min-width: 0; }
+    .cockpit-item-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .cockpit-item-title strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text); font-size: 12px; white-space: nowrap; }
+    .cockpit-item-main p { margin: 4px 0 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: 10.5px; white-space: nowrap; }
+    .cockpit-owner { min-width: 0; display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 10.5px; }
+    .cockpit-owner .avatar { width: 21px; height: 21px; font-size: 9px; }
+    .cockpit-owner span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cockpit-progress { min-width: 0; }
+    .cockpit-progress-track { height: 5px; overflow: hidden; border-radius: 99px; background: var(--surface-3); }
+    .cockpit-progress-track span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+    .cockpit-progress-track span.warn { background: var(--amber); }
+    .cockpit-progress-track span.risk { background: var(--red); }
+    .cockpit-progress small { display: block; margin-top: 4px; color: var(--faint); font-size: 10px; text-align: right; }
+    .cockpit-row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+    .cockpit-link { padding: 0; border: 0; background: transparent; color: var(--accent); font-size: 10.5px; white-space: nowrap; }
+    .cockpit-link:hover { color: #9fc4ff; }
+    .cockpit-load-list { display: grid; gap: 0; }
+    .cockpit-member-row { grid-template-columns: minmax(0, 1fr) minmax(78px, .8fr) 34px; }
+    .cockpit-member { min-width: 0; display: flex; align-items: center; gap: 8px; }
+    .cockpit-member .avatar { width: 25px; height: 25px; flex: none; font-size: 9px; }
+    .cockpit-member-copy { min-width: 0; }
+    .cockpit-member-copy strong { display: block; overflow: hidden; text-overflow: ellipsis; color: var(--text); font-size: 11.5px; white-space: nowrap; }
+    .cockpit-member-copy small { display: block; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; color: var(--faint); font-size: 9.5px; white-space: nowrap; }
+    .cockpit-load-track { height: 5px; overflow: hidden; border-radius: 99px; background: var(--surface-3); }
+    .cockpit-load-track span { display: block; height: 100%; border-radius: inherit; background: var(--green); }
+    .cockpit-load-track span.watch { background: var(--amber); }
+    .cockpit-load-track span.overload { background: var(--red); }
+    .cockpit-load-value { color: var(--muted); font-size: 10.5px; text-align: right; }
+    .cockpit-risk-list { display: grid; }
+    .cockpit-risk-row { grid-template-columns: 40px minmax(0, 1fr) 112px auto; }
+    .cockpit-severity {
+      width: 34px; height: 34px; display: grid; place-items: center; border-radius: 7px;
+      color: var(--red); background: var(--red-soft); font-size: 11px; font-weight: 700;
+    }
+    .cockpit-severity.medium { color: var(--amber); background: var(--amber-soft); }
+    .cockpit-severity.low { color: var(--muted); background: var(--surface-3); }
+    .cockpit-risk-meta { min-width: 0; display: flex; align-items: center; gap: 6px; color: var(--faint); font-size: 10px; }
+    .cockpit-risk-meta .avatar { width: 19px; height: 19px; font-size: 8px; }
+    .cockpit-risk-meta span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cockpit-agent-list { display: grid; }
+    .cockpit-agent-row { grid-template-columns: minmax(0, 1fr) minmax(130px, 1.1fr) auto; }
+    .cockpit-agent-name { min-width: 0; }
+    .cockpit-agent-name strong { display: flex; align-items: center; gap: 6px; color: var(--text); font-size: 11.5px; }
+    .cockpit-agent-name strong span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cockpit-agent-name small { display: block; margin-top: 3px; color: var(--faint); font-size: 9.5px; }
+    .cockpit-agent-state { min-width: 0; }
+    .cockpit-agent-state p { margin: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: 10.5px; white-space: nowrap; }
+    .cockpit-agent-state small { display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; color: var(--faint); font-size: 9.5px; white-space: nowrap; }
+    .cockpit-state {
+      display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border-radius: 4px;
+      color: var(--green); background: var(--green-soft); font-size: 10px; white-space: nowrap;
+    }
+    .cockpit-state.waiting { color: var(--amber); background: var(--amber-soft); }
+    .cockpit-state.review { color: var(--purple); background: var(--purple-soft); }
+    .cockpit-state.idle { color: var(--faint); background: var(--surface-3); }
+    .cockpit-project-list { display: grid; }
+    .cockpit-project-row { grid-template-columns: minmax(0, 1.5fr) minmax(100px, .8fr) 88px 72px; }
+    .cockpit-project-title { min-width: 0; }
+    .cockpit-project-title strong { display: block; overflow: hidden; text-overflow: ellipsis; color: var(--text); font-size: 12px; white-space: nowrap; }
+    .cockpit-project-title small { display: block; margin-top: 3px; color: var(--faint); font-size: 10px; }
+    .cockpit-trend { color: var(--muted); font-size: 10.5px; }
+    .cockpit-trend.up { color: var(--green); }
+    .cockpit-trend.down { color: var(--red); }
+    .cockpit-scope-note {
+      display: flex; align-items: center; gap: 7px; margin-top: 10px; padding: 8px 10px;
+      border: 1px solid var(--line); border-radius: 7px; color: var(--muted); background: rgba(30,33,38,.55); font-size: 10.5px;
+    }
+    .cockpit-scope-note svg { flex: none; width: 13px; height: 13px; color: var(--accent); }
+    .cockpit-empty { padding: 24px 12px; color: var(--faint); font-size: 11px; text-align: center; }
+    @media (max-width: 1120px) {
+      .cockpit-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .cockpit-span-4, .cockpit-span-5, .cockpit-span-6, .cockpit-span-7, .cockpit-span-8 { grid-column: span 12; }
+    }
+    @media (max-width: 820px) {
+      .cockpit-head, .cockpit-scope-wrap { align-items: stretch; flex-direction: column; }
+      .cockpit-scope-wrap { justify-content: flex-start; }
+      .cockpit-scope { padding-left: 0; border-left: 0; }
+      .cockpit-progress-row, .cockpit-risk-row, .cockpit-agent-row, .cockpit-project-row { grid-template-columns: minmax(0, 1fr); }
+      .cockpit-owner, .cockpit-row-actions, .cockpit-risk-meta { justify-content: flex-start; }
+      .cockpit-progress small { text-align: left; }
+    }
+    .wb-stack { display: grid; gap: 9px; }
+    .wb-brief {
+      border-color: rgba(79,142,247,.44); background: linear-gradient(135deg, rgba(79,142,247,.12), rgba(20,22,26,.96) 38%);
+    }
+    .brief-summary { margin: 0; color: #e7eef7; font-size: 15px; line-height: 1.55; }
+    .brief-summary b { color: #fff; }
+    .brief-meta { margin: 7px 0 0; color: var(--faint); font-size: 11px; line-height: 1.5; }
+    .wb-brief .head-actions { flex: 0 1 auto; min-width: 0; align-items: center; justify-content: flex-end; }
+    .brief-head-meta {
+      min-width: 0; margin: 0; color: var(--faint); font-size: 11px; line-height: 1.4;
+      text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .brief-points { display: grid; gap: 8px; margin: 12px 0 0; padding: 0; list-style: none; }
+    .brief-points li {
+      display: grid; grid-template-columns: minmax(0,1fr) 58px auto; align-items: start; gap: 9px;
+      padding: 10px 11px; border: 1px solid var(--line); border-radius: 7px; background: rgba(30,33,38,.72);
+      color: #ccd5de; font-size: 12px; line-height: 1.5;
+    }
+    .brief-copy { min-width: 0; }
+    .brief-points b { color: var(--text); }
+    .brief-actions { display: grid; gap: 5px; }
+    .brief-points .tag {
+      width: 58px; min-height: 22px; margin-top: 2px; padding: 2px 5px; border-radius: 4px; background: var(--surface-3);
+      color: var(--muted); font-size: 10.5px; text-align: center; white-space: nowrap;
+    }
+    .brief-points .risk .tag { color: var(--red); background: var(--red-soft); }
+    .brief-points .supply .tag { color: var(--amber); background: var(--amber-soft); }
+    .brief-points .cost .tag { color: var(--green); background: var(--green-soft); }
+    .brief-points .decision .tag { color: var(--purple); background: var(--purple-soft); }
+    .decision-output {
+      margin-top: 7px; padding: 9px 10px; border-left: 2px solid var(--purple);
+      border-radius: 0 6px 6px 0; background: rgba(164,139,255,.08); color: #e4dcff; font-size: 11.5px; line-height: 1.55;
+    }
+    .decision-output[hidden] { display: none; }
+    .decision-output strong { display: block; margin-bottom: 3px; color: #fff; }
+    #briefScheduleMask .modal { width: min(560px, 100%); }
+    .schedule-title { margin: 0; color: var(--text); font-size: 15px; }
+    .schedule-controls { display: grid; grid-template-columns: 170px minmax(0,1fr); gap: 8px; align-items: center; }
+    .schedule-help { margin: 0; color: var(--faint); font-size: 10.5px; }
+    .metric-tile {
+      min-width: 126px; flex: 1 1 0; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: #17191d;
+    }
+    .metric-label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; }
+    .metric-value { margin-top: 6px; color: var(--text); font-size: 21px; font-weight: 700; letter-spacing: 0; }
+    .metric-value small { margin-left: 2px; color: var(--faint); font-size: 11px; font-weight: 500; }
+    .metric-trend { display: inline-flex; align-items: center; gap: 3px; margin-left: auto; border-radius: 4px; padding: 1px 4px; font-size: 10.5px; }
+    .metric-trend.up { color: var(--green); background: var(--green-soft); }
+    .metric-trend.down { color: var(--red); background: var(--red-soft); }
+    .metric-target { margin-top: 4px; color: var(--faint); font-size: 10.5px; }
+    .spark { display: grid; grid-template-columns: repeat(9, 1fr); align-items: end; gap: 3px; height: 26px; margin-top: 9px; }
+    .spark span { display: block; min-height: 3px; border-radius: 2px 2px 0 0; background: #3f5c80; }
+    .spark span.strong { background: var(--accent); }
+    .spark span.warn { background: var(--amber); }
+    .wb-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .segmented { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); }
+    .segmented button { min-height: 24px; padding: 2px 8px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); font-size: 11px; white-space: nowrap; }
+    .segmented button:hover { color: var(--text); background: var(--surface-2); }
+    .segmented button.active { color: #fff; background: var(--accent); }
+    .todo-item {
+      width: 100%; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 12px; align-items: center;
+      padding: 11px 12px; border: 1px solid var(--line); border-radius: 7px; background: #17191d;
+      color: var(--text); text-align: left; transition: border-color .15s, background .15s;
+    }
+    .todo-item:hover { border-color: rgba(79,142,247,.48); background: var(--surface-2); }
+    .todo-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .todo-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+    .todo-context { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+    .todo-summary {
+      display: grid; gap: 4px; min-width: 0; margin-top: 7px;
+      color: var(--muted); font-size: 11.5px; line-height: 1.5;
+    }
+    .todo-summary span { min-width: 0; overflow-wrap: anywhere; }
+    .todo-summary b { flex: none; margin-right: 4px; color: var(--text); font-size: 10.5px; }
+    .todo-trailing { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+    .due-chip { color: var(--faint); font-size: 10.5px; white-space: nowrap; }
+    .due-chip.today { color: var(--amber); font-weight: 650; }
+    .follow-btn {
+      flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+      min-width: 52px; min-height: 24px; padding: 2px 7px; border: 1px solid var(--line-strong);
+      border-radius: 5px; background: var(--surface); color: var(--muted); font-size: 10.5px;
+    }
+    .follow-btn:hover { color: var(--text); border-color: #556172; background: var(--surface-2); }
+    .follow-btn.active { color: #ffce4f; border-color: rgba(232,163,61,.54); background: rgba(232,163,61,.12); }
+    .follow-btn svg { width: 11px; height: 11px; }
+    .task-card .follow-btn { position: absolute; top: 8px; right: 8px; min-width: 24px; min-height: 24px; padding: 0; }
+    .task-card .follow-btn span { display: none; }
+    .wb-card[data-cols="2"] .brief-actions { grid-template-columns: repeat(auto-fit, minmax(108px, 1fr)); }
+    .wb-card[data-cols="2"] .decision-output { grid-column: 1; }
+    .control-list { display: grid; gap: 9px; }
+    .control-item { display: grid; grid-template-columns: 58px minmax(0,1fr); gap: 9px; align-items: start; }
+    .control-marker {
+      width: 58px; min-height: 22px; padding: 2px 5px; border-radius: 4px;
+      color: var(--red); background: var(--red-soft); font-size: 10.5px; text-align: center;
+    }
+    .control-item.medium .control-marker { color: var(--amber); background: var(--amber-soft); }
+    .control-item.watch .control-marker { color: var(--accent); background: var(--accent-soft); }
+    .control-item strong { display: block; color: var(--text); font-size: 12.5px; line-height: 1.45; }
+    .control-item p { margin: 3px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.5; }
+    .control-item small { display: block; margin-top: 4px; color: var(--faint); font-size: 10.5px; }
+    .control-actions { display: flex; justify-content: flex-end; gap: 5px; margin-top: 7px; }
+    .coverage-list { display: grid; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+    .coverage-item { display: grid; grid-template-columns: 78px minmax(0,1fr) 42px; gap: 8px; align-items: center; color: var(--muted); font-size: 10.5px; }
+    .coverage-item b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+    .coverage-track { height: 6px; border-radius: 99px; background: var(--surface-3); overflow: hidden; }
+    .coverage-track span { display: block; height: 100%; border-radius: 99px; background: var(--accent); }
+    .coverage-track span.safe { background: var(--green); }
+    .coverage-track span.risk { background: var(--red); }
+    .wb-note { margin-top: 12px; padding: 10px 11px; border-radius: 6px; background: var(--surface-2); color: var(--muted); font-size: 11.5px; line-height: 1.5; }
+    .wb-note b { color: var(--text); }
+    .wb-open-btn { flex: none; }
+    .empty.compact { padding: 20px; font-size: 12px; }
+    #metricSettingsMask .modal { width: min(460px, 100%); }
+    .metric-settings { padding: 16px; }
+    .metric-settings-list { display: grid; gap: 8px; }
+    .metric-option {
+      display: grid; grid-template-columns: 18px minmax(0,1fr); align-items: center; gap: 10px;
+      padding: 10px 11px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2);
+      color: var(--text); font-size: 12px; cursor: pointer;
+    }
+    .metric-option:hover { border-color: rgba(79,142,247,.5); }
+    .metric-option strong { display: block; font-size: 12.5px; }
+    .metric-option small { display: block; margin-top: 2px; color: var(--faint); }
+    .metric-settings-help { margin: 10px 0 0; color: var(--faint); font-size: 10.5px; }
     .toast {
       position: fixed; left: 50%; bottom: 24px; z-index: 40; transform: translateX(-50%) translateY(16px);
       background: var(--surface-3); border: 1px solid var(--line-strong); color: var(--text);
@@ -1263,6 +1765,10 @@
       .ai-profile-grid, .ai-editor-grid, .ai-definition-grid { grid-template-columns: 1fr; }
       .ai-editor-grid .wide, .ai-definition-grid .wide { grid-column: auto; }
       .ai-template-grid, .profile-editor-grid, .ai-execution-grid { grid-template-columns: 1fr; }
+      .ai-scope-grid, .perm-list { grid-template-columns: 1fr; }
+      .ai-runtime-tabs { flex-wrap: wrap; }
+      .scope-instance { flex-wrap: wrap; }
+      .scope-instance-model { flex: 1 0 100%; max-width: 100%; text-align: left; }
       .workflow-node-editor-grid { grid-template-columns: 1fr; }
       .workflow-node-editor-grid .wide { grid-column: auto; }
       .profile-inline-body { grid-template-columns: 1fr; }
@@ -1271,6 +1777,18 @@
       .meeting-list-layout { grid-template-columns: 1fr; }
       .meeting-directory { position: static; }
       .meeting-detail-head { align-items: flex-start; flex-direction: column; }
+      .wb-canvas .wb-card { grid-column: 1 / -1 !important; }
+      .brief-points li { grid-template-columns: minmax(0,1fr) 58px; }
+      .brief-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; }
+      .decision-output { grid-column: 1; }
+      .wb-card-head { padding: 12px 12px 10px; }
+      .wb-card-title .count { display: none; }
+      .wb-brief .head-actions { flex-direction: column; align-items: flex-end; gap: 6px; }
+      .brief-head-meta { max-width: 100%; white-space: normal; }
+      .wb-card-body { padding: 12px; }
+      .schedule-controls { grid-template-columns: 1fr; }
+      .todo-item { grid-template-columns: minmax(0,1fr); }
+      .todo-trailing { justify-content: flex-start; }
       .detail-top { flex-wrap: wrap; }
       .detail-top .crumb { flex-basis: 100%; order: 3; }
       .session-bar { align-items: flex-start; flex-wrap: wrap; gap: 8px; padding: 10px 14px; }
@@ -1290,9 +1808,12 @@
     <div class="shell" id="appShell">
       <aside class="rail left" id="leftRail" aria-label="主导航">
         <div class="rail-head">
-          <div class="mode-switch">
-            <button class="mode-tab active" data-mode="work" type="button">工作</button>
-            <button class="mode-tab" data-mode="admin" type="button" data-demo="进入管理模式">管理</button>
+          <div class="brand-lockup" aria-label="DeepSeek Harness">
+            <span class="brand-mark" aria-hidden="true">D</span>
+            <div class="brand-copy">
+              <strong>DeepSeek Harness</strong>
+              <small>Work OS</small>
+            </div>
           </div>
           <button class="toolbar-btn" id="sidebarToggle" type="button" aria-expanded="true" aria-controls="leftRail" aria-label="折叠左侧栏" title="折叠左侧栏">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>
@@ -1457,14 +1978,628 @@
           </section>
 
           <section class="view" id="workbenchView" hidden>
-            <div class="page-head">
-              <div>
-                <h1>工作台</h1>
-                <div class="page-sub">员工与员工的数字分身在同一个模块内查看。</div>
+            <div class="page-head workbench-page-head">
+              <nav class="workbench-mode-tabs" id="workbenchModeTabs" aria-label="工作台模式">
+                <button class="mode-tab active" data-workbench-mode="personal" type="button" aria-pressed="true">我的工作台</button>
+                <button class="mode-tab" data-workbench-mode="cockpit" type="button" aria-pressed="false">管理驾驶舱</button>
+              </nav>
+              <div class="head-actions">
+                <button class="wb-icon-button" id="workbenchLayoutManage" type="button" aria-haspopup="dialog" aria-controls="workbenchLayoutMask" aria-label="切换布局" title="切换布局">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+                </button>
+                <button class="wb-icon-button" id="workbenchLayoutReset" type="button" aria-label="恢复默认布局" title="恢复默认布局">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6"/></svg>
+                </button>
               </div>
-              <button class="primary" type="button" data-demo="新建数字分身">新建分身</button>
             </div>
-            <div class="workbench-list" id="workbenchList"></div>
+            <div class="workbench-shell" id="personalWorkbench">
+              <div class="wb-canvas" id="workbenchCanvas">
+              <section class="wb-card wb-brief" id="module-brief" data-module="brief" data-default-cols="6" aria-labelledby="briefTitle">
+                <div class="wb-card-head" data-drag-handle="brief">
+                  <div class="wb-card-title">
+                    <h2 id="briefTitle">每日简报</h2>
+                    <span class="count">过去 19 小时 · AI 生成</span>
+                  </div>
+                  <div class="head-actions">
+                    <p class="brief-head-meta" id="briefMeta">09/22 15:00 - 09/23 10:24 · 08:00 / 13:00 更新 · 上次生成 08:00</p>
+                    <button class="wb-icon-button" id="briefScheduleToggle" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="briefScheduleMask" aria-label="设置简报更新频次" title="更新频次">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06A2 2 0 1 1 7.04 4.4l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
+                    </button>
+                    <button class="wb-icon-button" id="briefRefreshButton" type="button" aria-label="手动刷新简报" title="手动刷新">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="wb-card-body">
+                  <p class="brief-summary">
+                    <b>过去 19 小时有 2 项结论需要确认、1 项数据异常需要处置、2 项决策挂在你这里</b>。若供给缺口 18:00 前未确认，预计影响 3 张关键订单。
+                  </p>
+                  <ul class="brief-points">
+                    <li class="supply">
+                      <div class="brief-copy"><span><b>风险清单复核已完成</b>：Research Avatar 识别出 2 项会前决策点，并保留会议来源。结论已同步到 TSK-1043，无新增阻塞。</span></div>
+                      <span class="tag">进展</span>
+                      <div class="brief-actions"><button class="ghost small" type="button" data-workbench-open-task="TSK-1043">查看进展</button></div>
+                    </li>
+                    <li class="risk">
+                      <div class="brief-copy"><span><b>A-2200 高压阀体</b> 的两周覆盖从 8.6 天降到 4.2 天，低于安全阈值 7 天。异常来自苏州汇川 10 月产能承诺下调 320 件。</span></div>
+                      <span class="tag">数据异常</span>
+                      <div class="brief-actions"><button class="ghost small" type="button" data-demo="查看供给异常归因">查看归因</button></div>
+                    </li>
+                    <li class="cost">
+                      <div class="brief-copy"><span><b>Q4 关键物料价格达成率 101.4%</b>，连接器下降 3.8%。预算可优先用于锁定 12 月铜材需求，暂不需要追加风险准备金。</span></div>
+                      <span class="tag">结论</span>
+                      <div class="brief-actions"><button class="ghost small" type="button" data-demo="查看成本结论明细">查看明细</button></div>
+                    </li>
+                    <li class="decision">
+                      <div class="brief-copy">
+                        <span><b>是否释放 120 件 A-2200 安全库存</b>：需要平衡 3 张关键订单交付与 11 月备货风险。</span>
+                        <div class="decision-output" id="decision-release-stock" hidden>
+                          <strong>AI 建议：先释放 120 件</strong>
+                          依据需求概率、替代产能和缺货影响，建议释放 120 件并保留 7 天最低安全水位。若 48 小时内锁定 200 件备用产能，可将预计缺货从 320 件降至 0。
+                        </div>
+                      </div>
+                    </li>
+                    <li class="decision">
+                      <div class="brief-copy">
+                        <span><b>客户迁移最大可接受停机时间</b>：回滚说明已补责任人，仅剩该输入未确认，当前节点继续阻塞。</span>
+                        <div class="decision-output" id="decision-migration-rto" hidden>
+                          <strong>AI 建议：按 30 分钟审批</strong>
+                          近 6 次迁移平均回滚 18 分钟，P95 为 27 分钟。建议设 30 分钟上限，并要求超过 20 分钟时每 5 分钟同步一次升级状态。
+                        </div>
+                      </div>
+                    </li>
+                  </ul>
+                </div>
+                <span class="wb-resize-handle" data-resize-height="brief" aria-hidden="true"></span>
+                <button class="wb-resize-edge" data-resize-width="brief" type="button" aria-label="拖拽调整每日简报宽度，可选 1/6、1/3、1/2、2/3、5/6 或 1"></button>
+              </section>
+
+              <section class="wb-card" id="module-metrics" data-module="metrics" data-default-cols="6" aria-labelledby="metricsTitle">
+                <div class="wb-card-head" data-drag-handle="metrics">
+                  <div class="wb-card-title">
+                    <h2 id="metricsTitle">核心指标</h2>
+                  </div>
+                  <div class="head-actions">
+                    <button class="wb-icon-button" id="metricSettingsButton" type="button" aria-haspopup="dialog" aria-controls="metricSettingsMask" aria-label="配置核心指标" title="配置核心指标">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06A2 2 0 1 1 7.04 4.4l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
+                    </button>
+                    <span class="pill">近 9 周</span>
+                    <span class="pill">更新 09/23 10:24</span>
+                    <button class="wb-icon-button" data-workbench-refresh="metrics" type="button" aria-label="刷新核心指标" title="刷新">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="wb-card-body">
+                <div class="metric-row" id="metricGrid" aria-label="供应链采购核心指标"></div>
+                </div>
+                <span class="wb-resize-handle" data-resize-height="metrics" aria-hidden="true"></span>
+                <button class="wb-resize-edge" data-resize-width="metrics" type="button" aria-label="拖拽调整核心指标宽度，可选 1/6、1/3、1/2、2/3、5/6 或 1"></button>
+              </section>
+
+                  <section class="wb-card" id="module-todo" data-module="todo" data-default-cols="4" aria-labelledby="todoTitle">
+                    <div class="wb-card-head" data-drag-handle="todo">
+                      <div class="wb-card-title">
+                        <h2 id="todoTitle">我的待办</h2>
+                        <span class="count" id="todoCount"></span>
+                      </div>
+                      <div class="head-actions">
+                        <span class="pill">更新 09/23 10:24</span>
+                        <button class="wb-icon-button" data-workbench-refresh="todo" type="button" aria-label="刷新我的待办" title="刷新">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
+                        </button>
+                      </div>
+                    </div>
+                    <div class="wb-card-body">
+                      <div class="wb-stack" id="workbenchTodoList"></div>
+                    </div>
+                    <span class="wb-resize-handle" data-resize-height="todo" aria-hidden="true"></span>
+                    <button class="wb-resize-edge" data-resize-width="todo" type="button" aria-label="拖拽调整我的待办宽度，可选 1/6、1/3、1/2、2/3、5/6 或 1"></button>
+                  </section>
+
+                  <section class="wb-card" id="module-meeting-minutes" data-module="meeting-minutes" data-default-cols="4" aria-labelledby="meetingMinutesTitle">
+                    <div class="wb-card-head" data-drag-handle="meeting-minutes">
+                      <div class="wb-card-title">
+                        <h2 id="meetingMinutesTitle">会议纪要</h2>
+                        <span class="count" id="meetingMinutesCount"></span>
+                      </div>
+                      <div class="head-actions">
+                        <span class="pill">更新 09/23 10:24</span>
+                        <button class="wb-icon-button" data-workbench-refresh="meeting-minutes" type="button" aria-label="刷新会议纪要" title="刷新">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
+                        </button>
+                      </div>
+                    </div>
+                    <div class="wb-card-body">
+                      <div class="wb-stack" id="meetingMinutesList"></div>
+                    </div>
+                    <span class="wb-resize-handle" data-resize-height="meeting-minutes" aria-hidden="true"></span>
+                    <button class="wb-resize-edge" data-resize-width="meeting-minutes" type="button" aria-label="拖拽调整会议纪要宽度，可选 1/6、1/3、1/2、2/3、5/6 或 1"></button>
+                  </section>
+
+                  <section class="wb-card" id="module-focus" data-module="focus" data-default-cols="2" aria-labelledby="focusTitle">
+                    <div class="wb-card-head" data-drag-handle="focus">
+                      <div class="wb-card-title">
+                        <h2 id="focusTitle">重点关注</h2>
+                        <span class="count" id="focusCount"></span>
+                      </div>
+                      <div class="head-actions">
+                        <span class="pill">更新 09/23 10:24</span>
+                        <button class="wb-icon-button" data-workbench-refresh="focus" type="button" aria-label="刷新重点关注" title="刷新">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
+                        </button>
+                      </div>
+                    </div>
+                    <div class="wb-card-body"><div class="wb-stack" id="focusItemList"></div></div>
+                    <span class="wb-resize-handle" data-resize-height="focus" aria-hidden="true"></span>
+                    <button class="wb-resize-edge" data-resize-width="focus" type="button" aria-label="拖拽调整重点关注宽度，可选 1/6、1/3、1/2、2/3、5/6 或 1"></button>
+                  </section>
+
+                  <section class="wb-card" id="module-control" data-module="control" data-default-cols="2" aria-labelledby="controlTowerTitle">
+                    <div class="wb-card-head" data-drag-handle="control">
+                      <div class="wb-card-title">
+                        <h2 id="controlTowerTitle">供给例外</h2>
+                      </div>
+                      <div class="head-actions">
+                        <span class="pill high">2 需处置</span>
+                        <span class="pill">更新 09/23 10:24</span>
+                        <button class="wb-icon-button" data-workbench-refresh="control" type="button" aria-label="刷新供给例外" title="刷新">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
+                        </button>
+                      </div>
+                    </div>
+                    <div class="wb-card-body">
+                      <div class="control-list">
+                        <article class="control-item">
+                          <span class="control-marker">高</span>
+                          <div>
+                            <strong>A-2200 高压阀体供给缺口 320 件</strong>
+                            <p>建议：释放安全库存 120 件；苏州汇川确认 200 件 48 小时产能。</p>
+                            <small>Owner Peter · 18:00 前决策 · 影响 3 张客户订单</small>
+                            <div class="control-actions">
+                              <button class="ghost small" type="button" data-demo="查看供给缺口归因">归因</button>
+                              <button class="ghost small" type="button" data-demo="创建补货处置任务">处置</button>
+                            </div>
+                          </div>
+                        </article>
+                        <article class="control-item medium">
+                          <span class="control-marker">中</span>
+                          <div>
+                            <strong>客户迁移发布停留在回滚确认</strong>
+                            <p>阻塞节点：回滚确认 · 剩余输入：最大可接受停机时间。</p>
+                            <small>Owner Olivia · 关联 WF-197 / TSK-1035</small>
+                            <div class="control-actions">
+                              <button class="ghost small" type="button" data-workbench-jump="WF-197">查看流程</button>
+                              <button class="ghost small" type="button" data-workbench-open-task="TSK-1035">验收</button>
+                            </div>
+                          </div>
+                        </article>
+                      </div>
+                      <div class="coverage-list" aria-label="关键物料覆盖天数">
+                        <div class="coverage-item"><b>A-2200 阀体</b><div class="coverage-track"><span class="risk" style="width:34%"></span></div><span>4.2天</span></div>
+                        <div class="coverage-item"><b>伺服电机</b><div class="coverage-track"><span style="width:56%"></span></div><span>8.4天</span></div>
+                        <div class="coverage-item"><b>连接器</b><div class="coverage-track"><span class="safe" style="width:82%"></span></div><span>14.6天</span></div>
+                        <div class="coverage-item"><b>包装材料</b><div class="coverage-track"><span class="safe" style="width:71%"></span></div><span>11.2天</span></div>
+                      </div>
+                    </div>
+                    <span class="wb-resize-handle" data-resize-height="control" aria-hidden="true"></span>
+                    <button class="wb-resize-edge" data-resize-width="control" type="button" aria-label="拖拽调整供给例外宽度，可选 1/6、1/3、1/2、2/3、5/6 或 1"></button>
+                  </section>
+
+                  <section class="wb-card" id="module-supplier" data-module="supplier" data-default-cols="4" aria-labelledby="riskSupplierTitle">
+                    <div class="wb-card-head" data-drag-handle="supplier">
+                      <div class="wb-card-title">
+                        <h2 id="riskSupplierTitle">供应商风险</h2>
+                      </div>
+                      <div class="head-actions">
+                        <span class="pill">更新 09/23 10:24</span>
+                        <button class="wb-icon-button" data-workbench-refresh="supplier" type="button" aria-label="刷新供应商风险" title="刷新">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
+                        </button>
+                      </div>
+                    </div>
+                    <div class="wb-card-body">
+                      <div class="control-list">
+                        <article class="control-item medium">
+                          <span class="control-marker">72</span>
+                          <div>
+                            <strong>苏州汇川 · 产能受限</strong>
+                            <p>10 月承诺完成率 87%，连续 2 周低于目标。</p>
+                            <small>采购份额 34% · 建议：分散 20% 到备用产能</small>
+                          </div>
+                        </article>
+                        <article class="control-item watch">
+                          <span class="control-marker">81</span>
+                          <div>
+                            <strong>宁波精工 · 来料批退上升</strong>
+                            <p>近 30 天批退 2.1%，主要来自表面处理工序。</p>
+                            <small>采购份额 18% · 建议：SQE 现场复盘</small>
+                          </div>
+                        </article>
+                      </div>
+                      <div class="wb-note"><b>采购韧性：</b>单源物料占比 18%，其中 2 项没有合格备用产能；建议本月完成替代方案评审。</div>
+                    </div>
+                    <span class="wb-resize-handle" data-resize-height="supplier" aria-hidden="true"></span>
+                    <button class="wb-resize-edge" data-resize-width="supplier" type="button" aria-label="拖拽调整供应商风险宽度，可选 1/6、1/3、1/2、2/3、5/6 或 1"></button>
+                  </section>
+                </div>
+
+                </div>
+                <section class="workbench-cockpit" id="cockpitWorkbench" hidden aria-label="管理驾驶舱">
+                  <div class="cockpit-head">
+                    <nav class="cockpit-view-tabs" role="tablist" aria-label="管理驾驶舱视图">
+                      <button class="cockpit-view-tab active" data-cockpit-view="project" type="button" role="tab" aria-selected="true">项目视图</button>
+                      <button class="cockpit-view-tab" data-cockpit-view="org" type="button" role="tab" aria-selected="false">组织视图</button>
+                    </nav>
+                    <div class="cockpit-scope-wrap">
+                      <div class="cockpit-scope" data-cockpit-scope="project">
+                        <span class="cockpit-scope-mark" aria-hidden="true">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V7l8-4 8 4v13"/><path d="M9 20v-6h6v6M8 9h.01M12 9h.01M16 9h.01"/></svg>
+                        </span>
+                        <div class="cockpit-scope-copy">
+                          <strong>一切皆插件 · 项目 Owner 视角</strong>
+                          <small>项目组 2 位 Human Employee + 我的 2 个 AI Teammate</small>
+                        </div>
+                      </div>
+                      <div class="cockpit-scope" data-cockpit-scope="org" hidden>
+                        <span class="cockpit-scope-mark" aria-hidden="true">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="7" r="3"/><path d="M5 20v-2a5 5 0 0 1 5-5h4a5 5 0 0 1 5 5v2M4 8h3M17 8h3"/></svg>
+                        </span>
+                        <div class="cockpit-scope-copy">
+                          <strong>DSH 产品研发中心 · 组织视图</strong>
+                          <small>跨 3 个项目的成员负载、项目健康度与 AI Teammate 运行态势</small>
+                        </div>
+                      </div>
+                      <span class="cockpit-live"><span class="cockpit-live-dot"></span>实时 · 更新于刚刚</span>
+                      <button class="wb-icon-button" data-workbench-refresh="cockpit" type="button" aria-label="刷新管理驾驶舱" title="刷新">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 11a8 8 0 1 0-2.34 6.16"/><path d="M20 4v7h-7"/></svg>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="cockpit-summary" data-cockpit-view-panel="project">
+                    <article class="cockpit-stat">
+                      <div class="cockpit-stat-label"><span>团队成员</span><span>Owner 可见</span></div>
+                      <strong>4</strong>
+                      <small>2 位 Human Employee · 2 个 AI Teammate</small>
+                    </article>
+                    <article class="cockpit-stat">
+                      <div class="cockpit-stat-label"><span>进行中</span><span>今日</span></div>
+                      <strong>7</strong>
+                      <small>5 项任务 · 2 个流程实例</small>
+                    </article>
+                    <article class="cockpit-stat warn">
+                      <div class="cockpit-stat-label"><span>待验收</span><span>需要我处理</span></div>
+                      <strong>3</strong>
+                      <small>P0 1 项 · P1 1 项</small>
+                    </article>
+                    <article class="cockpit-stat risk">
+                      <div class="cockpit-stat-label"><span>风险事项</span><span>等待决策</span></div>
+                      <strong>3</strong>
+                      <small>1 项阻塞 · 2 项待确认</small>
+                    </article>
+                  </div>
+
+                  <div class="cockpit-grid" data-cockpit-view-panel="project">
+                    <section class="cockpit-panel cockpit-span-8" aria-labelledby="cockpitProgressTitle">
+                      <div class="cockpit-panel-head">
+                        <div class="cockpit-panel-title">
+                          <h3 id="cockpitProgressTitle">关键进展</h3>
+                          <p>项目组当前最重要的推进项、负责人和下一检查点</p>
+                        </div>
+                        <span class="cockpit-panel-meta">按影响排序</span>
+                      </div>
+                      <div class="cockpit-panel-body">
+                        <div class="cockpit-list">
+                          <article class="cockpit-row cockpit-progress-row">
+                            <div class="cockpit-item-main">
+                              <div class="cockpit-item-title"><span class="pill progress">进行中</span><strong>发布风险清单与会前决策项复核</strong></div>
+                              <p>TSK-1043 · 已识别 2 个待 Olivia 确认的决策点</p>
+                            </div>
+                            <div class="cockpit-owner"><span class="avatar agent">RA</span><span>Research Avatar</span></div>
+                            <div class="cockpit-progress"><div class="cockpit-progress-track"><span style="width:68%"></span></div><small>68%</small></div>
+                            <div class="cockpit-row-actions"><button class="cockpit-link" type="button" data-workbench-open-task="TSK-1043">查看任务</button></div>
+                          </article>
+                          <article class="cockpit-row cockpit-progress-row">
+                            <div class="cockpit-item-main">
+                              <div class="cockpit-item-title"><span class="pill high">阻塞</span><strong>客户迁移发布准备</strong></div>
+                              <p>WF-197 · 回滚说明已补齐，最大停机窗口仍待确认</p>
+                            </div>
+                            <div class="cockpit-owner"><span class="avatar agent">OA</span><span>Ops Avatar 02</span></div>
+                            <div class="cockpit-progress"><div class="cockpit-progress-track"><span class="risk" style="width:72%"></span></div><small>72%</small></div>
+                            <div class="cockpit-row-actions"><button class="cockpit-link" type="button" data-workbench-jump="WF-197">查看流程</button></div>
+                          </article>
+                          <article class="cockpit-row cockpit-progress-row">
+                            <div class="cockpit-item-main">
+                              <div class="cockpit-item-title"><span class="pill progress">进行中</span><strong>移动端审批按钮重叠修复</strong></div>
+                              <p>TSK-1042 · 375px 场景仍有 3 个回归用例未覆盖</p>
+                            </div>
+                            <div class="cockpit-owner"><span class="avatar human">PT</span><span>Peter</span></div>
+                            <div class="cockpit-progress"><div class="cockpit-progress-track"><span class="warn" style="width:45%"></span></div><small>45%</small></div>
+                            <div class="cockpit-row-actions"><button class="cockpit-link" type="button" data-workbench-open-task="TSK-1042">查看任务</button></div>
+                          </article>
+                          <article class="cockpit-row cockpit-progress-row">
+                            <div class="cockpit-item-main">
+                              <div class="cockpit-item-title"><span class="pill review">待验收</span><strong>季度规划会议纪要整理</strong></div>
+                              <p>TSK-1044 · 等 Olivia 验收跨团队依赖表述</p>
+                            </div>
+                            <div class="cockpit-owner"><span class="avatar agent">RA</span><span>Research Avatar</span></div>
+                            <div class="cockpit-progress"><div class="cockpit-progress-track"><span style="width:86%"></span></div><small>86%</small></div>
+                            <div class="cockpit-row-actions"><button class="cockpit-link" type="button" data-workbench-open-task="TSK-1044">查看任务</button></div>
+                          </article>
+                        </div>
+                      </div>
+                    </section>
+
+                    <section class="cockpit-panel cockpit-span-4" aria-labelledby="cockpitLoadTitle">
+                      <div class="cockpit-panel-head">
+                        <div class="cockpit-panel-title">
+                          <h3 id="cockpitLoadTitle">工作 Loading</h3>
+                          <p>人 + AI Teammate 的当前承载</p>
+                        </div>
+                        <span class="cockpit-panel-meta">今日</span>
+                      </div>
+                      <div class="cockpit-panel-body">
+                        <div class="cockpit-load-list">
+                          <article class="cockpit-row cockpit-member-row">
+                            <div class="cockpit-member"><span class="avatar human">OL</span><div class="cockpit-member-copy"><strong>Olivia</strong><small>Product Owner · Human</small></div></div>
+                            <div class="cockpit-load-track"><span class="watch" style="width:82%"></span></div>
+                            <div class="cockpit-load-value">82%</div>
+                          </article>
+                          <article class="cockpit-row cockpit-member-row">
+                            <div class="cockpit-member"><span class="avatar human">PT</span><div class="cockpit-member-copy"><strong>Peter</strong><small>Backend Engineer · Human</small></div></div>
+                            <div class="cockpit-load-track"><span class="overload" style="width:91%"></span></div>
+                            <div class="cockpit-load-value">91%</div>
+                          </article>
+                          <article class="cockpit-row cockpit-member-row">
+                            <div class="cockpit-member"><span class="avatar agent">RA</span><div class="cockpit-member-copy"><strong>Research Avatar</strong><small>会前研究 · Olivia 的 Agent</small></div></div>
+                            <div class="cockpit-load-track"><span class="watch" style="width:76%"></span></div>
+                            <div class="cockpit-load-value">76%</div>
+                          </article>
+                          <article class="cockpit-row cockpit-member-row">
+                            <div class="cockpit-member"><span class="avatar agent">OA</span><div class="cockpit-member-copy"><strong>Ops Avatar 02</strong><small>流程跟进 · Olivia 的 Agent</small></div></div>
+                            <div class="cockpit-load-track"><span style="width:54%"></span></div>
+                            <div class="cockpit-load-value">54%</div>
+                          </article>
+                        </div>
+                      </div>
+                    </section>
+
+                    <section class="cockpit-panel cockpit-span-6" aria-labelledby="cockpitRiskTitle">
+                      <div class="cockpit-panel-head">
+                        <div class="cockpit-panel-title">
+                          <h3 id="cockpitRiskTitle">Pending / 风险事项</h3>
+                          <p>需要项目组共同关注或由我决策的事项</p>
+                        </div>
+                        <span class="cockpit-panel-meta">3 项待处理</span>
+                      </div>
+                      <div class="cockpit-panel-body">
+                        <div class="cockpit-list cockpit-risk-list">
+                          <article class="cockpit-row cockpit-risk-row">
+                            <span class="cockpit-severity">S1</span>
+                            <div class="cockpit-item-main"><div class="cockpit-item-title"><strong>停机窗口与数据一致性责任人未确认</strong></div><p>客户迁移发布 · 未确认前不进入发布窗口</p></div>
+                            <div class="cockpit-risk-meta"><span class="avatar human">OL</span><span>Olivia / Peter</span></div>
+                            <div class="cockpit-row-actions"><span class="pill high">今天</span><button class="cockpit-link" type="button" data-workbench-jump="WF-197">处理</button></div>
+                          </article>
+                          <article class="cockpit-row cockpit-risk-row">
+                            <span class="cockpit-severity medium">P1</span>
+                            <div class="cockpit-item-main"><div class="cockpit-item-title"><strong>移动端窄屏回归仍有 3 个场景未覆盖</strong></div><p>员工平台 · 触控目标与操作区重排需补验</p></div>
+                            <div class="cockpit-risk-meta"><span class="avatar human">PT</span><span>Peter</span></div>
+                            <div class="cockpit-row-actions"><span class="pill">09/24</span><button class="cockpit-link" type="button" data-workbench-open-task="TSK-1042">处理</button></div>
+                          </article>
+                          <article class="cockpit-row cockpit-risk-row">
+                            <span class="cockpit-severity low">P2</span>
+                            <div class="cockpit-item-main"><div class="cockpit-item-title"><strong>季度纪要跨团队依赖缺少承诺时间</strong></div><p>TSK-1044 · 影响验收结论与下一轮排期</p></div>
+                            <div class="cockpit-risk-meta"><span class="avatar agent">RA</span><span>Research Avatar</span></div>
+                            <div class="cockpit-row-actions"><span class="pill">待确认</span><button class="cockpit-link" type="button" data-workbench-open-task="TSK-1044">处理</button></div>
+                          </article>
+                        </div>
+                      </div>
+                    </section>
+
+                    <section class="cockpit-panel cockpit-span-6" aria-labelledby="cockpitAgentTitle">
+                      <div class="cockpit-panel-head">
+                        <div class="cockpit-panel-title">
+                          <h3 id="cockpitAgentTitle">AI Teammate 实时运行</h3>
+                          <p>我的 AI Teammate 当前动作、阻塞与最近更新时间</p>
+                        </div>
+                        <span class="cockpit-panel-meta">3 个实例</span>
+                      </div>
+                      <div class="cockpit-panel-body">
+                        <div class="cockpit-list cockpit-agent-list">
+                          <article class="cockpit-row cockpit-agent-row">
+                            <div class="cockpit-agent-name"><strong><span class="avatar agent">RA</span><span>Research Avatar</span></strong><small>personal-research-avatar · 会前研究</small></div>
+                            <div class="cockpit-agent-state"><p>正在读取会议与任务记录，汇总会前决策项</p><small>TSK-1043 · 10:26 更新</small></div>
+                            <span class="cockpit-state">运行中</span>
+                          </article>
+                          <article class="cockpit-row cockpit-agent-row">
+                            <div class="cockpit-agent-name"><strong><span class="avatar agent">OA</span><span>Ops Avatar 02</span></strong><small>personal-ops-avatar · 流程跟进</small></div>
+                            <div class="cockpit-agent-state"><p>等待停机窗口 owner 回复，已发出第二次催办</p><small>WF-197 · 10:18 更新</small></div>
+                            <span class="cockpit-state waiting">等待</span>
+                          </article>
+                          <article class="cockpit-row cockpit-agent-row">
+                            <div class="cockpit-agent-name"><strong><span class="avatar agent">UX</span><span>UX Avatar</span></strong><small>personal-ux-avatar · 员工平台</small></div>
+                            <div class="cockpit-agent-state"><p>已准备周会材料，等待 MTG-118 开始</p><small>下一动作 11:00</small></div>
+                            <span class="cockpit-state idle">待命</span>
+                          </article>
+                        </div>
+                      </div>
+                    </section>
+
+                    <div class="cockpit-scope-note cockpit-span-12">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3 5 6v5c0 4.6 2.9 8.4 7 10 4.1-1.6 7-5.4 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg>
+                      <span>权限范围：项目 Owner 可见项目组全部成员 + 我的 AI Teammate；非 Owner 仅可见我的 AI Teammate。</span>
+                    </div>
+                  </div>
+
+                  <div class="cockpit-summary" data-cockpit-view-panel="org" hidden>
+                    <article class="cockpit-stat">
+                      <div class="cockpit-stat-label"><span>组织成员</span><span>有权限范围</span></div>
+                      <strong>12</strong>
+                      <small>产品、研发、质量与供应链</small>
+                    </article>
+                    <article class="cockpit-stat">
+                      <div class="cockpit-stat-label"><span>活跃项目</span><span>组织视图</span></div>
+                      <strong>3</strong>
+                      <small>1 个健康 · 1 个关注 · 1 个风险</small>
+                    </article>
+                    <article class="cockpit-stat">
+                      <div class="cockpit-stat-label"><span>AI Teammate</span><span>运行中</span></div>
+                      <strong>5</strong>
+                      <small>3 个运行 · 1 个等待 · 1 个待命</small>
+                    </article>
+                    <article class="cockpit-stat risk">
+                      <div class="cockpit-stat-label"><span>组织待关注</span><span>影响交付</span></div>
+                      <strong>4</strong>
+                      <small>2 项跨项目依赖 · 2 项资源冲突</small>
+                    </article>
+                  </div>
+
+                  <div class="cockpit-grid" data-cockpit-view-panel="org" hidden>
+                    <section class="cockpit-panel cockpit-span-8" aria-labelledby="cockpitPortfolioTitle">
+                      <div class="cockpit-panel-head">
+                        <div class="cockpit-panel-title">
+                          <h3 id="cockpitPortfolioTitle">项目组合健康度</h3>
+                          <p>按交付进度、风险数量与趋势查看组织内项目</p>
+                        </div>
+                        <span class="cockpit-panel-meta">3 个项目</span>
+                      </div>
+                      <div class="cockpit-panel-body">
+                        <div class="cockpit-list cockpit-project-list">
+                          <article class="cockpit-row cockpit-project-row">
+                            <div class="cockpit-project-title"><strong>一切皆插件</strong><small>Owner Olivia · 4 人 / 实例 · 12 个活跃事项</small></div>
+                            <div class="cockpit-progress"><div class="cockpit-progress-track"><span style="width:72%"></span></div><small>交付 72%</small></div>
+                            <span class="cockpit-state">健康</span>
+                            <span class="cockpit-trend up">+8%</span>
+                          </article>
+                          <article class="cockpit-row cockpit-project-row">
+                            <div class="cockpit-project-title"><strong>员工平台</strong><small>Owner Olivia · 5 人 / 实例 · 9 个活跃事项</small></div>
+                            <div class="cockpit-progress"><div class="cockpit-progress-track"><span class="warn" style="width:58%"></span></div><small>交付 58%</small></div>
+                            <span class="cockpit-state waiting">关注</span>
+                            <span class="cockpit-trend down">-4%</span>
+                          </article>
+                          <article class="cockpit-row cockpit-project-row">
+                            <div class="cockpit-project-title"><strong>客户成功</strong><small>Owner Olivia · 3 人 / 实例 · 7 个活跃事项</small></div>
+                            <div class="cockpit-progress"><div class="cockpit-progress-track"><span class="risk" style="width:81%"></span></div><small>准备度 81%</small></div>
+                            <span class="cockpit-state review">风险</span>
+                            <span class="cockpit-trend up">+12%</span>
+                          </article>
+                        </div>
+                      </div>
+                    </section>
+
+                    <section class="cockpit-panel cockpit-span-4" aria-labelledby="cockpitOrgLoadTitle">
+                      <div class="cockpit-panel-head">
+                        <div class="cockpit-panel-title">
+                          <h3 id="cockpitOrgLoadTitle">组织角色负载</h3>
+                          <p>按角色聚合当前工作承载</p>
+                        </div>
+                        <span class="cockpit-panel-meta">今日</span>
+                      </div>
+                      <div class="cockpit-panel-body">
+                        <div class="cockpit-load-list">
+                          <article class="cockpit-row cockpit-member-row">
+                            <div class="cockpit-member"><span class="avatar role">PR</span><div class="cockpit-member-copy"><strong>产品与项目</strong><small>3 人 · 6 个活跃事项</small></div></div>
+                            <div class="cockpit-load-track"><span class="watch" style="width:86%"></span></div>
+                            <div class="cockpit-load-value">86%</div>
+                          </article>
+                          <article class="cockpit-row cockpit-member-row">
+                            <div class="cockpit-member"><span class="avatar human">EN</span><div class="cockpit-member-copy"><strong>研发工程</strong><small>4 人 · 9 个活跃事项</small></div></div>
+                            <div class="cockpit-load-track"><span class="overload" style="width:92%"></span></div>
+                            <div class="cockpit-load-value">92%</div>
+                          </article>
+                          <article class="cockpit-row cockpit-member-row">
+                            <div class="cockpit-member"><span class="avatar human">QA</span><div class="cockpit-member-copy"><strong>质量工程</strong><small>2 人 · 4 个活跃事项</small></div></div>
+                            <div class="cockpit-load-track"><span style="width:63%"></span></div>
+                            <div class="cockpit-load-value">63%</div>
+                          </article>
+                          <article class="cockpit-row cockpit-member-row">
+                            <div class="cockpit-member"><span class="avatar human">SC</span><div class="cockpit-member-copy"><strong>供应链</strong><small>3 人 · 5 个活跃事项</small></div></div>
+                            <div class="cockpit-load-track"><span class="watch" style="width:78%"></span></div>
+                            <div class="cockpit-load-value">78%</div>
+                          </article>
+                        </div>
+                      </div>
+                    </section>
+
+                    <section class="cockpit-panel cockpit-span-6" aria-labelledby="cockpitOrgRiskTitle">
+                      <div class="cockpit-panel-head">
+                        <div class="cockpit-panel-title">
+                          <h3 id="cockpitOrgRiskTitle">组织级 Pending / 风险</h3>
+                          <p>跨项目的资源、依赖与交付风险</p>
+                        </div>
+                        <span class="cockpit-panel-meta">4 项关注</span>
+                      </div>
+                      <div class="cockpit-panel-body">
+                        <div class="cockpit-list cockpit-risk-list">
+                          <article class="cockpit-row cockpit-risk-row">
+                            <span class="cockpit-severity">S1</span>
+                            <div class="cockpit-item-main"><div class="cockpit-item-title"><strong>客户迁移停机窗口尚未锁定</strong></div><p>客户成功 × 研发工程 · 影响本周发布准备</p></div>
+                            <div class="cockpit-risk-meta"><span class="avatar human">PT</span><span>Peter / Ops 02</span></div>
+                            <div class="cockpit-row-actions"><span class="pill high">升级</span><button class="cockpit-link" type="button" data-workbench-jump="WF-197">查看</button></div>
+                          </article>
+                          <article class="cockpit-row cockpit-risk-row">
+                            <span class="cockpit-severity medium">P1</span>
+                            <div class="cockpit-item-main"><div class="cockpit-item-title"><strong>研发工程负载连续 3 天高于 90%</strong></div><p>3 个项目并行 · 1 名后端为主要瓶颈</p></div>
+                            <div class="cockpit-risk-meta"><span class="avatar human">PT</span><span>研发工程</span></div>
+                            <div class="cockpit-row-actions"><span class="pill">2 天</span><button class="cockpit-link" type="button" data-workbench-open-task="TSK-1042">查看</button></div>
+                          </article>
+                          <article class="cockpit-row cockpit-risk-row">
+                            <span class="cockpit-severity low">P2</span>
+                            <div class="cockpit-item-main"><div class="cockpit-item-title"><strong>员工平台与插件平台的移动端验收标准不一致</strong></div><p>存在重复回归与责任边界争议</p></div>
+                            <div class="cockpit-risk-meta"><span class="avatar role">QA</span><span>质量工程</span></div>
+                            <div class="cockpit-row-actions"><span class="pill">待对齐</span><button class="cockpit-link" type="button" data-workbench-jump="WF-208">查看</button></div>
+                          </article>
+                        </div>
+                      </div>
+                    </section>
+
+                    <section class="cockpit-panel cockpit-span-6" aria-labelledby="cockpitFleetTitle">
+                      <div class="cockpit-panel-head">
+                        <div class="cockpit-panel-title">
+                          <h3 id="cockpitFleetTitle">AI Teammate 运行态势</h3>
+                          <p>组织内有权限查看的 Agent 实例</p>
+                        </div>
+                        <span class="cockpit-panel-meta">5 个实例</span>
+                      </div>
+                      <div class="cockpit-panel-body">
+                        <div class="cockpit-list cockpit-agent-list">
+                          <article class="cockpit-row cockpit-agent-row">
+                            <div class="cockpit-agent-name"><strong><span class="avatar agent">RA</span><span>Research Avatar</span></strong><small>Olivia · 会前研究</small></div>
+                            <div class="cockpit-agent-state"><p>汇总发布风险与会前决策项</p><small>TSK-1043 · 运行 18 分钟</small></div>
+                            <span class="cockpit-state">运行中</span>
+                          </article>
+                          <article class="cockpit-row cockpit-agent-row">
+                            <div class="cockpit-agent-name"><strong><span class="avatar agent">OA</span><span>Ops Avatar 02</span></strong><small>Olivia · 流程跟进</small></div>
+                            <div class="cockpit-agent-state"><p>等待停机窗口确认，已升级给 Peter</p><small>WF-197 · 等待 32 分钟</small></div>
+                            <span class="cockpit-state waiting">等待</span>
+                          </article>
+                          <article class="cockpit-row cockpit-agent-row">
+                            <div class="cockpit-agent-name"><strong><span class="avatar agent">BE</span><span>Backend DE 01</span></strong><small>平台 · 后端工程</small></div>
+                            <div class="cockpit-agent-state"><p>执行发布前一致性检查</p><small>WF-197 · 10:24 更新</small></div>
+                            <span class="cockpit-state">运行中</span>
+                          </article>
+                          <article class="cockpit-row cockpit-agent-row">
+                            <div class="cockpit-agent-name"><strong><span class="avatar agent">QA</span><span>QA DE 02</span></strong><small>平台 · 质量工程</small></div>
+                            <div class="cockpit-agent-state"><p>生成移动端回归风险清单</p><small>TSK-1042 · 09:52 更新</small></div>
+                            <span class="cockpit-state review">待验收</span>
+                          </article>
+                          <article class="cockpit-row cockpit-agent-row">
+                            <div class="cockpit-agent-name"><strong><span class="avatar agent">UX</span><span>UX Avatar</span></strong><small>Olivia · 员工平台</small></div>
+                            <div class="cockpit-agent-state"><p>等待 MTG-118 开始</p><small>下一动作 11:00</small></div>
+                            <span class="cockpit-state idle">待命</span>
+                          </article>
+                        </div>
+                      </div>
+                    </section>
+
+                    <div class="cockpit-scope-note cockpit-span-12">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3 5 6v5c0 4.6 2.9 8.4 7 10 4.1-1.6 7-5.4 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg>
+                      <span>组织视图仅聚合当前用户有权限查看的项目、Human Employee 和 AI Teammate，不展示未授权人员明细。</span>
+                    </div>
+                  </div>
+                </section>
+            </div>
           </section>
 
           <section class="view" id="taskView">
@@ -1494,6 +2629,7 @@
           </div>
           <select id="priorityFilter" class="compact" aria-label="按优先级筛选任务">
             <option value="">全部优先级</option>
+            <option value="P0">P0</option>
             <option value="P1">P1</option>
             <option value="P2">P2</option>
             <option value="P3">P3</option>
@@ -1668,6 +2804,7 @@
           <label class="field">
             <span class="label">优先级</span>
             <select name="priority">
+              <option value="P0">P0 · 紧急</option>
               <option value="P1">P1 · 高</option>
               <option value="P2" selected>P2 · 中</option>
               <option value="P3">P3 · 低</option>
@@ -1764,6 +2901,71 @@
         <span class="assignment-footer-summary" id="assignmentSelectionSummary">未选择任务</span>
         <button class="primary" id="assignmentConfirm" type="button" disabled>确认指派</button>
       </div>
+    </div>
+  </div>
+
+  <div class="mask" id="metricSettingsMask" role="dialog" aria-modal="true" aria-labelledby="metricSettingsTitle">
+    <div class="modal">
+      <div class="modal-head">
+        <h2 id="metricSettingsTitle">配置核心指标</h2>
+        <button class="icon-btn" id="closeMetricSettings" aria-label="关闭" type="button">×</button>
+      </div>
+      <form class="metric-settings" id="metricSettingsForm">
+        <div class="metric-settings-list" id="metricSettingsList"></div>
+        <p class="metric-settings-help">最多选择 5 项，所选指标将在看板中按一行展示。</p>
+        <div class="footer">
+          <button class="ghost" id="cancelMetricSettings" type="button">取消</button>
+          <button class="primary" type="submit">保存配置</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="mask" id="workbenchLayoutMask" role="dialog" aria-modal="true" aria-labelledby="workbenchLayoutTitle">
+    <div class="modal layout-manager">
+      <div class="modal-head">
+        <h2 id="workbenchLayoutTitle">布局管理</h2>
+        <button class="icon-btn" id="closeWorkbenchLayout" aria-label="关闭" type="button">×</button>
+      </div>
+      <form class="metric-settings" id="workbenchLayoutForm">
+        <div class="layout-save-row">
+          <input id="workbenchLayoutName" placeholder="输入布局名称，例如：上午专注" autocomplete="off" maxlength="24">
+          <button class="primary" type="submit">保存当前布局</button>
+        </div>
+        <div class="layout-list" id="workbenchLayoutList"></div>
+        <p class="layout-help">拖拽和调整宽度后的模块会自动保存到当前布局。默认布局用于工作台头部的重置操作。</p>
+        <div class="footer">
+          <button class="ghost" id="cancelWorkbenchLayout" type="button">关闭</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="mask" id="briefScheduleMask" role="dialog" aria-modal="true" aria-labelledby="briefScheduleTitle">
+    <div class="modal">
+      <div class="modal-head">
+        <h2 class="schedule-title" id="briefScheduleTitle">更新频次</h2>
+        <button class="icon-btn" id="closeBriefSchedule" aria-label="关闭" type="button">×</button>
+      </div>
+      <form id="briefSchedulePanel" aria-label="简报更新频次设置">
+        <div class="schedule-controls">
+          <select id="briefFrequency" aria-label="选择简报更新频次">
+            <option value="daily-8">每天 08:00</option>
+            <option value="daily-8-13" selected>每天 08:00 / 13:00</option>
+            <option value="every-4">每 4 小时</option>
+            <option value="weekly">每周一 08:00</option>
+          </select>
+          <div>
+            <label class="schedule-help" for="briefQuietHours">静默窗口：22:00 - 07:00，紧急 P0 供给中断仍会立即推送。</label>
+            <input id="briefQuietHours" value="22:00 - 07:00" aria-label="简报静默窗口">
+          </div>
+        </div>
+        <p class="schedule-help">频次变更只影响简报聚合与推送；底层指标仍按事件实时刷新。</p>
+        <div class="footer">
+          <button class="ghost" type="button" data-action="brief-schedule-cancel">取消</button>
+          <button class="primary" type="submit">保存频次</button>
+        </div>
+      </form>
     </div>
   </div>
 
@@ -1885,6 +3087,11 @@
         id: "MTG-114", title: "发布风险同步", workspace: "一切皆插件", time: "今天 10:00 - 10:40",
         status: "进行中",
         description: "对齐发布前的回滚触发条件、责任人与数据一致性风险，确认哪些项必须由 Olivia 会前拍板。",
+        minutes: {
+          updatedAt: "今天 10:24",
+          conclusions: ["Peter 认领回滚脚本补齐；发布前继续保留风险清单复核结论。"],
+          pending: ["停机窗口与数据一致性责任人待确认，未确认前不进入发布窗口。"],
+        },
         participants: [
           { name: "Olivia", kind: "human" },
           { name: "Peter", kind: "human" },
@@ -1953,6 +3160,11 @@
         id: "MTG-121", title: "客户迁移发布评审", workspace: "客户成功", time: "今天 16:30 - 17:00",
         status: "已完成",
         description: "评审客户迁移发布的回滚说明、责任人与停机窗口，确认是否可以按计划放行。",
+        minutes: {
+          updatedAt: "今天 17:00",
+          conclusions: ["Peter 补齐回滚说明责任人；迁移发布维持评审后的准备路径。"],
+          pending: ["最大可接受停机时间待确认，当前节点继续阻塞。"],
+        },
         participants: [
           { name: "Olivia", kind: "human" },
           { name: "Peter", kind: "human" },
@@ -2271,6 +3483,13 @@
         scenarios: ["代码实现：先确认接口契约，再拆分最小可验证改动。", "线上排查：优先汇总证据链，区分事实、推断和待确认项。", "发布评审：检查回滚条件、权限边界和监控覆盖。"],
         goals: ["保持交付可验证", "降低跨服务变更风险", "主动暴露阻塞与依赖"],
         profileId: "profile-backend-engineer",
+        runtimeId: "de-backend-de-01",
+        projectGroups: [
+          {
+            name: "一切皆插件", role: "member", joinedAt: "09/18", source: "平台管理员开通",
+            fileAccess: "readwrite", scope: "会话与任务 · 共享文件读写 · 会议",
+          },
+        ],
         taskIds: ["TSK-1038"],
         activity: ["09:40 检查任务 TSK-1038 的会议来源", "09:18 更新服务异常定位策略", "昨天 18:05 管理员调整全局生效版本"],
       },
@@ -2291,6 +3510,13 @@
         scenarios: ["需求评审：识别模糊边界和不可验证描述。", "验收设计：按正常、异常、并发和权限拆分用例。"],
         goals: ["让验收标准可执行", "减少回归遗漏", "让缺陷具备稳定复现路径"],
         profileId: "profile-quality-engineer",
+        runtimeId: "de-qa-de-02",
+        projectGroups: [
+          {
+            name: "员工平台", role: "member", joinedAt: "09/22", source: "平台管理员开通",
+            fileAccess: "readonly", scope: "会话与任务 · 共享文件只读",
+          },
+        ],
         taskIds: [],
         activity: ["昨天 16:20 管理员将全局定义设为失效", "昨天 15:52 更新移动端验收策略"],
       },
@@ -2311,7 +3537,18 @@
         scenarios: ["会前研究：提取议题、背景、分歧和决策点。", "风险同步：按影响、概率和 owner 聚类。", "任务跟进：只汇报和更新事项，不替本人确认结论。"],
         goals: ["减少会前信息准备时间", "让风险项始终有来源", "识别需要本人介入的决策"],
         profileId: "profile-research-analyst",
-        taskIds: ["TSK-1032", "TSK-1043", "TSK-1044", "TSK-1045", "TSK-1046"],
+        runtimeId: "avatar-olivia-research",
+        projectGroups: [
+          {
+            name: "一切皆插件", role: "member", joinedAt: "09/12", source: "Olivia 授权",
+            fileAccess: "readwrite", scope: "会话与任务 · 共享文件读写 · 会议",
+          },
+          {
+            name: "员工平台", role: "guest", joinedAt: "09/22", source: "Olivia 授权",
+            fileAccess: "readonly", scope: "会话与任务 · 共享文件只读",
+          },
+        ],
+        taskIds: ["TSK-1032", "TSK-1043", "TSK-1044", "TSK-1045", "TSK-1046", "TSK-1053"],
         activity: [
           "今天 10:26 Research Avatar 提交 TSK-1044 等待 review",
           "今天 09:48 TSK-1043 进入进行中",
@@ -2337,6 +3574,13 @@
         scenarios: ["工作流跟进：识别阻塞节点并提醒 owner。", "到期管理：按临近程度和影响排序。"],
         goals: ["减少流程停滞", "保留每次催办记录", "不让未确认事项进入完成态"],
         profileId: "profile-operations-followup",
+        runtimeId: "avatar-olivia-ops-02",
+        projectGroups: [
+          {
+            name: "客户成功", role: "member", joinedAt: "09/21", source: "Olivia 授权",
+            fileAccess: "readwrite", scope: "会话与任务 · 共享文件读写",
+          },
+        ],
         taskIds: [],
         activity: ["09/21 14:30 Olivia 暂停了该分身", "09/21 11:05 完成工作流 WF-189 风险复查"],
       },
@@ -2401,6 +3645,44 @@
       ],
     };
     let tasks = [
+      {
+        id: "TSK-1050", title: "A-2200 高压阀体断料风险处置", type: "任务", status: "todo",
+        priority: "P0", workspace: "客户成功", receiverType: "human", receiver: "olivia",
+        createdBy: "Workflow Bot", createdAt: "2026-09-23 08:02", due: "2026-09-23",
+        source: "workflow",
+        description: "两周供给覆盖仅 4.2 天。需要确认安全库存释放数量、苏州汇川 200 件 48 小时产能承诺，以及 3 张关键订单的交付沟通口径。",
+        acceptance: ["确认 120 件安全库存释放方案", "锁定 200 件备用产能承诺", "输出 3 张订单的交付影响结论"],
+        links: [{ type: "工作流", label: "客户迁移发布", id: "WF-197" }],
+        events: [
+          { time: "09/23 08:02", text: "<b>Workflow Bot</b> 根据供给例外生成任务并指派给 <b>Olivia</b>" },
+          { time: "09/23 08:04", text: "AI 简报已将该项标记为今日决策点" },
+        ],
+      },
+      {
+        id: "TSK-1051", title: "关键物料安全库存补齐审批", type: "评审", status: "review",
+        priority: "P0", workspace: "客户成功", receiverType: "human", receiver: "olivia",
+        createdBy: "Procurement Agent", createdAt: "2026-09-23 07:48", due: "2026-09-23",
+        source: "workflow",
+        description: "AI 基于两周需求预测和当前在途生成补齐方案，需人工确认资金占用、替代产能与合同约束后才能进入执行。",
+        acceptance: ["确认补齐数量与资金占用", "确认替代产能约束", "通过采购合规复核"],
+        links: [{ type: "工作流", label: "供给风险处置", id: "WF-221" }],
+        events: [
+          { time: "09/23 07:48", text: "<b>Procurement Agent</b> 提交审批并等待 <b>Olivia</b> 验收" },
+        ],
+      },
+      {
+        id: "TSK-1052", title: "MRO 化工品年度框架合同评审", type: "评审", status: "review",
+        priority: "P2", workspace: "客户成功", receiverType: "human", receiver: "olivia",
+        createdBy: "Peter", createdAt: "2026-09-22 17:20", due: "2026-09-24",
+        source: "regular",
+        description: "复核价格调整公式、最小承诺量、交期赔偿和 ESG 附加条款，确认是否具备签署条件。",
+        acceptance: ["确认价格公式和调整窗口", "确认最小承诺量风险", "补充交期赔偿条款"],
+        links: [],
+        events: [
+          { time: "09/22 17:20", text: "<b>Peter</b> 创建并指派给 <b>Olivia</b>" },
+          { time: "09/23 09:35", text: "<b>Peter</b> 提交验收" },
+        ],
+      },
       {
         id: "TSK-1040", title: "顶层全局入口与 Session 入口布局评审", type: "评审", status: "progress",
         priority: "P2", workspace: "一切皆插件", receiverType: "human", receiver: "olivia",
@@ -2522,6 +3804,18 @@
           { time: "09/21 16:30", text: "Olivia 验收通过并 <b>归档任务</b>" },
         ],
       },
+      {
+        id: "TSK-1053", title: "供应链例外决策材料预研", type: "任务", status: "todo",
+        priority: "P2", workspace: "客户成功", receiverType: "agent", receiver: "meeting-avatar",
+        createdBy: "Olivia", createdAt: "2026-09-23 09:05", due: "2026-09-26",
+        description: "汇总安全库存、替代产能和关键订单影响，输出一页会前决策材料，标记需要 Olivia 人工确认的口径。",
+        acceptance: ["汇总当前供给异常", "识别 3 个决策点", "每项结论保留来源"],
+        autoSubmitReview: true,
+        links: [],
+        events: [
+          { time: "09/23 09:05", text: "<b>Olivia</b> 创建并派发给 <b>Research Avatar</b>" },
+        ],
+      },
     ];
 
     tasks.forEach((task, index) => {
@@ -2534,6 +3828,95 @@
         done: task.status === "done" || (task.status === "review" && stepIndex === 0) || (task.status === "progress" && stepIndex === 0),
       }));
     });
+
+    const aiWorkReports = {
+      "personal-research-avatar": [
+        {
+          date: workReportDateValue(0), generatedAt: `${workReportDateValue(0).slice(5)} 08:00`, excerpt: "今日聚焦发布风险清单复核和季度纪要验收。",
+          content: `## 今日概要
+
+今日聚焦发布风险清单复核和季度纪要验收。已识别 **2 个**需要 Olivia 会前确认的决策点。
+
+## 执行记录
+
+- \`09:18\` 开始复核发布风险清单，合并会议结论与任务进展。
+- \`09:48\` TSK-1043 进入进行中。
+- \`10:26\` TSK-1044 提交 review，等待跨团队依赖确认。
+
+## 风险与待确认
+
+1. 数据回滚责任人尚未确认。
+2. 季度纪要中的跨团队依赖缺少承诺时间。
+
+## 明日计划
+
+跟进风险责任人确认，并根据评审意见修订季度纪要。`,
+        },
+        {
+          date: workReportDateValue(-1), generatedAt: `${workReportDateValue(-1).slice(5)} 18:05`, excerpt: "完成员工平台周会资料结构化摘要并通过验收。",
+          content: `## 今日概要
+
+完成员工平台周会资料结构化摘要并通过验收，季度规划会议纪要进入初稿阶段。
+
+## 执行记录
+
+- \`17:46\` 完成 TSK-1045 并同步结构化摘要。
+- 季度纪要初稿继续保留跨团队依赖清单，等待 owner 补充。
+
+## 明日计划
+
+汇总待确认项并提交评审。`,
+        },
+      ],
+      "platform-backend-de": [
+        {
+          date: workReportDateValue(0), generatedAt: `${workReportDateValue(0).slice(5)} 08:00`, excerpt: "风险跟进清单已完成第一版。",
+          content: `## 今日概要
+
+风险跟进清单已完成第一版，正在补充不可自动判断项的升级条件。
+
+## 执行记录
+
+- \`11:41\` 读取会议摘要与审计记录，保留证据链。
+- \`11:58\` 输出 TSK-1038 风险清单第一版。
+
+## 风险与待确认
+
+分身过期场景无法自动确认责任人，需要升级给 Olivia。
+
+## 明日计划
+
+输出建议完成时间和人工升级条件。`,
+        },
+      ],
+    };
+    const aiAuditTrails = {
+      "personal-research-avatar": [
+        { time: "09/23 10:26", text: "Research Avatar 提交 TSK-1044「季度规划会议纪要整理」进入 review，等待跨团队依赖确认。" },
+        { time: "09/23 10:12", text: "Research Avatar 启动会前风险复核，读取发布风险清单和最近会议结论。" },
+        { time: "09/23 09:48", text: "Research Avatar 将 TSK-1043 从待处理移入进行中。" },
+        { time: "09/23 09:32", text: "Research Avatar 通过已授权的 meeting.search 读取 3 份会议纪要和决策点。" },
+        { time: "09/22 18:22", text: "Olivia 更新个性化 SOUL.md，补充不替代 Olivia 做最终决策的约束。" },
+        { time: "09/22 17:46", text: "Research Avatar 完成 TSK-1045，并同步结构化摘要。" },
+        { time: "09/21 16:30", text: "Olivia 验收通过后归档 TSK-1046 历史研究记录。" },
+      ],
+      "platform-backend-de": [
+        { time: "09/23 11:58", text: "Backend DE 01 生成 TSK-1038 风险跟进清单第一版。" },
+        { time: "09/23 11:41", text: "Backend DE 01 通过已授权的 repo.audit 和 meeting.summary 读取证据链。" },
+        { time: "09/23 09:40", text: "平台管理员调整服务异常定位策略，并发布 v3.4。" },
+        { time: "09/22 16:08", text: "Backend DE 01 完成发布前一致性检查，标记 2 项需要 owner 确认。" },
+      ],
+      "platform-qa-de": [
+        { time: "09/22 16:20", text: "平台管理员将全局质量工程 DE 置为失效。" },
+        { time: "09/22 15:52", text: "平台管理员更新移动端验收策略，补充触控目标校验。" },
+        { time: "09/21 10:24", text: "QA DE 02 生成回归风险清单，并标记 3 个未覆盖场景。" },
+      ],
+      "personal-ops-avatar": [
+        { time: "09/21 14:30", text: "Olivia 暂停运营分身，停止接收新任务和自动跟进。" },
+        { time: "09/21 11:05", text: "Ops Avatar 02 完成工作流 WF-189 风险复查，并记录催办结论。" },
+        { time: "09/21 10:12", text: "Ops Avatar 02 通过已授权的 workflow.reminder 发送到期提醒。" },
+      ],
+    };
 
     let selectedId = tasks[0].id;
     let pendingAssignee = null;
@@ -2554,11 +3937,68 @@
       sent: false, mine: true, search: "", receiver: "", priority: "",
       workspace: "一切皆插件", taskProject: "", workflowProject: "",
     };
+    let followedTaskIds = new Set(["TSK-1035", "TSK-1050"]);
+    let followedWorkflowIds = new Set(["WF-197", "WF-208"]);
+    let workbenchState = {
+      mode: "personal",
+      briefRefreshing: false, scheduleOpen: false, frequency: "daily-8-13",
+      selectedKpis: ["otif", "inventory-turn", "supplier-otd", "price-achievement"],
+    };
+    const metricDefinitions = [
+      {
+        id: "otif", label: "OTIF", value: "94.2", unit: "%", trend: "+0.8pt", trendClass: "up",
+        target: "目标 95% · 差距 0.8pt", description: "订单足量、准时送达率",
+        spark: [8, 12, 52, 46, 68, 74, 58, 38, 31],
+      },
+      {
+        id: "inventory-turn", label: "库存周转天数", value: "38.6", unit: "天", trend: "-1.6天", trendClass: "up",
+        target: "目标 36天 · 高价值库存占比 28%", description: "存货变现速度与资金占用",
+        spark: [82, 76, 71, 64, 55, 58, 51, 48, 42],
+      },
+      {
+        id: "supplier-otd", label: "供应商准时率", value: "92.7", unit: "%", trend: "-2.4pt", trendClass: "down",
+        target: "2 家供应商低于阈值", description: "承诺到货时间达成情况",
+        spark: [78, 74, 70, 66, 61, 48, 41, 34, 29],
+      },
+      {
+        id: "price-achievement", label: "采购价格达成", value: "101.4", unit: "%", trend: "+1.4%", trendClass: "up",
+        target: "连接器 -3.8% · 铜材 +2.1%", description: "关键物料价格对比基线",
+        spark: [41, 46, 44, 62, 58, 68, 72, 78, 84],
+      },
+      {
+        id: "supply-risk", label: "供应风险指数", value: "63", unit: "", trend: "+3.0", trendClass: "down",
+        target: "目标 ≤60 · 2 项单源高风险", description: "产能、质量和单源依赖综合评分",
+        spark: [38, 42, 45, 48, 52, 56, 58, 62, 63],
+      },
+    ];
+    const metricSelectionKey = "dsh-workbench-metrics-v1";
+    function saveWorkbenchMetricSelection(ids) {
+      try {
+        window.localStorage.setItem(metricSelectionKey, JSON.stringify(ids));
+      } catch (_) {
+        // Demo storage may be unavailable; the runtime selection still works.
+      }
+    }
+    try {
+      const savedMetrics = JSON.parse(window.localStorage.getItem(metricSelectionKey) || "");
+      if (Array.isArray(savedMetrics)) {
+        const validIds = savedMetrics.filter((id) => metricDefinitions.some((metric) => metric.id === id));
+        if (validIds.length) workbenchState.selectedKpis = [...new Set(validIds)];
+      }
+    } catch (_) {
+      // Keep the default KPI set when storage is unavailable or malformed.
+    }
+    function workReportDateValue(offsetDays = 0) {
+      const date = new Date();
+      date.setDate(date.getDate() + offsetDays);
+      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    }
     let ui = {
-      globalView: "task", sessionView: null, currentSessionId: "sess-risk", currentMeetingId: "MTG-114",
+      globalView: "workbench", sessionView: null, currentSessionId: "sess-risk", currentMeetingId: "MTG-114",
       leftOpen: true, meetingOpen: false, detailOpen: false,
       detailReturn: null,
       aiTab: "runtime", aiSelectedId: "personal-research-avatar", aiEditing: false, isAdmin: true,
+      aiRuntimeTab: "current", aiWorkPlanProject: "", aiWorkReportDateFrom: workReportDateValue(-6), aiWorkReportDateTo: workReportDateValue(), aiWorkReportSearch: "", aiWorkReportGenerating: false,
       profileOpen: false, profileSelectedId: "profile-backend-engineer", profileEditing: false, profileSearch: "",
       workflowTemplateOpen: false, workflowTemplateSelectedId: "workflow-template-employee-node",
       workflowTemplateEditing: false, workflowTemplateSearch: "", workflowTemplateWorkspace: "", workflowTemplateValidation: null,
@@ -2623,12 +4063,13 @@
                 const avatarPerson = { id: task.receiver, name, kind: kind === "unassigned" ? "role" : kind };
                 return `
                   <article class="task-card" draggable="true" data-id="${task.id}" tabindex="0" role="button" aria-label="打开 ${task.title}">
+                    ${renderFollowButton("task", task.id)}
                     <span class="id">${task.id}</span>
                     <div class="title">${task.title}</div>
                     <div class="description">${task.description}</div>
                     <div class="card-progress"><span style="width:${task.progress}%"></span></div>
                     <div class="meta">
-                      <span class="pill ${task.priority === "P1" ? "high" : ""}">${task.priority}</span>
+                      <span class="pill ${["P0", "P1"].includes(task.priority) ? "high" : ""}">${task.priority}</span>
                       <span class="pill">${executor}</span>
                       <span class="assignee">
                         ${renderPersonAvatar(avatarPerson)}
@@ -2757,7 +4198,10 @@
           </div>
           <div class="workflow-bottom">
             <small>${item.id} · ${item.workspace} · 更新于 ${item.updatedAt}</small>
-            <button class="ghost small" type="button" data-demo="打开工作流 ${item.id}">打开工作流</button>
+            <div class="head-actions">
+              ${renderFollowButton("workflow", item.id)}
+              <button class="ghost small" type="button" data-demo="打开工作流 ${item.id}">打开工作流</button>
+            </div>
           </div>
         </article>
       `).join("") : '<div class="empty">当前项目没有工作流。</div>';
@@ -3043,28 +4487,581 @@
     }
 
     function renderWorkbench() {
-      const list = workbench.filter((item) => !state.workspace || item.workspace === state.workspace);
-      $("#workbenchList").innerHTML = list.length ? list.map((item) => `
-        <article class="employee-module">
-          <div class="employee-head">
-            <span class="avatar human">${initials(item.employee)}</span>
+      document.querySelectorAll("#workbenchModeTabs [data-workbench-mode]").forEach((item) => {
+        const active = item.dataset.workbenchMode === workbenchState.mode;
+        item.classList.toggle("active", active);
+        item.setAttribute("aria-pressed", String(active));
+      });
+      $("#personalWorkbench").hidden = workbenchState.mode !== "personal";
+      $("#cockpitWorkbench").hidden = workbenchState.mode !== "cockpit";
+      document.querySelectorAll("#workbenchLayoutManage, #workbenchLayoutReset").forEach((button) => {
+        button.hidden = workbenchState.mode !== "personal";
+      });
+      const refreshButton = $("#briefRefreshButton");
+      if (refreshButton) {
+        refreshButton.disabled = workbenchState.briefRefreshing;
+        refreshButton.classList.toggle("refreshing", workbenchState.briefRefreshing);
+        refreshButton.title = workbenchState.briefRefreshing ? "生成中..." : "手动刷新";
+        refreshButton.setAttribute("aria-label", workbenchState.briefRefreshing ? "简报生成中" : "手动刷新简报");
+      }
+      const scheduleToggle = $("#briefScheduleToggle");
+      const scheduleMask = $("#briefScheduleMask");
+      if (scheduleToggle && scheduleMask) {
+        scheduleMask.classList.toggle("open", workbenchState.scheduleOpen);
+        scheduleToggle.setAttribute("aria-expanded", String(workbenchState.scheduleOpen));
+      }
+      const todoItems = workbenchTodoItems();
+      $("#todoCount").textContent = `${todoItems.length} 项`;
+      $("#workbenchTodoList").innerHTML = todoItems.length ? todoItems.map((task) => {
+        const source = taskSource(task);
+        const dueToday = task.due === "2026-09-23";
+        return `
+          <article class="todo-item" data-workbench-open-task="${task.id}" tabindex="0" role="button" aria-label="打开 ${task.title}">
             <div>
-              <h3>${item.employee}</h3>
-              <div class="employee-role">${item.role} · ${item.workspace}</div>
+              <div class="todo-title">
+                <span class="id">${task.id}</span>
+                <strong>${task.title}</strong>
+              </div>
+              <div class="todo-context">
+                <span class="pill ${["P0", "P1"].includes(task.priority) ? "high" : ""}">${task.priority}</span>
+                <span class="pill ${task.status}">${statusLabel[task.status]}</span>
+                <span class="pill ${source === "workflow" ? "progress" : ""}">${source === "workflow" ? "工作流生成" : "常规任务"}</span>
+                <span class="workspace">${task.workspace}</span>
+                <span class="assignee">
+                  ${renderPersonAvatar({ id: task.receiver, name: receiverName(task), kind: task.receiverType })}
+                  <span class="assignee-name">${receiverDisplay(task)}</span>
+                </span>
+              </div>
+            </div>
+            <div class="todo-trailing">
+              <span class="due-chip ${dueToday ? "today" : ""}">${task.due ? task.due.slice(5) : "不限"}</span>
+              <button class="ghost small wb-open-btn" type="button" data-workbench-open-task="${task.id}">详情</button>
+            </div>
+          </article>
+        `;
+      }).join("") : '<div class="empty compact">没有符合条件的待办。</div>';
+
+      const meetingMinutes = meetings.filter((meeting) => meeting.minutes);
+      $("#meetingMinutesCount").textContent = `${meetingMinutes.length} 场`;
+      $("#meetingMinutesList").innerHTML = meetingMinutes.length ? meetingMinutes.map((meeting) => `
+        <article class="todo-item" data-workbench-open-meeting="${meeting.id}" tabindex="0" role="button" aria-label="打开 ${meeting.title} 会议纪要">
+          <div>
+            <div class="todo-title">
+              <span class="id">${meeting.id}</span>
+              <strong>${meeting.title}</strong>
+            </div>
+            <div class="todo-summary">
+              <span><b>结论</b>${meeting.minutes.conclusions.join("；")}</span>
+              <span><b>待确认</b>${meeting.minutes.pending.join("；")}</span>
+            </div>
+            <div class="todo-context">
+              <span class="pill ${meetingStatusClass(meeting.status)}">${meeting.status}</span>
+              <span class="pill">AI 摘要</span>
+              <span class="workspace">${meeting.workspace}</span>
+              <span class="assignee"><span class="assignee-name">${meeting.participants.length} 位参与者</span></span>
             </div>
           </div>
-          ${item.avatars.map((avatar) => `
-            <div class="avatar-line">
-              ${renderPersonAvatar({ ...avatar, kind: "agent" })}
-              <div class="name">
-                ${avatar.name}
-                <small>Owner ${avatar.owner} · ${avatar.context}</small>
-              </div>
-              <span class="status ${avatar.status}">${avatar.status === "active" ? "运行中" : "已过期"}</span>
-            </div>
-          `).join("")}
+          <div class="todo-trailing">
+            <span class="due-chip">${meeting.minutes.updatedAt.replace("今天 ", "")}</span>
+            <button class="ghost small wb-open-btn" type="button" data-workbench-open-meeting="${meeting.id}">详情</button>
+          </div>
         </article>
-      `).join("") : '<div class="empty">当前项目没有员工工作台数据。</div>';
+      `).join("") : '<div class="empty compact">暂无会议纪要。</div>';
+
+      const focusCount = tasks.filter((task) => followedTaskIds.has(task.id) && !task.archived).length
+        + workflows.filter((workflow) => followedWorkflowIds.has(workflow.id)).length;
+      $("#focusCount").textContent = `${focusCount} 项`;
+      $("#focusItemList").innerHTML = renderFocusItems();
+      renderWorkbenchMetrics();
+      syncWorkbenchModuleCols();
+    }
+
+    function renderWorkbenchMetrics() {
+      const grid = $("#metricGrid");
+      if (!grid) return;
+      const selected = workbenchState.selectedKpis
+        .map((id) => metricDefinitions.find((metric) => metric.id === id))
+        .filter(Boolean);
+      grid.innerHTML = selected.length ? selected.map((metric) => `
+        <article class="metric-tile">
+          <div class="metric-label">${metric.label} <span class="metric-trend ${metric.trendClass}">${metric.trend}</span></div>
+          <div class="metric-value">${metric.value}${metric.unit ? `<small>${metric.unit}</small>` : ""}</div>
+          <div class="metric-target">${metric.target}</div>
+          <div class="spark" aria-hidden="true">${metric.spark.map((height, index) => {
+            const tone = height >= 62 ? "strong" : height <= 36 ? "warn" : "";
+            return `<span class="${tone}" style="height:${height}%"></span>`;
+          }).join("")}</div>
+        </article>
+      `).join("") : '<div class="empty compact">至少选择 1 项核心指标。</div>';
+    }
+
+    const workbenchCanvas = $("#workbenchCanvas");
+    const workbenchLayoutKey = "dsh-workbench-layouts-v1";
+    const workbenchWidthCols = [1, 2, 3, 4, 5, 6];
+    const closestWorkbenchWidthCols = (value) => workbenchWidthCols.reduce((closest, current) =>
+      Math.abs(current - value) < Math.abs(closest - value) ? current : closest
+    );
+    const workbenchModuleOrder = Array.from(workbenchCanvas.querySelectorAll("[data-module]")).map((item) => item.dataset.module);
+    const workbenchModuleLabels = {
+      brief: "每日简报", metrics: "核心指标", todo: "我的待办", "meeting-minutes": "会议纪要",
+      focus: "重点关注", control: "供给例外", supplier: "供应商风险", cockpit: "管理驾驶舱",
+    };
+    const workbenchFactoryOrder = ["metrics", "brief", "todo", "focus", "meeting-minutes", "control", "supplier"];
+    const workbenchFactoryCols = {
+      brief: 6, metrics: 6, todo: 4, "meeting-minutes": 4,
+      focus: 2, control: 2, supplier: 4,
+    };
+    const cloneWorkbenchValue = (value) => JSON.parse(JSON.stringify(value));
+    function normalizeWorkbenchLayout(raw, id, name) {
+      const savedOrder = Array.isArray(raw?.order) ? raw.order : [];
+      const order = [...new Set(savedOrder.filter((moduleId) => workbenchModuleOrder.includes(moduleId)))]
+        .concat(workbenchModuleOrder.filter((moduleId) => !savedOrder.includes(moduleId)));
+      const modules = {};
+      Object.entries(raw?.modules || {}).forEach(([moduleId, value]) => {
+        if (!workbenchModuleOrder.includes(moduleId)) return;
+        const cols = closestWorkbenchWidthCols(Number(value?.cols) || workbenchFactoryCols[moduleId]);
+        const height = Number(value?.height);
+        modules[moduleId] = { cols, height: Number.isFinite(height) ? Math.max(190, Math.min(900, height)) : null };
+      });
+      return {
+        id, name,
+        order,
+        modules: workbenchModuleOrder.reduce((result, moduleId) => {
+          result[moduleId] = modules[moduleId] || {
+            cols: workbenchFactoryCols[moduleId],
+            height: null,
+          };
+          return result;
+        }, {}),
+      };
+    }
+    function normalizeWorkbenchLayouts(raw) {
+      const layouts = Array.isArray(raw?.layouts) ? raw.layouts : [];
+      const normalized = layouts
+        .filter((layout) => layout && layout.id && layout.name)
+        .map((layout) => normalizeWorkbenchLayout(layout, String(layout.id), String(layout.name)));
+      if (!normalized.length) return null;
+      const defaultId = normalized.some((layout) => layout.id === raw.defaultId) ? raw.defaultId : normalized[0].id;
+      const activeId = normalized.some((layout) => layout.id === raw.activeId) ? raw.activeId : defaultId;
+      const current = raw.current ? normalizeWorkbenchLayout(raw.current, "__runtime__", "当前布局") : null;
+      return { layouts: normalized, defaultId, activeId, current };
+    }
+    function createFactoryWorkbenchLayouts() {
+      return {
+        layouts: [normalizeWorkbenchLayout({
+          order: workbenchFactoryOrder,
+          modules: workbenchModuleOrder.reduce((result, moduleId) => {
+            result[moduleId] = { cols: workbenchFactoryCols[moduleId], height: null };
+            return result;
+          }, {}),
+        }, "factory-default", "默认工作台")],
+        defaultId: "factory-default",
+        activeId: "factory-default",
+        current: null,
+      };
+    }
+    function readWorkbenchLayouts() {
+      try {
+        return normalizeWorkbenchLayouts(JSON.parse(window.localStorage.getItem(workbenchLayoutKey) || "")) || createFactoryWorkbenchLayouts();
+      } catch (_) {
+        return createFactoryWorkbenchLayouts();
+      }
+    }
+    function writeWorkbenchLayouts() {
+      try {
+        window.localStorage.setItem(workbenchLayoutKey, JSON.stringify(workbenchLayouts));
+      } catch (_) {
+        // Demo storage may be unavailable in embedded browsers; the runtime layouts still work.
+      }
+    }
+    let activeLayoutResize = null;
+    let workbenchLayouts = readWorkbenchLayouts();
+    function currentWorkbenchLayout() {
+      const modules = {};
+      workbenchCanvas.querySelectorAll("[data-module]").forEach((card) => {
+        modules[card.dataset.module] = {
+          cols: Number(card.style.getPropertyValue("--wb-cols")) || Number(card.dataset.defaultCols),
+          height: card.classList.contains("resized") ? card.offsetHeight : null,
+        };
+      });
+      return {
+        order: Array.from(workbenchCanvas.querySelectorAll("[data-module]")).map((item) => item.dataset.module),
+        modules,
+      };
+    }
+    const activeWorkbenchLayout = () => workbenchLayouts.layouts.find((layout) => layout.id === workbenchLayouts.activeId) || workbenchLayouts.layouts[0];
+    const defaultWorkbenchLayout = () => workbenchLayouts.layouts.find((layout) => layout.id === workbenchLayouts.defaultId) || workbenchLayouts.layouts[0];
+    function applyWorkbenchLayout(layout) {
+      const map = new Map(Array.from(workbenchCanvas.querySelectorAll("[data-module]")).map((item) => [item.dataset.module, item]));
+      layout.order.map((id) => map.get(id)).filter(Boolean).forEach((card) => workbenchCanvas.append(card));
+      workbenchCanvas.querySelectorAll("[data-module]").forEach((card) => {
+        card.style.setProperty("--wb-cols", card.dataset.defaultCols);
+      });
+      Object.entries(layout.modules || {}).forEach(([id, value]) => {
+        const card = map.get(id);
+        if (!card) return;
+        const cols = closestWorkbenchWidthCols(Number(value.cols) || Number(card.dataset.defaultCols));
+        card.style.setProperty("--wb-cols", String(cols));
+        if (value.height) {
+          card.style.height = `${Math.max(190, Number(value.height))}px`;
+          card.classList.add("resized");
+        } else {
+          card.style.height = "";
+          card.classList.remove("resized");
+        }
+      });
+      syncWorkbenchModuleCols();
+    }
+    function syncActiveWorkbenchLayout() {
+      const active = activeWorkbenchLayout();
+      workbenchLayouts.activeId = active.id;
+      workbenchLayouts.current = null;
+      applyWorkbenchLayout(cloneWorkbenchValue(active));
+      writeWorkbenchLayouts();
+      renderWorkbenchLayoutControls();
+    }
+    function resetWorkbenchLayout() {
+      workbenchLayouts.activeId = workbenchLayouts.defaultId;
+      workbenchLayouts.current = null;
+      applyWorkbenchLayout(cloneWorkbenchValue(defaultWorkbenchLayout()));
+      writeWorkbenchLayouts();
+      renderWorkbenchLayoutControls();
+      toast("已恢复默认布局");
+    }
+    function initWorkbenchLayout() {
+      const active = activeWorkbenchLayout();
+      const isDefaultWithRuntime = active.id === workbenchLayouts.defaultId && workbenchLayouts.current;
+      applyWorkbenchLayout(cloneWorkbenchValue(isDefaultWithRuntime ? workbenchLayouts.current : active));
+      renderWorkbenchLayoutControls();
+    }
+    function syncWorkbenchModuleCols() {
+      workbenchCanvas.querySelectorAll("[data-module]").forEach((card) => {
+        const requestedCols = Number(card.style.getPropertyValue("--wb-cols")) || Number(card.dataset.defaultCols);
+        const cols = closestWorkbenchWidthCols(requestedCols);
+        card.style.setProperty("--wb-cols", String(cols));
+        card.dataset.cols = String(cols);
+      });
+    }
+    function layoutSummary(layout) {
+      return layout.order.map((moduleId) => `${workbenchModuleLabels[moduleId] || moduleId} ${layout.modules[moduleId]?.cols || 6}/6`).join(" · ");
+    }
+    function renderWorkbenchLayoutControls() {
+      const active = activeWorkbenchLayout();
+      const resetButton = $("#workbenchLayoutReset");
+      if (resetButton) resetButton.title = `恢复「${defaultWorkbenchLayout().name}」`;
+      const list = $("#workbenchLayoutList");
+      if (!list) return;
+      list.innerHTML = workbenchLayouts.layouts.map((layout) => {
+        const isActive = layout.id === active.id;
+        const isDefault = layout.id === workbenchLayouts.defaultId;
+        return `
+          <div class="layout-item ${isActive ? "active" : ""}">
+            <button class="layout-item-copy" data-workbench-layout-select="${layout.id}" type="button" aria-pressed="${isActive}">
+              <strong>${escapeHtml(layout.name)}${isDefault ? '<span class="layout-badge">默认</span>' : ""}</strong>
+              <span>${escapeHtml(layoutSummary(layout))}</span>
+            </button>
+            <div class="layout-actions">
+              <button class="ghost small" data-workbench-layout-default="${layout.id}" type="button" ${isDefault ? "disabled" : ""}>设为默认</button>
+              <button class="ghost small" data-workbench-layout-delete="${layout.id}" type="button" ${isDefault ? "disabled" : ""}>删除</button>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+    function saveWorkbenchLayoutWithName() {
+      const input = $("#workbenchLayoutName");
+      const baseName = input.value.trim();
+      if (!baseName) {
+        input.focus();
+        toast("请输入布局名称");
+        return;
+      }
+      if (workbenchLayouts.layouts.some((layout) => layout.name === baseName)) {
+        input.focus();
+        input.select();
+        toast("布局名称已存在，请换个名称");
+        return;
+      }
+      const name = baseName;
+      const layout = normalizeWorkbenchLayout(currentWorkbenchLayout(), `layout-${Date.now()}`, name);
+      workbenchLayouts.layouts.push(layout);
+      workbenchLayouts.activeId = layout.id;
+      workbenchLayouts.current = null;
+      writeWorkbenchLayouts();
+      input.value = "";
+      renderWorkbenchLayoutControls();
+      toast(`已保存布局「${name}」`);
+    }
+    function selectWorkbenchLayout(layoutId) {
+      if (!workbenchLayouts.layouts.some((layout) => layout.id === layoutId)) return;
+      workbenchLayouts.activeId = layoutId;
+      syncActiveWorkbenchLayout();
+      toast(`已切换到「${activeWorkbenchLayout().name}」`);
+    }
+    function setDefaultWorkbenchLayout(layoutId) {
+      if (!workbenchLayouts.layouts.some((layout) => layout.id === layoutId)) return;
+      workbenchLayouts.defaultId = layoutId;
+      writeWorkbenchLayouts();
+      renderWorkbenchLayoutControls();
+      toast(`已将「${defaultWorkbenchLayout().name}」设为默认`);
+    }
+    function deleteWorkbenchLayout(layoutId) {
+      const layout = workbenchLayouts.layouts.find((item) => item.id === layoutId);
+      if (!layout || layoutId === workbenchLayouts.defaultId) return;
+      workbenchLayouts.layouts = workbenchLayouts.layouts.filter((item) => item.id !== layoutId);
+      if (workbenchLayouts.activeId === layoutId) workbenchLayouts.activeId = workbenchLayouts.defaultId;
+      workbenchLayouts.current = null;
+      syncActiveWorkbenchLayout();
+      toast(`已删除布局「${layout.name}」`);
+    }
+    function openWorkbenchLayoutManager() {
+      $("#workbenchLayoutName").value = "";
+      renderWorkbenchLayoutControls();
+      $("#workbenchLayoutMask").classList.add("open");
+    }
+    function closeWorkbenchLayoutManager() {
+      $("#workbenchLayoutMask").classList.remove("open");
+    }
+    function startWorkbenchWidthResize(event, handle) {
+      const card = handle.closest("[data-module]");
+      if (!card) return;
+      event.preventDefault();
+      const startCols = Number(card.style.getPropertyValue("--wb-cols")) || Number(card.dataset.defaultCols);
+      const startWidth = card.offsetWidth;
+      const columnWidth = (startWidth - (startCols - 1) * 16) / startCols;
+      card.classList.add("resizing");
+      activeLayoutResize = {
+        kind: "width", card, startX: event.clientX,
+        startCols, columnStep: columnWidth + 16,
+      };
+      handle.setPointerCapture?.(event.pointerId);
+    }
+    function startWorkbenchHeightResize(event, card) {
+      event.preventDefault();
+      card.classList.add("resizing");
+      activeLayoutResize = {
+        kind: "height", card, startY: event.clientY,
+        startHeight: card.offsetHeight,
+      };
+      event.target.setPointerCapture?.(event.pointerId);
+    }
+    let activeModuleDrag = null;
+    function startModuleDrag(event, handle) {
+      const card = handle.closest("[data-module]");
+      if (!card) return;
+      event.preventDefault();
+      activeModuleDrag = { card, startX: event.clientX, startY: event.clientY };
+      card.classList.add("dragging");
+      card.setPointerCapture?.(event.pointerId);
+    }
+    function moveModuleDrag(event) {
+      const deltaX = event.clientX - activeModuleDrag.startX;
+      const deltaY = event.clientY - activeModuleDrag.startY;
+      activeModuleDrag.card.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
+      const target = Array.from(workbenchCanvas.querySelectorAll("[data-module]"))
+        .filter((item) => item !== activeModuleDrag.card)
+        .find((item) => {
+          const rect = item.getBoundingClientRect();
+          return event.clientX >= rect.left && event.clientX <= rect.right
+            && event.clientY >= rect.top && event.clientY <= rect.bottom;
+        });
+      if (!target) return;
+      const rect = target.getBoundingClientRect();
+      const after = event.clientY > rect.top + rect.height / 2;
+      const nextNode = after ? target.nextSibling : target;
+      if (nextNode === activeModuleDrag.card) return;
+      workbenchCanvas.insertBefore(activeModuleDrag.card, nextNode);
+      activeModuleDrag.startX = event.clientX;
+      activeModuleDrag.startY = event.clientY;
+      activeModuleDrag.card.style.transform = "";
+    }
+    function endModuleDrag(event) {
+      if (!activeModuleDrag) return;
+      activeModuleDrag.card.style.transform = "";
+      activeModuleDrag.card.classList.remove("dragging");
+      activeModuleDrag.card.releasePointerCapture?.(event.pointerId);
+      activeModuleDrag = null;
+      saveWorkbenchLayout();
+    }
+    function saveWorkbenchLayout() {
+      const active = activeWorkbenchLayout();
+      if (active.id === workbenchLayouts.defaultId) {
+        workbenchLayouts.current = currentWorkbenchLayout();
+      } else {
+        Object.assign(active, currentWorkbenchLayout());
+      }
+      writeWorkbenchLayouts();
+      renderWorkbenchLayoutControls();
+    }
+
+    const priorityRank = { P0: 0, P1: 1, P2: 2, P3: 3 };
+    const taskSource = (task) => task.source || (task.links?.some((link) => link.type === "工作流") ? "workflow" : "regular");
+    const frequencyLabel = {
+      "daily-8": "每天 08:00",
+      "daily-8-13": "每天 08:00 / 13:00",
+      "every-4": "每 4 小时",
+      weekly: "每周一 08:00",
+    };
+    function workbenchTodoItems() {
+      return tasks
+        .filter((task) => !task.archived
+          && belongsToMe(task)
+          && ["todo", "review"].includes(task.status))
+        .sort((left, right) => {
+          const priorityGap = priorityRank[left.priority] - priorityRank[right.priority];
+          if (priorityGap) return priorityGap;
+          if (left.due !== right.due) return (left.due || "9999").localeCompare(right.due || "9999");
+          return left.id.localeCompare(right.id);
+        });
+    }
+    function renderFollowButton(type, id) {
+      const followed = type === "task" ? followedTaskIds.has(id) : followedWorkflowIds.has(id);
+      return `
+        <button class="follow-btn ${followed ? "active" : ""}" data-follow-type="${type}" data-follow-id="${id}" type="button" aria-pressed="${followed}" title="${followed ? "取消关注" : "关注"}">
+          <svg viewBox="0 0 24 24" fill="${followed ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2.7 5.7 6.3.8-4.6 4.3 1.2 6.2L12 17.1 6.4 20l1.2-6.2L3 9.5l6.3-.8L12 3Z"/></svg>
+          <span>${followed ? "已关注" : "关注"}</span>
+        </button>
+      `;
+    }
+    function renderFocusItems() {
+      const focusTasks = tasks.filter((task) => followedTaskIds.has(task.id) && !task.archived);
+      const focusWorkflows = workflows.filter((workflow) => followedWorkflowIds.has(workflow.id));
+      const items = [
+        ...focusTasks.map((task) => `
+          <article class="todo-item" data-workbench-open-task="${task.id}" tabindex="0" role="button" aria-label="打开 ${task.title}">
+            <div>
+              <div class="todo-title">
+                <span class="id">${task.id}</span>
+                <strong>${task.title}</strong>
+              </div>
+              <div class="todo-context">
+                <span class="pill ${["P0", "P1"].includes(task.priority) ? "high" : ""}">${task.priority}</span>
+                <span class="pill ${task.status}">${statusLabel[task.status]}</span>
+                <span class="pill">关注任务</span>
+                <span class="workspace">${task.workspace}</span>
+                <span class="assignee">
+                  ${renderPersonAvatar({ id: task.receiver, name: receiverName(task), kind: task.receiverType })}
+                  <span class="assignee-name">${receiverDisplay(task)}</span>
+                </span>
+              </div>
+            </div>
+            <div class="todo-trailing">
+              <span class="due-chip">${task.due ? task.due.slice(5) : "不限"}</span>
+              <button class="ghost small wb-open-btn" type="button" data-workbench-open-task="${task.id}">详情</button>
+              ${renderFollowButton("task", task.id)}
+            </div>
+          </article>
+        `),
+        ...focusWorkflows.map((workflow) => `
+          <article class="todo-item" data-workbench-jump="${workflow.id}" tabindex="0" role="button" aria-label="打开 ${workflow.title}">
+            <div>
+              <div class="todo-title">
+                <span class="id">${workflow.id}</span>
+                <strong>${workflow.title}</strong>
+              </div>
+              <div class="todo-context">
+                <span class="pill ${workflow.status === "阻塞" ? "high" : "progress"}">${workflow.status}</span>
+                <span class="pill">关注工作流</span>
+                <span class="workspace">${workflow.workspace}</span>
+                <span class="assignee"><span class="assignee-name">更新于 ${workflow.updatedAt}</span></span>
+              </div>
+            </div>
+            <div class="todo-trailing">
+              <button class="ghost small wb-open-btn" type="button" data-workbench-jump="${workflow.id}">详情</button>
+              ${renderFollowButton("workflow", workflow.id)}
+            </div>
+          </article>
+        `),
+      ];
+      return items.length ? items.join("") : '<div class="empty compact">没有匹配的关注对象。</div>';
+    }
+    function renderMetricSettings() {
+      $("#metricSettingsList").innerHTML = metricDefinitions.map((metric) => `
+        <label class="metric-option">
+          <input name="selectedKpis" value="${metric.id}" type="checkbox" ${workbenchState.selectedKpis.includes(metric.id) ? "checked" : ""}>
+          <span>
+            <strong>${metric.label}</strong>
+            <small>${metric.description}</small>
+          </span>
+        </label>
+      `).join("");
+    }
+    function openMetricSettings() {
+      renderMetricSettings();
+      $("#metricSettingsMask").classList.add("open");
+    }
+    function closeMetricSettings() {
+      $("#metricSettingsMask").classList.remove("open");
+    }
+    function openBriefSchedule() {
+      workbenchState.scheduleOpen = true;
+      $("#briefFrequency").value = workbenchState.frequency;
+      renderWorkbench();
+    }
+    function closeBriefSchedule(resetValue = true) {
+      if (resetValue) $("#briefFrequency").value = workbenchState.frequency;
+      workbenchState.scheduleOpen = false;
+      renderWorkbench();
+    }
+    function refreshWorkbenchModule(button) {
+      if (button.disabled) return;
+      const moduleId = button.dataset.workbenchRefresh;
+      const label = workbenchModuleLabels[moduleId] || "模块";
+      button.disabled = true;
+      button.classList.add("refreshing");
+      window.setTimeout(() => {
+        if (!button.isConnected) return;
+        button.disabled = false;
+        button.classList.remove("refreshing");
+        toast(`${label}已刷新`);
+      }, 700);
+    }
+    function toggleFollow(type, id) {
+      const set = type === "task" ? followedTaskIds : followedWorkflowIds;
+      const label = type === "task" ? "任务" : "工作流";
+      if (set.has(id)) {
+        set.delete(id);
+        toast(`已取消关注${label} ${id}`);
+      } else {
+        set.add(id);
+        toast(`已关注${label} ${id}`);
+      }
+    }
+    function openWorkbenchTask(taskId) {
+      const task = tasks.find((item) => item.id === taskId);
+      if (!task) return;
+      selectedId = task.id;
+      pendingAssignee = null;
+      ui.globalView = "task";
+      ui.sessionView = null;
+      ui.detailOpen = true;
+      ui.detailReturn = { type: "workbench", scrollY: window.scrollY };
+      render();
+    }
+    function openWorkbenchMeeting(meetingId) {
+      const meeting = meetings.find((item) => item.id === meetingId);
+      if (!meeting) return;
+      ui.currentMeetingId = meeting.id;
+      ui.globalView = "meetingList";
+      ui.sessionView = null;
+      ui.meetingOpen = true;
+      ui.meetingListFilter = "all";
+      ui.meetingListSearch = "";
+      ui.meetingSearch = "";
+      ui.meetingEditing = false;
+      ui.meetingPickerOpen = false;
+      ui.meetingBriefEdit = null;
+      ui.meetingDispatchOpen = false;
+      render();
+    }
+    function openWorkbenchWorkflow(workflowId) {
+      const workflow = workflows.find((item) => item.id === workflowId);
+      if (!workflow) return;
+      state.workflowProject = "";
+      ui.globalView = "workflow";
+      ui.sessionView = null;
+      render();
+      toast(`已定位工作流 ${workflow.id}`);
     }
 
     function aiCanManage(teammate) {
@@ -3401,12 +5398,393 @@
       `;
     }
 
+    const workPlanPriorityRank = { P0: 0, P1: 1, P2: 2, P3: 3 };
+    const workPlanBaseDate = "2026-09-23";
+
+    function teammatePlanTasks(teammate) {
+      return (teammate.taskIds ?? [])
+        .map((id) => tasks.find((task) => task.id === id))
+        .filter((task) => task && !task.archived && task.status === "todo")
+        .sort((left, right) => {
+          const priorityGap = workPlanPriorityRank[left.priority] - workPlanPriorityRank[right.priority];
+          if (priorityGap) return priorityGap;
+          return String(left.createdAt || "").localeCompare(String(right.createdAt || ""));
+        });
+    }
+
+    function teammateCurrentTasks(teammate) {
+      const statusOrder = { progress: 0, review: 1, done: 2 };
+      return (teammate.taskIds ?? [])
+        .map((id) => tasks.find((task) => task.id === id))
+        .filter((task) => task && !task.archived && task.status !== "todo")
+        .sort((left, right) => statusOrder[left.status] - statusOrder[right.status]);
+    }
+
+    function compactPlanTitle(text) {
+      let title = String(text || "").split(/[。\n；;]/)[0].trim();
+      title = title.replace(/^(请|帮我|麻烦|让\s*Agent\s*)/, "");
+      title = title.replace(/[,，、]\s*优先级[:：]?\s*P[0-3]/ig, "");
+      title = title.replace(/\s*优先级[:：]?\s*P[0-3]/ig, "");
+      if (title.length > 42) title = `${title.slice(0, 42)}...`;
+      return title || "新的 AI Teammate 工作计划";
+    }
+
+    function addPlanBaseDays(days) {
+      const base = new Date(`${workPlanBaseDate}T00:00:00`);
+      base.setDate(base.getDate() + days);
+      const year = base.getFullYear();
+      const month = String(base.getMonth() + 1).padStart(2, "0");
+      const date = String(base.getDate()).padStart(2, "0");
+      return `${year}-${month}-${date}`;
+    }
+
+    function parseWorkPlanDate(text) {
+      const value = String(text || "");
+      if (/今天/.test(value)) return workPlanBaseDate;
+      if (/明天/.test(value)) return addPlanBaseDays(1);
+      if (/后天/.test(value)) return addPlanBaseDays(2);
+      const iso = value.match(/(2026)[-/.](\d{1,2})[-/.](\d{1,2})/);
+      if (iso) return `${iso[1]}-${iso[2].padStart(2, "0")}-${iso[3].padStart(2, "0")}`;
+      const short = value.match(/(\d{1,2})[-/](\d{1,2})/);
+      if (short) return `2026-${short[1].padStart(2, "0")}-${short[2].padStart(2, "0")}`;
+      const chinese = value.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]/);
+      if (chinese) return `2026-${chinese[1].padStart(2, "0")}-${chinese[2].padStart(2, "0")}`;
+      return "";
+    }
+
+    function parseWorkPlanInstruction(text) {
+      const value = String(text || "").trim();
+      const priorityMatch = value.match(/(?:^|[^A-Za-z0-9])(P[0-3])(?=$|[^A-Za-z0-9])/i);
+      const explicitWorkspace = workspaces.find((name) => value.includes(name));
+      const workspace = explicitWorkspace || state.workspace || "一切皆插件";
+      const due = parseWorkPlanDate(value);
+      return {
+        title: compactPlanTitle(value),
+        workspace,
+        hasExplicitWorkspace: Boolean(explicitWorkspace),
+        priority: priorityMatch ? priorityMatch[1].toUpperCase() : "P2",
+        due,
+        hasExplicitDue: Boolean(due),
+        hasExplicitPriority: Boolean(priorityMatch),
+      };
+    }
+
+    function renderWorkPlanParsed(parsed) {
+      const parts = [`优先级 ${parsed.priority}`];
+      if (parsed.due) parts.push(`截止 ${parsed.due}`);
+      parts.push(`项目 ${parsed.workspace}`);
+      return `已识别：${parts.join(" · ")}`;
+    }
+
+    function renderWorkPlanForm(teammate) {
+      const active = teammate.state === "active";
+      const defaultProject = ui.aiWorkPlanProject || state.workspace || "一切皆插件";
+      const defaultDueDate = addPlanBaseDays(1);
+      return `
+        <form class="work-plan-composer" data-work-plan-form>
+          <textarea name="instruction" placeholder="例如：请预研供应链例外决策材料，汇总安全库存和关键订单影响，9月26日前输出一页结论。" required></textarea>
+          <div class="work-plan-parsed" data-work-plan-parsed>优先级 P2 · 项目 ${escapeHtml(defaultProject)}</div>
+          <div class="work-plan-toolbar">
+            <div class="work-plan-controls">
+              <label class="work-plan-control">
+                <span>项目</span>
+                <select name="project" data-work-plan-project aria-label="项目">
+                  ${workspaces.map((name) => `<option value="${escapeHtml(name)}" ${name === defaultProject ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}
+                </select>
+              </label>
+              <label class="work-plan-control">
+                <span>优先级</span>
+                <select name="priority" data-work-plan-priority aria-label="优先级">
+                  ${["P0", "P1", "P2", "P3"].map((value) => `<option value="${value}" ${value === "P2" ? "selected" : ""}>${value}</option>`).join("")}
+                </select>
+              </label>
+              <label class="work-plan-control">
+                <input type="checkbox" name="autoSubmitReview" value="true" checked>
+                <span>自动提交 review</span>
+              </label>
+              <label class="work-plan-control">
+                <span>截止日期</span>
+                <input type="date" name="dueDate" value="${escapeHtml(defaultDueDate)}" data-work-plan-due aria-label="截止日期">
+              </label>
+            </div>
+            <button class="primary small" type="submit" ${active ? "" : "disabled"}>创建计划项</button>
+          </div>
+        </form>
+      `;
+    }
+
+    function renderWorkPlanTab(teammate) {
+      const planTasks = teammatePlanTasks(teammate);
+      return `
+        <div class="history-head runtime-tab-head work-plan-head">
+          <h3>工作计划</h3>
+          <span class="column-count">${planTasks.length} 个计划项</span>
+        </div>
+        ${renderWorkPlanForm(teammate)}
+        <div class="ai-runtime-list">
+          ${planTasks.length ? planTasks.map((task) => `
+            <article class="ai-runtime-item status-todo">
+              <div class="ai-runtime-main">
+                <strong>${task.id} · ${escapeHtml(task.title)}</strong>
+                <small>${task.priority} · ${escapeHtml(task.workspace)} · ${escapeHtml(receiverDisplay(task))} · 截止 ${escapeHtml(task.due || "不限")} · 创建 ${escapeHtml(task.createdAt)}</small>
+              </div>
+              <div class="ai-runtime-body">
+                <div class="ai-runtime-latest">
+                  <span class="latest-label">计划说明</span>
+                  <span class="latest-text">${escapeHtml(task.description)}</span>
+                </div>
+              </div>
+              <div class="head-actions">
+                <button class="ghost small" type="button" data-open-ai-task="${task.id}">查看详情</button>
+              </div>
+            </article>
+          `).join("") : '<div class="empty ai-runtime-empty">当前没有待启动的工作计划。</div>'}
+        </div>
+      `;
+    }
+
+    function teammateWorkReports(teammate) {
+      return [...(aiWorkReports[teammate.id] ?? [])].sort((left, right) => right.date.localeCompare(left.date));
+    }
+
+    function buildAiWorkReport(teammate, date) {
+      const reportDate = date || workPlanBaseDate;
+      const now = new Date();
+      const assigned = (teammate.taskIds ?? [])
+        .map((id) => tasks.find((task) => task.id === id))
+        .filter((task) => task && !task.archived);
+      const completed = assigned.filter((task) => ["review", "done"].includes(task.status));
+      const inProgress = assigned.filter((task) => task.status === "progress");
+      const planned = assigned.filter((task) => task.status === "todo");
+      const risks = assigned.filter((task) => task.status !== "done" && ((task.due && task.due < workPlanBaseDate) || !task.due));
+      const executionLines = [
+        ...completed.map((task) => `- \`${task.id}\` ${task.latestProgress || task.title}`),
+        ...inProgress.map((task) => `- \`${task.id}\` ${task.latestProgress || task.title}`),
+      ];
+      const content = [
+        "## 今日结论",
+        "",
+        `${teammate.name} 围绕 ${assigned.length ? `${assigned.length} 项授权任务` : "当前岗位职责"}完成当日总结。结论保留任务与执行记录来源，需要人工确认的事项单独列出。`,
+        "",
+        "## 执行记录",
+        "",
+        ...(executionLines.length ? executionLines : ["- 今日没有新增完成或进行中的执行记录。"]),
+        "",
+        "## 风险与待确认",
+        "",
+        ...(risks.length ? risks.map((task) => `- \`${task.id}\` ${task.due ? "已逾期" : "缺少截止时间"}，${task.title}`) : ["- 暂无需要升级的风险。"]),
+        "",
+        "## 明日计划",
+        "",
+        ...(planned.length ? planned.map((task) => `- \`${task.id}\` ${task.title}`) : ["- 继续跟进当前授权范围内的遗留事项。"]),
+      ].join("\n");
+      return {
+        date: reportDate,
+        generatedAt: `${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`,
+        excerpt: `${teammate.name} 围绕 ${assigned.length ? `${assigned.length} 项授权任务` : "当前岗位职责"}完成当日总结。`,
+        content,
+      };
+    }
+
+    function renderMarkdownContent(markdown) {
+      const source = String(markdown ?? "");
+      if (window.marked?.parse && window.DOMPurify?.sanitize) {
+        return window.DOMPurify.sanitize(window.marked.parse(source), { USE_PROFILES: { html: true } });
+      }
+      return `<pre class="markdown-fallback">${escapeHtml(source)}</pre>`;
+    }
+
+    function renderWorkReportSnapshot(report, teammate) {
+      return `
+        <article class="work-report-card">
+          <div class="work-report-head">
+            <h3>${escapeHtml(`${report.date} 工作日报`)}</h3>
+            <small class="work-report-writer">撰写人：${escapeHtml(teammate.name)}（${escapeHtml(teammate.id)}） · 撰写时间：${escapeHtml(report.generatedAt)}</small>
+          </div>
+          <div class="markdown-body">${renderMarkdownContent(report.content)}</div>
+        </article>
+      `;
+    }
+
+    function renderWorkReportTab(teammate) {
+      const reports = teammateWorkReports(teammate);
+      const dateFrom = ui.aiWorkReportDateFrom || "";
+      const dateTo = ui.aiWorkReportDateTo || "";
+      const keywords = ui.aiWorkReportSearch.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      const hasFilters = Boolean(dateFrom || dateTo || keywords.length);
+      const visibleReports = reports.filter((report) => {
+        if (dateFrom && report.date < dateFrom) return false;
+        if (dateTo && report.date > dateTo) return false;
+        if (!keywords.length) return true;
+        const haystack = `${report.date} ${report.excerpt || ""} ${report.content}`.toLowerCase();
+        return keywords.every((keyword) => haystack.includes(keyword));
+      });
+      const selected = visibleReports[0] || null;
+      const historyReports = visibleReports.slice(1);
+      const emptyText = hasFilters
+        ? "没有匹配的工作日报。"
+        : "还没有工作日报，可以点击右侧「更新日报」生成。";
+      return `
+        <div class="work-report-toolbar runtime-tab-head">
+          <h3>工作日报</h3>
+          <div class="work-report-filters">
+            <label class="work-report-range">
+              <input type="date" value="${escapeHtml(dateFrom)}" data-work-report-date-from aria-label="工作日报开始日期">
+              <span>至</span>
+              <input type="date" value="${escapeHtml(dateTo)}" data-work-report-date-to aria-label="工作日报结束日期">
+            </label>
+            <label class="work-report-search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>
+              <input type="search" value="${escapeHtml(ui.aiWorkReportSearch)}" placeholder="关键词" data-work-report-search aria-label="搜索工作日报">
+            </label>
+            <button class="primary small work-report-generate" type="button" data-generate-work-report ${ui.aiWorkReportGenerating ? "disabled" : ""} aria-label="生成或更新今日工作日报" title="生成或更新今日工作日报">
+              ${ui.aiWorkReportGenerating ? "更新中" : "更新日报"}
+            </button>
+          </div>
+        </div>
+        ${selected ? renderWorkReportSnapshot(selected, teammate) : `<div class="empty ai-runtime-empty">${emptyText}</div>`}
+        <div class="section">
+          <div class="history-head"><h3>历史记录</h3><span class="column-count">${historyReports.length}</span></div>
+          <div class="work-report-history timeline">
+            ${historyReports.length ? historyReports.map((report) => `<div class="event">${renderWorkReportSnapshot(report, teammate)}</div>`).join("") : '<div class="empty compact">没有更早的历史快照。</div>'}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderAuditTrailTab(teammate) {
+      const records = aiAuditTrails[teammate.id] ?? [];
+      return `
+        <div class="history-head runtime-tab-head">
+          <h3>历史执行记录</h3>
+          <span class="column-count">${records.length}</span>
+        </div>
+        <div class="ai-audit-section">
+          <div class="timeline">
+            ${records.length ? records.map((record) => `
+              <div class="event">
+                <time>${escapeHtml(record.time)}</time>
+                <span>${escapeHtml(record.text)}</span>
+              </div>
+            `).join("") : '<div class="empty ai-runtime-empty">暂无历史执行记录。</div>'}
+          </div>
+        </div>
+      `;
+    }
+
+    const workspaceRoleLabels = { admin: "管理员", owner: "项目负责人", member: "成员", guest: "访客" };
+    const permissionLevelLabels = { allow: "允许", confirm: "需确认", readonly: "只读", deny: "禁止" };
+    const permissionGroupTitles = { task: "任务执行", context: "文件与知识", meeting: "会议与协作", governance: "治理边界" };
+
+    function teammatePermissions(teammate) {
+      const groups = teammate.projectGroups ?? [];
+      const inProject = groups.length > 0;
+      const canWriteFiles = groups.some((group) => group.fileAccess === "readwrite");
+      const tools = profileForTeammate(teammate)?.tools ?? [];
+      return [
+        { group: "task", name: "接收任务并更新进展", desc: "在已授权项目组内接收指派，回写执行进展与验收结果。", level: inProject ? "allow" : "deny" },
+        { group: "task", name: "拆解工作计划与子任务", desc: "可拆解执行步骤，关键结论由人工确认后生效。", level: inProject ? "confirm" : "deny" },
+        { group: "context", name: "读取共享文件与会议纪要", desc: "读取项目组共享知识、会议纪要与工作区文档。", level: inProject ? "allow" : "deny" },
+        {
+          group: "context", name: "写入项目组共享文件",
+          desc: canWriteFiles ? "产出文件保留来源，写入前需人工确认。" : "当前席位为只读，不接受 Agent 写入。",
+          level: canWriteFiles ? "confirm" : "readonly",
+        },
+        {
+          group: "context", name: "调用角色工具",
+          desc: tools.length ? `来自 Profile：${tools.join(" / ")}` : "当前 Profile 未绑定工具。",
+          level: tools.length ? "allow" : "deny",
+        },
+        { group: "meeting", name: "参与会议并按嘱咐发言", desc: "发言范围由「本次嘱咐」限定，越界需人工确认。", level: inProject ? "confirm" : "deny" },
+        { group: "meeting", name: "发起会议或 @ 全员", desc: "发起会议与全员提醒属于人类席位权限。", level: "deny" },
+        { group: "governance", name: "管理项目组成员与权限", desc: "仅人类管理员 / 项目负责人可执行。", level: "deny" },
+        { group: "governance", name: "变更实例定义与归属", desc: "个人分身由 owner 维护，平台 DE 由平台管理员维护。", level: "deny" },
+      ];
+    }
+
+    function scopeMembershipState(teammate) {
+      if (teammate.state === "active") return { pending: false, pill: "done", label: "授权生效中", stateText: "生效中" };
+      if (teammate.state === "paused") return { pending: true, pill: "review", label: "已暂停 · 暂不执行", stateText: "已暂停" };
+      if (teammate.state === "draft") return { pending: true, pill: "review", label: "草稿 · 尚未开通", stateText: "尚未保存" };
+      return { pending: true, pill: "review", label: "未生效 · 暂不执行", stateText: "未生效" };
+    }
+
+    function renderScopeTab(teammate) {
+      const groups = teammate.projectGroups ?? [];
+      const permissions = teammatePermissions(teammate);
+      const membership = scopeMembershipState(teammate);
+      const grouped = Object.keys(permissionGroupTitles)
+        .map((key) => ({ key, title: permissionGroupTitles[key], rows: permissions.filter((row) => row.group === key) }))
+        .filter((group) => group.rows.length);
+      return `
+        <div class="history-head runtime-tab-head">
+          <h3>项目组与权限</h3>
+          <span class="column-count">${groups.length} 个项目组 · ${permissions.length} 项权限</span>
+        </div>
+        <div class="scope-instance">
+          ${renderTeammateAvatar(teammate, "ai-avatar")}
+          <div class="scope-instance-main">
+            <strong>${escapeHtml(teammate.name)} · 运行实例</strong>
+            <small>实例 ID：${escapeHtml(teammate.runtimeId ?? teammate.id)} · 席位：${teammate.source === "platform" ? "平台 DE" : "个人分身"} · 归属：${teammate.source === "platform" ? "平台" : escapeHtml(teammate.owner)}</small>
+          </div>
+          <div class="scope-instance-model">权限 = 项目组角色 × 定义归属 × 本次委托</div>
+        </div>
+        ${teammate.state !== "active" ? `
+          <div class="ai-notice info">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>
+            <span>以下为该实例的长期授权范围；实例当前${membership.stateText}，恢复生效后才可执行。</span>
+          </div>
+        ` : ""}
+        <div class="ai-scope-grid">
+          ${groups.length ? groups.map((group) => `
+            <article class="ai-scope-card${membership.pending ? " pending" : ""}">
+              <div class="ai-scope-card-head">
+                <span class="ai-scope-mark" aria-hidden="true">${escapeHtml(group.name.slice(0, 1))}</span>
+                <div class="ai-scope-card-copy">
+                  <strong>${escapeHtml(group.name)}</strong>
+                  <small>${escapeHtml(group.source)} · 加入 ${escapeHtml(group.joinedAt)}</small>
+                </div>
+                <span class="pill">${workspaceRoleLabels[group.role] ?? escapeHtml(group.role)}</span>
+              </div>
+              <div class="ai-scope-card-meta">
+                <span class="pill ${membership.pill}">${membership.label}</span>
+              </div>
+              <span class="ai-scope-card-scope">授权范围：${escapeHtml(group.scope)}</span>
+            </article>
+          `).join("") : '<div class="empty ai-runtime-empty">该实例尚未加入任何项目组。</div>'}
+        </div>
+        <div class="section">
+          <div class="history-head"><h3>权限情况</h3><span class="column-count">最小权限 · 会话内生效</span></div>
+          <div class="perm-groups">
+            ${grouped.map((group) => `
+              <div class="perm-group">
+                <h4 class="perm-group-title">${group.title}</h4>
+                <div class="perm-list">
+                  ${group.rows.map((row) => `
+                    <div class="perm-row">
+                      <div class="perm-copy">
+                        <strong>${escapeHtml(row.name)}</strong>
+                        <small>${escapeHtml(row.desc)}</small>
+                      </div>
+                      <span class="perm-state ${row.level}">${permissionLevelLabels[row.level]}</span>
+                    </div>
+                  `).join("")}
+                </div>
+              </div>
+            `).join("")}
+          </div>
+          <div class="ai-notice info ai-scope-footnote">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>
+            <span>项目组角色决定可用范围，定义归属决定维护权，本次委托只在单次任务 / 会议内收窄权限，不改变长期定义。</span>
+          </div>
+        </div>
+      `;
+    }
+
     function renderAiRuntime(teammate) {
       const runtimeTasks = teammate.taskIds.map((id) => tasks.find((task) => task.id === id)).filter(Boolean);
-      const statusOrder = { progress: 0, review: 1, done: 2 };
-      const currentTasks = runtimeTasks
-        .filter((task) => !task.archived)
-        .sort((a, b) => statusOrder[a.status] - statusOrder[b.status]);
+      void runtimeTasks;
+      const currentTasks = teammateCurrentTasks(teammate);
       const archivedTasks = runtimeTasks.filter((task) => task.archived);
       const runtimeActive = teammate.state === "active";
       const runtimePrimaryAction = aiCanManage(teammate)
@@ -3459,30 +5837,43 @@
           </div>
         </div>
         ${teammate.state === "paused" ? '<div class="ai-notice"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 9v6M14 9v6"/><circle cx="12" cy="12" r="9"/></svg><span>该分身已暂停，当前不会接收新任务或继续自动跟进。</span></div>' : ""}
-        <div class="section">
-          <div class="history-head runtime-section-head">
-            <h3>当前跟进事项</h3>
-            <div class="head-actions">
-              <span class="column-count">${currentTasks.length}</span>
-              ${runtimePrimaryAction}
+        <div class="ai-runtime-tabs" role="tablist" aria-label="AI Teammate 运行态内容">
+          ${[
+            { key: "current", label: "当前工作" },
+            { key: "plan", label: "工作计划" },
+            { key: "report", label: "工作日报" },
+            { key: "scope", label: "项目组与权限" },
+            { key: "audit", label: "历史记录" },
+          ].map((tab) => `
+            <button class="ai-runtime-tab ${ui.aiRuntimeTab === tab.key ? "active" : ""}" type="button" role="tab" aria-selected="${ui.aiRuntimeTab === tab.key}" data-runtime-tab="${tab.key}">${tab.label}</button>
+          `).join("")}
+        </div>
+        ${ui.aiRuntimeTab === "current" ? `
+          <div>
+            <div class="history-head runtime-tab-head runtime-section-head">
+              <h3>当前跟进事项</h3>
+              <div class="head-actions">
+                <span class="column-count">${currentTasks.length}</span>
+                ${runtimePrimaryAction}
+              </div>
+            </div>
+            <div class="ai-runtime-list">
+              ${currentTasks.length
+                ? currentTasks.map((task) => runtimeItem(task)).join("")
+                : `<div class="empty ai-runtime-empty">${runtimeActive ? "当前没有进行或已完成的任务。" : "分身已暂停，当前没有正在跟进的任务。"}</div>`}
             </div>
           </div>
-          <div class="ai-runtime-list">
-            ${currentTasks.length
-              ? currentTasks.map((task) => runtimeItem(task)).join("")
-              : `<div class="empty ai-runtime-empty">${runtimeActive ? "当前没有进行或已完成的任务。" : "分身已暂停，当前没有正在跟进的任务。"}</div>`}
-          </div>
-        </div>
-        ${archivedTasks.length ? `
-          <div class="section ai-archive-block">
-            <div class="history-head"><h3>已归档</h3><span class="column-count">${archivedTasks.length}</span></div>
-            <div class="ai-runtime-list">${archivedTasks.map((task) => runtimeItem(task, true)).join("")}</div>
-          </div>
+          ${archivedTasks.length ? `
+            <div class="section ai-archive-block">
+              <div class="history-head"><h3>已归档</h3><span class="column-count">${archivedTasks.length}</span></div>
+              <div class="ai-runtime-list">${archivedTasks.map((task) => runtimeItem(task, true)).join("")}</div>
+            </div>
+          ` : ""}
         ` : ""}
-        <div class="section">
-          <h3>运行轨迹</h3>
-          <div class="timeline">${teammate.activity.map((item) => `<div class="event"><time>${item.split(" ")[0]}</time><span>${item.slice(item.indexOf(" ") + 1)}</span></div>`).join("")}</div>
-        </div>
+        ${ui.aiRuntimeTab === "plan" ? renderWorkPlanTab(teammate) : ""}
+        ${ui.aiRuntimeTab === "report" ? renderWorkReportTab(teammate) : ""}
+        ${ui.aiRuntimeTab === "scope" ? renderScopeTab(teammate) : ""}
+        ${ui.aiRuntimeTab === "audit" ? renderAuditTrailTab(teammate) : ""}
       `;
     }
 
@@ -3666,6 +6057,19 @@
           </div>
         </div>
         <p class="meeting-detail-desc">${escapeHtml(meeting.description || "暂无会议描述。")}</p>
+        ${meeting.minutes ? `
+          <section class="meeting-detail-section">
+            <div class="history-head"><h3>会议纪要</h3><span class="column-count">更新于 ${escapeHtml(meeting.minutes.updatedAt)}</span></div>
+            <div class="meeting-summary-block">
+              <strong>核心结论</strong>
+              <p>${escapeHtml(meeting.minutes.conclusions.join("；"))}</p>
+            </div>
+            <div class="meeting-summary-block">
+              <strong>待确认</strong>
+              <p>${escapeHtml(meeting.minutes.pending.join("；"))}</p>
+            </div>
+          </section>
+        ` : ""}
         <section class="meeting-detail-section">
           <div class="history-head"><h3>参会人员</h3><span class="column-count">人员 ${meeting.participants.length - agents.length} · 分身 ${agents.length}</span></div>
           <div class="meeting-member-grid">
@@ -4217,7 +6621,8 @@
       });
       const archived = Boolean(task.archived);
       const cameFromAi = ui.detailReturn?.type === "ai";
-      const returnLabel = cameFromAi ? "← 返回运行态" : "← 看板";
+      const cameFromWorkbench = ui.detailReturn?.type === "workbench";
+      const returnLabel = cameFromAi ? "← 返回运行态" : cameFromWorkbench ? "← 返回工作台" : "← 看板";
       if (composerTaskId !== task.id) {
         composerReplyTo = null;
         composerTaskId = task.id;
@@ -4247,6 +6652,7 @@
       $("#detailTop").innerHTML = `
         <button class="ghost small back-btn" data-action="back-to-board" type="button">${returnLabel}</button>
         <div class="crumb">任务管理 / <b>${task.id} ${task.title}</b></div>
+        <button class="follow-btn ${followedTaskIds.has(task.id) ? "active" : ""}" data-action="toggle-follow" type="button" aria-pressed="${followedTaskIds.has(task.id)}">${followedTaskIds.has(task.id) ? "已关注" : "关注"}</button>
         <span class="pill ${task.status}">${statusLabel[task.status]}</span>
       `;
 
@@ -4351,7 +6757,7 @@
               <span class="label">优先级</span>
               ${propertyEditing ? `
                 <select name="priority" aria-label="任务优先级">
-                  ${["P1", "P2", "P3"].map((priority) => `<option value="${priority}" ${task.priority === priority ? "selected" : ""}>${priority}</option>`).join("")}
+                  ${["P0", "P1", "P2", "P3"].map((priority) => `<option value="${priority}" ${task.priority === priority ? "selected" : ""}>${priority}</option>`).join("")}
                 </select>
               ` : `<span class="value">${task.priority}</span>`}
             </div>
@@ -4693,7 +7099,7 @@
       `;
       $("#assignmentPriorityMenu").innerHTML = `
         <button class="select-option" data-assignment-filter-kind="priority" data-assignment-filter-value="" role="option" aria-selected="${assignmentPriorities.size === 0}" type="button">全部优先级</button>
-        ${["P1", "P2", "P3"].map((value) => filterOption("priority", value, value)).join("")}
+        ${["P0", "P1", "P2", "P3"].map((value) => filterOption("priority", value, value)).join("")}
       `;
       $("#assignmentProjectMenu").innerHTML = `
         <button class="select-option" data-assignment-filter-kind="project" data-assignment-filter-value="" role="option" aria-selected="${assignmentProjects.size === 0}" type="button">全部项目</button>
@@ -4791,6 +7197,205 @@
       }
       ui.sessionView = null;
       render();
+    });
+    $("#workbenchView").addEventListener("click", (event) => {
+      const modeButton = event.target.closest("[data-workbench-mode]");
+      if (modeButton) {
+        workbenchState.mode = modeButton.dataset.workbenchMode;
+        renderWorkbench();
+        return;
+      }
+      const cockpitViewButton = event.target.closest("[data-cockpit-view]");
+      if (cockpitViewButton) {
+        const view = cockpitViewButton.dataset.cockpitView;
+        document.querySelectorAll("#cockpitWorkbench [data-cockpit-view]").forEach((button) => {
+          const active = button.dataset.cockpitView === view;
+          button.classList.toggle("active", active);
+          button.setAttribute("aria-selected", String(active));
+        });
+        document.querySelectorAll("#cockpitWorkbench [data-cockpit-view-panel]").forEach((panel) => {
+          panel.hidden = panel.dataset.cockpitViewPanel !== view;
+        });
+        document.querySelectorAll("#cockpitWorkbench [data-cockpit-scope]").forEach((scope) => {
+          scope.hidden = scope.dataset.cockpitScope !== view;
+        });
+        return;
+      }
+      const refreshButton = event.target.closest("[data-workbench-refresh]");
+      if (refreshButton) {
+        refreshWorkbenchModule(refreshButton);
+        return;
+      }
+      const briefDecision = event.target.closest("[data-brief-decision]");
+      if (briefDecision) {
+        const output = $(`#decision-${briefDecision.dataset.briefDecision}`);
+        const expanded = !output.hidden;
+        output.hidden = expanded;
+        briefDecision.setAttribute("aria-expanded", String(!expanded));
+        briefDecision.textContent = expanded ? "AI建议" : "收起建议";
+        return;
+      }
+      const followButton = event.target.closest("[data-follow-type]");
+      if (followButton) {
+        toggleFollow(followButton.dataset.followType, followButton.dataset.followId);
+        render();
+        return;
+      }
+      const taskButton = event.target.closest("[data-workbench-open-task]");
+      if (taskButton) {
+        openWorkbenchTask(taskButton.dataset.workbenchOpenTask);
+        return;
+      }
+      const meetingButton = event.target.closest("[data-workbench-open-meeting]");
+      if (meetingButton) {
+        openWorkbenchMeeting(meetingButton.dataset.workbenchOpenMeeting);
+        return;
+      }
+      const workflowButton = event.target.closest("[data-workbench-jump]");
+      if (workflowButton) {
+        openWorkbenchWorkflow(workflowButton.dataset.workbenchJump);
+      }
+    });
+    $("#workbenchLayoutReset").addEventListener("click", resetWorkbenchLayout);
+    $("#workbenchLayoutManage").addEventListener("click", openWorkbenchLayoutManager);
+    $("#closeWorkbenchLayout").addEventListener("click", closeWorkbenchLayoutManager);
+    $("#cancelWorkbenchLayout").addEventListener("click", closeWorkbenchLayoutManager);
+    $("#workbenchLayoutMask").addEventListener("click", (event) => {
+      if (event.target === event.currentTarget) closeWorkbenchLayoutManager();
+    });
+    $("#workbenchLayoutForm").addEventListener("submit", (event) => {
+      event.preventDefault();
+      saveWorkbenchLayoutWithName();
+    });
+    $("#workbenchLayoutList").addEventListener("click", (event) => {
+      const selectButton = event.target.closest("[data-workbench-layout-select]");
+      if (selectButton) {
+        selectWorkbenchLayout(selectButton.dataset.workbenchLayoutSelect);
+        return;
+      }
+      const defaultButton = event.target.closest("[data-workbench-layout-default]");
+      if (defaultButton) {
+        setDefaultWorkbenchLayout(defaultButton.dataset.workbenchLayoutDefault);
+        return;
+      }
+      const deleteButton = event.target.closest("[data-workbench-layout-delete]");
+      if (deleteButton) deleteWorkbenchLayout(deleteButton.dataset.workbenchLayoutDelete);
+    });
+    $("#metricSettingsButton").addEventListener("click", openMetricSettings);
+    $("#closeMetricSettings").addEventListener("click", closeMetricSettings);
+    $("#cancelMetricSettings").addEventListener("click", closeMetricSettings);
+    $("#metricSettingsMask").addEventListener("click", (event) => {
+      if (event.target === event.currentTarget) closeMetricSettings();
+    });
+    $("#metricSettingsList").addEventListener("change", (event) => {
+      const input = event.target.closest('input[name="selectedKpis"]');
+      if (!input || !input.checked) return;
+      const count = $("#metricSettingsList").querySelectorAll('input[name="selectedKpis"]:checked').length;
+      if (count > 5) {
+        input.checked = false;
+        toast("最多选择 5 项核心指标");
+      }
+    });
+    $("#metricSettingsForm").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const selected = Array.from($("#metricSettingsList").querySelectorAll('input[name="selectedKpis"]:checked'))
+        .map((input) => input.value);
+      if (!selected.length) {
+        toast("至少选择 1 项核心指标");
+        return;
+      }
+      workbenchState.selectedKpis = selected;
+      saveWorkbenchMetricSelection(selected);
+      renderWorkbenchMetrics();
+      closeMetricSettings();
+      toast(`已展示 ${selected.length} 项核心指标`);
+    });
+    workbenchCanvas.addEventListener("pointerdown", (event) => {
+      const dragHandle = event.target.closest("[data-drag-handle]");
+      const interactiveControl = event.target.closest("button, a, input, select, textarea, [role='button']");
+      if (dragHandle && !interactiveControl) {
+        const card = dragHandle.closest("[data-module]");
+        card.draggable = false;
+        startModuleDrag(event, dragHandle);
+        return;
+      }
+      const heightHandle = event.target.closest("[data-resize-height]");
+      if (heightHandle) startWorkbenchHeightResize(event, heightHandle.closest("[data-module]"));
+      const widthHandle = event.target.closest("[data-resize-width]");
+      if (widthHandle) startWorkbenchWidthResize(event, widthHandle);
+    });
+    workbenchCanvas.addEventListener("pointermove", (event) => {
+      if (activeModuleDrag) {
+        moveModuleDrag(event);
+        return;
+      }
+      if (!activeLayoutResize) return;
+      const { card, kind } = activeLayoutResize;
+      if (kind === "height") {
+        const height = Math.max(190, Math.min(900, activeLayoutResize.startHeight + event.clientY - activeLayoutResize.startY));
+        card.style.height = `${height}px`;
+        card.classList.add("resized");
+        return;
+      }
+      if (kind === "width") {
+        const delta = event.clientX - activeLayoutResize.startX;
+        const targetCols = closestWorkbenchWidthCols(activeLayoutResize.startCols + Math.round(delta / activeLayoutResize.columnStep));
+        card.style.setProperty("--wb-cols", String(targetCols));
+        card.dataset.cols = String(targetCols);
+      }
+    });
+    const endWorkbenchLayoutResize = (event) => {
+      endModuleDrag(event);
+      if (!activeLayoutResize) return;
+      activeLayoutResize.card.classList.remove("resizing");
+      event.target.releasePointerCapture?.(event.pointerId);
+      activeLayoutResize = null;
+      saveWorkbenchLayout();
+    };
+    workbenchCanvas.addEventListener("pointerup", endWorkbenchLayoutResize);
+    workbenchCanvas.addEventListener("pointercancel", endWorkbenchLayoutResize);
+    initWorkbenchLayout();
+    $("#workbenchView").addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      const item = event.target.closest(".todo-item");
+      if (!item) return;
+      event.preventDefault();
+      if (item.dataset.workbenchOpenMeeting) openWorkbenchMeeting(item.dataset.workbenchOpenMeeting);
+      else if (item.dataset.workbenchOpenTask) openWorkbenchTask(item.dataset.workbenchOpenTask);
+      else if (item.dataset.workbenchJump) openWorkbenchWorkflow(item.dataset.workbenchJump);
+    });
+    $("#briefScheduleToggle").addEventListener("click", openBriefSchedule);
+    $("#closeBriefSchedule").addEventListener("click", () => closeBriefSchedule());
+    $("#briefScheduleMask").addEventListener("click", (event) => {
+      if (event.target === event.currentTarget) closeBriefSchedule();
+    });
+    $("#briefRefreshButton").addEventListener("click", () => {
+      if (workbenchState.briefRefreshing) return;
+      workbenchState.briefRefreshing = true;
+      renderWorkbench();
+      window.setTimeout(() => {
+        workbenchState.briefRefreshing = false;
+        const meta = $("#briefMeta");
+        if (meta) meta.textContent = `${frequencyLabel[workbenchState.frequency] || "自定义频次"} · 上次生成 09/23 10:24 · 数据源：采购、库存、工作流、任务`;
+        renderWorkbench();
+        toast("简报已按最新数据刷新");
+      }, 900);
+    });
+    $("#briefSchedulePanel").addEventListener("submit", (event) => {
+      event.preventDefault();
+      workbenchState.frequency = $("#briefFrequency").value;
+      closeBriefSchedule(false);
+      toast(`简报频次已更新：${frequencyLabel[workbenchState.frequency] || "自定义频次"}`);
+    });
+    $("#briefSchedulePanel").addEventListener("click", (event) => {
+      if (!event.target.closest('[data-action="brief-schedule-cancel"]')) return;
+      closeBriefSchedule();
+    });
+    $("#workflowList").addEventListener("click", (event) => {
+      const followButton = event.target.closest("[data-follow-type]");
+      if (!followButton) return;
+      toggleFollow(followButton.dataset.followType, followButton.dataset.followId);
+      renderWorkflow();
     });
     $("#settingsShortcut").addEventListener("click", () => {
       ui.globalView = "settings";
@@ -5347,6 +7952,12 @@
       reader.readAsText(file);
     });
     $("#kanbanBoard").addEventListener("click", (event) => {
+      const followButton = event.target.closest("[data-follow-type]");
+      if (followButton) {
+        toggleFollow(followButton.dataset.followType, followButton.dataset.followId);
+        renderTasks();
+        return;
+      }
       const card = event.target.closest(".task-card");
       if (!card) return;
       selectedId = card.dataset.id;
@@ -5482,6 +8093,11 @@
       const task = tasks.find((item) => item.id === selectedId);
       const action = button.dataset.action;
       const now = "09/22 10:24";
+      if (action === "toggle-follow") {
+        toggleFollow("task", task.id);
+        render();
+        return;
+      }
       if (action === "back-to-board") {
         const returnContext = ui.detailReturn;
         window.clearTimeout(streamTimer);
@@ -5494,11 +8110,14 @@
           ui.aiTab = returnContext.aiTab || "runtime";
           ui.aiSelectedId = returnContext.teammateId || ui.aiSelectedId;
           ui.aiEditing = false;
+        } else if (returnContext?.type === "workbench") {
+          ui.globalView = "workbench";
+          ui.sessionView = null;
         } else {
           ui.globalView = "task";
         }
         render();
-        if (returnContext?.type === "ai") {
+        if (returnContext?.type === "ai" || returnContext?.type === "workbench") {
           window.requestAnimationFrame(() => window.scrollTo({ top: returnContext.scrollY || 0, behavior: "auto" }));
         }
         return;
@@ -6078,6 +8697,12 @@
       renderAiTeammates();
     });
     $("#aiTeammateDetail").addEventListener("click", (event) => {
+      const runtimeTab = event.target.closest("[data-runtime-tab]");
+      if (runtimeTab) {
+        ui.aiRuntimeTab = runtimeTab.dataset.runtimeTab;
+        renderAiTeammates();
+        return;
+      }
       const avatarPreset = event.target.closest("[data-avatar-preset]");
       if (avatarPreset) {
         const teammate = aiTeammates.find((item) => item.id === ui.aiSelectedId);
@@ -6104,6 +8729,24 @@
       const taskButton = event.target.closest("[data-open-ai-task]");
       if (taskButton) {
         openTaskFromAi(taskButton.dataset.openAiTask);
+        return;
+      }
+      if (event.target.closest("[data-generate-work-report]")) {
+        const teammate = aiTeammates.find((item) => item.id === ui.aiSelectedId);
+        if (!teammate || ui.aiWorkReportGenerating) return;
+        const reportDate = workReportDateValue();
+        ui.aiWorkReportGenerating = true;
+        renderAiTeammates();
+        window.setTimeout(() => {
+          const report = buildAiWorkReport(teammate, reportDate);
+          const reports = aiWorkReports[teammate.id] ?? (aiWorkReports[teammate.id] = []);
+          const existingIndex = reports.findIndex((item) => item.date === report.date);
+          if (existingIndex >= 0) reports[existingIndex] = report;
+          else reports.unshift(report);
+          ui.aiWorkReportGenerating = false;
+          if (aiTeammates.find((item) => item.id === ui.aiSelectedId)?.id === teammate.id) renderAiTeammates();
+          toast(`已更新 ${report.date} 工作日报`);
+        }, 850);
         return;
       }
       const definitionButton = event.target.closest("[data-ai-view-definition]");
@@ -6146,6 +8789,65 @@
       if (action === "archive") return changeAiTeammateState(teammate, "archived");
     });
     $("#aiTeammateDetail").addEventListener("submit", (event) => {
+      const planForm = event.target.closest("[data-work-plan-form]");
+      if (planForm) {
+        event.preventDefault();
+        const teammate = aiTeammates.find((item) => item.id === ui.aiSelectedId);
+        if (!teammate) return;
+        if (teammate.state !== "active") {
+          toast("Teammate 已暂停，不能接收新的工作计划");
+          return;
+        }
+        const data = new FormData(planForm);
+        const instruction = String(data.get("instruction") ?? "").trim();
+        if (!instruction) return;
+        const parsed = parseWorkPlanInstruction(instruction);
+        const project = String(data.get("project") || parsed.workspace);
+        const dueDate = String(data.get("dueDate") || parsed.due || addPlanBaseDays(1));
+        ui.aiWorkPlanProject = project;
+        const now = new Date();
+        const createdAt = `${workPlanBaseDate} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+        const eventTime = `09/23 ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+        const nextNumber = Math.max(1000, ...tasks.map((task) => Number(String(task.id).replace(/\D/g, "")) || 1000)) + 1;
+        const taskId = `TSK-${nextNumber}`;
+        const task = {
+          id: taskId,
+          title: parsed.title,
+          type: "任务",
+          status: "todo",
+          priority: String(data.get("priority") || parsed.priority),
+          workspace: project,
+          receiverType: "agent",
+          receiver: teammate.directoryId,
+          createdBy: me,
+          createdAt,
+          due: dueDate,
+          description: instruction,
+          latestProgress: "已创建工作计划，等待 Agent 开始执行。",
+          acceptance: ["按自然语言描述完成指定产出", "结论保留可追溯来源", "遇到权限或责任边界时升级给 Olivia"],
+          autoSubmitReview: String(data.get("autoSubmitReview")) === "true",
+          source: "regular",
+          origin: "ai-teammate",
+          links: [],
+          events: [
+            { time: eventTime, text: `<b>${me}</b> 通过自然语言创建任务并派发给 <b>${teammate.name}</b>` },
+            { time: eventTime, text: `LLM 解析：优先级 ${parsed.priority} · 截止 ${dueDate} · 项目 ${project}` },
+          ],
+        };
+        task.messages = [];
+        task.comments = [];
+        task.attachments = [];
+        task.progress = 5;
+        task.progressSteps = task.acceptance.map((item) => ({ label: item, done: false }));
+        tasks.push(task);
+        teammate.taskIds.unshift(taskId);
+        teammate.activity.unshift(`刚刚 接收工作计划 ${taskId}`);
+        teammate.updatedAt = "刚刚";
+        renderAiTeammates();
+        renderTasks();
+        toast(`已创建 ${taskId} 并指派给 ${teammate.name}`);
+        return;
+      }
       const form = event.target.closest("[data-ai-form]");
       if (!form) return;
       event.preventDefault();
@@ -6175,7 +8877,50 @@
       renderAiTeammates();
       toast(teammate.source === "platform" ? "全局定义已保存" : "数字分身定义已保存");
     });
+    $("#aiTeammateDetail").addEventListener("input", (event) => {
+      const reportSearch = event.target.closest("[data-work-report-search]");
+      if (reportSearch) {
+        const selectionStart = reportSearch.selectionStart ?? reportSearch.value.length;
+        const selectionEnd = reportSearch.selectionEnd ?? selectionStart;
+        ui.aiWorkReportSearch = reportSearch.value;
+        renderAiTeammates();
+        const nextSearch = $("#aiTeammateDetail [data-work-report-search]");
+        if (nextSearch) {
+          nextSearch.focus();
+          nextSearch.setSelectionRange(selectionStart, selectionEnd);
+        }
+        return;
+      }
+      const instruction = event.target.closest('[data-work-plan-form] textarea[name="instruction"]');
+      if (!instruction) return;
+      const parsed = parseWorkPlanInstruction(instruction.value);
+      const parsedNode = $("#aiTeammateDetail [data-work-plan-parsed]");
+      const priorityNode = $("#aiTeammateDetail [data-work-plan-priority]");
+      const projectNode = $("#aiTeammateDetail [data-work-plan-project]");
+      const dueNode = $("#aiTeammateDetail [data-work-plan-due]");
+      if (parsedNode) parsedNode.textContent = renderWorkPlanParsed(parsed);
+      if (priorityNode && parsed.hasExplicitPriority) priorityNode.value = parsed.priority;
+      if (projectNode && parsed.hasExplicitWorkspace) projectNode.value = parsed.workspace;
+      if (dueNode && parsed.hasExplicitDue) dueNode.value = parsed.due;
+    });
     $("#aiTeammateDetail").addEventListener("change", (event) => {
+      const planProject = event.target.closest("[data-work-plan-project]");
+      if (planProject) {
+        ui.aiWorkPlanProject = planProject.value;
+        return;
+      }
+      const reportDateFrom = event.target.closest("[data-work-report-date-from]");
+      if (reportDateFrom) {
+        ui.aiWorkReportDateFrom = reportDateFrom.value;
+        renderAiTeammates();
+        return;
+      }
+      const reportDateTo = event.target.closest("[data-work-report-date-to]");
+      if (reportDateTo) {
+        ui.aiWorkReportDateTo = reportDateTo.value;
+        renderAiTeammates();
+        return;
+      }
       if (event.target.closest("#aiOwnerKind")) {
         const notice = $("#aiOwnerKindNotice");
         if (notice) notice.hidden = event.target.value !== "platform";

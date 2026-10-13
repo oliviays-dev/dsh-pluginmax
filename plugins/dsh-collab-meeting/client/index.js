@@ -700,11 +700,36 @@ window.__ModuleLoader__.load({
 
     function workspaceLabel(workspace) {
       const title = workspace.title?.trim();
-      const path = workspace.path?.trim();
-      if (title && path) return `${title} (${path})`;
       if (title) return title;
+      // 项目名缺失时才回退路径；右侧只展示项目名称，不展示完整路径。
+      const path = workspace.path?.trim();
       if (path) return path;
-      return `未知工作区 (${workspace.id.slice(0, 8)})`;
+      return `未知项目 (${workspace.id.slice(0, 8)})`;
+    }
+
+    /**
+     * 会议关注按钮由 dsh-collab-workbench 提供：服务端持久化、跨页面同步。
+     * 该插件未安装时按钮不渲染，会议面板保持原样。
+     */
+    function MeetingFollowButton(props) {
+      const [ready, setReady] = react.useState(
+        () => typeof window.__pluginmaxFollow?.FollowButton === "function",
+      );
+      react.useEffect(() => {
+        if (ready) return undefined;
+        const onReady = () => setReady(true);
+        window.addEventListener("pluginmax:follow-ready", onReady);
+        return () =>
+          window.removeEventListener("pluginmax:follow-ready", onReady);
+      }, [ready]);
+      const Button = window.__pluginmaxFollow?.FollowButton;
+      if (!ready || typeof Button !== "function") return null;
+      return jsxRuntime.jsx(Button, {
+        type: "meeting",
+        id: props.meetingId,
+        iconOnly: true,
+        compact: true,
+      });
     }
 
     function timeShort(iso) {
@@ -1138,7 +1163,7 @@ window.__ModuleLoader__.load({
           .filter((seat) => seat.participantKind !== "agent")
           .map((seat) => ({
             value: `seat:${seat.seatId}`,
-            label: `${seat.label}（工作区）`,
+            label: `${seat.label}（项目）`,
             meetingSeat: false,
           })),
       ];
@@ -1322,6 +1347,7 @@ window.__ModuleLoader__.load({
               workspaceId,
               title: newTitle,
               agenda: newAgenda,
+              displayName: accountName || undefined,
             }),
           });
           setMeetingId(result.meeting.id);
@@ -1720,20 +1746,20 @@ window.__ModuleLoader__.load({
         ] }),
         jsxRuntime.jsxs("div", { style: wsBarStyle, children: [
           jsxRuntime.jsxs("div", { style: wsRowStyle, children: [
-            jsxRuntime.jsx("span", { style: wsLabelStyle, children: "工作区" }),
+            jsxRuntime.jsx("span", { style: wsLabelStyle, children: "项目" }),
             jsxRuntime.jsx("select", {
               style: selectStyle,
               value: workspaceId,
               onChange: (event) => { setWorkspaceId(event.target.value); setMeetingId(""); setView("list"); },
               children: workspaces.map((ws) => jsxRuntime.jsx("option", { value: ws.id, children: workspaceLabel(ws) }, ws.id)),
             }),
-            jsxRuntime.jsx("button", { type: "button", style: iconBtnStyle, "aria-label": "工作区信息", onClick: () => setWsInfoOpen(!wsInfoOpen), children: jsxRuntime.jsx(InfoCircle, {}) }),
+            jsxRuntime.jsx("button", { type: "button", style: iconBtnStyle, "aria-label": "项目信息", onClick: () => setWsInfoOpen(!wsInfoOpen), children: jsxRuntime.jsx(InfoCircle, {}) }),
           ] }),
           wsInfoOpen && currentWs !== undefined ? jsxRuntime.jsxs("div", { style: infoPopStyle, children: [
             jsxRuntime.jsxs("div", { style: infoRowStyle, children: [jsxRuntime.jsx("span", { style: wsLabelStyle, children: "名称" }), jsxRuntime.jsx("span", { style: { overflowWrap: "anywhere" }, children: currentWs.title || "未命名" })] }),
             jsxRuntime.jsxs("div", { style: infoRowStyle, children: [jsxRuntime.jsx("span", { style: wsLabelStyle, children: "路径" }), jsxRuntime.jsx("span", { style: { overflowWrap: "anywhere" }, children: currentWs.path || "未知" })] }),
-            jsxRuntime.jsxs("div", { style: infoRowStyle, children: [jsxRuntime.jsx("span", { style: wsLabelStyle, children: "工作区 ID" }), jsxRuntime.jsx("span", { style: { fontSize: 10, overflowWrap: "anywhere" }, children: currentWs.id })] }),
-            jsxRuntime.jsxs("button", { type: "button", style: { ...ghostBtnStyle, justifyContent: "center", justifySelf: "start", display: "inline-flex", alignItems: "center", gap: 4 }, onClick: () => { navigator.clipboard.writeText(currentWs.id).then(() => notify("已复制工作区 ID")).catch(fail); }, children: [jsxRuntime.jsx(CopyIcon, {}), "复制 ID"] }),
+            jsxRuntime.jsxs("div", { style: infoRowStyle, children: [jsxRuntime.jsx("span", { style: wsLabelStyle, children: "项目 ID" }), jsxRuntime.jsx("span", { style: { fontSize: 10, overflowWrap: "anywhere" }, children: currentWs.id })] }),
+            jsxRuntime.jsxs("button", { type: "button", style: { ...ghostBtnStyle, justifyContent: "center", justifySelf: "start", display: "inline-flex", alignItems: "center", gap: 4 }, onClick: () => { navigator.clipboard.writeText(currentWs.id).then(() => notify("已复制项目 ID")).catch(fail); }, children: [jsxRuntime.jsx(CopyIcon, {}), "复制 ID"] }),
           ] }) : null,
         ] }),
         jsxRuntime.jsxs("div", { style: createBarStyle, children: [
@@ -1746,7 +1772,7 @@ window.__ModuleLoader__.load({
         ] }),
         jsxRuntime.jsx("div", { style: listStyle, children:
           meetings.length === 0
-            ? jsxRuntime.jsx("p", { style: { color: "var(--dsw-alias-label-tertiary)", fontSize: 12, lineHeight: 1.6, padding: "32px 16px", textAlign: "center", whiteSpace: "pre-line" }, children: "当前工作区暂无会议。\n点击上方按钮发起一个。" })
+            ? jsxRuntime.jsx("p", { style: { color: "var(--dsw-alias-label-tertiary)", fontSize: 12, lineHeight: 1.6, padding: "32px 16px", textAlign: "center", whiteSpace: "pre-line" }, children: "当前项目暂无会议。\n点击上方按钮发起一个。" })
             : meetings.map((item) => jsxRuntime.jsxs("div", {
                 style: { ...cardStyle, opacity: item.status === "closed" ? 0.55 : 1 },
                 onClick: () => { setMeetingId(item.id); setView("chat"); },
@@ -1767,6 +1793,7 @@ window.__ModuleLoader__.load({
           jsxRuntime.jsx("button", { type: "button", style: iconBtnStyle, "aria-label": "返回列表", onClick: () => { setView("list"); setMeetingId(""); setDetail(null); }, children: jsxRuntime.jsx(BackIcon, {}) }),
           jsxRuntime.jsx("h2", { style: titleStyle, children: detail?.meeting?.title ?? "…" }),
           detail?.meeting !== undefined ? jsxRuntime.jsx("span", { style: active ? pillOnStyle : pillOffStyle, children: active ? "进行中" : "已关闭" }) : null,
+          detail?.meeting !== undefined ? jsxRuntime.jsx(MeetingFollowButton, { meetingId: detail.meeting.id }) : null,
         ] }),
         detail === null
           ? jsxRuntime.jsx("div", { style: { alignItems: "center", color: "var(--dsw-alias-label-tertiary)", display: "grid", flex: 1, fontSize: 12, justifyContent: "center" }, children: "加载中…" })
@@ -2055,7 +2082,7 @@ window.__ModuleLoader__.load({
                   ] }),
                   jsxRuntime.jsx("div", { style: seatMetaStyle, children: "先勾选成员直接拉入，并从下拉列表选择席位；下方角色席位是可选方式。" }),
                   people.length === 0
-                    ? jsxRuntime.jsx("div", { style: seatMetaStyle, children: seatBusy ? "正在读取成员…" : "当前工作区没有可选成员。" })
+                    ? jsxRuntime.jsx("div", { style: seatMetaStyle, children: seatBusy ? "正在读取成员…" : "当前项目没有可选成员。" })
                     : jsxRuntime.jsx("div", { style: { display: "grid", gap: 5 }, children: people.map((person) => {
                         const selectable = person.state !== "active" && person.state !== "pending";
                         const selectedSeatValue = peopleSeatIds[person.id] ?? "";

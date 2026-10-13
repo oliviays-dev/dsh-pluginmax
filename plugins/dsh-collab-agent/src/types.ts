@@ -40,6 +40,7 @@ export const agentRunPayloadSchema = z.object({
   nodeName: z.string().min(1).max(160),
   nodeDescription: z.string().max(2_000).default(""),
   profileName: z.string().min(1).max(120),
+  previousFailure: z.string().max(2_000).optional(),
   responsibleId: z.string().max(160).optional(),
   deliverables: z.array(agentDeliverableBriefSchema).max(20).default([]),
   context: z
@@ -67,7 +68,7 @@ export const agentRunSchema = z.object({
   employeeId: z.string().regex(idPattern).optional(),
   principalType: z.enum(["transitional-agent", "digital-employee"]).optional(),
   ticketId: z.string().regex(idPattern).optional(),
-  source: z.enum(["workflow", "task"]),
+  source: z.enum(["workflow", "task", "meeting"]),
   instanceId: z.string().min(1).max(160),
   nodeId: z.string().regex(idPattern),
   dispatchKey: z.string().min(1).max(400),
@@ -92,6 +93,8 @@ export const agentRunSchema = z.object({
       stopReason: z.string().max(120).optional(),
     })
     .optional(),
+  /** Provider-reported completion tokens for this run. Input tokens are excluded. */
+  outputTokens: z.number().int().nonnegative().optional(),
   error: z.string().max(1_000).optional(),
   startedAt: z.string().datetime({ precision: 3 }).optional(),
   endedAt: z.string().datetime({ precision: 3 }).optional(),

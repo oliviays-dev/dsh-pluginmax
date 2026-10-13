@@ -145,7 +145,7 @@
 7. Digital Employee 必须先启用、授权并映射 Runtime Profile。
 8. 所有循环必须包含 `break`。
 
-除 `gui-from-zero.md` 外，其余 fixtures 继续保留 `workflow-owner / workflow-member` 作为自动化基线；GUI 执行前必须复制到 `.tmp/gui-cases/`，把 `workflow-owner` 替换为 `admin`、`workflow-member` 替换为 `flow-member`，并把 `version` 递增 1。平台账号是共享资源；把它们加入 `<WS_ID>` 只影响启动实例，不影响模板校验。如果因密码未知改用 `flow-member2` 等新 ID，同步替换副本中的 `flow-member` 并再次递增 `version`。
+除 `gui-from-zero.md` 外，其余 fixtures 继续保留 `flow-owner / workflow-member` 作为自动化基线；GUI 执行前必须复制到 `.tmp/gui-cases/`，把 `flow-owner` 替换为 `admin`、`workflow-member` 替换为 `flow-member`，并把 `version` 递增 1。平台账号是共享资源；把它们加入 `<WS_ID>` 只影响启动实例，不影响模板校验。如果因密码未知改用 `flow-member2` 等新 ID，同步替换副本中的 `flow-member` 并再次递增 `version`。
 
 ## 2. 自动化测试运行清单
 
@@ -218,6 +218,8 @@ corepack pnpm test -- plugins/dsh-collab-workflow/src/index.test.ts \
 
 预期：A（owner/admin）可维护模板；B 可查看但不能修改；C 不能发起流程。未登录时提示先在账号管理登录。
 
+测试记录：10-02 测试通过
+
 ### WF-02 导入、校验和图形检查
 
 所需资料：`docs/fixtures/workflow/wf-02/` 目录下的执行包；`README.md` 记录文件与步骤的对应关系。
@@ -232,6 +234,9 @@ corepack pnpm test -- plugins/dsh-collab-workflow/src/index.test.ts \
 8. 点击 `新建模版`，粘贴 `step-08-invalid-cycle-v2.md`，尝试保存。
 
 预期：模板列表与详情在同一个内联页面显示；基础模板详情按 `01/02/03/04` 展示四个节点、依赖和负责人；并行模板显示需求评审、开发、测试准备、发布审批、发布；非法死循环出现 `cycle requires a break condition` 且不落库。`workflow-member` 不再是平台账号，校验错误必须完整列出所有引用，不能只显示「校验失败」；重复校验未变更内容时仍保持失败，不能变成通过；修正 ID 后详细错误被通过结果替换。右上角反馈保持短文案并自动消失，详细错误保留到用户关闭或触发下一次校验/保存。新版界面没有 `保存后启用` 复选框，保存模板默认启用。
+
+测试记录：10-02 测试通过
+
 
 ### WF-03 项目筛选和新建工作流弹窗
 
@@ -248,6 +253,9 @@ corepack pnpm test -- plugins/dsh-collab-workflow/src/index.test.ts \
 
 预期：`flow-outsider` 是平台账号时模板校验通过，但它还不属于 `<WS_ID>` 时启动被拒绝，提示包含「不是当前工作区成员」，且不创建实例；加入项目后可启动。全局页不再提供 `只看当前会话`；项目和状态筛选正确；新建弹窗同时显示项目归属、模板和节点预览；启动成功后弹窗关闭，列表出现实例；切换账号不会显示其他项目无权访问的实例。
 
+测试记录：10-02 测试通过
+
+
 ### WF-04 人工交付物、系统服务节点和管理员兜底
 
 所需资料：`WF-03 基础交付`。
@@ -263,6 +271,9 @@ corepack pnpm test -- plugins/dsh-collab-workflow/src/index.test.ts \
 
 预期：没有交付物时按钮显示 `缺少 1 项交付物`；字数不足不能提交；提交后状态为 `已提交`，节点可完成并进入发布审批。系统服务节点显示 `等待系统执行`，状态标签独占一行，`发布就绪` 标题和说明不被挤压或遮挡；提示说明它不创建个人 Task，只等待系统接入或 Owner/Admin 兜底。任务管理中不能出现可拖拽完成的系统服务 Task；B 不能完成节点，A（owner/admin）可以兜底完成；窄屏下状态标签完整显示，节点内容仍然可读。
 
+测试记录：10-02 测试通过
+
+
 ### WF-05 否决、返工和受控循环
 
 所需资料：`controlled-loop.md` 的 GUI 副本（替换真人账号并递增版本）。
@@ -273,6 +284,9 @@ corepack pnpm test -- plugins/dsh-collab-workflow/src/index.test.ts \
 4. 达到 `attempts >= 3` 后再次否决。
 
 预期：前两次否决回到 `开发`；审批 Task 在逆向流转后保持待 Review 并可再次产生结论，不因节点回退被误标完成；达到 break 后目标节点阻塞，后续 `发布就绪` 不 ready；节点显示尝试上限和触发条件。
+
+测试记录：10-02 测试通过
+
 
 ### WF-06 并行、汇合与多人审批
 
@@ -290,6 +304,9 @@ corepack pnpm test -- plugins/dsh-collab-workflow/src/index.test.ts \
 
 预期：开发或测试任一支路未完成时发布审批不 ready；`policy: all` 下第一位通过后仍等待；两人通过后发布 ready；发布完成后实例完成。审批 Task 的通过/退回会回写工作流，工作流侧转交 / 加签也会同步 Task 负责人；工作流任务不能拖拽改状态。
 
+测试记录：10-09 测试通过
+
+
 ### WF-07 审批转交、加签、未来节点
 
 所需资料：`sub-process.md` 和 `product-delivery-v2.md` 的 GUI 副本（替换真人账号并递增版本）。
@@ -301,12 +318,15 @@ corepack pnpm test -- plugins/dsh-collab-workflow/src/index.test.ts \
 
 预期：未来审批节点拒绝操作且不产生记录；转交后原审批人不能继续操作；加签后必须新增审批人完成；事件保留转交 / 加签来源。
 
+测试记录：10-09 测试通过
+
+
 ### WF-08 判断、子流程和服务节点
 
 所需资料：`sub-process.md`、`parent-child.md`。
 
 1. 先完成 WF-09 第 1-3 步，记录动态 Agent Profile ID。
-2. 把两个 fixture 复制到 `.tmp/gui-cases/`；把 `workflow-owner` 替换为 `admin`、`workflow-member` 替换为 `flow-member`，递增 `version`，再把 `agent:backend-agent` 和 `agent-profile: backend-agent` 中的 `backend-agent` 替换为记录到的 Profile ID。
+2. 把两个 fixture 复制到 `.tmp/gui-cases/`；把 `flow-owner` 替换为 `admin`、`workflow-member` 替换为 `flow-member`，递增 `version`，再把 `agent:backend-agent` 和 `agent-profile: backend-agent` 中的 `backend-agent` 替换为记录到的 Profile ID。
 3. A 在 `工作流 > 模板管理 > 新建模版` 依次导入并启用子流程副本和父流程副本。
 4. 点击 `新建工作流` 启动父流程，名称填 `WF-08 复杂方案`，录入 `{"complexity": 8}`。
 5. 完成子流程两个审批。
@@ -314,6 +334,9 @@ corepack pnpm test -- plugins/dsh-collab-workflow/src/index.test.ts \
 7. 完成标准开发和服务节点。
 
 预期：高分实例创建并回写子流程；低分实例跳过子流程；父流程在子流程完成后继续；两个实例都最终完成。
+
+测试记录：10-09 测试通过
+
 
 ### WF-09 Agent 自动 / 手动派发和失败兜底
 

@@ -232,10 +232,12 @@ window.__ModuleLoader__.load({
     function workspaceLabel(workspace) {
       const title = workspace.title?.trim();
       const path = workspace.path?.trim();
-      if (title && path) return `${title} (${path})`;
-      if (path) return path;
       if (title) return title;
-      return `未知工作区 (${workspace.id.slice(0, 8)})`;
+      if (path) {
+        const parts = path.split(/[\\/]/).filter(Boolean);
+        return parts.at(-1) ?? path;
+      }
+      return "未知工作区";
     }
 
     function InfoIcon() {
@@ -285,8 +287,10 @@ window.__ModuleLoader__.load({
 
     function friendlyError(cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
-      if (message === "invalid user or password") return "用户 ID 或密码不正确。";
-      if (message === "invalid or expired token") return "登录状态已过期，请重新登录。";
+      if (message === "invalid user or password")
+        return "用户 ID 或密码不正确。";
+      if (message === "invalid or expired token")
+        return "登录状态已过期，请重新登录。";
       if (message === "bearer token is required") return "请先登录。";
       if (message === "user id already exists") return "用户 ID 已存在。";
       return message;
@@ -410,9 +414,12 @@ window.__ModuleLoader__.load({
         return () => {
           disposed = true;
           controller.abort();
-          window.removeEventListener("pluginmax:collab-token", handleTokenChange);
+          window.removeEventListener(
+            "pluginmax:collab-token",
+            handleTokenChange,
+          );
         };
-        }, [loadAdmin, workspaceId]);
+      }, [loadAdmin, workspaceId]);
 
       react.useEffect(() => {
         if (me?.role !== "admin") return;
@@ -583,6 +590,26 @@ window.__ModuleLoader__.load({
         }
       };
 
+      const leaveWorkspace = async (workspaceIdToLeave) => {
+        if (savingRef.current) return;
+        savingRef.current = true;
+        setSaving(true);
+        try {
+          await request("/api/collab/team/members/leave", {
+            method: "POST",
+            body: JSON.stringify({ workspaceId: workspaceIdToLeave }),
+          });
+          const nextWorkspaceId = await loadWorkspaces();
+          await loadAdmin(me, nextWorkspaceId);
+          notify("已退出工作区");
+        } catch (cause) {
+          fail(cause);
+        } finally {
+          savingRef.current = false;
+          setSaving(false);
+        }
+      };
+
       const logout = async () => {
         try {
           await request("/api/collab/auth/logout", { method: "POST" });
@@ -642,8 +669,26 @@ window.__ModuleLoader__.load({
         (workspace) => workspace.id === workspaceId,
       );
       const workspaceNameById = new Map(
-        workspaces.map((workspace) => [workspace.id, workspaceLabel(workspace)]),
+        workspaces.map((workspace) => [
+          workspace.id,
+          workspaceLabel(workspace),
+        ]),
       );
+      const workspaceRoleLabels = {
+        owner: "负责人",
+        member: "成员",
+        guest: "访客",
+      };
+      const workspaceRoleLabel = (role) =>
+        workspaceRoleLabels[role] ?? role ?? "未加入";
+      const myWorkspaces = workspaces
+        .filter((workspace) => workspace.isMember)
+        .sort((left, right) =>
+          workspaceLabel(left).localeCompare(
+            workspaceLabel(right),
+            "zh-Hans-CN",
+          ),
+        );
       const noWorkspace = !activeWorkspace;
 
       const loginFields = jsxRuntime.jsxs(jsxRuntime.Fragment, {
@@ -690,10 +735,14 @@ window.__ModuleLoader__.load({
             padding: 4,
           },
           children: [
-            jsxRuntime.jsx("h2", { style: { fontSize: 18, margin: 0 }, children: "协作身份" }),
+            jsxRuntime.jsx("h2", {
+              style: { fontSize: 18, margin: 0 },
+              children: "协作身份",
+            }),
             jsxRuntime.jsx("p", {
               style: { color: "var(--dsw-alias-label-secondary)", margin: 0 },
-              children: "请先在「账号管理」中登录，再管理工作区成员和审计记录。",
+              children:
+                "请先在「账号管理」中登录，再管理工作区成员和审计记录。",
             }),
           ],
         });
@@ -701,7 +750,12 @@ window.__ModuleLoader__.load({
 
       return jsxRuntime.jsxs("section", {
         "data-pluginmax-identity": true,
-        style: { color: "var(--dsw-alias-label-primary)", display: "grid", gap: 16, padding: 4 },
+        style: {
+          color: "var(--dsw-alias-label-primary)",
+          display: "grid",
+          gap: 16,
+          padding: 4,
+        },
         children: [
           jsxRuntime.jsxs("div", {
             style: {
@@ -725,16 +779,100 @@ window.__ModuleLoader__.load({
                   }),
             ],
           }),
+          jsxRuntime.jsx(Panel, {
+            title: "我的工作区",
+            children: jsxRuntime.jsxs("div", {
+              style: { display: "grid", gap: 8 },
+              children: [
+                myWorkspaces.length === 0
+                  ? jsxRuntime.jsx("p", {
+                      style: {
+                        color: "var(--dsw-alias-label-secondary)",
+                        fontSize: 13,
+                        margin: 0,
+                      },
+                      children: "暂无已加入的工作区。",
+                    })
+                  : myWorkspaces.map((workspace) =>
+                      jsxRuntime.jsxs(
+                        "div",
+                        {
+                          style: {
+                            alignItems: "center",
+                            border: "0.5px solid var(--dsw-alias-border-l2)",
+                            borderRadius: 6,
+                            display: "grid",
+                            gap: 8,
+                            gridTemplateColumns: "minmax(0, 1fr) auto auto",
+                            padding: "9px 10px",
+                          },
+                          children: [
+                            jsxRuntime.jsxs("div", {
+                              style: { minWidth: 0 },
+                              children: [
+                                jsxRuntime.jsx("span", {
+                                  style: {
+                                    display: "block",
+                                    font: "inherit",
+                                    fontSize: 13,
+                                    fontWeight: 400,
+                                    lineHeight: 1.4,
+                                  },
+                                  children: workspaceLabel(workspace),
+                                }),
+                                jsxRuntime.jsx("span", {
+                                  style: {
+                                    color: "var(--dsw-alias-label-secondary)",
+                                    fontSize: 12,
+                                    overflowWrap: "anywhere",
+                                  },
+                                  children: workspace.id,
+                                }),
+                              ],
+                            }),
+                            jsxRuntime.jsx("span", {
+                              style: {
+                                borderRadius: 999,
+                                padding: "2px 8px",
+                                background: "var(--dsw-alias-bg-layer-2)",
+                                fontSize: 11,
+                                whiteSpace: "nowrap",
+                              },
+                              children: workspaceRoleLabel(
+                                workspace.memberRole,
+                              ),
+                            }),
+                            jsxRuntime.jsx("button", {
+                              type: "button",
+                              style: secondaryButtonStyle,
+                              disabled: saving,
+                              onClick: () => leaveWorkspace(workspace.id),
+                              children: saving ? "退出中..." : "退出",
+                            }),
+                          ],
+                        },
+                        workspace.id,
+                      ),
+                    ),
+              ],
+            }),
+          }),
           message === ""
             ? null
             : jsxRuntime.jsx("p", {
-                style: { color: "var(--dsw-alias-state-success-primary)", margin: 0 },
+                style: {
+                  color: "var(--dsw-alias-state-success-primary)",
+                  margin: 0,
+                },
                 children: message,
               }),
           error === ""
             ? null
             : jsxRuntime.jsx("p", {
-                style: { color: "var(--dsw-alias-state-error-primary)", margin: 0 },
+                style: {
+                  color: "var(--dsw-alias-state-error-primary)",
+                  margin: 0,
+                },
                 children: error,
               }),
           surface === "account" && phase === "bootstrap"
@@ -934,486 +1072,522 @@ window.__ModuleLoader__.load({
             ? null
             : jsxRuntime.jsxs(jsxRuntime.Fragment, {
                 children: [
-                  surface === "account" ? jsxRuntime.jsxs(Panel, {
-                    title: "账号",
-                    action: jsxRuntime.jsx("button", {
-                      type: "button",
-                      style: secondaryButtonStyle,
-                      onClick: () => loadAdmin().catch(fail),
-                      children: "刷新",
-                    }),
-                    children: [
-                      jsxRuntime.jsxs("form", {
-                        onSubmit: submitUser,
-                        style: {
-                          ...formStyle,
-                          gridTemplateColumns:
-                            "minmax(160px, 1fr) minmax(160px, 1fr) minmax(180px, 1fr)",
-                        },
+                  surface === "account"
+                    ? jsxRuntime.jsxs(Panel, {
+                        title: "账号",
+                        action: jsxRuntime.jsx("button", {
+                          type: "button",
+                          style: secondaryButtonStyle,
+                          onClick: () => loadAdmin().catch(fail),
+                          children: "刷新",
+                        }),
                         children: [
-                          jsxRuntime.jsx(Field, {
-                            id: "pluginmax-new-user-id",
-                            label: "用户 ID",
-                            hint: "字母或数字开头，最长 64 位",
-                            maxLength: 64,
-                            value: newUser.userId,
-                            onChange: (event) =>
-                              setNewUser((current) => ({
-                                ...current,
-                                userId: event.target.value,
-                              })),
-                          }),
-                          jsxRuntime.jsx(Field, {
-                            id: "pluginmax-new-user-name",
-                            label: "显示名称",
-                            hint: "最长 80 个字符",
-                            maxLength: 80,
-                            value: newUser.name,
-                            onChange: (event) =>
-                              setNewUser((current) => ({
-                                ...current,
-                                name: event.target.value,
-                              })),
-                          }),
-                          jsxRuntime.jsx(Field, {
-                            id: "pluginmax-new-user-password",
-                            label: "初始密码",
-                            type: "password",
-                            hint: "至少 8 个字符，最长 256 位",
-                            maxLength: 256,
-                            value: newUser.password,
-                            onChange: (event) =>
-                              setNewUser((current) => ({
-                                ...current,
-                                password: event.target.value,
-                              })),
-                          }),
-                          jsxRuntime.jsx("label", {
-                            htmlFor: "pluginmax-new-user-role",
+                          jsxRuntime.jsxs("form", {
+                            onSubmit: submitUser,
                             style: {
-                              color: "var(--dsw-alias-label-secondary)",
-                              alignContent: "start",
-                              display: "grid",
-                              fontSize: 13,
-                              gap: 5,
+                              ...formStyle,
+                              gridTemplateColumns:
+                                "minmax(160px, 1fr) minmax(160px, 1fr) minmax(180px, 1fr)",
                             },
                             children: [
-                              jsxRuntime.jsx("span", { children: "全局角色" }),
-                          jsxRuntime.jsx("select", {
-                                id: "pluginmax-new-user-role",
-                                style: inputStyle,
-                                value: newUser.role,
+                              jsxRuntime.jsx(Field, {
+                                id: "pluginmax-new-user-id",
+                                label: "用户 ID",
+                                hint: "字母或数字开头，最长 64 位",
+                                maxLength: 64,
+                                value: newUser.userId,
                                 onChange: (event) =>
                                   setNewUser((current) => ({
                                     ...current,
-                                    role: event.target.value,
+                                    userId: event.target.value,
                                   })),
+                              }),
+                              jsxRuntime.jsx(Field, {
+                                id: "pluginmax-new-user-name",
+                                label: "显示名称",
+                                hint: "最长 80 个字符",
+                                maxLength: 80,
+                                value: newUser.name,
+                                onChange: (event) =>
+                                  setNewUser((current) => ({
+                                    ...current,
+                                    name: event.target.value,
+                                  })),
+                              }),
+                              jsxRuntime.jsx(Field, {
+                                id: "pluginmax-new-user-password",
+                                label: "初始密码",
+                                type: "password",
+                                hint: "至少 8 个字符，最长 256 位",
+                                maxLength: 256,
+                                value: newUser.password,
+                                onChange: (event) =>
+                                  setNewUser((current) => ({
+                                    ...current,
+                                    password: event.target.value,
+                                  })),
+                              }),
+                              jsxRuntime.jsx("label", {
+                                htmlFor: "pluginmax-new-user-role",
+                                style: {
+                                  color: "var(--dsw-alias-label-secondary)",
+                                  alignContent: "start",
+                                  display: "grid",
+                                  fontSize: 13,
+                                  gap: 5,
+                                },
                                 children: [
-                                  "admin",
-                                  "owner",
-                                  "member",
-                                  "guest",
-                                ].map((role) =>
-                                  jsxRuntime.jsx(
-                                    "option",
-                                    { value: role, children: role },
-                                    role,
+                                  jsxRuntime.jsx("span", {
+                                    children: "全局角色",
+                                  }),
+                                  jsxRuntime.jsx("select", {
+                                    id: "pluginmax-new-user-role",
+                                    style: inputStyle,
+                                    value: newUser.role,
+                                    onChange: (event) =>
+                                      setNewUser((current) => ({
+                                        ...current,
+                                        role: event.target.value,
+                                      })),
+                                    children: [
+                                      "admin",
+                                      "owner",
+                                      "member",
+                                      "guest",
+                                    ].map((role) =>
+                                      jsxRuntime.jsx(
+                                        "option",
+                                        { value: role, children: role },
+                                        role,
+                                      ),
+                                    ),
+                                  }),
+                                ],
+                              }),
+                              jsxRuntime.jsx("button", {
+                                type: "submit",
+                                disabled: saving,
+                                style: {
+                                  ...buttonStyle,
+                                  gridColumn: "1 / -1",
+                                  justifySelf: "start",
+                                  opacity: saving ? 0.6 : 1,
+                                },
+                                children: saving ? "创建中..." : "创建",
+                              }),
+                            ],
+                          }),
+                          jsxRuntime.jsxs("table", {
+                            style: tableStyle,
+                            children: [
+                              jsxRuntime.jsx("thead", {
+                                children: jsxRuntime.jsx("tr", {
+                                  children: [
+                                    "用户",
+                                    "名称",
+                                    "角色",
+                                    "创建时间",
+                                  ].map((title) =>
+                                    jsxRuntime.jsx(
+                                      "th",
+                                      { style: cellStyle, children: title },
+                                      title,
+                                    ),
+                                  ),
+                                }),
+                              }),
+                              jsxRuntime.jsx("tbody", {
+                                children: users.map((user) =>
+                                  jsxRuntime.jsxs(
+                                    "tr",
+                                    {
+                                      children: [
+                                        jsxRuntime.jsx("td", {
+                                          style: cellStyle,
+                                          children: user.id,
+                                        }),
+                                        jsxRuntime.jsx("td", {
+                                          style: cellStyle,
+                                          children: user.name,
+                                        }),
+                                        jsxRuntime.jsx("td", {
+                                          style: cellStyle,
+                                          children: user.role,
+                                        }),
+                                        jsxRuntime.jsx("td", {
+                                          style: cellStyle,
+                                          title: user.createdAt,
+                                          children: localTime(user.createdAt),
+                                        }),
+                                      ],
+                                    },
+                                    user.id,
                                   ),
                                 ),
                               }),
                             ],
                           }),
-                          jsxRuntime.jsx("button", {
-                            type: "submit",
-                            disabled: saving,
-                            style: {
-                              ...buttonStyle,
-                              gridColumn: "1 / -1",
-                              justifySelf: "start",
-                              opacity: saving ? 0.6 : 1,
-                            },
-                            children: saving ? "创建中..." : "创建",
-                          }),
                         ],
-                      }),
-                      jsxRuntime.jsxs("table", {
-                        style: tableStyle,
+                      })
+                    : null,
+                  surface === "identity"
+                    ? jsxRuntime.jsxs(Panel, {
+                        title: "工作区成员",
                         children: [
-                          jsxRuntime.jsx("thead", {
-                            children: jsxRuntime.jsx("tr", {
-                              children: [
-                                "用户",
-                                "名称",
-                                "角色",
-                                "创建时间",
-                              ].map((title) =>
-                                jsxRuntime.jsx(
-                                  "th",
-                                  { style: cellStyle, children: title },
-                                  title,
-                                ),
-                              ),
-                            }),
-                          }),
-                          jsxRuntime.jsx("tbody", {
-                            children: users.map((user) =>
-                              jsxRuntime.jsxs(
-                                "tr",
-                                {
-                                  children: [
-                                    jsxRuntime.jsx("td", {
-                                      style: cellStyle,
-                                      children: user.id,
-                                    }),
-                                    jsxRuntime.jsx("td", {
-                                      style: cellStyle,
-                                      children: user.name,
-                                    }),
-                                    jsxRuntime.jsx("td", {
-                                      style: cellStyle,
-                                      children: user.role,
-                                    }),
-                                    jsxRuntime.jsx("td", {
-                                      style: cellStyle,
-                                      title: user.createdAt,
-                                      children: localTime(user.createdAt),
-                                    }),
-                                  ],
-                                },
-                                user.id,
-                              ),
-                            ),
-                          }),
-                        ],
-                      }),
-                    ],
-                  }) : null,
-	                  surface === "identity" ? jsxRuntime.jsxs(Panel, {
-	                    title: "工作区成员",
-	                    children: [
-	                      jsxRuntime.jsxs("div", {
-	                        style: {
-	                          alignItems: "end",
-	                          display: "grid",
-	                          gap: 8,
-	                          gridTemplateColumns: "minmax(0, 1fr) auto",
-	                        },
-	                        children: [
-	                          jsxRuntime.jsxs("label", {
-	                            htmlFor: "pluginmax-workspace-id",
-	                            style: {
-	                              color: "var(--dsw-alias-label-secondary)",
-	                              display: "grid",
-	                              fontSize: 13,
-	                              gap: 5,
-	                              minWidth: 0,
-	                            },
-	                            children: [
-	                              jsxRuntime.jsx("span", { children: "工作区" }),
-	                              jsxRuntime.jsxs("select", {
-	                                id: "pluginmax-workspace-id",
-	                                style: inputStyle,
-	                                value: workspaceId ?? "",
-	                                disabled: noWorkspace,
-	                                onChange: (event) =>
-	                                  setWorkspaceId(event.target.value),
-	                                children: [
-	                                  workspaces.length === 0
-	                                    ? jsxRuntime.jsx(
-	                                        "option",
-	                                        {
-	                                          value: "",
-	                                          children: "暂无可用工作区",
-	                                        },
-	                                        "empty",
-	                                      )
-	                                    : workspaces.map((workspace) =>
-	                                        jsxRuntime.jsx(
-	                                          "option",
-	                                          {
-	                                            value: workspace.id,
-	                                            children: workspaceLabel(workspace),
-	                                          },
-	                                          workspace.id,
-	                                        ),
-	                                      ),
-	                                ],
-	                              }),
-	                            ],
-	                          }),
-	                          jsxRuntime.jsx("button", {
-	                            type: "button",
-	                            "aria-expanded": workspaceInfoOpen,
-	                            "aria-label": "工作区信息",
-	                            title: noWorkspace
-	                              ? "请先在左侧添加或打开工作区"
-	                              : "工作区信息",
-	                            disabled: noWorkspace,
-	                            style: noWorkspace
-	                              ? {
-	                                  ...iconButtonStyle,
-	                                  cursor: "not-allowed",
-	                                  opacity: 0.45,
-	                                }
-	                              : iconButtonStyle,
-	                            onClick: () =>
-	                              setWorkspaceInfoOpen((open) => !open),
-	                            children: jsxRuntime.jsx(InfoIcon, {}),
-	                          }),
-	                        ],
-	                      }),
-	                      workspaceInfoOpen
-	                        ? jsxRuntime.jsxs("div", {
-	                            "aria-label": "工作区详情",
-	                            role: "region",
-	                            style: {
-	                              alignItems: "start",
-	                              background: "var(--dsw-alias-bg-layer-2)",
-	                              border: "0.5px solid var(--dsw-alias-border-l2)",
-	                              borderRadius: 6,
-	                              display: "grid",
-	                              gap: 8,
-	                              gridTemplateColumns: "minmax(0, 1fr) auto",
-	                              padding: 10,
-	                            },
-	                            children: [
-	                              jsxRuntime.jsxs("div", {
-	                                style: {
-	                                  color: "var(--dsw-alias-label-secondary)",
-	                                  display: "grid",
-	                                  fontSize: 12,
-	                                  gap: 4,
-	                                  minWidth: 0,
-	                                },
-	                                children: [
-	                                  noWorkspace ? jsxRuntime.jsx("span", { children: "请先在左侧工作区列表添加或打开一个工作区。" }) : jsxRuntime.jsxs(jsxRuntime.Fragment, {
-	                                    children: [
-	                                      jsxRuntime.jsxs("span", {
-	                                        children: ["名称：", activeWorkspace?.title || "未命名"],
-	                                      }),
-	                                      jsxRuntime.jsxs("span", {
-	                                        style: { overflowWrap: "anywhere" },
-	                                        children: ["路径：", activeWorkspace?.path || "未知"],
-	                                      }),
-	                                      jsxRuntime.jsx("span", {
-	                                        style: { overflowWrap: "anywhere" },
-	                                        children: `工作区 ID：${workspaceId}`,
-	                                      }),
-	                                    ],
-	                                  }),
-	                                ],
-	                              }),
-	                              noWorkspace ? null : jsxRuntime.jsx("button", {
-	                                type: "button",
-	                                style: secondaryButtonStyle,
-	                                onClick: async () => {
-	                                  try {
-	                                    await navigator.clipboard.writeText(
-	                                      workspaceId,
-	                                    );
-	                                    notify("已复制工作区 ID");
-	                                  } catch (cause) {
-	                                    fail(cause);
-	                                  }
-	                                },
-	                                children: [
-	                                  jsxRuntime.jsx(CopyIcon, {}),
-	                                  "复制 ID",
-	                                ],
-	                              }),
-	                            ],
-	                          })
-	                        : null,
-                      jsxRuntime.jsxs("form", {
-                        onSubmit: submitMember,
-                        style: formStyle,
-                        children: [
-                          jsxRuntime.jsx(Field, {
-                            id: "pluginmax-member-user-id",
-                            label: "用户 ID",
-                            disabled: noWorkspace,
-                            value: memberForm.userId,
-                            onChange: (event) =>
-                              setMemberForm((current) => ({
-                                ...current,
-                                userId: event.target.value,
-                              })),
-                          }),
-                          jsxRuntime.jsx("label", {
-                            htmlFor: "pluginmax-member-role",
+                          jsxRuntime.jsxs("div", {
                             style: {
-                              color: "var(--dsw-alias-label-secondary)",
+                              alignItems: "end",
                               display: "grid",
-                              fontSize: 13,
-                              gap: 5,
+                              gap: 8,
+                              gridTemplateColumns: "minmax(0, 1fr) auto",
                             },
                             children: [
-                              jsxRuntime.jsx("span", { children: "成员角色" }),
-	                              jsxRuntime.jsx("select", {
-	                                id: "pluginmax-member-role",
-	                                style: inputStyle,
-	                                disabled: noWorkspace,
-	                                value: memberForm.role,
+                              jsxRuntime.jsxs("label", {
+                                htmlFor: "pluginmax-workspace-id",
+                                style: {
+                                  color: "var(--dsw-alias-label-secondary)",
+                                  display: "grid",
+                                  fontSize: 13,
+                                  gap: 5,
+                                  minWidth: 0,
+                                },
+                                children: [
+                                  jsxRuntime.jsx("span", {
+                                    children: "工作区",
+                                  }),
+                                  jsxRuntime.jsxs("select", {
+                                    id: "pluginmax-workspace-id",
+                                    style: inputStyle,
+                                    value: workspaceId ?? "",
+                                    disabled: noWorkspace,
+                                    onChange: (event) =>
+                                      setWorkspaceId(event.target.value),
+                                    children: [
+                                      workspaces.length === 0
+                                        ? jsxRuntime.jsx(
+                                            "option",
+                                            {
+                                              value: "",
+                                              children: "暂无可用工作区",
+                                            },
+                                            "empty",
+                                          )
+                                        : workspaces.map((workspace) =>
+                                            jsxRuntime.jsx(
+                                              "option",
+                                              {
+                                                value: workspace.id,
+                                                children:
+                                                  workspaceLabel(workspace),
+                                              },
+                                              workspace.id,
+                                            ),
+                                          ),
+                                    ],
+                                  }),
+                                ],
+                              }),
+                              jsxRuntime.jsx("button", {
+                                type: "button",
+                                "aria-expanded": workspaceInfoOpen,
+                                "aria-label": "工作区信息",
+                                title: noWorkspace
+                                  ? "请先在左侧添加或打开工作区"
+                                  : "工作区信息",
+                                disabled: noWorkspace,
+                                style: noWorkspace
+                                  ? {
+                                      ...iconButtonStyle,
+                                      cursor: "not-allowed",
+                                      opacity: 0.45,
+                                    }
+                                  : iconButtonStyle,
+                                onClick: () =>
+                                  setWorkspaceInfoOpen((open) => !open),
+                                children: jsxRuntime.jsx(InfoIcon, {}),
+                              }),
+                            ],
+                          }),
+                          workspaceInfoOpen
+                            ? jsxRuntime.jsxs("div", {
+                                "aria-label": "工作区详情",
+                                role: "region",
+                                style: {
+                                  alignItems: "start",
+                                  background: "var(--dsw-alias-bg-layer-2)",
+                                  border:
+                                    "0.5px solid var(--dsw-alias-border-l2)",
+                                  borderRadius: 6,
+                                  display: "grid",
+                                  gap: 8,
+                                  gridTemplateColumns: "minmax(0, 1fr) auto",
+                                  padding: 10,
+                                },
+                                children: [
+                                  jsxRuntime.jsxs("div", {
+                                    style: {
+                                      color: "var(--dsw-alias-label-secondary)",
+                                      display: "grid",
+                                      fontSize: 12,
+                                      gap: 4,
+                                      minWidth: 0,
+                                    },
+                                    children: [
+                                      noWorkspace
+                                        ? jsxRuntime.jsx("span", {
+                                            children:
+                                              "请先在左侧工作区列表添加或打开一个工作区。",
+                                          })
+                                        : jsxRuntime.jsxs(jsxRuntime.Fragment, {
+                                            children: [
+                                              jsxRuntime.jsxs("span", {
+                                                children: [
+                                                  "名称：",
+                                                  activeWorkspace?.title ||
+                                                    "未命名",
+                                                ],
+                                              }),
+                                              jsxRuntime.jsxs("span", {
+                                                style: {
+                                                  overflowWrap: "anywhere",
+                                                },
+                                                children: [
+                                                  "路径：",
+                                                  activeWorkspace?.path ||
+                                                    "未知",
+                                                ],
+                                              }),
+                                              jsxRuntime.jsx("span", {
+                                                style: {
+                                                  overflowWrap: "anywhere",
+                                                },
+                                                children: `工作区 ID：${workspaceId}`,
+                                              }),
+                                            ],
+                                          }),
+                                    ],
+                                  }),
+                                  noWorkspace
+                                    ? null
+                                    : jsxRuntime.jsx("button", {
+                                        type: "button",
+                                        style: secondaryButtonStyle,
+                                        onClick: async () => {
+                                          try {
+                                            await navigator.clipboard.writeText(
+                                              workspaceId,
+                                            );
+                                            notify("已复制工作区 ID");
+                                          } catch (cause) {
+                                            fail(cause);
+                                          }
+                                        },
+                                        children: [
+                                          jsxRuntime.jsx(CopyIcon, {}),
+                                          "复制 ID",
+                                        ],
+                                      }),
+                                ],
+                              })
+                            : null,
+                          jsxRuntime.jsxs("form", {
+                            onSubmit: submitMember,
+                            style: formStyle,
+                            children: [
+                              jsxRuntime.jsx(Field, {
+                                id: "pluginmax-member-user-id",
+                                label: "用户 ID",
+                                disabled: noWorkspace,
+                                value: memberForm.userId,
                                 onChange: (event) =>
                                   setMemberForm((current) => ({
                                     ...current,
-                                    role: event.target.value,
+                                    userId: event.target.value,
                                   })),
-                                children: ["owner", "member", "guest"].map(
-                                  (role) =>
-                                    jsxRuntime.jsx(
-                                      "option",
-                                      { value: role, children: role },
-                                      role,
+                              }),
+                              jsxRuntime.jsx("label", {
+                                htmlFor: "pluginmax-member-role",
+                                style: {
+                                  color: "var(--dsw-alias-label-secondary)",
+                                  display: "grid",
+                                  fontSize: 13,
+                                  gap: 5,
+                                },
+                                children: [
+                                  jsxRuntime.jsx("span", {
+                                    children: "成员角色",
+                                  }),
+                                  jsxRuntime.jsx("select", {
+                                    id: "pluginmax-member-role",
+                                    style: inputStyle,
+                                    disabled: noWorkspace,
+                                    value: memberForm.role,
+                                    onChange: (event) =>
+                                      setMemberForm((current) => ({
+                                        ...current,
+                                        role: event.target.value,
+                                      })),
+                                    children: ["owner", "member", "guest"].map(
+                                      (role) =>
+                                        jsxRuntime.jsx(
+                                          "option",
+                                          { value: role, children: role },
+                                          role,
+                                        ),
                                     ),
+                                  }),
+                                ],
+                              }),
+                              jsxRuntime.jsx("button", {
+                                type: "submit",
+                                disabled: noWorkspace || saving,
+                                style: noWorkspace
+                                  ? {
+                                      ...buttonStyle,
+                                      cursor: "not-allowed",
+                                      justifySelf: "start",
+                                      opacity: 0.45,
+                                    }
+                                  : {
+                                      ...buttonStyle,
+                                      justifySelf: "start",
+                                      opacity: saving ? 0.6 : 1,
+                                    },
+                                children: saving ? "保存中..." : "保存成员",
+                              }),
+                            ],
+                          }),
+                          jsxRuntime.jsxs("table", {
+                            style: tableStyle,
+                            children: [
+                              jsxRuntime.jsx("thead", {
+                                children: jsxRuntime.jsx("tr", {
+                                  children: [
+                                    "用户",
+                                    "名称",
+                                    "角色",
+                                    "加入时间",
+                                    "",
+                                  ].map((title, index) =>
+                                    jsxRuntime.jsx(
+                                      "th",
+                                      { style: cellStyle, children: title },
+                                      index,
+                                    ),
+                                  ),
+                                }),
+                              }),
+                              jsxRuntime.jsx("tbody", {
+                                children: members.map((member) =>
+                                  jsxRuntime.jsxs(
+                                    "tr",
+                                    {
+                                      children: [
+                                        jsxRuntime.jsx("td", {
+                                          style: cellStyle,
+                                          children: member.userId,
+                                        }),
+                                        jsxRuntime.jsx("td", {
+                                          style: cellStyle,
+                                          children: member.name,
+                                        }),
+                                        jsxRuntime.jsx("td", {
+                                          style: cellStyle,
+                                          children: member.memberRole,
+                                        }),
+                                        jsxRuntime.jsx("td", {
+                                          style: cellStyle,
+                                          children: member.addedAt,
+                                        }),
+                                        jsxRuntime.jsx("td", {
+                                          style: cellStyle,
+                                          children: jsxRuntime.jsx("button", {
+                                            type: "button",
+                                            style: secondaryButtonStyle,
+                                            disabled: saving,
+                                            onClick: () =>
+                                              removeMember(member.userId),
+                                            children: saving
+                                              ? "处理中..."
+                                              : "移出",
+                                          }),
+                                        }),
+                                      ],
+                                    },
+                                    member.userId,
+                                  ),
                                 ),
                               }),
                             ],
                           }),
-	                          jsxRuntime.jsx("button", {
-	                            type: "submit",
-	                            disabled: noWorkspace || saving,
-	                            style: noWorkspace
-	                              ? {
-	                                  ...buttonStyle,
-	                                  cursor: "not-allowed",
-	                                  justifySelf: "start",
-	                                  opacity: 0.45,
-	                                }
-	                              : {
-	                                  ...buttonStyle,
-	                                  justifySelf: "start",
-	                                  opacity: saving ? 0.6 : 1,
-	                                },
-                            children: saving ? "保存中..." : "保存成员",
-                          }),
                         ],
-                      }),
-                      jsxRuntime.jsxs("table", {
-                        style: tableStyle,
-                        children: [
-                          jsxRuntime.jsx("thead", {
-                            children: jsxRuntime.jsx("tr", {
-                              children: [
-                                "用户",
-                                "名称",
-                                "角色",
-                                "加入时间",
-                                "",
-                              ].map((title, index) =>
-                                jsxRuntime.jsx(
-                                  "th",
-                                  { style: cellStyle, children: title },
-                                  index,
+                      })
+                    : null,
+                  surface === "identity"
+                    ? jsxRuntime.jsx(Panel, {
+                        title: "审计时间线",
+                        children: jsxRuntime.jsxs("table", {
+                          style: tableStyle,
+                          children: [
+                            jsxRuntime.jsx("thead", {
+                              children: jsxRuntime.jsx("tr", {
+                                children: [
+                                  "时间",
+                                  "操作者",
+                                  "动作",
+                                  "对象",
+                                  "工作区",
+                                ].map((title) =>
+                                  jsxRuntime.jsx(
+                                    "th",
+                                    { style: cellStyle, children: title },
+                                    title,
+                                  ),
+                                ),
+                              }),
+                            }),
+                            jsxRuntime.jsx("tbody", {
+                              children: events.map((event) =>
+                                jsxRuntime.jsxs(
+                                  "tr",
+                                  {
+                                    children: [
+                                      jsxRuntime.jsx("td", {
+                                        style: cellStyle,
+                                        title: event.at,
+                                        children: localTime(event.at),
+                                      }),
+                                      jsxRuntime.jsx("td", {
+                                        style: cellStyle,
+                                        children: event.actorId,
+                                      }),
+                                      jsxRuntime.jsx("td", {
+                                        style: cellStyle,
+                                        children: event.action,
+                                      }),
+                                      jsxRuntime.jsx("td", {
+                                        style: cellStyle,
+                                        children: event.targetId ?? "-",
+                                      }),
+                                      jsxRuntime.jsx("td", {
+                                        style: cellStyle,
+                                        children:
+                                          event.workspaceId === undefined
+                                            ? "-"
+                                            : (workspaceNameById.get(
+                                                event.workspaceId,
+                                              ) ?? event.workspaceId),
+                                      }),
+                                    ],
+                                  },
+                                  event.id,
                                 ),
                               ),
                             }),
-                          }),
-                          jsxRuntime.jsx("tbody", {
-                            children: members.map((member) =>
-                              jsxRuntime.jsxs(
-                                "tr",
-                                {
-                                  children: [
-                                    jsxRuntime.jsx("td", {
-                                      style: cellStyle,
-                                      children: member.userId,
-                                    }),
-                                    jsxRuntime.jsx("td", {
-                                      style: cellStyle,
-                                      children: member.name,
-                                    }),
-                                    jsxRuntime.jsx("td", {
-                                      style: cellStyle,
-                                      children: member.memberRole,
-                                    }),
-                                    jsxRuntime.jsx("td", {
-                                      style: cellStyle,
-                                      children: member.addedAt,
-                                    }),
-                                    jsxRuntime.jsx("td", {
-                                      style: cellStyle,
-                                      children: jsxRuntime.jsx("button", {
-                                        type: "button",
-                                        style: secondaryButtonStyle,
-                                        disabled: saving,
-                                        onClick: () =>
-                                          removeMember(member.userId),
-                                        children: saving
-                                          ? "处理中..."
-                                          : "移出",
-                                      }),
-                                    }),
-                                  ],
-                                },
-                                member.userId,
-                              ),
-                            ),
-                          }),
-                        ],
-                      }),
-                    ],
-                  }) : null,
-                  surface === "identity" ? jsxRuntime.jsx(Panel, {
-                    title: "审计时间线",
-                    children: jsxRuntime.jsxs("table", {
-                      style: tableStyle,
-                      children: [
-                        jsxRuntime.jsx("thead", {
-                          children: jsxRuntime.jsx("tr", {
-                            children: [
-                              "时间",
-                              "操作者",
-                              "动作",
-                              "对象",
-                              "工作区",
-                            ].map((title) =>
-                              jsxRuntime.jsx(
-                                "th",
-                                { style: cellStyle, children: title },
-                                title,
-                              ),
-                            ),
-                          }),
+                          ],
                         }),
-                        jsxRuntime.jsx("tbody", {
-                          children: events.map((event) =>
-                            jsxRuntime.jsxs(
-                              "tr",
-                              {
-                                children: [
-                                  jsxRuntime.jsx("td", {
-                                    style: cellStyle,
-                                    title: event.at,
-                                    children: localTime(event.at),
-                                  }),
-                                  jsxRuntime.jsx("td", {
-                                    style: cellStyle,
-                                    children: event.actorId,
-                                  }),
-                                  jsxRuntime.jsx("td", {
-                                    style: cellStyle,
-                                    children: event.action,
-                                  }),
-                                  jsxRuntime.jsx("td", {
-                                    style: cellStyle,
-                                    children: event.targetId ?? "-",
-                                  }),
-                                  jsxRuntime.jsx("td", {
-                                    style: cellStyle,
-                                    children: event.workspaceId === undefined
-                                      ? "-"
-                                      : workspaceNameById.get(event.workspaceId) ?? event.workspaceId,
-                                  }),
-                                ],
-                              },
-                              event.id,
-                            ),
-                          ),
-                        }),
-                      ],
-                    }),
-                  }) : null,
+                      })
+                    : null,
                 ],
               }),
         ],

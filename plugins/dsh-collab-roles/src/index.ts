@@ -113,6 +113,42 @@ export type WorkspaceRoleConfig = z.infer<typeof workspaceConfigSchema>;
 export type Assignment = z.infer<typeof assignmentSchema>;
 export type RoleActor = z.infer<typeof actorSchema>;
 
+/**
+ * 平台默认 facilitator 席位：会议开箱即有一个「会议 Facilitator」agent 席位。
+ * personaId 与 dsh-collab-teammate 的 `persona-<teammateId>` 派生规则一致
+ * （teammateId = meeting-facilitator）。
+ */
+const FACILITATOR_SEAT_ID = "facilitator";
+const FACILITATOR_PERSONA_ID = "persona-meeting-facilitator";
+
+function facilitatorSeat(): RoleSeat {
+  return {
+    id: FACILITATOR_SEAT_ID,
+    label: "会议 Facilitator",
+    participantKind: "agent",
+    personaId: FACILITATOR_PERSONA_ID,
+    permissions: ["read", "write"],
+  };
+}
+
+function withFacilitatorSeat(seats: readonly RoleSeat[]): RoleSeat[] {
+  if (seats.some((seat) => seat.id === FACILITATOR_SEAT_ID)) return [...seats];
+  return [...seats, facilitatorSeat()];
+}
+
+/** 已物化工作区的一次性补位：把默认 facilitator 席位补进既有配置。 */
+export async function ensureFacilitatorSeats(
+  workspaces: KvTableLike<WorkspaceRoleConfig>,
+): Promise<void> {
+  for (const [key, config] of workspaces.entries()) {
+    if (config.seats.some((seat) => seat.id === FACILITATOR_SEAT_ID)) continue;
+    await workspaces.put(key, {
+      ...config,
+      seats: withFacilitatorSeat(config.seats),
+    });
+  }
+}
+
 export class RolesError extends Error {
   constructor(
     readonly code:
@@ -374,8 +410,10 @@ export class AssignmentService {
     if (!isManager(actor)) {
       throw new RolesError("forbidden", "workspace owner role is required");
     }
-    const seatIds = new Set(type.seats.map((seat) => seat.id));
-    if (seatIds.size !== type.seats.length) {
+    // 平台默认 facilitator 席位随物化补齐，不要求每个类型模板手写。
+    const seats = withFacilitatorSeat(type.seats);
+    const seatIds = new Set(seats.map((seat) => seat.id));
+    if (seatIds.size !== seats.length) {
       throw new RolesError("invalid_input", "seat ids must be unique");
     }
     const timestamp = nowIso(this.options.now);
@@ -383,7 +421,7 @@ export class AssignmentService {
       workspaceId,
       typeId: type.id,
       typeName: type.name,
-      seats: type.seats,
+      seats,
       materializedAt: timestamp,
       materializedBy: actor.id,
     };
@@ -945,6 +983,7 @@ export async function apply(ctx: RolesContext): Promise<void | (() => void)> {
     workspaces: domain.table("workspaces"),
     assignments: domain.table("assignments"),
   });
+  await ensureFacilitatorSeats(domain.table("workspaces"));
   ctx.provide("collabPersonas", personas);
   ctx.provide("collabWorkspaceType", types);
   ctx.provide("collabAssignment", assignments);

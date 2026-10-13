@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createTaskRoutes } from "./index.js";
-import { TaskService, type KvTableLike } from "./service.js";
+import {
+  orderQueue,
+  pickNextTask,
+  TaskService,
+  type KvTableLike,
+} from "./service.js";
 import type { TaskRecord } from "./types.js";
 import {
   attachmentDocuments,
@@ -211,6 +216,38 @@ describe("dsh-collab-task service", () => {
         .get(created.id)
         .events.filter((event) => event.message === "修正历史取消状态"),
     ).toHaveLength(2);
+  });
+
+  it("hands an auto-submitted agent task back to the instance owner", async () => {
+    const tasks = service();
+    const created = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Agent task",
+      priority: "P1",
+      receiverType: "agent",
+      receiverId: "tm-1",
+      receiverName: "Research Agent",
+      description: "Do the thing.",
+      acceptance: ["done"],
+    });
+    const completed = await tasks.attachAgentRun(
+      created.id,
+      {
+        id: "run-9",
+        instanceId: created.id,
+        status: "succeeded",
+        output: { summary: "交付完成" },
+      },
+      "Research Agent",
+      { userId: "olivia", name: "Olivia" },
+    );
+    expect(completed.status).toBe("review");
+    expect(completed.receiverType).toBe("human");
+    expect(completed.receiverId).toBe("olivia");
+    expect(completed.receiverName).toBe("Olivia");
+    expect(completed.events.at(-1)?.message).toBe(
+      "Research Agent 完成产出物，已提交 Olivia 确认",
+    );
   });
 
   it("records queued and completed agent executions on the task", async () => {
@@ -1277,7 +1314,7 @@ describe("teammate task assignment", () => {
         workflowTarget: () => ({
           employee: {
             id: "digital-1",
-            displayName: "测小白",
+            displayName: "后端开发 Agent",
             kind: "digital" as const,
             status: "active",
             managerEmployeeId: "admin",
@@ -1312,6 +1349,7 @@ describe("teammate task assignment", () => {
           {
             id: "tm-1",
             name: "测小白",
+            ownerUserId: "admin",
             ownerName: "平台",
             source: "platform" as const,
             avatar: "",
@@ -1348,13 +1386,23 @@ describe("teammate task assignment", () => {
     const listResult = listed.read();
     expect(listResult.status).toBe(200);
     const directory = listResult.body?.directory as {
-      agents: Array<{ id: string; name: string }>;
+      agents: Array<{
+        id: string;
+        name: string;
+        employeeId?: string;
+        ownerAuthUserId?: string;
+      }>;
     };
     expect(
       directory.agents.some(
         (agent) => agent.id === "tm-1" && agent.name === "测小白",
       ),
     ).toBe(true);
+    // 实例归属：目录要带上实例 owner（创建人）与员工身份 id 别名。
+    expect(directory.agents.find((agent) => agent.id === "tm-1")).toMatchObject({
+      employeeId: "digital-1",
+      ownerAuthUserId: "admin",
+    });
     expect(
       directory.agents.filter((agent) => agent.name === "测小白"),
     ).toHaveLength(1);
@@ -1392,6 +1440,7 @@ describe("teammate task assignment", () => {
       employeeId: "digital-1",
       personaId: "persona-tm-1",
       source: "task",
+      payload: { context: { employeeName: "测小白" } },
     });
   });
 });
@@ -1544,6 +1593,7 @@ function contextHarness() {
         {
           id: "tm-1",
           name: "测小白",
+          ownerUserId: "admin",
           ownerName: "平台",
           source: "platform" as const,
           avatar: "",
@@ -1693,5 +1743,216 @@ describe("task context delivery", () => {
     expect(dispatched[3]?.payload.context.taskSessionEpoch).toBe("1");
     expect(dispatched[3]?.payload.context.firstDelivery).toBe("true");
     expect(dispatched[3]?.payload.context.instruction).toContain("# 任务");
+  });
+});
+
+describe("task queue and待确认", () => {
+  const queueTask = (id: string, overrides: Record<string, unknown> = {}) => ({
+    id,
+    status: "todo",
+    priority: "P2",
+    ...overrides,
+  });
+
+  const createTask = (
+    tasks: TaskService,
+    title: string,
+    overrides: Record<string, unknown> = {},
+  ) =>
+    tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title,
+      priority: "P1",
+      receiverType: "unassigned",
+      description: title,
+      acceptance: ["done"],
+      ...overrides,
+    });
+
+  it("keeps manual order and appends unsorted tasks to the tail", () => {
+    const ordered = orderQueue([
+      queueTask("TSK-new"),
+      queueTask("TSK-b", { queueSeq: 2000 }),
+      queueTask("TSK-a", { queueSeq: 1000 }),
+    ]);
+    expect(ordered.map((task) => task.id)).toEqual([
+      "TSK-a",
+      "TSK-b",
+      "TSK-new",
+    ]);
+  });
+
+  it("falls back to draft order (priority → due → id) before any manual sort", () => {
+    const ordered = orderQueue([
+      queueTask("TSK-p3", { priority: "P3" }),
+      queueTask("TSK-p1-late", { priority: "P1", due: "2026-10-20" }),
+      queueTask("TSK-p1-soon", { priority: "P1", due: "2026-10-13" }),
+    ]);
+    expect(ordered.map((task) => task.id)).toEqual([
+      "TSK-p1-soon",
+      "TSK-p1-late",
+      "TSK-p3",
+    ]);
+  });
+
+  it("skips paused, blocked and dependency-blocked tasks when picking", () => {
+    const tasks = [
+      queueTask("TSK-paused", { queueState: "paused", queueSeq: 1000 }),
+      queueTask("TSK-dep", { queueSeq: 2000, dependsOn: ["TSK-blocker"] }),
+      queueTask("TSK-blocker", { queueSeq: 3000, status: "review" }),
+      queueTask("TSK-ready", { queueSeq: 4000 }),
+    ];
+    expect(pickNextTask({ tasks, running: false })?.id).toBe("TSK-ready");
+    expect(pickNextTask({ tasks, running: true })).toBeUndefined();
+  });
+
+  it("only filters auto-run eligibility during unattended runs", () => {
+    const tasks = [queueTask("TSK-manual", { autoRunEligible: false })];
+    expect(
+      pickNextTask({ tasks, running: false, autoRun: true }),
+    ).toBeUndefined();
+    expect(pickNextTask({ tasks, running: false })?.id).toBe("TSK-manual");
+  });
+
+  it("reorders by writing queueSeq and parks new tasks behind them", async () => {
+    const tasks = service();
+    const first = await createTask(tasks, "A");
+    const second = await createTask(tasks, "B");
+    await tasks.reorderQueue(olivia, { taskIds: [second.id, first.id] });
+    expect(tasks.get(second.id).queueSeq).toBe(1000);
+    expect(tasks.get(first.id).queueSeq).toBe(2000);
+
+    const third = await createTask(tasks, "C");
+    expect(third.queueSeq).toBeUndefined();
+    const ordered = tasks.sortQueue([
+      tasks.get(third.id),
+      tasks.get(first.id),
+      tasks.get(second.id),
+    ]);
+    expect(ordered.map((task) => task.id)).toEqual([
+      second.id,
+      first.id,
+      third.id,
+    ]);
+  });
+
+  it("supports approve / handoff on a review task", async () => {
+    const tasks = service();
+    const created = await createTask(tasks, "待确认闭环", {
+      receiverType: "agent",
+      receiverId: "tm-1",
+      receiverName: "小白 PD",
+    });
+    const inReview = await tasks.attachAgentRun(
+      created.id,
+      {
+        id: "run-1",
+        instanceId: created.id,
+        status: "succeeded",
+        output: { summary: "交付完成" },
+      },
+      "小白 PD",
+      { userId: "olivia", name: "Olivia" },
+    );
+    expect(inReview.status).toBe("review");
+    expect(inReview.receiverType).toBe("human");
+
+    const handed = await tasks.confirm(olivia, {
+      taskId: created.id,
+      action: "handoff",
+      assigneeId: "peter",
+      assigneeName: "Peter",
+    });
+    expect(handed.receiverId).toBe("peter");
+    expect(handed.events.at(-1)?.message).toContain("转交 Peter");
+
+    const approved = await tasks.confirm(olivia, {
+      taskId: created.id,
+      action: "approve",
+    });
+    expect(approved.status).toBe("done");
+    expect(approved.progress).toBe(100);
+  });
+
+  it("requeues a rejected task with the note and a tail sequence", async () => {
+    const tasks = service();
+    const other = await createTask(tasks, "既有任务");
+    await tasks.reorderQueue(olivia, { taskIds: [other.id] });
+    const created = await createTask(tasks, "退回并补充", {
+      receiverType: "agent",
+      receiverId: "tm-1",
+      receiverName: "小白 PD",
+    });
+    await tasks.attachAgentRun(
+      created.id,
+      {
+        id: "run-2",
+        instanceId: created.id,
+        status: "succeeded",
+        output: { summary: "先给一版" },
+      },
+      "小白 PD",
+      { userId: "olivia", name: "Olivia" },
+    );
+    const rejected = await tasks.confirm(olivia, {
+      taskId: created.id,
+      action: "reject",
+      note: "请补充证据链",
+    });
+    expect(rejected.status).toBe("todo");
+    expect(rejected.needsInput).toBe(false);
+    expect(rejected.queueSeq).toBe(2000);
+    expect(rejected.messages.at(-1)?.content).toBe("请补充证据链");
+    expect(rejected.events.at(-1)?.message).toContain("退回并补充说明");
+    // 退回后任务已回到「待处理」，再次退回属于状态冲突。
+    await expect(
+      tasks.confirm(olivia, { taskId: created.id, action: "reject" }),
+    ).rejects.toMatchObject({ code: "conflict" });
+
+    // 退回必须写补充说明。
+    const another = await createTask(tasks, "退回必填原因", {
+      receiverType: "agent",
+      receiverId: "tm-1",
+      receiverName: "小白 PD",
+    });
+    await tasks.attachAgentRun(
+      another.id,
+      {
+        id: "run-4",
+        instanceId: another.id,
+        status: "succeeded",
+        output: { summary: "完成" },
+      },
+      "小白 PD",
+      { userId: "olivia", name: "Olivia" },
+    );
+    await expect(
+      tasks.confirm(olivia, { taskId: another.id, action: "reject" }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+  });
+
+  it("marks waiting_input runs as feedback items handed to the owner", async () => {
+    const tasks = service();
+    const created = await createTask(tasks, "需要补充信息", {
+      receiverType: "agent",
+      receiverId: "tm-1",
+      receiverName: "小白 PD",
+    });
+    const waiting = await tasks.attachAgentRun(
+      created.id,
+      {
+        id: "run-3",
+        instanceId: created.id,
+        status: "waiting_input",
+        output: { summary: "缺少接口契约" },
+      },
+      "小白 PD",
+      { userId: "olivia", name: "Olivia" },
+    );
+    expect(waiting.needsInput).toBe(true);
+    expect(waiting.status).toBe("progress");
+    expect(waiting.receiverType).toBe("human");
+    expect(waiting.receiverId).toBe("olivia");
+    expect(waiting.events.at(-1)?.message).toContain("需要补充信息");
   });
 });

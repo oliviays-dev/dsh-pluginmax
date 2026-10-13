@@ -13,14 +13,14 @@
 - id: architecture
 - type: approval
 - executor: user:workflow-member
-- approver: 用户:workflow-owner
+- approver: 用户:flow-owner
 - policy: any
 
 ### 安全复核
 
 - id: security
 - type: approval
-- executor: user:workflow-owner
+- executor: user:flow-owner
 - approver: 用户:workflow-member
 - policy: any
 

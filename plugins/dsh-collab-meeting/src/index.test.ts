@@ -4,7 +4,9 @@ import {
   apply,
   collapseDuplicateSeatParticipants,
   createMeetingRoutes,
+  FacilitatorMinutesService,
   inject,
+  MEETING_MINUTES_NODE_ID,
   meetingDomainSpec,
   MeetingService,
   MeetingRuntime,
@@ -222,6 +224,41 @@ describe("dsh-collab-meeting", () => {
 
   afterEach(() => {
     expect(current.meetings.size).toBeGreaterThanOrEqual(0);
+  });
+
+  it("adds the creator as a direct browser participant on create", async () => {
+    const team = {
+      resolveToken: (token: string) =>
+        token === "alice-token"
+          ? { userId: "alice", role: "member" }
+          : undefined,
+      members: () => [{ userId: "alice", name: "Alice", memberRole: "member" }],
+    };
+    const routes = createMeetingRoutes(service, team);
+    const response = await call(
+      findRoute(routes, "/api/collab/meetings"),
+      fakeRequest("POST", "/api/collab/meetings", {
+        token: "alice-token",
+        origin: "http://127.0.0.1:33117",
+        body: {
+          workspaceId: "main",
+          title: "创建即入会",
+          displayName: "Alice",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    const meeting = (response.json() as { meeting: Meeting }).meeting;
+    expect(service.participants(meeting.id)).toHaveLength(1);
+    expect(service.participants(meeting.id)[0]).toMatchObject({
+      kind: "human",
+      refId: "alice",
+      displayName: "Alice",
+      source: "direct",
+      status: "active",
+      leader: true,
+    });
   });
 
   it("declares services and the meeting storage domain", () => {
@@ -1440,5 +1477,116 @@ describe("dsh-collab-meeting", () => {
     expect(removed).toBe(2);
     expect([...table.keys()]).toEqual(["seat-b"]);
     expect(table.get("seat-b")?.status).toBe("active");
+  });
+
+  it("dispatches one facilitator minutes run per transcript version", async () => {
+    const meeting = await service.create(
+      { kind: "user", id: "admin", globalRole: "admin" },
+      { workspaceId: "main", title: "周会", agenda: "对齐产能" },
+    );
+    const actor = { kind: "user" as const, id: "admin", globalRole: "admin" as const };
+    await service.join(actor, meeting.id, "Admin");
+    await service.post(actor, meeting.id, "替代产能锁定在 11 月底。");
+
+    interface Dispatched {
+      source: string;
+      nodeId: string;
+      instanceId: string;
+      dispatchKey: string;
+      profileId: string;
+      personaId?: string | undefined;
+      payload: { instanceTitle: string; context: Record<string, unknown> };
+    }
+    const dispatched: Dispatched[] = [];
+    const storedRuns: Array<{ dispatchKey: string; status: string }> = [];
+    const ensured: string[] = [];
+    const minutes = new FacilitatorMinutesService({
+      meetings: service,
+      agents: () => ({
+        dispatch: async (input: Dispatched) => {
+          dispatched.push(input);
+          storedRuns.push({ dispatchKey: input.dispatchKey, status: "queued" });
+          return {};
+        },
+        runs: () => storedRuns,
+      }),
+      teammateRuntime: () => ({
+        ensureRuntime: async (input) => {
+          ensured.push(input.teammateId);
+          return {
+            teammateId: input.teammateId,
+            employeeId: "emp-facilitator",
+            profileId: "profile-facilitator",
+            personaId: "persona-meeting-facilitator",
+          };
+        },
+      }),
+      team: () => ({
+        resolveToken: () => undefined,
+        members: () => [
+          { userId: "admin", memberRole: "owner", name: "Admin" },
+        ],
+      }),
+    });
+    service.onTranscriptChanged = (meetingId) => minutes.schedule(meetingId);
+
+    minutes.schedule(meeting.id);
+    minutes.schedule(meeting.id);
+    await minutes.waitIdle();
+    expect(ensured).toEqual(["meeting-facilitator"]);
+    expect(dispatched).toHaveLength(1);
+    expect(dispatched[0]).toMatchObject({
+      source: "meeting",
+      nodeId: MEETING_MINUTES_NODE_ID,
+      instanceId: meeting.id,
+      profileId: "profile-facilitator",
+      personaId: "persona-meeting-facilitator",
+    });
+    expect(dispatched[0]!.dispatchKey).toContain(meeting.id);
+    expect(dispatched[0]!.payload.instanceTitle).toBe("周会");
+    expect(String(dispatched[0]!.payload.context.transcript)).toContain(
+      "替代产能锁定在 11 月底",
+    );
+
+    // 散会再触发一次：新的消息版本 → 新 run。
+    await service.close(actor, meeting.id, "手填散会摘要。");
+    await minutes.waitIdle();
+    expect(dispatched).toHaveLength(2);
+  });
+
+  it("skips facilitator minutes without dialogue and swallows runtime failures", async () => {
+    const meeting = await service.create(
+      { kind: "user", id: "admin", globalRole: "admin" },
+      { workspaceId: "main", title: "空会议" },
+    );
+    let dispatchCount = 0;
+    const minutes = new FacilitatorMinutesService({
+      meetings: service,
+      agents: () => ({
+        dispatch: async () => {
+          dispatchCount += 1;
+          return {};
+        },
+        runs: () => [],
+      }),
+      teammateRuntime: () => ({
+        ensureRuntime: async () => {
+          throw new Error("no owner available");
+        },
+      }),
+      team: () => ({ resolveToken: () => undefined, members: () => [] }),
+    });
+    // 无对话：不派发
+    minutes.schedule(meeting.id);
+    await minutes.waitIdle();
+    expect(dispatchCount).toBe(0);
+
+    // 有对话但 ensureRuntime 失败：静默，不抛错、不派发。
+    const actor = { kind: "user" as const, id: "admin", globalRole: "admin" as const };
+    await service.join(actor, meeting.id, "Admin");
+    await service.post(actor, meeting.id, "第一条发言。");
+    minutes.schedule(meeting.id);
+    await minutes.waitIdle();
+    expect(dispatchCount).toBe(0);
   });
 });

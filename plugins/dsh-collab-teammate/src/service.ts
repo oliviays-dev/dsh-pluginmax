@@ -1,14 +1,15 @@
 import { randomUUID } from "node:crypto";
 import {
-  profileTemplateSchema,
   teammateEventSchema,
   teammateSchema,
+  teammateTemplateSchema,
   type Teammate,
   type TeammateEvent,
   type TeammateSource,
   type TeammateState,
+  type TeammateTemplate,
+  type TeammateTemplateState,
   type ProfileTemplate,
-  type ProfileTemplateState,
 } from "./models.js";
 
 export interface KvTableLike<V> {
@@ -24,8 +25,8 @@ export interface TeammateTables {
   readonly events: KvTableLike<TeammateEvent>;
 }
 
-export interface ProfileTemplateTables {
-  readonly templates: KvTableLike<ProfileTemplate>;
+export interface TeammateTemplateTables {
+  readonly templates: KvTableLike<TeammateTemplate>;
 }
 
 export interface TeammateActor {
@@ -34,8 +35,36 @@ export interface TeammateActor {
   readonly role: "admin" | "owner" | "member" | "guest";
 }
 
+/**
+ * 平台托管 owner：实例没有可归属的人类创建人时使用（如员工平台同步进来的历史数据）。
+ * `TeammateRuntime.ownerOf()` 会把它判定为「无个人 owner」，因此这类实例的任务不会
+ * 被交回给某个具体用户，而是保留在实例/Agent 侧，由平台管理员治理。
+ */
+export const PLATFORM_OWNER_USER_ID = "platform";
+export const PLATFORM_OWNER_NAME = "平台";
+
 export interface TeammateServiceOptions {
   readonly now?: () => Date;
+}
+
+export type TeammateInstanceView = Teammate & {
+  readonly templateName: string;
+  readonly templateSource: TeammateSource;
+};
+
+/** 供运行态使用的一次性投影：实例覆盖优先，定义字段始终从模版读取。 */
+export interface TeammateEffectiveDefinition {
+  readonly name: string;
+  readonly description: string;
+  readonly avatar: string;
+  readonly role: string;
+  readonly soul: string;
+  readonly scenarios: readonly string[];
+  readonly goals: readonly string[];
+  readonly tools: readonly string[];
+  readonly source: TeammateSource;
+  readonly templateId?: string | undefined;
+  readonly personaAlias?: string | undefined;
 }
 
 export class TeammateError extends Error {
@@ -50,34 +79,14 @@ export class TeammateError extends Error {
 }
 
 export interface CreateTeammateInput {
-  readonly source: TeammateSource;
+  /** 兼容旧调用：只提供 templateId 时无需再传 source。 */
+  readonly source?: TeammateSource | undefined;
   readonly name?: string | undefined;
+  readonly templateId?: string | undefined;
   readonly role?: string | undefined;
   readonly profileTemplateId?: string | undefined;
   readonly execution?: "builtin" | "external" | undefined;
   readonly externalRuntimeId?: string | undefined;
-}
-
-export interface CreateProfileTemplateInput {
-  readonly name: string;
-  readonly role?: string | undefined;
-  readonly description?: string | undefined;
-  readonly soul?: string | undefined;
-  readonly scenarios?: readonly string[] | undefined;
-  readonly goals?: readonly string[] | undefined;
-  readonly tools?: readonly string[] | undefined;
-  readonly active?: boolean | undefined;
-}
-
-export interface UpdateProfileTemplateInput {
-  readonly templateId: string;
-  readonly name: string;
-  readonly role?: string | undefined;
-  readonly description?: string | undefined;
-  readonly soul?: string | undefined;
-  readonly scenarios?: readonly string[] | undefined;
-  readonly goals?: readonly string[] | undefined;
-  readonly tools?: readonly string[] | undefined;
 }
 
 export interface UpdateTeammateInput {
@@ -97,6 +106,38 @@ export interface UpdateTeammateInput {
 export interface ChangeTeammateStateInput {
   readonly teammateId: string;
   readonly state: TeammateState;
+}
+
+/** 实例资料：只维护名称与描述，不改人设内容。 */
+export interface UpdateInstanceProfileInput {
+  readonly teammateId: string;
+  readonly name: string;
+  readonly description: string;
+}
+
+export interface CreateTeammateTemplateInput {
+  readonly source: TeammateSource;
+  readonly name: string;
+  readonly role?: string | undefined;
+  readonly description?: string | undefined;
+  readonly soul?: string | undefined;
+  readonly scenarios?: readonly string[] | undefined;
+  readonly goals?: readonly string[] | undefined;
+  readonly tools?: readonly string[] | undefined;
+  /** 迁移期兼容外部 `persona-*` 引用；新模版通常不传。 */
+  readonly personaAlias?: string | undefined;
+  readonly active?: boolean | undefined;
+}
+
+export interface UpdateTeammateTemplateInput {
+  readonly templateId: string;
+  readonly name: string;
+  readonly role?: string | undefined;
+  readonly description?: string | undefined;
+  readonly soul?: string | undefined;
+  readonly scenarios?: readonly string[] | undefined;
+  readonly goals?: string[] | undefined;
+  readonly tools?: string[] | undefined;
 }
 
 /**
@@ -137,25 +178,34 @@ function randomId(): string {
   return `tm-${randomUUID()}`;
 }
 
-function profileId(): string {
-  return `pt-${randomUUID()}`;
-}
-
-const PROFILE_STATE_TRANSITIONS: Record<
-  ProfileTemplateState,
-  readonly ProfileTemplateState[]
+const TEMPLATE_STATE_TRANSITIONS: Record<
+  TeammateTemplateState,
+  readonly TeammateTemplateState[]
 > = {
   active: ["disabled", "archived"],
   disabled: ["active", "archived"],
   archived: [],
 };
 
-export class ProfileTemplateService {
+function teammateTemplateId(): string {
+  return `tpl-${randomUUID()}`;
+}
+
+export function canManageTemplate(
+  template: Pick<TeammateTemplate, "source" | "ownerUserId">,
+  actor: TeammateActor,
+): boolean {
+  return template.source === "platform"
+    ? actor.role === "admin"
+    : template.ownerUserId === actor.userId;
+}
+
+export class TeammateTemplateService {
   private queue: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly options: {
-      readonly tables: ProfileTemplateTables;
+      readonly tables: TeammateTemplateTables;
       readonly now?: () => Date;
     },
   ) {}
@@ -173,81 +223,173 @@ export class ProfileTemplateService {
     return (this.options.now?.() ?? new Date()).toISOString();
   }
 
-  private values(): ProfileTemplate[] {
+  private values(): TeammateTemplate[] {
     return [...this.options.tables.templates.entries()].map(
       ([, value]) => value,
     );
   }
 
-  private require(templateId: string): ProfileTemplate {
-    const profile = this.options.tables.templates.get(templateId);
-    if (profile === undefined) {
-      throw new TeammateError("not_found", "Profile 模版不存在");
+  private require(templateId: string): TeammateTemplate {
+    const template = this.options.tables.templates.get(templateId);
+    if (template === undefined) {
+      throw new TeammateError("not_found", "AI Teammate 模版不存在");
     }
-    return profile;
+    return template;
   }
 
-  list(actor: TeammateActor): ProfileTemplate[] {
+  private assertUniqueName(input: {
+    readonly id?: string | undefined;
+    readonly source: TeammateSource;
+    readonly name: string;
+  }): void {
+    const normalized = input.name.trim().toLocaleLowerCase("zh-Hans-CN");
+    const conflict = this.values().find(
+      (item) =>
+        item.id !== input.id &&
+        item.state !== "archived" &&
+        item.source === input.source &&
+        item.name.trim().toLocaleLowerCase("zh-Hans-CN") === normalized,
+    );
+    if (conflict !== undefined) {
+      throw new TeammateError(
+        "conflict",
+        `${input.source === "platform" ? "平台" : "个人"}模版已存在同名定义「${conflict.name}」`,
+      );
+    }
+  }
+
+  list(actor: TeammateActor): readonly TeammateTemplate[] {
     return this.values()
-      .filter((profile) =>
-        actor.role === "admin" ? true : profile.state === "active",
+      .filter((template) =>
+        actor.role === "admin"
+          ? true
+          : template.source === "platform"
+            ? template.state === "active"
+            : template.ownerUserId === actor.userId,
       )
       .sort(
         (left, right) =>
+          left.source.localeCompare(right.source) ||
           Number(right.state === "active") - Number(left.state === "active") ||
           right.updatedAt.localeCompare(left.updatedAt) ||
           left.name.localeCompare(right.name, "zh-Hans-CN"),
       );
   }
 
-  get(templateId: string): ProfileTemplate | undefined {
+  get(templateId: string): TeammateTemplate | undefined {
     return this.options.tables.templates.get(templateId);
+  }
+
+  private assertCanCreate(
+    actor: TeammateActor,
+    input: Pick<CreateTeammateTemplateInput, "source">,
+  ): void {
+    if (
+      input.source === "platform"
+        ? actor.role !== "admin"
+        : actor.role === "guest"
+    ) {
+      throw new TeammateError(
+        "forbidden",
+        input.source === "platform"
+          ? "平台管理员可以维护平台模版"
+          : "活跃用户可以维护个人模版",
+      );
+    }
+  }
+
+  private buildTemplate(
+    actor: TeammateActor,
+    input: CreateTeammateTemplateInput,
+  ): TeammateTemplate {
+    const name = input.name.trim();
+    if (name === "") {
+      throw new TeammateError("invalid_input", "模版名称不能为空");
+    }
+    this.assertUniqueName({ source: input.source, name });
+    const timestamp = this.timestamp();
+    return teammateTemplateSchema.parse({
+      id: teammateTemplateId(),
+      source: input.source,
+      ...(input.source === "personal" ? { ownerUserId: actor.userId } : {}),
+      name,
+      role: input.role?.trim() ?? "",
+      description: input.description?.trim() ?? "",
+      soul: input.soul ?? "",
+      scenarios: input.scenarios ?? [],
+      goals: input.goals ?? [],
+      tools: input.tools ?? [],
+      state: input.active === false ? "disabled" : "active",
+      version: "v1.0",
+      ...(input.personaAlias === undefined
+        ? {}
+        : { personaAlias: input.personaAlias }),
+      createdBy: actor.userId,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
   }
 
   create(
     actor: TeammateActor,
-    input: CreateProfileTemplateInput,
-  ): Promise<ProfileTemplate> {
+    input: CreateTeammateTemplateInput,
+  ): Promise<TeammateTemplate> {
     return this.enqueue(async () => {
-      if (actor.role !== "admin") {
-        throw new TeammateError("forbidden", "平台管理员可以维护 Profile 模版");
-      }
-      const timestamp = this.timestamp();
-      const profile = profileTemplateSchema.parse({
-        id: profileId(),
-        name: input.name.trim(),
-        role: input.role?.trim() ?? "",
-        description: input.description?.trim() ?? "",
-        soul: input.soul ?? "",
-        scenarios: input.scenarios ?? [],
-        goals: input.goals ?? [],
-        tools: input.tools ?? [],
-        state: input.active === false ? "disabled" : "active",
-        version: "v1.0",
-        createdBy: actor.userId,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      });
-      await this.options.tables.templates.put(profile.id, profile);
-      return profile;
+      this.assertCanCreate(actor, input);
+      const template = this.buildTemplate(actor, input);
+      await this.options.tables.templates.put(template.id, template);
+      return template;
+    });
+  }
+
+  /**
+   * 兼容旧「按 source + name 找定义」入口。仅在不存在同归属同名模版时创建，
+   * 避免迁移期和旧客户端产生两条并存的模版。
+   */
+  findOrCreate(
+    actor: TeammateActor,
+    input: CreateTeammateTemplateInput,
+  ): Promise<TeammateTemplate> {
+    return this.enqueue(async () => {
+      this.assertCanCreate(actor, input);
+      const name = input.name.trim();
+      const normalized = name.toLocaleLowerCase("zh-Hans-CN");
+      const existing = this.values().find(
+        (template) =>
+          template.state !== "archived" &&
+          template.source === input.source &&
+          template.name.trim().toLocaleLowerCase("zh-Hans-CN") === normalized,
+      );
+      if (existing !== undefined) return existing;
+      const template = this.buildTemplate(actor, input);
+      await this.options.tables.templates.put(template.id, template);
+      return template;
     });
   }
 
   update(
     actor: TeammateActor,
-    input: UpdateProfileTemplateInput,
-  ): Promise<ProfileTemplate> {
+    input: UpdateTeammateTemplateInput,
+  ): Promise<TeammateTemplate> {
     return this.enqueue(async () => {
-      if (actor.role !== "admin") {
-        throw new TeammateError("forbidden", "平台管理员可以维护 Profile 模版");
-      }
       const current = this.require(input.templateId);
-      if (current.state === "archived") {
-        throw new TeammateError("conflict", "归档的 Profile 模版不能编辑");
+      if (!canManageTemplate(current, actor)) {
+        throw new TeammateError(
+          "forbidden",
+          "只有模版归属人或平台管理员可以编辑模版",
+        );
       }
-      const next = profileTemplateSchema.parse({
+      if (current.state === "archived") {
+        throw new TeammateError("conflict", "归档的模版不能编辑");
+      }
+      const name = input.name.trim();
+      if (name === "") {
+        throw new TeammateError("invalid_input", "模版名称不能为空");
+      }
+      this.assertUniqueName({ id: current.id, source: current.source, name });
+      const next = teammateTemplateSchema.parse({
         ...current,
-        name: input.name.trim(),
+        name,
         role: input.role?.trim() ?? current.role,
         description: input.description?.trim() ?? current.description,
         soul: input.soul ?? current.soul,
@@ -264,20 +406,29 @@ export class ProfileTemplateService {
 
   changeState(
     actor: TeammateActor,
-    input: { templateId: string; state: ProfileTemplateState },
-  ): Promise<ProfileTemplate> {
+    input: {
+      readonly templateId: string;
+      readonly state: TeammateTemplateState;
+    },
+  ): Promise<TeammateTemplate> {
     return this.enqueue(async () => {
-      if (actor.role !== "admin") {
-        throw new TeammateError("forbidden", "平台管理员可以维护 Profile 模版");
-      }
       const current = this.require(input.templateId);
-      if (!PROFILE_STATE_TRANSITIONS[current.state].includes(input.state)) {
+      if (!canManageTemplate(current, actor)) {
         throw new TeammateError(
-          "conflict",
-          `Profile 模版不能从 ${current.state} 改为 ${input.state}`,
+          "forbidden",
+          "只有模版归属人或平台管理员可以变更模版状态",
         );
       }
-      const next = profileTemplateSchema.parse({
+      if (
+        !["active", "disabled", "archived"].includes(input.state) ||
+        !TEMPLATE_STATE_TRANSITIONS[current.state].includes(input.state)
+      ) {
+        throw new TeammateError(
+          "conflict",
+          `模版不能从「${current.state}」变更为「${input.state}」`,
+        );
+      }
+      const next = teammateTemplateSchema.parse({
         ...current,
         state: input.state,
         updatedAt: this.timestamp(),
@@ -305,18 +456,35 @@ export function canManageTeammate(
     : actor.role === "admin";
 }
 
+/**
+ * 实例级操作的权限口径：实例归创建人（owner）所有，跟模版是平台归属还是个人归属无关；
+ * 平台管理员保留全局治理权限（owner 缺失的历史实例只有管理员能动）。
+ */
+export function canManageInstance(
+  teammate: Pick<Teammate, "ownerUserId">,
+  actor: TeammateActor,
+): boolean {
+  return actor.role === "admin" || teammate.ownerUserId === actor.userId;
+}
+
 export class TeammateService {
-  private readonly profiles: ProfileTemplateService | undefined;
+  private readonly templates: TeammateTemplateService | undefined;
   private queue: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly options: {
       readonly tables: TeammateTables;
       readonly now?: () => Date;
-      readonly profiles?: ProfileTemplateService;
+      readonly templates?: TeammateTemplateService;
+      readonly users?: () => readonly {
+        readonly id: string;
+        readonly name: string;
+      }[];
     },
   ) {
-    this.profiles = options.profiles;
+    this.templates = options.templates;
+    // 服务启动时修复历史遗留的共享模版重名实例，后续变更入口再做强校验。
+    this.queue = this.repairHistoricalDuplicateNames();
   }
 
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {
@@ -348,14 +516,147 @@ export class TeammateService {
     return teammate;
   }
 
-  private assertCanManage(teammate: Teammate, actor: TeammateActor): void {
-    if (canManageTeammate(teammate, actor)) return;
+  /**
+   * 定义编辑权限以实例引用的模版为准；没有 templateId 的历史记录才回退旧口径。
+   * 实例资料/归档/身份启停等实例操作统一走 canManageInstance。
+   */
+  private assertCanManageDefinition(
+    teammate: Teammate,
+    actor: TeammateActor,
+  ): void {
+    const template = this.templateOf(teammate);
+    if (
+      (template !== undefined && canManageTemplate(template, actor)) ||
+      (template === undefined && canManageTeammate(teammate, actor))
+    ) {
+      return;
+    }
     throw new TeammateError(
       "forbidden",
-      teammate.source === "platform"
-        ? "平台归属定义只有平台管理员可以维护"
-        : "个人归属定义只有本人可以维护",
+      template?.source === "platform" || teammate.source === "platform"
+        ? "平台模版只有平台管理员可以维护"
+        : "个人模版只有归属人可以维护",
     );
+  }
+
+  private normalizedTeammateName(name: string): string {
+    return name.trim().toLocaleLowerCase("zh-Hans-CN");
+  }
+
+  /** 历史实例通过 person 或 profile 别名表达同一 Agent 模版。 */
+  private templateKeyOf(
+    teammate: Pick<Teammate, "personaId" | "profileTemplateId">,
+  ): string | undefined {
+    return teammate.profileTemplateId ?? teammate.personaId;
+  }
+
+  private assertUniqueTemplateName(
+    teammate: Pick<Teammate, "id" | "name" | "personaId" | "profileTemplateId">,
+    templateId: string | undefined = this.templateKeyOf(teammate),
+  ): void {
+    if (templateId === undefined) return;
+    const normalized = this.normalizedTeammateName(teammate.name);
+    const conflict = this.values(this.options.tables.teammates).find(
+      (item) =>
+        item.id !== teammate.id &&
+        item.state !== "archived" &&
+        this.templateKeyOf(item) === templateId &&
+        this.normalizedTeammateName(item.name) === normalized,
+    );
+    if (conflict !== undefined) {
+      throw new TeammateError(
+        "conflict",
+        `同一 Agent 模版下已存在未归档实例「${conflict.name}」，不能重名`,
+      );
+    }
+  }
+
+  private uniqueHistoricalName(base: string, usedNames: Set<string>): string {
+    const normalizedBase = base.trim().slice(0, 114);
+    for (let index = 2; ; index += 1) {
+      const candidate = `${normalizedBase} (${index})`;
+      if (!usedNames.has(candidate.toLocaleLowerCase("zh-Hans-CN"))) {
+        return candidate;
+      }
+    }
+  }
+
+  /**
+   * 自动导入数字员工时的重名处理：同一 Agent 模版下已经有同名实例时顺延序号，
+   * 而不是抛错——否则一次同步失败会让整个 AI Teammate 列表接口不可用。
+   */
+  private deduplicatedImportName(
+    base: string,
+    personaId: string | undefined,
+  ): string {
+    if (personaId === undefined) return base;
+    const used = new Set(
+      this.values(this.options.tables.teammates)
+        .filter(
+          (item) =>
+            item.state !== "archived" &&
+            this.templateKeyOf(item) === personaId,
+        )
+        .map((item) => this.normalizedTeammateName(item.name)),
+    );
+    if (!used.has(this.normalizedTeammateName(base))) return base;
+    return this.uniqueHistoricalName(base, used);
+  }
+
+  private async repairHistoricalDuplicateNames(): Promise<void> {
+    const activeInstances = this.values(this.options.tables.teammates).filter(
+      (teammate) =>
+        teammate.state !== "archived" &&
+        this.templateKeyOf(teammate) !== undefined,
+    );
+    const groups = new Map<string, Teammate[]>();
+    for (const teammate of activeInstances) {
+      const key = this.templateKeyOf(teammate) ?? "";
+      const group = groups.get(key) ?? [];
+      group.push(teammate);
+      groups.set(key, group);
+    }
+
+    const actor: TeammateActor = {
+      userId: "system",
+      name: "系统",
+      role: "admin",
+    };
+    for (const group of groups.values()) {
+      if (group.length < 2) continue;
+      group.sort((left, right) =>
+        left.createdAt === right.createdAt
+          ? left.id.localeCompare(right.id)
+          : left.createdAt.localeCompare(right.createdAt),
+      );
+      const usedNames = new Set(
+        group.map((item) => this.normalizedTeammateName(item.name)),
+      );
+      const seenCounts = new Map<string, number>();
+      for (const teammate of group) {
+        const normalized = this.normalizedTeammateName(teammate.name);
+        const seenCount = seenCounts.get(normalized) ?? 0;
+        seenCounts.set(normalized, seenCount + 1);
+        if (seenCount === 0) {
+          continue;
+        }
+        const previousName = teammate.name;
+        const nextName = this.uniqueHistoricalName(previousName, usedNames);
+        const next = teammateSchema.parse({
+          ...teammate,
+          name: nextName,
+          updatedAt: this.timestamp(),
+        });
+        usedNames.add(this.normalizedTeammateName(nextName));
+        await this.options.tables.teammates.put(next.id, next);
+        await this.record(
+          next,
+          actor,
+          "updated",
+          `修正历史重名：「${previousName}」 → 「${next.name}」`,
+        );
+      }
+    }
   }
 
   private async record(
@@ -378,24 +679,83 @@ export class TeammateService {
     return event;
   }
 
-  private async profileSeed(
-    templateId: string | undefined,
-  ): Promise<ProfileTemplate | undefined> {
-    if (templateId === undefined) return undefined;
-    const profile = await this.profiles?.get(templateId);
-    if (profile === undefined) {
-      throw new TeammateError("not_found", "Profile 模版不存在");
-    }
-    if (profile.state !== "active") {
-      throw new TeammateError("invalid_input", "Profile 模版不可用");
-    }
-    return profile;
+  templateOf(
+    teammate: Pick<Teammate, "templateId" | "source">,
+  ): TeammateTemplate | undefined {
+    if (teammate.templateId === undefined) return undefined;
+    return this.templates?.get(teammate.templateId);
+  }
+
+  /**
+   * 运行态的有效定义。名称/描述/头像属于实例覆盖；岗位、人设、场景、目标、工具
+   * 属于模版定义，模版缺失时只对历史数据回退实例字段。
+   */
+  effectiveDefinitionOf(teammate: Teammate): TeammateEffectiveDefinition {
+    const template = this.templateOf(teammate);
+    const instanceDescription = teammate.description.trim();
+    return {
+      name: teammate.name,
+      description:
+        instanceDescription === ""
+          ? (template?.description ?? teammate.description)
+          : teammate.description,
+      avatar: teammate.avatar,
+      role: template?.role ?? teammate.role,
+      soul: template?.soul ?? teammate.soul,
+      scenarios: template?.scenarios ?? teammate.scenarios,
+      goals: template?.goals ?? teammate.goals,
+      tools: template?.tools ?? [],
+      source: template?.source ?? teammate.source,
+      ...(template === undefined ? {} : { templateId: template.id }),
+      ...(template?.personaAlias === undefined
+        ? {}
+        : { personaAlias: template.personaAlias }),
+    };
+  }
+
+  viewOf(teammate: Teammate): TeammateInstanceView {
+    const template = this.templateOf(teammate);
+    const definition = this.effectiveDefinitionOf(teammate);
+    const ownerName =
+      teammate.ownerUserId === PLATFORM_OWNER_USER_ID
+        ? PLATFORM_OWNER_NAME
+        : (this.options.users?.().find((user) => user.id === teammate.ownerUserId)
+            ?.name ?? teammate.ownerName);
+    return {
+      ...teammate,
+      name: definition.name,
+      description: definition.description,
+      avatar: definition.avatar,
+      role: definition.role,
+      soul: definition.soul,
+      scenarios: [...definition.scenarios],
+      goals: [...definition.goals],
+      source: definition.source,
+      ownerName,
+      templateName: template?.name ?? teammate.name,
+      templateSource: definition.source,
+    };
+  }
+
+  listInstances(): readonly TeammateInstanceView[] {
+    return this.values(this.options.tables.teammates)
+      .map((teammate) => this.viewOf(teammate))
+      .sort((left, right) => {
+        if (left.templateSource !== right.templateSource) {
+          return left.templateSource === "platform" ? -1 : 1;
+        }
+        const stateOrder = STATE_ORDER[left.state] - STATE_ORDER[right.state];
+        if (stateOrder !== 0) return stateOrder;
+        return left.name.localeCompare(right.name, "zh-Hans-CN");
+      });
   }
 
   list(): readonly Teammate[] {
     return this.values(this.options.tables.teammates).sort((left, right) => {
-      if (left.source !== right.source) {
-        return left.source === "platform" ? -1 : 1;
+      const leftSource = this.templateOf(left)?.source ?? left.source;
+      const rightSource = this.templateOf(right)?.source ?? right.source;
+      if (leftSource !== rightSource) {
+        return leftSource === "platform" ? -1 : 1;
       }
       const stateOrder = STATE_ORDER[left.state] - STATE_ORDER[right.state];
       if (stateOrder !== 0) return stateOrder;
@@ -407,6 +767,57 @@ export class TeammateService {
     return this.requireTeammate(teammateId);
   }
 
+  /**
+   * 平台内置定义：按固定 id 幂等写入。已存在时原样返回（包括管理员归档后的状态），
+   * 避免把平台的维护动作覆盖掉。用于「会议 Facilitator」这类开箱即用的数据种子。
+   */
+  ensureSeededPlatformTeammate(input: {
+    id: string;
+    name: string;
+    role?: string;
+    description?: string;
+    soul?: string;
+    scenarios?: readonly string[];
+    goals?: readonly string[];
+  }): Promise<Teammate> {
+    return this.enqueue(async () => {
+      const existing = this.options.tables.teammates.get(input.id);
+      if (existing !== undefined) return existing;
+      if (this.templates === undefined) {
+        throw new TeammateError("conflict", "AI Teammate 模版服务不可用");
+      }
+      const template = await this.templates.findOrCreate(
+        { userId: "system", name: "系统", role: "admin" },
+        {
+          source: "platform",
+          name: input.name,
+          role: input.role,
+          description: input.description,
+          soul: input.soul,
+          scenarios: input.scenarios,
+          goals: input.goals,
+          active: true,
+        },
+      );
+      const timestamp = this.timestamp();
+      const teammate = teammateSchema.parse({
+        id: input.id,
+        source: "platform",
+        name: input.name.trim(),
+        ownerUserId: PLATFORM_OWNER_USER_ID,
+        ownerName: PLATFORM_OWNER_NAME,
+        state: "active",
+        version: "v1.0",
+        templateId: template.id,
+        createdBy: "platform",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      });
+      await this.options.tables.teammates.put(teammate.id, teammate);
+      return teammate;
+    });
+  }
+
   events(teammateId: string): readonly TeammateEvent[] {
     return this.values(this.options.tables.events)
       .filter((event) => event.teammateId === teammateId)
@@ -415,29 +826,54 @@ export class TeammateService {
 
   create(actor: TeammateActor, input: CreateTeammateInput): Promise<Teammate> {
     return this.enqueue(async () => {
-      if (input.source === "platform" && actor.role !== "admin") {
-        throw new TeammateError(
-          "forbidden",
-          "平台归属定义只有平台管理员可以创建",
-        );
+      if (actor.role === "guest") {
+        throw new TeammateError("forbidden", "访客不能创建 AI Teammate 实例");
+      }
+      const templates = this.templates;
+      if (templates === undefined) {
+        throw new TeammateError("conflict", "AI Teammate 模版服务不可用");
+      }
+      let template: TeammateTemplate | undefined;
+      if (input.templateId !== undefined) {
+        template = templates.get(input.templateId);
+        if (template === undefined) {
+          throw new TeammateError("not_found", "AI Teammate 模版不存在");
+        }
+      } else if (input.profileTemplateId !== undefined) {
+        // 历史 Profile 资产在启动迁移后已是平台 AI Teammate 模版，这里只按 id 引用。
+        template = templates.get(input.profileTemplateId);
+        if (template === undefined) {
+          throw new TeammateError("not_found", "AI Teammate 模版不存在");
+        }
+      } else {
+        const source = input.source ?? "personal";
+        template = await templates.findOrCreate(actor, {
+          source,
+          name: input.name?.trim() || DEFAULT_NAME,
+          role: input.role,
+          active: true,
+        });
+      }
+      if (template.state === "archived") {
+        throw new TeammateError("invalid_input", "归档的模版不能创建新实例");
+      }
+      if (
+        template.source === "personal" &&
+        template.ownerUserId !== actor.userId &&
+        actor.role !== "admin"
+      ) {
+        throw new TeammateError("forbidden", "个人模版只有归属人可以用于创建实例");
       }
       const timestamp = this.timestamp();
-      const profile = await this.profileSeed(input.profileTemplateId);
       const teammate = teammateSchema.parse({
         id: randomId(),
-        source: input.source,
-        name: input.name?.trim() || profile?.name || DEFAULT_NAME,
-        role: input.role?.trim() || profile?.role || DEFAULT_ROLE,
+        source: template.source,
+        name: input.name?.trim() || template.name,
         ownerUserId: actor.userId,
-        ownerName: input.source === "platform" ? "平台" : actor.name,
-        description: profile?.description ?? "",
-        soul: profile?.soul || DEFAULT_SOUL,
-        scenarios: profile?.scenarios ?? ["补充第一个工作场景"],
-        goals: profile?.goals ?? ["补充第一个明确目标"],
-        avatar: "",
-        state: "draft",
+        ownerName: actor.name,
+        state: "inactive",
         version: "v0.1",
-        ...(profile === undefined ? {} : { profileTemplateId: profile.id }),
+        templateId: template.id,
         ...(input.execution === undefined
           ? {}
           : { execution: input.execution }),
@@ -453,38 +889,41 @@ export class TeammateService {
         teammate,
         actor,
         "created",
-        `创建了${input.source === "platform" ? "平台归属" : "个人归属"}定义草稿${
-          profile === undefined ? "" : `，已应用 ${profile.name}`
-        }`,
+        `基于${template.source === "platform" ? "平台" : "个人"}模版「${template.name}」创建了实例`,
       );
       return teammate;
     });
   }
 
-  async applyProfile(
+  switchTemplate(
     actor: TeammateActor,
     input: { teammateId: string; templateId: string },
   ): Promise<Teammate> {
-    const profile = await this.profiles?.get(input.templateId);
-    if (profile === undefined) {
-      throw new TeammateError("not_found", "Profile 模版不存在");
+    const template = this.templates?.get(input.templateId);
+    if (template === undefined) {
+      throw new TeammateError("not_found", "AI Teammate 模版不存在");
     }
-    if (profile.state !== "active") {
-      throw new TeammateError("invalid_input", "Profile 模版不可用");
+    if (template.state === "archived") {
+      throw new TeammateError("invalid_input", "归档的模版不可用");
+    }
+    if (
+      template.source === "personal" &&
+      template.ownerUserId !== actor.userId &&
+      actor.role !== "admin"
+    ) {
+      throw new TeammateError("forbidden", "个人模版只有归属人可以应用");
     }
     return this.enqueue(async () => {
       const current = this.requireTeammate(input.teammateId);
-      this.assertCanManage(current, actor);
+      if (!canManageInstance(current, actor)) {
+        throw new TeammateError(
+          "forbidden",
+          "只有实例 owner 或平台管理员可以切换实例模版",
+        );
+      }
       const next = teammateSchema.parse({
         ...current,
-        profileTemplateId: profile.id,
-        role: profile.role || current.role,
-        description: profile.description || current.description,
-        soul: profile.soul || current.soul,
-        scenarios:
-          profile.scenarios.length > 0 ? profile.scenarios : current.scenarios,
-        goals: profile.goals.length > 0 ? profile.goals : current.goals,
-        version: nextVersion(current.version),
+        templateId: template.id,
         updatedAt: this.timestamp(),
       });
       await this.options.tables.teammates.put(next.id, next);
@@ -492,7 +931,7 @@ export class TeammateService {
         next,
         actor,
         "updated",
-        `应用 Profile 模版：${profile.name}`,
+        `将实例切换到模版「${template.name}」`,
       );
       return next;
     });
@@ -501,43 +940,75 @@ export class TeammateService {
   update(actor: TeammateActor, input: UpdateTeammateInput): Promise<Teammate> {
     return this.enqueue(async () => {
       const current = this.requireTeammate(input.teammateId);
-      this.assertCanManage(current, actor);
       const wasDraft = current.state === "draft";
-      const nextSource = wasDraft
-        ? (input.source ?? current.source)
-        : current.source;
-      if (
-        nextSource !== current.source &&
-        nextSource === "platform" &&
-        actor.role !== "admin"
-      ) {
+      let template = this.templateOf(current);
+      const definitionTouched =
+        input.source !== undefined ||
+        input.role !== undefined ||
+        input.soul !== undefined ||
+        input.scenarios !== undefined ||
+        input.goals !== undefined;
+      if (definitionTouched) {
+        if (template === undefined) {
+          this.assertCanManageDefinition(current, actor);
+          if (this.templates === undefined) {
+            throw new TeammateError("conflict", "AI Teammate 模版服务不可用");
+          }
+          template = await this.templates.findOrCreate(actor, {
+            source: input.source ?? current.source,
+            name: current.name,
+            role: current.role,
+            description: current.description,
+            soul: current.soul,
+            scenarios: current.scenarios,
+            goals: current.goals,
+            active: current.state !== "archived",
+          });
+        } else {
+          if (!canManageTemplate(template, actor)) {
+            throw new TeammateError(
+              "forbidden",
+              "只有模版归属人或平台管理员可以编辑模版",
+            );
+          }
+          if (input.source !== undefined && input.source !== template.source) {
+            throw new TeammateError(
+              "conflict",
+              "模版归属不可直接修改，请重新创建对应归属的模版",
+            );
+          }
+          if (this.templates === undefined) {
+            throw new TeammateError("conflict", "AI Teammate 模版服务不可用");
+          }
+          template = await this.templates.update(actor, {
+            templateId: template.id,
+            name: template.name,
+            role: input.role?.trim() ?? template.role,
+            description: input.description?.trim() ?? template.description,
+            soul: input.soul ?? template.soul,
+            scenarios: input.scenarios ?? template.scenarios,
+            goals: input.goals === undefined ? [...template.goals] : [...input.goals],
+            tools: [...template.tools],
+          });
+        }
+      }
+      if (!canManageInstance(current, actor)) {
         throw new TeammateError(
           "forbidden",
-          "平台归属定义只有平台管理员可以创建",
+          "只有实例 owner 或平台管理员可以维护实例资料",
         );
       }
       const teammate = teammateSchema.parse({
         ...current,
-        source: nextSource,
+        ...(template === undefined ? {} : { templateId: template.id }),
         execution: input.execution ?? current.execution,
         externalRuntimeId: input.externalRuntimeId ?? current.externalRuntimeId,
-        ownerUserId:
-          nextSource === "platform" ? actor.userId : current.ownerUserId,
-        ownerName:
-          nextSource === "platform"
-            ? "平台"
-            : current.source === "personal"
-              ? current.ownerName
-              : actor.name,
         name: input.name.trim() || DEFAULT_NAME,
-        role: input.role?.trim() || DEFAULT_ROLE,
-        description: input.description?.trim() ?? current.description,
-        soul: input.soul ?? current.soul,
-        scenarios: input.scenarios ?? current.scenarios,
-        goals: input.goals ?? current.goals,
+        description: definitionTouched
+          ? template?.description ?? current.description
+          : (input.description?.trim() ?? current.description),
         avatar: input.avatar ?? current.avatar,
         state: wasDraft ? "inactive" : current.state,
-        version: wasDraft ? "v1.0" : nextVersion(current.version),
         updatedAt: this.timestamp(),
       });
       await this.options.tables.teammates.put(teammate.id, teammate);
@@ -545,8 +1016,87 @@ export class TeammateService {
         teammate,
         actor,
         "updated",
-        wasDraft ? "保存定义并发布 v1.0" : `更新定义至 ${teammate.version}`,
+        wasDraft
+          ? "保存实例资料并发布"
+          : definitionTouched
+            ? "更新了实例资料和模版定义"
+            : "更新了实例资料",
       );
+      return teammate;
+    });
+  }
+
+  /**
+   * 实例资料维护：只写名称与描述，用于运行态实例的轻量编辑入口。
+   * 与 update() 的区别是不触碰人设内容，也不推进定义版本号。
+   */
+  updateInstanceProfile(
+    actor: TeammateActor,
+    input: UpdateInstanceProfileInput,
+  ): Promise<Teammate> {
+    return this.enqueue(async () => {
+      const current = this.requireTeammate(input.teammateId);
+      // 实例归创建人所有：来自平台模版的实例同样由 owner 维护资料。
+      if (!canManageInstance(current, actor)) {
+        throw new TeammateError(
+          "forbidden",
+          "只有实例 owner 或平台管理员可以维护实例资料",
+        );
+      }
+      const name = input.name.trim();
+      if (name === "") {
+        throw new TeammateError("invalid_input", "实例名称不能为空");
+      }
+      const description = input.description.trim();
+      if (name === current.name && description === current.description) {
+        return current;
+      }
+      const teammate = teammateSchema.parse({
+        ...current,
+        name,
+        description,
+        updatedAt: this.timestamp(),
+      });
+      if (current.templateId === undefined) {
+        this.assertUniqueTemplateName(teammate);
+      }
+      await this.options.tables.teammates.put(teammate.id, teammate);
+      await this.record(
+        teammate,
+        actor,
+        "updated",
+        name === current.name
+          ? "更新了实例描述"
+          : `将实例名称改为「${name}」`,
+      );
+      return teammate;
+    });
+  }
+
+  /**
+   * 归档实例：实例归创建人所有，所以实例 owner 也能归档自己的实例，
+   * 不受模版平台归属（只有管理员能维护平台模版）的限制。
+   */
+  archiveInstanceRecord(
+    actor: TeammateActor,
+    teammateId: string,
+  ): Promise<Teammate> {
+    return this.enqueue(async () => {
+      const current = this.requireTeammate(teammateId);
+      if (!canManageInstance(current, actor)) {
+        throw new TeammateError(
+          "forbidden",
+          "只有实例 owner 或平台管理员可以归档实例",
+        );
+      }
+      if (current.state === "archived") return current;
+      const teammate = teammateSchema.parse({
+        ...current,
+        state: "archived",
+        updatedAt: this.timestamp(),
+      });
+      await this.options.tables.teammates.put(teammate.id, teammate);
+      await this.record(teammate, actor, "archived", "归档了该实例");
       return teammate;
     });
   }
@@ -557,9 +1107,14 @@ export class TeammateService {
   ): Promise<Teammate> {
     return this.enqueue(async () => {
       const current = this.requireTeammate(input.teammateId);
-      this.assertCanManage(current, actor);
+      if (!canManageInstance(current, actor)) {
+        throw new TeammateError(
+          "forbidden",
+          "只有实例 owner 或平台管理员可以变更实例状态",
+        );
+      }
       if (input.state === current.state) {
-        throw new TeammateError("conflict", "定义已处于该状态");
+        throw new TeammateError("conflict", "实例已处于该状态");
       }
       if (!STATUS_TRANSITIONS[current.state].includes(input.state)) {
         throw new TeammateError(
@@ -578,8 +1133,8 @@ export class TeammateService {
         actor,
         input.state === "archived" ? "archived" : "state",
         current.state === "archived" && input.state === "inactive"
-          ? `${actor.name} 复原了该定义`
-          : `${actor.name} 将定义设为「${STATE_LABELS[input.state]}」`,
+          ? "复原了该实例"
+          : `将实例设为「${STATE_LABELS[input.state]}」`,
       );
       return teammate;
     });
@@ -593,7 +1148,12 @@ export class TeammateService {
   ): Promise<Teammate> {
     return this.enqueue(async () => {
       const current = this.requireTeammate(teammateId);
-      this.assertCanManage(current, actor);
+      if (!canManageInstance(current, actor)) {
+        throw new TeammateError(
+          "forbidden",
+          "只有实例 owner 或平台管理员可以绑定执行身份",
+        );
+      }
       if (current.employeeId === employeeId) return current;
       const teammate = teammateSchema.parse({
         ...current,
@@ -605,7 +1165,7 @@ export class TeammateService {
         teammate,
         actor,
         "updated",
-        `绑定执行身份 ${employeeId}`,
+        `绑定执行身份 ${current.name}（${employeeId}）`,
       );
       return teammate;
     });
@@ -623,26 +1183,49 @@ export class TeammateService {
     readonly soul?: string | undefined;
     readonly personaId?: string | undefined;
     readonly avatar?: string | undefined;
+    /** 实例 owner（= 创建人）：由调用方按数字员工的负责人解析，解析不到时按平台托管处理。 */
+    readonly ownerUserId?: string | undefined;
+    readonly ownerName?: string | undefined;
   }): Promise<Teammate> {
     return this.enqueue(async () => {
       const existing = this.values(this.options.tables.teammates).find(
         (teammate) => teammate.employeeId === input.employeeId,
       );
       if (existing !== undefined) return existing;
+      const name = this.deduplicatedImportName(input.name, input.personaId);
+      if (this.templates === undefined) {
+        throw new TeammateError("conflict", "AI Teammate 模版服务不可用");
+      }
+      const template = await this.templates.findOrCreate(
+        { userId: "system", name: "系统", role: "admin" },
+        {
+          source: "platform",
+          name,
+          role: input.role,
+          soul: input.soul,
+          active: input.state === "active",
+          ...(input.personaId === undefined
+            ? {}
+            : { personaAlias: input.personaId }),
+        },
+      );
+      const ownerUserId = input.ownerUserId?.trim() || PLATFORM_OWNER_USER_ID;
+      const ownerName =
+        ownerUserId === PLATFORM_OWNER_USER_ID
+          ? PLATFORM_OWNER_NAME
+          : input.ownerName?.trim() ||
+            this.options.users?.().find((user) => user.id === ownerUserId)?.name ||
+            ownerUserId;
       const teammate = teammateSchema.parse({
         id: randomId(),
         source: "platform",
-        name: input.name,
-        role: input.role,
-        ownerUserId: "admin",
-        ownerName: "平台",
-        description: "",
-        soul: input.soul ?? "",
-        scenarios: [],
-        goals: [],
+        name,
+        ownerUserId,
+        ownerName,
         avatar: input.avatar ?? "",
         state: input.state,
         version: "v1.0",
+        templateId: template.id,
         ...(input.personaId === undefined
           ? {}
           : { personaId: input.personaId }),
@@ -660,5 +1243,212 @@ export class TeammateService {
       );
       return teammate;
     });
+  }
+}
+
+export interface TeammateTemplateMigrationOptions {
+  readonly teammates: KvTableLike<Teammate>;
+  readonly templates: KvTableLike<TeammateTemplate>;
+  readonly events?: KvTableLike<TeammateEvent>;
+  readonly profileTemplates?: KvTableLike<ProfileTemplate>;
+  readonly users?: readonly {
+    readonly id: string;
+    readonly name: string;
+  }[];
+}
+
+function legacyGroupKey(teammate: Teammate): string {
+  return teammate.profileTemplateId ?? teammate.personaId ?? `instance:${teammate.id}`;
+}
+
+function templateIdForGroup(groupKey: string, usedIds: Set<string>): string {
+  const sanitized =
+    /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(groupKey)
+      ? groupKey
+      : `tpl-${groupKey.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
+  if (!usedIds.has(sanitized)) return sanitized;
+  for (let index = 2; ; index += 1) {
+    const candidate = `${sanitized}-${index}`;
+    if (!usedIds.has(candidate)) return candidate;
+  }
+}
+
+function legacyTemplateState(state: Teammate["state"]): TeammateTemplate["state"] {
+  if (state === "active") return "active";
+  return state === "archived" ? "archived" : "disabled";
+}
+
+/**
+ * 一次性物化旧数据里的 Agent 定义。保持 domain version 不变，并用
+ * 「实例是否已有 templateId」做数据幂等，不引入单独的迁移标记。
+ */
+export async function migrateTeammateTemplates(
+  options: TeammateTemplateMigrationOptions,
+): Promise<void> {
+  const instances = [...options.teammates.entries()].map(([, value]) => value);
+  const pending = instances.filter(
+    (teammate) => teammate.templateId === undefined,
+  );
+  const ownerCorrections = instances.filter((teammate) => {
+    if (teammate.ownerUserId === PLATFORM_OWNER_USER_ID) return false;
+    const name = options.users?.find(
+      (user) => user.id === teammate.ownerUserId,
+    )?.name;
+    return name !== undefined && name !== teammate.ownerName;
+  });
+  const profileAssets = [...(options.profileTemplates?.entries() ?? [])].map(
+    ([, value]) => value,
+  );
+  const unmaterializedProfiles = profileAssets.filter(
+    (profile) => options.templates.get(profile.id) === undefined,
+  );
+  if (
+    pending.length === 0 &&
+    ownerCorrections.length === 0 &&
+    unmaterializedProfiles.length === 0
+  ) {
+    return;
+  }
+
+  const groups = new Map<string, Teammate[]>();
+  for (const teammate of instances) {
+    const key = legacyGroupKey(teammate);
+    const group = groups.get(key) ?? [];
+    group.push(teammate);
+    groups.set(key, group);
+  }
+  const usedIds = new Set(
+    [...options.templates.entries()].map(([key]) => key),
+  );
+  const templateIds = new Map<string, string>();
+  const actor = { userId: "system", name: "系统", role: "admin" as const };
+
+  for (const [groupKey, group] of groups) {
+    const unresolved = group.filter(
+      (teammate) => teammate.templateId === undefined,
+    );
+    if (unresolved.length === 0) continue;
+    const representative = [...group].sort(
+      (left, right) =>
+        left.createdAt.localeCompare(right.createdAt) ||
+        left.id.localeCompare(right.id),
+    )[0];
+    if (representative === undefined) continue;
+
+    const existing = options.templates.get(groupKey);
+    const profileAsset = options.profileTemplates?.get(groupKey);
+    const template =
+      existing ??
+      teammateTemplateSchema.parse(
+        profileAsset === undefined
+          ? {
+              id: templateIdForGroup(groupKey, usedIds),
+              source: representative.source,
+              ...(representative.source === "personal"
+                ? { ownerUserId: representative.ownerUserId }
+                : {}),
+              name: representative.name,
+              role: representative.role,
+              description: representative.description,
+              soul: representative.soul,
+              scenarios: representative.scenarios,
+              goals: representative.goals,
+              tools: [],
+              state: legacyTemplateState(representative.state),
+              version: representative.version,
+              ...(representative.personaId === undefined
+                ? {}
+                : { personaAlias: representative.personaId }),
+              createdBy: representative.createdBy,
+              createdAt: representative.createdAt,
+              updatedAt: representative.updatedAt,
+            }
+          : {
+              id: profileAsset.id,
+              source: "platform",
+              name: profileAsset.name,
+              role: profileAsset.role,
+              description: profileAsset.description,
+              soul: profileAsset.soul,
+              scenarios: profileAsset.scenarios,
+              goals: profileAsset.goals,
+              tools: profileAsset.tools,
+              state: profileAsset.state,
+              version: profileAsset.version,
+              createdBy: profileAsset.createdBy,
+              createdAt: profileAsset.createdAt,
+              updatedAt: profileAsset.updatedAt,
+            },
+      );
+    usedIds.add(template.id);
+    templateIds.set(groupKey, template.id);
+    if (existing === undefined) {
+      await options.templates.put(template.id, template);
+    }
+  }
+
+  // 历史 Profile 资产统一物化成平台 AI Teammate 模版；即使没有实例引用，
+  // 也要迁移，避免唯一模版列表漏掉可用定义。
+  for (const profile of unmaterializedProfiles) {
+    if (options.templates.get(profile.id) !== undefined) continue;
+    const template = teammateTemplateSchema.parse({
+      id: profile.id,
+      source: "platform",
+      name: profile.name,
+      role: profile.role,
+      description: profile.description,
+      soul: profile.soul,
+      scenarios: profile.scenarios,
+      goals: profile.goals,
+      tools: profile.tools,
+      state: profile.state,
+      version: profile.version,
+      createdBy: profile.createdBy,
+      createdAt: profile.createdAt,
+      updatedAt: profile.updatedAt,
+    });
+    await options.templates.put(template.id, template);
+  }
+
+  const targets = new Map<string, Teammate>();
+  for (const teammate of [...pending, ...ownerCorrections]) {
+    targets.set(teammate.id, teammate);
+  }
+  for (const teammate of targets.values()) {
+    const templateId =
+      teammate.templateId ?? templateIds.get(legacyGroupKey(teammate));
+    if (templateId === undefined) continue;
+    if (
+      teammate.templateId === templateId &&
+      !ownerCorrections.some((item) => item.id === teammate.id)
+    ) {
+      continue;
+    }
+    const ownerUser = options.users?.find(
+      (user) =>
+        user.id === teammate.ownerUserId &&
+        teammate.ownerUserId !== PLATFORM_OWNER_USER_ID,
+    );
+    const ownerName = ownerUser?.name ?? teammate.ownerName;
+    const next = teammateSchema.parse({
+      ...teammate,
+      templateId,
+      ...(ownerName === teammate.ownerName ? {} : { ownerName }),
+      updatedAt: teammate.updatedAt,
+    });
+    await options.teammates.put(next.id, next);
+    if (options.events !== undefined) {
+      const event = teammateEventSchema.parse({
+        id: `evt-${randomUUID()}`,
+        teammateId: next.id,
+        seq: options.events.size,
+        at: new Date().toISOString(),
+        actorUserId: actor.userId,
+        actorName: actor.name,
+        kind: "updated",
+        message: "系统补齐了该实例的 Agent 模版引用",
+      });
+      await options.events.put(event.id, event);
+    }
   }
 }

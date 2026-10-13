@@ -84,6 +84,7 @@ const auditRecordSchema = z.object({
       "change_password",
       "member_add",
       "member_remove",
+      "member_leave",
     ])
     .or(z.string().regex(/^[a-z0-9_.:-]{1,64}$/)),
   targetId: idSchema.optional(),
@@ -765,6 +766,37 @@ export class TeamService {
     });
   }
 
+  leaveWorkspace(
+    actorId: string,
+    workspaceId: string,
+  ): Promise<readonly PublicMember[]> {
+    const parsedActor = parseOrInvalid(idSchema, actorId);
+    const parsedWorkspace = parseOrInvalid(idSchema, workspaceId);
+    return this.enqueue(async () => {
+      const current = this.tables.members.get(parsedWorkspace);
+      const leaving = current?.members.find(
+        (member) => member.userId === parsedActor,
+      );
+      if (current === undefined || leaving === undefined) {
+        throw new IdentityError("not_found", "not a workspace member");
+      }
+      const user = this.requireUser(parsedActor);
+      await this.tables.members.put(current.workspaceId, {
+        ...current,
+        members: current.members.filter(
+          (member) => member.userId !== parsedActor,
+        ),
+        updatedAt: this.time(),
+      });
+      await this.appendAudit(user, "member_leave", {
+        targetId: parsedActor,
+        workspaceId: parsedWorkspace,
+        detail: { memberRole: leaving.role },
+      });
+      return this.members(parsedWorkspace);
+    });
+  }
+
   members(workspaceId: string): readonly PublicMember[] {
     const parsed = parseOrInvalid(idSchema, workspaceId);
     const record = this.tables.members.get(parsed);
@@ -979,9 +1011,16 @@ export function createIdentityRoutes(
             id: workspace.id,
             title: workspace.title,
             path: workspace.path,
-            isMember: service
-              .members(workspace.id)
-              .some((member) => member.userId === principal.userId),
+            isMember:
+              service
+                .members(workspace.id)
+                .find((member) => member.userId === principal.userId) !==
+              undefined,
+            memberRole:
+              service
+                .members(workspace.id)
+                .find((member) => member.userId === principal.userId)
+                ?.memberRole,
           })),
         });
       },
@@ -1152,6 +1191,23 @@ export function createIdentityRoutes(
         const members = await service.removeMember(
           actor.userId,
           await readBody(request, memberRemoveSchema),
+        );
+        sendJson(response, 200, { ok: true, members });
+      },
+    },
+    {
+      path: "/api/collab/team/members/leave",
+      method: "POST",
+      handler: async (request, response) => {
+        assertSameOrigin(request);
+        const principal = requirePrincipal(request, service);
+        const input = await readBody(
+          request,
+          z.object({ workspaceId: z.string().min(1) }),
+        );
+        const members = await service.leaveWorkspace(
+          principal.userId,
+          input.workspaceId,
         );
         sendJson(response, 200, { ok: true, members });
       },

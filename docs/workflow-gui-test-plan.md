@@ -41,10 +41,10 @@ DSH_HOME="$PWD/.tmp/workflow-home" node \
 ### 账号与工作区
 
 1. 首次进入“协作身份”时创建 admin：`workflow-admin`。
-2. Settings > 协作身份 > 成员管理，新增 `workflow-owner`、`workflow-member`。
+2. Settings > 协作身份 > 成员管理，新增 `flow-owner`、`workflow-member`。
 3. 创建或选择一个测试工作区。
-4. 将 `workflow-owner` 加入该工作区，角色 owner；将 `workflow-member`、`workflow-admin` 加入为 member。
-5. 三个 Profile 分别登录 `workflow-admin`、`workflow-owner`、`workflow-member`。
+4. 将 `flow-owner` 加入该工作区，角色 owner；将 `workflow-member`、`workflow-admin` 加入为 member。
+5. 三个 Profile 分别登录 `workflow-admin`、`flow-owner`、`workflow-member`。
 
 ### 测试文件
 
@@ -194,7 +194,7 @@ DSH_HOME="$PWD/.tmp/workflow-home" node \
 
 ### C3 发布审批通过
 
-1. Profile B 登录 `workflow-owner`，展开“订单导出功能”。
+1. Profile B 登录 `flow-owner`，展开“订单导出功能”。
 2. 对“发布审批”点击“通过”。
 3. Profile C 登录 `workflow-member`，对同一“发布审批”点击“通过”。
 4. “发布”变为“可执行”后，由 Profile B 或 Profile C 点击“完成”。
@@ -212,14 +212,14 @@ DSH_HOME="$PWD/.tmp/workflow-home" node \
 
 1. Profile C 打开一个自己的待审批节点，例如新的“产品交付”实例的“需求评审”。
 2. 点击“转交”。
-3. 在“转交给”下拉框选择 `workflow-owner`。
+3. 在“转交给”下拉框选择 `flow-owner`。
 4. 点击“确认”。
 
 预期：
 
 - 显示“已转交审批”。
 - 原审批人状态变为“已转交”。
-- `workflow-owner` 出现在待审批列表。
+- `flow-owner` 出现在待审批列表。
 - Profile C 不再看到“通过 / 否决”按钮。
 
 ### D2 加签

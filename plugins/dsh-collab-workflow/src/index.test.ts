@@ -116,7 +116,7 @@ async function call(route: WebRouteLike, request: unknown) {
 const timestamp = "2026-01-01T00:00:00.000Z";
 const owner: WorkflowActor = {
   kind: "user",
-  id: "workflow-owner",
+  id: "flow-owner",
   name: "Owner",
   workspaceRole: "owner",
 };
@@ -130,7 +130,7 @@ function team(): TeamServiceLike {
   return {
     resolveToken: (token) =>
       token === "owner"
-        ? { userId: "workflow-owner", role: "member" }
+        ? { userId: "flow-owner", role: "member" }
         : token === "member"
           ? { userId: "workflow-member", role: "member" }
           : undefined,
@@ -138,13 +138,13 @@ function team(): TeamServiceLike {
       workspaceId === "main"
         ? [
             { userId: "workflow-admin", name: "Admin", memberRole: "member" },
-            { userId: "workflow-owner", name: "Owner", memberRole: "owner" },
+            { userId: "flow-owner", name: "Owner", memberRole: "owner" },
             { userId: "workflow-member", name: "Member", memberRole: "member" },
           ]
         : [],
     users: () => [
       { id: "workflow-admin", name: "Admin" },
-      { id: "workflow-owner", name: "Owner" },
+      { id: "flow-owner", name: "Owner" },
       { id: "workflow-member", name: "Member" },
       { id: "flow-member", name: "Flow Member" },
     ],
@@ -535,9 +535,6 @@ describe("workflow parser", () => {
     );
     expect(result.errors).toEqual([]);
     expect(result.warnings.join(" ")).toContain(
-      'node "development" has an agent executor without responsible',
-    );
-    expect(result.warnings.join(" ")).toContain(
       "节点「开发」的 Agent 执行器需要手动派发",
     );
     expect(result.graph?.nodes).toHaveLength(5);
@@ -662,19 +659,38 @@ describe("workflow service", () => {
     ]);
   });
 
-  it("reports the same validation warning only once", async () => {
-    const sourceMd = await readFile(
-      new URL(
-        "../../../docs/fixtures/workflow/product-delivery.md",
-        import.meta.url,
-      ),
-      "utf8",
-    );
+  it("reports the agent review missing responsible error", async () => {
+    const sourceMd = [
+      "# 工作流：Agent 缺少责任人",
+      "",
+      "## 元信息",
+      "",
+      "- key: agent-missing-responsible",
+      "- version: 1",
+      "",
+      "## 节点",
+      "",
+      "### 开发",
+      "",
+      "- id: development",
+      "- type: task",
+      "- executor: agent:backend-agent",
+      "",
+      "### 发布",
+      "",
+      "- id: release",
+      "- type: service",
+      "- executor: system:deployment",
+      "",
+      "## 连接",
+      "",
+      "- development -> release",
+    ].join("\n");
     const result = service.validate(sourceMd, "main");
-    const warning =
-      'node "development" has an agent executor without responsible; workspace owner/admin will handle it';
+    const error =
+      "节点「development」的执行者是 Agent 且需要人工 Review（review: true），必须指定 responsible: user:<用户ID> 作为交付责任人";
     expect(
-      result.issues.filter((issue) => issue.message === warning),
+      result.issues.filter((issue) => issue.message === error),
     ).toHaveLength(1);
   });
 
@@ -1059,19 +1075,27 @@ describe("workflow service", () => {
         toName: "Missing User",
       }),
     ).rejects.toMatchObject({ code: "invalid_input" });
+    await expect(
+      taskLinkedService.countersignApproval(member, {
+        instanceId: instance.id,
+        nodeId: "requirement-review",
+        toId: "workflow-member",
+        toName: "Member",
+      }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
     const delegated = await taskLinkedService.delegateApproval(member, {
       instanceId: instance.id,
       nodeId: "requirement-review",
-      toId: "workflow-owner",
+      toId: "flow-owner",
       toName: "Owner",
     });
     expect(delegated.nodes["requirement-review"]?.approvals).toMatchObject({
-      "requirement-review:workflow-owner": { status: "pending" },
+      "requirement-review:flow-owner": { status: "pending" },
     });
     const delegatedTaskId = delegated.nodes["requirement-review"]!.taskIds[0]!;
     expect(tasks.records.get(delegatedTaskId)).toMatchObject({
       receiverType: "human",
-      receiverId: "workflow-owner",
+      receiverId: "flow-owner",
       receiverName: "Owner",
     });
     const staleProjection = tasks.records.get(delegatedTaskId)!;
@@ -1083,7 +1107,7 @@ describe("workflow service", () => {
     await taskLinkedService.handleTaskReconcile(staleProjection);
     expect(tasks.records.get(delegatedTaskId)).toMatchObject({
       receiverType: "human",
-      receiverId: "workflow-owner",
+      receiverId: "flow-owner",
       receiverName: "Owner",
     });
     const countersigned = await taskLinkedService.countersignApproval(owner, {
@@ -1103,6 +1127,130 @@ describe("workflow service", () => {
         toName: "Auditor 2",
       }),
     ).rejects.toMatchObject({ code: "forbidden" });
+  });
+
+  it("processes countersigned approvals serially before the initiator", async () => {
+    const countersignService = new WorkflowService(current, {
+      now: () => new Date(timestamp),
+      team,
+    });
+    const definition = await importedFixture(
+      countersignService,
+      "product-delivery.md",
+    );
+    const instance = await countersignService.startInstance(owner, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "串行加签",
+    });
+    const countersigned = await countersignService.countersignApproval(member, {
+      instanceId: instance.id,
+      nodeId: "requirement-review",
+      toId: "flow-owner",
+      toName: "Owner",
+    });
+    expect(
+      Object.keys(countersigned.nodes["requirement-review"]!.approvals),
+    ).toEqual([
+      "requirement-review:flow-owner",
+      "requirement-review:workflow-member",
+    ]);
+    expect(
+      countersigned.nodes["requirement-review"]!.approvals[
+        "requirement-review:flow-owner"
+      ],
+    ).toMatchObject({ status: "pending", source: "countersign" });
+
+    await expect(
+      countersignService.decideApproval(member, {
+        instanceId: instance.id,
+        nodeId: "requirement-review",
+        decision: "approved",
+      }),
+    ).rejects.toMatchObject({ code: "forbidden" });
+
+    const ownerApproved = await countersignService.decideApproval(owner, {
+      instanceId: instance.id,
+      nodeId: "requirement-review",
+      decision: "approved",
+    });
+    expect(ownerApproved.nodes["requirement-review"]?.status).toBe("waiting");
+
+    const memberApproved = await countersignService.decideApproval(member, {
+      instanceId: instance.id,
+      nodeId: "requirement-review",
+      decision: "approved",
+      note: "原审批人确认",
+    });
+    expect(memberApproved.nodes["requirement-review"]?.status).toBe(
+      "completed",
+    );
+    expect(memberApproved.status).toBe("running");
+  });
+
+  it("lets a delegated approver be countersigned back into the serial queue", async () => {
+    const countersignService = new WorkflowService(current, {
+      now: () => new Date(timestamp),
+      team,
+    });
+    const definition = await importedFixture(
+      countersignService,
+      "product-delivery.md",
+    );
+    const instance = await countersignService.startInstance(owner, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "转交后重新加签",
+    });
+    await countersignService.delegateApproval(member, {
+      instanceId: instance.id,
+      nodeId: "requirement-review",
+      toId: "flow-owner",
+      toName: "Owner",
+    });
+    const countersigned = await countersignService.countersignApproval(owner, {
+      instanceId: instance.id,
+      nodeId: "requirement-review",
+      toId: "workflow-member",
+      toName: "Member",
+    });
+    expect(
+      Object.keys(countersigned.nodes["requirement-review"]!.approvals),
+    ).toEqual([
+      "requirement-review:workflow-member",
+      "requirement-review:flow-owner",
+    ]);
+    expect(
+      countersigned.nodes["requirement-review"]!.approvals[
+        "requirement-review:workflow-member"
+      ],
+    ).toMatchObject({ status: "pending", source: "countersign" });
+    expect(
+      countersigned.nodes["requirement-review"]!.approvals[
+        "requirement-review:flow-owner"
+      ],
+    ).toMatchObject({ status: "pending" });
+
+    await expect(
+      countersignService.decideApproval(owner, {
+        instanceId: instance.id,
+        nodeId: "requirement-review",
+        decision: "approved",
+      }),
+    ).rejects.toMatchObject({ code: "forbidden" });
+
+    const memberApproved = await countersignService.decideApproval(member, {
+      instanceId: instance.id,
+      nodeId: "requirement-review",
+      decision: "approved",
+    });
+    expect(memberApproved.nodes["requirement-review"]?.status).toBe("waiting");
+    const ownerApproved = await countersignService.decideApproval(owner, {
+      instanceId: instance.id,
+      nodeId: "requirement-review",
+      decision: "approved",
+    });
+    expect(ownerApproved.nodes["requirement-review"]?.status).toBe("completed");
   });
 
   it("creates approval tasks and syncs reassignment and decisions", async () => {
@@ -1168,7 +1316,7 @@ describe("workflow service", () => {
     const releaseTask = tasks.records.get(releaseTaskId)!;
     expect(releaseTask).toMatchObject({
       receiverType: "human",
-      receiverId: "workflow-owner",
+      receiverId: "flow-owner",
       status: "review",
       autoSubmitReview: false,
     });
@@ -1190,7 +1338,7 @@ describe("workflow service", () => {
       "release-approval"
     ]!;
     expect(
-      reassigned.approvals["release-approval:workflow-owner"],
+      reassigned.approvals["release-approval:flow-owner"],
     ).toMatchObject({
       status: "pending",
       approver: { kind: "user", id: "workflow-admin", name: "Admin" },
@@ -1770,6 +1918,9 @@ describe("workflow agent nodes", () => {
     );
     const retried = await service.retryAgentRun(member, run.id);
     expect(agent.runs(instance.id, "development")).toHaveLength(2);
+    expect(agent.dispatchInputs[1]?.payload.previousFailure).toContain(
+      "服务重启导致运行中断",
+    );
     expect(retried.nodes.development).toMatchObject({
       status: "running",
       note: "Agent 运行中 · 第 2 次",

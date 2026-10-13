@@ -90,11 +90,15 @@ interface TeammateRuntimeLike {
   assignable(actor: TeammateRuntimeActorLike): readonly {
     readonly id: string;
     readonly name: string;
+    readonly ownerUserId: string;
     readonly ownerName: string;
     readonly source: "platform" | "personal";
     readonly avatar: string;
     readonly employeeId?: string | undefined;
   }[];
+  ownerOf?(
+    ref: string,
+  ): { readonly userId: string; readonly name: string } | undefined;
   ensureRuntime(input: {
     readonly teammateId: string;
     readonly workspaceId: string;
@@ -190,6 +194,7 @@ interface TaskAgentServiceLike {
   bindTask(handler: {
     onSettled(run: TaskAgentRun): Promise<void> | void;
   }): void;
+  syncTaskSessionTitles?(titles: ReadonlyMap<string, string>): Promise<void>;
   runs?(filter: {
     readonly workspaceId?: string | undefined;
     readonly instanceId?: string | undefined;
@@ -236,8 +241,13 @@ interface TaskContext {
   };
   effect(register: () => () => void): void;
   provide(key: "collabTasks", value: TaskService): unknown;
+  provide(
+    key: "collabTaskDispatch",
+    value: TaskDispatchService,
+  ): unknown;
   webServer: { register(route: WebRouteLike): unknown };
   get(key: string): unknown;
+  emit?(event: string, payload?: unknown): void;
   inject(
     keys: readonly ["collabTeam"],
     callback: (
@@ -251,6 +261,15 @@ interface TaskContext {
         readonly collabAgent: TaskAgentServiceLike;
       },
     ) => void,
+  ): { dispose(): void };
+  inject(
+    keys: readonly ["collabAgent", "workspaceRegistry"],
+    callback: (
+      child: TaskContext & {
+        readonly collabAgent: TaskAgentServiceLike;
+        readonly workspaceRegistry: WorkspaceRegistryLike;
+      },
+    ) => Promise<void> | void,
   ): { dispose(): void };
 }
 
@@ -335,6 +354,7 @@ function directory(
     kind: "agent";
     ownerName?: string;
     ownerAuthUserId?: string;
+    employeeId?: string;
     personaId?: string;
     source?: "platform" | "personal";
     avatar?: string;
@@ -371,6 +391,7 @@ function directory(
     kind: "agent";
     ownerName?: string;
     ownerAuthUserId?: string;
+    employeeId?: string;
     personaId?: string;
     source?: "platform" | "personal";
     avatar?: string;
@@ -405,6 +426,7 @@ function directory(
       };
     });
   if (teammates !== undefined && actor !== undefined) {
+    const memberIds = new Set(team.users().map((user) => user.id));
     for (const teammate of teammates.assignable(actor)) {
       agents.push({
         id: teammate.id,
@@ -413,6 +435,13 @@ function directory(
         ownerName: teammate.ownerName,
         source: teammate.source,
         avatar: teammate.avatar,
+        ...(teammate.employeeId === undefined
+          ? {}
+          : { employeeId: teammate.employeeId }),
+        // 实例归属看实例创建人（不是模版的平台归属）。
+        ...(memberIds.has(teammate.ownerUserId)
+          ? { ownerAuthUserId: teammate.ownerUserId }
+          : {}),
       });
     }
   }
@@ -672,13 +701,16 @@ async function dispatchTaskInstruction(
       }
     | undefined;
   if (employeeTarget !== undefined && employeeProfileId !== undefined) {
+    // 会话命名和任务管理使用同一个「责任人」显示名；档案名只是执行身份。
+    const employeeName =
+      task.receiverName?.trim() || employeeTarget.employee.displayName;
     target = {
       employeeId: employeeTarget.employee.id,
       profileId: employeeProfileId,
       profileName: employeeTarget.profile.name,
       maxMinutes: employeeTarget.profile.budget?.maxMinutes,
       personaId: employeeTarget.employee.personaId ?? ensured?.personaId,
-      employeeName: employeeTarget.employee.displayName,
+      employeeName,
     };
   } else if (ensured !== undefined) {
     // AI Teammate 首次被指派时，按定义自动开通运行时身份。
@@ -817,6 +849,141 @@ function revealInFileManager(target: string): Promise<void> {
   });
 }
 
+export interface TaskDispatchDependencies {
+  readonly service: TaskService;
+  readonly team?: TeamServiceLike | undefined;
+  readonly employees?: EmployeeServiceLike | undefined;
+  readonly agent?: (() => TaskAgentServiceLike | undefined) | undefined;
+  readonly workspaces?: WorkspaceRegistryLike | undefined;
+  readonly teammates?: (() => TeammateRuntimeLike | undefined) | undefined;
+}
+
+export interface TaskDispatchOutcome {
+  readonly task: TaskRecord;
+  readonly execution: Record<string, string>;
+}
+
+/** 供其它模块复用任务派发链路的服务面。 */
+export interface TaskDispatchService {
+  dispatch(task: TaskRecord, actor: TaskActor): Promise<TaskDispatchOutcome>;
+}
+
+/**
+ * Agent 跑完后把任务交回「实例 owner（实例创建人）」确认：
+ * 服务层会把状态置为「待验收」，这里只负责解析该交给谁。
+ */
+function ownerHandoff(
+  deps: TaskDispatchDependencies,
+  task: TaskRecord,
+  run: TaskAgentRun,
+): { readonly userId: string; readonly name: string } | undefined {
+  return resolveOwnerHandoff(
+    { team: deps.team, teammates: deps.teammates },
+    task,
+    run,
+  );
+}
+
+/**
+ * 解析「执行完成后应交给谁确认」：AI Teammate 实例的 owner（实例创建人）。
+ * 派发时（同步返回 queued）和 run 真正结束时（onSettled）都要用同一套规则。
+ */
+export function resolveOwnerHandoff(
+  deps: {
+    readonly team?: TeamServiceLike | undefined;
+    readonly teammates?: (() => TeammateRuntimeLike | undefined) | undefined;
+  },
+  task: TaskRecord,
+  run: TaskAgentRun,
+): { readonly userId: string; readonly name: string } | undefined {
+  // 成功 → 交回 owner 验收；waiting_input → 交回 owner 补充信息（反馈项）。
+  if (run.status !== "succeeded" && run.status !== "waiting_input") {
+    return undefined;
+  }
+  if (task.receiverType !== "agent" || task.receiverId === undefined) {
+    return undefined;
+  }
+  if (
+    run.status === "succeeded" &&
+    (task.workflow !== undefined || !task.autoSubmitReview)
+  ) {
+    return undefined;
+  }
+  const users = deps.team?.users() ?? [];
+  const owner = deps.teammates?.()?.ownerOf?.(task.receiverId);
+  const ownerUser =
+    owner === undefined
+      ? undefined
+      : users.find((item) => item.id === owner.userId);
+  if (ownerUser !== undefined) {
+    return { userId: ownerUser.id, name: ownerUser.name };
+  }
+  // 兜底：实例 owner 不可用（离职/停用/不存在）→ 工作区 owner → 平台管理员。
+  const members = deps.team?.members(task.workspaceId) ?? [];
+  const workspaceOwnerId = members.find(
+    (member) => member.memberRole === "owner",
+  )?.userId;
+  const workspaceOwner = users.find((item) => item.id === workspaceOwnerId);
+  if (workspaceOwner !== undefined) {
+    return { userId: workspaceOwner.id, name: workspaceOwner.name };
+  }
+  const admin = users.find((item) => item.role === "admin");
+  return admin === undefined
+    ? undefined
+    : { userId: admin.id, name: admin.name };
+}
+
+/**
+ * 任务派发链路：开通/复用执行身份、唤起 Agent、创建会话并回写任务。
+ *
+ * 独立导出是为了让其它模块（例如 AI Teammate 的「创建计划项」）在创建任务后复用
+ * 同一条链路，而不是各自实现一遍派发，避免出现「任务建好了但 Agent 从未被唤起」。
+ */
+export function createTaskDispatcher(
+  deps: TaskDispatchDependencies,
+): (
+  task: TaskRecord,
+  actor: TaskActor,
+  trigger?: {
+    readonly messageId?: string | undefined;
+    readonly content: string;
+  },
+) => Promise<TaskDispatchOutcome> {
+  return async (task, currentActor, trigger) => {
+    try {
+      const run = await dispatchTaskInstruction(
+        deps.agent?.(),
+        deps.employees,
+        deps.workspaces,
+        deps.teammates?.(),
+        task,
+        currentActor,
+        ...(trigger === undefined ? [] : [trigger]),
+      );
+      return {
+        task: await deps.service.attachAgentRun(
+          task.id,
+          run,
+          task.receiverName ?? task.receiverId ?? "Agent",
+          ownerHandoff(deps, task, run),
+        ),
+        execution: { runId: run.id, status: run.status },
+      };
+    } catch (cause) {
+      const message =
+        cause instanceof Error ? cause.message : "Agent 执行通道不可用";
+      return {
+        task: await deps.service.failAgentDispatch(
+          task.id,
+          currentActor,
+          message,
+        ),
+        execution: { error: message },
+      };
+    }
+  };
+}
+
 export function createTaskRoutes(
   service: TaskService,
   team: TeamServiceLike,
@@ -946,41 +1113,14 @@ export function createTaskRoutes(
       }
     };
 
-  const dispatchTask = async (
-    task: TaskRecord,
-    currentActor: TaskActor,
-    trigger?: {
-      readonly messageId?: string | undefined;
-      readonly content: string;
-    },
-  ): Promise<{ task: TaskRecord; execution: Record<string, string> }> => {
-    try {
-      const run = await dispatchTaskInstruction(
-        agent?.(),
-        employees,
-        workspaces,
-        teammates?.(),
-        task,
-        currentActor,
-        ...(trigger === undefined ? [] : [trigger]),
-      );
-      return {
-        task: await service.attachAgentRun(
-          task.id,
-          run,
-          task.receiverName ?? task.receiverId ?? "Agent",
-        ),
-        execution: { runId: run.id, status: run.status },
-      };
-    } catch (cause) {
-      const message =
-        cause instanceof Error ? cause.message : "Agent 执行通道不可用";
-      return {
-        task: await service.failAgentDispatch(task.id, currentActor, message),
-        execution: { error: message },
-      };
-    }
-  };
+  const dispatchTask = createTaskDispatcher({
+    service,
+    team,
+    employees,
+    agent,
+    workspaces,
+    teammates,
+  });
 
   return [
     { kind: "exact", path: "/api/collab/tasks/bootstrap", handler: bootstrap },
@@ -1023,6 +1163,102 @@ export function createTaskRoutes(
       handler: mutate(async (_request, currentActor, body) => ({
         task: await service.update(currentActor, body),
       })),
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/tasks/confirm",
+      handler: mutate(async (_request, currentActor, body) => {
+        const parsed = z
+          .object({
+            taskId: z.string().min(1).max(160),
+            action: z.enum(["approve", "reject", "handoff"]),
+            note: z.string().trim().max(8_000).optional(),
+            assigneeId: z.string().trim().min(1).max(160).optional(),
+          })
+          .parse(body);
+        const task = service.get(parsed.taskId);
+        // 待确认权限：实例 owner（实例创建人）→ 工作区 owner → 平台管理员。
+        const ownerId =
+          task.receiverId === undefined
+            ? undefined
+            : teammates?.()?.ownerOf?.(task.receiverId)?.userId;
+        const isWorkspaceOwner = team
+          .members(task.workspaceId)
+          .some(
+            (member) =>
+              member.userId === currentActor.id &&
+              member.memberRole === "owner",
+          );
+        if (
+          currentActor.role !== "admin" &&
+          ownerId !== currentActor.id &&
+          !isWorkspaceOwner
+        ) {
+          throw new TaskError(
+            "forbidden",
+            "只有实例 owner 或工作区 owner 可以确认",
+          );
+        }
+        const assigneeName =
+          parsed.assigneeId === undefined
+            ? undefined
+            : (team.users().find((user) => user.id === parsed.assigneeId)
+                ?.name ?? parsed.assigneeId);
+        const confirmed = await service.confirm(currentActor, {
+          taskId: parsed.taskId,
+          action: parsed.action,
+          ...(parsed.note === undefined ? {} : { note: parsed.note }),
+          ...(parsed.assigneeId === undefined
+            ? {}
+            : { assigneeId: parsed.assigneeId }),
+          ...(assigneeName === undefined ? {} : { assigneeName }),
+        });
+        if (parsed.action !== "reject" || confirmed.status !== "todo") {
+          return { task: confirmed };
+        }
+        // 退回后立刻重新入队执行（P1 由本路由触发；P3 起改由队列执行器统一出队）。
+        return dispatchTask(confirmed, currentActor);
+      }),
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/tasks/queue/reorder",
+      handler: mutate(async (_request, currentActor, body) => {
+        const parsed = z
+          .object({
+            workspaceId: z.string().min(1).max(200),
+            orderedTaskIds: z.array(z.string().min(1).max(160)).max(500),
+          })
+          .safeParse(body);
+        if (!parsed.success) {
+          throw new TaskError("invalid_input", "request input is invalid");
+        }
+        return {
+          tasks: await service.reorderQueue(currentActor, {
+            taskIds: parsed.data.orderedTaskIds,
+          }),
+        };
+      }),
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/tasks/queue/item",
+      handler: mutate(async (_request, currentActor, body) => {
+        const parsed = z
+          .object({
+            taskId: z.string().min(1).max(160),
+            queueState: z.enum(["idle", "blocked", "paused"]).optional(),
+            autoRunEligible: z.boolean().optional(),
+            dependsOn: z.array(z.string().min(1).max(160)).max(50).optional(),
+          })
+          .safeParse(body);
+        if (!parsed.success) {
+          throw new TaskError("invalid_input", "request input is invalid");
+        }
+        return {
+          task: await service.updateQueueItem(currentActor, parsed.data),
+        };
+      }),
     },
     {
       kind: "exact",
@@ -1300,7 +1536,22 @@ function assertSameOrigin(request: IncomingMessage): void {
 
 export async function apply(ctx: TaskContext): Promise<void> {
   const domain = await ctx.storageDomain.open(taskDomainSpec);
-  const service = new TaskService({ tasks: domain.table("tasks") });
+  const service = new TaskService(
+    { tasks: domain.table("tasks") },
+    {
+      onChange: (task) => {
+        try {
+          ctx.emit?.("collab/task-changed", {
+            taskId: task.id,
+            workspaceId: task.workspaceId,
+            status: task.status,
+          });
+        } catch {
+          // Domain events are best-effort.
+        }
+      },
+    },
+  );
   ctx.provide("collabTasks", service);
   ctx.effect(() => () => void domain.close());
   ctx.inject(["collabTeam"], (child) => {
@@ -1310,6 +1561,19 @@ export async function apply(ctx: TaskContext): Promise<void> {
       AssignmentServiceLike | undefined;
     const workspaces = child.get("workspaceRegistry") as
       WorkspaceRegistryLike | undefined;
+    const dispatchService: TaskDispatchService = {
+      dispatch: createTaskDispatcher({
+        service,
+        team: child.collabTeam,
+        employees,
+        agent: () =>
+          child.get("collabAgent") as TaskAgentServiceLike | undefined,
+        workspaces,
+        teammates: () =>
+          child.get("collabTeammateRuntime") as TeammateRuntimeLike | undefined,
+      }),
+    };
+    child.provide("collabTaskDispatch", dispatchService);
     const disposers = createTaskRoutes(
       service,
       child.collabTeam,
@@ -1324,7 +1588,10 @@ export async function apply(ctx: TaskContext): Promise<void> {
       for (const dispose of disposers) dispose();
     });
   });
-  ctx.inject(["collabAgent"], (child) => {
+  ctx.inject(["collabAgent", "workspaceRegistry"], async (child) => {
+    const workspaces = child.get("workspaceRegistry") as
+      | WorkspaceRegistryLike
+      | undefined;
     child.collabAgent.bindTask({
       onSettled: async (run) => {
         const task = service.get(run.instanceId);
@@ -1332,8 +1599,31 @@ export async function apply(ctx: TaskContext): Promise<void> {
           task.id,
           run,
           task.receiverName ?? task.receiverId ?? "Agent",
+          // 执行真正结束时把任务交回实例 owner（实例创建人）确认。
+          resolveOwnerHandoff(
+            {
+              team: child.get("collabTeam") as TeamServiceLike | undefined,
+              teammates: () =>
+                child.get("collabTeammateRuntime") as
+                  | TeammateRuntimeLike
+                  | undefined,
+            },
+            task,
+            run,
+          ),
         );
       },
     });
+    const taskTitles = new Map<string, string>();
+    for (const workspace of workspaces?.list() ?? []) {
+      for (const task of service.list(workspace.id)) {
+        if (task.receiverType === "agent" && task.receiverName?.trim()) {
+          taskTitles.set(task.id, task.receiverName.trim());
+        }
+      }
+    }
+    if (taskTitles.size > 0) {
+      await child.collabAgent.syncTaskSessionTitles?.(taskTitles);
+    }
   });
 }

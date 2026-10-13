@@ -52,8 +52,8 @@
 
 - id: release-approval
 - type: approval
-- executor: user:workflow-owner
-- approver: 用户:workflow-owner
+- executor: user:flow-owner
+- approver: 用户:flow-owner
 - approver: 用户:workflow-member
 - policy: all
 

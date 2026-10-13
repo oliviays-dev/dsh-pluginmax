@@ -9,6 +9,7 @@ import {
   assignmentDomainSpec,
   AssignmentService,
   createRolesRoutes,
+  ensureFacilitatorSeats,
   inject,
   PersonaService,
   type WebRouteLike,
@@ -214,8 +215,46 @@ describe("dsh-collab-roles", () => {
       "main",
       type,
     );
-    expect(config.seats).toHaveLength(2);
+    expect(config.seats).toHaveLength(3);
+    expect(
+      config.seats.find((seat) => seat.id === "facilitator"),
+    ).toMatchObject({
+      label: "会议 Facilitator",
+      participantKind: "agent",
+      personaId: "persona-meeting-facilitator",
+      permissions: ["read", "write"],
+    });
     expect(service.seats("main")).toEqual([]);
+  });
+
+  it("backfills the facilitator seat into already materialized workspaces", async () => {
+    const workspaces = new FakeTable<WorkspaceRoleConfig>();
+    const assignments = new FakeTable<Assignment>();
+    const service = new AssignmentService({ workspaces, assignments });
+    const timestamp = "2026-01-01T00:00:00.000Z";
+    await workspaces.put("main", {
+      workspaceId: "main",
+      typeId: "product",
+      typeName: "产品协作",
+      seats: [
+        {
+          id: "owner",
+          label: "负责人",
+          participantKind: "human",
+          permissions: ["read"],
+        },
+      ],
+      materializedAt: timestamp,
+      materializedBy: "admin",
+    });
+    await ensureFacilitatorSeats(workspaces);
+    expect(service.config("main").seats.map((seat) => seat.id)).toEqual([
+      "owner",
+      "facilitator",
+    ]);
+    // 幂等：再跑一次不重复。
+    await ensureFacilitatorSeats(workspaces);
+    expect(service.config("main").seats).toHaveLength(2);
   });
 
   it("makes claims idempotent, elects the first leader, and rejects conflicts", async () => {

@@ -213,6 +213,7 @@ export interface AgentRunView {
     readonly nodeName: string;
     readonly nodeDescription: string;
     readonly profileName: string;
+    readonly previousFailure?: string | undefined;
     readonly employeeName?: string | undefined;
     readonly responsibleId?: string | undefined;
     readonly deliverables: ReadonlyArray<{
@@ -805,6 +806,11 @@ export class WorkflowService {
       readonly employee?: () => EmployeeServiceLike | undefined;
       readonly tasks?: () => WorkflowTaskBridge | undefined;
       readonly workspaces?: () => WorkflowWorkspaceRegistryLike | undefined;
+      /**
+       * Best-effort domain hook: fired after every persisted workflow event so
+       * sibling plugins (e.g. the workbench brief) can react to transitions.
+       */
+      readonly onEvent?: (event: WorkflowEvent) => void;
     } = {},
   ) {}
 
@@ -1163,6 +1169,11 @@ export class WorkflowService {
       at: iso(this.now()),
     };
     await this.tables.events.put(record.id, workflowEventSchema.parse(record));
+    try {
+      this.options.onEvent?.(record);
+    } catch {
+      // A failing listener must never break a workflow transition.
+    }
     if (taskProjectedEventKinds.has(record.kind)) {
       await this.syncTaskEvent(instance, record);
     }
@@ -1353,6 +1364,19 @@ export class WorkflowService {
     return undefined;
   }
 
+  private isSerialCountersign(state: WorkflowNodeState): boolean {
+    return Object.values(state.approvals).some(
+      (item) => item.source === "countersign",
+    );
+  }
+
+  private serialQueueKey(state: WorkflowNodeState): string | undefined {
+    if (!this.isSerialCountersign(state)) return undefined;
+    return Object.keys(state.approvals).find(
+      (key) => state.approvals[key]!.status === "pending",
+    );
+  }
+
   private async ensureNodeTask(
     instance: WorkflowInstance,
     node: WorkflowNode,
@@ -1362,7 +1386,13 @@ export class WorkflowService {
     if (
       bridge === undefined ||
       state === undefined ||
-      !["ready", "running"].includes(state.status)
+      (!["ready", "running"].includes(state.status) &&
+        !(
+          node.type === "approval" &&
+          state.status === "waiting" &&
+          state.enteredAt !== undefined &&
+          this.serialQueueKey(state) !== undefined
+        ))
     ) {
       return instance;
     }
@@ -2589,11 +2619,40 @@ export class WorkflowService {
       return { instance: blocked };
     }
     const entryPrefix = `${instance.workspaceId}:${instance.id}:${node.id}:a${dispatchState.attempts}:${dispatchState.enteredAt ?? "unknown"}`;
+    const previousRuns = agent.runs(instance.id, node.id);
+    const previousRun = previousRuns[0];
+    const rejectedSubmission = [...this.nodeSubmissions(instance.id, node.id)]
+      .reverse()
+      .find((submission) => submission.status === "rejected");
+    const previousFailureParts: string[] = [];
+    const previousRunFailed =
+      previousRun !== undefined &&
+      (["failed", "timeout", "interrupted", "cancelled"].includes(
+        previousRun.status,
+      ) ||
+        (previousRun.status === "succeeded" &&
+          state.status === "blocked" &&
+          (state.note?.startsWith("Agent 未按约定输出") === true ||
+            state.note?.startsWith("Digital Employee 输出被拒绝") === true)));
+    if (previousRunFailed) {
+      if (previousRun.status === "succeeded" && (state.note ?? "") !== "") {
+        previousFailureParts.push(state.note ?? "");
+      } else {
+        previousFailureParts.push(previousRun.error ?? "上一轮运行未成功");
+      }
+    }
+    if (rejectedSubmission !== undefined) {
+      previousFailureParts.push(
+        `交付物审核不通过：${rejectedSubmission.requirementTitle}${
+          rejectedSubmission.note ? `：${rejectedSubmission.note}` : ""
+        }`,
+      );
+    }
+    const previousFailure = previousFailureParts.join("\n").slice(0, 2_000);
     const runSeq =
-      agent
-        .runs(instance.id, node.id)
-        .filter((run) => run.dispatchKey.startsWith(`${entryPrefix}#`)).length +
-      1;
+      previousRuns.filter((run) =>
+        run.dispatchKey.startsWith(`${entryPrefix}#`),
+      ).length + 1;
     if (runSeq > node.maxAttempts) {
       if (isAuto) return { instance };
       if (!isManager(actor))
@@ -2692,6 +2751,7 @@ export class WorkflowService {
         nodeName: node.name,
         nodeDescription: node.description,
         profileName: profile.name,
+        ...(previousFailure === "" ? {} : { previousFailure }),
         ...(employeeTarget === undefined
           ? {}
           : { employeeName: employeeTarget.employee.displayName }),
@@ -3877,6 +3937,7 @@ export class WorkflowService {
       if (state.status !== "ready" && state.status !== "waiting") {
         throw new WorkflowError("conflict", "approval is not actionable");
       }
+      const serialQueueKey = this.serialQueueKey(state);
       if (state.status === "waiting") {
         if (state.enteredAt === undefined) {
           throw new WorkflowError(
@@ -3884,15 +3945,17 @@ export class WorkflowService {
             "approval is waiting for upstream nodes",
           );
         }
-        if (
-          !Object.values(state.approvals).some(
-            (item) => item.status !== "pending",
-          )
-        ) {
-          throw new WorkflowError(
-            "conflict",
-            "approval is waiting for upstream nodes",
-          );
+        if (serialQueueKey === undefined) {
+          if (
+            !Object.values(state.approvals).some(
+              (item) => item.status !== "pending",
+            )
+          ) {
+            throw new WorkflowError(
+              "conflict",
+              "approval is waiting for upstream nodes",
+            );
+          }
         }
       }
       const approvalKey = Object.keys(state.approvals).find((key) =>
@@ -3910,6 +3973,12 @@ export class WorkflowService {
       if (state.approvals[approvalKey]!.status !== "pending") {
         throw new WorkflowError("conflict", "approval was already decided");
       }
+      if (serialQueueKey !== undefined && approvalKey !== serialQueueKey) {
+        throw new WorkflowError(
+          "forbidden",
+          "加签后需按顺序审批；当前还未轮到此账号",
+        );
+      }
       const timestamp = iso(this.now());
       instance.nodes[input.nodeId] = {
         ...state,
@@ -3925,11 +3994,16 @@ export class WorkflowService {
       };
       const nextState = instance.nodes[input.nodeId]!;
       const decisions = Object.values(nextState.approvals);
+      const hasCountersign = this.isSerialCountersign(nextState);
       if (
         input.decision === "rejected" ||
-        (node.approvalPolicy === "any" &&
+        (hasCountersign &&
+          decisions.every((item) => item.status === "approved")) ||
+        (!hasCountersign &&
+          node.approvalPolicy === "any" &&
           decisions.some((item) => item.status === "approved")) ||
-        (node.approvalPolicy === "all" &&
+        (!hasCountersign &&
+          node.approvalPolicy === "all" &&
           decisions.every((item) => item.status === "approved"))
       ) {
         instance.nodes[input.nodeId] = {
@@ -3986,6 +4060,19 @@ export class WorkflowService {
         );
       if (state.approvals[key]!.status !== "pending") {
         throw new WorkflowError("conflict", "approval was already decided");
+      }
+      const serialQueueKey = this.serialQueueKey(state);
+      if (serialQueueKey !== undefined && key !== serialQueueKey) {
+        throw new WorkflowError(
+          "forbidden",
+          "加签后需按顺序审批；当前还未轮到此账号",
+        );
+      }
+      if (input.toId === actor.id) {
+        throw new WorkflowError(
+          "invalid_input",
+          "不能转交给自己；请选择其他成员",
+        );
       }
       this.requireTargetMember(instance, input.toId, "转交");
       if (state.approvals[`${node.id}:${input.toId}`] !== undefined) {
@@ -4055,25 +4142,51 @@ export class WorkflowService {
           "only the current pending approver can countersign",
         );
       }
+      if (input.toId === actor.id) {
+        throw new WorkflowError(
+          "invalid_input",
+          "不能加签给自己；请选择其他成员",
+        );
+      }
       this.requireTargetMember(instance, input.toId, "加签");
       if (state.status !== "waiting" && state.status !== "ready") {
         throw new WorkflowError("conflict", "approval is not open");
       }
       const key = `${node.id}:${input.toId}`;
-      if (state.approvals[key] !== undefined) {
-        throw new WorkflowError("conflict", "approver already exists");
+      if (state.approvals[key]?.status !== "delegated") {
+        if (state.approvals[key] !== undefined) {
+          throw new WorkflowError("conflict", "该成员已在当前审批中");
+        }
+      }
+      const serialQueueKey = this.serialQueueKey(state);
+      if (serialQueueKey !== undefined && initiatorKey !== serialQueueKey) {
+        throw new WorkflowError(
+          "forbidden",
+          "加签后需按顺序审批；当前还未轮到此账号",
+        );
+      }
+      const countersignApproval = {
+        approver: { kind: "user", id: input.toId, name: input.toName },
+        status: "pending",
+        source: "countersign",
+        note: input.note,
+      } as const;
+      const queuedApprovals: WorkflowNodeState["approvals"] = {};
+      let inserted = false;
+      for (const [approvalKey, approval] of Object.entries(state.approvals)) {
+        if (approvalKey === key) continue;
+        if (approvalKey === initiatorKey) {
+          queuedApprovals[key] = countersignApproval;
+          inserted = true;
+        }
+        queuedApprovals[approvalKey] = approval;
+      }
+      if (!inserted) {
+        queuedApprovals[key] = countersignApproval;
       }
       instance.nodes[input.nodeId] = {
         ...state,
-        status: "waiting",
-        approvals: {
-          ...state.approvals,
-          [key]: {
-            approver: { kind: "user", id: input.toId, name: input.toName },
-            status: "pending",
-            note: input.note,
-          },
-        },
+        approvals: queuedApprovals,
       };
       const saved = await this.putInstance(instance);
       await this.appendEvent(saved, {
@@ -5147,6 +5260,21 @@ export async function apply(
       employee: () => ctx.get("collabEmployee"),
       tasks: () => injectedTasks,
       workspaces: () => injectedWorkspaces,
+      onEvent: (event) => {
+        try {
+          (
+            ctx as {
+              emit?: (name: string, payload?: unknown) => void;
+            }
+          ).emit?.("collab/workflow-changed", {
+            instanceId: event.instanceId,
+            workspaceId: event.workspaceId,
+            kind: event.kind,
+          });
+        } catch {
+          // Domain events are best-effort.
+        }
+      },
     },
   );
   ctx.provide("collabWorkflow", service);

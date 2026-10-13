@@ -18,7 +18,7 @@
 
 - id: testing
 - type: task
-- executor: user:workflow-owner
+- executor: user:flow-owner
 
 ## 连接
 

@@ -225,12 +225,114 @@ function requireOpen(task: TaskRecord): TaskRecord {
   return task;
 }
 
+// ---------------------------------------------------------------- 队列排序
+
+/**
+ * 队列排序与出队判定：纯函数，便于单测与跨模块复用。
+ *
+ * 排序口径（与产品文档一致）：
+ * - 人工 queueSeq 为准；
+ * - 没有人工顺序时用 draft：优先级 → 截止时间 → 任务 ID；
+ * - 同一队列里「有 queueSeq」的任务排在「没有 queueSeq」的任务之前，
+ *   因此新任务默认落到队尾，不会插队。
+ */
+export interface QueueTaskLike {
+  readonly id: string;
+  readonly status: string;
+  readonly priority: string;
+  readonly due?: string | undefined;
+  readonly queueSeq?: number | undefined;
+  readonly queueState?: string | undefined;
+  readonly dependsOn?: readonly string[] | undefined;
+  readonly autoRunEligible?: boolean | undefined;
+  readonly archivedAt?: string | undefined;
+}
+
+const QUEUE_PRIORITY_RANK: Record<string, number> = { P1: 0, P2: 1, P3: 2 };
+
+export function compareDraftQueue(
+  left: QueueTaskLike,
+  right: QueueTaskLike,
+): number {
+  const byPriority =
+    (QUEUE_PRIORITY_RANK[left.priority] ?? 9) -
+    (QUEUE_PRIORITY_RANK[right.priority] ?? 9);
+  if (byPriority !== 0) return byPriority;
+  const leftDue = left.due === undefined || left.due === "" ? "9999-99-99" : left.due;
+  const rightDue =
+    right.due === undefined || right.due === "" ? "9999-99-99" : right.due;
+  if (leftDue !== rightDue) return leftDue.localeCompare(rightDue);
+  return left.id.localeCompare(right.id);
+}
+
+export function orderQueue<T extends QueueTaskLike>(tasks: readonly T[]): T[] {
+  return [...tasks].sort((left, right) => {
+    const leftSeq = left.queueSeq;
+    const rightSeq = right.queueSeq;
+    if (leftSeq !== undefined && rightSeq !== undefined) {
+      return leftSeq - rightSeq || compareDraftQueue(left, right);
+    }
+    if (leftSeq !== undefined) return -1;
+    if (rightSeq !== undefined) return 1;
+    return compareDraftQueue(left, right);
+  });
+}
+
+/** 依赖是否满足：dependsOn 里的任务都必须已完成（cancelled 视为未满足）。 */
+export function dependenciesSatisfied<T extends QueueTaskLike>(
+  task: T,
+  byId: ReadonlyMap<string, QueueTaskLike>,
+): boolean {
+  return (task.dependsOn ?? []).every(
+    (dependencyId) => byId.get(dependencyId)?.status === "done",
+  );
+}
+
+/** 该任务当前能否出队（状态 / 人工暂停 / 自动执行开关 / 依赖）。 */
+export function isQueueRunnable<T extends QueueTaskLike>(
+  task: T,
+  byId: ReadonlyMap<string, QueueTaskLike>,
+  options: { readonly autoRun: boolean },
+): boolean {
+  if (task.archivedAt !== undefined) return false;
+  if (task.status !== "todo") return false;
+  if (task.queueState === "paused" || task.queueState === "blocked") return false;
+  if (options.autoRun && task.autoRunEligible === false) return false;
+  return dependenciesSatisfied(task, byId);
+}
+
+/**
+ * 出队判定：实例空闲时取队首可执行任务。
+ * autoRun=true 表示「无人值守自动执行」，会额外过滤掉未开启自动执行的任务。
+ */
+export function pickNextTask<T extends QueueTaskLike>(input: {
+  readonly tasks: readonly T[];
+  readonly running: boolean;
+  readonly autoRun?: boolean;
+}): T | undefined {
+  if (input.running) return undefined;
+  const byId = new Map(input.tasks.map((task) => [task.id, task]));
+  for (const task of orderQueue(input.tasks)) {
+    if (isQueueRunnable(task, byId, { autoRun: input.autoRun === true })) {
+      return task;
+    }
+  }
+  return undefined;
+}
+
 export class TaskService {
   private workflowActions: WorkflowTaskActionHandler | undefined;
 
   constructor(
     private readonly tables: TaskTables,
-    private readonly options: { readonly now?: () => Date } = {},
+    private readonly options: {
+      readonly now?: () => Date;
+      /**
+       * Best-effort domain hook: fired after every persisted task write so
+       * sibling plugins (e.g. the workbench brief) can react to changes.
+       */
+      readonly onChange?: (task: TaskRecord) => void;
+    } = {},
   ) {}
 
   private now(): string {
@@ -254,6 +356,11 @@ export class TaskService {
   private async put(task: TaskRecord): Promise<TaskRecord> {
     const parsed = parseTask(task);
     await this.tables.tasks.put(parsed.id, parsed);
+    try {
+      this.options.onChange?.(parsed);
+    } catch {
+      // A failing listener must never break a task write.
+    }
     return parsed;
   }
 
@@ -477,7 +584,7 @@ export class TaskService {
     const receiver =
       parsed.receiverType === "unassigned"
         ? "待指派"
-        : parsed.receiverName?.trim() || parsed.receiverId || "未知接收方";
+        : parsed.receiverName?.trim() || parsed.receiverId || "未知责任人";
     const updated = await this.put(
       this.event(
         {
@@ -496,7 +603,7 @@ export class TaskService {
         },
         actor,
         "assigned",
-        `${actor.name} 调整接收方为 ${receiver}`,
+        `${actor.name} 调整责任人为 ${receiver}`,
       ),
     );
     return updated;
@@ -1070,6 +1177,7 @@ export class TaskService {
     taskIdValue: string,
     run: TaskAgentRun,
     receiverName: string,
+    handoff?: { readonly userId: string; readonly name: string } | undefined,
   ): Promise<TaskRecord> {
     const task = this.require(taskIdValue);
     const existing = task.messages.find((message) => message.runId === run.id);
@@ -1082,6 +1190,10 @@ export class TaskService {
       content:
         run.status === "succeeded"
           ? run.output?.summary?.trim() || "执行完成，但没有返回文本结果。"
+          : run.status === "waiting_input"
+            ? run.output?.summary?.trim() ||
+              run.error?.trim() ||
+              "信息不足，等待人工补充后继续。"
           : run.status === "failed" ||
               run.status === "timeout" ||
               run.status === "cancelled" ||
@@ -1131,12 +1243,28 @@ export class TaskService {
       autoReview || workflowReview || workflowDirect
         ? task.steps.map((step) => ({ ...step, done: true }))
         : task.steps;
+    // 反馈项：Agent 判断信息不足时需要人工补充，直接交回实例 owner 并打标。
+    const needsInput = run.status === "waiting_input";
+    const receiverOverride =
+      needsInput && handoff !== undefined
+        ? {
+            receiverType: "human" as const,
+            receiverId: handoff.userId,
+            receiverName: handoff.name,
+          }
+        : {};
     const withRun = this.event(
       {
         ...task,
+        ...receiverOverride,
         agentRunIds: task.agentRunIds.includes(run.id)
           ? task.agentRunIds
           : [...task.agentRunIds, run.id],
+        needsInput: needsInput
+          ? true
+          : run.status === "queued" || run.status === "running"
+            ? false
+            : task.needsInput,
         messages,
         steps,
         progress: workflowDirect
@@ -1157,6 +1285,8 @@ export class TaskService {
       "message",
       run.status === "succeeded"
         ? `${receiverName} 返回了执行反馈`
+        : needsInput
+          ? `${receiverName} 需要补充信息，已转交 ${handoff?.name ?? "负责人"} 处理`
         : ["failed", "timeout", "cancelled", "interrupted"].includes(run.status)
           ? `${receiverName} 执行未完成`
           : `${receiverName} 开始执行任务`,
@@ -1200,12 +1330,25 @@ export class TaskService {
         );
       }
     }
+    // 自动提交验收时把任务交回实例 owner（实例创建人）确认，
+    // 这样产出物回写后进入该负责人的「待验收」，而不是继续挂在 Agent 身上。
+    const handedOff =
+      handoff === undefined
+        ? withRun
+        : {
+            ...withRun,
+            receiverType: "human" as const,
+            receiverId: handoff.userId,
+            receiverName: handoff.name,
+          };
     return this.put(
       this.event(
-        withRun,
+        handedOff,
         actor,
         "status",
-        `${receiverName} 完成产出物，自动提交验收`,
+        handoff === undefined
+          ? `${receiverName} 完成产出物，自动提交验收`
+          : `${receiverName} 完成产出物，已提交 ${handoff.name} 确认`,
       ),
     );
   }
@@ -1329,6 +1472,183 @@ export class TaskService {
       `${actor.name} 将任务从归档中复原`,
     );
     return this.put(updated);
+  }
+
+  // ------------------------------------------------------------ 队列（P1）
+
+  /**
+   * 队列排序口径（与 `pickNextTask` 共用同一实现）。
+   * 暴露成服务方法，供其它插件（如 AI Teammate 的队列视图）复用，避免各自实现一套顺序。
+   */
+  sortQueue<T extends QueueTaskLike>(tasks: readonly T[]): T[] {
+    return orderQueue(tasks);
+  }
+
+  /** 队列尾部序号：新任务/退回任务默认排队尾，不插队。 */
+  private queueTailSeq(workspaceId: string): number {
+    let max = 0;
+    for (const task of this.tables.tasks.entries()) {
+      if (task[1].workspaceId !== workspaceId) continue;
+      max = Math.max(max, task[1].queueSeq ?? 0);
+    }
+    return max + 1_000;
+  }
+
+  /** 人工排序：按给定顺序重写 queueSeq（步长 1000），未列出的任务保持原值。 */
+  async reorderQueue(
+    actor: TaskActor,
+    input: { readonly taskIds: readonly string[] },
+  ): Promise<readonly TaskRecord[]> {
+    const updated: TaskRecord[] = [];
+    let seq = 1_000;
+    for (const taskId of input.taskIds) {
+      const task = requireOpen(this.require(taskId));
+      if (task.queueSeq !== seq) {
+        updated.push(
+          await this.put(
+            this.event(
+              { ...task, queueSeq: seq, updatedAt: this.now() },
+              actor,
+              "updated",
+              `${actor.name} 将任务调整到队列第 ${Math.ceil(seq / 1_000)} 位`,
+            ),
+          ),
+        );
+      }
+      seq += 1_000;
+    }
+    return updated;
+  }
+
+  /** 队列项设置：暂停/恢复、是否参与自动执行、前置依赖。 */
+  async updateQueueItem(
+    actor: TaskActor,
+    input: {
+      readonly taskId: string;
+      readonly queueState?: "idle" | "blocked" | "paused" | undefined;
+      readonly autoRunEligible?: boolean | undefined;
+      readonly dependsOn?: readonly string[] | undefined;
+    },
+  ): Promise<TaskRecord> {
+    const task = requireOpen(this.require(input.taskId));
+    const dependsOn =
+      input.dependsOn === undefined
+        ? task.dependsOn
+        : [...new Set(input.dependsOn)].filter((id) => id !== task.id);
+    for (const dependencyId of dependsOn) {
+      const dependency = this.require(dependencyId);
+      if (dependency.workspaceId !== task.workspaceId) {
+        throw new TaskError("invalid_input", "前置任务必须属于同一个项目");
+      }
+    }
+    const notes: string[] = [];
+    if (input.queueState !== undefined && input.queueState !== task.queueState) {
+      notes.push(
+        input.queueState === "paused"
+          ? "暂停出队"
+          : input.queueState === "blocked"
+            ? "标记为受阻"
+            : "恢复出队",
+      );
+    }
+    if (
+      input.autoRunEligible !== undefined &&
+      input.autoRunEligible !== task.autoRunEligible
+    ) {
+      notes.push(input.autoRunEligible ? "允许自动执行" : "不参与自动执行");
+    }
+    if (input.dependsOn !== undefined) notes.push("更新前置依赖");
+    const updated = this.event(
+      {
+        ...task,
+        queueState: input.queueState ?? task.queueState,
+        autoRunEligible: input.autoRunEligible ?? task.autoRunEligible,
+        dependsOn,
+        updatedAt: this.now(),
+      },
+      actor,
+      "updated",
+      `${actor.name} 调整队列项：${notes.length === 0 ? "无变化" : notes.join("、")}`,
+    );
+    return this.put(updated);
+  }
+
+  /**
+   * 待确认动作（通过 / 退回并补充 / 转人工）。
+   * 退回会追加一条人工指令、把任务放回队尾并清除反馈项标记，
+   * 由调用方（路由）决定是否立即重新派发。
+   */
+  async confirm(
+    actor: TaskActor,
+    input: {
+      readonly taskId: string;
+      readonly action: "approve" | "reject" | "handoff";
+      readonly note?: string | undefined;
+      readonly assigneeId?: string | undefined;
+      readonly assigneeName?: string | undefined;
+    },
+  ): Promise<TaskRecord> {
+    const task = requireOpen(this.requireActive(this.require(input.taskId)));
+    if (input.action === "approve") {
+      if (task.status !== "review") {
+        throw new TaskError("conflict", "只有待验收的任务可以通过");
+      }
+      return this.setStatus(actor, task, "done", "确认验收");
+    }
+    if (input.action === "reject") {
+      if (task.status !== "review" && task.needsInput !== true) {
+        throw new TaskError("conflict", "只有待验收或待补充的任务可以退回");
+      }
+      const note = (input.note ?? "").trim();
+      if (note === "") {
+        throw new TaskError("invalid_input", "退回必须填写补充说明");
+      }
+      const message = taskMessageSchema.parse({
+        id: randomUUID(),
+        at: this.now(),
+        authorId: actor.id,
+        authorName: actor.name,
+        kind: actor.kind,
+        content: note,
+        attachments: [],
+      });
+      return this.put(
+        this.event(
+          {
+            ...task,
+            status: "todo",
+            progress: Math.min(5, task.progress),
+            messages: [...task.messages, message],
+            needsInput: false,
+            queueState: "idle",
+            queueSeq: this.queueTailSeq(task.workspaceId),
+            updatedAt: this.now(),
+          },
+          actor,
+          "status",
+          `${actor.name} 退回并补充说明：${task.status} → todo`,
+        ),
+      );
+    }
+    const assigneeId = (input.assigneeId ?? "").trim();
+    if (assigneeId === "") {
+      throw new TaskError("invalid_input", "转人工必须指定接收人");
+    }
+    const assigneeName = (input.assigneeName ?? assigneeId).trim();
+    return this.put(
+      this.event(
+        {
+          ...task,
+          receiverType: "human" as const,
+          receiverId: assigneeId,
+          receiverName: assigneeName,
+          updatedAt: this.now(),
+        },
+        actor,
+        "assigned",
+        `${actor.name} 将任务转交 ${assigneeName} 处理`,
+      ),
+    );
   }
 }
 
