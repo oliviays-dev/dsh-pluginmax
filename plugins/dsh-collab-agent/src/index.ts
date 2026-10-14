@@ -95,6 +95,16 @@ export interface AgentSetupContextLike {
         mount(agentCtx: AgentSetupContextLike, presetId: string): Promise<void>;
       }
     | undefined;
+  get?(key: "systemPrompt"):
+    | {
+        section(section: {
+          readonly name: string;
+          readonly order: number;
+          readonly text: string;
+        }): unknown;
+        getSectionOrder?(name: string): number;
+      }
+    | undefined;
 }
 
 export interface AgentsRegistryLike {
@@ -263,6 +273,23 @@ function taskUserMessage(text: string): unknown {
     content: [{ type: "text", text }],
     source: { kind: "user" },
   };
+}
+
+/**
+ * 会话产物已经不在磁盘上时的失败特征。
+ * DSH 的 jsonl 持久化只在创建会话时建目录，之后是 `open(path, 'a')`：
+ * 目录/文件被外部清掉后，恢复会话与后续落盘都会以 ENOENT / not-found 失败。
+ */
+function isMissingSessionArtifact(cause: unknown): boolean {
+  if (typeof cause !== "object" || cause === null) return false;
+  if ((cause as { readonly code?: unknown }).code === "ENOENT") return true;
+  const name = String((cause as { readonly name?: unknown }).name ?? "");
+  if (name === "SessionPersistenceNotFoundError") return true;
+  const message = cause instanceof Error ? cause.message : "";
+  return (
+    /session/i.test(message) &&
+    /ENOENT|no such file or directory|not found/i.test(message)
+  );
 }
 
 function lastAssistantText(session: AgentSessionLike, since = 0): string {
@@ -738,6 +765,10 @@ function buildPrompt(run: AgentRun, profile: AgentProfile): string {
       typeof payload.context.brief === "string"
         ? payload.context.brief.trim()
         : "";
+    const meetingFiles =
+      typeof payload.context.files === "string"
+        ? payload.context.files.trim()
+        : "";
     const agenda = payload.nodeDescription.trim();
     return [
       "# DSH Pluginmax 会议 Facilitator",
@@ -748,12 +779,21 @@ function buildPrompt(run: AgentRun, profile: AgentProfile): string {
       "## 会议记录",
       transcript.trim() === "" ? "（暂无对话）" : transcript,
       "",
+      ...(meetingFiles === ""
+        ? []
+        : ["## 会议文件", meetingFiles, ""]),
       ...(brief === "" ? [] : ["## 本次嘱咐", brief, ""]),
       "## 输出要求",
-      "用中文输出 1-2 句关键结论。",
-      "- 只给结论，不复述讨论过程。",
-      "- 不要输出标题、列表或客套话。",
-      "- 信息不足时明确说明缺少什么，不要编造。",
+      "用中文 Markdown 输出一份结构化会议纪要，且只包含以下小节（顺序固定，标题原样保留）：",
+      "## 结论",
+      "## 决策",
+      "## 行动项",
+      "## 风险",
+      "## 待确认",
+      "- 只输出纪要正文本身：不要输出思考过程、推理句、英文或客套话。",
+      "- 你没有可调用的工具；需要的信息只来自上面的会议记录与会议文件，不要尝试执行命令或搜索文件。",
+      "- 每个小节用简洁的要点列表；该小节没有内容时写「无」。",
+      "- 行动项尽量写清负责人与时间点；无法确定的放入「待确认」，不要编造。",
     ]
       .filter((line) => line !== "")
       .join("\n");
@@ -824,7 +864,7 @@ function buildPrompt(run: AgentRun, profile: AgentProfile): string {
       : []),
     "## 工具",
     profile.allowedTools.length === 0
-      ? "本任务没有可用工具。不要调用工具，也不要输出工具调用语法；直接生成交付报告。"
+      ? "本任务不限制可用工具；但最终回复仍必须直接交付报告，不要输出工具调用语法。"
       : `只能使用这些工具：${profile.allowedTools.join("、")}。完成后仍必须直接输出交付报告。`,
     "## 边界",
     "1. 只处理当前节点的内容。",
@@ -844,6 +884,8 @@ export interface AgentRuntimeDeps {
   readonly tables: AgentTaskTables;
   readonly subagents: () => SubagentsRuntimeLike | undefined;
   readonly agents: () => AgentsRegistryLike | undefined;
+  /** 人格服务：把 run 的 personaId 解析成 SOUL 文本，供 worker 注入。 */
+  readonly personas?: () => PersonaServiceLike | undefined;
   readonly defaultModel?: () => AgentDefaultModelLike | undefined;
   readonly workspaces?: () => WorkspaceRegistryLike | undefined;
   readonly sessions?: () => AgentSessionsLike | undefined;
@@ -1048,11 +1090,39 @@ export class AgentTaskRuntime {
     return (await current).agent;
   }
 
+  /**
+   * 把 run 的 personaId 解析成运行时人设文本。
+   *
+   * teammate / 数字员工的人设（SOUL.md 正文 + 「工作场景」「工作目标」）由
+   * teammate 运行态同步进 persona 文件；worker 启动前在这里取回文本，供内置
+   * 会话的人设段落注入与外接 subagent 的 persona 参数使用。取不到时返回空串，
+   * 维持「没有人设」的原行为，不让解析失败拖垮任务。
+   */
+  private async resolvePersonaSoul(personaId?: string): Promise<string> {
+    if (personaId === undefined || personaId === "") return "";
+    const personas = this.deps.personas?.();
+    if (personas === undefined) return "";
+    try {
+      const persona = await personas.get(personaId);
+      if (
+        persona !== null &&
+        typeof persona === "object" &&
+        typeof (persona as { readonly soul?: unknown }).soul === "string"
+      ) {
+        return (persona as { readonly soul: string }).soul.trim();
+      }
+    } catch {
+      return "";
+    }
+    return "";
+  }
+
   private async executeHomeSession(
     run: AgentRun,
     profile: AgentProfile,
     prompt: string,
     signal: AbortSignal,
+    personaSoul: string,
   ): Promise<SubagentResultLike> {
     if (run.workspacePath === undefined) {
       throw new AgentError(
@@ -1069,11 +1139,28 @@ export class AgentTaskRuntime {
     const model = this.deps.defaultModel?.()?.currentSelection();
     const setup = async (agentCtx: AgentSetupContextLike): Promise<void> => {
       await agentCtx.get?.("agentPresets")?.mount(agentCtx, "standard");
+      // 人设注入：standard preset 自己占用了 deployment:persona，这里用独立
+      // section 追加本 teammate 的 SOUL，避免同层同名冲突，让 worker 真正读到人设。
+      if (personaSoul !== "") {
+        const systemPrompt = agentCtx.get?.("systemPrompt");
+        if (systemPrompt !== undefined) {
+          const order =
+            systemPrompt.getSectionOrder?.("DEPLOYMENT_PERSONA") ?? 0;
+          systemPrompt.section({
+            name: "dsh-collab:teammate-soul",
+            order,
+            text: `# 你的人设（AI Teammate）\n\n${personaSoul}`,
+          });
+        }
+      }
       const tools = agentCtx.tools;
-      if (tools !== undefined) {
-        const allow = [...new Set(profile.allowedTools)].filter(
-          (name) => tools.get(name) !== undefined,
-        );
+      // 空清单 = 不限制（与「未限制工具清单」的语义一致）：只有显式配置了工具
+      // 才收窄，否则保持挂载预设后的默认工具集。
+      const configured = [...new Set(profile.allowedTools)].filter(
+        (name) => name.trim() !== "",
+      );
+      if (tools !== undefined && configured.length > 0) {
+        const allow = configured.filter((name) => tools.get(name) !== undefined);
         tools.restrict({ allow });
       }
     };
@@ -1091,6 +1178,13 @@ export class AgentTaskRuntime {
         const persisted = await this.deps
           .sessionPersistence?.()
           ?.stat(sessionId);
+        const createSession = () =>
+          agents.create({
+            sessionId,
+            meta: { cwd: workspacePath },
+            setup,
+            ...(model === undefined ? {} : { agentOptions: model }),
+          });
         try {
           if (persisted !== undefined) {
             if (agents.resume === undefined) {
@@ -1099,18 +1193,20 @@ export class AgentTaskRuntime {
                 `persisted task session cannot be resumed: ${sessionId}`,
               );
             }
-            return await agents.resume({
-              resumeSessionId: sessionId,
-              setup,
-              ...(model === undefined ? {} : { agentOptions: model }),
-            });
+            try {
+              return await agents.resume({
+                resumeSessionId: sessionId,
+                setup,
+                ...(model === undefined ? {} : { agentOptions: model }),
+              });
+            } catch (cause) {
+              // 会话「登记过」不等于产物还在：目录被清理/删除后恢复会以
+              // ENOENT / not-found 失败。这种情况重建会话，而不是把整轮判死。
+              if (!isMissingSessionArtifact(cause)) throw cause;
+              return await createSession();
+            }
           }
-          return await agents.create({
-            sessionId,
-            meta: { cwd: workspacePath },
-            setup,
-            ...(model === undefined ? {} : { agentOptions: model }),
-          });
+          return await createSession();
         } catch (cause) {
           // 会话可能已被本进程内另一个活跃 handle 占用（例如重复启动或热重载）：
           // 能拿到现存活句柄就复用，避免任务因为写句柄冲突直接失败。
@@ -1151,11 +1247,37 @@ export class AgentTaskRuntime {
       }
       if (signal.aborted) throw new Error("worker aborted");
       const output = lastAssistantText(agent.session, start);
+      const blocks = output === "" ? [] : [{ type: "text", text: output }];
+      // 会话日志没了必须显式判失败：harness 在这种情况仍可能返回「完成」，
+      // 只有这里拦住，任务卡片才不会出现「日志失败但 run 成功」。
+      if (await this.sessionArtifactMissing(sessionId)) {
+        return {
+          output: blocks,
+          stopReason: "failed",
+          diagnostic: `会话日志已丢失：磁盘上找不到 ${sessionId} 的会话文件，本轮结果未持久化（目录可能被外部清理或删除）。`,
+        };
+      }
       return {
-        output: output === "" ? [] : [{ type: "text", text: output }],
+        output: blocks,
         stopReason: "completed",
       };
     });
+  }
+
+  /**
+   * 本轮结束后确认会话仍然落盘。`stat` 返回 undefined 说明磁盘上已经没有这个
+   * 会话（目录被清理/删除），此时后续每次落盘都会 ENOENT；agent 循环却可能已经
+   * 返回「完成」——必须显式识别，不能当成成功回写任务。
+   */
+  private async sessionArtifactMissing(sessionId: string): Promise<boolean> {
+    const persistence = this.deps.sessionPersistence?.();
+    if (persistence === undefined) return false;
+    try {
+      return (await persistence.stat(sessionId)) === undefined;
+    } catch {
+      // 只读探测本身失败不把这一轮判死。
+      return false;
+    }
   }
 
   private async saveRun(run: AgentRun): Promise<AgentRun> {
@@ -1465,6 +1587,8 @@ export class AgentTaskRuntime {
     try {
       await this.acquire(current.workspaceId);
       const signal = task.controller.signal;
+      // 人设文本在启动前解析一次：内置会话与 subagent 两条路径共用。
+      const personaSoul = await this.resolvePersonaSoul(current.personaId);
       let result: SubagentResultLike;
       if (isExternal) {
         const runner = this.deps.externalRunner?.();
@@ -1581,6 +1705,7 @@ export class AgentTaskRuntime {
           profile,
           prompt,
           signal,
+          personaSoul,
         );
       } else {
         started = await builtinSubagents.start(
@@ -1589,10 +1714,15 @@ export class AgentTaskRuntime {
             label: `workflow-worker:${profile.name}`,
             prompt: [{ type: "text", text: prompt }],
             parent: await this.hostAgent(workspacePath),
-            ...(current.personaId === undefined
+            // persona 参数语义是人设文本（会 shadow deployment:persona），
+            // 传 personaId 只会把 id 字面量当成人设，这里改成 SOUL 正文。
+            ...(personaSoul === ""
               ? {}
-              : { persona: current.personaId }),
-            toolFilter: { allow: profile.allowedTools },
+              : { persona: personaSoul }),
+            // 空清单 = 不限制：不传 toolFilter，交给挂载的预设决定工具集。
+            ...(profile.allowedTools.length === 0
+              ? {}
+              : { toolFilter: { allow: profile.allowedTools } }),
             signal,
           },
         );
@@ -1628,10 +1758,12 @@ export class AgentTaskRuntime {
                 },
               ],
               parent: await this.hostAgent(workspacePath),
-              ...(current.personaId === undefined
+              ...(personaSoul === ""
                 ? {}
-                : { persona: current.personaId }),
-              toolFilter: { allow: profile.allowedTools },
+                : { persona: personaSoul }),
+              ...(profile.allowedTools.length === 0
+                ? {}
+                : { toolFilter: { allow: profile.allowedTools } }),
               signal,
             },
           );
@@ -1651,12 +1783,17 @@ export class AgentTaskRuntime {
           endedAt: iso(this.now()),
         });
       } else if (result.stopReason !== "completed") {
+        const partialOutput = subagentOutputText(result).trim();
         await this.settle(current, {
           status: "failed",
           error:
             result.diagnostic === undefined
               ? `worker ended with ${result.stopReason}`
               : `${result.stopReason}: ${result.diagnostic}`,
+          // 失败也要留住已经产出的文本：任务卡片给原因，执行面板还能看到内容。
+          ...(partialOutput === ""
+            ? {}
+            : { output: { summary: partialOutput } }),
           endedAt: iso(this.now()),
         });
       } else if (subagentOutputText(result).trim() === "") {
@@ -2659,6 +2796,7 @@ export async function apply(ctx: AgentContext): Promise<void | (() => void)> {
     externalRunner: () => new ExternalAgentProcessRunner(),
     subagents: () => ctx.get("subagents"),
     agents: () => ctx.get("agents"),
+    personas: () => ctx.get("collabPersonas"),
     defaultModel: () => ctx.agentDefaultModel,
     workspaces: () => ctx.get("workspaceRegistry"),
     sessions: () => ctx.get("sessions"),

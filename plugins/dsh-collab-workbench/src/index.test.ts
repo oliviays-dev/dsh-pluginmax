@@ -429,6 +429,61 @@ describe("WorkbenchService", () => {
     expect(followKey("olivia", "task", "TSK-1")).toContain("TSK-1");
   });
 
+  it("lists followed meetings in the focus module", async () => {
+    // 会议纪要卡片上的星标写的是 type=meeting；重点关注必须能读回来，
+    // 否则「关注会议纪要 → 刷新重点关注」永远是空的。
+    const meeting = {
+      id: "MTG-1",
+      workspaceId: "ws-1",
+      title: "供应商切换评审",
+      status: "closed",
+      agenda: "",
+      summary: "散会摘要：先小批量切换，保留回滚预案。",
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+    const service = serviceWith({
+      meetings: () => ({
+        list: (workspaceId: string) => (workspaceId === "ws-1" ? [meeting] : []),
+        participants: () => [
+          {
+            kind: "human" as const,
+            refId: "olivia",
+            displayName: "Olivia",
+            status: "active",
+            leader: true,
+          },
+        ],
+      }),
+    });
+    await service.toggleFollow(principal, {
+      type: "meeting",
+      targetId: "MTG-1",
+    });
+    const items = service.focusModule(principal).data?.items ?? [];
+    expect(items).toHaveLength(1);
+    expect(items[0]?.kind).toBe("meeting");
+    expect(items[0]?.id).toBe("MTG-1");
+    expect(items[0]?.title).toBe("供应商切换评审");
+    expect(items[0]?.displayId).toBe("会议");
+    expect(items[0]?.statusLabel).toBe("已散会");
+    expect(items[0]?.receiverName).toBe("Olivia");
+    expect(items[0]?.summary).toContain("小批量切换");
+    expect(items[0]?.coveredBy).toEqual([{ type: "meeting", id: "MTG-1" }]);
+    expect(items[0]?.deepLink).toEqual({
+      route: "meeting",
+      refId: "MTG-1",
+      workspaceId: "ws-1",
+    });
+
+    // 取消关注后不再出现在重点关注。
+    await service.toggleFollow(principal, {
+      type: "meeting",
+      targetId: "MTG-1",
+    });
+    expect(service.focusModule(principal).data?.items).toHaveLength(0);
+  });
+
   it("sorts todos by priority, due date and id", () => {
     const tasks = [
       {
@@ -633,14 +688,16 @@ describe("WorkbenchService", () => {
     const items = module.data?.views.unread ?? [];
     expect(items).toHaveLength(1);
     expect(items[0]?.section).toBe("conclusion");
-    expect(items[0]?.tag).toBe("progress");
+    // 待验收条目标签固定「待我验收」，不再按结论文本猜进展/结论。
+    expect(items[0]?.tag).toBe("review");
+    expect(items[0]?.actionLabel).toBe("前往验收");
     expect(items[0]?.statusLabel).toBe("待我验收");
     // 条目必须说明「为什么出现在简报里」
     expect(items[0]?.reason).toContain("待验收");
     expect(items[0]?.reason).toContain("你是它的责任人");
     expect(items[0]?.deepLink.refId).toBe("TSK-1");
     expect(briefItemKey(principal.userId, items[0]?.itemId ?? "")).toContain(
-      "C:run:run-1",
+      "C:task:TSK-1",
     );
 
     // 点击条目落地 → 已读 → 下一条目不再出现在未读视图
@@ -652,6 +709,333 @@ describe("WorkbenchService", () => {
     });
     expect(afterRead.data?.views.unread).toHaveLength(0);
     expect(afterRead.data?.views.all).toHaveLength(0);
+  });
+
+  it("keeps one pending-review entry per task even after the task is re-run", async () => {
+    // 同一任务重跑会再产生一次成功的 run。条目身份若按 run 记，
+    // 待验收会出现两条重复条目，验收一次会让未读数连着掉两条。
+    const runs = [
+      {
+        id: "run-old",
+        workspaceId: "ws-1",
+        agentProfileId: "profile-1",
+        employeeId: "emp-1",
+        principalType: "digital-employee" as const,
+        source: "task" as const,
+        instanceId: "TSK-1",
+        nodeId: "node-1",
+        status: "succeeded" as const,
+        output: { summary: "第一次交付已完成，等待验收。" },
+        endedAt: "2026-10-09T01:00:00.000Z",
+        createdAt: "2026-10-09T00:00:00.000Z",
+        updatedAt: "2026-10-09T01:00:00.000Z",
+      },
+    ];
+    const tasks = [
+      {
+        id: "TSK-1",
+        workspaceId: "ws-1",
+        title: "确认替代供应商交付周期",
+        type: "任务",
+        status: "review" as const,
+        priority: "P2" as const,
+        receiverType: "agent" as const,
+        receiverId: "emp-1",
+        receiverName: "采购数字同事",
+        description: "",
+        acceptance: ["a"],
+        agentRunIds: ["run-old"],
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      },
+    ];
+    const service = serviceWith({
+      tasks: () => ({
+        list: () => tasks,
+        get: (taskId: string) => {
+          const task = tasks.find((item) => item.id === taskId);
+          if (task === undefined) throw new Error("not found");
+          return task;
+        },
+      }),
+      agents: () => ({
+        runs: () => runs,
+        profile: () => ({ id: "profile-1", name: "采购执行 Profile" }),
+      }),
+      employees: () => ({
+        list: () => [
+          {
+            id: "emp-1",
+            kind: "digital" as const,
+            displayName: "采购数字同事",
+            authUserId: "olivia",
+          },
+        ],
+        getByAuthUserId: () => ({
+          id: "emp-human",
+          kind: "human" as const,
+          displayName: "Olivia",
+          authUserId: "olivia",
+        }),
+        get: () => ({
+          id: "emp-1",
+          kind: "digital" as const,
+          displayName: "采购数字同事",
+          authUserId: "olivia",
+        }),
+        activeProfile: () => ({ name: "采购执行 Profile" }),
+      }),
+    });
+    const first = await service.briefModule(principal, { tzOffsetMinutes });
+    expect(first.data?.views.unread).toHaveLength(1);
+
+    // 任务重跑一次：追加一条新的成功 run，并把它挂到同一个任务上。
+    runs.push({
+      id: "run-new",
+      workspaceId: "ws-1",
+      agentProfileId: "profile-1",
+      employeeId: "emp-1",
+      principalType: "digital-employee" as const,
+      source: "task" as const,
+      instanceId: "TSK-1",
+      nodeId: "node-1",
+      status: "succeeded" as const,
+      output: { summary: "重跑后交付已完成并补齐证据，等待验收。" },
+      endedAt: "2026-10-09T01:30:00.000Z",
+      createdAt: "2026-10-09T01:20:00.000Z",
+      updatedAt: "2026-10-09T01:30:00.000Z",
+    });
+    tasks[0]!.agentRunIds = ["run-old", "run-new"];
+
+    const second = await service.briefModule(principal, { tzOffsetMinutes });
+    const items = second.data?.views.unread ?? [];
+    // 旧实现按 run 记身份，这里会同时出现 run-old / run-new 两条。
+    expect(items).toHaveLength(1);
+    expect(items[0]?.itemId).toBe("C:task:TSK-1");
+    expect(items[0]?.conclusion).toContain("重跑后");
+  });
+
+  it("labels every pending-review conclusion as 待我验收 regardless of wording", async () => {
+    // 旧逻辑按结论文本里的「完成 / 已同步」等字样区分进展与结论，
+    // 于是「…核实完成」会被标成「进展」，右边却挂「前往验收」，标签与按钮打架。
+    const summaries = [
+      "替代供应商交付周期核实完成：12 天。",
+      "交付物已就绪，等待责任人确认。",
+    ];
+    for (const summary of summaries) {
+      const runs = [
+        {
+          id: "run-1",
+          workspaceId: "ws-1",
+          agentProfileId: "profile-1",
+          employeeId: "emp-1",
+          principalType: "digital-employee" as const,
+          source: "task" as const,
+          instanceId: "TSK-1",
+          nodeId: "node-1",
+          status: "succeeded" as const,
+          output: { summary },
+          endedAt: "2026-10-09T01:00:00.000Z",
+          createdAt: "2026-10-09T00:00:00.000Z",
+          updatedAt: "2026-10-09T01:00:00.000Z",
+        },
+      ];
+      const tasks = [
+        {
+          id: "TSK-1",
+          workspaceId: "ws-1",
+          title: "确认替代供应商交付周期",
+          type: "任务",
+          status: "review" as const,
+          priority: "P2" as const,
+          receiverType: "agent" as const,
+          receiverId: "emp-1",
+          receiverName: "采购数字同事",
+          description: "",
+          acceptance: ["a"],
+          agentRunIds: ["run-1"],
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        },
+      ];
+      const service = serviceWith({
+        tasks: () => ({
+          list: () => tasks,
+          get: (taskId: string) => {
+            const task = tasks.find((item) => item.id === taskId);
+            if (task === undefined) throw new Error("not found");
+            return task;
+          },
+        }),
+        agents: () => ({
+          runs: () => runs,
+          profile: () => ({ id: "profile-1", name: "采购执行 Profile" }),
+        }),
+        employees: () => ({
+          list: () => [
+            {
+              id: "emp-1",
+              kind: "digital" as const,
+              displayName: "采购数字同事",
+              authUserId: "olivia",
+            },
+          ],
+          getByAuthUserId: () => ({
+            id: "emp-human",
+            kind: "human" as const,
+            displayName: "Olivia",
+            authUserId: "olivia",
+          }),
+          get: () => ({
+            id: "emp-1",
+            kind: "digital" as const,
+            displayName: "采购数字同事",
+            authUserId: "olivia",
+          }),
+          activeProfile: () => ({ name: "采购执行 Profile" }),
+        }),
+      });
+      const module = await service.briefModule(principal, { tzOffsetMinutes });
+      const item = (module.data?.views.unread ?? [])[0];
+      expect(item?.tag).toBe("review");
+      expect(item?.statusLabel).toBe("待我验收");
+      expect(item?.actionLabel).toBe("前往验收");
+    }
+  });
+
+  it("folds legacy per-run conclusions of one task into a single item", async () => {
+    // 历史数据里同一任务可能留下 C:run:<id> 多条；合并后只应剩一条，
+    // 且「有一条未读就算未读」。
+    const customTables = tables();
+    const legacy = (runId: string, readState: "read" | "unread", at: string) => ({
+      readerId: "olivia",
+      itemId: `C:run:${runId}`,
+      section: "conclusion" as const,
+      tag: "progress" as const,
+      title: "确认替代供应商交付周期",
+      conclusion: `来自 ${runId} 的结论`,
+      reason: "入选原因：任务 TSK-1 已由采购数字同事完成并进入待验收。",
+      executorName: "采购数字同事",
+      executorRole: "采购执行 Profile",
+      sourceDomain: "agent-run" as const,
+      sourceId: runId,
+      statusLabel: "待我验收",
+      actionLabel: "前往验收",
+      readState,
+      ...(readState === "read"
+        ? { readAt: at, readVia: "click" as const }
+        : {}),
+      priorityScore: 5,
+      occurredAt: at,
+      deepLink: {
+        route: "task" as const,
+        refId: "TSK-1",
+        workspaceId: "ws-1",
+        label: "待验收任务 TSK-1",
+      },
+      condition: { kind: "task-review" as const, refId: "TSK-1" },
+      workspaceId: "ws-1",
+      workspaceName: "供应链",
+      resolved: false,
+      createdAt: at,
+      updatedAt: at,
+    });
+    await customTables.briefItems.put(
+      briefItemKey("olivia", "C:run:run-old"),
+      legacy("run-old", "read", "2026-10-09T01:00:00.000Z"),
+    );
+    await customTables.briefItems.put(
+      briefItemKey("olivia", "C:run:run-new"),
+      legacy("run-new", "unread", "2026-10-09T01:30:00.000Z"),
+    );
+    const runs = [
+      {
+        id: "run-new",
+        workspaceId: "ws-1",
+        agentProfileId: "profile-1",
+        employeeId: "emp-1",
+        principalType: "digital-employee" as const,
+        source: "task" as const,
+        instanceId: "TSK-1",
+        nodeId: "node-1",
+        status: "succeeded" as const,
+        output: { summary: "重跑后交付已完成并补齐证据。" },
+        endedAt: "2026-10-09T01:30:00.000Z",
+        createdAt: "2026-10-09T01:20:00.000Z",
+        updatedAt: "2026-10-09T01:30:00.000Z",
+      },
+    ];
+    const tasks = [
+      {
+        id: "TSK-1",
+        workspaceId: "ws-1",
+        title: "确认替代供应商交付周期",
+        type: "任务",
+        status: "review" as const,
+        priority: "P2" as const,
+        receiverType: "agent" as const,
+        receiverId: "emp-1",
+        receiverName: "采购数字同事",
+        description: "",
+        acceptance: ["a"],
+        agentRunIds: ["run-new"],
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      },
+    ];
+    const service = new WorkbenchService(customTables, {
+      now: () => now,
+      workspaces: () => ({
+        list: () => [{ id: "ws-1", path: "/tmp/supply", title: "供应链" }],
+      }),
+      team: () => ({
+        users: () => [{ id: "olivia", name: "Olivia" }],
+        members: () => [{ userId: "olivia", role: "owner" }],
+        resolveToken: () => ({ userId: "olivia", role: "member" as const }),
+      }),
+      tasks: () => ({
+        list: () => tasks,
+        get: (taskId: string) => {
+          const task = tasks.find((item) => item.id === taskId);
+          if (task === undefined) throw new Error("not found");
+          return task;
+        },
+      }),
+      agents: () => ({
+        runs: () => runs,
+        profile: () => ({ id: "profile-1", name: "采购执行 Profile" }),
+      }),
+      employees: () => ({
+        list: () => [
+          {
+            id: "emp-1",
+            kind: "digital" as const,
+            displayName: "采购数字同事",
+            authUserId: "olivia",
+          },
+        ],
+        getByAuthUserId: () => ({
+          id: "emp-human",
+          kind: "human" as const,
+          displayName: "Olivia",
+          authUserId: "olivia",
+        }),
+        get: () => ({
+          id: "emp-1",
+          kind: "digital" as const,
+          displayName: "采购数字同事",
+          authUserId: "olivia",
+        }),
+        activeProfile: () => ({ name: "采购执行 Profile" }),
+      }),
+    });
+    const module = await service.briefModule(principal, { tzOffsetMinutes });
+    const all = module.data?.views.all ?? [];
+    expect(all.some((item) => item.itemId.startsWith("C:run:"))).toBe(false);
+    const merged = all.filter((item) => item.itemId === "C:task:TSK-1");
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.readState).toBe("unread");
+    expect(merged[0]?.conclusion).toContain("补齐证据");
   });
 
   it("keeps the full run conclusion in the brief so 展开全文 has content", async () => {
@@ -861,7 +1245,7 @@ describe("WorkbenchService", () => {
       ...(module.data?.views.unread ?? []),
       ...(module.data?.views.all ?? []),
     ];
-    const target = items.find((item) => item.itemId === "C:run:run-1");
+    const target = items.find((item) => item.itemId === "C:task:TSK-1");
     expect(target?.conclusion).toBe(longSummary);
   });
 
@@ -1289,11 +1673,11 @@ describe("WorkbenchService", () => {
     expect(followed?.statusLabel).toBe("已散会");
   });
 
-  it("resolves seat occupant names and prefers the active duplicate", async () => {
+  it("keeps meeting participant display names and prefers the active duplicate", () => {
     const meeting = {
-      id: "MTG-SEAT",
+      id: "MTG-PART",
       workspaceId: "ws-1",
-      title: "席位会议",
+      title: "参会者会议",
       status: "active" as const,
       agenda: "",
       createdAt: nowIso,
@@ -1308,28 +1692,15 @@ describe("WorkbenchService", () => {
       },
       {
         kind: "agent",
-        refId: "emp-1",
-        displayName: "Builder:emp-1",
+        refId: "worker-1",
+        displayName: "张三（数字员工）",
         status: "active",
-        seatId: "builder",
-        seatLabel: "Builder",
-        leader: false,
       },
       {
         kind: "agent",
-        refId: "emp-left",
-        displayName: "Builder:emp-left",
-        status: "left",
-        seatId: "builder-out",
-        seatLabel: "Builder",
-      },
-      {
-        kind: "agent",
-        refId: "seat:facilitator",
-        displayName: "[待认领] 会议 Facilitator",
+        refId: "facilitator-1",
+        displayName: "会议 Facilitator",
         status: "pending",
-        seatId: "facilitator",
-        seatLabel: "会议 Facilitator",
       },
       {
         kind: "human",
@@ -1351,49 +1722,14 @@ describe("WorkbenchService", () => {
           list: () => [meeting],
           participants: () => participants,
         }),
-        assignments: () => ({
-          seats: () => [
-            {
-              workspaceId: "ws-1",
-              seatId: "builder",
-              seatLabel: "Builder",
-              assigneeKind: "agent" as const,
-              assigneeId: "emp-1",
-              personaId: "persona-builder",
-              status: "assigned" as const,
-            },
-            {
-              workspaceId: "ws-1",
-              seatId: "builder-out",
-              seatLabel: "Builder",
-              assigneeKind: "agent" as const,
-              assigneeId: "emp-left",
-              status: "released" as const,
-            },
-          ],
-        }),
-        employees: () => ({
-          list: () => [
-            {
-              id: "emp-1",
-              kind: "digital" as const,
-              displayName: "张三（数字员工）",
-              personaId: "persona-builder",
-            },
-          ],
-          getByAuthUserId: () => undefined,
-          get: () => {
-            throw new Error("not found");
-          },
-          activeProfile: () => undefined,
-        }),
       }),
     );
-    const module = service.meetingsModule(principal);
-    const item = module.data?.items.find((entry) => entry.id === "MTG-SEAT");
+    const item = service
+      .meetingsModule(principal)
+      .data?.items.find((entry) => entry.id === "MTG-PART");
     expect(item?.agents).toEqual([
       {
-        refId: "emp-1",
+        refId: "worker-1",
         name: "张三（数字员工）",
         kind: "agent",
         owned: false,
@@ -1402,17 +1738,8 @@ describe("WorkbenchService", () => {
         isHost: false,
       },
       {
-        refId: "emp-left",
-        name: "Builder:emp-left",
-        kind: "agent",
-        owned: false,
-        isFacilitator: false,
-        status: "left",
-        isHost: false,
-      },
-      {
-        refId: "seat:facilitator",
-        name: "[待认领] 会议 Facilitator",
+        refId: "facilitator-1",
+        name: "会议 Facilitator",
         kind: "agent",
         owned: false,
         isFacilitator: true,
@@ -1530,5 +1857,167 @@ describe("WorkbenchService", () => {
       summaryText: "手填散会摘要原文。",
       aiSummary: false,
     });
+  });
+
+  it("prefers the single minutes object and marks unconfirmed versions", () => {
+    type MinutesVersion = {
+      id: string;
+      version: number;
+      content: string;
+      status: string;
+      updatedAt: string;
+    };
+    type MinutesService = {
+      activeVersion(meetingId: string): MinutesVersion | undefined;
+      versions(meetingId: string): readonly MinutesVersion[];
+    };
+    const meeting = {
+      id: "MTG-MIN",
+      workspaceId: "ws-1",
+      title: "纪要收敛",
+      status: "closed" as const,
+      agenda: "",
+      summary: "手填散会摘要原文。",
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+    const version = (over: {
+      version: number;
+      status: string;
+      content?: string;
+    }): MinutesVersion => ({
+      id: `v-${over.version}`,
+      version: over.version,
+      content: over.content ?? "",
+      status: over.status,
+      updatedAt: nowIso,
+    });
+    const deps = (minutes: MinutesService): WorkbenchDeps =>
+      twoWorkspaceDeps({
+        meetings: () => ({
+          list: () => [meeting],
+          participants: () => [
+            {
+              kind: "human",
+              refId: principal.userId,
+              displayName: "Olivia",
+              status: "active",
+            },
+          ],
+        }),
+        meetingMinutes: () => minutes,
+        agents: () => ({
+          runs: () => [
+            {
+              id: "run-legacy",
+              workspaceId: "ws-1",
+              agentProfileId: "profile-1",
+              source: "meeting" as const,
+              instanceId: meeting.id,
+              nodeId: "meeting-minutes",
+              status: "succeeded" as const,
+              output: { summary: "旧 run 摘要。" },
+              createdAt: nowIso,
+              updatedAt: nowIso,
+            },
+          ],
+          profile: () => undefined,
+        }),
+      });
+    const itemFor = (minutes: MinutesService) =>
+      new WorkbenchService(tables(), deps(minutes))
+        .meetingsModule(principal)
+        .data?.items.find((entry) => entry.id === meeting.id);
+
+    // 1) confirmed 生效版本优先于旧 run 与散会摘要
+    expect(
+      itemFor({
+        activeVersion: () =>
+          version({ version: 3, status: "confirmed", content: "确认版纪要正文。" }),
+        versions: () => [
+          version({ version: 3, status: "confirmed", content: "确认版纪要正文。" }),
+        ],
+      }),
+    ).toMatchObject({
+      summaryText: "确认版纪要正文。",
+      minutesSource: "confirmed",
+      minutesPending: false,
+      aiSummary: true,
+    });
+
+    // 2) 无生效版本时取最新待确认版本，并标记待确认
+    expect(
+      itemFor({
+        activeVersion: () => undefined,
+        versions: () => [
+          version({ version: 1, status: "superseded", content: "旧版本。" }),
+          version({ version: 2, status: "pending_confirm", content: "待确认正文。" }),
+        ],
+      }),
+    ).toMatchObject({
+      summaryText: "待确认正文。",
+      minutesSource: "pending_confirm",
+      minutesPending: true,
+      aiSummary: true,
+    });
+
+    // 3) 纪要服务异常时回退旧 run，再回退散会摘要
+    expect(
+      itemFor({
+        activeVersion: () => {
+          throw new Error("minutes unavailable");
+        },
+        versions: () => [],
+      }),
+    ).toMatchObject({
+      summaryText: "旧 run 摘要。",
+      minutesSource: "legacy_run",
+      minutesPending: false,
+      aiSummary: true,
+    });
+  });
+});
+
+describe("方案 B：工作台工作区范围", () => {
+  const scopeDeps = (): WorkbenchDeps => ({
+    now: () => now,
+    workspaces: () => ({
+      list: () => [
+        { id: "ws-1", path: "/tmp/joined", title: "已加入项目" },
+        { id: "ws-2", path: "/tmp/others", title: "未加入项目" },
+      ],
+    }),
+    team: () => ({
+      users: () => [{ id: "admin", name: "平台管理员" }],
+      members: (workspaceId: string) =>
+        workspaceId === "ws-1"
+          ? [{ userId: "admin", role: "member" }]
+          : [{ userId: "owner", role: "owner" }],
+    }),
+  });
+
+  it("管理员默认只看已加入，显式 scopeAll 才聚合全量", () => {
+    const service = new WorkbenchService(tables(), scopeDeps());
+    const admin = { userId: "admin", name: "平台管理员", role: "admin" as const };
+    // 普通视图：平台管理员与成员一致，只包含已加入的工作区。
+    expect(service.projects(admin).map((item) => item.id)).toEqual(["ws-1"]);
+    // 全量视图：只有显式打开开关（scope=all）才聚合全部宿主工作区。
+    expect(
+      service
+        .projects({ ...admin, scopeAll: true })
+        .map((item) => item.id)
+        .sort(),
+    ).toEqual(["ws-1", "ws-2"]);
+  });
+
+  it("非管理员即使带上 scopeAll 也不能看到未加入的工作区", () => {
+    const service = new WorkbenchService(tables(), scopeDeps());
+    const member = {
+      userId: "olivia",
+      name: "Olivia",
+      role: "member" as const,
+      scopeAll: true,
+    };
+    expect(service.projects(member)).toEqual([]);
   });
 });

@@ -39,6 +39,17 @@ window.__ModuleLoader__.load({
     ];
     const MODULE_ORDER = FACTORY_ORDER;
 
+    /*
+     * 方案 B 的项目范围开关：两段式，选中段 = 当前实际视图。
+     * 样式与任务管理页的 `.pmtask-scope-seg` 保持严格一致。
+     */
+    const SCOPE_BUTTON_STYLES = `
+.pmwb-scope-seg{display:inline-flex;align-items:center;gap:2px;padding:2px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
+.pmwb-scope-seg > button{height:24px;border:0;border-radius:6px;padding:0 8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11.5px;cursor:pointer;}
+.pmwb-scope-seg > button:not(.active):hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);}
+.pmwb-scope-seg > button.active{background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 14%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7);}
+`;
+
     const styles = `
 .pmwb{display:grid;gap:14px;min-height:100%;margin-top:-4px;color:var(--dsw-alias-label-primary);}
 .pmwb *,.pmwb *::before,.pmwb *::after{box-sizing:border-box;}
@@ -47,6 +58,7 @@ window.__ModuleLoader__.load({
 .pmwb-tab{min-height:28px;padding:4px 12px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12.5px;font-weight:600;white-space:nowrap;cursor:pointer;}
 .pmwb-tab.active{color:var(--dsw-alias-label-primary-foreground);background:var(--dsw-alias-button-primary-fill);}
 .pmwb-tab:not(.active):hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);}
+${SCOPE_BUTTON_STYLES}
 .pmwb-head-actions{display:flex;align-items:center;gap:7px;margin-left:auto;}
 .pmwb-iconbtn{width:28px;height:28px;flex:none;display:grid;place-items:center;padding:0;border:1px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-secondary);cursor:pointer;}
 .pmwb-iconbtn:hover:not(:disabled){color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);}
@@ -142,6 +154,8 @@ window.__ModuleLoader__.load({
 .pmwb-item-sub{grid-area:sub;display:block;width:100%;margin-top:4px;color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1.55;overflow-wrap:anywhere;}
 .pmwb-item-sub b{color:var(--dsw-alias-label-primary);}
 .pmwb-item-sub.placeholder{color:var(--dsw-alias-label-tertiary);}
+.pmwb-minutes-badge{display:inline-block;margin-right:4px;padding:0 5px;border-radius:4px;font-size:10px;line-height:16px;vertical-align:1px;background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#e2a737) 18%,transparent);color:var(--dsw-alias-state-warning-primary,#e2a737);}
+.pmwb-minutes-badge.confirmed{background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#34d47e) 16%,transparent);color:var(--dsw-alias-state-success-primary,#34d47e);}
 .pmwb-item-meta{grid-area:meta;display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:4px;font-size:11px;color:var(--dsw-alias-label-secondary);}
 .pmwb-item-meta .ws{color:var(--dsw-alias-label-tertiary);}
 .pmwb-item-trailing{grid-area:actions;display:flex;align-items:center;gap:6px;justify-self:end;flex-wrap:wrap;justify-content:flex-end;}
@@ -174,6 +188,8 @@ window.__ModuleLoader__.load({
 .pmwb-tag.progress{color:var(--dsw-alias-state-warning-primary,#d29922);background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d29922) 16%,transparent);}
 .pmwb-tag.conclusion{color:var(--dsw-alias-state-success-primary,#3fb950);background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#3fb950) 14%,transparent);}
 .pmwb-tag.decision{color:var(--dsw-alias-accent-primary,#4f8ef7);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 14%,transparent);}
+      /* 「待我验收」沿用任务管理页待验收的琥珀色，语义与右侧「前往验收」按钮一致。 */
+      .pmwb-tag.review{color:var(--dsw-alias-state-warning-primary,#d29922);background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d29922) 16%,transparent);}
 .pmwb-brief-actions{display:grid;gap:6px;width:84px;justify-items:stretch;}
 .pmwb-brief-actions .pmwb-btn{width:100%;justify-content:center;}
 .pmwb-decision{margin-top:7px;padding:8px 10px;border-left:2px solid var(--dsw-alias-accent-primary,#4f8ef7);border-radius:0 6px 6px 0;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 9%,transparent);font-size:11.5px;line-height:1.6;color:var(--dsw-alias-label-secondary);}
@@ -331,6 +347,7 @@ window.__ModuleLoader__.load({
           data: "数据异常",
           conclusion: "结论",
           decision: "待决策",
+          review: "待我验收",
         }[tag] ?? tag
       );
     }
@@ -342,9 +359,19 @@ window.__ModuleLoader__.load({
           taskId: link.refId,
           workspaceId: link.workspaceId ?? "",
         };
-        window.dispatchEvent(
-          new CustomEvent("pluginmax:navigate", { detail: { route: "task" } }),
-        );
+        /*
+         * `pluginmax:navigate` 会触发任务页的 route-select 重置逻辑，
+         * 把即将打开的 pending task 清成列表态。深链必须直接切路由。
+         */
+        if (typeof window.__pluginmaxShell?.setRoute === "function") {
+          window.__pluginmaxShell.setRoute("task");
+        } else {
+          window.dispatchEvent(
+            new CustomEvent("pluginmax:navigate", {
+              detail: { route: "task" },
+            }),
+          );
+        }
         return;
       }
       if (link.route === "workflow") {
@@ -361,6 +388,19 @@ window.__ModuleLoader__.load({
         return;
       }
       if (link.route === "meeting") {
+        window.__pluginmaxPendingMeeting = {
+          meetingId: link.refId,
+          workspaceId: link.workspaceId ?? "",
+        };
+        if (typeof window.__pluginmaxShell?.setRoute === "function") {
+          window.__pluginmaxShell.setRoute("meetings");
+        } else {
+          window.dispatchEvent(
+            new CustomEvent("pluginmax:navigate", {
+              detail: { route: "meetings" },
+            }),
+          );
+        }
         window.dispatchEvent(
           new CustomEvent("pluginmax:collab-navigate", {
             detail: {
@@ -370,6 +410,7 @@ window.__ModuleLoader__.load({
             },
           }),
         );
+        return;
       }
     }
 
@@ -462,6 +503,46 @@ window.__ModuleLoader__.load({
       },
     };
 
+    /*
+     * 方案 B：工作台默认只聚合"已加入"的工作区；平台管理员可在页头显式打开
+     * "全量项目"视图。该开关由卡片、项目页与简报长连接共享，请求时以
+     * `scope=all` 透传给服务端（服务端对非管理员会忽略该参数）。
+     * 同时它也是跨模块偏好：跳转到任务、会议、工作流或 Teammate 时沿用选择。
+     */
+    function ensureScopeStore() {
+      if (window.__pluginmaxScope) return window.__pluginmaxScope;
+      let all = false;
+      const listeners = new Set();
+      window.__pluginmaxScope = {
+        getSnapshot: () => all,
+        setAll: (next) => {
+          const value = next === true;
+          if (value === all) return;
+          all = value;
+          for (const listener of listeners) listener();
+        },
+        subscribe: (listener) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+      };
+      return window.__pluginmaxScope;
+    }
+    const sharedScope = ensureScopeStore();
+    const scopeStore = {
+      getSnapshot: sharedScope.getSnapshot,
+      subscribe: sharedScope.subscribe,
+      set: (next) => sharedScope.setAll(next),
+      /** 追加到已有 query 之后；没有开关时返回空串。 */
+      query() {
+        return sharedScope.getSnapshot() ? "&scope=all" : "";
+      },
+      /** 以 `?scope=all` 开头，用于没有其他参数的接口。 */
+      leading() {
+        return sharedScope.getSnapshot() ? "?scope=all" : "";
+      },
+    };
+
     function toggleMeetingPanel() {
       window.__pluginmaxMeeting?.toggle();
     }
@@ -490,12 +571,7 @@ window.__ModuleLoader__.load({
       const refs =
         Array.isArray(item?.coveredBy) && item.coveredBy.length > 0
           ? item.coveredBy
-          : [
-              {
-                type: item?.kind === "workflow" ? "workflow" : "task",
-                id: item?.id,
-              },
-            ];
+          : [{ type: item?.kind ?? "task", id: item?.id }];
       return refs.some((ref) => isFollowed(ref.type, ref.id));
     }
 
@@ -1623,7 +1699,9 @@ window.__ModuleLoader__.load({
           ),
           isFocus
             ? h(FollowButton, {
-                type: item.kind === "workflow" ? "workflow" : "task",
+                // 关注类型直接用条目自身 kind（task / workflow / meeting），
+                // 否则会议条目会被当成 task，星标显示成「由它覆盖」。
+                type: item.kind ?? "task",
                 id: item.id,
                 compact: true,
                 coveredBy: item.coveredBy,
@@ -1661,7 +1739,7 @@ window.__ModuleLoader__.load({
         return h(
           "div",
           { className: "pmwb-empty" },
-          "还没有关注的任务、工作流或项目。",
+          "还没有关注的任务、工作流、会议或项目。",
         );
       }
       return h(
@@ -1702,6 +1780,19 @@ window.__ModuleLoader__.load({
               {
                 className: `pmwb-item-sub${item.summaryText ? "" : " placeholder"}`,
               },
+              item.minutesPending
+                ? h(
+                    "span",
+                    { className: "pmwb-minutes-badge" },
+                    "待确认",
+                  )
+                : item.minutesSource === "confirmed"
+                  ? h(
+                      "span",
+                      { className: "pmwb-minutes-badge confirmed" },
+                      "已确认纪要",
+                    )
+                  : null,
               item.summaryText || "暂无对话记录",
             ),
             h(
@@ -2062,6 +2153,13 @@ window.__ModuleLoader__.load({
       const [layoutName, setLayoutName] = react.useState("");
       const [dragVisual, setDragVisual] = react.useState(null);
       const [preview, setPreview] = react.useState(null);
+      /** 方案 B：平台管理员的"全量项目"开关；其他角色不渲染入口。 */
+      const [currentRole, setCurrentRole] = react.useState(null);
+      const scopeAll = react.useSyncExternalStore(
+        scopeStore.subscribe.bind(scopeStore),
+        scopeStore.getSnapshot.bind(scopeStore),
+        scopeStore.getSnapshot.bind(scopeStore),
+      );
 
       const dragRef = react.useRef(null);
       const resizeRef = react.useRef(null);
@@ -2101,7 +2199,7 @@ window.__ModuleLoader__.load({
         if (!options.silent) setLoading(true);
         try {
           const result = await request(
-            `/api/collab/workbench/summary?tzOffset=${TZ_OFFSET}`,
+            `/api/collab/workbench/summary?tzOffset=${TZ_OFFSET}${scopeStore.query()}`,
           );
           setModules(result.modules ?? {});
           const nextStates = {};
@@ -2128,7 +2226,7 @@ window.__ModuleLoader__.load({
           }));
           try {
             const result = await request(
-              `/api/collab/workbench/module?moduleId=${encodeURIComponent(id)}&tzOffset=${TZ_OFFSET}`,
+              `/api/collab/workbench/module?moduleId=${encodeURIComponent(id)}&tzOffset=${TZ_OFFSET}${scopeStore.query()}`,
             );
             const payload = result.module;
             setModules((prev) => ({ ...prev, [id]: payload }));
@@ -2159,6 +2257,31 @@ window.__ModuleLoader__.load({
       react.useEffect(() => {
         void followStore.ensure();
       }, []);
+
+      react.useEffect(() => {
+        let disposed = false;
+        void request("/api/collab/auth/me")
+          .then((result) => {
+            if (!disposed) setCurrentRole(result?.user?.role ?? null);
+          })
+          .catch(() => undefined);
+        return () => {
+          disposed = true;
+        };
+      }, []);
+
+      /*
+       * 切换"全量项目"范围后重新拉取聚合数据；首次挂载由上面的
+       * loadSummary 负责，这里用 ref 跳过第一轮避免重复请求。
+       */
+      const scopeEffectFirst = react.useRef(true);
+      react.useEffect(() => {
+        if (scopeEffectFirst.current) {
+          scopeEffectFirst.current = false;
+          return;
+        }
+        void loadSummary({ silent: true });
+      }, [scopeAll, loadSummary]);
 
       react.useEffect(() => {
         if (previousFollowCount.current === followCount) return;
@@ -2203,7 +2326,7 @@ window.__ModuleLoader__.load({
           controller = nextController;
           try {
             const response = await fetch(
-              `/api/collab/workbench/brief/stream?tzOffset=${TZ_OFFSET}`,
+              `/api/collab/workbench/brief/stream?tzOffset=${TZ_OFFSET}${scopeStore.query()}`,
               {
                 headers: {
                   authorization: `Bearer ${current}`,
@@ -2257,10 +2380,20 @@ window.__ModuleLoader__.load({
           retry = 0;
           void connect();
         };
+        /* 范围切换后服务端按新 principal 重算，长连接需要重连以保持一致。 */
+        const onScopeChange = () => {
+          controller?.abort();
+          controller = null;
+          window.clearTimeout(retryTimer);
+          retry = 0;
+          void connect();
+        };
+        const unsubscribeScope = scopeStore.subscribe(onScopeChange);
         window.addEventListener("pluginmax:collab-token", onTokenChange);
         void connect();
         return () => {
           disposed = true;
+          unsubscribeScope();
           window.removeEventListener("pluginmax:collab-token", onTokenChange);
           window.clearTimeout(retryTimer);
           window.clearTimeout(flashTimer);
@@ -2316,13 +2449,16 @@ window.__ModuleLoader__.load({
         async (item) => {
           if (item.readState === "unread") {
             try {
-              const result = await request("/api/collab/workbench/brief/read", {
-                method: "POST",
-                body: JSON.stringify({
-                  itemId: item.itemId,
-                  tzOffset: TZ_OFFSET,
-                }),
-              });
+              const result = await request(
+                `/api/collab/workbench/brief/read${scopeStore.leading()}`,
+                {
+                  method: "POST",
+                  body: JSON.stringify({
+                    itemId: item.itemId,
+                    tzOffset: TZ_OFFSET,
+                  }),
+                },
+              );
               setModules((prev) => ({ ...prev, brief: result.module }));
               setStates((prev) => ({
                 ...prev,
@@ -2567,10 +2703,13 @@ window.__ModuleLoader__.load({
         }
         setMetricSaving(true);
         try {
-          const result = await request("/api/collab/workbench/metrics", {
-            method: "PUT",
-            body: JSON.stringify({ selected: metricSelection }),
-          });
+          const result = await request(
+            `/api/collab/workbench/metrics${scopeStore.leading()}`,
+            {
+              method: "PUT",
+              body: JSON.stringify({ selected: metricSelection }),
+            },
+          );
           setModules((prev) => ({ ...prev, metrics: result.module }));
           setStates((prev) => ({ ...prev, metrics: { status: "ready" } }));
           setMetricOpen(false);
@@ -2599,7 +2738,7 @@ window.__ModuleLoader__.load({
         setBriefSettingsSaving(true);
         try {
           const result = await request(
-            `/api/collab/workbench/brief/settings?tzOffset=${TZ_OFFSET}`,
+            `/api/collab/workbench/brief/settings?tzOffset=${TZ_OFFSET}${scopeStore.query()}`,
             {
               method: "PUT",
               body: JSON.stringify({
@@ -3279,6 +3418,38 @@ window.__ModuleLoader__.load({
           h(
             "div",
             { className: "pmwb-head-actions" },
+            currentRole === "admin"
+              ? h(
+                  "div",
+                  {
+                    className: "pmwb-scope-seg",
+                    role: "group",
+                    "aria-label": "项目范围",
+                  },
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: scopeAll ? "" : "active",
+                      "aria-pressed": !scopeAll,
+                      title: "只聚合我已加入的项目（默认视图）",
+                      onClick: () => scopeStore.set(false),
+                    },
+                    "仅看已加入",
+                  ),
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: scopeAll ? "active" : "",
+                      "aria-pressed": scopeAll,
+                      title: "平台管理员全量视图：聚合全部宿主机项目",
+                      onClick: () => scopeStore.set(true),
+                    },
+                    "平台全量",
+                  ),
+                )
+              : null,
             h(
               "button",
               {
@@ -3330,6 +3501,7 @@ window.__ModuleLoader__.load({
     const PROJECT_STYLES = `
 .pmprj{display:grid;gap:12px;color:var(--dsw-alias-label-primary);}
 .pmprj *{box-sizing:border-box;}
+${SCOPE_BUTTON_STYLES}
 .pmprj-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}
 .pmprj-head h1{margin:0;font-size:19px;line-height:1.3;}
 .pmprj-head p{margin:4px 0 0;color:var(--dsw-alias-label-secondary);font-size:12px;}
@@ -3340,6 +3512,7 @@ window.__ModuleLoader__.load({
 .pmprj-name{font-size:14px;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .pmprj-meta{display:flex;gap:6px;flex-wrap:wrap;color:var(--dsw-alias-label-secondary);font-size:11px;}
 .pmprj-pill{border-radius:999px;padding:2px 8px;background:var(--dsw-alias-bg-layer-2);}
+.pmprj-actions{display:flex;align-items:center;gap:7px;}
 .pmprj-empty{padding:34px 16px;border:0.5px dashed var(--dsw-alias-border-l3);border-radius:8px;color:var(--dsw-alias-label-tertiary);font-size:12.5px;text-align:center;}
 `;
 
@@ -3347,6 +3520,13 @@ window.__ModuleLoader__.load({
       const [phase, setPhase] = react.useState("loading");
       const [items, setItems] = react.useState([]);
       const [error, setError] = react.useState("");
+      /** 方案 B：项目页与工作台卡片共用"全量项目"开关。 */
+      const [currentRole, setCurrentRole] = react.useState(null);
+      const scopeAll = react.useSyncExternalStore(
+        scopeStore.subscribe.bind(scopeStore),
+        scopeStore.getSnapshot.bind(scopeStore),
+        scopeStore.getSnapshot.bind(scopeStore),
+      );
       const snapshot = react.useSyncExternalStore(
         followStore.subscribe.bind(followStore),
         followStore.getSnapshot.bind(followStore),
@@ -3354,7 +3534,9 @@ window.__ModuleLoader__.load({
       );
       const load = react.useCallback(async () => {
         try {
-          const result = await request("/api/collab/workbench/projects");
+          const result = await request(
+            `/api/collab/workbench/projects${scopeStore.leading()}`,
+          );
           setItems(Array.isArray(result?.projects) ? result.projects : []);
           setError("");
           setPhase("ready");
@@ -3367,6 +3549,25 @@ window.__ModuleLoader__.load({
         void followStore.ensure();
         void load();
       }, [load]);
+      react.useEffect(() => {
+        let disposed = false;
+        void request("/api/collab/auth/me")
+          .then((result) => {
+            if (!disposed) setCurrentRole(result?.user?.role ?? null);
+          })
+          .catch(() => undefined);
+        return () => {
+          disposed = true;
+        };
+      }, []);
+      const scopeFirst = react.useRef(true);
+      react.useEffect(() => {
+        if (scopeFirst.current) {
+          scopeFirst.current = false;
+          return;
+        }
+        void load();
+      }, [scopeAll, load]);
       const followedCount = items.filter((item) =>
         snapshot.items.has(`project:${item.id}`),
       ).length;
@@ -3390,15 +3591,51 @@ window.__ModuleLoader__.load({
             ),
           ),
           h(
-            "button",
-            {
-              type: "button",
-              className: "pmwb-iconbtn",
-              "aria-label": "刷新项目列表",
-              title: "刷新",
-              onClick: () => void load(),
-            },
-            ICONS.refresh,
+            "div",
+            { className: "pmprj-actions" },
+            currentRole === "admin"
+              ? h(
+                  "div",
+                  {
+                    className: "pmwb-scope-seg",
+                    role: "group",
+                    "aria-label": "项目范围",
+                  },
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: scopeAll ? "" : "active",
+                      "aria-pressed": !scopeAll,
+                      title: "只看我已加入的项目（默认视图）",
+                      onClick: () => scopeStore.set(false),
+                    },
+                    "仅看已加入",
+                  ),
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: scopeAll ? "active" : "",
+                      "aria-pressed": scopeAll,
+                      title: "平台管理员全量视图：显示全部项目",
+                      onClick: () => scopeStore.set(true),
+                    },
+                    "平台全量",
+                  ),
+                )
+              : null,
+            h(
+              "button",
+              {
+                type: "button",
+                className: "pmwb-iconbtn",
+                "aria-label": "刷新项目列表",
+                title: "刷新",
+                onClick: () => void load(),
+              },
+              ICONS.refresh,
+            ),
           ),
         ),
         phase === "loading"
@@ -3462,6 +3699,7 @@ window.__ModuleLoader__.load({
       return h(WorkbenchPage, {});
     }
 
+    exports.__test = { navigateTo };
     exports.inject = ["slots"];
     exports.apply = (ctx) => {
       ctx.slots.inject("pluginmax.global", () =>

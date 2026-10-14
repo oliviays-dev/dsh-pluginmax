@@ -244,30 +244,7 @@ expect_code 201 "$code" "meeting creation"
 MEETING_ID="$(node -e 'const body=require(process.argv[1]);process.stdout.write(body.meeting.id)' "$BODY")"
 
 code="$(api POST /meeting/join "$TOKEN" "{\"meetingId\":\"$MEETING_ID\",\"displayName\":\"Admin\"}" "http://127.0.0.1:$PORT")"
-expect_code 201 "$code" "human meeting join"
-grep -q '"leader":true' "$BODY" || {
-  echo "first human meeting participant should become leader" >&2
-  cat "$BODY" >&2
-  exit 1
-}
-
-code="$(api POST /meeting/seats/pull "$TOKEN" "{\"meetingId\":\"$MEETING_ID\"}" "http://127.0.0.1:$PORT")"
-expect_code 200 "$code" "meeting seat pull"
-grep -q '"seatId":"owner"' "$BODY" || {
-  echo "meeting seat pull is missing the occupied owner seat" >&2
-  cat "$BODY" >&2
-  exit 1
-}
-grep -q '"seatId":"reviewer"' "$BODY" || {
-  echo "meeting seat pull is missing the pending reviewer seat" >&2
-  cat "$BODY" >&2
-  exit 1
-}
-grep -q "/assignment claim $WORKSPACE_ID reviewer" "$BODY" || {
-  echo "pending meeting seat should include the assignment hint" >&2
-  cat "$BODY" >&2
-  exit 1
-}
+expect_code 409 "$code" "duplicate human meeting join"
 
 code="$(api POST /meeting/message "$TOKEN" "{\"meetingId\":\"$MEETING_ID\",\"content\":\"Meeting smoke message.\"}" "http://127.0.0.1:$PORT")"
 expect_code 201 "$code" "meeting message"

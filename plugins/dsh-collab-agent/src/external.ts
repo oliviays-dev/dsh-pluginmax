@@ -287,7 +287,7 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
             stopReason: outputText === "" ? "failed" : "completed",
             ...(sessionId === undefined ? {} : { sessionId }),
             ...(outputText === ""
-              ? { diagnostic: "Agent returned empty output" }
+              ? { diagnostic: "外部 Agent 未返回可用的文本输出" }
               : {}),
           });
           return;

@@ -815,6 +815,7 @@ describe("dsh-collab-task service", () => {
           kind: "agent",
           content: "已接收指令，正在执行…",
           attachments: [],
+          mentions: [],
           runId: "development-run",
           state: "running",
         },
@@ -1106,6 +1107,7 @@ describe("dsh-collab-task service", () => {
                 storedPath: ".pluginmax/task-uploads/TSK-1/需求.md",
               },
             ],
+            mentions: [],
           },
           {
             id: "message-2",
@@ -1115,6 +1117,7 @@ describe("dsh-collab-task service", () => {
             kind: "human",
             content: "历史附件",
             attachments: [{ name: "旧附件.txt" }],
+            mentions: [],
           },
         ],
       },
@@ -1479,6 +1482,7 @@ describe("workflow agent run reconciliation", () => {
           kind: "agent",
           content: "已接收指令，正在执行…",
           attachments: [],
+          mentions: [],
           runId: "development-run",
           state: "running",
         },
@@ -1544,6 +1548,8 @@ interface CapturedRun {
   instanceId: string;
   status: "queued";
   payload: { context: Record<string, string> };
+  /** 真实 harness 在 worker 启动时把会话 id 写回 run；这里模拟成确定值。 */
+  sessionId?: string;
 }
 
 function contextHarness() {
@@ -1574,6 +1580,7 @@ function contextHarness() {
           payload: (
             input as unknown as { payload: { context: Record<string, string> } }
           ).payload,
+          sessionId: `de-task-${(input as unknown as { instanceId: string }).instanceId}-test`,
         };
         runs.set(id, run);
         dispatched.push({
@@ -1599,12 +1606,21 @@ function contextHarness() {
           avatar: "",
         },
       ],
-      ensureRuntime: async (input) => ({
-        teammateId: input.teammateId,
-        employeeId: "digital-1",
-        profileId: "agent-1",
-        personaId: "persona-tm-1",
-      }),
+      // 每个 teammate 实例对应一套独立执行身份：被 @ 的协作方要落到自己的会话。
+      ensureRuntime: async (input) =>
+        input.teammateId === "tm-1"
+          ? {
+              teammateId: input.teammateId,
+              employeeId: "digital-1",
+              profileId: "agent-1",
+              personaId: "persona-tm-1",
+            }
+          : {
+              teammateId: input.teammateId,
+              employeeId: `digital-${input.teammateId.replace(/[^a-zA-Z0-9]/g, "")}`,
+              profileId: `agent-${input.teammateId.replace(/[^a-zA-Z0-9]/g, "")}`,
+              personaId: `persona-${input.teammateId.replace(/[^a-zA-Z0-9]/g, "")}`,
+            },
     }),
   );
   const route = (path: string) => {
@@ -1743,6 +1759,447 @@ describe("task context delivery", () => {
     expect(dispatched[3]?.payload.context.taskSessionEpoch).toBe("1");
     expect(dispatched[3]?.payload.context.firstDelivery).toBe("true");
     expect(dispatched[3]?.payload.context.instruction).toContain("# 任务");
+  });
+});
+
+describe("task continuation re-dispatch", () => {
+  const createAssignedTask = async (
+    harness: ReturnType<typeof contextHarness>,
+  ): Promise<{ id: string }> => {
+    const created = fakeResponse();
+    await harness.route("/api/collab/tasks/create").handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/create",
+        body: {
+          workspaceId: "workspace-1",
+          title: "优化产品设计文档",
+          priority: "P2",
+          receiverType: "agent",
+          receiverId: "tm-1",
+          receiverName: "测小白",
+          description: "把已生成的产品设计文档检查一遍并优化。",
+          acceptance: ["文档结构完整", "补充风险章节"],
+        },
+      }),
+      created.response,
+    );
+    return (created.read().body?.task ?? {}) as { id: string };
+  };
+
+  const settleFirstRound = async (
+    harness: ReturnType<typeof contextHarness>,
+    taskId: string,
+  ): Promise<void> => {
+    // 第一轮跑完：会话里已有 Agent 的结论，任务回到待验收，责任人仍是这个 Agent。
+    await harness.tasks.attachAgentRun(
+      taskId,
+      {
+        id: "run-1",
+        instanceId: taskId,
+        status: "succeeded",
+        output: { summary: "这是 Agent 的上一轮结论" },
+      },
+      "测小白",
+    );
+  };
+
+  const reassignToSameAgent = async (
+    harness: ReturnType<typeof contextHarness>,
+    taskId: string,
+  ) => {
+    const assigned = fakeResponse();
+    await harness.route("/api/collab/tasks/assign").handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/assign",
+        body: {
+          taskId,
+          receiverType: "agent",
+          receiverId: "tm-1",
+          receiverName: "测小白",
+        },
+      }),
+      assigned.response,
+    );
+    return assigned.read();
+  };
+
+  /** 人工 review OK：任务进入「已完成」。 */
+  const approveTask = async (
+    harness: ReturnType<typeof contextHarness>,
+    taskId: string,
+  ): Promise<string | undefined> => {
+    const approved = fakeResponse();
+    await harness.route("/api/collab/tasks/action").handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/action",
+        body: { taskId, action: "approve" },
+      }),
+      approved.response,
+    );
+    const result = approved.read();
+    expect(result.status).toBe(200);
+    return (result.body?.task as { status?: string } | undefined)?.status;
+  };
+
+  it("pushes the edited task body into the same session when reassigned", async () => {
+    const harness = contextHarness();
+    const { dispatched } = harness;
+    const task = await createAssignedTask(harness);
+    await settleFirstRound(harness, task.id);
+    expect(dispatched).toHaveLength(1);
+
+    // 人工 review OK 后追加要求：改的是任务内容，不产生新消息。
+    const edited = fakeResponse();
+    await harness.route("/api/collab/tasks/update").handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/update",
+        body: {
+          taskId: task.id,
+          title: "优化产品设计文档",
+          priority: "P2",
+          description:
+            "把已生成的产品设计文档检查一遍并优化。追加：补一节回滚方案。",
+          acceptance: ["文档结构完整", "补充风险章节", "回滚方案可执行"],
+        },
+      }),
+      edited.response,
+    );
+    expect(edited.read().status).toBe(200);
+
+    const assigned = await reassignToSameAgent(harness, task.id);
+    expect(assigned.status).toBe(200);
+
+    // 改派给同一个 Agent 必须真的唤起它，并把最新定义推进同一条会话。
+    expect(dispatched).toHaveLength(2);
+    expect(dispatched[1]?.payload.context.firstDelivery).toBe("false");
+    expect(dispatched[1]?.payload.context.taskReceiverId).toBe("tm-1");
+    const instruction = dispatched[1]?.payload.context.instruction ?? "";
+    expect(instruction).toContain("# 任务（已更新）");
+    expect(instruction).toContain("补一节回滚方案");
+    expect(instruction).toContain("回滚方案可执行");
+    expect(instruction).not.toContain("这是 Agent 的上一轮结论");
+  });
+
+  it("stays a no-op when the same agent already saw everything", async () => {
+    const harness = contextHarness();
+    const { dispatched } = harness;
+    const task = await createAssignedTask(harness);
+    await settleFirstRound(harness, task.id);
+    expect(dispatched).toHaveLength(1);
+
+    const assigned = await reassignToSameAgent(harness, task.id);
+    expect(assigned.status).toBe(200);
+    // 没有新消息、任务内容也没改：不应该重复唤起 Agent。
+    expect(dispatched).toHaveLength(1);
+  });
+
+  it("reopens a completed task when a new instruction arrives, in the same session", async () => {
+    const harness = contextHarness();
+    const { dispatched } = harness;
+    const task = await createAssignedTask(harness);
+    await settleFirstRound(harness, task.id);
+    expect(await approveTask(harness, task.id)).toBe("done");
+
+    // 通过之后追加要求：发送一条新指令。
+    const followUp = fakeResponse();
+    await harness.route("/api/collab/tasks/message").handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/message",
+        body: { taskId: task.id, content: "再补一节回滚方案，明天前给结论。" },
+      }),
+      followUp.response,
+    );
+    const result = followUp.read();
+    expect(result.status).toBe(200);
+    // 任务被重开并立刻进入新一轮执行。
+    expect((result.body?.task as { status?: string } | undefined)?.status).toBe(
+      "progress",
+    );
+    expect(dispatched).toHaveLength(2);
+    expect(dispatched[1]?.payload.context.firstDelivery).toBe("false");
+    expect(dispatched[1]?.payload.context.taskReceiverId).toBe("tm-1");
+    expect(dispatched[1]?.payload.context.instruction).toContain(
+      "再补一节回滚方案",
+    );
+  });
+
+  it("reopens a completed task on reassignment and re-runs the agent", async () => {
+    const harness = contextHarness();
+    const { dispatched } = harness;
+    const task = await createAssignedTask(harness);
+    await settleFirstRound(harness, task.id);
+    expect(await approveTask(harness, task.id)).toBe("done");
+
+    // 通过之后原样改派给同一个 Agent：也要真的重开一轮。
+    const assigned = await reassignToSameAgent(harness, task.id);
+    expect(assigned.status).toBe(200);
+    expect(
+      (assigned.body?.task as { status?: string } | undefined)?.status,
+    ).toBe("progress");
+    expect(dispatched).toHaveLength(2);
+    expect(dispatched[1]?.payload.context.firstDelivery).toBe("false");
+  });
+
+  it("reopens a completed task on content edit and carries the new criteria", async () => {
+    const harness = contextHarness();
+    const { dispatched } = harness;
+    const task = await createAssignedTask(harness);
+    await settleFirstRound(harness, task.id);
+    expect(await approveTask(harness, task.id)).toBe("done");
+
+    // 追加一条验收标准：任务重开为待处理，但编辑本身不触发执行。
+    const edited = fakeResponse();
+    await harness.route("/api/collab/tasks/update").handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/update",
+        body: {
+          taskId: task.id,
+          title: "优化产品设计文档",
+          priority: "P2",
+          description:
+            "把已生成的产品设计文档检查一遍并优化。追加：补一节回滚方案。",
+          acceptance: ["文档结构完整", "补充风险章节", "回滚方案可执行"],
+        },
+      }),
+      edited.response,
+    );
+    const editedResult = edited.read();
+    expect(editedResult.status).toBe(200);
+    expect(
+      (editedResult.body?.task as { status?: string } | undefined)?.status,
+    ).toBe("todo");
+    expect(dispatched).toHaveLength(1);
+
+    // 改派给同一个 Agent：新一轮带上更新后的定义。
+    const assigned = await reassignToSameAgent(harness, task.id);
+    expect(assigned.status).toBe(200);
+    expect(dispatched).toHaveLength(2);
+    const instruction = dispatched[1]?.payload.context.instruction ?? "";
+    expect(instruction).toContain("# 任务（已更新）");
+    expect(instruction).toContain("回滚方案可执行");
+  });
+});
+
+describe("task cross-agent mention", () => {
+  const createAssignedTask = async (
+    harness: ReturnType<typeof contextHarness>,
+  ): Promise<{ id: string }> => {
+    const created = fakeResponse();
+    await harness.route("/api/collab/tasks/create").handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/create",
+        body: {
+          workspaceId: "workspace-1",
+          title: "优化产品设计文档",
+          priority: "P2",
+          receiverType: "agent",
+          receiverId: "tm-1",
+          receiverName: "测小白",
+          description: "把已生成的产品设计文档检查一遍并优化。",
+          acceptance: ["文档结构完整", "补充风险章节"],
+        },
+      }),
+      created.response,
+    );
+    return (created.read().body?.task ?? {}) as { id: string };
+  };
+
+  const postMessage = async (
+    harness: ReturnType<typeof contextHarness>,
+    body: Record<string, unknown>,
+  ) => {
+    const posted = fakeResponse();
+    await harness.route("/api/collab/tasks/message").handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/message",
+        body,
+      }),
+      posted.response,
+    );
+    return posted.read();
+  };
+
+  it("dispatches to the mentioned agents in their own sessions and skips the assignee", async () => {
+    const harness = contextHarness();
+    const { route, dispatched, tasks } = harness;
+    const task = await createAssignedTask(harness);
+    const beforeStatus = tasks.get(task.id).status;
+    // 只观察这条消息产生的派发。
+    dispatched.length = 0;
+
+    const result = await postMessage(harness, {
+      taskId: task.id,
+      content: "@柯真 01 测试 @陆行01 开发 你们看下这个PRD是否可以进入开发",
+      mentions: [
+        { kind: "agent", id: "tm-qa", name: "柯真 01 测试" },
+        { kind: "agent", id: "tm-dev", name: "陆行01 开发" },
+      ],
+    });
+    expect(result.status).toBe(200);
+    // 内容不是要求任务责任人执行：不要唤起它。
+    expect(result.body?.dispatched).toBe(false);
+
+    // 两个被 @ 的 Agent 各自一轮，各自用自己的执行身份（= 各自的会话）。
+    expect(dispatched).toHaveLength(2);
+    expect(
+      dispatched.map((item) => item.payload.context.taskRunRole),
+    ).toEqual(["assist", "assist"]);
+    expect(
+      dispatched.map((item) => item.payload.context.taskReceiverId),
+    ).toEqual(["tm-qa", "tm-dev"]);
+    expect(dispatched.map((item) => item.payload.context.receiverId)).toEqual([
+      "digital-tmqa",
+      "digital-tmdev",
+    ]);
+
+    // 上下文里带上任务定义、@ 的诉求，并声明它不是任务责任人。
+    const instruction = dispatched[0]?.payload.context.instruction ?? "";
+    expect(instruction).toContain("# 你在任务里被 @ 了");
+    expect(instruction).toContain("# 任务定义");
+    expect(instruction).toContain("把已生成的产品设计文档检查一遍并优化。");
+    expect(instruction).toContain("你们看下这个PRD是否可以进入开发");
+    expect(instruction).toContain("任务责任人不是你");
+
+    // 协作轮次写回任务历史，任务生命周期没有被推进。
+    const updated = tasks.get(task.id);
+    expect(updated.status).toBe(beforeStatus);
+    expect(updated.messages.at(-1)?.authorName).toBe("陆行01 开发");
+    expect(updated.messages.at(-1)?.authorId).toBe("tm-dev");
+    expect(route("/api/collab/tasks/message")).toBeDefined();
+  });
+
+  it("still runs the assignee when the message also mentions it", async () => {
+    const harness = contextHarness();
+    const { dispatched } = harness;
+    const task = await createAssignedTask(harness);
+    dispatched.length = 0;
+
+    const result = await postMessage(harness, {
+      taskId: task.id,
+      content: "@测小白 你先给出结论，@柯真 01 测试 也一起看下",
+      mentions: [
+        { kind: "agent", id: "tm-1", name: "测小白" },
+        { kind: "agent", id: "tm-qa", name: "柯真 01 测试" },
+      ],
+    });
+    expect(result.status).toBe(200);
+    expect(
+      dispatched.map((item) => item.payload.context.taskRunRole),
+    ).toEqual(["assist", "owner"]);
+    expect(dispatched[1]?.payload.context.taskReceiverId).toBe("tm-1");
+    expect(dispatched[1]?.payload.context.triggerMessageId).not.toBe("");
+  });
+
+  it("keeps the task lifecycle untouched when a mentioned agent reports back", async () => {
+    const harness = contextHarness();
+    const { dispatched, tasks } = harness;
+    const task = await createAssignedTask(harness);
+    dispatched.length = 0;
+    await postMessage(harness, {
+      taskId: task.id,
+      content: "@柯真 01 测试 看下这个PRD是否可以进入开发",
+      mentions: [{ kind: "agent", id: "tm-qa", name: "柯真 01 测试" }],
+    });
+    const before = tasks.get(task.id);
+    const assistRunId = before.messages.at(-1)?.runId;
+    expect(assistRunId).toBeDefined();
+
+    // 协作方结算：只写回反馈，不推进状态、不标记验收步骤。
+    await tasks.attachAgentRun(
+      task.id,
+      {
+        id: assistRunId ?? "",
+        instanceId: task.id,
+        status: "succeeded",
+        output: { summary: "评审意见：可以进入开发，注意补回滚方案。" },
+      },
+      "柯真 01 测试",
+      undefined,
+      { role: "assist", authorId: "tm-qa", authorName: "柯真 01 测试" },
+    );
+    const after = tasks.get(task.id);
+    expect(after.status).toBe(before.status);
+    expect(after.progress).toBe(before.progress);
+    expect(after.steps.every((step) => step.done)).toBe(false);
+    expect(after.messages.at(-1)?.content).toBe(
+      "评审意见：可以进入开发，注意补回滚方案。",
+    );
+    expect(after.messages.at(-1)?.authorName).toBe("柯真 01 测试");
+  });
+
+  it("refuses any write that would move a task to another project", async () => {
+    const harness = contextHarness();
+    const task = await createAssignedTask(harness);
+    // put() 是任务唯一的写入口：直接以「换了项目」的任务写回必须被拒绝。
+    const write = (
+      harness.tasks as unknown as {
+        put(task: unknown): Promise<unknown>;
+      }
+    ).put;
+    await expect(
+      write.call(harness.tasks, {
+        ...harness.tasks.get(task.id),
+        workspaceId: "workspace-2",
+      }),
+    ).rejects.toThrow("任务归属项目创建后不可变更");
+    expect(harness.tasks.get(task.id).workspaceId).toBe("workspace-1");
+  });
+
+  it("keeps the owning project even when a request asks to move the task", async () => {
+    const harness = contextHarness();
+    const { route } = harness;
+    const task = await createAssignedTask(harness);
+
+    const moved = fakeResponse();
+    await route("/api/collab/tasks/update").handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/update",
+        body: {
+          taskId: task.id,
+          workspaceId: "workspace-2",
+          title: "试图换项目",
+          priority: "P2",
+          description: "把归属项目改掉试试。",
+          acceptance: ["不能被换项目"],
+        },
+      }),
+      moved.response,
+    );
+    const result = moved.read();
+    expect(result.status).toBe(200);
+    expect(
+      (result.body?.task as { workspaceId?: string } | undefined)?.workspaceId,
+    ).toBe("workspace-1");
+    expect(harness.tasks.get(task.id).workspaceId).toBe("workspace-1");
+    expect(harness.tasks.get(task.id).title).toBe("试图换项目");
+  });
+
+  it("exposes the task's agent session so the UI can jump to it", async () => {
+    const harness = contextHarness();
+    const { route } = harness;
+    const task = await createAssignedTask(harness);
+
+    const found = fakeResponse();
+    await route("/api/collab/tasks/session").handler(
+      fakeRequest({
+        method: "GET",
+        url: `/api/collab/tasks/session?taskId=${task.id}`,
+      }),
+      found.response,
+    );
+    const result = found.read();
+    expect(result.status).toBe(200);
+    // 「打开会话」入口就是靠这个 sessionId：和 harness 实际落盘的那条会话一致。
+    expect(result.body?.sessionId).toBe(`de-task-${task.id}-test`);
   });
 });
 

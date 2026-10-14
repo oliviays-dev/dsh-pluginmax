@@ -9,8 +9,34 @@ window.__ModuleLoader__.load({
 
     const TOKEN_KEY = "pluginmax.collab.token";
 
+    /*
+     * 「仅看已加入 / 平台全量」是跨模块偏好：任务、会议、工作流、Teammate
+     * 与工作台共用同一个 window store，点击跨模块跳转时沿用用户当前选择。
+     * 这里幂等创建，谁先加载谁初始化。
+     */
+    function ensureScopeStore() {
+      if (window.__pluginmaxScope) return window.__pluginmaxScope;
+      let all = false;
+      const listeners = new Set();
+      window.__pluginmaxScope = {
+        getSnapshot: () => all,
+        setAll: (next) => {
+          const value = next === true;
+          if (value === all) return;
+          all = value;
+          for (const listener of listeners) listener();
+        },
+        subscribe: (listener) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+      };
+      return window.__pluginmaxScope;
+    }
+    const scopeStore = ensureScopeStore();
+
     const RefreshIcon = () =>
-      jsxRuntime.jsx(
+      jsxRuntime.jsxs(
         "svg",
         {
           viewBox: "0 0 24 24",
@@ -20,9 +46,11 @@ window.__ModuleLoader__.load({
           strokeLinecap: "round",
           strokeLinejoin: "round",
           "aria-hidden": true,
+          children: [
+            jsxRuntime.jsx("path", { d: "M21 12a9 9 0 1 1-3-6.7" }),
+            jsxRuntime.jsx("path", { d: "M21 3v6h-6" }),
+          ],
         },
-        jsxRuntime.jsx("path", { d: "M21 12a9 9 0 1 1-3-6.7" }),
-        jsxRuntime.jsx("path", { d: "M21 3v6h-6" }),
       );
     const css = `
 .pmwf{container-type:inline-size;color:var(--dsw-alias-label-primary);font-family:inherit}
@@ -61,6 +89,10 @@ window.__ModuleLoader__.load({
 .pmwf-status-clear{justify-self:end;min-height:24px;padding:2px 7px;font-size:11.5px}
 .pmwf-btn{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:6px;min-height:33px;padding:7px 11px;font:inherit;font-size:13px;cursor:pointer;background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground)}
 .pmwf-btn.secondary{background:transparent;border:0.5px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-primary)}
+.pmwf-scope-seg{display:inline-flex;flex:none;align-items:center;gap:2px;padding:2px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));white-space:nowrap}
+.pmwf-scope-seg .pmwf-btn{min-height:26px;flex:none;padding:4px 9px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-secondary);font-size:12px;white-space:nowrap}
+.pmwf-scope-seg .pmwf-btn:not(.active):hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
+.pmwf-scope-seg .pmwf-btn.active{background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 14%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7)}
 .pmwf-btn.small{min-height:27px;padding:4px 8px;font-size:12px}
 .pmwf-iconbtn{width:28px;height:28px;flex:none;display:grid;place-items:center;padding:0;border:1px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-secondary);cursor:pointer}
 .pmwf-iconbtn:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2)}
@@ -323,7 +355,7 @@ window.__ModuleLoader__.load({
       button.disabled = true;
       button.textContent = "启动中";
       try {
-        await request("/api/collab/workflow/instances/start", {
+        const result = await request("/api/collab/workflow/instances/start", {
           method: "POST",
           body: JSON.stringify({
             workspaceId,
@@ -334,9 +366,16 @@ window.__ModuleLoader__.load({
           }),
         });
         form.querySelector(".pmwf-start-title").value = "";
+        const instanceId =
+          typeof result?.instance?.id === "string" ? result.instance.id : "";
         window.dispatchEvent(
           new CustomEvent("pluginmax:workflow-refresh", {
-            detail: { kind: "success", message: "已启动工作流" },
+            detail: {
+              kind: "success",
+              message: "已启动工作流",
+              workspaceId,
+              instanceId,
+            },
           }),
         );
       } catch (cause) {
@@ -518,16 +557,12 @@ window.__ModuleLoader__.load({
       "completed",
       "cancelled",
     ];
-    const defaultWorkflowStatusFilters = workflowStatusFilterValues.filter(
-      (value) => value !== "completed" && value !== "cancelled",
-    );
-
     function statusFilterLabel(selected) {
       if (
         selected.size === 0 ||
         selected.size === workflowStatusFilterValues.length
       ) {
-        return "全部状态";
+        return "全部";
       }
       const names = workflowStatusFilterValues
         .filter((value) => selected.has(value))
@@ -1070,6 +1105,8 @@ window.__ModuleLoader__.load({
     }
 
     function DeliverablePanel(props) {
+      const [rejectingId, setRejectingId] = react.useState("");
+      const [rejectNote, setRejectNote] = react.useState("");
       const { node, state, detail, instance } = props;
       if ((node.deliverables ?? []).length === 0) return null;
       const manager = props.isManager;
@@ -1218,10 +1255,55 @@ window.__ModuleLoader__.load({
                                 type: "button",
                                 className: "pmwf-btn secondary small",
                                 disabled: props.busy !== "",
-                                onClick: () => props.onReject(latest.id),
+                                onClick: () => {
+                                  setRejectingId(latest.id);
+                                  setRejectNote("");
+                                },
                                 children: "退回",
                               })
                             : null,
+                        ],
+                      })
+                    : null,
+                  latest && rejectingId === latest.id
+                    ? jsxRuntime.jsxs("div", {
+                        className: "pmwf-deliverable-form",
+                        children: [
+                          jsxRuntime.jsx("textarea", {
+                            className: "pmwf-area",
+                            rows: 2,
+                            value: rejectNote,
+                            placeholder:
+                              "退回原因（会作为下一轮 Agent 重试反馈）",
+                            "aria-label": "退回原因",
+                            onChange: (event) =>
+                              setRejectNote(event.target.value),
+                          }),
+                          jsxRuntime.jsxs("div", {
+                            className: "pmwf-row",
+                            children: [
+                              jsxRuntime.jsx("button", {
+                                type: "button",
+                                className: "pmwf-btn small",
+                                disabled:
+                                  props.busy !== "" ||
+                                  rejectNote.trim() === "",
+                                onClick: () =>
+                                  props.onReject(latest.id, rejectNote),
+                                children: "确认退回",
+                              }),
+                              jsxRuntime.jsx("button", {
+                                type: "button",
+                                className: "pmwf-btn secondary small",
+                                disabled: props.busy !== "",
+                                onClick: () => {
+                                  setRejectingId("");
+                                  setRejectNote("");
+                                },
+                                children: "取消",
+                              }),
+                            ],
+                          }),
                         ],
                       })
                     : null,
@@ -1955,7 +2037,7 @@ window.__ModuleLoader__.load({
         const timer = window.setTimeout(() => {
           setNotice("");
           setError("");
-        }, 5_000);
+        }, 3_000);
         return () => window.clearTimeout(timer);
       }, [notice, error]);
 
@@ -2713,10 +2795,26 @@ window.__ModuleLoader__.load({
       const [teammates, setTeammates] = react.useState([]);
       const [workspaceId, setWorkspaceId] = react.useState("");
       const [workspaceOptions, setWorkspaceOptions] = react.useState([]);
+      /** 未按页面范围过滤的完整项目清单：供「新建工作流」弹窗选择项目用。 */
+      const [allWorkspaces, setAllWorkspaces] = react.useState([]);
+      /**
+       * 方案 B：项目清单默认只看"已加入"；平台管理员可切全量视图。
+       * 状态来自跨模块共享 store，跳转前后保持同一选择。
+       */
+      const showAllWorkspaces = react.useSyncExternalStore(
+        scopeStore.subscribe,
+        scopeStore.getSnapshot,
+        scopeStore.getSnapshot,
+      );
+      const showAllWorkspacesRef = react.useRef(showAllWorkspaces);
+      react.useEffect(() => {
+        showAllWorkspacesRef.current = showAllWorkspaces;
+      }, [showAllWorkspaces]);
       const [definitions, setDefinitions] = react.useState([]);
       const [instances, setInstances] = react.useState([]);
       const [statusFilters, setStatusFilters] = react.useState(
-        () => new Set(defaultWorkflowStatusFilters),
+        // 默认不过滤状态：与任务管理、会议等页面一致，先看到全部记录再按需筛选。
+        () => new Set(),
       );
       const [statusMenuOpen, setStatusMenuOpen] = react.useState(false);
       const [query, setQuery] = react.useState("");
@@ -2735,6 +2833,8 @@ window.__ModuleLoader__.load({
       const [startWorkspaceId, setStartWorkspaceId] = react.useState("");
       const [startOpen, setStartOpen] = react.useState(false);
       const [startError, setStartError] = react.useState("");
+      /** 新建工作流成功后要定位的目标：切项目筛选、列表中选中并打开右侧详情。 */
+      const [focusRequest, setFocusRequest] = react.useState(null);
       const [templateMode, setTemplateMode] = react.useState(false);
       const [approvalNote, setApprovalNote] = react.useState("");
       const [agentInterventionNotes, setAgentInterventionNotes] =
@@ -2749,6 +2849,16 @@ window.__ModuleLoader__.load({
         setNotice("");
         setError(friendly(cause));
       };
+      /** 状态反馈条 3 秒后自动消失；整页加载失败（phase=error）时保留提示不自动清。 */
+      react.useEffect(() => {
+        if (phase !== "ready") return undefined;
+        if (notice === "" && error === "") return undefined;
+        const timer = window.setTimeout(() => {
+          setNotice("");
+          setError("");
+        }, 3_000);
+        return () => window.clearTimeout(timer);
+      }, [phase, notice, error]);
       const toggleStatusFilter = (value) => {
         setStatusFilters((current) => {
           const next = new Set(current);
@@ -2788,15 +2898,27 @@ window.__ModuleLoader__.load({
         () => new Map(workspaceOptions.map((item) => [item.id, item])),
         [workspaceOptions],
       );
+      /**
+       * 「新建工作流」可选项目：不受页面范围开关影响——管理员可选全部项目，
+       * 成员只能选已加入的项目。否则管理员在"仅看已加入"且未加入项目时，
+       * 弹窗会因为页面列表为空而两个下拉都是空的。
+       */
+      const selectableWorkspaces = react.useMemo(
+        () =>
+          allWorkspaces.filter(
+            (item) => item.isMember || me?.role === "admin",
+          ),
+        [allWorkspaces, me?.role],
+      );
       const teammateById = react.useMemo(
         () => new Map(teammates.map((item) => [item.id, item])),
         [teammates],
       );
       const effectiveWorkspaceId = workspaceId;
       const startWorkspace =
-        workspaceOptions.find((item) => item.id === startWorkspaceId) ??
-        workspaceOptions.find((item) => item.isMember) ??
-        workspaceOptions[0] ??
+        selectableWorkspaces.find((item) => item.id === startWorkspaceId) ??
+        selectableWorkspaces.find((item) => item.isMember) ??
+        selectableWorkspaces[0] ??
         null;
       const loadWorkspaceIds =
         workspaceId === ""
@@ -2816,9 +2938,13 @@ window.__ModuleLoader__.load({
       const canManage = me?.role === "admin" || me?.workspaceRole === "owner";
       const projectName = (instance) => {
         const workspace = workspaceById.get(instance.workspaceId);
-        return workspace === undefined
-          ? instance.workspaceId
-          : workspaceName(workspace);
+        if (workspace !== undefined) return workspaceName(workspace);
+        // 项目不在当前页面范围内时，用服务端随实例下发的项目名兜底，
+        // 避免详情/列表退化成显示工作区 UUID。
+        const fromServer = instance.workspaceTitle;
+        return typeof fromServer === "string" && fromServer !== ""
+          ? fromServer
+          : instance.workspaceId;
       };
       const creatorName = (instance) =>
         directoryMemberNames.get(instance.createdBy) ?? instance.createdBy;
@@ -2837,7 +2963,15 @@ window.__ModuleLoader__.load({
             ]);
             if (disposed) return;
             setMe(meResult.user);
-            const options = workspaceResult.workspaces ?? [];
+            const allOptions = workspaceResult.workspaces ?? [];
+            const options =
+              meResult.user?.role === "admin" &&
+              showAllWorkspacesRef.current === true
+                ? allOptions
+                : allOptions.filter(
+                    (workspace) => workspace.isMember === true,
+                  );
+            setAllWorkspaces(allOptions);
             setWorkspaceOptions(options);
             const initial =
               options.find((item) => item.id === viewRequest?.workspaceId)
@@ -2858,7 +2992,7 @@ window.__ModuleLoader__.load({
         return () => {
           disposed = true;
         };
-      }, [tokenVersion]);
+      }, [tokenVersion, showAllWorkspaces]);
 
       react.useEffect(() => {
         const synchronize = () => setTokenVersion((version) => version + 1);
@@ -2869,7 +3003,19 @@ window.__ModuleLoader__.load({
 
       const load = react.useCallback(
         async (silent = true) => {
-          if (loadWorkspaceIds.length === 0) {
+          // 共享模版是全局数据：即使当前页面范围为 0 个项目，
+          // 也要为「新建工作流」弹窗把模版列表加载出来。
+          const definitionWorkspaceIds = [
+            ...new Set(
+              [...selectableWorkspaces, ...workspaceOptions].map(
+                (workspace) => workspace.id,
+              ),
+            ),
+          ];
+          if (
+            loadWorkspaceIds.length === 0 &&
+            definitionWorkspaceIds.length === 0
+          ) {
             setDefinitions([]);
             setInstances([]);
             setMembers([]);
@@ -2881,9 +3027,9 @@ window.__ModuleLoader__.load({
             const [definitionResults, results, teammateResult] =
               await Promise.all([
                 Promise.all(
-                  workspaceOptions.map((workspace) =>
+                  definitionWorkspaceIds.map((definitionWorkspaceId) =>
                     request(
-                      `/api/collab/workflow/definitions?workspaceId=${encodeURIComponent(workspace.id)}`,
+                      `/api/collab/workflow/definitions?workspaceId=${encodeURIComponent(definitionWorkspaceId)}`,
                     )
                       .then((result) => result.definitions ?? [])
                       .catch(() => []),
@@ -2934,7 +3080,12 @@ window.__ModuleLoader__.load({
             if (!silent) fail(cause);
           }
         },
-        [loadWorkspaceIds.join("|"), workspaceId, workspaceOptions],
+        [
+          loadWorkspaceIds.join("|"),
+          workspaceId,
+          workspaceOptions,
+          selectableWorkspaces,
+        ],
       );
 
       react.useEffect(() => {
@@ -2950,7 +3101,19 @@ window.__ModuleLoader__.load({
             setNotice("");
             setError(detail.message ?? "操作失败");
           } else {
-            if (detail.kind === "success") setStartOpen(false);
+            if (detail.kind === "success") {
+              setStartOpen(false);
+              const focusWorkspaceId =
+                typeof detail.workspaceId === "string" ? detail.workspaceId : "";
+              const focusInstanceId =
+                typeof detail.instanceId === "string" ? detail.instanceId : "";
+              if (focusWorkspaceId !== "" && focusInstanceId !== "") {
+                setFocusRequest({
+                  workspaceId: focusWorkspaceId,
+                  instanceId: focusInstanceId,
+                });
+              }
+            }
             setStartError("");
             setError("");
             setNotice(detail.message ?? "已刷新");
@@ -2977,6 +3140,49 @@ window.__ModuleLoader__.load({
         },
         [effectiveWorkspaceId],
       );
+
+      /**
+       * 新建工作流成功后的定位：切到所属项目筛选 → 列表中选中 → 打开右侧详情。
+       * 若该项目不在当前范围内（例如管理员处于"仅看已加入"），先切到平台全量。
+       */
+      react.useEffect(() => {
+        if (focusRequest === null) return;
+        const target = focusRequest;
+        const inOptions = workspaceOptions.some(
+          (item) => item.id === target.workspaceId,
+        );
+        if (!inOptions) {
+          // 该项目可能不在当前范围内的项目清单里：管理员先切到平台全量，
+          // 然后等异步加载出来的清单包含它再继续；中途不要清掉待定位请求。
+          const canReveal =
+            me?.role === "admin" &&
+            selectableWorkspaces.some(
+              (item) => item.id === target.workspaceId,
+            );
+          if (canReveal && !showAllWorkspaces) {
+            scopeStore.setAll(true);
+            return;
+          }
+          if (canReveal) return;
+          setFocusRequest(null);
+          return;
+        }
+        if (workspaceId !== target.workspaceId) {
+          setWorkspaceId(target.workspaceId);
+          return;
+        }
+        setFocusRequest(null);
+        setOpenId(target.instanceId);
+        void loadDetail(target.instanceId, target.workspaceId);
+      }, [
+        focusRequest,
+        workspaceOptions,
+        workspaceId,
+        me?.role,
+        showAllWorkspaces,
+        selectableWorkspaces,
+        loadDetail,
+      ]);
 
       const loadNestedDetail = react.useCallback(
         async (instanceId, targetWorkspaceId = effectiveWorkspaceId) => {
@@ -3021,7 +3227,10 @@ window.__ModuleLoader__.load({
       ]);
 
       react.useEffect(() => {
-        if (phase !== "ready" || loadWorkspaceIds.length === 0) return;
+        if (phase !== "ready") return;
+        // 页面范围为 0 个项目时也要继续 load：共享模版列表要供「新建工作流」弹窗使用。
+        if (loadWorkspaceIds.length === 0 && selectableWorkspaces.length === 0)
+          return;
         load();
         const timer = setInterval(() => {
           if (document.visibilityState !== "visible") return;
@@ -3029,7 +3238,13 @@ window.__ModuleLoader__.load({
           refreshOpenDetail();
         }, 8000);
         return () => clearInterval(timer);
-      }, [load, refreshOpenDetail, phase, loadWorkspaceIds.join("|")]);
+      }, [
+        load,
+        refreshOpenDetail,
+        phase,
+        loadWorkspaceIds.join("|"),
+        selectableWorkspaces,
+      ]);
 
       react.useEffect(() => {
         setDetail(null);
@@ -3211,18 +3426,15 @@ window.__ModuleLoader__.load({
           setBusy("");
         }
       };
-      const rejectDeliverable = async (submissionId) => {
+      const rejectDeliverable = async (submissionId, note) => {
         if (busy !== "") return;
-        const note = window.prompt(
-          "退回原因（会作为下一轮 Agent 重试反馈）",
-          "",
-        );
-        if (note === null) return;
+        const reason = (note ?? "").trim();
+        if (reason === "") return;
         setBusy(`deliverable-reject:${submissionId}`);
         try {
           await request("/api/collab/workflow/deliverables/reject", {
             method: "POST",
-            body: JSON.stringify({ submissionId, note: note || undefined }),
+            body: JSON.stringify({ submissionId, note: reason }),
           });
           notify("已退回交付物");
           await load();
@@ -3538,6 +3750,39 @@ window.__ModuleLoader__.load({
                   jsxRuntime.jsxs("div", {
                     className: "pmwf-heading-actions",
                     children: [
+                      me?.role === "admin"
+                        ? jsxRuntime.jsxs("div", {
+                            className: "pmwf-scope-seg",
+                            role: "group",
+                            "aria-label": "项目范围",
+                            children: [
+                              jsxRuntime.jsx("button", {
+                                type: "button",
+                                className: `pmwf-btn${
+                                  showAllWorkspaces ? "" : " active"
+                                }`,
+                                "aria-pressed": !showAllWorkspaces,
+                                title: "只看我已加入的项目（默认视图）",
+                                onClick: () => {
+                                  if (showAllWorkspaces) scopeStore.setAll(false);
+                                },
+                                children: "仅看已加入",
+                              }),
+                              jsxRuntime.jsx("button", {
+                                type: "button",
+                                className: `pmwf-btn${
+                                  showAllWorkspaces ? " active" : ""
+                                }`,
+                                "aria-pressed": showAllWorkspaces,
+                                title: "平台管理员全量视图：显示全部项目",
+                                onClick: () => {
+                                  if (!showAllWorkspaces) scopeStore.setAll(true);
+                                },
+                                children: "平台全量",
+                              }),
+                            ],
+                          })
+                        : null,
                       jsxRuntime.jsx("button", {
                         type: "button",
                         className: "pmwf-btn secondary",
@@ -3597,11 +3842,13 @@ window.__ModuleLoader__.load({
                     "aria-label": "按状态过滤",
                     children: [
                       jsxRuntime.jsxs("summary", {
-                        title: statusFilterLabel(statusFilters),
+                        title: `按状态筛选：${statusFilterLabel(statusFilters)}`,
                         children: [
                           jsxRuntime.jsx(
                             "span",
-                            { children: statusFilterLabel(statusFilters) },
+                            {
+                              children: `状态：${statusFilterLabel(statusFilters)}`,
+                            },
                           ),
                           jsxRuntime.jsx(
                             "span",
@@ -3753,12 +4000,19 @@ window.__ModuleLoader__.load({
                                       setStartWorkspaceId(event.target.value);
                                       setStartDefinitionId("");
                                     },
-                                    children: workspaceOptions
-                                      .filter(
-                                        (item) =>
-                                          item.isMember || me?.role === "admin",
-                                      )
-                                      .map((item) =>
+                                    children: [
+                                      selectableWorkspaces.length === 0
+                                        ? jsxRuntime.jsx(
+                                            "option",
+                                            {
+                                              value: "",
+                                              children:
+                                                "暂无可选项目（你还没有加入任何项目）",
+                                            },
+                                            "__empty",
+                                          )
+                                        : null,
+                                      ...selectableWorkspaces.map((item) =>
                                         jsxRuntime.jsx(
                                           "option",
                                           {
@@ -3768,6 +4022,7 @@ window.__ModuleLoader__.load({
                                           item.id,
                                         ),
                                       ),
+                                    ],
                                   }),
                                 ],
                               }),
@@ -4015,7 +4270,38 @@ window.__ModuleLoader__.load({
               filtered.length === 0
                 ? jsxRuntime.jsx("div", {
                     className: "pmwf-empty",
-                    children: "当前项目暂无流程实例。",
+                    children:
+                      instances.length > 0
+                        ? jsxRuntime.jsxs(react.Fragment, {
+                            children: [
+                              jsxRuntime.jsxs("div", {
+                                children: [
+                                  "当前筛选条件隐藏了全部 ",
+                                  jsxRuntime.jsx("strong", {
+                                    children: String(instances.length),
+                                  }),
+                                  " 条流程实例（状态 / 负责人 / 搜索条件）。",
+                                ],
+                              }),
+                              jsxRuntime.jsx("div", {
+                                style: { marginTop: 10 },
+                                children: jsxRuntime.jsx("button", {
+                                  type: "button",
+                                  className: "pmwf-btn secondary small",
+                                  onClick: () => {
+                                    setStatusFilters(new Set());
+                                    setOwnerFilter("all");
+                                    setQuery("");
+                                    setSearchInput("");
+                                  },
+                                  children: "清空筛选，显示全部",
+                                }),
+                              }),
+                            ],
+                          })
+                        : workspaceId === ""
+                          ? "当前范围内暂无可访问的流程实例。"
+                          : "当前项目暂无流程实例。",
                   })
                 : jsxRuntime.jsx("div", {
                     className: "pmwf-list",
@@ -4384,7 +4670,7 @@ window.__ModuleLoader__.load({
                                                               setAgentInterventionNote,
                                                           })
                                                         : null,
-                                                      DeliverablePanel({
+                                                      jsxRuntime.jsx(DeliverablePanel, {
                                                         node,
                                                         state,
                                                         detail,
@@ -5010,6 +5296,16 @@ window.__ModuleLoader__.load({
       const [currentUser, setCurrentUser] = react.useState(null);
       const [workspaces, setWorkspaces] = react.useState([]);
       const [workspaceId, setWorkspaceId] = react.useState("");
+      /** 方案 B：项目清单默认只看"已加入"；平台管理员可切全量视图。 */
+      const showAllWorkspaces = react.useSyncExternalStore(
+        scopeStore.subscribe,
+        scopeStore.getSnapshot,
+        scopeStore.getSnapshot,
+      );
+      const showAllWorkspacesRef = react.useRef(showAllWorkspaces);
+      react.useEffect(() => {
+        showAllWorkspacesRef.current = showAllWorkspaces;
+      }, [showAllWorkspaces]);
       const [definitions, setDefinitions] = react.useState([]);
       const [sourceMd, setSourceMd] = react.useState("");
       const [validation, setValidation] = react.useState(null);
@@ -5058,7 +5354,14 @@ window.__ModuleLoader__.load({
               request("/api/collab/team/workspaces"),
             ]);
             setCurrentUser(meResult.user);
-            const options = workspaceResult.workspaces ?? [];
+            const allOptions = workspaceResult.workspaces ?? [];
+            const options =
+              meResult.user?.role === "admin" &&
+              showAllWorkspacesRef.current === true
+                ? allOptions
+                : allOptions.filter(
+                    (workspace) => workspace.isMember === true,
+                  );
             setWorkspaces(options);
             const selected = options.some((item) => item.id === workspaceId)
               ? workspaceId
@@ -5172,6 +5475,45 @@ window.__ModuleLoader__.load({
           jsxRuntime.jsxs("div", {
             className: "pmwf-row",
             children: [
+              currentUser?.role === "admin"
+                ? jsxRuntime.jsxs("div", {
+                    className: "pmwf-scope-seg",
+                    role: "group",
+                    "aria-label": "项目范围",
+                    children: [
+                      jsxRuntime.jsx("button", {
+                        type: "button",
+                        className: `pmwf-btn${
+                          showAllWorkspaces ? "" : " active"
+                        }`,
+                        "aria-pressed": !showAllWorkspaces,
+                        title: "只看我已加入的项目（默认视图）",
+                        onClick: () => {
+                          if (showAllWorkspaces) {
+                            scopeStore.setAll(false);
+                            void load();
+                          }
+                        },
+                        children: "仅看已加入",
+                      }),
+                      jsxRuntime.jsx("button", {
+                        type: "button",
+                        className: `pmwf-btn${
+                          showAllWorkspaces ? " active" : ""
+                        }`,
+                        "aria-pressed": showAllWorkspaces,
+                        title: "平台管理员全量视图：显示全部项目",
+                        onClick: () => {
+                          if (!showAllWorkspaces) {
+                            scopeStore.setAll(true);
+                            void load();
+                          }
+                        },
+                        children: "平台全量",
+                      }),
+                    ],
+                  })
+                : null,
               jsxRuntime.jsx("span", {
                 className: "pmwf-label",
                 children: "工作区",

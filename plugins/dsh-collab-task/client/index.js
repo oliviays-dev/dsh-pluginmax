@@ -26,6 +26,32 @@ window.__ModuleLoader__.load({
     const PRIORITY_DISPLAY = { P1: "P0", P2: "P1", P3: "P2" };
     const priorityLabel = (value) => PRIORITY_DISPLAY[value] ?? value;
 
+    /*
+     * 「仅看已加入 / 平台全量」是跨模块偏好：任务、会议、工作流、Teammate
+     * 与工作台共用同一个 window store，点击跨模块跳转时沿用用户当前选择。
+     * 这里幂等创建，谁先加载谁初始化。
+     */
+    function ensureScopeStore() {
+      if (window.__pluginmaxScope) return window.__pluginmaxScope;
+      let all = false;
+      const listeners = new Set();
+      window.__pluginmaxScope = {
+        getSnapshot: () => all,
+        setAll: (next) => {
+          const value = next === true;
+          if (value === all) return;
+          all = value;
+          for (const listener of listeners) listener();
+        },
+        subscribe: (listener) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+      };
+      return window.__pluginmaxScope;
+    }
+    const scopeStore = ensureScopeStore();
+
     const styles = `
       /* 页面内边距由 shell 的 .pmx-page 提供，这里不再叠加，保持与工作台一致的内容宽度。 */
       .pmtask{min-height:100%;display:flex;flex-direction:column;color:var(--dsw-alias-label-primary);}
@@ -55,6 +81,10 @@ window.__ModuleLoader__.load({
       .pmtask-search .pmtask-input{flex:1 1 auto;}
       .pmtask-token{height:28px;border:0;border-radius:6px;padding:0 9px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11.5px;cursor:pointer;}
       .pmtask-token.active{background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 14%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7);}
+      /* 项目范围：两段式，高亮段 = 当前实际视图。 */
+      .pmtask-scope-seg{display:inline-flex;align-items:center;gap:2px;padding:2px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
+      .pmtask-scope-seg .pmtask-token{height:24px;padding:0 8px;background:transparent;}
+      .pmtask-scope-seg .pmtask-token:not(.active):hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
       .pmtask-board{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:12px;align-items:stretch;flex:1;min-height:max(420px,calc(100vh - 255px));}
       .pmtask-column{min-width:0;min-height:100%;display:flex;flex-direction:column;border:0.5px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
       .pmtask-column.drop-ready{border-color:var(--dsw-alias-accent-primary,#4f8ef7);box-shadow:0 0 0 1px var(--dsw-alias-accent-primary,#4f8ef7);}
@@ -660,6 +690,16 @@ window.__ModuleLoader__.load({
       });
     }
 
+    /**
+     * 执行身份挂在哪个用户名下。必须写出来：「责任人=我」的口径包含
+     * 「指派给我的分身 / 我所在角色」，不显示归属，任务看起来就像别人的。
+     */
+    function agentOwnerLabel(item) {
+      return item?.ownerName && item.ownerAuthUserId !== undefined
+        ? `（${item.ownerName}）`
+        : "";
+    }
+
     function receiverDisplay(task, directory) {
       if (task.receiverType === "unassigned") return "待指派";
       if (task.receiverType === "role" && task.status === "todo") {
@@ -668,11 +708,14 @@ window.__ModuleLoader__.load({
       const name = task.receiverName ?? task.receiverId ?? "待指派";
       const receiver =
         task.receiverType === "agent"
-          ? directory?.agents.find((item) => item.id === task.receiverId)
+          ? directory?.agents.find(
+              (item) =>
+                item.id === task.receiverId ||
+                (item.employeeId !== undefined &&
+                  item.employeeId === task.receiverId),
+            )
           : undefined;
-      return receiver?.source === "personal" && receiver.ownerName
-        ? `${name}（${receiver.ownerName}）`
-        : name;
+      return `${name}${agentOwnerLabel(receiver)}`;
     }
 
     function receiverKindLabel(type) {
@@ -685,18 +728,22 @@ window.__ModuleLoader__.load({
 
     function receiverOptionLabel(item) {
       const name = item?.name ?? "";
-      return item?.type === "agent" &&
-        item?.source === "personal" &&
-        item?.ownerName
-        ? `${name}（${item.ownerName}）`
+      return item?.type === "agent"
+        ? `${name}${agentOwnerLabel(item)}`
         : name;
     }
 
-    function taskBelongsTo(task, currentUser, directory) {
+    /**
+     * 责任人命中口径。
+     * scope="any"（默认）：指派给我本人、我的分身（DE / AI Teammate 实例），或我所在角色。
+     * scope="self"：只认人类本人，分身和角色都不算。
+     */
+    function taskBelongsTo(task, currentUser, directory, scope = "any") {
       if (currentUser === null) return false;
       if (task.receiverType === "human") {
         return task.receiverId === currentUser.id;
       }
+      if (scope === "self") return false;
       if (task.receiverType === "agent") {
         // 老任务的责任人还是员工身份 id，目录里以 teammate 实例为准，需要按 employeeId 兜底匹配。
         const receiver = directory.agents.find(
@@ -1264,7 +1311,16 @@ window.__ModuleLoader__.load({
                 type: "button",
                 className: "pmtask-mention-item",
                 key: `${group.key}:${item.id}`,
-                onClick: () => onPick(item.name),
+                onClick: () =>
+                  onPick({
+                    ...item,
+                    type:
+                      group.key === "agents"
+                        ? "agent"
+                        : group.key === "roles"
+                          ? "role"
+                          : "human",
+                  }),
               },
               h("span", null),
               h(
@@ -1302,6 +1358,8 @@ window.__ModuleLoader__.load({
 
     function TaskWorkspace() {
       const [workspaces, setWorkspaces] = react.useState([]);
+      // 全部项目（用于标题解析）；workspaces 只放当前范围可见的下拉项。
+      const [allWorkspaces, setAllWorkspaces] = react.useState([]);
       const [workspaceFilter, setWorkspaceFilter] = react.useState("");
       const [tasks, setTasks] = react.useState([]);
       const [directory, setDirectory] = react.useState({
@@ -1325,6 +1383,19 @@ window.__ModuleLoader__.load({
       const [pendingAssignee, setPendingAssignee] = react.useState(null);
       const [loading, setLoading] = react.useState(true);
       const [error, setError] = react.useState("");
+      /**
+       * 方案 B：项目清单默认只看"已加入"；平台管理员可切到全量视图。
+       * 状态来自跨模块共享 store，跳转前后保持同一选择。
+       */
+      const showAllWorkspaces = react.useSyncExternalStore(
+        scopeStore.subscribe,
+        scopeStore.getSnapshot,
+        scopeStore.getSnapshot,
+      );
+      const showAllWorkspacesRef = react.useRef(showAllWorkspaces);
+      react.useEffect(() => {
+        showAllWorkspacesRef.current = showAllWorkspaces;
+      }, [showAllWorkspaces]);
       const dragId = react.useRef("");
       const returnRef = react.useRef(null);
       const suppressOpenUntil = react.useRef(0);
@@ -1336,6 +1407,12 @@ window.__ModuleLoader__.load({
         const message = cause instanceof Error ? cause.message : String(cause);
         setError(message);
       };
+      // 状态反馈条 3 秒后自动消失，避免过期提示常驻。
+      react.useEffect(() => {
+        if (error === "") return undefined;
+        const timer = window.setTimeout(() => setError(""), 3_000);
+        return () => window.clearTimeout(timer);
+      }, [error]);
 
       const load = react.useCallback(
         async (silent = false) => {
@@ -1351,12 +1428,18 @@ window.__ModuleLoader__.load({
               request("/api/collab/team/workspaces"),
             ]);
             const options = workspaceResult.workspaces ?? [];
-            const accessibleOptions = options.filter(
-              (workspace) =>
-                meResult.user?.role === "admin" || workspace.isMember === true,
+            const isAdmin = meResult.user?.role === "admin";
+            const joinedOptions = options.filter(
+              (workspace) => workspace.isMember === true,
             );
+            // 项目下拉：默认只看已加入；平台管理员切到全量后列出全部项目。
+            const accessibleOptions =
+              isAdmin && showAllWorkspacesRef.current === true
+                ? options
+                : joinedOptions;
             setCurrentUser(meResult.user);
             setWorkspaces(accessibleOptions);
+            setAllWorkspaces(options);
             const activeWorkspaceFilter = accessibleOptions.some(
               (workspace) => workspace.id === workspaceFilter,
             )
@@ -1365,13 +1448,19 @@ window.__ModuleLoader__.load({
             if (activeWorkspaceFilter !== workspaceFilter) {
               setWorkspaceFilter(activeWorkspaceFilter);
             }
-            const requested = accessibleOptions.filter(
+            /*
+             * 取数范围与下拉范围分开：平台管理员即使停留在「仅看已加入」，也要
+             * 把自己在未加入项目里的任务取回来，否则「我负责 / 我派出」的任务会
+             * 整页消失；取回后再按 keepInScope 裁剪。普通成员只取已加入项目。
+             */
+            const fetchOptions = isAdmin ? options : joinedOptions;
+            const requested = fetchOptions.filter(
               (workspace) =>
                 activeWorkspaceFilter === "" ||
                 workspace.id === activeWorkspaceFilter,
             );
             const target =
-              requested.length === 0 ? accessibleOptions : requested;
+              requested.length === 0 ? fetchOptions : requested;
             const results = await Promise.all(
               target.map((workspace) =>
                 request(
@@ -1379,7 +1468,6 @@ window.__ModuleLoader__.load({
                 ),
               ),
             );
-            const mergedTasks = results.flatMap((result) => result.tasks ?? []);
             const mergedDirectory = {
               humans: [],
               agents: [],
@@ -1398,6 +1486,22 @@ window.__ModuleLoader__.load({
                 }
               }
             }
+            const joinedIds = new Set(
+              joinedOptions.map((workspace) => workspace.id),
+            );
+            // 默认范围＝已加入项目的全部任务 + 未加入项目里「我负责 / 我派出」的任务。
+            const keepInScope = (task) => {
+              if (isAdmin !== true) return true;
+              if (showAllWorkspacesRef.current === true) return true;
+              if (joinedIds.has(task.workspaceId)) return true;
+              return (
+                taskBelongsTo(task, meResult.user, mergedDirectory) ||
+                task.createdBy === meResult.user.id
+              );
+            };
+            const mergedTasks = results
+              .flatMap((result) => result.tasks ?? [])
+              .filter(keepInScope);
             setTasks(mergedTasks);
             setDirectory(mergedDirectory);
             setError("");
@@ -1407,8 +1511,15 @@ window.__ModuleLoader__.load({
             fail(cause, { global: true });
           }
         },
-        [workspaceFilter],
+        // 共享范围切换后 load 需要重跑，任务列表才会跟随「仅看已加入 / 平台全量」。
+        [workspaceFilter, showAllWorkspaces],
       );
+      /** 方案 B：在"只看已加入"与"全量（管理员）"之间切换项目清单。 */
+      const setShowAllProjects = (next) => {
+        showAllWorkspacesRef.current = next;
+        scopeStore.setAll(next);
+        setWorkspaceFilter("");
+      };
 
       react.useEffect(() => {
         void load();
@@ -1460,13 +1571,25 @@ window.__ModuleLoader__.load({
 
       const visibleTasks = tasks.filter((task) => {
         const belongsToMe = taskBelongsTo(task, currentUser, directory);
+        const assignedToMeOnly = taskBelongsTo(
+          task,
+          currentUser,
+          directory,
+          "self",
+        );
         const sentByMe =
           currentUser !== null && task.createdBy === currentUser.id;
         if (archivedOnly !== isArchived(task)) return false;
         if (ownership === "sent" && !sentByMe) return false;
         if (priority !== "" && task.priority !== priority) return false;
         if (receiver === "me" && !belongsToMe) return false;
-        if (receiver !== "me" && receiver !== "all") {
+        // 「我（本人）」：只看直接指派给我这个人的任务。
+        if (receiver === "me-only" && !assignedToMeOnly) return false;
+        if (
+          receiver !== "me" &&
+          receiver !== "me-only" &&
+          receiver !== "all"
+        ) {
           const separator = receiver.indexOf(":");
           const receiverType = receiver.slice(0, separator);
           const receiverId = receiver.slice(separator + 1);
@@ -1495,7 +1618,7 @@ window.__ModuleLoader__.load({
             task.description,
             task.type,
             task.priority,
-            receiverDisplay(task),
+            receiverDisplay(task, directory),
             statusLabel(task.status),
           ]
             .join(" ")
@@ -1506,6 +1629,17 @@ window.__ModuleLoader__.load({
       });
 
       const selected = byId(tasks, selectedId);
+      /**
+       * 「我（本人）」以外的部分：我的分身 / 我所在角色承接的任务。
+       * Agent 跑完自动提交验收时任务仍挂在我的分身名下，这里必须提示，
+       * 否则切到本人口径后验收入口看起来凭空消失了。
+       */
+      const myAvatarTaskCount = tasks.filter(
+        (task) =>
+          isArchived(task) === archivedOnly &&
+          taskBelongsTo(task, currentUser, directory) &&
+          !taskBelongsTo(task, currentUser, directory, "self"),
+      ).length;
       const closeDetail = () => {
         setSelectedId("");
         setHighlightedId("");
@@ -1598,14 +1732,20 @@ window.__ModuleLoader__.load({
             setCreateStatus(status);
             setCreateOpen(true);
           },
+          currentUser,
+          showAllWorkspaces,
+          setShowAllProjects,
         }),
         selectedId !== "" && selected !== undefined
           ? h(TaskDetail, {
               task: selected,
               workspaceTitle:
-                workspaces.find(
+                (allWorkspaces.find(
                   (workspace) => workspace.id === selected.workspaceId,
-                )?.title ?? selected.workspaceId,
+                ) ??
+                  workspaces.find(
+                    (workspace) => workspace.id === selected.workspaceId,
+                  ))?.title ?? selected.workspaceId,
               directory,
               currentUser,
               pendingAssignee,
@@ -1624,6 +1764,8 @@ window.__ModuleLoader__.load({
           : h(TaskBoard, {
               tasks: visibleTasks,
               currentUser,
+              directory,
+              myAvatarTaskCount,
               archivedOnly,
               archivedCount: tasks.filter((task) => isArchived(task)).length,
               setArchivedOnly,
@@ -1708,6 +1850,9 @@ window.__ModuleLoader__.load({
       setWorkspaceFilter,
       onRefresh,
       onCreate,
+      currentUser,
+      showAllWorkspaces,
+      setShowAllProjects,
     }) {
       const meetingOpen = react.useSyncExternalStore(
         (listener) =>
@@ -1730,6 +1875,42 @@ window.__ModuleLoader__.load({
         h(
           "div",
           { className: "pmtask-head-actions" },
+          currentUser?.role === "admin"
+            ? h(
+                "div",
+                {
+                  className: "pmtask-scope-seg",
+                  role: "group",
+                  "aria-label": "项目范围",
+                },
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    className: `pmtask-token${showAllWorkspaces ? "" : " active"}`,
+                    "aria-pressed": !showAllWorkspaces,
+                    title: "只看我已加入的项目（默认视图）",
+                    onClick: () => {
+                      if (showAllWorkspaces) setShowAllProjects(false);
+                    },
+                  },
+                  "仅看已加入",
+                ),
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    className: `pmtask-token${showAllWorkspaces ? " active" : ""}`,
+                    "aria-pressed": showAllWorkspaces,
+                    title: "平台管理员全量视图：显示全部项目",
+                    onClick: () => {
+                      if (!showAllWorkspaces) setShowAllProjects(true);
+                    },
+                  },
+                  "平台全量",
+                ),
+              )
+            : null,
           h(
             "select",
             {
@@ -1826,6 +2007,8 @@ window.__ModuleLoader__.load({
         setReceiver,
         source,
         setSource,
+        directory,
+        myAvatarTaskCount,
         directoryOptions,
         currentUser,
         onCreate,
@@ -1871,10 +2054,18 @@ window.__ModuleLoader__.load({
       if (currentUser !== null) {
         receiverOptions.push({
           value: "me",
-          label: `我（${currentUser.name}）`,
-          description: "指派给我、我的分身或我所在角色",
+          label: "我 + 我的分身",
+          description: `指派给 ${currentUser.name}、TA 的分身或 TA 所在角色（默认）`,
           triggerPrefix: "责任人：",
-          triggerLabel: `我（${currentUser.name}）`,
+          triggerLabel: "我 + 我的分身",
+          group: "常用",
+        });
+        receiverOptions.push({
+          value: "me-only",
+          label: "我（本人）",
+          description: `只看直接指派给 ${currentUser.name} 本人的任务，不含分身与角色`,
+          triggerPrefix: "责任人：",
+          triggerLabel: "我（本人）",
           group: "常用",
         });
       }
@@ -1965,6 +2156,13 @@ window.__ModuleLoader__.load({
               "搜索",
             ),
           ),
+          receiver === "me-only" && myAvatarTaskCount > 0
+            ? h(
+                "span",
+                { className: "pmtask-compose-hint" },
+                `另有 ${myAvatarTaskCount} 条由我的分身 / 角色承接，切到「我 + 我的分身」查看`,
+              )
+            : null,
           h(
             "button",
             {
@@ -2000,7 +2198,7 @@ window.__ModuleLoader__.load({
               dragId,
               onDragStart,
               highlightedId,
-              directoryOptions,
+              directory,
             }),
           ),
         ),
@@ -2017,7 +2215,7 @@ window.__ModuleLoader__.load({
       dragId,
       onDragStart,
       highlightedId,
-      directoryOptions,
+      directory,
     }) {
       const [dropReady, setDropReady] = react.useState(false);
       return h(
@@ -2161,7 +2359,7 @@ window.__ModuleLoader__.load({
                       h(
                         "span",
                         { className: "pmtask-assignee-name" },
-                        receiverDisplay(task),
+                        receiverDisplay(task, directory),
                       ),
                     ),
                 h("span", null, task.due ? task.due.slice(5) : "不限"),
@@ -2259,6 +2457,8 @@ window.__ModuleLoader__.load({
       const [attachments, setAttachments] = react.useState([]);
       const [mentionOpen, setMentionOpen] = react.useState(false);
       const [mentionQuery, setMentionQuery] = react.useState("");
+      /** 从 @ 菜单里选中的目标（带 id），发送时作为结构化提及提交。 */
+      const [pickedMentions, setPickedMentions] = react.useState([]);
       const [comment, setComment] = react.useState("");
       const [replyDrafts, setReplyDrafts] = react.useState({});
       const [executionLive, setExecutionLive] = react.useState(null);
@@ -2278,7 +2478,16 @@ window.__ModuleLoader__.load({
       const readOnly = archived || task.status === "cancelled";
       const isApprovalTask = task.workflow?.approvalPolicy !== undefined;
       const canClaim = task.receiverType === "role" && task.status === "todo";
-      const insertMention = (name) => {
+      const insertMention = (item) => {
+        const name = item.name;
+        setPickedMentions((current) =>
+          current.some(
+            (candidate) =>
+              candidate.type === item.type && candidate.id === item.id,
+          )
+            ? current
+            : [...current, { id: item.id, name, type: item.type }],
+        );
         const input = messageRef.current;
         const cursor = input?.selectionStart ?? message.length;
         const before = message.slice(0, cursor);
@@ -2341,20 +2550,62 @@ window.__ModuleLoader__.load({
           for (const file of attachments) {
             uploaded.push(await uploadAttachment(file));
           }
+          const sentNotice =
+            task.status === "done"
+              ? "已追加要求并重新开启，指令已发送"
+              : task.receiverType === "agent"
+                ? "执行指令已发送"
+                : `已发送给 ${receiverDisplay(task)}`;
+          // 只提交正文里还留着的 @：用户删掉名字后不该再定向分发。
+          const mentions = pickedMentions
+            .filter((item) => content.includes(`@${item.name}`))
+            .map((item) => ({
+              kind: item.type,
+              id: item.id,
+              name: item.name,
+            }));
           await mutate(
             "/api/collab/tasks/message",
             {
               taskId: task.id,
               content,
               attachments: uploaded,
+              mentions,
             },
-            task.receiverType === "agent"
-              ? "执行指令已发送"
-              : `已发送给 ${receiverDisplay(task)}`,
+            sentNotice,
           );
           setMessage("");
           setAttachments([]);
+          setPickedMentions([]);
           setMentionOpen(false);
+        } catch (cause) {
+          fail(cause);
+        }
+      };
+      /**
+       * 跳到这条任务对应的 Agent 执行会话。会话是懒落盘的：Agent 还没真正
+       * 开始跑时 DSH 侧还没有这条会话，这里明确提示而不是让人以为丢了。
+       */
+      const openAgentSession = async () => {
+        try {
+          const result = await request(
+            `/api/collab/tasks/session?taskId=${encodeURIComponent(task.id)}`,
+          );
+          const sessionId =
+            typeof result?.sessionId === "string" ? result.sessionId : "";
+          if (sessionId === "") {
+            fail(
+              new Error("Agent 还没有真正开始执行，会话尚未创建；稍后重试即可。"),
+            );
+            return;
+          }
+          if (window.__pluginmaxOpenSession?.(sessionId) !== true) {
+            fail(
+              new Error(
+                `没能自动切到会话 ${sessionId}，可在左侧项目下查找它。`,
+              ),
+            );
+          }
         } catch (cause) {
           fail(cause);
         }
@@ -2549,7 +2800,9 @@ window.__ModuleLoader__.load({
             },
             pendingAssignee.type === "unassigned"
               ? "责任人已恢复为待指派"
-              : `已确认指派给 ${pendingAssignee.name}`,
+              : task.status === "done"
+                ? `已重新开启任务并指派给 ${pendingAssignee.name}`
+                : `已确认指派给 ${pendingAssignee.name}`,
           );
           setPendingAssignee(null);
         } catch (cause) {
@@ -2603,12 +2856,6 @@ window.__ModuleLoader__.load({
           : "请在工作流详情提交交付物并完成节点；任务状态会随工作流自动同步。";
       })();
 
-      const myAgent =
-        currentUser === null
-          ? undefined
-          : directory.agents.find(
-              (item) => item.ownerAuthUserId === currentUser.id,
-            );
       const previewTask =
         pendingAssignee === null
           ? task
@@ -2643,7 +2890,9 @@ window.__ModuleLoader__.load({
           ? "任务已取消 · 历史记录保留为只读"
           : task.receiverType === "unassigned"
             ? "暂无责任人 · 任务待指派"
-            : task.receiverType === "agent"
+            : task.status === "done"
+              ? `任务已完成 · 发送指令会追加要求并在同一条会话重开一轮（${receiverDisplay(task)}）`
+              : task.receiverType === "agent"
               ? `发送给 ${receiverDisplay(task)}${task.status === "progress" && taskHasActiveRun(task) ? " · Agent 执行中" : task.status === "progress" ? " · 最近一次 Agent 运行未完成" : ""}`
               : `发送给 ${receiverDisplay(task)}`;
       const history = [
@@ -2812,13 +3061,16 @@ window.__ModuleLoader__.load({
               editing
                 ? h(EditTaskForm, {
                     task,
+                    workspaceTitle,
                     onCancel: () => setEditing(false),
                     onSave: async (input) => {
                       try {
                         await mutate(
                           "/api/collab/tasks/update",
                           { taskId: task.id, ...input },
-                          "任务内容已更新",
+                          task.status === "done"
+                            ? "已追加要求并重新开启任务"
+                            : "任务内容已更新",
                         );
                         setEditing(false);
                       } catch (cause) {
@@ -3152,37 +3404,6 @@ window.__ModuleLoader__.load({
                                 "催办",
                               )
                             : null,
-                          mine &&
-                            task.receiverType === "human" &&
-                            !isSettledStatus(task.status) &&
-                            myAgent !== undefined
-                            ? h(
-                                "button",
-                                {
-                                  className: "pmtask-btn secondary",
-                                  type: "button",
-                                  disabled: readOnly,
-                                  title: lockedTip,
-                                  onClick: async () => {
-                                    try {
-                                      await mutate(
-                                        "/api/collab/tasks/assign",
-                                        {
-                                          taskId: task.id,
-                                          receiverType: "agent",
-                                          receiverId: myAgent.id,
-                                          receiverName: myAgent.name,
-                                        },
-                                        "已派给我的分身",
-                                      );
-                                    } catch (cause) {
-                                      fail(cause);
-                                    }
-                                  },
-                                },
-                                "派我的分身执行",
-                              )
-                            : null,
                           task.receiverType === "agent"
                             ? h(
                                 "button",
@@ -3209,6 +3430,19 @@ window.__ModuleLoader__.load({
                                   onClick: () => void resetSession(),
                                 },
                                 "重置会话",
+                              )
+                            : null,
+                          task.receiverType === "agent"
+                            ? h(
+                                "button",
+                                {
+                                  className: "pmtask-btn secondary",
+                                  type: "button",
+                                  title:
+                                    "打开这条任务对应的 Agent 执行会话（左侧项目下的那条会话）",
+                                  onClick: () => void openAgentSession(),
+                                },
+                                "打开会话",
                               )
                             : null,
                           archived
@@ -3401,6 +3635,7 @@ window.__ModuleLoader__.load({
                             onClick: () => {
                               setMessage("");
                               setAttachments([]);
+                              setPickedMentions([]);
                               setMentionOpen(false);
                             },
                           },
@@ -3433,7 +3668,7 @@ window.__ModuleLoader__.load({
                   h(
                     "span",
                     null,
-                    `${task.messages.length} 条交互记录 · 执行人 ${receiverDisplay(task)}`,
+                    `${task.messages.length} 条交互记录 · 执行人 ${receiverDisplay(task, directory)}`,
                   ),
                 ),
                 h(
@@ -3884,7 +4119,7 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function EditTaskForm({ task, onCancel, onSave }) {
+    function EditTaskForm({ task, workspaceTitle, onCancel, onSave }) {
       const [form, setForm] = react.useState({
         title: task.title,
         priority: task.priority,
@@ -3914,6 +4149,17 @@ window.__ModuleLoader__.load({
             });
           },
         },
+        // 归属项目在这里只读展示：任务创建后不允许变更项目。
+        h(
+          "div",
+          { className: "pmtask-field pmtask-edit-locked" },
+          "归属项目",
+          h(
+            "strong",
+            null,
+            `${workspaceTitle || task.workspaceId}（创建后不可变更）`,
+          ),
+        ),
         h(
           "div",
           { className: "pmtask-edit-title-row" },
@@ -4439,6 +4685,29 @@ window.__ModuleLoader__.load({
 
     exports.inject = ["slots"];
     exports.apply = (ctx) => {
+      /**
+       * 打开任务对应的 Agent 执行会话：走 DSH 的会话控制器切到那条会话，
+       * 再把 shell 切到会话视图。DSH 侧会隐藏「空会话」，所以这里只负责
+       * 打开，查找失败由调用方提示。
+       */
+      window.__pluginmaxOpenSession = (sessionId) => {
+        if (typeof sessionId !== "string" || sessionId === "") return false;
+        const sessions =
+          typeof ctx.get === "function" ? ctx.get("sessions") : undefined;
+        if (
+          sessions === undefined ||
+          typeof sessions.open !== "function"
+        ) {
+          return false;
+        }
+        try {
+          sessions.open(sessionId);
+        } catch {
+          return false;
+        }
+        window.__pluginmaxShell?.setRoute?.("session");
+        return true;
+      };
       ctx.slots.inject("pluginmax.global", () =>
         ctx.slots.register(
           {

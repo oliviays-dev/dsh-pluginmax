@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
@@ -151,6 +152,8 @@ interface EmployeeServiceLike {
 interface TaskAgentServiceLike {
   run?(runId: string):
     | {
+        /** 该轮执行落在哪条 DSH 会话里（会话尚未启动时缺省）。 */
+        readonly sessionId?: string | undefined;
         readonly payload?: {
           readonly context?: Record<string, string | number | boolean>;
         };
@@ -566,6 +569,65 @@ interface TaskContextOptions {
   readonly firstDelivery: boolean;
   readonly deliveredThroughMessageId?: string | undefined;
   readonly triggerContent?: string | undefined;
+  /** 人类在上次投递之后改写过任务内容，需要把最新定义重新带上。 */
+  readonly definitionChanged?: boolean | undefined;
+}
+
+/**
+ * 任务定义（标题/描述/验收标准等）的指纹。
+ * Agent 的会话历史里只有投递过的内容，人类事后改写任务正文不会产生新消息，
+ * 所以要用它判断「同一会话的下一轮」该不该重发最新定义。
+ */
+function taskDefinitionDigest(task: TaskRecord): string {
+  return createHash("sha1")
+    .update(
+      JSON.stringify({
+        title: task.title,
+        type: task.type,
+        priority: task.priority,
+        due: task.due ?? "",
+        description: task.description,
+        acceptance: task.acceptance,
+      }),
+    )
+    .digest("hex")
+    .slice(0, 16);
+}
+
+function appendTaskDefinition(
+  lines: string[],
+  task: TaskRecord,
+  heading: string,
+): void {
+  lines.push(
+    heading,
+    "",
+    `- 编号：${task.id}`,
+    `- 标题：${task.title}`,
+    `- 类型：${task.type}`,
+    `- 优先级：${task.priority}`,
+    `- 项目：${task.workspaceId}`,
+    `- 到期：${task.due ?? "不限"}`,
+  );
+  if (task.description.trim() !== "") {
+    lines.push("", "## 描述", task.description.trim());
+  }
+  if (task.acceptance.length > 0) {
+    lines.push(
+      "",
+      "## 验收标准",
+      ...task.acceptance.map((item, index) => `${String(index + 1)}. ${item}`),
+    );
+  }
+  if (task.links.length > 0) {
+    lines.push(
+      "",
+      "## 关联",
+      ...task.links.map(
+        (link) => `- ${link.type}：${link.label}（${link.id}）`,
+      ),
+    );
+  }
 }
 
 function buildTaskContext(
@@ -574,37 +636,13 @@ function buildTaskContext(
 ): string {
   const lines: string[] = [];
   if (options.firstDelivery) {
+    appendTaskDefinition(lines, task, "# 任务");
+  } else if (options.definitionChanged === true) {
     lines.push(
-      "# 任务",
+      "人类在你上次执行之后改写了任务内容，以下是更新后的任务定义，请以它为准。",
       "",
-      `- 编号：${task.id}`,
-      `- 标题：${task.title}`,
-      `- 类型：${task.type}`,
-      `- 优先级：${task.priority}`,
-      `- 项目：${task.workspaceId}`,
-      `- 到期：${task.due ?? "不限"}`,
     );
-    if (task.description.trim() !== "") {
-      lines.push("", "## 描述", task.description.trim());
-    }
-    if (task.acceptance.length > 0) {
-      lines.push(
-        "",
-        "## 验收标准",
-        ...task.acceptance.map(
-          (item, index) => `${String(index + 1)}. ${item}`,
-        ),
-      );
-    }
-    if (task.links.length > 0) {
-      lines.push(
-        "",
-        "## 关联",
-        ...task.links.map(
-          (link) => `- ${link.type}：${link.label}（${link.id}）`,
-        ),
-      );
-    }
+    appendTaskDefinition(lines, task, "# 任务（已更新）");
   }
   const startIndex =
     options.deliveredThroughMessageId === undefined
@@ -654,6 +692,95 @@ function buildTaskContext(
   return lines.join("\n");
 }
 
+/**
+ * 协作轮次的上下文：被 @ 的 Agent 只需要看「任务定义 + 这次点它的那件事 +
+ * 相关文档」，并且明确它不是任务责任人——推进任务、提交交付物都不归它。
+ */
+function buildAssistContext(
+  task: TaskRecord,
+  options: {
+    readonly role: "assist" | "fyi";
+    readonly ask: string;
+    readonly from: string;
+    readonly documents: readonly string[];
+  },
+): string {
+  const lines: string[] = [];
+  if (options.role === "assist") {
+    lines.push(
+      "# 你在任务里被 @ 了",
+      "",
+      `${options.from} 在任务「${task.title}」里 @ 了你，只有下面这件事需要你的意见；`,
+      "任务责任人不是你，请不要改动任务状态，也不要提交交付物。",
+    );
+  } else {
+    lines.push(
+      "# 协作进展（本轮不需要你执行）",
+      "",
+      `${options.from} 在任务「${task.title}」里发起了一次跨 Agent 协作。`,
+      "以下是刚发生的事，供你掌握进展；这一轮不是要求你执行任务。",
+    );
+  }
+  lines.push("", "## 本次需要你回应");
+  lines.push(
+    options.ask.trim() === ""
+      ? "没有额外说明，请简短确认你已了解，然后等待进一步指令。"
+      : `> ${contextLine(options.ask, 4_000)}`,
+  );
+  lines.push("");
+  appendTaskDefinition(lines, task, "# 任务定义");
+  if (options.documents.length > 0) {
+    lines.push(
+      "",
+      "## 相关文档",
+      "这些文件在任务工作区里，需要时可以按相对路径读取：",
+      ...options.documents.slice(0, 40),
+    );
+  }
+  lines.push(
+    "",
+    "## 边界",
+    "- 只回应「本次需要你回应」的部分；任务定义和其它讨论只是背景。",
+    "- 不要代替任务责任人推进任务，也不要声称完成了未提交的交付物。",
+  );
+  return lines.join("\n");
+}
+
+/** 协作分享用的文档清单：任务执行期产出的文件 + 人工上传的附件。 */
+async function taskDocumentBrief(
+  agent: TaskAgentServiceLike | undefined,
+  workspaces: WorkspaceRegistryLike | undefined,
+  task: TaskRecord,
+): Promise<readonly string[]> {
+  const root = workspaces?.get(task.workspaceId)?.path;
+  const displayName = task.receiverName ?? task.receiverId ?? "Agent";
+  const runs =
+    agent?.runs?.({ workspaceId: task.workspaceId, instanceId: task.id }) ?? [];
+  const produced =
+    root === undefined
+      ? []
+      : await collectDocuments({
+          root,
+          windows: windowsFromRuns(
+            runs.map((run) => ({
+              startedAt: run.startedAt,
+              endedAt: run.endedAt,
+              createdAt: run.createdAt,
+              actor: displayName,
+            })),
+            displayName,
+            Date.now(),
+          ),
+        }).catch(() => []);
+  return mergeDocuments([
+    ...produced,
+    ...attachmentDocuments(task, root !== undefined),
+  ]).map(
+    (document) =>
+      `- ${document.kind === "produced" ? "产出" : "上传"}：${document.name}（${document.relativePath}）${document.available ? "" : " · 当前不可读"}`,
+  );
+}
+
 async function dispatchTaskInstruction(
   agent: TaskAgentServiceLike | undefined,
   employees: EmployeeServiceLike | undefined,
@@ -661,25 +788,40 @@ async function dispatchTaskInstruction(
   teammates: TeammateRuntimeLike | undefined,
   task: TaskRecord,
   actor: TaskActor,
-  trigger?: {
-    readonly messageId?: string | undefined;
-    readonly content: string;
-  },
+  options?: {
+    /** owner=任务责任人本人；assist=被 @ 的协作方；fyi=只通知不执行。 */
+    readonly role?: "owner" | "assist" | "fyi" | undefined;
+    /** 执行者标识（teammate 实例 id 或员工身份 id）。协作轮次传入被 @ 的对象。 */
+    readonly ref?: string | undefined;
+    readonly name?: string | undefined;
+    readonly trigger?: {
+      readonly messageId?: string | undefined;
+      readonly content: string;
+    } | undefined;
+    /** 协作轮次「本次需要你回应」的内容（通常是 @ 那句）。 */
+    readonly ask?: string | undefined;
+  } | undefined,
 ): Promise<TaskAgentRun> {
-  if (task.receiverType !== "agent" || task.receiverId === undefined) {
+  const runRole = options?.role ?? "owner";
+  const targetRef = options?.ref ?? task.receiverId;
+  const trigger = options?.trigger;
+  if (
+    targetRef === undefined ||
+    (runRole === "owner" && task.receiverType !== "agent")
+  ) {
     throw new TaskError("invalid_input", "task receiver is not an agent");
   }
   if (agent === undefined) {
     throw new TaskError("conflict", "Agent 注册表不可用");
   }
   const employeeTarget = employees?.workflowTarget(
-    task.receiverId,
+    targetRef,
     task.workspaceId,
   );
   const ensured =
     teammates !== undefined
       ? await teammates.ensureRuntime({
-          teammateId: task.receiverId,
+          teammateId: targetRef,
           workspaceId: task.workspaceId,
           actor: {
             userId: actor.id,
@@ -703,7 +845,9 @@ async function dispatchTaskInstruction(
   if (employeeTarget !== undefined && employeeProfileId !== undefined) {
     // 会话命名和任务管理使用同一个「责任人」显示名；档案名只是执行身份。
     const employeeName =
-      task.receiverName?.trim() || employeeTarget.employee.displayName;
+      options?.name?.trim() ||
+      task.receiverName?.trim() ||
+      employeeTarget.employee.displayName;
     target = {
       employeeId: employeeTarget.employee.id,
       profileId: employeeProfileId,
@@ -714,27 +858,33 @@ async function dispatchTaskInstruction(
     };
   } else if (ensured !== undefined) {
     // AI Teammate 首次被指派时，按定义自动开通运行时身份。
+    const ensuredName = options?.name ?? task.receiverName ?? ensured.teammateId;
     target = {
       employeeId: ensured.employeeId,
       profileId: ensured.profileId,
-      profileName: task.receiverName ?? ensured.teammateId,
+      profileName: ensuredName,
       maxMinutes: undefined,
       personaId: ensured.personaId,
-      employeeName: task.receiverName ?? ensured.teammateId,
+      employeeName: ensuredName,
     };
   }
   if (target === undefined) {
     throw new TaskError("conflict", "该数字员工缺少可用的 Task Worker Profile");
   }
   const sessionEpoch = task.sessionEpoch ?? 0;
-  const previousRunId = [...task.agentRunIds].reverse().find((runId) => {
-    const run = agent.run?.(runId);
-    return (
-      run?.payload?.context?.taskReceiverId === task.receiverId &&
-      String(run?.payload?.context?.taskSessionEpoch ?? "0") ===
-        String(sessionEpoch)
-    );
-  });
+  // 协作轮次不参与增量投递：被 @ 的 Agent 每次都要看到完整任务与这次的诉求。
+  const previousRunId =
+    runRole === "owner"
+      ? [...task.agentRunIds].reverse().find((runId) => {
+          const run = agent.run?.(runId);
+          return (
+            run?.payload?.context?.taskReceiverId === targetRef &&
+            (run?.payload?.context?.taskRunRole ?? "owner") === "owner" &&
+            String(run?.payload?.context?.taskSessionEpoch ?? "0") ===
+              String(sessionEpoch)
+          );
+        })
+      : undefined;
   const previousContext =
     previousRunId === undefined
       ? undefined
@@ -748,13 +898,29 @@ async function dispatchTaskInstruction(
       ? undefined
       : deliveredThroughMessageId;
   const lastDeliveredMessageId = trigger?.messageId ?? task.messages.at(-1)?.id;
-  const instruction = buildTaskContext(task, {
-    firstDelivery,
-    ...(deliveredThrough === undefined
-      ? {}
-      : { deliveredThroughMessageId: deliveredThrough }),
-    ...(trigger === undefined ? {} : { triggerContent: trigger.content }),
-  });
+  const definitionDigest = taskDefinitionDigest(task);
+  const previousDefinitionDigest = previousContext?.taskDefinitionDigest;
+  // 老 run 没有记录指纹时按「改过」处理：宁可多带一次最新定义，也不要漏投。
+  const definitionChanged =
+    !firstDelivery &&
+    (typeof previousDefinitionDigest !== "string" ||
+      previousDefinitionDigest !== definitionDigest);
+  const instruction =
+    runRole === "owner"
+      ? buildTaskContext(task, {
+          firstDelivery,
+          ...(deliveredThrough === undefined
+            ? {}
+            : { deliveredThroughMessageId: deliveredThrough }),
+          ...(trigger === undefined ? {} : { triggerContent: trigger.content }),
+          ...(definitionChanged ? { definitionChanged: true } : {}),
+        })
+      : buildAssistContext(task, {
+          role: runRole,
+          ask: options?.ask ?? trigger?.content ?? "",
+          from: actor.name,
+          documents: await taskDocumentBrief(agent, workspaces, task),
+        });
   const runSeq = task.agentRunIds.length + 1;
   const timeoutMinutes = target.maxMinutes ?? 30;
   const workspacePath = workspaces?.get(task.workspaceId)?.path;
@@ -785,13 +951,16 @@ async function dispatchTaskInstruction(
         workspaceId: task.workspaceId,
         taskId: task.id,
         receiverId: target.employeeId,
-        taskReceiverId: task.receiverId,
+        taskReceiverId: targetRef,
+        taskReceiverName: target.employeeName,
+        taskRunRole: runRole,
         taskSessionEpoch: String(sessionEpoch),
         employeeName: target.employeeName,
         instruction,
         firstDelivery: firstDelivery ? "true" : "false",
         triggerMessageId: trigger?.messageId ?? "",
         deliveredThroughMessageId: lastDeliveredMessageId ?? "",
+        taskDefinitionDigest: definitionDigest,
         acceptance: task.acceptance.join("\n"),
       },
     },
@@ -934,6 +1103,63 @@ export function resolveOwnerHandoff(
 }
 
 /**
+ * 任务对应的 Agent 执行会话：取最近一轮已经启动执行的 run 落下的 sessionId。
+ * DSH 的会话是懒落盘的（第一次 append/flush 才建目录），所以排队中的轮次还没
+ * 有 sessionId——前端据此提示「尚未开始」，而不是让人以为会话丢了。
+ */
+function taskAgentSessionId(
+  agent: TaskAgentServiceLike | undefined,
+  task: TaskRecord,
+): string | undefined {
+  if (agent?.run === undefined) return undefined;
+  for (const runId of [...task.agentRunIds].reverse()) {
+    const sessionId = agent.run(runId)?.sessionId;
+    if (typeof sessionId === "string" && sessionId !== "") return sessionId;
+  }
+  return undefined;
+}
+
+/**
+ * 「改派给同一个 Agent」是否还有它没看到的内容。
+ * 任务内容被改写，或者人在上一轮投递之后又发了消息，都必须重新唤起它：
+ * 否则改派只会静默变成一次无操作，用户以为推给了 Agent，实际什么都没发生。
+ */
+function hasUndeliveredTaskContext(
+  task: TaskRecord,
+  agent: TaskAgentServiceLike | undefined,
+): boolean {
+  const sessionEpoch = task.sessionEpoch ?? 0;
+  const previous = [...task.agentRunIds]
+    .reverse()
+    .map((runId) => agent?.run?.(runId))
+    .find(
+      (run) =>
+        run !== undefined &&
+        run.payload?.context?.taskReceiverId === task.receiverId &&
+        String(run.payload?.context?.taskSessionEpoch ?? "0") ===
+          String(sessionEpoch),
+    );
+  if (previous === undefined) return true;
+  const context = previous.payload?.context ?? {};
+  const deliveredThrough =
+    typeof context.deliveredThroughMessageId === "string"
+      ? context.deliveredThroughMessageId
+      : "";
+  const deliveredIndex =
+    deliveredThrough === ""
+      ? -1
+      : task.messages.findIndex((message) => message.id === deliveredThrough);
+  // 增量投递只带人类的新内容；系统事件和 Agent 自己的回复不算「没看过」。
+  const hasNewHumanMessage = task.messages
+    .slice(deliveredIndex + 1)
+    .some((message) => message.kind === "human");
+  const digestChanged =
+    typeof context.taskDefinitionDigest !== "string" ||
+    context.taskDefinitionDigest !== taskDefinitionDigest(task);
+  return hasNewHumanMessage || digestChanged;
+}
+
+/**
  * 任务派发链路：开通/复用执行身份、唤起 Agent、创建会话并回写任务。
  *
  * 独立导出是为了让其它模块（例如 AI Teammate 的「创建计划项」）在创建任务后复用
@@ -958,7 +1184,10 @@ export function createTaskDispatcher(
         deps.teammates?.(),
         task,
         currentActor,
-        ...(trigger === undefined ? [] : [trigger]),
+        {
+          role: "owner",
+          ...(trigger === undefined ? {} : { trigger }),
+        },
       );
       return {
         task: await deps.service.attachAgentRun(
@@ -1029,6 +1258,50 @@ export function createTaskRoutes(
       }
     }
     await service.reconcileWorkflowProjections(workspaceId);
+  };
+
+  /**
+   * 把「任务上下文 + 这次的 @ 诉求 + 相关文档」同步给被 @ 的 Agent：
+   * 它会在自己的会话（de-task-<taskId>-<employee>）里回一轮，
+   * 产出写回任务历史供人类与任务责任人查看。
+   */
+  const dispatchMention = async (
+    task: TaskRecord,
+    actor: TaskActor,
+    mention: { readonly id: string; readonly name: string },
+    ask: { readonly messageId: string; readonly content: string },
+  ): Promise<TaskRecord> => {
+    try {
+      const run = await dispatchTaskInstruction(
+        agent?.(),
+        employees,
+        workspaces,
+        teammates?.(),
+        task,
+        actor,
+        {
+          role: "assist",
+          ref: mention.id,
+          name: mention.name,
+          ask: ask.content,
+          trigger: { messageId: ask.messageId, content: ask.content },
+        },
+      );
+      return await service.attachAgentRun(task.id, run, mention.name, undefined, {
+        role: "assist",
+        authorId: mention.id,
+        authorName: mention.name,
+      });
+    } catch (cause) {
+      // 协作方派不出去（实例停用 / 缺运行时）不应让整条消息失败，记一条说明即可。
+      const message =
+        cause instanceof Error ? cause.message : "协作 Agent 不可用";
+      return await service.failAgentDispatch(
+        task.id,
+        actor,
+        `${mention.name}：${message}`,
+      );
+    }
   };
 
   const bootstrap = async (
@@ -1128,6 +1401,26 @@ export function createTaskRoutes(
       kind: "exact",
       path: "/api/collab/tasks",
       handler: bootstrap,
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/tasks/session",
+      handler: async (request, response) => {
+        try {
+          assertSameOrigin(request);
+          const params = taskQuerySchema.parse({
+            taskId: query(request).get("taskId") ?? "",
+          });
+          const task = service.get(params.taskId);
+          requireAccess(request, team, task.workspaceId);
+          sendJson(response, 200, {
+            ok: true,
+            sessionId: taskAgentSessionId(agent?.(), task) ?? "",
+          });
+        } catch (cause) {
+          routeError(response, cause);
+        }
+      },
     },
     {
       kind: "exact",
@@ -1270,11 +1563,14 @@ export function createTaskRoutes(
         const changed =
           before.receiverType !== task.receiverType ||
           before.receiverId !== task.receiverId;
-        if (
-          !changed ||
-          task.receiverType !== "agent" ||
-          task.receiverId === undefined
-        ) {
+        // 已完成任务被指派 = 追加要求并重开一轮，即使人没换也要重新跑。
+        const reopened = before.status === "done" && task.status !== "done";
+        if (task.receiverType !== "agent" || task.receiverId === undefined) {
+          return { task };
+        }
+        // 同一个 Agent 也是合法入口：只要还有它没看到的上下文（新消息/改过的
+        // 任务内容），改派就应该真的唤起它，而不是静默返回。
+        if (!changed && !reopened && !hasUndeliveredTaskContext(task, agent?.())) {
           return { task };
         }
         return dispatchTask(task, currentActor);
@@ -1330,17 +1626,45 @@ export function createTaskRoutes(
       path: "/api/collab/tasks/message",
       handler: mutate(async (_request, currentActor, body) => {
         const saved = await service.addMessage(currentActor, body);
-        if (saved.receiverType !== "agent" || saved.receiverId === undefined) {
-          return { task: saved };
-        }
         const last = saved.messages.at(-1);
+        if (last === undefined) return { task: saved };
+        // 被 @ 的其它 Agent：各自在自己的会话里回一轮，产出写回任务历史。
+        const mentionedAgents = [
+          ...new Map(
+            last.mentions
+              .filter(
+                (mention) =>
+                  mention.kind === "agent" && mention.id !== saved.receiverId,
+              )
+              .map((mention) => [mention.id, mention]),
+          ).values(),
+        ];
+        let task = saved;
+        for (const mention of mentionedAgents) {
+          task = await dispatchMention(task, currentActor, mention, {
+            messageId: last.id,
+            content: last.content,
+          });
+        }
+        if (saved.receiverType !== "agent" || saved.receiverId === undefined) {
+          return { task };
+        }
+        // 一条消息如果 @ 的是别人、且没 @ 任务责任人，就不是在要求责任人执行：
+        // 只把信息同步进它的上下文，不要唤起它跑一轮。
+        const addressedToReceiver =
+          last.mentions.length === 0 ||
+          last.mentions.some(
+            (mention) =>
+              mention.kind === "agent" && mention.id === saved.receiverId,
+          );
+        if (!addressedToReceiver) {
+          return { task, dispatched: false };
+        }
         // 指令输入框发出的消息默认就是给执行人的指令，直接触发，不需要 @。
         return dispatchTask(
-          saved,
+          task,
           currentActor,
-          last === undefined
-            ? undefined
-            : { messageId: last.id, content: last.content },
+          { messageId: last.id, content: last.content },
         );
       }),
     },
@@ -1595,6 +1919,28 @@ export async function apply(ctx: TaskContext): Promise<void> {
     child.collabAgent.bindTask({
       onSettled: async (run) => {
         const task = service.get(run.instanceId);
+        const runRole = run.payload?.context?.taskRunRole;
+        if (runRole === "assist" || runRole === "fyi") {
+          // 被 @ 的协作方 / FYI 轮次只把产出写回任务历史，不推进任务生命周期。
+          const name =
+            (typeof run.payload?.context?.taskReceiverName === "string" &&
+            run.payload.context.taskReceiverName.trim() !== ""
+              ? run.payload.context.taskReceiverName
+              : undefined) ??
+            task.receiverName ??
+            task.receiverId ??
+            "Agent";
+          const authorId =
+            typeof run.payload?.context?.taskReceiverId === "string"
+              ? run.payload.context.taskReceiverId
+              : undefined;
+          await service.attachAgentRun(task.id, run, name, undefined, {
+            role: runRole,
+            authorName: name,
+            ...(authorId === undefined ? {} : { authorId }),
+          });
+          return;
+        }
         await service.attachAgentRun(
           task.id,
           run,

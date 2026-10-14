@@ -87,7 +87,10 @@ export interface WorkReportRunContext {
 }
 
 export interface WorkReportGenerationContext {
-  readonly teammate: Pick<Teammate, "id" | "name" | "role" | "description">;
+  readonly teammate: Pick<
+    Teammate,
+    "id" | "name" | "role" | "description" | "personaId"
+  >;
   readonly reportDate: string;
   readonly tasks: readonly WorkReportTaskContext[];
   readonly runs: readonly WorkReportRunContext[];
@@ -103,9 +106,20 @@ export interface GeneratedWorkReport {
 export interface WorkReportRuntimeDeps {
   readonly subagents: () => SubagentsRuntimeLike | undefined;
   readonly agents: () => AgentsRegistryLike | undefined;
+  /** 人格服务：日报 worker 也需要读到 teammate 自己的 SOUL。 */
+  readonly personas?: () => PersonaServiceLike | undefined;
   readonly defaultModel?: () => AgentDefaultModelLike | undefined;
   readonly provider?: () => string;
   readonly now?: () => Date;
+}
+
+export interface PersonaServiceLike {
+  get(personaId: string): Promise<unknown>;
+}
+
+/** 与 teammate 运行态的 personaId 派生规则保持一致。 */
+function personaIdForTeammate(teammateId: string): string {
+  return `persona-${teammateId.replace(/[^a-zA-Z0-9._-]/g, "-")}`.slice(0, 120);
 }
 
 const REPORT_SECTIONS = [
@@ -323,6 +337,28 @@ export class WorkReportRuntime {
     }
   }
 
+  /**
+   * 解析 teammate 的人设正文：subagent 的 `persona` 参数是人设文本，
+   * 不是 id；日报 worker 也应按该 teammate 的 SOUL 工作。
+   */
+  private async resolvePersonaSoul(personaId: string): Promise<string> {
+    const personas = this.deps.personas?.();
+    if (personas === undefined) return "";
+    try {
+      const persona = await personas.get(personaId);
+      if (
+        persona !== null &&
+        typeof persona === "object" &&
+        typeof (persona as { readonly soul?: unknown }).soul === "string"
+      ) {
+        return (persona as { readonly soul: string }).soul.trim();
+      }
+    } catch {
+      return "";
+    }
+    return "";
+  }
+
   async generate(
     context: WorkReportGenerationContext,
   ): Promise<GeneratedWorkReport> {
@@ -330,6 +366,9 @@ export class WorkReportRuntime {
     if (subagents === undefined) {
       throw new Error("subagent runtime is unavailable");
     }
+    const personaSoul = await this.resolvePersonaSoul(
+      context.teammate.personaId ?? personaIdForTeammate(context.teammate.id),
+    );
     const controller = new AbortController();
     let started: WorkerRunLike | undefined;
     try {
@@ -337,6 +376,7 @@ export class WorkReportRuntime {
         label: `work-report:${context.teammate.name}`,
         prompt: [{ type: "text", text: buildWorkReportPrompt(context) }],
         parent: await this.hostAgent(),
+        ...(personaSoul === "" ? {} : { persona: personaSoul }),
         toolFilter: { allow: [] },
         signal: controller.signal,
       });

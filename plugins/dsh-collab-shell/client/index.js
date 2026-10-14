@@ -11,7 +11,9 @@ window.__ModuleLoader__.load({
       state: {
         // 刷新后的默认落地页：工作台
         route: "workbench",
-        leftOpen: true,
+        // 窄屏（手机）默认收起左侧栏，避免主区被挤到不可用；桌面/平板保持展开。
+        leftOpen:
+          typeof window === "undefined" || window.innerWidth >= 600,
         meetingOpen: false,
         meetingWidth: 380,
         detailsOpen: false,
@@ -155,11 +157,10 @@ window.__ModuleLoader__.load({
         padding-top:12px;border-top:1px solid var(--dsw-alias-border-l3);}
       .pmx-account-wrap{position:relative;flex:1;min-width:0;}
       .pmx-account{display:flex;align-items:center;flex:1;min-width:0;gap:8px;padding:7px;
-        min-height:42px;border:0;border-radius:7px;background:var(--dsw-alias-bg-layer-2);
+        min-height:42px;border:0;border-radius:7px;background:transparent;
         color:var(--dsw-alias-label-primary);
         font:inherit;text-align:left;cursor:pointer;}
-      .pmx-account:hover{
-        background:color-mix(in srgb,var(--dsw-alias-label-primary) 6%,transparent);}
+      .pmx-account:hover{background:transparent;}
       .pmx-avatar{flex:none;width:28px;height:28px;display:grid;place-items:center;border-radius:50%;
         background:var(--dsw-alias-accent-primary,#4f8ef7);color:#fff;font-size:9px;font-weight:800;}
       .pmx-account-main{min-width:0;}
@@ -199,8 +200,10 @@ window.__ModuleLoader__.load({
       .pmx-auth-password{position:relative;}
       .pmx-auth-password input{padding-right:44px;}
       .pmx-auth-password button{position:absolute;right:6px;top:50%;transform:translateY(-50%);
-        height:24px;padding:0 6px;border:0;border-radius:4px;background:transparent;
-        color:var(--dsw-alias-accent-primary,#4f8ef7);font:inherit;font-size:11.5px;cursor:pointer;}
+        display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:4px;
+        background:transparent;color:var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary));cursor:pointer;}
+      .pmx-auth-password button svg{display:block;width:16px;height:16px;}
+      .pmx-auth-password button:hover{color:var(--dsw-alias-label-primary);}
       .pmx-auth-password button:hover{background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 10%,transparent);}
       .pmx-auth-error{color:var(--dsw-alias-state-error-primary,#e5534b);font-size:12px;}
       .pmx-auth-actions{display:flex;justify-content:flex-end;gap:8px;}
@@ -253,6 +256,9 @@ window.__ModuleLoader__.load({
       .pmx-details-content{height:100%;overflow:auto;}
       .pmx-shell[data-left-closed] .pmx-brand,.pmx-shell[data-left-closed] .pmx-nav span,
       .pmx-shell[data-left-closed] .pmx-workspaces,.pmx-shell[data-left-closed] .pmx-account-main{display:none;}
+      /* 未登录：不展示项目/会话列表，主界面由登录引导覆盖。 */
+      .pmx-shell[data-requires-login] .pmx-workspaces{display:none;}
+      .pmx-shell[data-requires-login] .pmx-auth-layer{background:var(--dsw-alias-bg-base);}
       .pmx-shell[data-left-closed] .pmx-nav button{width:42px;height:42px;justify-content:center;
         padding:0;gap:0;}
       .pmx-shell[data-left-closed] .pmx-nav{justify-items:center;margin-top:14px;}
@@ -430,6 +436,7 @@ window.__ModuleLoader__.load({
       { key: "workbench", label: "工作台", icon: icons.people },
       { key: "task", label: "任务管理", icon: icons.task },
       { key: "workflow", label: "工作流", icon: icons.workflow },
+      { key: "meetings", label: "会议", icon: icons.meeting },
       { key: "teammates", label: "AI Teammates", icon: icons.teammate },
     ];
 
@@ -455,6 +462,29 @@ window.__ModuleLoader__.load({
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return response.json();
     }
+
+    /** 密码可见性图标：睁眼 = 显示中，闭眼（带斜线）= 已隐藏。 */
+    const EyeIcon = ({ off }) =>
+      jsxRuntime.jsxs("svg", {
+        viewBox: "0 0 24 24",
+        width: 16,
+        height: 16,
+        fill: "none",
+        stroke: "currentColor",
+        strokeWidth: 1.7,
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        "aria-hidden": "true",
+        children: [
+          jsxRuntime.jsx("path", {
+            d: "M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z",
+          }),
+          jsxRuntime.jsx("circle", { cx: 12, cy: 12, r: 3 }),
+          off
+            ? jsxRuntime.jsx("path", { d: "M4 4l16 16" })
+            : null,
+        ],
+      });
 
     const AccountButton = ({ onOpenAccountManagement, onOpenSettings }) => {
       const [account, setAccount] = react.useState(null);
@@ -725,9 +755,12 @@ window.__ModuleLoader__.load({
                         jsxRuntime.jsx("button", {
                           type: "button",
                           "aria-label": authPasswordVisible ? "隐藏密码" : "显示密码",
+                          title: authPasswordVisible ? "隐藏密码" : "显示密码",
                           onClick: () =>
                             setAuthPasswordVisible((visible) => !visible),
-                          children: authPasswordVisible ? "隐藏" : "显示",
+                          children: jsxRuntime.jsx(EyeIcon, {
+                            off: !authPasswordVisible,
+                          }),
                         }),
                       ],
                     }),
@@ -766,6 +799,117 @@ window.__ModuleLoader__.load({
             }),
           }) : null,
         ],
+      });
+    };
+
+    /**
+     * 未登录时的登录引导：挡住主界面，避免在未登录状态下展示项目/会话/协作数据。
+     */
+    const LoginGate = ({ initialized }) => {
+      const [userId, setUserId] = react.useState("");
+      const [password, setPassword] = react.useState("");
+      const [error, setError] = react.useState("");
+      const [busy, setBusy] = react.useState(false);
+      const [showPassword, setShowPassword] = react.useState(false);
+      const submit = async (event) => {
+        event.preventDefault();
+        if (busy) return;
+        setBusy(true);
+        setError("");
+        try {
+          const response = await fetch("/api/collab/auth/login", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ userId: userId.trim(), password }),
+          });
+          const body = await response.json().catch(() => null);
+          if (!response.ok) {
+            throw new Error(body?.error?.message ?? `HTTP ${response.status}`);
+          }
+          window.localStorage.setItem("pluginmax.collab.token", body.token);
+          window.dispatchEvent(new CustomEvent("pluginmax:collab-token"));
+        } catch (cause) {
+          setError(
+            cause instanceof Error && cause.message === "invalid user or password"
+              ? "用户 ID 或密码不正确。"
+              : cause instanceof Error
+                ? cause.message
+                : String(cause),
+          );
+        } finally {
+          setBusy(false);
+        }
+      };
+      return jsxRuntime.jsx("div", {
+        className: "pmx-auth-layer",
+        children: jsxRuntime.jsxs("form", {
+          className: "pmx-auth-card",
+          onSubmit: submit,
+          children: [
+            jsxRuntime.jsxs("div", {
+              className: "pmx-auth-head",
+              children: [
+                jsxRuntime.jsx("h3", { children: "登录协作账号" }),
+                jsxRuntime.jsx("p", {
+                  children: initialized
+                    ? "登录后即可查看项目、会话与协作数据。"
+                    : "协作身份尚未初始化：请先用管理员账号在「设置 → 账号管理」完成首次创建，然后再登录。",
+                }),
+              ],
+            }),
+            jsxRuntime.jsxs("label", {
+              children: [
+                "用户 ID",
+                jsxRuntime.jsx("input", {
+                  autoFocus: true,
+                  autoComplete: "username",
+                  value: userId,
+                  onChange: (event) => setUserId(event.target.value),
+                }),
+              ],
+            }),
+            jsxRuntime.jsxs("label", {
+              children: [
+                "密码",
+                jsxRuntime.jsxs("span", {
+                  className: "pmx-auth-password",
+                  children: [
+                    jsxRuntime.jsx("input", {
+                      type: showPassword ? "text" : "password",
+                      autoComplete: "current-password",
+                      value: password,
+                      onChange: (event) => setPassword(event.target.value),
+                    }),
+                    jsxRuntime.jsx("button", {
+                      type: "button",
+                      "aria-label": showPassword ? "隐藏密码" : "显示密码",
+                      title: showPassword ? "隐藏密码" : "显示密码",
+                      onClick: () => setShowPassword((visible) => !visible),
+                      children: jsxRuntime.jsx(EyeIcon, { off: !showPassword }),
+                    }),
+                  ],
+                }),
+              ],
+            }),
+            error === ""
+              ? null
+              : jsxRuntime.jsx("div", {
+                  className: "pmx-auth-error",
+                  children: error,
+                }),
+            jsxRuntime.jsxs("div", {
+              className: "pmx-auth-actions",
+              children: [
+                jsxRuntime.jsx("button", {
+                  type: "submit",
+                  className: "primary",
+                  disabled: busy || userId.trim() === "" || password === "",
+                  children: busy ? "登录中…" : "登录",
+                }),
+              ],
+            }),
+          ],
+        }),
       });
     };
 
@@ -852,21 +996,6 @@ window.__ModuleLoader__.load({
                   },
                   item.key,
                 ),
-              ),
-              jsxRuntime.jsxs(
-                "button",
-                {
-                  type: "button",
-                  "aria-label": "会议",
-                  title: "会议",
-                  className: shell.meetingOpen ? "active" : undefined,
-                  onClick: () => window.__pluginmaxMeeting?.toggle(),
-                  children: [
-                    icons.meeting,
-                    jsxRuntime.jsx("span", { children: "会议" }),
-                  ],
-                },
-                "meeting",
               ),
             ],
           }),
@@ -975,6 +1104,9 @@ window.__ModuleLoader__.load({
 
     const Shell = ({ useSessions, renderSlot, SessionProvider }) => {
       const shell = useShellState();
+      // undefined = 状态未知（加载中）；null = 未登录；对象 = 已登录
+      const [account, setAccount] = react.useState(undefined);
+      const [authInitialized, setAuthInitialized] = react.useState(true);
       react.useEffect(() => {
         const root = document.querySelector(".pmx-workspaces");
         if (root === null) return undefined;
@@ -992,6 +1124,36 @@ window.__ModuleLoader__.load({
         const observer = new MutationObserver(renameWorkspaceLabels);
         observer.observe(root, { childList: true, subtree: true, characterData: true });
         return () => observer.disconnect();
+      }, []);
+      react.useEffect(() => {
+        let disposed = false;
+        const load = async () => {
+          try {
+            const status = await requestIdentity("/api/collab/auth/status");
+            if (disposed) return;
+            setAuthInitialized(status.initialized !== false);
+            if (!status.initialized) {
+              setAccount(null);
+              return;
+            }
+            const token = window.localStorage.getItem("pluginmax.collab.token");
+            if (token === null) {
+              setAccount(null);
+              return;
+            }
+            const current = await requestIdentity("/api/collab/auth/me");
+            if (!disposed) setAccount(current.user ?? null);
+          } catch {
+            if (!disposed) setAccount(null);
+          }
+        };
+        void load();
+        const listener = () => void load();
+        window.addEventListener("pluginmax:collab-token", listener);
+        return () => {
+          disposed = true;
+          window.removeEventListener("pluginmax:collab-token", listener);
+        };
       }, []);
       const session = useSessions((state) => {
         const id = state.current;
@@ -1014,6 +1176,9 @@ window.__ModuleLoader__.load({
       return jsxRuntime.jsxs("div", {
         className: "pmx-shell",
         "data-left-closed": shell.leftOpen ? undefined : "true",
+        // 登录态未知或未登录时都先隐藏项目/会话列表，避免鉴权前闪现。
+        "data-requires-login":
+          account === null || account === undefined ? "true" : undefined,
         "data-global-route": activeGlobal === "" ? undefined : "true",
         "data-meeting-open": shell.meetingOpen ? "true" : undefined,
         "data-details-closed": shell.detailsOpen ? undefined : "true",
@@ -1026,6 +1191,9 @@ window.__ModuleLoader__.load({
         },
         children: [
           jsxRuntime.jsx("style", { children: styles }),
+          account === null
+            ? jsxRuntime.jsx(LoginGate, { initialized: authInitialized })
+            : null,
           jsxRuntime.jsx(Sidebar, { renderSlot }),
           jsxRuntime.jsxs("main", {
             className: "pmx-main",

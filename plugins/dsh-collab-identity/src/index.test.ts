@@ -517,3 +517,116 @@ describe("dsh-collab-identity", () => {
     expect(serialized).not.toContain("token-");
   });
 });
+
+describe("账号编辑、停用与启用", () => {
+  it("更新显示名称与全局角色", async () => {
+    const { service: team } = service();
+    const admin = await team.bootstrap({
+      userId: "admin",
+      name: "Admin",
+      password: "password-123",
+    });
+    await team.registerUser(admin.userId, {
+      userId: "member",
+      name: "Member",
+      password: "password-456",
+      role: "member",
+    });
+    const updated = await team.updateUser(admin.userId, "member", {
+      name: "改名",
+      role: "owner",
+    });
+    expect(updated).toMatchObject({
+      id: "member",
+      name: "改名",
+      role: "owner",
+      status: "active",
+    });
+  });
+
+  it("停用后禁止登录并吊销既有会话，启用后恢复", async () => {
+    const { service: team } = service();
+    const admin = await team.bootstrap({
+      userId: "admin",
+      name: "Admin",
+      password: "password-123",
+    });
+    await team.registerUser(admin.userId, {
+      userId: "member",
+      name: "Member",
+      password: "password-456",
+      role: "member",
+    });
+    const login = await team.login({
+      userId: "member",
+      password: "password-456",
+    });
+    expect(team.resolveToken(login.token)?.userId).toBe("member");
+
+    const disabled = await team.updateUser(admin.userId, "member", {
+      status: "disabled",
+    });
+    expect(disabled.status).toBe("disabled");
+    expect(team.resolveToken(login.token)).toBeUndefined();
+    await expect(
+      team.login({ userId: "member", password: "password-456" }),
+    ).rejects.toMatchObject({
+      code: "forbidden",
+      message: "account is disabled",
+    });
+
+    await team.updateUser(admin.userId, "member", { status: "active" });
+    await expect(
+      team.login({ userId: "member", password: "password-456" }),
+    ).resolves.toMatchObject({ userId: "member" });
+  });
+
+  it("禁止停用当前登录的管理员自身", async () => {
+    const { service: team } = service();
+    await team.bootstrap({
+      userId: "admin",
+      name: "Admin",
+      password: "password-123",
+    });
+    await expect(
+      team.updateUser("admin", "admin", { status: "disabled" }),
+    ).rejects.toMatchObject({
+      code: "conflict",
+      message: "you cannot disable your own account",
+    });
+  });
+
+  it("最后一个管理员不能被降级或停用", async () => {
+    const { service: team } = service();
+    await team.bootstrap({
+      userId: "admin",
+      name: "Admin",
+      password: "password-123",
+    });
+    await expect(
+      team.updateUser("admin", "admin", { role: "member" }),
+    ).rejects.toMatchObject({ code: "conflict" });
+    await expect(
+      team.updateUser("admin", "admin", { status: "disabled" }),
+    ).rejects.toMatchObject({ code: "conflict" });
+  });
+
+  it("存在其他管理员时可以停用另一名管理员", async () => {
+    const { service: team } = service();
+    const first = await team.bootstrap({
+      userId: "admin",
+      name: "Admin",
+      password: "password-123",
+    });
+    await team.registerUser(first.userId, {
+      userId: "admin2",
+      name: "Admin 2",
+      password: "password-456",
+      role: "admin",
+    });
+    const disabled = await team.updateUser(first.userId, "admin2", {
+      status: "disabled",
+    });
+    expect(disabled.status).toBe("disabled");
+  });
+});

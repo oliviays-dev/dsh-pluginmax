@@ -119,6 +119,7 @@ function setup() {
     status: string;
     createdBy: string;
     legacyAgentProfileId?: string | undefined;
+    allowedTools?: readonly string[] | undefined;
   }> = [];
   const agentProfiles: Array<{
     id: string;
@@ -127,6 +128,7 @@ function setup() {
     visibility?: "workspace" | "platform";
     execution?: "builtin" | "external";
     externalRuntimeId?: string;
+    allowedTools: readonly string[];
   }> = [];
   const agentRuns: Array<{
     id: string;
@@ -145,6 +147,13 @@ function setup() {
       create: async (input) => {
         personas.set(input.id, input);
         return input;
+      },
+      updateSoul: async (personaId: string, soul: string) => {
+        const existing = personas.get(personaId);
+        if (existing === undefined) throw new Error("persona not found");
+        const next = { ...(existing as Record<string, unknown>), soul };
+        personas.set(personaId, next);
+        return next;
       },
     }),
     employees: () => ({
@@ -219,6 +228,9 @@ function setup() {
           workspaceId: input.workspaceId,
           name: input.name,
           status: input.status ?? "active",
+          ...(input.allowedTools === undefined
+            ? {}
+            : { allowedTools: [...input.allowedTools] }),
           ...(input.legacyAgentProfileId === undefined
             ? {}
             : { legacyAgentProfileId: input.legacyAgentProfileId }),
@@ -258,7 +270,7 @@ function setup() {
             name: `Agent ${item.id}`,
             runtimeKind: "task-worker",
             status: item.status,
-            allowedTools: [],
+            allowedTools: item.allowedTools,
           }));
       },
       createProfile: async (_actor, input) => {
@@ -274,6 +286,7 @@ function setup() {
           ...(input.externalRuntimeId === undefined
             ? {}
             : { externalRuntimeId: input.externalRuntimeId }),
+          allowedTools: [...(input.allowedTools ?? [])],
           visibility: input.visibility ?? "workspace",
         };
         agentProfiles.push(record);
@@ -288,6 +301,8 @@ function setup() {
         if (input.externalRuntimeId === null) delete profile.externalRuntimeId;
         else if (input.externalRuntimeId !== undefined)
           profile.externalRuntimeId = input.externalRuntimeId;
+        if (input.allowedTools !== undefined)
+          profile.allowedTools = [...input.allowedTools];
         if (input.status !== undefined) profile.status = input.status;
         return { id: profile.id, status: profile.status };
       },
@@ -324,16 +339,16 @@ async function activeTeammate(
 ): Promise<Teammate> {
   const actor = source === "platform" ? admin : olivia;
   const draft = await teammates.create(actor, { source, name: "测小白" });
-  await teammates.update(actor, {
+  const updated = await teammates.update(actor, {
     teammateId: draft.id,
     name: "测小白",
     role: "测试",
     soul: "只做验证。",
   });
-  return teammates.changeState(actor, {
-    teammateId: draft.id,
-    state: "active",
-  });
+  // 新建实例默认生效，只有旧数据/显式改过状态时才需要补一次切换。
+  return updated.state === "active"
+    ? updated
+    : teammates.changeState(actor, { teammateId: draft.id, state: "active" });
 }
 
 describe("teammate runtime provisioning", () => {
@@ -342,6 +357,11 @@ describe("teammate runtime provisioning", () => {
     const platform = await activeTeammate(teammates, "platform");
     const personal = await activeTeammate(teammates, "personal");
     const draft = await teammates.create(admin, { source: "platform" });
+    // 未生效的实例不可被派发：显式失效一个来覆盖这条。
+    await teammates.changeState(admin, {
+      teammateId: draft.id,
+      state: "inactive",
+    });
     expect(runtime.assignable(admin).map((item) => item.id)).toEqual([
       platform.id,
     ]);
@@ -372,10 +392,6 @@ describe("teammate runtime provisioning", () => {
       { userId: "peter", name: "Peter", role: "member" },
       { teammateId: otherPersonal.id, name: "Peter 分身" },
     );
-    await teammates.changeState(
-      { userId: "peter", name: "Peter", role: "member" },
-      { teammateId: otherPersonal.id, state: "active" },
-    );
     expect(
       runtime.assignable(olivia).some((item) => item.id === otherPersonal.id),
     ).toBe(false);
@@ -384,6 +400,11 @@ describe("teammate runtime provisioning", () => {
   it("refuses to dispatch a teammate that is not active", async () => {
     const { teammates, runtime } = setup();
     const draft = await teammates.create(admin, { source: "platform" });
+    // 新建默认生效，这里显式失效来覆盖「未生效不能派发」。
+    await teammates.changeState(admin, {
+      teammateId: draft.id,
+      state: "inactive",
+    });
     await expect(
       runtime.ensureRuntime({
         teammateId: draft.id,
@@ -402,10 +423,6 @@ describe("teammate runtime provisioning", () => {
     });
     const instance = await teammates.create(olivia, {
       templateId: template.id,
-    });
-    await teammates.changeState(olivia, {
-      teammateId: instance.id,
-      state: "active",
     });
     await templates.changeState(admin, {
       templateId: template.id,
@@ -468,6 +485,81 @@ describe("teammate runtime provisioning", () => {
     expect(agentProfiles).toHaveLength(1);
     expect(employees.size).toBe(1);
     expect(runtimes).toHaveLength(1);
+  });
+
+  it("folds scenarios/goals into the persona SOUL and maps tools to allowedTools", async () => {
+    const { teammates, templates, runtime, personas, runtimes, agentProfiles } =
+      setup();
+    const template = await templates.create(admin, {
+      source: "platform",
+      name: "小红 QA",
+      role: "测试工程师",
+      soul: "你是 QA。",
+      scenarios: ["补充第一个工作场景", "回归确认修复"],
+      goals: ["补充第一个明确目标"],
+      tools: ["read", "write"],
+    });
+    const instance = await teammates.create(admin, {
+      templateId: template.id,
+    });
+    const ensured = await runtime.ensureRuntime({
+      teammateId: instance.id,
+      workspaceId: "workspace-1",
+      actor: admin,
+    });
+
+    const persona = personas.get(ensured.personaId ?? "") as {
+      readonly soul: string;
+    };
+    expect(persona.soul).toContain("你是 QA。");
+    expect(persona.soul).toContain(
+      "## 工作场景\n- 补充第一个工作场景\n- 回归确认修复",
+    );
+    expect(persona.soul).toContain("## 工作目标\n- 补充第一个明确目标");
+
+    // 工具：agent profile 用裸工具名，数字员工 runtime profile 用 tool: 前缀。
+    expect(agentProfiles[0]?.allowedTools).toEqual(["read", "write"]);
+    expect(runtimes[0]?.allowedTools).toEqual(["tool:read", "tool:write"]);
+  });
+
+  it("re-syncs persona and tools when the template changes", async () => {
+    const { teammates, templates, runtime, personas, runtimes, agentProfiles } =
+      setup();
+    const template = await templates.create(admin, {
+      source: "platform",
+      name: "小红 QA",
+      role: "测试工程师",
+      soul: "你是 QA。",
+      tools: ["read"],
+    });
+    const instance = await teammates.create(admin, {
+      templateId: template.id,
+    });
+    await runtime.ensureRuntime({
+      teammateId: instance.id,
+      workspaceId: "workspace-1",
+      actor: admin,
+    });
+    expect(agentProfiles[0]?.allowedTools).toEqual(["read"]);
+
+    await templates.update(admin, {
+      templateId: template.id,
+      name: "小红 QA",
+      tools: ["bash"],
+      scenarios: ["按新场景执行"],
+    });
+    const again = await runtime.ensureRuntime({
+      teammateId: instance.id,
+      workspaceId: "workspace-1",
+      actor: admin,
+    });
+
+    const persona = personas.get(again.personaId ?? "") as {
+      readonly soul: string;
+    };
+    expect(persona.soul).toContain("## 工作场景\n- 按新场景执行");
+    expect(agentProfiles[0]?.allowedTools).toEqual(["bash"]);
+    expect(runtimes[0]?.allowedTools).toEqual(["tool:bash"]);
   });
 
   it("uses the owner as manager for personal avatars", async () => {

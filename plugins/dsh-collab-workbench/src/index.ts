@@ -158,6 +158,20 @@ function principalFor(
   };
 }
 
+/**
+ * 方案 B：工作台默认只看"已加入"的工作区；`scope=all` 请求全量聚合，
+ * 该参数只对平台管理员生效，其他角色传了也会被忽略。
+ */
+function scopedPrincipal(
+  request: IncomingMessage,
+  team: TeamServiceLike,
+): WorkbenchPrincipal {
+  const principal = principalFor(request, team);
+  if (query(request).get("scope") !== "all") return principal;
+  if (principal.role !== "admin") return principal;
+  return { ...principal, scopeAll: true };
+}
+
 function routeError(response: ServerResponse, cause: unknown): void {
   if (cause instanceof WorkbenchError) {
     const status =
@@ -211,7 +225,7 @@ function createWorkbenchRoutes(
       handler: async (request, response) => {
         try {
           assertSameOrigin(request);
-          const principal = principalFor(request, requireTeam());
+          const principal = scopedPrincipal(request, requireTeam());
           const tzOffset = tzOffsetFromRaw(query(request).get("tzOffset"));
           const summary = await service.summary(principal, {
             tzOffsetMinutes: tzOffset,
@@ -228,7 +242,7 @@ function createWorkbenchRoutes(
       handler: async (request, response) => {
         try {
           assertSameOrigin(request);
-          const principal = principalFor(request, requireTeam());
+          const principal = scopedPrincipal(request, requireTeam());
           const params = query(request);
           const moduleId = moduleIdFrom(params.get("moduleId"));
           const tzOffset = tzOffsetFromRaw(params.get("tzOffset"));
@@ -247,7 +261,7 @@ function createWorkbenchRoutes(
       handler: async (request, response) => {
         try {
           assertSameOrigin(request);
-          const principal = principalFor(request, requireTeam());
+          const principal = scopedPrincipal(request, requireTeam());
           const parsed = readInputSchema.safeParse(await readJsonBody(request));
           if (!parsed.success) {
             throw new WorkbenchError("invalid_input", "请求内容不合法");
@@ -272,7 +286,7 @@ function createWorkbenchRoutes(
       handler: (request, response) => {
         try {
           assertSameOrigin(request);
-          const principal = principalFor(request, requireTeam());
+          const principal = scopedPrincipal(request, requireTeam());
           const tzOffset = tzOffsetFromRaw(query(request).get("tzOffset"));
           response.writeHead(200, {
             "cache-control": "no-store",
@@ -349,7 +363,7 @@ function createWorkbenchRoutes(
       handler: (request, response) => {
         try {
           assertSameOrigin(request);
-          const principal = principalFor(request, requireTeam());
+          const principal = scopedPrincipal(request, requireTeam());
           sendJson(response, 200, {
             ok: true,
             projects: service.projects(principal),
@@ -365,7 +379,7 @@ function createWorkbenchRoutes(
       handler: async (request, response) => {
         try {
           assertSameOrigin(request);
-          const principal = principalFor(request, requireTeam());
+          const principal = scopedPrincipal(request, requireTeam());
           const parsed = metricsInputSchema.safeParse(
             await readJsonBody(request),
           );
@@ -389,7 +403,7 @@ function createWorkbenchRoutes(
       handler: async (request, response) => {
         try {
           assertSameOrigin(request);
-          const principal = principalFor(request, requireTeam());
+          const principal = scopedPrincipal(request, requireTeam());
           const parsed = briefSettingsInputSchema.safeParse(
             await readJsonBody(request),
           );
@@ -430,6 +444,7 @@ export async function apply(ctx: WorkbenchContext): Promise<void> {
       tasks: () => lookup(ctx, "collabTasks") as never,
       workflows: () => lookup(ctx, "collabWorkflow") as never,
       meetings: () => lookup(ctx, "collabMeeting") as never,
+      meetingMinutes: () => lookup(ctx, "collabMeetingMinutes") as never,
       agents: () => lookup(ctx, "collabAgent") as never,
       employees: () => lookup(ctx, "collabEmployee") as never,
       assignments: () => lookup(ctx, "collabAssignment") as never,

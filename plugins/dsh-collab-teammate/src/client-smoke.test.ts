@@ -30,6 +30,10 @@ interface ClientExports {
     }[];
     markdownTableCells(line: string): readonly string[];
     isMarkdownTableSeparator(line: string): boolean;
+    runtimeDetailEditPolicy(editing: boolean): {
+      showMetrics: boolean;
+      panelsClass: string;
+    };
   };
 }
 
@@ -169,5 +173,36 @@ describe("AI Teammate runtime client", () => {
     expect(
       exported.__test?.markdownTableCells("| TSK-1 | 已完成 |"),
     ).toEqual(["TSK-1", "已完成"]);
+  });
+
+  it("locks runtime detail panels while editing base info", () => {
+    const exported = loadClientExports();
+    expect(exported.__test?.runtimeDetailEditPolicy(false)).toEqual({
+      showMetrics: true,
+      panelsClass: "pmtm-runtime-panels",
+    });
+    expect(exported.__test?.runtimeDetailEditPolicy(true)).toEqual({
+      showMetrics: false,
+      panelsClass: "pmtm-runtime-panels editing",
+    });
+  });
+
+  it("hides runtime tab actions in the editing state", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain(
+      ".pmtm-runtime-panels.editing .pmtm-btn{display:none;}",
+    );
+  });
+
+  it("auto-dismisses the top status notice after 3s", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toMatch(/setNotice\(""\),\s*3_000\)/);
+  });
+
+  it("keeps work-report history unfiltered by default", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toMatch(
+      /function defaultReportRange\(\)[\s\S]{0,260}?return \{ from: "", to: "" \};/,
+    );
   });
 });

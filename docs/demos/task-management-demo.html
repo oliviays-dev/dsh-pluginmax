@@ -1003,6 +1003,67 @@
     .ai-runtime-tab { min-height: 28px; padding: 4px 11px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); font-size: 12px; }
     .ai-runtime-tab:hover { color: var(--text); background: var(--surface-2); }
     .ai-runtime-tab.active { color: #fff; background: var(--accent); }
+    .project-layout { grid-template-columns: minmax(240px, 300px) minmax(0, 1fr); }
+    .project-directory-search { margin-bottom: 8px; }
+    .project-directory-list { display: grid; gap: 5px; }
+    .project-list-item {
+      width: 100%; min-width: 0; display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: 8px;
+      padding: 8px 9px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: inherit; text-align: left;
+    }
+    .project-list-item:hover { border-color: var(--line); background: var(--surface-2); }
+    .project-list-item.active { border-color: rgba(79,142,247,.44); background: var(--accent-soft); }
+    .project-list-mark {
+      width: 30px; height: 30px; display: grid; place-items: center; border-radius: 7px;
+      color: #9fc4ff; background: rgba(79,142,247,.14); font-size: 11px; font-weight: 700;
+    }
+    .project-list-copy { min-width: 0; }
+    .project-list-copy strong { display: block; overflow: hidden; text-overflow: ellipsis; color: var(--text); font-size: 12px; white-space: nowrap; }
+    .project-list-copy small { display: block; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; color: var(--faint); font-size: 10px; white-space: nowrap; }
+    .project-detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+    .project-detail-main { flex: 1; min-width: 0; }
+    .project-title-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .project-title-line h2 { margin: 0; overflow-wrap: anywhere; font-size: 18px; line-height: 1.3; }
+    .project-detail-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 5px; color: var(--faint); font-size: 10.5px; }
+    .project-detail-description { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+    .project-progress-summary {
+      display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 14px;
+    }
+    .project-fact { min-width: 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); }
+    .project-fact span { display: block; color: var(--faint); font-size: 10px; }
+    .project-fact strong { display: block; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; color: var(--text); font-size: 13px; white-space: nowrap; }
+    .project-fact small { display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; color: var(--faint); font-size: 9.5px; white-space: nowrap; }
+    .project-tabs { margin-top: 14px; }
+    .project-tab-body { margin-top: 14px; }
+    .project-edit-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+    .project-edit-grid .wide { grid-column: 1 / -1; }
+    .project-edit-grid textarea { min-height: 86px; }
+    #projectEditMask .modal { width: min(680px, 100%); }
+    #projectEditMask .modal-head h2 { font-size: 14px; }
+    #projectEditMask .project-edit-grid { margin-top: 0; }
+    .project-table { display: grid; }
+    .project-member-row {
+      min-width: 0; display: grid; grid-template-columns: minmax(140px, 1.2fr) minmax(0, 120px) minmax(0, 1fr) minmax(0, 1.05fr) auto;
+      align-items: center; gap: 9px; padding: 10px 0; border-bottom: 1px solid var(--line);
+    }
+    .project-member-row:last-child { border-bottom: 0; }
+    .project-member-row .pill { white-space: normal; }
+    .project-member-cell { min-width: 0; display: flex; align-items: center; gap: 8px; }
+    .project-member-cell .avatar { width: 25px; height: 25px; flex: none; font-size: 9px; }
+    .project-member-copy { min-width: 0; }
+    .project-member-copy strong { display: block; overflow: hidden; text-overflow: ellipsis; color: var(--text); font-size: 11.5px; white-space: nowrap; }
+    .project-member-copy small { display: block; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; color: var(--faint); font-size: 9.5px; white-space: nowrap; }
+    .project-permission { min-width: 0; overflow-wrap: anywhere; color: var(--muted); font-size: 10.5px; line-height: 1.4; }
+    .project-permission .label { display: block; color: var(--faint); font-size: 9.5px; }
+    .project-permission strong { display: block; margin-top: 1px; color: var(--text); font-size: 10.5px; font-weight: 600; }
+    .project-member-actions { display: flex; justify-content: flex-end; }
+    .project-task-list { display: grid; gap: 8px; }
+    .project-report-toolbar { justify-content: flex-end; margin-top: 0; margin-bottom: 10px; }
+    .project-empty { padding: 32px; border: 1px dashed var(--line); border-radius: 7px; color: var(--muted); text-align: center; font-size: 12px; }
+    @media (max-width: 900px) {
+      .project-layout { grid-template-columns: 1fr; }
+      .project-progress-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .project-member-row { grid-template-columns: minmax(0, 1fr); }
+    }
     .work-plan-composer {
       margin-top: 12px; padding: 11px; border: 1px solid var(--line); border-radius: 9px;
       background: var(--surface); box-shadow: 0 4px 14px rgba(0,0,0,.12);
@@ -1833,6 +1894,10 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M10 6h4a2 2 0 0 1 2 2v2M14 18h-4a2 2 0 0 1-2-2v-2"/></svg>
             <span class="nav-label">工作流</span>
           </button>
+          <button class="nav-item" data-global="projects" type="button" aria-label="项目管理" title="项目管理">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h6l2 2h10v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6Z"/><path d="M3 10h18"/></svg>
+            <span class="nav-label">项目管理</span>
+          </button>
           <button class="nav-item" data-global="teammates" type="button" aria-label="AI Teammates" title="AI Teammates">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="7" width="16" height="12" rx="2"/><path d="M9 12h.01M15 12h.01M9 16h6M12 7V3M8 3h8"/></svg>
             <span class="nav-label">AI Teammates</span>
@@ -1920,6 +1985,38 @@
                 <main class="profile-detail" id="workflowTemplateDetail"></main>
               </div>
             </section>
+          </section>
+
+          <section class="view" id="projectsView" hidden>
+            <div class="page-head">
+              <div>
+                <h1>项目管理</h1>
+                <div class="page-sub">项目清单、成员权限、任务、工作流与项目日报</div>
+              </div>
+              <div class="head-actions">
+                <button class="primary" id="projectCreateButton" type="button" data-demo="创建新项目">新建项目</button>
+              </div>
+            </div>
+            <div class="ai-layout project-layout">
+              <aside class="ai-directory" aria-label="项目清单">
+                <label class="profile-search project-directory-search">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>
+                  <input id="projectSearch" value="" placeholder="搜索项目" autocomplete="off">
+                </label>
+                <div class="ai-directory-title">平台项目<span id="projectListCount"></span></div>
+                <div class="project-directory-list" id="projectList"></div>
+              </aside>
+              <main class="ai-editor" id="projectDetail"></main>
+            </div>
+            <div class="mask" id="projectEditMask" role="dialog" aria-modal="true" aria-labelledby="projectEditTitle">
+              <div class="modal">
+                <div class="modal-head">
+                  <h2 id="projectEditTitle">编辑项目基础信息</h2>
+                  <button class="ghost small" type="button" data-project-edit-close>关闭</button>
+                </div>
+                <div id="projectEditFormSlot"></div>
+              </div>
+            </div>
           </section>
 
           <section class="view" id="aiTeammatesView" hidden>
@@ -3049,6 +3146,198 @@
       { key: "done", label: "已完成" },
     ];
     const workspaces = ["一切皆插件", "员工平台", "客户成功"];
+    const managedProjects = [
+      {
+        id: "project-pluginmax",
+        name: "一切皆插件",
+        code: "PRJ-001",
+        owner: "Olivia",
+        status: "进行中",
+        health: "健康",
+        progress: 72,
+        startDate: "2026-09-12",
+        targetDate: "2026-10-31",
+        description: "统一工作台、任务、工作流、会议和 AI Teammate 的协作体验，建立可追溯的项目执行闭环。",
+        running: "今日新增 4 项任务进展，Research Avatar 正在复核发布风险与会议决策项。",
+        notes: { members: "本周新增 1 位 AI", tasks: "今日新增 4 项", workflows: "今日新增 1 个" },
+        members: [
+          { id: "olivia", name: "Olivia", kind: "human", role: "Project Owner", permission: "Owner / Admin", scope: "项目、成员、任务、工作流" },
+          { id: "peter", name: "Peter", kind: "human", role: "Backend Engineer", permission: "Member", scope: "任务、工作流、文件读写" },
+          { id: "personal-research-avatar", name: "Research Avatar", kind: "agent", role: "AI Contributor · 会前研究", permission: "Member", scope: "任务、会议、文件读写" },
+          { id: "personal-ops-avatar", name: "Ops Avatar 02", kind: "agent", role: "AI Contributor · 流程跟进", permission: "Member", scope: "任务、工作流跟进" },
+        ],
+        reports: [
+          {
+            date: workReportDateValue(0),
+            generatedAt: `${workReportDateValue(0).slice(5)} 08:00`,
+            content: `## 今日结论
+
+项目进入发布准备阶段，工作台与管理驾驶舱的结构已经稳定，当前需要重点确认发布风险和跨团队依赖。
+
+## 关键进展
+
+- \`TSK-1040\` 顶层全局入口与 Session 入口评审已进入收尾。
+- \`TSK-1043\` Research Avatar 完成发布风险线索合并，识别 2 个会前决策点。
+- \`WF-189\` 分身到期通知处理保持进行中。
+
+## 风险与待确认
+
+- 停机窗口与数据一致性责任人仍未锁定。
+- 项目成员对移动端验收边界存在重复回归风险。
+
+## 下一步
+
+今日完成会前决策材料，并将跨团队依赖升级到项目周会。`,
+          },
+          {
+            date: workReportDateValue(-1),
+            generatedAt: `${workReportDateValue(-1).slice(5)} 18:10`,
+            content: `## 今日结论
+
+项目组完成全局入口结构评审，任务与工作流之间的跳转路径已经统一。
+
+## 关键进展
+
+- 完成顶层全局入口与 Session 入口布局评审。
+- Research Avatar 完成历史会议资料结构化摘要。
+
+## 风险与待确认
+
+- 分身到期后的只读权限说明仍需补充。
+
+## 下一步
+
+补充发布风险清单并同步到管理驾驶舱。`,
+          },
+        ],
+      },
+      {
+        id: "project-employee-platform",
+        name: "员工平台",
+        code: "PRJ-002",
+        owner: "Olivia",
+        status: "进行中",
+        health: "关注",
+        progress: 58,
+        startDate: "2026-09-18",
+        targetDate: "2026-11-15",
+        description: "推进员工平台核心页面、移动端体验和文案验收，收敛跨端质量问题并形成稳定交付节奏。",
+        running: "移动端审批布局仍有 3 个回归场景未覆盖，Peter 正在处理阻塞。",
+        notes: { members: "本周新增 1 位 AI", tasks: "今日新增 3 项", workflows: "近 7 天无新增" },
+        members: [
+          { id: "olivia", name: "Olivia", kind: "human", role: "Project Owner", permission: "Owner / Admin", scope: "项目、成员、任务、工作流" },
+          { id: "peter", name: "Peter", kind: "human", role: "Backend Engineer", permission: "Member", scope: "任务、工作流、文件读写" },
+          { id: "personal-ux-avatar", name: "UX Avatar", kind: "agent", role: "AI Contributor · 体验评审", permission: "Member", scope: "任务、会议、文档" },
+          { id: "personal-research-avatar", name: "Research Avatar", kind: "agent", role: "AI Contributor · 会前研究", permission: "Guest", scope: "会议、共享文件只读" },
+          { id: "platform-qa-de", name: "QA DE 02", kind: "agent", role: "平台 AI · 质量工程", permission: "Readonly", scope: "验收用例、回归风险" },
+        ],
+        reports: [
+          {
+            date: workReportDateValue(0),
+            generatedAt: `${workReportDateValue(0).slice(5)} 08:05`,
+            content: `## 今日结论
+
+员工平台进入移动端回归阶段，但 375px 窄屏下的审批操作仍存在布局风险。
+
+## 关键进展
+
+- \`TSK-1042\` 审批详情页按钮重叠问题已定位到操作区重排。
+- 周会资料结构化摘要已经通过验收。
+
+## 风险与待确认
+
+- 移动端触控目标和回归范围尚未完全对齐。
+
+## 下一步
+
+补齐移动端回归用例，并在项目周会前完成风险确认。`,
+          },
+          {
+            date: workReportDateValue(-1),
+            generatedAt: `${workReportDateValue(-1).slice(5)} 18:20`,
+            content: `## 今日结论
+
+员工平台完成本轮需求边界整理，进入实现和验收阶段。
+
+## 关键进展
+
+- 完成周会资料结构化摘要。
+- 明确窄屏审批页面的验收边界。
+
+## 风险与待确认
+
+- 文案验收责任人需要与评审组确认。
+
+## 下一步
+
+推动移动端实现与回归排期。`,
+          },
+        ],
+      },
+      {
+        id: "project-customer-success",
+        name: "客户成功",
+        code: "PRJ-003",
+        owner: "Olivia",
+        status: "风险",
+        health: "风险",
+        progress: 81,
+        startDate: "2026-09-08",
+        targetDate: "2026-10-20",
+        description: "推进客户迁移发布、供给风险处置和关键合同评审，保障客户承诺、交付窗口与采购韧性。",
+        running: "客户迁移发布保持阻塞，Ops Avatar 02 正在等待停机窗口和责任人确认。",
+        notes: { members: "本周无变化", tasks: "今日新增 2 项", workflows: "1 个阻塞" },
+        members: [
+          { id: "olivia", name: "Olivia", kind: "human", role: "Project Owner", permission: "Owner / Admin", scope: "项目、成员、任务、工作流" },
+          { id: "peter", name: "Peter", kind: "human", role: "Backend Engineer", permission: "Member", scope: "任务、发布与回滚" },
+          { id: "personal-ops-avatar", name: "Ops Avatar 02", kind: "agent", role: "AI Contributor · 流程跟进", permission: "Member", scope: "工作流、催办与升级" },
+          { id: "platform-backend-de", name: "Backend DE 01", kind: "agent", role: "平台 AI · 后端工程", permission: "Contributor", scope: "发布风险与技术证据链" },
+        ],
+        reports: [
+          {
+            date: workReportDateValue(0),
+            generatedAt: `${workReportDateValue(0).slice(5)} 08:02`,
+            content: `## 今日结论
+
+客户迁移项目仍未满足发布条件，最大可接受停机时间和数据一致性责任人需要继续确认。
+
+## 关键进展
+
+- Peter 已补齐回滚说明中的责任人字段。
+- Ops Avatar 02 完成第二次催办并升级风险。
+
+## 风险与待确认
+
+- 停机窗口未锁定，发布节点继续阻塞。
+- A-2200 阀体存在断料风险，需要确认替代产能。
+
+## 下一步
+
+优先锁定停机窗口，并评估关键订单的交付影响。`,
+          },
+          {
+            date: workReportDateValue(-1),
+            generatedAt: `${workReportDateValue(-1).slice(5)} 18:00`,
+            content: `## 今日结论
+
+客户迁移发布材料完成首轮复核，回滚步骤与责任人清单仍需补齐。
+
+## 关键进展
+
+- 完成迁移 checklist 首轮复核。
+- 建立关键订单影响清单。
+
+## 风险与待确认
+
+- 回滚步骤与停机窗口责任边界不清晰。
+
+## 下一步
+
+发布前完成责任人和最大停机时间确认。`,
+          },
+        ],
+      },
+    ];
     const sessions = [
       {
         id: "sess-risk", workspace: "一切皆插件", name: "发布风险同步", kind: "会议 Session",
@@ -3939,6 +4228,7 @@
     };
     let followedTaskIds = new Set(["TSK-1035", "TSK-1050"]);
     let followedWorkflowIds = new Set(["WF-197", "WF-208"]);
+    let followedProjectIds = new Set(["project-pluginmax"]);
     let workbenchState = {
       mode: "personal",
       briefRefreshing: false, scheduleOpen: false, frequency: "daily-8-13",
@@ -3999,6 +4289,8 @@
       detailReturn: null,
       aiTab: "runtime", aiSelectedId: "personal-research-avatar", aiEditing: false, isAdmin: true,
       aiRuntimeTab: "current", aiWorkPlanProject: "", aiWorkReportDateFrom: workReportDateValue(-6), aiWorkReportDateTo: workReportDateValue(), aiWorkReportSearch: "", aiWorkReportGenerating: false,
+      projectSelectedId: "project-pluginmax", projectTab: "members", projectSearch: "", projectEditing: false,
+      projectReportDateFrom: workReportDateValue(-6), projectReportDateTo: workReportDateValue(), projectReportSearch: "",
       profileOpen: false, profileSelectedId: "profile-backend-engineer", profileEditing: false, profileSearch: "",
       workflowTemplateOpen: false, workflowTemplateSelectedId: "workflow-template-employee-node",
       workflowTemplateEditing: false, workflowTemplateSearch: "", workflowTemplateWorkspace: "", workflowTemplateValidation: null,
@@ -4102,7 +4394,7 @@
       const workspaceLabel = $("#breadcrumbWorkspace");
       const sessionLabel = $("#breadcrumbSession");
       if (!workspaceLabel || !sessionLabel) return;
-      const pageLabels = { task: "任务管理", workflow: "工作流", teammates: "AI Teammates", workbench: "工作台", settings: "设置", meetingList: "会议列表", meeting: "会议设置" };
+      const pageLabels = { task: "任务管理", workflow: "工作流", projects: "项目管理", teammates: "AI Teammates", workbench: "工作台", settings: "设置", meetingList: "会议列表", meeting: "会议设置" };
       if (sessionViewActive()) {
         const session = currentSession();
         workspaceLabel.textContent = session.workspace;
@@ -5652,6 +5944,315 @@
       `;
     }
 
+    function selectedProject() {
+      return managedProjects.find((project) => project.id === ui.projectSelectedId) || managedProjects[0] || null;
+    }
+
+    function projectTasks(project) {
+      return tasks
+        .filter((task) => task.workspace === project.name && !task.archived)
+        .sort((left, right) => {
+          const priorityGap = (priorityRank[left.priority] ?? 9) - (priorityRank[right.priority] ?? 9);
+          if (priorityGap) return priorityGap;
+          return String(right.createdAt || "").localeCompare(String(left.createdAt || ""));
+        });
+    }
+
+    function projectWorkflows(project) {
+      return workflows.filter((workflow) => workflow.workspace === project.name);
+    }
+
+    function projectStatusClass(status) {
+      if (status === "风险" || status === "阻塞") return "high";
+      if (status === "已完成") return "done";
+      if (status === "关注" || status === "规划中") return "review";
+      return "progress";
+    }
+
+    function renderProjectList() {
+      const searchInput = $("#projectSearch");
+      if (searchInput && searchInput.value !== ui.projectSearch) searchInput.value = ui.projectSearch;
+      const keyword = ui.projectSearch.trim().toLowerCase();
+      const visible = managedProjects.filter((project) => {
+        if (!keyword) return true;
+        return `${project.name} ${project.code} ${project.owner} ${project.status} ${project.health}`.toLowerCase().includes(keyword);
+      });
+      const count = $("#projectListCount");
+      if (count) count.textContent = String(visible.length);
+      const list = $("#projectList");
+      if (!list) return;
+      list.innerHTML = visible.length ? visible.map((project) => `
+        <button class="project-list-item ${project.id === ui.projectSelectedId ? "active" : ""}" type="button" data-project-select="${project.id}">
+          <span class="project-list-mark">${escapeHtml(project.name.slice(0, 1))}</span>
+          <span class="project-list-copy">
+            <strong>${escapeHtml(project.name)}</strong>
+            <small>${escapeHtml(project.code)} · Owner ${escapeHtml(project.owner)}</small>
+          </span>
+          <span class="pill ${projectStatusClass(project.status)}">${escapeHtml(project.status)}</span>
+        </button>
+      `).join("") : '<div class="empty compact">没有匹配的项目。</div>';
+    }
+
+    function renderProjectEditForm(project) {
+      return `
+        <form class="project-edit-grid" data-project-edit-form>
+          <label class="field"><span class="label">项目名称（与左侧项目保持一致）</span><input name="name" value="${escapeHtml(project.name)}" disabled></label>
+          <label class="field"><span class="label">项目负责人</span><input name="owner" value="${escapeHtml(project.owner)}" required></label>
+          <label class="field"><span class="label">运行状态</span><select name="status">${["进行中", "规划中", "已完成", "已暂停", "风险"].map((status) => `<option value="${status}" ${status === project.status ? "selected" : ""}>${status}</option>`).join("")}</select></label>
+          <label class="field"><span class="label">项目健康度</span><select name="health">${["健康", "关注", "风险"].map((health) => `<option value="${health}" ${health === project.health ? "selected" : ""}>${health}</option>`).join("")}</select></label>
+          <label class="field"><span class="label">整体进度 %</span><input name="progress" type="number" min="0" max="100" value="${project.progress}"></label>
+          <label class="field"><span class="label">开始日期</span><input name="startDate" type="date" value="${escapeHtml(project.startDate)}"></label>
+          <label class="field"><span class="label">目标日期</span><input name="targetDate" type="date" value="${escapeHtml(project.targetDate)}"></label>
+          <label class="field wide"><span class="label">项目说明</span><textarea name="description" required>${escapeHtml(project.description)}</textarea></label>
+          <div class="footer wide"><button class="ghost" type="button" data-project-edit-cancel>取消</button><button class="primary" type="submit">保存基础信息</button></div>
+        </form>
+      `;
+    }
+
+    function renderProjectMembersTab(project) {
+      return `
+        <div class="history-head runtime-tab-head">
+          <h3>成员权限</h3>
+          <span class="column-count">${project.members.length} 个成员</span>
+        </div>
+        <div class="project-table">
+          ${project.members.map((member) => `
+            <article class="project-member-row">
+              <div class="project-member-cell">
+                <span class="avatar ${member.kind}">${escapeHtml(initials(member.name))}</span>
+                <div class="project-member-copy">
+                  <strong>${escapeHtml(member.name)}</strong>
+                  <small>${member.kind === "agent" ? "AI Teammate" : "Human Employee"}</small>
+                </div>
+              </div>
+              <span class="pill ${member.kind === "agent" ? "agent" : ""}">${escapeHtml(member.role)}</span>
+              <div class="project-permission"><span class="label">角色权限</span><strong>${escapeHtml(member.permission)}</strong></div>
+              <div class="project-permission"><span class="label">授权范围</span><strong>${escapeHtml(member.scope)}</strong></div>
+              <div class="project-member-actions"><button class="ghost small" type="button" data-demo="管理成员 ${escapeHtml(member.name)}">管理</button></div>
+            </article>
+          `).join("")}
+        </div>
+      `;
+    }
+
+    function renderProjectTasksTab(project) {
+      const items = projectTasks(project);
+      return `
+        <div class="history-head runtime-tab-head">
+          <h3>任务清单</h3>
+          <span class="column-count">${items.length} 项</span>
+        </div>
+        <div class="project-task-list">
+          ${items.length ? items.map((task) => `
+            <article class="todo-item" tabindex="0" role="button" data-project-open-task="${task.id}">
+              <div>
+                <div class="todo-title"><span class="id">${task.id}</span><strong>${escapeHtml(task.title)}</strong></div>
+                <div class="todo-context">
+                  <span class="pill ${["P0", "P1"].includes(task.priority) ? "high" : ""}">${task.priority}</span>
+                  <span class="pill ${task.status}">${statusLabel[task.status]}</span>
+                  <span class="workspace">${escapeHtml(task.workspace)}</span>
+                  <span class="assignee"><span class="assignee-name">${escapeHtml(receiverDisplay(task))}</span></span>
+                </div>
+              </div>
+              <div class="todo-trailing">
+                <span class="due-chip">${task.due ? task.due.slice(5) : "不限"}</span>
+                <button class="ghost small wb-open-btn" type="button" data-project-open-task="${task.id}">详情</button>
+              </div>
+            </article>
+          `).join("") : '<div class="project-empty">当前项目没有活跃任务。</div>'}
+        </div>
+      `;
+    }
+
+    function renderProjectWorkflowsTab(project) {
+      const items = projectWorkflows(project);
+      return `
+        <div class="history-head runtime-tab-head">
+          <h3>工作流</h3>
+          <span class="column-count">${items.length} 个流程</span>
+        </div>
+        <div class="project-task-list">
+          ${items.length ? items.map((workflow) => `
+            <article class="todo-item" tabindex="0" role="button" data-project-open-workflow="${workflow.id}">
+              <div>
+                <div class="todo-title"><span class="id">${workflow.id}</span><strong>${escapeHtml(workflow.title)}</strong></div>
+                <div class="todo-context">
+                  <span class="pill ${workflow.status === "阻塞" ? "high" : "progress"}">${escapeHtml(workflow.status)}</span>
+                  <span class="workspace">${escapeHtml(workflow.workspace)}</span>
+                  <span class="assignee"><span class="assignee-name">更新于 ${escapeHtml(workflow.updatedAt)}</span></span>
+                </div>
+              </div>
+              <div class="todo-trailing"><button class="ghost small wb-open-btn" type="button" data-project-open-workflow="${workflow.id}">查看流程</button></div>
+            </article>
+          `).join("") : '<div class="project-empty">当前项目没有关联工作流。</div>'}
+        </div>
+      `;
+    }
+
+    function renderProjectReportSnapshot(project, report) {
+      return `
+        <article class="work-report-card">
+          <div class="work-report-head">
+            <h3>${escapeHtml(`${report.date} 项目日报`)}</h3>
+            <small class="work-report-writer">撰写人：项目 AI · ${escapeHtml(project.name)}（${escapeHtml(project.code)}） · 撰写时间：${escapeHtml(report.generatedAt)}</small>
+          </div>
+          <div class="markdown-body">${renderMarkdownContent(report.content)}</div>
+        </article>
+      `;
+    }
+
+    function renderProjectReportsTab(project) {
+      const dateFrom = ui.projectReportDateFrom || "";
+      const dateTo = ui.projectReportDateTo || "";
+      const keywords = ui.projectReportSearch.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      const reports = [...(project.reports || [])]
+        .filter((report) => {
+          if (dateFrom && report.date < dateFrom) return false;
+          if (dateTo && report.date > dateTo) return false;
+          if (!keywords.length) return true;
+          const haystack = `${report.date} ${report.content}`.toLowerCase();
+          return keywords.every((keyword) => haystack.includes(keyword));
+        })
+        .sort((left, right) => right.date.localeCompare(left.date));
+      const selected = reports[0] || null;
+      const history = reports.slice(1);
+      return `
+        <div class="work-report-toolbar runtime-tab-head project-report-toolbar">
+          <h3>项目日报</h3>
+          <div class="work-report-filters">
+            <label class="work-report-range">
+              <input type="date" value="${escapeHtml(dateFrom)}" data-project-report-date-from aria-label="项目日报开始日期">
+              <span>至</span>
+              <input type="date" value="${escapeHtml(dateTo)}" data-project-report-date-to aria-label="项目日报结束日期">
+            </label>
+            <label class="work-report-search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>
+              <input type="search" value="${escapeHtml(ui.projectReportSearch)}" placeholder="关键词" data-project-report-search aria-label="搜索项目日报">
+            </label>
+            <button class="primary small work-report-generate" type="button" data-project-report-generate>更新日报</button>
+          </div>
+        </div>
+        ${selected ? renderProjectReportSnapshot(project, selected) : '<div class="empty ai-runtime-empty">没有匹配的项目日报。</div>'}
+        <div class="section">
+          <div class="history-head"><h3>历史记录</h3><span class="column-count">${history.length}</span></div>
+          <div class="work-report-history timeline">
+            ${history.length ? history.map((report) => `<div class="event">${renderProjectReportSnapshot(project, report)}</div>`).join("") : '<div class="empty compact">没有更早的项目日报快照。</div>'}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderProjectDetail() {
+      const project = selectedProject();
+      if (!project) return '<div class="empty">还没有项目。</div>';
+      const tabs = [
+        { key: "members", label: "成员权限", count: project.members.length },
+        { key: "tasks", label: "任务清单", count: projectTasks(project).length },
+        { key: "workflows", label: "工作流", count: projectWorkflows(project).length },
+        { key: "reports", label: "项目日报", count: (project.reports || []).length },
+      ];
+      const followed = followedProjectIds.has(project.id);
+      const notes = project.notes || {};
+      const fact = (label, value, note) => `<div class="project-fact"><span>${label}</span><strong>${value}</strong>${note ? `<small>${escapeHtml(note)}</small>` : ""}</div>`;
+      const tabContent = ui.projectTab === "members"
+        ? renderProjectMembersTab(project)
+        : ui.projectTab === "tasks"
+          ? renderProjectTasksTab(project)
+          : ui.projectTab === "workflows"
+            ? renderProjectWorkflowsTab(project)
+            : renderProjectReportsTab(project);
+      return `
+        <div class="project-detail-head">
+          <div class="project-detail-main">
+            <div class="project-title-line">
+              <h2>${escapeHtml(project.name)}</h2>
+              <span class="pill ${projectStatusClass(project.status)}">${escapeHtml(project.status)}</span>
+            </div>
+            <div class="project-detail-meta">
+              <span>${escapeHtml(project.code)}</span><span>·</span><span>Owner ${escapeHtml(project.owner)}</span><span>·</span><span>${escapeHtml(project.startDate)} 至 ${escapeHtml(project.targetDate)}</span>
+            </div>
+            <p class="project-detail-description">${escapeHtml(project.description)}</p>
+          </div>
+          <div class="head-actions">
+            <button class="ghost small" type="button" data-project-follow aria-pressed="${String(followed)}">${followed ? "已关注" : "关注"}</button>
+            <button class="ghost small" type="button" data-project-edit aria-haspopup="dialog" aria-controls="projectEditMask">编辑信息</button>
+          </div>
+        </div>
+        <div class="project-progress-summary">
+          ${fact("项目成员", `${project.members.filter((member) => member.kind === "human").length} Human · ${project.members.filter((member) => member.kind === "agent").length} AI`, notes.members)}
+          ${fact("活跃任务", `${projectTasks(project).length} 项`, notes.tasks)}
+          ${fact("关联工作流", `${projectWorkflows(project).length} 个`, notes.workflows)}
+        </div>
+        <div class="ai-runtime-tabs project-tabs" role="tablist" aria-label="项目详情内容">
+          ${tabs.map((tab) => `<button class="ai-runtime-tab ${ui.projectTab === tab.key ? "active" : ""}" type="button" role="tab" aria-selected="${ui.projectTab === tab.key}" data-project-tab="${tab.key}">${tab.label} ${tab.count}</button>`).join("")}
+        </div>
+        <div class="project-tab-body">${tabContent}</div>
+      `;
+    }
+
+    function renderProjects() {
+      renderProjectList();
+      const detail = $("#projectDetail");
+      if (detail) detail.innerHTML = renderProjectDetail();
+    }
+
+    function generateProjectReport(project) {
+      const now = new Date();
+      const today = workReportDateValue();
+      const generatedAt = `${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+      const report = {
+        date: today,
+        generatedAt,
+        content: `## 今日结论
+
+${project.name} 当前处于“${project.status}”状态，项目整体进度 ${project.progress}%。
+
+## 关键进展
+
+- 项目组正在持续推进当前活跃任务与关联工作流。
+- 最近运行状态：${project.running}
+
+## 风险与待确认
+
+- 请重点检查项目风险事项、跨团队依赖和待验收工作。
+
+## 下一步
+
+在项目周会中确认负责人、截止时间和下一检查点。`,
+      };
+      project.reports = project.reports || [];
+      const existingIndex = project.reports.findIndex((item) => item.date === today);
+      if (existingIndex >= 0) project.reports[existingIndex] = report;
+      else project.reports.unshift(report);
+      renderProjectDetailOnly();
+      toast(`已更新 ${project.name} 的项目日报`);
+    }
+
+    function renderProjectDetailOnly() {
+      const detail = $("#projectDetail");
+      if (detail) detail.innerHTML = renderProjectDetail();
+    }
+
+    function openProjectEditModal() {
+      const project = selectedProject();
+      if (!project) return;
+      const slot = $("#projectEditFormSlot");
+      if (slot) slot.innerHTML = renderProjectEditForm(project);
+      ui.projectEditing = true;
+      const mask = $("#projectEditMask");
+      if (mask) mask.classList.add("open");
+      const firstField = $("#projectEditFormSlot input:not([disabled]), #projectEditFormSlot select");
+      if (firstField) firstField.focus();
+    }
+
+    function closeProjectEditModal() {
+      ui.projectEditing = false;
+      const mask = $("#projectEditMask");
+      if (mask) mask.classList.remove("open");
+      const slot = $("#projectEditFormSlot");
+      if (slot) slot.innerHTML = "";
+    }
+
     function renderAuditTrailTab(teammate) {
       const records = aiAuditTrails[teammate.id] ?? [];
       return `
@@ -6420,6 +7021,8 @@
         item.classList.toggle("active", ui.sessionView === item.dataset.session);
       });
       $("#workflowView").hidden = ui.globalView !== "workflow";
+      $("#projectsView").hidden = ui.globalView !== "projects";
+      if (ui.globalView !== "projects" && ui.projectEditing) closeProjectEditModal();
       $("#aiTeammatesView").hidden = ui.globalView !== "teammates";
       $("#workbenchView").hidden = ui.globalView !== "workbench";
       $("#taskView").hidden = ui.globalView !== "task";
@@ -6436,6 +7039,7 @@
       renderWorkspaceNav();
       renderTop();
       if (ui.globalView === "workflow") renderWorkflow();
+      if (ui.globalView === "projects") renderProjects();
       if (ui.globalView === "teammates") renderAiTeammates();
       if (ui.globalView === "workbench") renderWorkbench();
       if (ui.globalView === "meetingList") renderMeetingList();
@@ -6645,7 +7249,6 @@
         if (task.status === "review") actions.push(actionButton("通过", "approve"));
         if (task.status === "review") actions.push(actionButton("退回", "reject"));
         if (sentByMe && task.status !== "done" && task.receiverType !== "unassigned") actions.push(actionButton("催办", "nudge"));
-        if (mine && task.receiverType === "human" && task.status !== "done") actions.push(actionButton("派我的分身执行", "send-to-avatar"));
         if (task.receiverType === "agent" && task.status === "progress") actions.push(actionButton("人工回复", "manual-reply"));
       }
 
@@ -7197,6 +7800,125 @@
       }
       ui.sessionView = null;
       render();
+    });
+    $("#projectsView").addEventListener("click", (event) => {
+      if (event.target.id === "projectEditMask" || event.target.closest("[data-project-edit-close]")) {
+        closeProjectEditModal();
+        return;
+      }
+      const projectButton = event.target.closest("[data-project-select]");
+      if (projectButton) {
+        ui.projectSelectedId = projectButton.dataset.projectSelect;
+        ui.projectTab = "members";
+        ui.projectEditing = false;
+        closeProjectEditModal();
+        renderProjects();
+        return;
+      }
+      const projectTab = event.target.closest("[data-project-tab]");
+      if (projectTab) {
+        ui.projectTab = projectTab.dataset.projectTab;
+        closeProjectEditModal();
+        renderProjectDetailOnly();
+        return;
+      }
+      const followButton = event.target.closest("[data-project-follow]");
+      if (followButton) {
+        const project = selectedProject();
+        if (!project) return;
+        if (followedProjectIds.has(project.id)) {
+          followedProjectIds.delete(project.id);
+          toast(`已取消关注项目 ${project.name}`);
+        } else {
+          followedProjectIds.add(project.id);
+          toast(`已关注项目 ${project.name}`);
+        }
+        renderProjectDetailOnly();
+        return;
+      }
+      if (event.target.closest("[data-project-edit-cancel]")) {
+        closeProjectEditModal();
+        return;
+      }
+      if (event.target.closest("[data-project-edit]")) {
+        openProjectEditModal();
+        return;
+      }
+      const projectTaskButton = event.target.closest("[data-project-open-task]");
+      if (projectTaskButton) {
+        openWorkbenchTask(projectTaskButton.dataset.projectOpenTask);
+        return;
+      }
+      const projectWorkflowButton = event.target.closest("[data-project-open-workflow]");
+      if (projectWorkflowButton) {
+        openWorkbenchWorkflow(projectWorkflowButton.dataset.projectOpenWorkflow);
+        return;
+      }
+      if (event.target.closest("[data-project-report-generate]")) {
+        const project = selectedProject();
+        if (project) generateProjectReport(project);
+      }
+    });
+    $("#projectsView").addEventListener("input", (event) => {
+      if (event.target.id === "projectSearch") {
+        ui.projectSearch = event.target.value;
+        renderProjectList();
+        return;
+      }
+      const reportSearch = event.target.closest("[data-project-report-search]");
+      if (!reportSearch) return;
+      const selectionStart = reportSearch.selectionStart ?? reportSearch.value.length;
+      const selectionEnd = reportSearch.selectionEnd ?? selectionStart;
+      ui.projectReportSearch = reportSearch.value;
+      renderProjectDetailOnly();
+      const nextSearch = $("#projectDetail [data-project-report-search]");
+      if (nextSearch) {
+        nextSearch.focus();
+        nextSearch.setSelectionRange(selectionStart, selectionEnd);
+      }
+    });
+    $("#projectsView").addEventListener("change", (event) => {
+      const dateFrom = event.target.closest("[data-project-report-date-from]");
+      if (dateFrom) {
+        ui.projectReportDateFrom = dateFrom.value;
+        renderProjectDetailOnly();
+        return;
+      }
+      const dateTo = event.target.closest("[data-project-report-date-to]");
+      if (dateTo) {
+        ui.projectReportDateTo = dateTo.value;
+        renderProjectDetailOnly();
+      }
+    });
+    $("#projectsView").addEventListener("submit", (event) => {
+      const form = event.target.closest("[data-project-edit-form]");
+      if (!form) return;
+      event.preventDefault();
+      const project = selectedProject();
+      if (!project) return;
+      const data = new FormData(form);
+      project.owner = String(data.get("owner") || project.owner);
+      project.status = String(data.get("status") || project.status);
+      project.health = String(data.get("health") || project.health);
+      project.progress = Math.max(0, Math.min(100, Number(data.get("progress")) || project.progress));
+      project.startDate = String(data.get("startDate") || project.startDate);
+      project.targetDate = String(data.get("targetDate") || project.targetDate);
+      project.description = String(data.get("description") || project.description);
+      closeProjectEditModal();
+      renderProjectDetailOnly();
+      toast(`已保存 ${project.name} 的基础信息`);
+    });
+    $("#projectsView").addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && ui.projectEditing) {
+        closeProjectEditModal();
+        return;
+      }
+      if (event.key !== "Enter" && event.key !== " ") return;
+      const item = event.target.closest("[data-project-open-task], [data-project-open-workflow]");
+      if (!item) return;
+      event.preventDefault();
+      if (item.dataset.projectOpenTask) openWorkbenchTask(item.dataset.projectOpenTask);
+      else if (item.dataset.projectOpenWorkflow) openWorkbenchWorkflow(item.dataset.projectOpenWorkflow);
     });
     $("#workbenchView").addEventListener("click", (event) => {
       const modeButton = event.target.closest("[data-workbench-mode]");
@@ -8173,18 +8895,6 @@
       if (action === "manual-reply") {
         $("#instructionInput").focus();
         toast("已切换为人工回复");
-        return;
-      }
-      if (action === "send-to-avatar") {
-        const avatar = directory.agent.find((item) => item.owner === me && item.id !== task.receiver) ?? directory.agent[1];
-        task.receiverType = "agent";
-        task.receiver = avatar.id;
-        task.status = "progress";
-        task.progress = Math.max(task.progress, 38);
-        task.progressSteps[0].done = true;
-        task.events.push({ time: now, text: `<b>Olivia</b> 转派给自己的分身 <b>${avatar.name}</b>` });
-        render();
-        toast(`已派给 ${avatar.name}`);
         return;
       }
       if (action === "claim") {

@@ -73,6 +73,11 @@ export interface WorkbenchPrincipal {
   userId: string;
   name?: string;
   role?: "admin" | "owner" | "member" | "guest";
+  /**
+   * 方案 B：平台管理员的"全量项目"视图开关。默认（false/缺省）与普通成员一致，
+   * 只看自己已加入的工作区；只有显式打开时才聚合全部宿主工作区。
+   */
+  scopeAll?: boolean;
 }
 
 interface FollowIndex {
@@ -242,7 +247,7 @@ interface MeetingRecordLike {
   readonly id: string;
   readonly workspaceId: string;
   readonly title: string;
-  readonly status: "active" | "closed";
+  readonly status: string;
   readonly agenda: string;
   readonly summary?: string;
   readonly createdAt: string;
@@ -254,6 +259,24 @@ interface MeetingServiceLike {
   participants(meetingId: string): readonly MeetingParticipantLike[];
 }
 
+/**
+ * Read-only view of the meeting domain's single minutes object. Kept minimal so
+ * the workbench does not depend on the meeting plugin's storage or runtime
+ * internals — only on the version projection the convergence contract needs.
+ */
+interface MeetingMinutesVersionLike {
+  readonly id: string;
+  readonly version: number;
+  readonly content: string;
+  readonly status: string;
+  readonly updatedAt?: string;
+}
+
+interface MeetingMinutesServiceLike {
+  activeVersion(meetingId: string): MeetingMinutesVersionLike | undefined;
+  versions(meetingId: string): readonly MeetingMinutesVersionLike[];
+}
+
 interface MeetingParticipantLike {
   readonly kind?: string;
   readonly refId?: string;
@@ -261,8 +284,6 @@ interface MeetingParticipantLike {
   readonly status?: string;
   readonly source?: string;
   readonly ownerId?: string;
-  readonly seatId?: string;
-  readonly seatLabel?: string;
   readonly personaId?: string;
   readonly leader?: boolean;
 }
@@ -319,6 +340,7 @@ export interface WorkbenchDeps {
   readonly tasks?: () => TaskServiceLike | undefined;
   readonly workflows?: () => WorkflowServiceLike | undefined;
   readonly meetings?: () => MeetingServiceLike | undefined;
+  readonly meetingMinutes?: () => MeetingMinutesServiceLike | undefined;
   readonly agents?: () => AgentServiceLike | undefined;
   readonly employees?: () => EmployeeServiceLike | undefined;
   readonly assignments?: () => AssignmentServiceLike | undefined;
@@ -486,7 +508,9 @@ export class WorkbenchService {
   private accessibleWorkspaces(principal: WorkbenchPrincipal): WorkspaceLike[] {
     const registry = this.deps.workspaces?.();
     const all = registry === undefined ? [] : [...registry.list()];
-    if (principal.role === "admin") return all;
+    // 方案 B：平台管理员的普通视图与成员一致（只看已加入的工作区）；
+    // 全量聚合必须由管理员显式打开"全量项目"开关（scope=all），不再默认放行。
+    if (principal.role === "admin" && principal.scopeAll === true) return all;
     const team = this.deps.team?.();
     if (team === undefined) return [];
     return all.filter((workspace) =>
@@ -988,6 +1012,48 @@ export class WorkbenchService {
         addWorkflow(instance, this.workflowFollowRefs(instance, index));
       }
     }
+    // 直接关注的会议，以及被关注项目覆盖的会议。
+    // 会议纪要卡片上的星标写的是 type=meeting，这里必须读回来，
+    // 否则「关注会议纪要」在重点关注里永远看不到。
+    if (index.meetings.size > 0 || index.projects.size > 0) {
+      try {
+        for (const meeting of this.meetingsModule(principal).data?.items ?? []) {
+          const refs: FollowCoverRef[] = [];
+          if (index.meetings.has(meeting.id)) {
+            refs.push({ type: "meeting", id: meeting.id });
+          }
+          if (index.projects.has(meeting.workspaceId)) {
+            refs.push({ type: "project", id: meeting.workspaceId });
+          }
+          if (refs.length === 0) continue;
+          const key = `meeting:${meeting.id}`;
+          if (items.has(key)) continue;
+          // 负责人位放主持人（席位解析后的显示名），没有就留空。
+          const host = meeting.agents.find((agent) => agent.isHost);
+          items.set(key, {
+            kind: "meeting",
+            id: meeting.id,
+            displayId: "会议",
+            title: meeting.title,
+            priority: "",
+            priorityLabel: "",
+            status: meeting.status,
+            statusLabel: meeting.statusLabel,
+            workspaceId: meeting.workspaceId,
+            workspaceName: meeting.workspaceName,
+            receiverType: host?.kind ?? "",
+            receiverName: host?.name ?? "",
+            due: "",
+            updatedAt: meeting.updatedAt,
+            summary: meeting.summaryText,
+            coveredBy: refs,
+            deepLink: meeting.deepLink,
+          });
+        }
+      } catch {
+        // 会议服务不可用时不影响其余关注条目。
+      }
+    }
 
     const sorted = [...items.values()].sort(
       (left, right) =>
@@ -1007,12 +1073,11 @@ export class WorkbenchService {
   // -------------------------------------------------- meetings / seed modules
 
   /**
-   * 会议卡片的参会 agent 行：席位占用者解析成数字员工显示名，
-   * 解析不到回退「席位名:占用者ID」；同名去重优先 active > pending > left。
-   * pending（待认领 / 未启动）与 left 都保留，交给前端区分展示。
+   * 会议卡片的参会 agent 行：直接用参与者显示名，不再依赖席位解析
+   * （席位已下线）。同名去重优先 active > pending > left；pending 与 left
+   * 都保留，交给前端区分展示。
    */
   private meetingAgentRows(
-    workspaceId: string,
     participants: readonly MeetingParticipantLike[],
     principal: WorkbenchPrincipal,
   ): {
@@ -1024,24 +1089,6 @@ export class WorkbenchService {
     status: string;
     isHost: boolean;
   }[] {
-    const assignments = this.deps.assignments?.();
-    let seats: readonly AssignmentLike[] = [];
-    if (assignments !== undefined) {
-      try {
-        seats = assignments.seats(workspaceId);
-      } catch {
-        seats = [];
-      }
-    }
-    const employees = this.deps.employees?.();
-    let employeeList: readonly EmployeeLike[] = [];
-    if (employees !== undefined) {
-      try {
-        employeeList = employees.list();
-      } catch {
-        employeeList = [];
-      }
-    }
     const rank: Record<string, number> = { active: 0, pending: 1, left: 2 };
     const rows = new Map<
       string,
@@ -1061,33 +1108,11 @@ export class WorkbenchService {
       if (rawName === "") continue;
       const refId = participant.refId ?? "";
       const status = participant.status ?? "active";
-      let name = rawName;
-      let owned =
+      const name = rawName;
+      const owned =
         kind === "human"
           ? refId === principal.userId
           : participant.ownerId === principal.userId;
-      // 已入座的席位参会人：用分配记录里的 personaId 解析数字员工名。
-      if (participant.seatId !== undefined && !refId.startsWith("seat:")) {
-        const assignment = seats.find(
-          (seat) => seat.seatId === participant.seatId,
-        );
-        const personaId = assignment?.personaId ?? participant.personaId;
-        const employee =
-          personaId === undefined
-            ? undefined
-            : employeeList.find(
-                (item) =>
-                  item.kind === "digital" && item.personaId === personaId,
-              );
-        if (employee?.authUserId === principal.userId) owned = true;
-        if (employee !== undefined && employee.displayName !== "") {
-          name = employee.displayName;
-        } else {
-          const label =
-            assignment?.seatLabel ?? participant.seatLabel ?? "席位";
-          name = `${label}:${refId}`;
-        }
-      }
       const isHost = participant.leader === true;
       const isFacilitator =
         /facilitator/i.test(name) || name.includes("会议 Facilitator");
@@ -1137,57 +1162,102 @@ export class WorkbenchService {
         }
         // 参会 agent 行：席位解析成占用者显示名；pending（待认领 / 未启动）
         // 与 left 都保留并带状态，交给前端区分灰度。
-        const agents = this.meetingAgentRows(
-          workspace.id,
-          participants,
-          principal,
-        );
+        const agents = this.meetingAgentRows(participants, principal);
         const otherParticipantCount = agents.filter(
           (agent) => !agent.owned && !agent.isFacilitator,
         ).length;
-        // AI 纪要：读会议来源 agent run 最新 succeeded 的 output.summary，
-        // 失败 / 缺失时回退散会手填的 close summary 原文。
+        // 纪要来源收敛：优先读会议域的单一纪要对象，其次才回退旧链路。
+        // 顺序：confirmed 生效版本 -> pending_confirm 待确认版本 ->
+        //      legacy_run 旧 agent run 摘要 -> close_summary 散会手填。
         let minutesSummary = "";
-        const agentService = this.deps.agents?.();
-        if (agentService !== undefined) {
+        let minutesSource: MeetingMinutesPayload["minutesSource"] = "none";
+        const minutesService = this.deps.meetingMinutes?.();
+        if (minutesService !== undefined) {
           try {
-            const run = agentService
-              .runs({
-                workspaceId: workspace.id,
-                instanceId: meeting.id,
-                nodeId: MEETING_MINUTES_NODE_ID,
-              })
-              .filter((candidate) => candidate.source === "meeting")
-              .sort((left, right) =>
-                right.createdAt.localeCompare(left.createdAt),
-              )[0];
-            if (run?.status === "succeeded") {
-              minutesSummary = (run.output?.summary ?? "").trim();
+            const active = minutesService.activeVersion(meeting.id);
+            const activeText = (active?.content ?? "").trim();
+            if (active !== undefined && activeText !== "") {
+              minutesSummary = activeText;
+              minutesSource = "confirmed";
+            } else {
+              const pending = minutesService
+                .versions(meeting.id)
+                .filter(
+                  (version) =>
+                    version.status === "pending_confirm" &&
+                    (version.content ?? "").trim() !== "",
+                )
+                .sort((left, right) => right.version - left.version)[0];
+              if (pending !== undefined) {
+                minutesSummary = pending.content.trim();
+                minutesSource = "pending_confirm";
+              }
             }
           } catch {
-            minutesSummary = "";
+            minutesSource = "none";
+          }
+        }
+        if (minutesSource === "none") {
+          const agentService = this.deps.agents?.();
+          if (agentService !== undefined) {
+            try {
+              const run = agentService
+                .runs({
+                  workspaceId: workspace.id,
+                  instanceId: meeting.id,
+                  nodeId: MEETING_MINUTES_NODE_ID,
+                })
+                .filter((candidate) => candidate.source === "meeting")
+                .sort((left, right) =>
+                  right.createdAt.localeCompare(left.createdAt),
+                )[0];
+              if (run?.status === "succeeded") {
+                const text = (run.output?.summary ?? "").trim();
+                if (text !== "") {
+                  minutesSummary = text;
+                  minutesSource = "legacy_run";
+                }
+              }
+            } catch {
+              minutesSummary = "";
+            }
           }
         }
         const fallbackSummary =
           meeting.summary === undefined
             ? ""
             : clip(summarizeSentences(meeting.summary, 2).join(" "), 180);
+        if (minutesSummary === "" && fallbackSummary !== "")
+          minutesSource = "close_summary";
+        const closedStatus =
+          meeting.status === "closed" || meeting.status === "archived";
+        // 纪要是结构化 MD；卡片只展示纯文本摘要，去掉标题与列表标记。
+        const minutesPlain = minutesSummary
+          .replace(/^#{1,6}\s*/gm, "")
+          .replace(/^\s*[-*]\s*/gm, "")
+          .replace(/\s+/g, " ")
+          .trim();
         items.push({
           id: meeting.id,
           title: meeting.title,
           summaryText:
             minutesSummary === ""
               ? fallbackSummary
-              : clip(minutesSummary.replace(/\s+/g, " "), 180),
-          status: meeting.status,
-          statusLabel: meeting.status === "closed" ? "已散会" : "进行中",
+              : clip(minutesPlain, 180),
+          status: closedStatus ? "closed" : "active",
+          statusLabel: closedStatus ? "已散会" : "进行中",
           workspaceId: workspace.id,
           workspaceName: this.workspaceName(workspace),
           participantCount: participants.length,
           otherParticipantCount,
           agents,
           updatedAt: meeting.updatedAt,
-          aiSummary: minutesSummary !== "",
+          minutesSource,
+          minutesPending: minutesSource === "pending_confirm",
+          aiSummary:
+            minutesSource === "confirmed" ||
+            minutesSource === "pending_confirm" ||
+            minutesSource === "legacy_run",
           deepLink: {
             route: "meeting",
             refId: meeting.id,
@@ -1309,15 +1379,23 @@ export class WorkbenchService {
 
   /**
    * 历史条目可能还带着旧的 600 字截断，点开「展开全文」看不到后续内容。
-   * 条目仍在时按源 Run 的完整结论回填，让折叠/展开有真实差异。
+   * C 区条目身份已收敛到任务级（C:task:<taskId>），因此按该任务最新一次
+   * 源 Run 的完整结论回填，让折叠/展开有真实差异。
    */
   private refreshStoredConclusion(
     item: BriefItemRecord,
     snapshot: BriefDataSnapshot,
   ): BriefItemRecord {
-    const prefix = "C:run:";
+    const prefix = "C:task:";
     if (!item.itemId.startsWith(prefix)) return item;
-    const run = snapshot.runs.get(item.itemId.slice(prefix.length));
+    const task = snapshot.tasks.byId.get(item.itemId.slice(prefix.length));
+    const run =
+      task === undefined
+        ? undefined
+        : [...task.agentRunIds]
+            .map((runId) => snapshot.runs.get(runId))
+            .filter((candidate): candidate is AgentRunLike => candidate !== undefined)
+            .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
     const summary = run?.output?.summary?.trim() ?? "";
     if (summary === "") return item;
     const conclusion = clip(summary, 4_000);
@@ -1325,7 +1403,6 @@ export class WorkbenchService {
     return {
       ...item,
       conclusion,
-      tag: progressLikeConclusion(conclusion) ? "progress" : "conclusion",
     };
   }
 
@@ -1377,6 +1454,88 @@ export class WorkbenchService {
       });
     }
     return [...passthrough, ...merged.values()];
+  }
+
+  /**
+   * C 区条目身份统一到任务级（`C:task:<taskId>`）。
+   *
+   * 早期按 run 生成 `C:run:<runId>`：同一任务重跑一次就会留下两条「待验收」条目，
+   * 而条目的生命周期其实是任务级的（验收一次即闭环），用户会看到
+   * 「只处理了一条，未读却掉了两条」。这里把历史条目折算到任务级并去重。
+   */
+  private migrateLegacyConclusionItems(
+    items: readonly BriefItemRecord[],
+    snapshot: BriefDataSnapshot,
+  ): BriefItemRecord[] {
+    const merged = new Map<string, BriefItemRecord>();
+    const passthrough: BriefItemRecord[] = [];
+    for (const item of items) {
+      const targetId = this.conclusionItemId(item, snapshot);
+      if (targetId === undefined) {
+        passthrough.push(item);
+        continue;
+      }
+      // 待验收条目统一用「待我验收」标签，历史条目一并纠正。
+      const normalized = {
+        ...item,
+        itemId: targetId,
+        tag: "review" as const,
+        condition: {
+          ...item.condition,
+          kind: "task-review" as const,
+          refId: targetId.slice("C:task:".length),
+        },
+      };
+      const prior = merged.get(targetId);
+      if (prior === undefined) {
+        merged.set(targetId, normalized);
+        continue;
+      }
+      // 保留较新的那条结论；已读状态只要有一条未读就算未读。
+      const newer =
+        normalized.occurredAt >= prior.occurredAt ? normalized : prior;
+      const readState =
+        prior.readState === "unread" || normalized.readState === "unread"
+          ? "unread"
+          : "read";
+      const readAt = prior.readAt ?? normalized.readAt;
+      const readVia = prior.readVia ?? normalized.readVia;
+      merged.set(targetId, {
+        ...newer,
+        readState,
+        ...(readState === "read" && readAt !== undefined ? { readAt } : {}),
+        ...(readState === "read" && readVia !== undefined ? { readVia } : {}),
+        priorityScore: Math.max(prior.priorityScore, normalized.priorityScore),
+        occurredAt:
+          prior.occurredAt > normalized.occurredAt
+            ? prior.occurredAt
+            : normalized.occurredAt,
+        createdAt:
+          prior.createdAt < normalized.createdAt
+            ? prior.createdAt
+            : normalized.createdAt,
+        updatedAt:
+          prior.updatedAt > normalized.updatedAt
+            ? prior.updatedAt
+            : normalized.updatedAt,
+      });
+    }
+    return [...passthrough, ...merged.values()];
+  }
+
+  /** 结论类条目的任务级身份；已迁移过的直接返回自身。 */
+  private conclusionItemId(
+    item: BriefItemRecord,
+    snapshot: BriefDataSnapshot,
+  ): string | undefined {
+    if (item.section !== "conclusion") return undefined;
+    if (item.itemId.startsWith("C:task:")) return item.itemId;
+    const prefix = "C:run:";
+    if (!item.itemId.startsWith(prefix)) return undefined;
+    const run = snapshot.runs.get(item.itemId.slice(prefix.length));
+    const taskId = run?.instanceId ?? item.condition.refId;
+    if (taskId === undefined || taskId === "") return undefined;
+    return `C:task:${taskId}`;
   }
 
   private aggregateTargetFor(
@@ -1927,9 +2086,13 @@ export class WorkbenchService {
           ? snapshot.instances.get(run.instanceId)
           : undefined;
       candidates.push({
-        itemId: `C:run:${run.id}`,
+        // 条目身份按任务收敛：同一任务重跑只保留一条待验收结论，
+        // 否则验收一次会让多条重复条目同时闭环。
+        itemId: `C:task:${task.id}`,
         section: "conclusion",
-        tag: progressLikeConclusion(conclusion) ? "progress" : "conclusion",
+        // 待验收是任务级状态：标签固定「待我验收」，与右侧「前往验收」按钮一一对应，
+        // 不再按结论文本里是否出现「完成」来猜（那会让标签与按钮打架）。
+        tag: "review",
         title: task.title,
         conclusion,
         reason: `入选原因：任务 ${task.id}「${task.title}」已由 ${executor.name} 完成并进入待验收，你是它的责任人${
@@ -2017,9 +2180,10 @@ export class WorkbenchService {
       snapshot,
     );
     const stored = this.readerItems(principal.userId);
-    const existing = this.migrateLegacyRiskItems(stored, snapshot).map(
-      (item) => this.refreshStoredConclusion(item, snapshot),
-    );
+    const existing = this.migrateLegacyConclusionItems(
+      this.migrateLegacyRiskItems(stored, snapshot),
+      snapshot,
+    ).map((item) => this.refreshStoredConclusion(item, snapshot));
     const override = new Map(
       candidates.map((candidate) => [
         candidate.itemId,
@@ -2253,7 +2417,7 @@ export interface TodoItemPayload {
 }
 
 export interface FocusItemPayload {
-  kind: "task" | "workflow";
+  kind: "task" | "workflow" | "meeting";
   id: string;
   /** 展示用编号：任务为 TSK-…，工作流为 WF-XXXXXX 短码。 */
   displayId: string;
@@ -2273,7 +2437,11 @@ export interface FocusItemPayload {
   summary: string;
   /** 这条为什么算已关注：直接关注或工作流 / 项目覆盖来源。 */
   coveredBy: FollowCoverRef[];
-  deepLink: { route: "task" | "workflow"; refId: string; workspaceId: string };
+  deepLink: {
+    route: "task" | "workflow" | "meeting";
+    refId: string;
+    workspaceId: string;
+  };
 }
 
 export interface MeetingMinutesPayload {
@@ -2301,6 +2469,20 @@ export interface MeetingMinutesPayload {
     isHost: boolean;
   }[];
   updatedAt: string;
+  /**
+   * Where `summaryText` came from. The convergence order is:
+   * `confirmed` -> `pending_confirm` -> `legacy_run` -> `close_summary` -> `none`.
+   */
+  minutesSource:
+    | "confirmed"
+    | "pending_confirm"
+    | "legacy_run"
+    | "close_summary"
+    | "none";
+  /** True when `summaryText` is an unconfirmed agenda version. */
+  minutesPending: boolean;
+  /** Backward-compatible flag: the summary came from AI minutes (any source
+   * except the hand-written close summary). */
   aiSummary: boolean;
   deepLink: { route: "meeting"; refId: string; workspaceId: string };
 }
@@ -2334,10 +2516,3 @@ function workflowStatusLabel(status: WorkflowInstanceLike["status"]): string {
   }
 }
 
-/**
- * C 区展示用标签：交付物摘要是「完成 / 已同步」类状态陈述时标为进展，
- * 否则按结论呈现。两条都由来源数据决定，不调用模型。
- */
-function progressLikeConclusion(summary: string): boolean {
-  return /(完成|已同步|已生成|已核实|已确认|已提交|已补全)/.test(summary);
-}

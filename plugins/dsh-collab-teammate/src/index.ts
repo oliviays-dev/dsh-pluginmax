@@ -649,6 +649,103 @@ export function calculateTeammateActivity(input: {
   });
 }
 
+function runActivityAt(run: ActivityRun): string {
+  return run.endedAt ?? run.updatedAt ?? run.startedAt ?? run.createdAt;
+}
+
+function laterTimestamp(
+  current: string | undefined,
+  candidate: string | undefined,
+): string | undefined {
+  if (candidate === undefined) return current;
+  if (Number.isNaN(new Date(candidate).getTime())) return current;
+  if (current === undefined) return candidate;
+  return candidate > current ? candidate : current;
+}
+
+/**
+ * 运行态列表的"最近使用"口径（instance scope）：取以下时间的最大值——
+ * 1. 实例自身的编辑时间（`updatedAt`）；
+ * 2. 绑定到该实例的运行（按 receiverId 派发的任务所命中的 run，以及
+ *    `run.employeeId` 直接匹配的 run）最近一次活动时间；
+ * 3. 该实例以 Agent 身份参与会议的最新进出时间。
+ * 用于「同状态内按最近使用优先」的排序，纯函数便于单测。
+ */
+export function calculateInstanceLastUsedAt(input: {
+  readonly teammates: readonly {
+    readonly id: string;
+    readonly employeeId?: string | undefined;
+    readonly updatedAt: string;
+  }[];
+  readonly tasks: readonly TaskRecordLike[];
+  readonly agents?: Pick<AgentServiceLike, "runs"> | undefined;
+  readonly meetings?: MeetingActivityLike | undefined;
+  readonly workspaces?: WorkspaceRegistryLike | undefined;
+}): Map<string, string> {
+  const workspaces = input.workspaces?.list() ?? [];
+  const workspaceIds = new Set(workspaces.map((item) => item.id));
+  for (const task of input.tasks) workspaceIds.add(task.workspaceId);
+  const runsByWorkspace = new Map<string, readonly ActivityRun[]>();
+  for (const workspaceId of workspaceIds) {
+    runsByWorkspace.set(
+      workspaceId,
+      (input.agents?.runs?.({ workspaceId }) ?? []) as readonly ActivityRun[],
+    );
+  }
+  const result = new Map<string, string>();
+  for (const teammate of input.teammates) {
+    let latest: string | undefined = teammate.updatedAt;
+    const receiverIds = new Set<string>([teammate.id]);
+    if (teammate.employeeId !== undefined) {
+      receiverIds.add(teammate.employeeId);
+    }
+    // 派发给该实例的任务：沿任务命中的 run 记录取最近活动时间。
+    for (const task of input.tasks) {
+      if (task.receiverType !== "agent" || task.receiverId === undefined) {
+        continue;
+      }
+      if (!receiverIds.has(task.receiverId)) continue;
+      const instanceId = task.workflow?.instanceId ?? task.id;
+      for (const run of runsByWorkspace.get(task.workspaceId) ?? []) {
+        if (run.instanceId !== instanceId) continue;
+        if (
+          task.workflow !== undefined &&
+          run.nodeId !== task.workflow.nodeId
+        ) {
+          continue;
+        }
+        latest = laterTimestamp(latest, runActivityAt(run));
+      }
+    }
+    // 以数字员工身份执行的 run（不依赖任务记录）。
+    if (teammate.employeeId !== undefined) {
+      for (const runs of runsByWorkspace.values()) {
+        for (const run of runs) {
+          if (run.employeeId !== teammate.employeeId) continue;
+          latest = laterTimestamp(latest, runActivityAt(run));
+        }
+      }
+    }
+    // 会议参会记录。
+    for (const workspace of workspaces) {
+      for (const meeting of input.meetings?.list(workspace.id) ?? []) {
+        for (const participant of
+          input.meetings?.participants(meeting.id) ?? []) {
+          if (participant.kind !== "agent") continue;
+          if (!receiverIds.has(participant.refId)) continue;
+          latest = laterTimestamp(
+            latest,
+            participant.leftAt ?? participant.updatedAt,
+          );
+          latest = laterTimestamp(latest, participant.joinedAt);
+        }
+      }
+    }
+    if (latest !== undefined) result.set(teammate.id, latest);
+  }
+  return result;
+}
+
 function requestHeader(
   request: IncomingMessage,
   key: string,
@@ -1183,6 +1280,76 @@ export function createTeammateRoutes(
     }
     return result;
   };
+  /**
+   * 明细类接口的统一读取口径：实例 owner、平台实例（团队共享）、平台管理员，
+   * 以及在任务/会议中与该实例共同参与的协作方可以读取；其余登录用户拒绝。
+   */
+  const canReadTeammate = (
+    actor: TeammateActor,
+    teammate: Teammate,
+    identity: TeamServiceLike,
+  ): boolean => {
+    if (actor.role === "admin") return true;
+    if (teammate.ownerUserId === actor.userId) return true;
+    if (
+      (service.templateOf(teammate)?.source ?? teammate.source) === "platform"
+    ) {
+      return true;
+    }
+    const receiverIds = new Set<string>([teammate.id]);
+    if (teammate.employeeId !== undefined) {
+      receiverIds.add(teammate.employeeId);
+    }
+    // 任务协作：在该实例可见的工作区里，actor 创建/派发过指派给它的任务。
+    const collected = collectAccessibleTasks({
+      team: identity,
+      actor,
+      tasks: tasks(),
+      workspaces: workspaces(),
+    });
+    for (const task of collected) {
+      if (task.receiverType !== "agent" || task.receiverId === undefined) {
+        continue;
+      }
+      if (!receiverIds.has(task.receiverId)) continue;
+      const createdBy = (task as { readonly createdBy?: string | undefined })
+        .createdBy;
+      if (createdBy === actor.userId) return true;
+    }
+    // 会议协作：与实例同场参会的成员。
+    const meetingService = meetings?.();
+    if (meetingService !== undefined) {
+      for (const workspaceId of accessibleWorkspaceIds(actor, identity)) {
+        for (const meeting of meetingService.list(workspaceId)) {
+          const participants = meetingService.participants(meeting.id);
+          const teammateIn = participants.some(
+            (participant) =>
+              participant.kind === "agent" &&
+              receiverIds.has(participant.refId),
+          );
+          if (!teammateIn) continue;
+          const actorIn = participants.some(
+            (participant) =>
+              participant.kind === "human" &&
+              participant.refId === actor.userId,
+          );
+          if (actorIn) return true;
+        }
+      }
+    }
+    return false;
+  };
+  const requireReadableTeammate = (
+    request: IncomingMessage,
+  ): { actor: TeammateActor; teammate: Teammate } => {
+    const actor = requirePrincipal(request, requireTeam());
+    const identity = requireTeam();
+    const teammate = service.get(query(request).get("teammateId") ?? "");
+    if (!canReadTeammate(actor, teammate, identity)) {
+      throw new TeammateError("forbidden", "无权查看该 Teammate 的详细数据");
+    }
+    return { actor, teammate };
+  };
   const requireTeammateTemplates = (): TeammateTemplateService => {
     if (teammateTemplates === undefined) {
       throw new TeammateError("not_found", "AI Teammate 模版服务不可用");
@@ -1199,8 +1366,24 @@ export function createTeammateRoutes(
           methods("GET", request);
           const actor = requirePrincipal(request, requireTeam());
           await runBeforeList();
-          const teammates = service.listInstances();
+          const scopeParam = query(request).get("scope");
           const identity = requireTeam();
+          const accessibleTasks = collectAccessibleTasks({
+            team: identity,
+            actor,
+            tasks: tasks(),
+            workspaces: workspaces(),
+          });
+          const teammates = service.listInstances(actor, {
+            scope: scopeParam === "all" ? "all" : "mine",
+            lastUsedAt: calculateInstanceLastUsedAt({
+              teammates: service.list(),
+              tasks: accessibleTasks,
+              agents: agentRuns?.(),
+              meetings: meetings?.(),
+              workspaces: workspaces(),
+            }),
+          });
           const liveInstanceCounts = await teammateRuntime?.liveInstanceCounts(
             actor.userId,
           );
@@ -1213,12 +1396,7 @@ export function createTeammateRoutes(
             ),
             runningTeammateIds: runningTeammateIds({
               teammates,
-              tasks: collectAccessibleTasks({
-                team: identity,
-                actor,
-                tasks: tasks(),
-                workspaces: workspaces(),
-              }),
+              tasks: accessibleTasks,
             }),
           });
         }, response),
@@ -1275,9 +1453,7 @@ export function createTeammateRoutes(
       handler: (request, response) =>
         runHandler(async () => {
           methods("GET", request);
-          requirePrincipal(request, requireTeam());
-          const teammateId = query(request).get("teammateId") ?? "";
-          const teammate = service.get(teammateId);
+          const { teammate } = requireReadableTeammate(request);
           const instance = service.viewOf(teammate);
           sendJson(response, 200, {
             ok: true,
@@ -1432,7 +1608,7 @@ export function createTeammateRoutes(
           ) {
             throw new TeammateError(
               "conflict",
-              "任务或工作区服务不可用，无法归档运行态实例",
+              "任务或工作区服务不可用，无法归档运行态 Teammate",
             );
           }
           const owner = requireTeam()
@@ -1469,12 +1645,11 @@ export function createTeammateRoutes(
       handler: (request, response) =>
         runHandler(async () => {
           methods("GET", request);
-          requirePrincipal(request, requireTeam());
-          const teammateId = query(request).get("teammateId") ?? "";
+          const { teammate } = requireReadableTeammate(request);
           const identity =
             teammateRuntime === undefined
               ? undefined
-              : await teammateRuntime.identityOf(teammateId);
+              : await teammateRuntime.identityOf(teammate.id);
           sendJson(response, 200, { ok: true, identity: identity ?? null });
         }, response),
     },
@@ -1517,8 +1692,7 @@ export function createTeammateRoutes(
       handler: (request, response) =>
         runHandler(async () => {
           methods("GET", request);
-          const actor = requirePrincipal(request, requireTeam());
-          const teammate = service.get(query(request).get("teammateId") ?? "");
+          const { actor, teammate } = requireReadableTeammate(request);
           const registry = workspaces();
           const collected = tasksForTeammate(
             teammate,
@@ -1600,8 +1774,7 @@ export function createTeammateRoutes(
       handler: (request, response) =>
         runHandler(async () => {
           methods("GET", request);
-          const actor = requirePrincipal(request, requireTeam());
-          const teammate = service.get(query(request).get("teammateId") ?? "");
+          const { actor, teammate } = requireReadableTeammate(request);
           const registry = workspaces();
           const taskService = tasks();
           const collected = tasksForTeammate(
@@ -1748,9 +1921,8 @@ export function createTeammateRoutes(
       handler: (request, response) =>
         runHandler(async () => {
           methods("GET", request);
-          requirePrincipal(request, requireTeam());
-          const teammateId = query(request).get("teammateId") ?? "";
-          service.get(teammateId);
+          const { teammate } = requireReadableTeammate(request);
+          const teammateId = teammate.id;
           const reports = requireReportRuntime().reports.query({
             teammateId,
             from: query(request).get("from") ?? undefined,
@@ -1773,7 +1945,10 @@ export function createTeammateRoutes(
           const teammate = service.get(input.teammateId);
           // 工作日报是实例的产出：实例 owner 或平台管理员可以更新。
           if (!canManageInstance(teammate, actor)) {
-            throw new TeammateError("forbidden", "没有权限更新该实例的工作日报");
+            throw new TeammateError(
+              "forbidden",
+              "没有权限更新该 Teammate 的工作日报",
+            );
           }
           const reportDate = input.reportDate ?? localDateString();
           const contextOwner = requireReportRuntime();
@@ -1871,9 +2046,8 @@ export function createTeammateRoutes(
       handler: (request, response) =>
         runHandler(async () => {
           methods("GET", request);
-          requirePrincipal(request, requireTeam());
-          const teammateId = query(request).get("teammateId") ?? "";
-          service.get(teammateId);
+          const { teammate } = requireReadableTeammate(request);
+          const teammateId = teammate.id;
           const limitText = query(request).get("limit") ?? "";
           const limit =
             limitText === "" ? undefined : Number.parseInt(limitText, 10);
@@ -1982,6 +2156,7 @@ export async function apply(ctx: TeammateContext): Promise<void> {
   const reportRuntime = new WorkReportRuntime({
     subagents: () => ctx.get("subagents"),
     agents: () => ctx.agents,
+    personas: () => ctx.get("collabPersonas"),
     defaultModel: () => ctx.agentDefaultModel,
   });
   const reportContext: TeammateWorkReportRuntimeContext = {

@@ -13,7 +13,9 @@ import {
   type AgentSessionTitleLike,
   type AgentWorkflowHandler,
   type AgentsRegistryLike,
+  type AgentSetupContextLike,
   type ExternalAgentRuntime,
+  type PersonaServiceLike,
   type SubagentsRuntimeLike,
   type WebRouteLike,
   type WorkspaceRegistryLike,
@@ -103,9 +105,44 @@ function fakeSubagents() {
   return { runs, runtime };
 }
 
-function fakeAgents() {
+interface PromptSectionSink {
+  readonly sections: Array<{ name: string; order: number; text: string }>;
+}
+
+function fakeAgents(sink?: PromptSectionSink) {
   return {
-    create: async ({ sessionId }: { sessionId: string }) => {
+    create: async ({
+      sessionId,
+      setup,
+    }: {
+      sessionId: string;
+      setup?: (ctx: AgentSetupContextLike) => Promise<void> | void;
+    }) => {
+      if (setup !== undefined) {
+        const ctx = {
+          tools: { restrict: () => undefined, get: () => undefined },
+          get: (key: string) => {
+            if (key === "agentPresets") {
+              return { mount: async () => undefined };
+            }
+            if (key === "systemPrompt") {
+              return {
+                section: (section: {
+                  name: string;
+                  order: number;
+                  text: string;
+                }) => {
+                  sink?.sections.push({ ...section });
+                  return () => undefined;
+                },
+                getSectionOrder: () => 7,
+              };
+            }
+            return undefined;
+          },
+        } as unknown as AgentSetupContextLike;
+        await setup(ctx);
+      }
       const events: Array<{ type: string; data?: unknown }> = [];
       return {
         agent: {
@@ -183,6 +220,7 @@ function harness(
     sessionPersistence?: AgentSessionPersistenceLike;
     sessionTitle?: AgentSessionTitleLike;
     agents?: () => AgentsRegistryLike;
+    personas?: () => PersonaServiceLike | undefined;
   } = {},
 ): Harness {
   const current = tables();
@@ -201,6 +239,7 @@ function harness(
     tables: current,
     subagents: () => subagents.runtime,
     agents: options.agents ?? fakeAgents,
+    ...(options.personas === undefined ? {} : { personas: options.personas }),
     ...(options.workspaces === undefined
       ? {}
       : { workspaces: () => options.workspaces }),
@@ -677,6 +716,98 @@ describe("agent task runtime", () => {
       { timeout: 1_000, interval: 20 },
     );
     expect(service.run(run.id)?.sessionId).toBe(sessionId);
+  });
+
+  it("recreates a task session when the recorded one is gone from disk", async () => {
+    const sessionId = "de-task-TSK-MV827GO0-8326-digital-e386906a";
+    const resumed: string[] = [];
+    const created: string[] = [];
+    const fallback = fakeAgents();
+    const { service, runtime } = harness({
+      now,
+      // 会话「登记过」，但产物已经被外部清理掉。
+      sessionPersistence: {
+        stat: async () => ({ header: { id: sessionId }, revision: "r1" }),
+      },
+      agents: () => ({
+        create: async (options) => {
+          created.push(options.sessionId);
+          return await fallback.create(options);
+        },
+        resume: async ({ resumeSessionId }) => {
+          resumed.push(resumeSessionId);
+          const error = new Error(
+            `ENOENT: no such file or directory, open '/tmp/sessions/${resumeSessionId}/session.v2.jsonl.zstd'`,
+          ) as NodeJS.ErrnoException;
+          error.code = "ENOENT";
+          throw error;
+        },
+      }),
+    });
+    await createProfile(service);
+    const run = await service.dispatch(
+      dispatchInput({
+        source: "task",
+        employeeId: "digital-e386906a",
+        workspacePath: "/tmp/pluginmax-workspace",
+        instanceId: "TSK-MV827GO0-8326",
+        nodeId: "task",
+        dispatchKey: "task:TSK-MV827GO0-8326:1",
+      }),
+    );
+    await runtime.waitIdle();
+
+    expect(resumed).toEqual([sessionId]);
+    expect(created).toEqual([sessionId]);
+    expect(service.run(run.id)).toMatchObject({
+      status: "succeeded",
+      sessionId,
+    });
+  });
+
+  it("fails the round when the session log disappears mid-run", async () => {
+    const sessionId = "de-task-TSK-MV827GO0-8326-digital-e386906a";
+    let stats = 0;
+    const fallback = fakeAgents();
+    const { service, runtime } = harness({
+      now,
+      // 第一次探测（决定 create/resume）返回快照，之后产物消失。
+      sessionPersistence: {
+        stat: async () => {
+          stats += 1;
+          return stats === 1
+            ? { header: { id: sessionId }, revision: "r1", sizeBytes: 64 }
+            : undefined;
+        },
+      },
+      agents: () => ({
+        create: async (options) => await fallback.create(options),
+        resume: async ({ resumeSessionId }) => {
+          const handle = await fallback.create({
+            sessionId: resumeSessionId,
+          });
+          return handle;
+        },
+      }),
+    });
+    await createProfile(service);
+    const run = await service.dispatch(
+      dispatchInput({
+        source: "task",
+        employeeId: "digital-e386906a",
+        workspacePath: "/tmp/pluginmax-workspace",
+        instanceId: "TSK-MV827GO0-8326",
+        nodeId: "task",
+        dispatchKey: "task:TSK-MV827GO0-8326:1",
+      }),
+    );
+    await runtime.waitIdle();
+
+    const saved = service.run(run.id)!;
+    // 不能把「日志已经没了」的轮次当成成功写回任务。
+    expect(saved.status).toBe("failed");
+    expect(saved.error).toContain("会话日志已丢失");
+    expect(saved.output?.summary).toBe("home session response");
   });
 
   it("gives every task its own session for the same DE", async () => {
@@ -1166,9 +1297,11 @@ describe("agent task runtime", () => {
     expect(subagents.runs[0]!.spec.prompt[0]!.text).toContain(
       "不要先输出计划、推理、检查步骤或工具调用",
     );
+    // 空清单 = 不限制：提示词不再声称「没有工具」，也不下发 toolFilter。
     expect(subagents.runs[0]!.spec.prompt[0]!.text).toContain(
-      "本任务没有可用工具",
+      "本任务不限制可用工具",
     );
+    expect(subagents.runs[0]!.spec.toolFilter).toBeUndefined();
     subagents.runs[0]!.outcome = {
       output: [
         {
@@ -1186,6 +1319,68 @@ describe("agent task runtime", () => {
     expect(saved.settleDelivered).toBe(true);
     expect(onSettled).toHaveBeenCalledTimes(1);
     expect(settled.map((run) => run.status)).toEqual(["succeeded"]);
+  });
+
+  it("narrows the tool set only when the profile configures tools", async () => {
+    const { service, subagents } = harness({ now });
+    service.bindWorkflow({ onSettled: () => undefined });
+    await createProfile(service, { allowedTools: ["read", "write"] });
+    await service.dispatch(
+      dispatchInput({
+        employeeId: "backend-01",
+        principalType: "digital-employee",
+        ticketId: "ticket-1",
+      }),
+    );
+    await vi.waitFor(() => expect(subagents.runs.length).toBe(1));
+    expect(subagents.runs[0]!.spec.toolFilter).toEqual({
+      allow: ["read", "write"],
+    });
+    expect(subagents.runs[0]!.spec.prompt[0]!.text).toContain(
+      "只能使用这些工具：read、write",
+    );
+  });
+
+  it("passes the SOUL text, not the persona id, to subagent workers", async () => {
+    const { service, runtime, subagents } = harness({
+      personas: () => ({
+        get: async () => ({ soul: "SOUL-BODY-ABC" }),
+      }),
+    });
+    await createProfile(service);
+    await service.dispatch(dispatchInput({ personaId: "persona-tm-2" }));
+    await vi.waitFor(() => expect(subagents.runs.length).toBe(1));
+    // subagent 的 persona 参数是人设正文，传 id 只会把 identifier 注入系统提示。
+    expect(subagents.runs[0]!.spec.persona).toBe("SOUL-BODY-ABC");
+    subagents.runs[0]!.resolve();
+    await runtime.waitIdle();
+  });
+
+  it("injects the teammate SOUL into the built-in worker prompt", async () => {
+    const sink: PromptSectionSink = { sections: [] };
+    const { service, runtime } = harness({
+      agents: () => fakeAgents(sink),
+      personas: () => ({
+        get: async () => ({ soul: "SOUL-BODY-XYZ" }),
+      }),
+    });
+    await createProfile(service);
+    await service.dispatch(
+      dispatchInput({
+        source: "task",
+        personaId: "persona-tm-1",
+        workspacePath: "/tmp/pluginmax-workspace",
+        instanceId: "TSK-SOUL",
+        nodeId: "task",
+        dispatchKey: "task:TSK-SOUL:1",
+      }),
+    );
+    await runtime.waitIdle();
+    const soul = sink.sections.find(
+      (section) => section.name === "dsh-collab:teammate-soul",
+    );
+    expect(soul?.text).toContain("SOUL-BODY-XYZ");
+    expect(soul?.order).toBe(7);
   });
 
   it("runs meeting minutes with the fixed Chinese conclusion prompt", async () => {
@@ -1220,7 +1415,9 @@ describe("agent task runtime", () => {
     expect(prompt).toContain("会议：周会");
     expect(prompt).toContain("对齐 R4 进度");
     expect(prompt).toContain("替代产能锁定在 11 月底");
-    expect(prompt).toContain("用中文输出 1-2 句关键结论");
+    expect(prompt).toContain("用中文 Markdown 输出一份结构化会议纪要");
+    expect(prompt).toContain("## 结论");
+    expect(prompt).toContain("## 行动项");
     subagents.runs[0]!.outcome = {
       output: [{ type: "text", text: "替代产能锁定在 11 月底；风险已确认。" }],
       stopReason: "completed",

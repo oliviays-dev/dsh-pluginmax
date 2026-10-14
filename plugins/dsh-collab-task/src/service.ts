@@ -6,6 +6,7 @@ import {
   taskRecordSchema,
   taskReplySchema,
   taskMessageSchema,
+  taskMentionSchema,
   taskStepSchema,
   taskStatusSchema,
   type TaskRecord,
@@ -37,6 +38,12 @@ export interface TaskAgentRun {
   readonly id: string;
   readonly instanceId: string;
   readonly nodeId?: string | undefined;
+  /** 派发时写入的上下文：run 角色 / 执行者身份，结算回写时要用。 */
+  readonly payload?:
+    | {
+        readonly context?: Record<string, string | number | boolean>;
+      }
+    | undefined;
   readonly status:
     | "queued"
     | "running"
@@ -143,6 +150,7 @@ const statusInputSchema = z.object({
 const messageInputSchema = z.object({
   taskId: z.string().min(1).max(160),
   content: z.string().min(1).max(20000),
+  mentions: z.array(taskMentionSchema).max(20).default([]),
   attachments: z
     .array(
       z.object({
@@ -221,6 +229,18 @@ function requireOpen(task: TaskRecord): TaskRecord {
       "conflict",
       task.status === "cancelled" ? "任务已取消" : "任务已完成",
     );
+  }
+  return task;
+}
+
+/**
+ * 「追加要求并重开一轮」的入口条件：已完成的任务允许被追加指令 / 改写内容 /
+ * 重新指派，这些动作都表示还有下一轮要跑，所以会先重开为待处理；
+ * 取消态不可逆，归档态要先复原。
+ */
+function requireContinuable(task: TaskRecord): TaskRecord {
+  if (task.status === "cancelled") {
+    throw new TaskError("conflict", "任务已取消");
   }
   return task;
 }
@@ -355,6 +375,12 @@ export class TaskService {
 
   private async put(task: TaskRecord): Promise<TaskRecord> {
     const parsed = parseTask(task);
+    const stored = this.tables.tasks.get(parsed.id);
+    // 归属项目创建后不可变更：任务一旦落在某个项目上，任何写入都不许换项目
+    // （谁都不能把任务挪到别人的项目里，也不能靠改项目绕过项目权限）。
+    if (stored !== undefined && parseTask(stored).workspaceId !== parsed.workspaceId) {
+      throw new TaskError("conflict", "任务归属项目创建后不可变更");
+    }
     await this.tables.tasks.put(parsed.id, parsed);
     try {
       this.options.onChange?.(parsed);
@@ -518,7 +544,11 @@ export class TaskService {
 
   async update(actor: TaskActor, input: unknown): Promise<TaskRecord> {
     const parsed = parse(updateInputSchema, input);
-    const task = requireOpen(this.requireActive(this.require(parsed.taskId)));
+    // 已完成的任务允许追加/修改要求：这会重开一轮（见 requireContinuable）。
+    const task = requireContinuable(
+      this.requireActive(this.require(parsed.taskId)),
+    );
+    const reopened = task.status === "done";
     if (task.workflow !== undefined) {
       throw new TaskError("conflict", "工作流任务内容由工作流节点同步");
     }
@@ -533,6 +563,7 @@ export class TaskService {
       this.event(
         {
           ...task,
+          status: reopened ? "todo" : task.status,
           title: parsed.title,
           priority: parsed.priority,
           description: parsed.description,
@@ -549,7 +580,9 @@ export class TaskService {
         },
         actor,
         "updated",
-        `${actor.name} 更新了任务内容`,
+        reopened
+          ? `${actor.name} 追加要求，任务重新开启`
+          : `${actor.name} 更新了任务内容`,
       ),
     );
     return updated;
@@ -557,7 +590,11 @@ export class TaskService {
 
   async assign(actor: TaskActor, input: unknown): Promise<TaskRecord> {
     const parsed = parse(assignInputSchema, input);
-    const task = requireOpen(this.requireActive(this.require(parsed.taskId)));
+    // 已完成的任务被重新指派 = 还有人要接着做，重开一轮后继续。
+    const task = requireContinuable(
+      this.requireActive(this.require(parsed.taskId)),
+    );
+    const reopened = task.status === "done";
     if (
       task.workflow?.approvalPolicy !== undefined &&
       parsed.receiverType === "unassigned"
@@ -598,12 +635,17 @@ export class TaskService {
             parsed.receiverType === "unassigned"
               ? undefined
               : parsed.receiverName,
-          status: parsed.receiverType === "unassigned" ? "todo" : task.status,
+          status:
+            parsed.receiverType === "unassigned" || reopened
+              ? "todo"
+              : task.status,
           updatedAt: this.now(),
         },
         actor,
         "assigned",
-        `${actor.name} 调整责任人为 ${receiver}`,
+        reopened
+          ? `${actor.name} 重新开启任务并调整责任人为 ${receiver}`
+          : `${actor.name} 调整责任人为 ${receiver}`,
       ),
     );
     return updated;
@@ -1119,7 +1161,10 @@ export class TaskService {
 
   async addMessage(actor: TaskActor, input: unknown): Promise<TaskRecord> {
     const parsed = parse(messageInputSchema, input);
-    const task = requireOpen(this.requireActive(this.require(parsed.taskId)));
+    // 已完成的任务收到新指令 = 追加要求，重开一轮后交给执行人。
+    const task = requireContinuable(
+      this.requireActive(this.require(parsed.taskId)),
+    );
     if (task.workflow !== undefined) {
       throw new TaskError(
         "conflict",
@@ -1134,11 +1179,16 @@ export class TaskService {
       kind: actor.kind,
       content: parsed.content,
       attachments: parsed.attachments,
+      mentions: parsed.mentions,
     });
     const status =
-      actor.kind === "agent" && task.status === "todo"
-        ? "progress"
-        : task.status;
+      task.status === "done"
+        ? actor.kind === "agent"
+          ? "progress"
+          : "todo"
+        : actor.kind === "agent" && task.status === "todo"
+          ? "progress"
+          : task.status;
     const updated = this.event(
       {
         ...task,
@@ -1148,7 +1198,9 @@ export class TaskService {
       },
       actor,
       "message",
-      `${actor.name} 添加了执行消息`,
+      task.status === "done"
+        ? `${actor.name} 追加要求，任务重新开启`
+        : `${actor.name} 添加了执行消息`,
     );
     return this.put(updated);
   }
@@ -1178,14 +1230,24 @@ export class TaskService {
     run: TaskAgentRun,
     receiverName: string,
     handoff?: { readonly userId: string; readonly name: string } | undefined,
+    options?:
+      | {
+          /** owner=任务责任人本人的轮次；assist=被 @ 的协作方；fyi=只通知不执行。 */
+          readonly role?: "assist" | "fyi" | undefined;
+          readonly authorId?: string | undefined;
+          readonly authorName?: string | undefined;
+        }
+      | undefined,
   ): Promise<TaskRecord> {
     const task = this.require(taskIdValue);
+    const authorId = options?.authorId ?? task.receiverId ?? "agent";
+    const authorName = options?.authorName ?? receiverName;
     const existing = task.messages.find((message) => message.runId === run.id);
     const message = taskMessageSchema.parse({
       id: existing?.id ?? run.id,
       at: existing?.at ?? this.now(),
-      authorId: task.receiverId ?? "agent",
-      authorName: receiverName,
+      authorId,
+      authorName,
       kind: "agent",
       content:
         run.status === "succeeded"
@@ -1209,10 +1271,30 @@ export class TaskService {
         ? [...task.messages, message]
         : task.messages.map((item) => (item.runId === run.id ? message : item));
     const actor: TaskActor = {
-      id: task.receiverId ?? "agent",
-      name: receiverName,
+      id: authorId,
+      name: authorName,
       kind: "agent",
     };
+    if (options?.role !== undefined) {
+      // 协作方 / FYI 轮次只把反馈写回任务历史：不推进状态、不碰验收、
+      // 不因为别人家的产出把任务推进到待验收。
+      const collaborated = this.event(
+        {
+          ...task,
+          agentRunIds: task.agentRunIds.includes(run.id)
+            ? task.agentRunIds
+            : [...task.agentRunIds, run.id],
+          messages,
+          updatedAt: this.now(),
+        },
+        actor,
+        "message",
+        run.status === "succeeded"
+          ? `${authorName} 反馈了协作意见`
+          : `${authorName} 协作执行未完成`,
+      );
+      return this.put(collaborated);
+    }
     const isActive =
       task.archivedAt === undefined &&
       (task.status === "todo" || task.status === "progress");

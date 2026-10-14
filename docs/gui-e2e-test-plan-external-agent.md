@@ -429,3 +429,170 @@ EXT-GUI-09_enoent.png
 - Console / 请求响应：
 - 证据：
 ```
+
+---
+
+## 11. 本轮执行记录（2026-10-13）
+
+### 11.1 环境
+
+- 仓库：`/Users/oliviayang/Codex/一切皆插件/dsh-pluginmax`
+- 隔离 DSH_HOME：`.tmp/external-agent-gui-home`（本轮从零初始化）
+- 服务端口：`33119`
+- 项目（工作区）：`1001-外接agent测试`，`<WS_ID>` = `d17803a4-bc1d-44fc-b7dd-10f8f99d9aff`
+- 账号：`ext-admin`（admin / 项目 owner）、`ext-owner`（member / 项目 owner）、`ext-member`（member / 项目 member）
+- 运行时：`GUI-Codex-Fake`、`GUI-Plain-Text`、`GUI-Bad-Command`、`GUI-Empty-Output`
+- 任务：`TSK-MV6NKE38-6807`、`TSK-MV6NNM3W-9308`、`TSK-MV6NQL1G-3895`、`TSK-MV6NRR8B-5AE7`、`TSK-MV6NSJMX-60BE`
+
+### 11.2 结果汇总
+
+| 用例 | 结果 | 实际结果 | 缺陷编号 |
+| --- | --- | --- | --- |
+| EXT-GUI-01 | PASS | admin 空状态显示 `还没有外部 Agent 运行时。` 与 `注册运行时`；member 可查看列表但无 `注册运行时`/`探测`/`停用`/`启用`；服务端对 member 的 create/probe/update 均返回 403 | - |
+| EXT-GUI-02 | PASS | 注册 `GUI-Codex-Fake`，列表显示 `codex · codex-jsonl · 启用` 与完整 command/args；刷新后字段保留 | - |
+| EXT-GUI-03 | PASS | 注册 `GUI-Plain-Text`，显示 `command · plain-text · 启用` | - |
+| EXT-GUI-04 | PASS | `GUI-Plain-Text` 探测通过并在刷新后保留；`GUI-Bad-Command` 探测失败显示 `spawn ... ENOENT`；停用/启用状态与按钮切换正确 | - |
+| EXT-GUI-05 | PASS | 新增项目 B（`b7c1e2d3-0000-4a1b-9c2d-000000000002`）；ext-owner 仅属项目 B，打开外部 Agent 管理看不到项目 A 的运行时；ext-member 属项目 A 能看不能管；服务端对 member 的 create/probe/update 均 403；无项目账号显示 `请先加入一个项目` | BUG-EXT-GUI-20261013-05 |
+| EXT-BIND-01 | PASS（已修复） | 原为 BLOCKED；新增实例级“执行方式/外部 Agent 运行时”编辑器后可绑定并持久化 | BUG-EXT-GUI-20261013-01 |
+| EXT-GUI-06 | PASS | 外部 plain-text 任务闭环，执行记录含 `外部 Agent 已完成本地验证。`；任务进入 `待验收` | BUG-EXT-GUI-20261013-02 |
+| EXT-GUI-07 | PASS | 外部 codex-jsonl 任务闭环，最终消息含 `Codex 假实现已完成 GUI 验收任务，且满足最少字数要求。`；任务进入 `待验收`。中间进度 `外部 Agent 正在执行` 与 `gui-fake-thread-1` 为瞬时事件，页面不可事后查看（记录为 `UI 不可直接查看`） | - |
+| EXT-GUI-08 | PASS（步骤 1-11） | 导入 `external-agent-gate` 模板并替换 `agent-576c5c16` / `user:ext-admin`；实例启动后节点阻塞（agent 输出格式不合格）；外部 codex 运行成功并提交交付物后节点进入待人工 Review，未自动完成；退回并填写原因→交付物 `已退回`、节点回到待补交；补交→回到待 Review；点击完成→`已完成「开发」`。步骤 11：导入 `review-required:false` 模板后，交付物满足→实例 `completed` 自动完成；换空输出运行时无交付物→实例 `blocked`，节点提示 `补齐 1 项交付物后可完成`，未跳过门禁 | BUG-EXT-GUI-20261013-06 |
+| EXT-GUI-09 | PASS（F-01/F-02/F-03 的可见性部分） | 空输出运行失败显示 `Agent returned empty output`；停用运行时派发失败显示 `外部 Agent 运行时不存在或已停用`；探测 ENOENT 失败；均未被静默改写为成功 | BUG-EXT-GUI-20261013-03 |
+| EXT-GUI-10 | PASS | 1280/900/390px 均无横向溢出、无嵌套双滚动条；运行时卡片排版修复（BUG-04）；390px 宿主侧栏自动折叠（BUG-07）；刷新后运行时/探测/状态/绑定一致；Console 无未捕获异常（仅 dev 期 `SlotAssemblyError` boot-order 噪声）。步骤 4：实例切回 `内置执行` 后新任务走内置通道（模型自身输出），历史外部运行（`GUI-EXT-任务-Codex`）仍可查看。步骤 5：停用 `GUI-Plain-Text` 后新派发被阻止（`外部 Agent 运行时不存在或已停用`），历史记录保留；当前无归档入口 | BUG-EXT-GUI-20261013-04、BUG-EXT-GUI-20261013-07 |
+
+### 11.3 缺陷记录
+
+```markdown
+### BUG-EXT-GUI-20261013-01
+
+- 标题：外部 Agent 实例级绑定入口缺失（EXT-BIND-01 阻塞）
+- 前置用例：EXT-BIND-01
+- 账号 / 项目 / WS_ID：ext-admin / 1001-外接agent测试 / d17803a4-bc1d-44fc-b7dd-10f8f99d9aff
+- 运行时名称 / ID：GUI-Plain-Text / ext-6ee1f20c
+- Teammate 名称 / ID：会议 Facilitator
+- 操作步骤：运行态管理 > 打开实例详情 > 查找执行方式/外部运行时入口
+- 实际结果：实例详情只能编辑名称与描述；`人设定义` 只编辑模板，`/api/collab/teammates/update` 的 execution 分支不可达
+- 预期结果：实例级可选择“外部 Agent”并绑定启用运行时，保存后刷新保持
+- 原始诊断：无（GUI 缺口）
+- Console / 请求响应：无异常
+- 证据：修复前实例详情无可达绑定入口
+- 修复：`plugins/dsh-collab-teammate/client/index.js` 在实例编辑表单新增“执行方式/外部 Agent 运行时”选择器，走 `/api/collab/teammates/update` 写入 execution + externalRuntimeId，并在运行态显示执行方式徽标
+- 状态：已修复并回归通过
+```
+
+```markdown
+### BUG-EXT-GUI-20261013-02
+
+- 标题：外部 Teammate 首次派发因人类员工档案未同步而失败
+- 前置用例：EXT-GUI-06
+- 账号 / 项目 / WS_ID：ext-admin / 1001-外接agent测试 / d17803a4-bc1d-44fc-b7dd-10f8f99d9aff
+- 运行时名称 / ID：GUI-Plain-Text
+- Teammate 名称 / ID：会议 Facilitator
+- 任务或工作流实例：TSK-MV6NKE38-6807
+- 操作步骤：创建任务并派发给外部 Teammate
+- 实际结果：执行历史出现 `无法启动执行：当前操作者没有可用的员工档案，无法开通执行身份`；需先访问设置 > 员工 触发一次身份同步后才能执行
+- 预期结果：首次派发即应成功开通执行身份并运行外部 Agent
+- 原始诊断：`无法启动执行：当前操作者没有可用的员工档案，无法开通执行身份`
+- Console / 请求响应：无异常
+- 证据：任务 TSK-MV6NKE38-6807 执行历史
+- 修复：`plugins/dsh-collab-teammate/src/runtime.ts` 在派发前调用 `employees.syncIdentityUsers(deps.users())`，确保身份用户已落成人类员工档案
+- 状态：已修复；修复后从“未同步员工”的干净状态派发（TSK-MV6NNM3W-9308）自动执行成功并进入待验收
+```
+
+```markdown
+### BUG-EXT-GUI-20261013-03
+
+- 标题：外部 Agent 空输出失败诊断显示英文原文
+- 前置用例：EXT-GUI-09 / F-02
+- 账号 / 项目 / WS_ID：ext-admin / 1001-外接agent测试 / d17803a4-bc1d-44fc-b7dd-10f8f99d9aff
+- 运行时名称 / ID：GUI-Empty-Output
+- Teammate 名称 / ID：会议 Facilitator
+- 任务或工作流实例：TSK-MV6NRR8B-5AE7
+- 操作步骤：派发任务给绑定 `true` 命令的运行时
+- 实际结果：DE 执行过程与执行历史显示 `Agent returned empty output`
+- 预期结果：按方案显示中文，如 `外部 Agent 未返回可用的文本输出`
+- 原始诊断：`Agent returned empty output`
+- Console / 请求响应：无异常
+- 证据：任务 TSK-MV6NRR8B-5AE7 执行明细
+- 修复：`plugins/dsh-collab-agent/src/external.ts` 将空输出诊断改为 `外部 Agent 未返回可用的文本输出`，并同步更新 `external.test.ts`
+- 状态：已修复（单元测试通过；下次重启后生效）
+```
+
+### 11.4 待办
+
+1. `EXT-GUI-08` 工作流交付物/Review 门禁用例尚未执行，需补跑。
+2. 全部用例（EXT-GUI-01 ~ 10）已执行完成；唯一未提供的入口是运行时的「归档」（当前 GUI 只有新建/探测/启停）。
+3. 本轮七项缺陷（BUG-01 ~ BUG-07）均已修复；`EXT-GUI-05`、`EXT-GUI-08`（步骤 1-11）、`EXT-GUI-10`（步骤 1-5）已完成。
+
+```markdown
+### BUG-EXT-GUI-20261013-04
+
+- 标题：外部 Agent 运行时列表排版错乱（文字逐字换行）
+- 前置用例：EXT-GUI-10 / 外部 Agent 管理
+- 账号 / 项目 / WS_ID：ext-admin / 1001-外接agent测试 / d17803a4-bc1d-44fc-b7dd-10f8f99d9aff
+- 运行时名称 / ID：GUI-Bad-Command 等全部运行时卡片
+- Teammate 名称 / ID：-
+- 操作步骤：进入 AI Teammates > 外部 Agent 管理，观察运行时卡片
+- 实际结果：卡片内容被压缩到约 8px 宽，名称/命令/探测信息逐字竖排，按钮错位
+- 预期结果：卡片为整行布局，信息在左、操作按钮在右，正常换行
+- 原始诊断：运行时列表复用了侧栏 `.pmtm-profile-item` 的 `grid-template-columns:8px minmax(0,1fr)`（该网格原本为“状态圆点 + 文案”设计），但运行时卡片首列直接放正文，导致正文落入 8px 列
+- Console / 请求响应：无异常
+- 证据：修复前/后截图
+- 修复：`plugins/dsh-collab-teammate/client/index.js` 为运行时卡片新增 `.runtime` 修饰类与 `.pmtm-inline-sub` 样式（`grid-template-columns:minmax(0,1fr) auto`），并为 `.pmtm`/`.pmtm-head`/`.pmtm-tabs` 增加 `min-width:0` 与换行，消除小屏横向溢出
+- 状态：已修复并回归通过（默认视口、1440px、390px 均验证）
+```
+
+```markdown
+### BUG-EXT-GUI-20261013-05
+
+- 标题：无项目账号解析到不可访问的工作区，且账号切换残留管理状态
+- 前置用例：EXT-GUI-01 步骤 5 / EXT-GUI-05
+- 账号 / 项目 / WS_ID：ext-noproj（未加入任何项目）
+- 运行时名称 / ID：-
+- Teammate 名称 / ID：-
+- 操作步骤：以未加入任何项目的账号打开 AI Teammates > 外部 Agent 管理；以及在管理员与只读账号之间切换
+- 实际结果：未加入项目的账号沿用实例身份的工作区，得到 `还没有外部 Agent 运行时。` 而不是 `请先加入一个项目，再注册本机外部 Agent。`；账号切换后还会残留上一位管理员的 `注册运行时` 权限状态
+- 预期结果：无项目账号显示未加入项目提示且无提交表单；切换账号后权限与列表按当前用户重新判定
+- 原始诊断：服务端对无项目账号的列表请求返回 `workspace member role is required`，前端未按成员身份解析工作区
+- Console / 请求响应：403 `workspace member role is required`
+- 证据：ext-noproj 修复前后截图
+- 修复：`plugins/dsh-collab-teammate/client/index.js` 改为只在“已加入的工作区”中选择 `externalWorkspaceId`（`identity.workspaceId` 必须 `isMember`），并监听 `pluginmax:collab-token` 重置外部管理状态、用 epoch 强制重新解析
+- 状态：已修复并回归通过（admin / ext-owner / ext-noproj 之间切换验证）
+```
+
+```markdown
+### BUG-EXT-GUI-20261013-06
+
+- 标题：交付物“退回”依赖 window.prompt，无法填写原因/自动化
+- 前置用例：EXT-GUI-08 步骤 8
+- 账号 / 项目 / WS_ID：ext-admin / 1001-外接agent测试 / d17803a4-bc1d-44fc-b7dd-10f8f99d9aff
+- 运行时名称 / ID：GUI-Codex-Fake
+- Teammate 名称 / ID：会议 Facilitator
+- 任务或工作流实例：GUI-EXT-工作流门禁（external-agent-gate v1）
+- 操作步骤：在节点待 Review 时点击交付物的 `退回`
+- 实际结果：抛出 `Error: prompt() is not supported.`，退回不可用
+- 预期结果：可填写退回原因并退回
+- 原始诊断：`Error: prompt() is not supported.`
+- Console / 请求响应：未发起 reject 请求
+- 证据：退回前后节点状态
+- 修复：`plugins/dsh-collab-workflow/client/index.js` 用内联“退回原因”表单替换 `window.prompt`；同时把 `DeliverablePanel` 由函数式直调改为真正组件（`jsxRuntime.jsx`）以合法使用 hooks
+- 状态：已修复并回归通过（退回→已退回→补交→待 Review→完成）
+```
+
+```markdown
+### BUG-EXT-GUI-20261013-07
+
+- 标题：窄屏下宿主左侧栏不折叠导致主区不可用
+- 前置用例：EXT-GUI-10（390px）
+- 账号 / 项目 / WS_ID：ext-admin / 1001-外接agent测试 / d17803a4-bc1d-44fc-b7dd-10f8f99d9aff
+- 运行时名称 / ID：全部运行时卡片
+- Teammate 名称 / ID：-
+- 操作步骤：在 390px 宽度打开外部 Agent 管理
+- 实际结果：左侧栏仍占约 230px，主区仅剩约 78px，卡片文本严重挤压
+- 预期结果：窄屏默认收起左侧栏，主区可用
+- 原始诊断：`dsh-collab-shell` 的 `leftOpen` 固定为 `true`，无小屏自适应
+- Console / 请求响应：无异常
+- 证据：390px 修复前后截图
+- 修复：`plugins/dsh-collab-shell/client/index.js` 在 `window.innerWidth < 600` 时初始收起左侧栏
+- 状态：已修复并回归通过（390px 收成图标栏、主区约 270px；桌面 ≥600px 保持展开）
+```

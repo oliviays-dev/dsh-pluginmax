@@ -17,6 +17,18 @@ export const taskReceiverTypeSchema = z.enum([
 ]);
 export const taskActorKindSchema = z.enum(["human", "agent", "system"]);
 
+/**
+ * @ 提及的结构化记录：光有正文里的 `@名字` 文本没法可靠定位到人/实例
+ * （同名实例很常见），所以把被 @ 的目标连同类型一起存下来，
+ * 用于把上下文和文档分发给被 @ 的 Agent。
+ */
+export const taskMentionSchema = z.object({
+  kind: z.enum(["human", "agent", "role"]),
+  id: z.string().min(1).max(160),
+  name: z.string().min(1).max(200),
+});
+export type TaskMention = z.infer<typeof taskMentionSchema>;
+
 export const taskLinkSchema = z.object({
   type: z.enum(["meeting", "workflow"]),
   id: z.string().min(1).max(200),
@@ -82,6 +94,7 @@ export const taskMessageSchema = z.object({
   kind: taskActorKindSchema,
   content: z.string().min(1).max(20000),
   attachments: z.array(taskAttachmentSchema).default([]),
+  mentions: z.array(taskMentionSchema).default([]),
   runId: z.string().min(1).max(180).optional(),
   state: z
     .enum([

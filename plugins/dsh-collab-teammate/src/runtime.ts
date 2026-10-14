@@ -5,6 +5,7 @@ import {
   TeammateService,
   TeammateTemplateService,
   type TeammateActor,
+  type TeammateEffectiveDefinition,
 } from "./service.js";
 
 export interface PersonaServiceLike {
@@ -16,6 +17,8 @@ export interface PersonaServiceLike {
     readonly tags?: readonly string[] | undefined;
     readonly soul?: string | undefined;
   }): Promise<unknown>;
+  /** 模版里的 SOUL / 场景行为 / 工作目标变化后，回写人格文件。 */
+  updateSoul?(personaId: string, soul: string): Promise<unknown>;
 }
 
 export interface EmployeeServiceLike {
@@ -29,6 +32,10 @@ export interface EmployeeServiceLike {
     readonly personaId?: string | undefined;
     readonly managerEmployeeId?: string | undefined;
   }[];
+  /** 身份用户可能在插件启动后才创建，派发执行身份前需要重新同步人类员工档案。 */
+  syncIdentityUsers?(
+    users: readonly { readonly id: string; readonly name: string }[],
+  ): Promise<void>;
   getByAuthUserId(
     authUserId: string,
   ):
@@ -68,6 +75,8 @@ export interface EmployeeServiceLike {
       readonly name: string;
       readonly status?: "active" | "disabled" | undefined;
       readonly legacyAgentProfileId?: string | undefined;
+      /** 员工侧工具动作 id（形如 `tool:read`）；空数组表示未配置。 */
+      readonly allowedTools?: readonly string[] | undefined;
     },
   ): Promise<{
     readonly id: string;
@@ -119,6 +128,8 @@ export interface AgentServiceLike {
       readonly id: string;
       readonly name?: string | undefined;
       readonly globalRole?: "admin" | "owner" | "member" | "guest" | undefined;
+      readonly workspaceRole?: "owner" | "member" | "guest" | undefined;
+      readonly workspaceId?: string | undefined;
     },
     input: {
       readonly workspaceId: string;
@@ -130,6 +141,8 @@ export interface AgentServiceLike {
       readonly runtimeKind?:
         "task-worker" | "continuable-session" | "connector" | undefined;
       readonly visibility?: "workspace" | "platform" | undefined;
+      /** 允许的工具名；空数组 = 不限制（与模版「未限制工具清单」一致）。 */
+      readonly allowedTools?: readonly string[] | undefined;
     },
   ): Promise<{ readonly id: string }>;
   profiles?(workspaceId: string): readonly {
@@ -149,6 +162,8 @@ export interface AgentServiceLike {
       readonly id: string;
       readonly name?: string | undefined;
       readonly globalRole?: "admin" | "owner" | "member" | "guest" | undefined;
+      readonly workspaceRole?: "owner" | "member" | "guest" | undefined;
+      readonly workspaceId?: string | undefined;
     },
     input: {
       readonly workspaceId: string;
@@ -156,6 +171,7 @@ export interface AgentServiceLike {
       readonly status?: "active" | "disabled" | undefined;
       readonly execution?: "builtin" | "external" | undefined;
       readonly externalRuntimeId?: string | null | undefined;
+      readonly allowedTools?: readonly string[] | undefined;
     },
   ): Promise<{ readonly id: string; readonly status: string }>;
   runs?(input: {
@@ -270,6 +286,52 @@ const STATE_LABELS: Record<Teammate["state"], string> = {
 };
 
 const ACTIVE_AGENT_RUN_STATES = new Set(["queued", "running", "waiting_input"]);
+
+/** 工具清单规范化：去空、去重、保持书写顺序；空数组 = 不限制。 */
+function normalizeTools(tools: readonly string[]): string[] {
+  return [
+    ...new Set(tools.map((tool) => tool.trim()).filter((tool) => tool !== "")),
+  ];
+}
+
+/** 数字员工侧的工具动作 id 形如 `tool:read`，模版里填的是裸工具名。 */
+function toEmployeeToolActions(tools: readonly string[]): string[] {
+  return tools.map((tool) => (tool.startsWith("tool:") ? tool : `tool:${tool}`));
+}
+
+function sameTools(
+  left: readonly string[] | undefined,
+  right: readonly string[],
+): boolean {
+  const a = new Set(left ?? []);
+  const b = new Set(right);
+  if (a.size !== b.size) return false;
+  for (const item of a) {
+    if (!b.has(item)) return false;
+  }
+  return true;
+}
+
+/**
+ * 生效人格文件：SOUL.md 正文 + 「工作场景」「工作目标」两个章节。
+ * 场景行为 / 工作目标不再作为独立字段注入，统一并进 persona，运行时只有这一份口径。
+ */
+function effectiveSoul(definition: TeammateEffectiveDefinition): string {
+  const sections: string[] = [];
+  const base = definition.soul.trim();
+  if (base !== "") sections.push(base);
+  const list = (items: readonly string[]): string[] =>
+    items.map((item) => item.trim()).filter((item) => item !== "");
+  const scenarios = list(definition.scenarios);
+  if (scenarios.length > 0) {
+    sections.push(["## 工作场景", ...scenarios.map((item) => `- ${item}`)].join("\n"));
+  }
+  const goals = list(definition.goals);
+  if (goals.length > 0) {
+    sections.push(["## 工作目标", ...goals.map((item) => `- ${item}`)].join("\n"));
+  }
+  return sections.join("\n\n");
+}
 
 function personaIdFor(teammateId: string): string {
   return `persona-${teammateId.replace(/[^a-zA-Z0-9._-]/g, "-")}`.slice(0, 120);
@@ -725,7 +787,7 @@ export class TeammateRuntime {
     if (!canManageInstance(teammate, input.actor) && !input.canManageWorkspace) {
       throw new TeammateError(
         "forbidden",
-        "只有实例 owner、项目 owner 或平台管理员可以让它退出项目",
+        "只有 Teammate owner、项目 owner 或平台管理员可以让它退出项目",
       );
     }
     const employees = this.deps.employees();
@@ -737,7 +799,7 @@ export class TeammateRuntime {
     ) {
       throw new TeammateError(
         "invalid_input",
-        "该实例还没有绑定员工档案，无法维护项目角色",
+        "该 Teammate 还没有绑定员工档案，无法维护项目角色",
       );
     }
     const nowMs = Date.now();
@@ -847,6 +909,79 @@ export class TeammateRuntime {
     return { userId, name: this.ownerDisplayName(teammate) };
   }
 
+  /**
+   * 人格文件回写：SOUL.md 正文 + 「工作场景」「工作目标」两个章节。
+   * 场景行为 / 工作目标不再作为独立字段注入，运行时只有这一个人格口径；
+   * 模版改过之后，老实例在下一次派发时自动对齐。
+   */
+  private async syncPersona(
+    personaId: string,
+    definition: TeammateEffectiveDefinition,
+  ): Promise<void> {
+    const personas = this.deps.personas();
+    if (personas === undefined) return;
+    const soul = effectiveSoul(definition);
+    let current: string | undefined;
+    try {
+      const existing = await personas.get(personaId);
+      if (
+        existing !== null &&
+        typeof existing === "object" &&
+        typeof (existing as { readonly soul?: unknown }).soul === "string"
+      ) {
+        current = (existing as { readonly soul: string }).soul;
+      }
+    } catch {
+      current = undefined;
+    }
+    if (current === undefined) {
+      await personas.create({
+        id: personaId,
+        name: definition.name,
+        description: definition.description,
+        tags: [],
+        soul,
+      });
+      return;
+    }
+    if (current !== soul && personas.updateSoul !== undefined) {
+      await personas.updateSoul(personaId, soul);
+    }
+  }
+
+  /**
+   * 数字员工 runtime profile 的工具清单：员工侧用 `tool:xxx` 形态的 action id，
+   * 这里把模版里的裸工具名映射过去，保证两侧口径一致。
+   */
+  private async syncEmployeeTools(
+    employees: EmployeeServiceLike,
+    actorUserId: string,
+    employeeId: string,
+    workspaceId: string,
+    name: string,
+    tools: readonly string[],
+  ): Promise<void> {
+    if (
+      employees.listProfiles === undefined ||
+      employees.upsertRuntimeProfile === undefined
+    ) {
+      return;
+    }
+    const allowedTools = toEmployeeToolActions(tools);
+    for (const runtime of employees.listProfiles({ employeeId })) {
+      if (runtime.workspaceId !== workspaceId || runtime.status !== "active") {
+        continue;
+      }
+      await employees.upsertRuntimeProfile(actorUserId, {
+        id: runtime.id,
+        employeeId,
+        workspaceId,
+        name,
+        allowedTools,
+      });
+    }
+  }
+
   async ensureRuntime(input: EnsureRuntimeInput): Promise<EnsuredRuntime> {
     const teammate = this.deps.teammates.get(input.teammateId);
     if (teammate.state !== "active") {
@@ -862,10 +997,18 @@ export class TeammateRuntime {
       );
     }
     const definition = this.deps.teammates.effectiveDefinitionOf(teammate);
+    // 模版里的工具清单：空 = 不限制，非空 = 只允许这些（与 UI 文案一致）。
+    const allowedTools = normalizeTools(definition.tools);
+    const personaId =
+      teammate.personaId ?? definition.personaAlias ?? personaIdFor(teammate.id);
+    const personas = this.deps.personas();
     const employees = this.deps.employees();
     if (employees === undefined) {
       throw new TeammateError("conflict", "员工服务不可用，无法派发任务");
     }
+    // 身份用户常在本插件启动之后才创建，这里先同步一次人类员工档案，
+    // 否则首次派发会因缺少操作者/负责人员工档案而无法开通执行身份。
+    await employees.syncIdentityUsers?.(this.deps.users?.() ?? []);
     if (teammate.employeeId !== undefined) {
       const existing = employees.workflowTarget(
         teammate.employeeId,
@@ -880,17 +1023,24 @@ export class TeammateRuntime {
         const execution = teammate.execution ?? "builtin";
         const externalRuntimeId =
           execution === "external" ? teammate.externalRuntimeId : undefined;
+        const toolsChanged = !sameTools(profile?.allowedTools, allowedTools);
         if (
           agents?.updateProfile !== undefined &&
           (profile?.execution !== execution ||
-            profile?.externalRuntimeId !== externalRuntimeId)
+            profile?.externalRuntimeId !== externalRuntimeId ||
+            toolsChanged)
         ) {
           await agents.updateProfile(
             {
               kind: "user",
               id: input.actor.userId,
               name: input.actor.name,
-              globalRole: input.actor.role,
+              // actor.role 是工作区角色；admin 映射到 globalRole，其余映射到
+              // workspaceRole，否则 Agent 插件的 isManager 认不出项目 owner。
+              ...(input.actor.role === "admin"
+                ? { globalRole: "admin" as const }
+                : { workspaceRole: input.actor.role }),
+              workspaceId: input.workspaceId,
             },
             {
               workspaceId: input.workspaceId,
@@ -899,9 +1049,21 @@ export class TeammateRuntime {
               ...(externalRuntimeId === undefined
                 ? { externalRuntimeId: null }
                 : { externalRuntimeId }),
+              allowedTools,
             },
           );
         }
+        // 人格（SOUL + 工作场景 + 工作目标）与数字员工 runtime profile 同步：
+        // 模版改过之后，老实例在下一次派发时自动对齐。
+        await this.syncPersona(existing.employee.personaId ?? personaId, definition);
+        await this.syncEmployeeTools(
+          employees,
+          input.actor.userId,
+          teammate.employeeId,
+          input.workspaceId,
+          definition.name,
+          allowedTools,
+        );
         return {
           teammateId: teammate.id,
           employeeId: teammate.employeeId,
@@ -913,7 +1075,6 @@ export class TeammateRuntime {
       }
     }
 
-    const personas = this.deps.personas();
     const agents = this.deps.agents();
     if (personas === undefined) {
       throw new TeammateError("conflict", "人设服务不可用，无法开通执行身份");
@@ -942,30 +1103,21 @@ export class TeammateRuntime {
         "conflict",
         teammate.ownerUserId === "platform" || teammate.ownerUserId === "system"
           ? "当前操作者没有可用的员工档案，无法开通执行身份"
-          : "该实例 Owner 没有可用的员工档案，无法开通执行身份",
+          : "该 Teammate Owner 没有可用的员工档案，无法开通执行身份",
       );
     }
 
-    const personaId =
-      teammate.personaId ?? definition.personaAlias ?? personaIdFor(teammate.id);
-    try {
-      await personas.get(personaId);
-    } catch {
-      await personas.create({
-        id: personaId,
-        name: definition.name,
-        description: definition.description,
-        tags: [],
-        soul: definition.soul,
-      });
-    }
+    await this.syncPersona(personaId, definition);
 
     const profile = await agents.createProfile(
       {
         kind: "user",
         id: managerAuthUserId,
         name: input.actor.name,
-        globalRole: input.actor.role,
+        ...(input.actor.role === "admin"
+          ? { globalRole: "admin" as const }
+          : { workspaceRole: input.actor.role }),
+        workspaceId: input.workspaceId,
       },
       {
         workspaceId: input.workspaceId,
@@ -980,6 +1132,8 @@ export class TeammateRuntime {
           : { externalRuntimeId: teammate.externalRuntimeId }),
         runtimeKind: "task-worker",
         visibility: instanceSource === "platform" ? "platform" : "workspace",
+        // 空清单 = 不限制；非空才会收窄工具集。
+        allowedTools,
       },
     );
     const employee = await employees.createDigital(managerAuthUserId, {
@@ -1001,6 +1155,8 @@ export class TeammateRuntime {
       workspaceId: input.workspaceId,
       name: definition.name,
       legacyAgentProfileId: profile.id,
+      // 员工侧工具动作 id；空清单保持「未配置」语义。
+      allowedTools: toEmployeeToolActions(allowedTools),
     });
     await this.deps.teammates.bindEmployee(
       input.actor,

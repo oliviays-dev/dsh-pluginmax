@@ -7,6 +7,42 @@ import {
   sameOrigin,
   sendJson,
 } from "@pluginmax/shared";
+import {
+  MeetingDelegateService,
+  delegateInstructionInputSchema,
+} from "./delegates.js";
+import { MeetingFileService } from "./files.js";
+import { MeetingReadService } from "./inbox.js";
+import { MeetingMinutesService } from "./minutes.js";
+import {
+  MeetingMinutesRuntime,
+  createAgentMinutesGenerator,
+} from "./minutes-runtime.js";
+import {
+  type Delegate,
+  type DelegateInstruction,
+  type Facilitator,
+  type MeetingMinutes,
+  type MeetingFile,
+  type MeetingRead,
+  type MeetingTask,
+  type MinuteVersion,
+  phase1MeetingTables,
+} from "./phase1-models.js";
+import {
+  type KvTableLike,
+  MeetingError,
+  displayNameSchema,
+  idSchema,
+  isoTimeSchema,
+  nowIso,
+  parseOrInvalid,
+  tableValues,
+} from "./shared.js";
+import { MeetingTaskService } from "./tasks.js";
+
+export { MeetingError, parseOrInvalid } from "./shared.js";
+export type { KvTableLike } from "./shared.js";
 
 export const name = "dsh-collab-meeting";
 export const inject = [
@@ -18,52 +54,65 @@ export const inject = [
   "agentDefaultModel",
 ];
 
-const idSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(128)
-  .regex(/^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/);
 const titleSchema = z.string().trim().min(1).max(160);
 const textSchema = z.string().trim().max(20_000);
-const displayNameSchema = z.string().trim().min(1).max(80);
-const seatLabelSchema = z.string().trim().max(80);
-const seatNameSchema = z.string().trim().min(1).max(80);
-const isoTimeSchema = z.string().datetime({ precision: 3 });
 
-const meetingSeatSchema = z.object({
-  id: idSchema,
-  label: seatNameSchema,
-});
+/**
+ * Participant kinds the meeting worker runtime may run and whose replies are
+ * written back to the transcript. `agent` is the legacy worker kind;
+ * `ai_teammate` and `ai_representative` are the phase-1 kinds.
+ */
+const AI_PARTICIPANT_KINDS: readonly MeetingParticipant["kind"][] = [
+  "agent",
+  "ai_teammate",
+  "ai_representative",
+];
 
 const meetingSchema = z.object({
   id: z.string().min(1).max(160),
   workspaceId: idSchema,
   title: titleSchema,
   agenda: z.string().trim().max(20_000).default(""),
-  status: z.enum(["active", "closed"]),
+  status: z.enum(["draft", "active", "closed", "archived"]),
   createdBy: idSchema,
-  seats: z.array(meetingSeatSchema).max(100).default([]),
+  /**
+   * Human owner. Phase 1 keeps owner for title/agenda edits and minutes
+   * confirmation only; membership, lifecycle, and facilitator operations are
+   * open to any active human participant. Optional so existing records load.
+   */
+  ownerUserId: idSchema.optional(),
+  ownerName: displayNameSchema.optional(),
+  activeMinutesVersion: z.number().int().positive().optional(),
   parentSessionId: idSchema.optional(),
   createdAt: isoTimeSchema,
   updatedAt: isoTimeSchema,
   closedAt: isoTimeSchema.optional(),
   closedBy: idSchema.optional(),
   summary: textSchema.optional(),
+  archivedAt: isoTimeSchema.optional(),
+  archivedBy: idSchema.optional(),
 });
 
 const participantSchema = z.object({
   id: z.string().min(1).max(160),
   meetingId: z.string().min(1).max(160),
-  kind: z.enum(["human", "agent"]),
+  kind: z.enum([
+    "human",
+    "agent",
+    "ai_teammate",
+    "ai_representative",
+    "facilitator",
+  ]),
   refId: idSchema,
   displayName: displayNameSchema,
-  seatId: idSchema.optional(),
-  seatLabel: seatLabelSchema.optional(),
   personaId: idSchema.optional(),
   basePersonaId: idSchema.optional(),
   ownerId: idSchema.optional(),
   ownerName: displayNameSchema.optional(),
+  /** AI participant provenance: who a representative speaks for. */
+  principalUserId: idSchema.optional(),
+  principalName: displayNameSchema.optional(),
+  teammateInstanceId: idSchema.optional(),
   autoSpeak: z.enum(["all", "mentions", "manual"]).optional(),
   initialGreeting: z.boolean().optional(),
   delegationId: idSchema.optional(),
@@ -73,6 +122,10 @@ const participantSchema = z.object({
   principalType: z.enum(["direct", "delegation", "runtime"]).optional(),
   leader: z.boolean().default(false),
   status: z.enum(["pending", "active", "left"]),
+  /**
+   * `seat` stays in the enum only so legacy records still parse; seat-driven
+   * participants are never created or read anymore.
+   */
   source: z.enum(["direct", "seat", "spawned"]),
   hint: z.string().trim().max(500).optional(),
   joinedAt: isoTimeSchema.optional(),
@@ -97,6 +150,29 @@ const messageSchema = z.object({
   senderName: displayNameSchema,
   content: textSchema,
   mentions: z.array(idSchema).default([]),
+  /**
+   * Attribute an AI message to its instance, delegate, and run. Optional so
+   * existing human/system records load unchanged.
+   */
+  provenance: z
+    .object({
+      role: z.enum(["teammate", "representative", "facilitator"]),
+      teammateInstanceId: idSchema.optional(),
+      delegateId: idSchema.optional(),
+      runId: idSchema.optional(),
+    })
+    .optional(),
+  attachments: z
+    .array(
+      z.object({
+        id: idSchema,
+        name: z.string().trim().min(1).max(240),
+        mime: z.string().trim().max(160).default(""),
+        size: z.number().int().nonnegative().default(0),
+        storageRef: z.string().trim().min(1).max(500),
+      }),
+    )
+    .optional(),
   deliveries: z.array(deliverySchema).default([]),
   createdAt: isoTimeSchema,
 });
@@ -110,44 +186,11 @@ const actorSchema = z.object({
 });
 
 export type Meeting = z.infer<typeof meetingSchema>;
-export type MeetingSeat = z.infer<typeof meetingSeatSchema>;
 export type MeetingParticipant = z.infer<typeof participantSchema>;
 export type MeetingMessage = z.infer<typeof messageSchema>;
 export type MeetingDelivery = z.infer<typeof deliverySchema>;
 export type MeetingActor = z.infer<typeof actorSchema>;
 export type MeetingTranscriptItem = MeetingMessage;
-
-export class MeetingError extends Error {
-  constructor(
-    readonly code:
-      "invalid_input" | "unauthorized" | "forbidden" | "not_found" | "conflict",
-    message: string,
-  ) {
-    super(message);
-    this.name = "MeetingError";
-  }
-}
-
-export function parseOrInvalid<T>(schema: z.ZodType<T>, input: unknown): T {
-  const result = schema.safeParse(input);
-  if (!result.success) {
-    throw new MeetingError(
-      "invalid_input",
-      result.error.issues
-        .map((issue) => `${issue.path.join(".") || "input"} is invalid`)
-        .join("; "),
-    );
-  }
-  return result.data;
-}
-
-function nowIso(now: () => Date): string {
-  return now().toISOString();
-}
-
-function tableValues<V>(table: KvTableLike<V>): V[] {
-  return [...table.entries()].map(([, value]) => value);
-}
 
 function parseMeeting(value: Meeting): Meeting {
   return parseOrInvalid(meetingSchema, value);
@@ -244,40 +287,56 @@ export async function reapRestartedDispatchParticipants(
 }
 
 /**
- * Collapses duplicate seat participants onto one canonical row per meeting and
- * seat, keeping the active row when one exists and otherwise the oldest.
+ * One-time decommission of the Lead model.
+ *
+ * The human `ownerUserId` is derived from the legacy first-human leader
+ * (falling back to the creator) and `leader` is cleared. Seat records and seat
+ * participants are no longer read at all; legacy `seats` / `seatId` /
+ * `seatLabel` keys are simply dropped by the record schemas on the next write.
+ *
+ * Idempotent: a second run finds no meeting missing an owner and no participant
+ * with `leader: true`, so it writes nothing.
  */
-export async function collapseDuplicateSeatParticipants(
+export async function migrateMeetingOwnership(
+  meetings: KvTableLike<Meeting>,
   participants: KvTableLike<MeetingParticipant>,
-): Promise<number> {
-  const seatGroups = new Map<string, Array<[string, MeetingParticipant]>>();
-  for (const participant of tableValues(participants)) {
-    if (participant.source === "seat" && participant.seatId !== undefined) {
-      const key = `${participant.meetingId}:${participant.seatId}`;
-      seatGroups.set(key, [
-        ...(seatGroups.get(key) ?? []),
-        [participant.id, participant],
-      ]);
-    }
+  now: () => Date = () => new Date(),
+): Promise<{ meetings: number; participants: number }> {
+  const timestamp = nowIso(now);
+  let migratedMeetings = 0;
+  for (const value of tableValues(meetings)) {
+    const meeting = parseMeeting(value);
+    if (meeting.ownerUserId !== undefined) continue;
+    const legacyLeader = tableValues(participants)
+      .map(parseParticipant)
+      .find(
+        (participant) =>
+          participant.meetingId === meeting.id &&
+          participant.leader &&
+          participant.kind === "human",
+      );
+    const ownerUserId = legacyLeader?.refId ?? meeting.createdBy;
+    await meetings.put(
+      meeting.id,
+      parseMeeting({ ...meeting, ownerUserId, updatedAt: timestamp }),
+    );
+    migratedMeetings += 1;
   }
-  let removed = 0;
-  for (const group of seatGroups.values()) {
-    if (group.length <= 1) continue;
-    const canonical =
-      group.find(([, participant]) => participant.status === "active") ??
-      [...group].sort(
-        ([, left], [, right]) =>
-          (left.joinedAt ?? left.updatedAt).localeCompare(
-            right.joinedAt ?? right.updatedAt,
-          ) || left.id.localeCompare(right.id),
-      )[0]!;
-    for (const [id] of group) {
-      if (id === canonical[0]) continue;
-      await participants.delete(id);
-      removed += 1;
-    }
+  let migratedParticipants = 0;
+  for (const value of tableValues(participants)) {
+    const participant = parseParticipant(value);
+    if (participant.leader !== true) continue;
+    await participants.put(
+      participant.id,
+      parseParticipant({
+        ...participant,
+        leader: false,
+        updatedAt: timestamp,
+      }),
+    );
+    migratedParticipants += 1;
   }
-  return removed;
+  return { meetings: migratedMeetings, participants: migratedParticipants };
 }
 
 function managerActor(actor: MeetingActor): boolean {
@@ -285,15 +344,6 @@ function managerActor(actor: MeetingActor): boolean {
     actor.kind === "user" &&
     (actor.globalRole === "admin" || actor.workspaceRole === "owner")
   );
-}
-
-export interface KvTableLike<V> {
-  get(key: string): V | undefined;
-  entries(): IterableIterator<[string, V]>;
-  keys(): IterableIterator<string>;
-  get size(): number;
-  put(key: string, value: V): Promise<void>;
-  delete(key: string): Promise<boolean>;
 }
 
 export interface SchemaLike {
@@ -315,6 +365,14 @@ export interface MeetingDomainLike {
   table(name: "meetings"): KvTableLike<Meeting>;
   table(name: "participants"): KvTableLike<MeetingParticipant>;
   table(name: "messages"): KvTableLike<MeetingMessage>;
+  table(name: "facilitators"): KvTableLike<Facilitator>;
+  table(name: "minutes"): KvTableLike<MeetingMinutes>;
+  table(name: "minute_versions"): KvTableLike<MinuteVersion>;
+  table(name: "delegates"): KvTableLike<Delegate>;
+  table(name: "delegate_instructions"): KvTableLike<DelegateInstruction>;
+  table(name: "meeting_reads"): KvTableLike<MeetingRead>;
+  table(name: "meeting_files"): KvTableLike<MeetingFile>;
+  table(name: "meeting_tasks"): KvTableLike<MeetingTask>;
   close(): Promise<void>;
 }
 
@@ -331,43 +389,16 @@ export const meetingDomainSpec = {
     messages: {
       valueSchema: messageSchema as unknown as z.ZodType<unknown>,
     },
+    ...phase1MeetingTables,
   },
 } as const satisfies DomainSpecLike;
-
-export interface AssignmentViewLike {
-  readonly seatId: string;
-  readonly seatLabel: string;
-  readonly participantKind: "human" | "agent" | "any";
-  readonly assigneeKind: "user" | "agent";
-  readonly assigneeId: string;
-  readonly personaId?: string;
-  readonly basePersonaId?: string;
-  readonly leader: boolean;
-  readonly status: "claimed" | "assigned" | "released";
-}
-
-export interface RoleConfigViewLike {
-  readonly workspaceId: string;
-  readonly typeId: string;
-  readonly typeName: string;
-  readonly seats: readonly {
-    readonly id: string;
-    readonly label: string;
-    readonly participantKind: "human" | "agent" | "any";
-    readonly personaId?: string;
-  }[];
-}
-
-export interface AssignmentServiceLike {
-  config(workspaceId: string): RoleConfigViewLike;
-  seats(workspaceId: string): readonly AssignmentViewLike[];
-}
 
 export interface PersonaServiceLike {
   get(id: string): Promise<{
     readonly id: string;
     readonly name: string;
     readonly description: string;
+    readonly soul?: string;
   }>;
   preset(id: string, context: string): Promise<string>;
 }
@@ -499,14 +530,6 @@ function uniqueAgentName(
   );
 }
 
-function displayNameForAssignment(assignment: AssignmentViewLike): string {
-  return `${assignment.seatLabel}:${assignment.assigneeId}`;
-}
-
-function pendingSeatName(label: string): string {
-  return `[待认领] ${label}`;
-}
-
 function personaPrompt(
   persona: Awaited<ReturnType<PersonaServiceLike["get"]>> | undefined,
   preset: string | undefined,
@@ -516,13 +539,44 @@ function personaPrompt(
   return `# ${persona.name} SOUL\n\n${persona.description}`;
 }
 
+/** Renders a delegate instruction into the representative's worker prompt. */
+function formatDelegateInstruction(instruction: DelegateInstruction): string {
+  const bullet = (values: readonly string[]) =>
+    values.map((value) => `- ${value}`).join("\n");
+  return [
+    instruction.goal === "" ? "" : `参会目标：${instruction.goal}`,
+    instruction.stance === "" ? "" : `核心立场：${instruction.stance}`,
+    instruction.mustSay.length === 0
+      ? ""
+      : `必须表达：\n${bullet(instruction.mustSay)}`,
+    instruction.focusPoints.length === 0
+      ? ""
+      : `把控点：\n${bullet(instruction.focusPoints)}`,
+    instruction.outputs.length === 0
+      ? ""
+      : `需要带回：\n${bullet(instruction.outputs)}`,
+    instruction.speechPolicy === ""
+      ? ""
+      : `发言策略：${instruction.speechPolicy}`,
+    instruction.behavior === "" ? "" : `行为要求：${instruction.behavior}`,
+    instruction.permissionBoundary === ""
+      ? ""
+      : `权限边界：${instruction.permissionBoundary}`,
+    instruction.reportPlan === ""
+      ? ""
+      : `会后汇报：${instruction.reportPlan}`,
+  ]
+    .filter((line) => line !== "")
+    .join("\n");
+}
+
 function workerParticipant(participant: MeetingParticipant): MeetingParticipant {
   return {
     ...participant,
     kind: "agent" as const,
     status: "active" as const,
     refId: `worker:${randomUUID()}`,
-    source: participant.source === "seat" ? "seat" : "spawned",
+    source: "spawned" as const,
   };
 }
 
@@ -546,6 +600,8 @@ export interface MeetingWorkerDeps {
   readonly defaultModel?: () => AgentDefaultModelLike | undefined;
   readonly personas?: () => PersonaServiceLike | undefined;
   readonly provider?: () => string;
+  /** Private commission text for an AI attendance representative. */
+  readonly delegateInstruction?: (delegateId: string) => string | undefined;
   readonly now?: () => Date;
 }
 
@@ -573,6 +629,275 @@ interface TeammateRuntimeLike {
     readonly profileId: string;
     readonly personaId?: string | undefined;
   }>;
+}
+
+/** 任务域的最小投影：只用到「查找 / 建任务 / 派发」三件事。 */
+interface TaskLinkLike {
+  readonly type: string;
+  readonly id: string;
+}
+
+interface TaskRecordLike {
+  readonly id: string;
+  readonly status: string;
+  readonly receiverId?: string | undefined;
+  readonly links: readonly TaskLinkLike[];
+  readonly messages?: readonly TaskMessageLike[] | undefined;
+}
+
+interface TaskMessageLike {
+  readonly id: string;
+  readonly kind: string;
+  readonly content: string;
+  readonly state?: string | undefined;
+}
+
+interface TaskActorLike {
+  readonly id: string;
+  readonly name: string;
+  readonly kind: "human" | "agent" | "system";
+}
+
+interface TaskServiceLike {
+  list(workspaceId: string): readonly TaskRecordLike[];
+  get(taskId: string): TaskRecordLike;
+  create(
+    actor: TaskActorLike,
+    input: Record<string, unknown>,
+  ): Promise<TaskRecordLike>;
+  addMessage(
+    actor: TaskActorLike,
+    input: Record<string, unknown>,
+  ): Promise<TaskRecordLike>;
+}
+
+interface TaskDispatchLike {
+  dispatch(task: TaskRecordLike, actor: TaskActorLike): Promise<unknown>;
+}
+
+const MEETING_AGENT_TASK_TYPE = "会议";
+
+/** 会议内给人看的时间戳：mm-dd hh:mm（本地时区）。 */
+function meetingClock(iso: string): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return iso;
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`;
+}
+
+/**
+ * 人类可读的会议编号：`MTG-<创建日期>-<id 前 4 位>`。
+ * 任务描述、通知这类给人看的文案用它；内部关联仍然用完整 meeting id。
+ */
+function meetingCode(meeting: Meeting): string {
+  const created = new Date(meeting.createdAt);
+  const date = Number.isNaN(created.getTime())
+    ? "00000000"
+    : [
+        created.getFullYear(),
+        String(created.getMonth() + 1).padStart(2, "0"),
+        String(created.getDate()).padStart(2, "0"),
+      ].join("");
+  const tail = meeting.id
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .slice(0, 4)
+    .toUpperCase();
+  return `MTG-${date}-${tail}`;
+}
+
+/** 找到某位 AI 参会方在任务域里的「会议」任务（同一会议 + 同一实例复用）。 */
+function findAgentMeetingTask(
+  service: TaskServiceLike,
+  workspaceId: string,
+  meetingId: string,
+  teammateInstanceId: string,
+): TaskRecordLike | undefined {
+  return service
+    .list(workspaceId)
+    .find(
+      (task) =>
+        task.status !== "done" &&
+        task.status !== "cancelled" &&
+        task.receiverId === teammateInstanceId &&
+        task.links.some(
+          (link) => link.type === "meeting" && link.id === meetingId,
+        ),
+    );
+}
+
+/** 任务时间线里最新一条 agent 发言（用于回写会议与去重）。 */
+function latestAgentMessage(
+  task: TaskRecordLike | undefined,
+): TaskMessageLike | undefined {
+  return (task?.messages ?? [])
+    .filter(
+      (message) =>
+        message.kind === "agent" &&
+        // 只回写定稿发言：queued/running 是「已接收指令，正在执行…」这类占位。
+        message.state !== "queued" &&
+        message.state !== "running",
+    )
+    .at(-1);
+}
+
+/**
+ * 把一条会议消息投递给 AI 参会方对应的任务会话：
+ * 追加 task message（会议原文 + 附件名）→ 派发 run；
+ * run 产出后再轮询任务时间线，把 agent 的发言贴回会议群聊。
+ *
+ * 主动/被动共用这条链路：`active` 每条会议消息都投递（含其他 agent 的发言），
+ * `mention` 只在被 @ 时投递（由调用方的 deliveries 决定）。
+ */
+async function feedMeetingMessageToAgent(input: {
+  readonly meeting: Meeting;
+  readonly participant: MeetingParticipant;
+  readonly message: MeetingMessage;
+  readonly senderName: string;
+  readonly taskService: TaskServiceLike | undefined;
+  readonly taskDispatch: TaskDispatchLike | undefined;
+}): Promise<void> {
+  const service = input.taskService;
+  const dispatcher = input.taskDispatch;
+  const teammateInstanceId = input.participant.teammateInstanceId;
+  if (
+    service === undefined ||
+    dispatcher === undefined ||
+    teammateInstanceId === undefined
+  )
+    return;
+  try {
+    let task = findAgentMeetingTask(
+      service,
+      input.meeting.workspaceId,
+      input.meeting.id,
+      teammateInstanceId,
+    );
+    // 懒补建：功能上线前就已经在会里的 AI 参会方，第一次参与时补一条「会议」任务，
+    // 后续消息就能落到它自己的 de-task-* 会话上（不额外派发，避免多跑一轮）。
+    if (task === undefined) {
+      const createdId = await ensureAgentMeetingTask({
+        meeting: input.meeting,
+        teammateInstanceId,
+        teammateName: input.participant.displayName,
+        actorId: input.message.senderId,
+        actorName: input.senderName,
+        dispatchInitial: false,
+        taskService: service,
+        taskDispatch: dispatcher,
+      });
+      if (createdId === undefined) return;
+      task = findAgentMeetingTask(
+        service,
+        input.meeting.workspaceId,
+        input.meeting.id,
+        teammateInstanceId,
+      );
+    }
+    if (task === undefined) return;
+    const attachmentNames = (input.message.attachments ?? []).map(
+      (attachment) => attachment.name,
+    );
+    const content = [
+      `【会议消息】${input.senderName}：${input.message.content}`,
+      attachmentNames.length === 0
+        ? ""
+        : `附件/文档：${attachmentNames.join("、")}`,
+      `（会议：${input.meeting.title}）`,
+    ]
+      .filter((line) => line !== "")
+      .join("\n");
+    const actor: TaskActorLike = {
+      id: input.message.senderId,
+      name: input.senderName,
+      kind: input.message.senderKind === "human" ? "human" : "system",
+    };
+    const updated = await service.addMessage(actor, {
+      taskId: task.id,
+      content,
+    });
+    await dispatcher.dispatch(updated, actor);
+  } catch {
+    // 任务域异常不阻断会议发言。
+  }
+}
+
+/**
+ * 把会议里的 AI 参会方接到任务域：每位 AI 在任务域有一条「会议」任务，
+ * 并据此派发出一条 `de-task-*` 会话（左侧项目树可见，能看到它的思考与回答）。
+ * 同一 (meetingId, teammateInstanceId) 复用同一条任务；任务域不可用时静默跳过，
+ * 不阻断入会。
+ */
+async function ensureAgentMeetingTask(input: {
+  readonly meeting: Meeting;
+  readonly teammateInstanceId: string;
+  readonly teammateName: string;
+  readonly actorId: string;
+  readonly actorName: string;
+  readonly instruction?: string | undefined;
+  /** false = 只建任务不派发（调用方马上会带着会议消息派发）。 */
+  readonly dispatchInitial?: boolean | undefined;
+  readonly taskService: TaskServiceLike | undefined;
+  readonly taskDispatch: TaskDispatchLike | undefined;
+}): Promise<string | undefined> {
+  const service = input.taskService;
+  const dispatcher = input.taskDispatch;
+  if (service === undefined || dispatcher === undefined) return undefined;
+  try {
+    const existing = service.list(input.meeting.workspaceId).find(
+      (task) =>
+        task.status !== "done" &&
+        task.status !== "cancelled" &&
+        task.receiverId === input.teammateInstanceId &&
+        task.links.some(
+          (link) =>
+            link.type === "meeting" && link.id === input.meeting.id,
+        ),
+    );
+    const taskActor: TaskActorLike = {
+      id: input.actorId,
+      name: input.actorName,
+      kind: "human",
+    };
+    const task =
+      existing ??
+      (await service.create(taskActor, {
+        workspaceId: input.meeting.workspaceId,
+        title: `${input.meeting.title} · ${input.teammateName}`,
+        type: MEETING_AGENT_TASK_TYPE,
+        priority: "P2",
+        status: "progress",
+        receiverType: "agent",
+        receiverId: input.teammateInstanceId,
+        receiverName: input.teammateName,
+        description: [
+          `会议：${input.meeting.title}`,
+          `会议号：${meetingCode(input.meeting)}`,
+          input.meeting.agenda === "" ? "" : `议程：${input.meeting.agenda}`,
+          input.instruction === undefined || input.instruction === ""
+            ? ""
+            : `主人嘱咐：${input.instruction}`,
+          "",
+          "你是这场会议的 AI 参会方：被 @ 时按定向指令回应，并按嘱咐主动关注会议进展。",
+        ]
+          .filter((line) => line !== undefined)
+          .join("\n"),
+        acceptance: ["被 @ 时给出反馈", "按主人嘱咐监控会议并主动发言"],
+        links: [
+          {
+            type: "meeting",
+            id: input.meeting.id,
+            label: input.meeting.title,
+          },
+        ],
+        autoSubmitReview: false,
+      }));
+    if (input.dispatchInitial !== false) {
+      await dispatcher.dispatch(task, taskActor);
+    }
+    return task.id;
+  } catch {
+    return undefined;
+  }
 }
 
 export interface MeetingDeliveryEnvelope {
@@ -708,6 +1033,27 @@ export class MeetingRuntime {
     return participant.personaId;
   }
 
+  /**
+   * 把参会者的 personaId 解析成人设文本。
+   *
+   * subagent 的 `persona` 参数语义是人设正文（会遮蔽 deployment:persona），
+   * 传 id 只会让 worker 的 system prompt 里出现一串 identifier；这里统一取
+   * SOUL.md 正文。取不到时返回空串，退回「无自定义人设」。
+   */
+  private async resolvePersonaSoul(
+    personaId: string | undefined,
+  ): Promise<string> {
+    if (personaId === undefined || personaId === "") return "";
+    const personas = this.deps.personas?.();
+    if (personas === undefined) return "";
+    try {
+      const persona = await personas.get(personaId);
+      return typeof persona.soul === "string" ? persona.soul.trim() : "";
+    } catch {
+      return "";
+    }
+  }
+
   private async buildPrompt(
     participant: MeetingParticipant,
     instruction: string,
@@ -789,6 +1135,10 @@ export class MeetingRuntime {
       : participant.autoSpeak === "mentions"
         ? "只有定向 @ 你的消息才会转发给你。"
         : "只有主人显式触发时才会运行你。";
+    const delegateBrief =
+      participant.delegationId === undefined
+        ? ""
+        : (this.deps.delegateInstruction?.(participant.delegationId) ?? "");
     return [
       "# DSH Pluginmax 会议 worker",
       "",
@@ -798,6 +1148,9 @@ export class MeetingRuntime {
       participant.ownerName === undefined ? "" : `主人：${participant.ownerName}`,
       `工作区：${meeting.workspaceId}`,
       `发言策略：${strategy}`,
+      ...(delegateBrief === ""
+        ? []
+        : ["", "## 本次会议委托（仅本次有效）", delegateBrief]),
       "",
       "当前参与者：",
       ...participants,
@@ -878,13 +1231,15 @@ export class MeetingRuntime {
     try {
       const prompt = await this.buildPrompt(current, instruction);
       const provider = this.deps.provider?.() ?? "spawn";
+      const personaSoul = await this.resolvePersonaSoul(
+        this.personaIdFor(current),
+      );
       started = await subagents.start(provider, {
         label: `meeting-worker:${current.displayName}`,
         prompt: [{ type: "text", text: prompt }],
         parent: await this.hostAgent(),
-        ...(this.personaIdFor(current) === undefined
-          ? {}
-          : { persona: this.personaIdFor(current)! }),
+        // persona 是人设正文，不是 id：传 SOUL 让 worker 真读到人设。
+        ...(personaSoul === "" ? {} : { persona: personaSoul }),
         toolFilter: { allow: [] },
         signal: controller.signal,
       });
@@ -953,6 +1308,14 @@ export class MeetingService {
    */
   onTranscriptChanged: ((meetingId: string) => void) | undefined;
 
+  /**
+   * Fired exactly once when a meeting transitions to `closed`. Phase 1 uses it
+   * for the single automatic minutes trigger and for completing AI delegates;
+   * unlike `onTranscriptChanged` it never fires on ordinary messages, so it
+   * cannot reintroduce write-triggered minutes generation.
+   */
+  onMeetingClosed: ((meetingId: string) => void) | undefined;
+
   setDelegationReporter(reporter: DelegationReporterLike | undefined): void {
     this.delegationReporter = reporter;
   }
@@ -995,7 +1358,10 @@ export class MeetingService {
       agenda: parsed.agenda ?? "",
       status: "active" as const,
       createdBy: parsedActor.id,
-      seats: [],
+      // The creator is the meeting's human owner. Owner only gates title/agenda
+      // edits and minutes confirmation; membership/lifecycle/facilitator
+      // operations are open to any active human participant.
+      ownerUserId: parsedActor.id,
       ...(parsed.parentSessionId === undefined
         ? {}
         : { parentSessionId: parsed.parentSessionId }),
@@ -1093,8 +1459,11 @@ export class MeetingService {
         participant.kind === actorKind(parsedActor) &&
         participant.refId === parsedActor.id,
     );
-    if (existing !== undefined && existing.status === "active")
+    if (existing !== undefined && existing.status === "active") {
+      // AI 重复入会直接复用已有参与者：不再新建，也不会被改名成「名字 · Agent」。
+      if (parsedActor.kind !== "user") return existing;
       throw new MeetingError("conflict", "participant already joined");
+    }
     const others =
       existing === undefined
         ? participants
@@ -1121,9 +1490,7 @@ export class MeetingService {
       kind: actorKind(parsedActor),
       refId: parsedActor.id,
       displayName: uniqueName,
-      leader: participants.every(
-        (candidate) => candidate.status !== "active" || !candidate.leader,
-      ),
+      leader: false,
       status: "active" as const,
       source: "direct" as const,
       joinedAt: timestamp,
@@ -1133,146 +1500,12 @@ export class MeetingService {
     return participant;
   }
 
-  async pullSeats(
-    actor: MeetingActor,
-    meetingId: string,
-    assignments: AssignmentServiceLike,
-    seatFilter?: readonly string[],
-  ): Promise<MeetingParticipant[]> {
-    parseOrInvalid(actorSchema, actor);
-    const meeting = this.get(meetingId);
-    if (meeting.status !== "active")
-      throw new MeetingError("conflict", "meeting is closed");
-    const seatParticipants = this.participants(meeting.id).filter(
-      (participant) => participant.source === "seat" && participant.seatId !== undefined,
-    );
-    const seatGroups = new Map<string, MeetingParticipant[]>();
-    for (const participant of seatParticipants) {
-      const group = seatGroups.get(participant.seatId!) ?? [];
-      group.push(participant);
-      seatGroups.set(participant.seatId!, group);
-    }
-    for (const [seatId, group] of seatGroups) {
-      if (group.length <= 1) continue;
-      const canonical =
-        group.find((participant) => participant.status === "active") ??
-        [...group].sort((left, right) =>
-          (left.joinedAt ?? left.updatedAt).localeCompare(
-            right.joinedAt ?? right.updatedAt,
-          ) || left.id.localeCompare(right.id),
-        )[0]!;
-      for (const participant of group) {
-        if (participant.id !== canonical.id) {
-          await this.tables.participants.delete(participant.id);
-        }
-      }
-      seatGroups.set(seatId, [canonical]);
-    }
-    const config = assignments.config(meeting.workspaceId);
-    const selected = seatFilter === undefined ? undefined : new Set(seatFilter);
-    const occupied = new Map(
-      assignments.seats(meeting.workspaceId).map((seat) => [seat.seatId, seat]),
-    );
-    const timestamp = nowIso(this.options.now);
-    for (const seat of config.seats) {
-      if (selected !== undefined && !selected.has(seat.id)) continue;
-      const current = this.participants(meeting.id).find(
-        (candidate) =>
-          candidate.source === "seat" && candidate.seatId === seat.id,
-      );
-      if (current?.status === "left") continue;
-      const assignment = occupied.get(seat.id);
-      if (assignment !== undefined && assignment.status !== "released") {
-        const kind =
-          assignment.assigneeKind === "user"
-            ? ("human" as const)
-            : ("agent" as const);
-        const displayName = displayNameForAssignment(assignment);
-        if (
-          current?.status === "active" &&
-          (current.displayName !== displayName ||
-            current.refId !== assignment.assigneeId)
-        ) {
-          throw new MeetingError(
-            "conflict",
-            `seat ${seat.id} changed occupant; leave the old meeting seat first`,
-          );
-        }
-        const participant = {
-          id: current?.id ?? randomUUID(),
-          meetingId: meeting.id,
-          kind,
-          refId: assignment.assigneeId,
-          displayName,
-          seatId: seat.id,
-          ...(assignment.personaId === undefined && seat.personaId === undefined
-            ? {}
-            : {
-                personaId: assignment.personaId ?? seat.personaId,
-              }),
-          ...(assignment.basePersonaId === undefined
-            ? {}
-            : { basePersonaId: assignment.basePersonaId }),
-          leader: assignment.leader,
-          status: "active" as const,
-          source: "seat" as const,
-          joinedAt: current?.joinedAt ?? timestamp,
-          updatedAt: timestamp,
-        };
-        await this.tables.participants.put(participant.id, participant);
-        continue;
-      }
-      if (current !== undefined && current.status === "active") {
-        await this.tables.participants.put(current.id, {
-          ...current,
-          status: "pending",
-          refId: `seat:${seat.id}`,
-          displayName: pendingSeatName(seat.label),
-          leader: false,
-          hint: `/assignment claim ${meeting.workspaceId} ${seat.id}`,
-          updatedAt: timestamp,
-        });
-        continue;
-      }
-      const currentPending = this.participants(meeting.id).find(
-        (candidate) =>
-          candidate.source === "seat" &&
-          candidate.seatId === seat.id &&
-          candidate.status === "pending",
-      );
-      const participant = {
-        id: currentPending?.id ?? randomUUID(),
-        meetingId: meeting.id,
-        kind:
-          seat.participantKind === "agent"
-            ? ("agent" as const)
-            : ("human" as const),
-        refId: `seat:${seat.id}`,
-        displayName: pendingSeatName(seat.label),
-        seatId: seat.id,
-        ...(seat.personaId === undefined ? {} : { personaId: seat.personaId }),
-        leader: false,
-        status: "pending" as const,
-        source: "seat" as const,
-        hint: `/assignment claim ${meeting.workspaceId} ${seat.id}`,
-        joinedAt: currentPending?.joinedAt ?? timestamp,
-        updatedAt: timestamp,
-      };
-      await this.tables.participants.put(participant.id, participant);
-    }
-    return this.participants(meeting.id).filter(
-      (participant) => participant.seatId !== undefined,
-    );
-  }
-
   async inviteParticipant(
     actor: MeetingActor,
     meetingId: string,
     input: {
       readonly targetId: string;
       readonly displayName: string;
-      readonly seatLabel?: string;
-      readonly seatId?: string;
     },
   ): Promise<MeetingParticipant> {
     const parsedActor = parseOrInvalid(actorSchema, actor);
@@ -1281,31 +1514,7 @@ export class MeetingService {
       throw new MeetingError("conflict", "meeting is closed");
     const targetId = parseOrInvalid(idSchema, input.targetId);
     const displayName = parseOrInvalid(displayNameSchema, input.displayName);
-    const seatLabel =
-      input.seatLabel === undefined || input.seatLabel === ""
-        ? undefined
-        : parseOrInvalid(seatLabelSchema, input.seatLabel);
     const participants = this.participants(meeting.id);
-    let seatId: string | undefined;
-    if (input.seatId !== undefined) {
-      const parsedSeatId = parseOrInvalid(idSchema, input.seatId);
-      const seat = meeting.seats.find((candidate) => candidate.id === parsedSeatId);
-      if (seat === undefined)
-        throw new MeetingError("not_found", "meeting seat not found");
-      seatId = seat.id;
-      if (seatLabel !== undefined && seatLabel !== seat.label)
-        throw new MeetingError("invalid_input", "seat label does not match the meeting seat");
-      if (
-        participants.some(
-          (candidate) =>
-            candidate.status === "active" &&
-            candidate.seatId === seat.id &&
-            candidate.refId !== targetId,
-        )
-      ) {
-        throw new MeetingError("conflict", "meeting seat is already occupied");
-      }
-    }
     const caller = participants.find(
       (candidate) =>
         candidate.status === "active" &&
@@ -1337,8 +1546,6 @@ export class MeetingService {
       kind: "human" as const,
       refId: targetId,
       displayName,
-      seatId,
-      seatLabel: seatId === undefined ? seatLabel : meeting.seats.find((candidate) => candidate.id === seatId)!.label,
       personaId: undefined,
       ownerId: undefined,
       ownerName: undefined,
@@ -1372,294 +1579,112 @@ export class MeetingService {
     return invited;
   }
 
-  async changeOwnSeat(
+  /**
+   * Joins (or updates) the AI attendance representative for one delegate.
+   *
+   * The representative is a normal participant of kind `ai_representative`,
+   * so the existing meeting worker runtime dispatches it and writes its reply
+   * back to the transcript. `ownerId` is the principal so the member list can
+   * group it under them and render「代表 X 参会」.
+   */
+  async addAiRepresentative(
     actor: MeetingActor,
-    meetingId: string,
-    seatLabel?: string,
-    seatId?: string,
+    input: {
+      readonly meetingId: string;
+      readonly delegateId: string;
+      readonly principalUserId: string;
+      readonly principalName: string;
+      readonly teammateInstanceId: string;
+      readonly speechMode: "observe" | "mention" | "key_topic" | "active";
+      readonly personaId?: string;
+      readonly basePersonaId?: string;
+    },
   ): Promise<MeetingParticipant> {
-    const parsedActor = parseOrInvalid(actorSchema, actor);
-    const meeting = this.get(meetingId);
+    parseOrInvalid(actorSchema, actor);
+    const parsed = parseOrInvalid(
+      z.object({
+        meetingId: z.string().min(1).max(160),
+        delegateId: idSchema,
+        principalUserId: idSchema,
+        principalName: displayNameSchema,
+        teammateInstanceId: idSchema,
+        speechMode: z.enum(["observe", "mention", "key_topic", "active"]),
+        personaId: idSchema.optional(),
+        basePersonaId: idSchema.optional(),
+      }),
+      input,
+    );
+    const meeting = this.get(parsed.meetingId);
     if (meeting.status !== "active")
       throw new MeetingError("conflict", "meeting is closed");
-    const normalizedSeatLabel =
-      seatLabel === undefined || seatLabel === ""
-        ? undefined
-        : parseOrInvalid(seatLabelSchema, seatLabel);
-    let normalizedSeatId: string | undefined;
-    if (seatId !== undefined) {
-      const parsedSeatId = parseOrInvalid(idSchema, seatId);
-      const seat = meeting.seats.find((candidate) => candidate.id === parsedSeatId);
-      if (seat === undefined)
-        throw new MeetingError("not_found", "meeting seat not found");
-      if (normalizedSeatLabel !== undefined && normalizedSeatLabel !== seat.label)
-        throw new MeetingError("invalid_input", "seat label does not match the meeting seat");
-      normalizedSeatId = seat.id;
-      if (
-        this.participants(meeting.id).some(
-          (candidate) =>
-            candidate.status === "active" &&
-            candidate.seatId === seat.id &&
-            candidate.refId !== parsedActor.id,
-        )
-      ) {
-        throw new MeetingError("conflict", "meeting seat is already occupied");
-      }
-    }
-    const participant = this.participants(meeting.id).find(
-      (candidate) =>
-        candidate.status === "active" &&
-        candidate.kind === "human" &&
-        candidate.refId === parsedActor.id,
-    );
-    if (participant === undefined)
-      throw new MeetingError(
-        "not_found",
-        "active meeting participant not found",
-      );
-    const updated = {
-      ...participant,
-      seatId: normalizedSeatId,
-      seatLabel: normalizedSeatId === undefined
-        ? normalizedSeatLabel
-        : meeting.seats.find((candidate) => candidate.id === normalizedSeatId)!.label,
-      updatedAt: nowIso(this.options.now),
-    };
-    await this.tables.participants.put(updated.id, updated);
-    return updated;
-  }
-
-  async changeParticipantSeat(
-    actor: MeetingActor,
-    meetingId: string,
-    participantId: string,
-    seatLabel?: string,
-    seatId?: string,
-  ): Promise<MeetingParticipant> {
-    const parsedActor = parseOrInvalid(actorSchema, actor);
-    const meeting = this.get(meetingId);
-    if (meeting.status !== "active")
-      throw new MeetingError("conflict", "meeting is closed");
-    const caller = this.participants(meeting.id).find(
-      (candidate) =>
-        candidate.status === "active" &&
-        candidate.kind === "human" &&
-        candidate.refId === parsedActor.id,
-    );
-    const isLeader = caller?.leader === true;
-    const target = this.participants(meeting.id).find(
-      (candidate) => candidate.id === participantId && candidate.status === "active",
-    );
-    if (target === undefined)
-      throw new MeetingError("not_found", "meeting participant not found");
-    const isSelf = target.kind === "human" && target.refId === parsedActor.id;
-    const isOwner =
-      target.kind === "agent" && target.ownerId === parsedActor.id;
-    if (!isSelf && !isLeader && !isOwner) {
-      throw new MeetingError(
-        "forbidden",
-        "only the meeting leader or the avatar owner can change this participant's seat",
-      );
-    }
-    return this.applySeatChange(meeting.id, target, seatLabel, seatId, parsedActor.id);
-  }
-
-  private async applySeatChange(
-    meetingId: string,
-    target: MeetingParticipant,
-    seatLabel?: string,
-    seatId?: string,
-    excludeRefId?: string,
-  ): Promise<MeetingParticipant> {
-    const meeting = this.get(meetingId);
-    const normalizedSeatLabel =
-      seatLabel === undefined || seatLabel === ""
-        ? undefined
-        : parseOrInvalid(seatLabelSchema, seatLabel);
-    let normalizedSeatId: string | undefined;
-    if (seatId !== undefined) {
-      const parsedSeatId = parseOrInvalid(idSchema, seatId);
-      const seat = meeting.seats.find((candidate) => candidate.id === parsedSeatId);
-      if (seat === undefined)
-        throw new MeetingError("not_found", "meeting seat not found");
-      if (normalizedSeatLabel !== undefined && normalizedSeatLabel !== seat.label)
-        throw new MeetingError("invalid_input", "seat label does not match the meeting seat");
-      normalizedSeatId = seat.id;
-      if (
-        this.participants(meetingId).some(
-          (candidate) =>
-            candidate.status === "active" &&
-            candidate.seatId === seat.id &&
-            candidate.id !== target.id,
-        )
-      ) {
-        throw new MeetingError("conflict", "meeting seat is already occupied");
-      }
-    }
-    const updated = {
-      ...target,
-      seatId: normalizedSeatId,
-      seatLabel: normalizedSeatId === undefined
-        ? normalizedSeatLabel
-        : meeting.seats.find((candidate) => candidate.id === normalizedSeatId)!.label,
-      updatedAt: nowIso(this.options.now),
-    };
-    await this.tables.participants.put(updated.id, updated);
-    return updated;
-  }
-
-  async addSeat(
-    actor: MeetingActor,
-    meetingId: string,
-    label: string,
-  ): Promise<Meeting> {
-    const parsedActor = parseOrInvalid(actorSchema, actor);
-    const meeting = this.get(meetingId);
-    if (meeting.status !== "active")
-      throw new MeetingError("conflict", "meeting is closed");
-    const seatLabel = parseOrInvalid(seatNameSchema, label);
-    const participants = this.participants(meeting.id);
-    const caller = participants.find(
-      (candidate) =>
-        candidate.status === "active" &&
-        candidate.kind === actorKind(parsedActor) &&
-        candidate.refId === parsedActor.id,
-    );
-    if (
-      !(
-        caller?.leader === true ||
-        meeting.createdBy === parsedActor.id ||
-        managerActor(parsedActor)
-      )
-    ) {
-      throw new MeetingError(
-        "forbidden",
-        "meeting leader, creator, or workspace owner role is required",
-      );
-    }
-    if (meeting.seats.some((seat) => seat.label.localeCompare(seatLabel, undefined, { sensitivity: "base" }) === 0))
-      throw new MeetingError("conflict", "meeting seat label already exists");
-    if (meeting.seats.length >= 100)
-      throw new MeetingError("conflict", "meeting seat limit reached");
-    const updated = {
-      ...meeting,
-      seats: [...meeting.seats, { id: randomUUID(), label: seatLabel }],
-      updatedAt: nowIso(this.options.now),
-    };
-    await this.tables.meetings.put(updated.id, updated);
-    return updated;
-  }
-
-  async renameSeat(
-    actor: MeetingActor,
-    meetingId: string,
-    seatId: string,
-    label: string,
-  ): Promise<Meeting> {
-    const parsedActor = parseOrInvalid(actorSchema, actor);
-    const parsedSeatId = parseOrInvalid(idSchema, seatId);
-    const meeting = this.get(meetingId);
-    if (meeting.status !== "active")
-      throw new MeetingError("conflict", "meeting is closed");
-    const seatLabel = parseOrInvalid(seatNameSchema, label);
-    const participants = this.participants(meeting.id);
-    const caller = participants.find(
-      (candidate) =>
-        candidate.status === "active" &&
-        candidate.kind === actorKind(parsedActor) &&
-        candidate.refId === parsedActor.id,
-    );
-    if (
-      !(
-        caller?.leader === true ||
-        meeting.createdBy === parsedActor.id ||
-        managerActor(parsedActor)
-      )
-    ) {
-      throw new MeetingError(
-        "forbidden",
-        "meeting leader, creator, or workspace owner role is required",
-      );
-    }
-    const seat = meeting.seats.find((candidate) => candidate.id === parsedSeatId);
-    if (seat === undefined)
-      throw new MeetingError("not_found", "meeting seat not found");
-    if (
-      meeting.seats.some(
-        (candidate) =>
-          candidate.id !== seat.id &&
-          candidate.label.localeCompare(seatLabel, undefined, { sensitivity: "base" }) === 0,
-      )
-    ) {
-      throw new MeetingError("conflict", "meeting seat label already exists");
-    }
-    const updated = {
-      ...meeting,
-      seats: meeting.seats.map((candidate) =>
-        candidate.id === seat.id ? { ...candidate, label: seatLabel } : candidate,
-      ),
-      updatedAt: nowIso(this.options.now),
-    };
-    await this.tables.meetings.put(updated.id, updated);
-    for (const participant of this.participants(meeting.id)) {
-      if (participant.seatId !== seat.id || participant.seatLabel === seatLabel) continue;
-      await this.tables.participants.put(participant.id, {
-        ...participant,
-        seatLabel,
-        updatedAt: nowIso(this.options.now),
-      });
-    }
-    return updated;
-  }
-
-  async removeSeat(
-    actor: MeetingActor,
-    meetingId: string,
-    seatId: string,
-  ): Promise<Meeting> {
-    const parsedActor = parseOrInvalid(actorSchema, actor);
-    const parsedSeatId = parseOrInvalid(idSchema, seatId);
-    const meeting = this.get(meetingId);
-    if (meeting.status !== "active")
-      throw new MeetingError("conflict", "meeting is closed");
-    const participants = this.participants(meeting.id);
-    const caller = participants.find(
-      (candidate) =>
-        candidate.status === "active" &&
-        candidate.kind === actorKind(parsedActor) &&
-        candidate.refId === parsedActor.id,
-    );
-    if (
-      !(
-        caller?.leader === true ||
-        meeting.createdBy === parsedActor.id ||
-        managerActor(parsedActor)
-      )
-    ) {
-      throw new MeetingError(
-        "forbidden",
-        "meeting leader, creator, or workspace owner role is required",
-      );
-    }
-    if (!meeting.seats.some((candidate) => candidate.id === parsedSeatId))
-      throw new MeetingError("not_found", "meeting seat not found");
+    const autoSpeak =
+      parsed.speechMode === "observe"
+        ? "manual"
+        : parsed.speechMode === "mention"
+          ? "mentions"
+          : "all";
     const timestamp = nowIso(this.options.now);
-    const updated = {
-      ...meeting,
-      seats: meeting.seats.filter((candidate) => candidate.id !== parsedSeatId),
+    const existing = this.participants(meeting.id).find(
+      (participant) => participant.delegationId === parsed.delegateId,
+    );
+    const participant: MeetingParticipant = parseParticipant({
+      ...existing,
+      id: existing?.id ?? randomUUID(),
+      meetingId: meeting.id,
+      kind: "ai_representative",
+      refId: parsed.delegateId,
+      displayName: `${parsed.principalName} 的 AI 参会代表`,
+      ...(parsed.personaId === undefined
+        ? {}
+        : { personaId: parsed.personaId }),
+      ...(parsed.basePersonaId === undefined
+        ? {}
+        : { basePersonaId: parsed.basePersonaId }),
+      ownerId: parsed.principalUserId,
+      ownerName: parsed.principalName,
+      principalUserId: parsed.principalUserId,
+      principalName: parsed.principalName,
+      teammateInstanceId: parsed.teammateInstanceId,
+      delegationId: parsed.delegateId,
+      principalType: "delegation",
+      autoSpeak,
+      leader: false,
+      status: "active",
+      source: "direct",
+      joinedAt: existing?.joinedAt ?? timestamp,
+      leftAt: undefined,
       updatedAt: timestamp,
-    };
-    await this.tables.meetings.put(updated.id, updated);
-    for (const participant of participants) {
-      if (participant.seatId !== parsedSeatId) continue;
-      await this.tables.participants.put(participant.id, {
-        ...participant,
-        seatId: undefined,
-        seatLabel: undefined,
-        updatedAt: timestamp,
-      });
-    }
-    return updated;
+    });
+    await this.tables.participants.put(participant.id, participant);
+    if (existing === undefined)
+      await this.appendSystemMessage(
+        meeting.id,
+        `${parsed.principalName} 已指派 AI 参会代表（${parsed.teammateInstanceId}）入会。`,
+      );
+    return participant;
+  }
+
+  /** Retires the AI representative bound to a delegate (e.g. on revoke). */
+  async removeAiRepresentative(delegateId: string): Promise<void> {
+    const parsed = parseOrInvalid(idSchema, delegateId);
+    const participant = tableValues(this.tables.participants)
+      .map(parseParticipant)
+      .find(
+        (candidate) =>
+          candidate.delegationId === parsed && candidate.status === "active",
+      );
+    if (participant === undefined) return;
+    const timestamp = nowIso(this.options.now);
+    await this.tables.participants.put(participant.id, {
+      ...participant,
+      status: "left",
+      leftAt: timestamp,
+      updatedAt: timestamp,
+    });
+    await this.appendSystemMessage(
+      participant.meetingId,
+      `${participant.displayName} 已退出会议。`,
+    );
   }
 
   async leave(
@@ -1712,14 +1737,13 @@ export class MeetingService {
     );
     if (
       !(
-        caller?.leader === true ||
-        meeting.createdBy === parsedActor.id ||
+        (parsedActor.kind === "user" && caller !== undefined) ||
         managerActor(parsedActor)
       )
     ) {
       throw new MeetingError(
         "forbidden",
-        "meeting leader, creator, or workspace owner role is required",
+        "an active human participant or workspace owner role is required",
       );
     }
     const participant = participants.find(
@@ -1777,11 +1801,17 @@ export class MeetingService {
     const transcript = this.transcript(participant.meetingId)
       .map((message) => `${message.senderName}: ${message.content}`)
       .join("\n");
-    await this.delegationReporter.generateDelegationReport(
-      participant.delegationId,
-      transcript,
-      { finalize },
-    );
+    // 会后个人报告是增值产物：委托记录缺失或生成失败时不应阻塞会议生命周期
+    // （离会/关闭/归档），否则关闭会议会卡在「delegation does not exist」。
+    try {
+      await this.delegationReporter.generateDelegationReport(
+        participant.delegationId,
+        transcript,
+        { finalize },
+      );
+    } catch {
+      // 报告失败已在上游记录，这里仅保证会议状态机继续推进。
+    }
   }
 
   private delegationState(participant: MeetingParticipant) {
@@ -1816,11 +1846,19 @@ export class MeetingService {
     return message;
   }
 
+  /** Public entry used for minutes delivery and pending-confirmation notices. */
+  async postSystemMessage(
+    meetingId: string,
+    content: string,
+  ): Promise<MeetingMessage> {
+    this.get(meetingId);
+    return this.appendSystemMessage(meetingId, content);
+  }
+
   async spawnAgent(
     actor: MeetingActor,
     input: {
       readonly meetingId: string;
-      readonly seatId?: string;
       readonly personaId?: string;
       readonly basePersonaId?: string;
       readonly displayName?: string;
@@ -1837,7 +1875,6 @@ export class MeetingService {
     const parsed = parseOrInvalid(
       z.object({
         meetingId: z.string().min(1).max(160),
-        seatId: idSchema.optional(),
         personaId: idSchema.optional(),
         basePersonaId: idSchema.optional(),
         displayName: displayNameSchema.optional(),
@@ -1849,20 +1886,15 @@ export class MeetingService {
     if (meeting.status !== "active")
       throw new MeetingError("conflict", "meeting is closed");
     const participants = this.participants(meeting.id);
-    const seat = participants.find(
-      (candidate) =>
-        candidate.source === "seat" && candidate.seatId === parsed.seatId,
-    );
-    const personaId = parsed.personaId ?? seat?.personaId;
+    const personaId = parsed.personaId;
     let persona: Awaited<ReturnType<PersonaServiceLike["get"]>> | undefined;
     if (personas !== undefined && personaId !== undefined) {
       persona = await personas.get(personaId);
     }
     const displayName =
       parsed.displayName ??
-      (seat !== undefined
-        ? seat.displayName.replace(/^\[待认领\]\s*/, "")
-        : (persona?.name ?? `Agent-${randomUUID().slice(0, 8)}`));
+      persona?.name ??
+      `Agent-${randomUUID().slice(0, 8)}`;
     if (
       participants.some(
         (candidate) =>
@@ -1874,20 +1906,19 @@ export class MeetingService {
       throw new MeetingError("conflict", "participant name is already used");
     const timestamp = nowIso(this.options.now);
     const participant = workerParticipant({
-      id: seat?.id ?? randomUUID(),
+      id: randomUUID(),
       meetingId: meeting.id,
       kind: "agent",
       refId: "worker",
       displayName,
-      ...(parsed.seatId === undefined ? {} : { seatId: parsed.seatId }),
       ...(personaId === undefined ? {} : { personaId }),
       ...(parsed.basePersonaId === undefined
         ? {}
         : { basePersonaId: parsed.basePersonaId }),
-      leader: seat?.leader ?? false,
+      leader: false,
       status: "active",
-      source: seat === undefined ? "spawned" : "seat",
-      joinedAt: seat?.joinedAt,
+      source: "spawned",
+      joinedAt: timestamp,
       updatedAt: timestamp,
     });
     await this.tables.participants.put(participant.id, participant);
@@ -1940,6 +1971,31 @@ export class MeetingService {
     if (requester === undefined)
       throw new MeetingError("forbidden", "join the meeting before dispatching an agent");
     const persona = await personas.get(parsed.personaId);
+    // 幂等：同一个人用同一个 persona 再 spawn 一次时，复用已有参与者更新配置。
+    // 否则会新建第二条同名参与者，被 uniqueAgentName 改名成「名字 · Agent」，
+    // 成员面板/@ 列表里就会出现两个看起来一样的 agent。
+    // 复用键用「同一 owner + 同一基础名（或同一 persona）」而不是仅 persona：
+    // 同一 teammate 反复 dispatch 时 persona/basePersona 的解析结果可能不同。
+    const baseName = parsed.displayName ?? persona.name;
+    const existingAgent = this.participants(meeting.id).find(
+      (participant) =>
+        participant.status === "active" &&
+        participant.kind === "agent" &&
+        participant.ownerId === parsedActor.id &&
+        (participant.personaId === persona.id ||
+          participant.displayName === baseName ||
+          participant.displayName.startsWith(`${baseName} · `)),
+    );
+    if (existingAgent !== undefined) {
+      const reused = parseParticipant({
+        ...existingAgent,
+        autoSpeak: parsed.autoSpeak,
+        initialGreeting: parsed.initialGreeting,
+        updatedAt: nowIso(this.options.now),
+      });
+      await this.tables.participants.put(reused.id, reused);
+      return reused;
+    }
     const displayName = uniqueAgentName(
       this.participants(meeting.id),
       parsed.displayName ?? persona.name,
@@ -1996,6 +2052,7 @@ export class MeetingService {
     content: string,
     options: {
       readonly mentions?: readonly string[];
+      readonly attachments?: NonNullable<MeetingMessage["attachments"]>;
     } = {},
   ): Promise<MeetingMessage> {
     const parsedActor = parseOrInvalid(actorSchema, actor);
@@ -2005,6 +2062,19 @@ export class MeetingService {
     const parsedContent = parseOrInvalid(textSchema, content);
     const mentionedIds = new Set(options.mentions ?? []);
     const participants = this.participants(meeting.id);
+    // Parse `@名字` straight from the text so「被点名」works even when the GUI
+    // did not attach an id (typed mention, or a client without autocomplete).
+    for (const participant of participants) {
+      if (participant.status !== "active") continue;
+      if (
+        participant.kind === actorKind(parsedActor) &&
+        participant.refId === parsedActor.id
+      )
+        continue;
+      const name = participant.displayName.trim();
+      if (name !== "" && parsedContent.includes(`@${name}`))
+        mentionedIds.add(participant.id);
+    }
     if (![...mentionedIds].every((participantId) =>
       participants.some((participant) => participant.id === participantId),
     )) {
@@ -2028,13 +2098,24 @@ export class MeetingService {
     // already reported its agent unavailable can never resume, and reselecting
     // it would queue another doomed delivery on every later message.
     await this.reapUnavailableParticipants(meeting.id, transcript);
-    const targets = this.participants(meeting.id).filter(
+    const current = this.participants(meeting.id);
+    const mentionedPrincipals = new Set(
+      current
+        .filter(
+          (participant) =>
+            participant.kind === "human" && mentionedIds.has(participant.id),
+        )
+        .map((participant) => participant.refId),
+    );
+    const targets = current.filter(
       (participant) =>
         participant.status === "active" &&
-        participant.kind === "agent" &&
+        AI_PARTICIPANT_KINDS.includes(participant.kind) &&
         participant.refId !== sender.refId &&
         (mentionedIds.size === 0 ||
-          mentionedIds.has(participant.id)) &&
+          mentionedIds.has(participant.id) ||
+          (participant.principalUserId !== undefined &&
+            mentionedPrincipals.has(participant.principalUserId))) &&
         (participant.autoSpeak ?? "all") !== "manual" &&
         (mentionedIds.size > 0 || (participant.autoSpeak ?? "all") === "all"),
     );
@@ -2047,6 +2128,9 @@ export class MeetingService {
       senderName: sender.displayName,
       content: parsedContent,
       mentions: [...mentionedIds],
+      ...(options.attachments === undefined
+        ? {}
+        : { attachments: options.attachments }),
       deliveries: targets.map((participant) => ({
         participantId: participant.id,
         targetId: participant.refId,
@@ -2071,7 +2155,10 @@ export class MeetingService {
     const meeting = this.get(current.meetingId);
     if (meeting.status !== "active")
       throw new MeetingError("conflict", "meeting is closed");
-    if (current.kind !== "agent" || current.status !== "active")
+    if (
+      !AI_PARTICIPANT_KINDS.includes(current.kind) ||
+      current.status !== "active"
+    )
       throw new MeetingError("forbidden", "active meeting agent is required");
     const delegationStatus = this.delegationState(current);
     if (delegationStatus !== undefined && delegationStatus !== "active") {
@@ -2094,6 +2181,25 @@ export class MeetingService {
     }
     const parsedContent = parseOrInvalid(textSchema, content);
     const timestamp = nowIso(this.options.now);
+    const provenance =
+      current.kind === "ai_representative"
+        ? {
+            role: "representative" as const,
+            ...(current.teammateInstanceId === undefined
+              ? {}
+              : { teammateInstanceId: current.teammateInstanceId }),
+            ...(current.delegationId === undefined
+              ? {}
+              : { delegateId: current.delegationId }),
+          }
+        : current.kind === "ai_teammate"
+          ? {
+              role: "teammate" as const,
+              ...(current.teammateInstanceId === undefined
+                ? {}
+                : { teammateInstanceId: current.teammateInstanceId }),
+            }
+          : undefined;
     const message = {
       id: randomUUID(),
       sequence: (this.transcript(meeting.id).at(-1)?.sequence ?? 0) + 1,
@@ -2103,6 +2209,7 @@ export class MeetingService {
       senderName: current.displayName,
       content: parsedContent,
       mentions: [],
+      ...(provenance === undefined ? {} : { provenance }),
       deliveries: [],
       createdAt: timestamp,
     };
@@ -2150,17 +2257,13 @@ export class MeetingService {
         participant.kind === actorKind(parsedActor) &&
         participant.refId === parsedActor.id,
     );
-    if (
-      caller === undefined ||
-      !(
-        meeting.createdBy === parsedActor.id ||
-        caller.leader ||
-        managerActor(parsedActor)
-      )
-    )
+    // Product decision: any active human participant may close a meeting.
+    // Owner/leader/manager are no longer required; an inactive or non-human
+    // caller is still rejected.
+    if (parsedActor.kind !== "user" || caller === undefined)
       throw new MeetingError(
         "forbidden",
-        "meeting creator, leader, or workspace owner role is required",
+        "an active human participant is required to close the meeting",
       );
     const timestamp = nowIso(this.options.now);
     const closed = {
@@ -2196,7 +2299,167 @@ export class MeetingService {
       await this.reportForDelegation({ ...participant, status: "left" }, true);
     }
     this.onTranscriptChanged?.(closed.id);
+    this.onMeetingClosed?.(closed.id);
     return closed;
+  }
+
+  /**
+   * Archives a closed meeting. Any human who took part may archive it; a
+   * workspace owner/admin keeps an override. Closing first is required so the
+   * archive never races the auto minutes trigger.
+   */
+  async archive(actor: MeetingActor, meetingId: string): Promise<Meeting> {
+    const parsedActor = parseOrInvalid(actorSchema, actor);
+    const meeting = this.get(meetingId);
+    if (meeting.status !== "closed")
+      throw new MeetingError(
+        "conflict",
+        "only a closed meeting can be archived",
+      );
+    const tookPart = this.participants(meeting.id).some(
+      (participant) =>
+        participant.kind === "human" && participant.refId === parsedActor.id,
+    );
+    if (
+      parsedActor.kind !== "user" ||
+      (!tookPart && !managerActor(parsedActor))
+    )
+      throw new MeetingError(
+        "forbidden",
+        "a human participant or workspace owner role is required",
+      );
+    const timestamp = nowIso(this.options.now);
+    const archived = {
+      ...meeting,
+      status: "archived" as const,
+      archivedAt: timestamp,
+      archivedBy: parsedActor.id,
+      updatedAt: timestamp,
+    };
+    await this.tables.meetings.put(archived.id, archived);
+    await this.appendSystemMessage(meeting.id, "会议已归档。");
+    this.onTranscriptChanged?.(archived.id);
+    return archived;
+  }
+
+  /**
+   * 修改会议名称/议程。按产品口径，标题与议程的修改权只保留在会议负责人
+   * （ownerUserId，回退到 createdBy）手上，普通参会人只能聊天与邀请。
+   */
+  async update(
+    actor: MeetingActor,
+    meetingId: string,
+    input: { title?: string; agenda?: string },
+  ): Promise<Meeting> {
+    const parsedActor = parseOrInvalid(actorSchema, actor);
+    const meeting = this.get(meetingId);
+    if (meeting.status === "archived")
+      throw new MeetingError("conflict", "archived meeting is read-only");
+    const owner = meeting.ownerUserId ?? meeting.createdBy;
+    if (parsedActor.kind !== "user" || parsedActor.id !== owner)
+      throw new MeetingError(
+        "forbidden",
+        "only the meeting owner can edit the title or agenda",
+      );
+    const parsed = parseOrInvalid(
+      z.object({
+        title: titleSchema.optional(),
+        agenda: z.string().trim().max(20_000).optional(),
+      }),
+      input,
+    );
+    if (parsed.title === undefined && parsed.agenda === undefined)
+      throw new MeetingError("invalid_input", "nothing to update");
+    const timestamp = nowIso(this.options.now);
+    const renamed =
+      parsed.title !== undefined && parsed.title !== meeting.title;
+    const next = parseMeeting({
+      ...meeting,
+      ...(parsed.title === undefined ? {} : { title: parsed.title }),
+      ...(parsed.agenda === undefined ? {} : { agenda: parsed.agenda }),
+      updatedAt: timestamp,
+    });
+    await this.tables.meetings.put(next.id, next);
+    if (renamed) {
+      await this.appendSystemMessage(
+        meeting.id,
+        `会议名称已更新为「${next.title}」。`,
+      );
+      this.onTranscriptChanged?.(next.id);
+    }
+    return next;
+  }
+
+  /**
+   * Invites a team AI Teammate as an ordinary participant (it represents its
+   * own role, not a person). Used when the meeting wants a standing AI member
+   * rather than a per-person representative.
+   */
+  async addAiTeammate(
+    actor: MeetingActor,
+    input: {
+      readonly meetingId: string;
+      readonly teammateInstanceId: string;
+      readonly displayName: string;
+      readonly speechMode: "observe" | "mention" | "key_topic" | "active";
+      readonly personaId?: string;
+    },
+  ): Promise<MeetingParticipant> {
+    parseOrInvalid(actorSchema, actor);
+    const parsed = parseOrInvalid(
+      z.object({
+        meetingId: z.string().min(1).max(160),
+        teammateInstanceId: idSchema,
+        displayName: displayNameSchema,
+        speechMode: z.enum(["observe", "mention", "key_topic", "active"]),
+        personaId: idSchema.optional(),
+      }),
+      input,
+    );
+    const meeting = this.get(parsed.meetingId);
+    if (meeting.status !== "active")
+      throw new MeetingError("conflict", "meeting is closed");
+    const autoSpeak =
+      parsed.speechMode === "observe"
+        ? "manual"
+        : parsed.speechMode === "mention"
+          ? "mentions"
+          : "all";
+    const timestamp = nowIso(this.options.now);
+    const existing = this.participants(meeting.id).find(
+      (participant) =>
+        participant.kind === "ai_teammate" &&
+        participant.refId === parsed.teammateInstanceId,
+    );
+    const participant: MeetingParticipant = parseParticipant({
+      ...existing,
+      id: existing?.id ?? randomUUID(),
+      meetingId: meeting.id,
+      kind: "ai_teammate",
+      refId: parsed.teammateInstanceId,
+      displayName: parsed.displayName,
+      ...(parsed.personaId === undefined
+        ? {}
+        : { personaId: parsed.personaId }),
+      teammateInstanceId: parsed.teammateInstanceId,
+      autoSpeak,
+      leader: false,
+      status: "active",
+      source: "direct",
+      joinedAt: existing?.joinedAt ?? timestamp,
+      leftAt: undefined,
+      updatedAt: timestamp,
+    });
+    await this.tables.participants.put(participant.id, participant);
+    if (existing === undefined)
+      await this.appendSystemMessage(
+        meeting.id,
+        // Facilitator 是会议服务席位，文案按「几点进入会议」表达。
+        parsed.teammateInstanceId === MEETING_FACILITATOR_TEAMMATE_ID
+          ? `会议Facilitator 已于 ${meetingClock(timestamp)} 进入会议`
+          : `${parsed.displayName} 已作为 AI 成员加入会议。`,
+      );
+    return participant;
   }
 }
 
@@ -2206,17 +2469,24 @@ export class MeetingService {
 export const MEETING_FACILITATOR_TEAMMATE_ID = "meeting-facilitator";
 /** 纪要 run 的节点 id：工作台按它筛选会议来源的 agent run。 */
 export const MEETING_MINUTES_NODE_ID = "meeting-minutes";
-/** 角色模块里默认 facilitator 席位的 id（dsh-collab-roles 物化时补齐）。 */
-export const MEETING_FACILITATOR_SEAT_ID = "facilitator";
 
 const MEETING_MINUTES_TIMEOUT_MS = 120_000;
-/** 纪要 prompt 的对话窗口：保留最近若干条，并对总长度截尾，避免超过 run 的 prompt 上限。 */
-const MEETING_MINUTES_WINDOW = 40;
-const MEETING_MINUTES_TRANSCRIPT_LIMIT = 24_000;
+/**
+ * 纪要 prompt 的对话窗口：默认喂最近 100 条沟通记录 —— Facilitator 进会后
+ * 发生的对话基本都落在这个窗口内（超过 100 条时以最近的为准），这样任何时刻
+ * 触发都能基于"它看到过的会议内容"产出纪要，而不是只有零星几条。
+ * 仍对总长度截尾，避免超过 run 的 prompt 上限。
+ */
+const MEETING_MINUTES_WINDOW = 100;
+const MEETING_MINUTES_TRANSCRIPT_LIMIT = 60_000;
 
 interface MeetingMinutesRunLike {
+  readonly id?: string;
   readonly dispatchKey: string;
   readonly status: string;
+  readonly output?: { readonly summary?: string } | undefined;
+  readonly error?: string | undefined;
+  readonly endedAt?: string | undefined;
 }
 
 interface MeetingMinutesAgentServiceLike {
@@ -2256,9 +2526,12 @@ interface MeetingMinutesAgentServiceLike {
 }
 
 /**
- * 会议纪要生成：会议关闭或对话内容变化时，用 Facilitator 的平台运行身份
- * （teammate runtime ensureRuntime）派发一次 agent run，结果写进 run 的
- * output.summary。只在写入事件里触发，读取 / 轮询路径不会调模型。
+ * 会议纪要生成：用 Facilitator 的平台运行身份（teammate runtime
+ * ensureRuntime）派发一次 agent run，结果写进 run 的 output.summary。
+ *
+ * 触发点只有两处：会议关闭时的单次自动触发，以及页面上的手动
+ * trigger。它不再随每条消息变化而生成——那是早期的过度实现，会让每条
+ * 发言都调一次模型并产出无人确认的版本。读取 / 轮询路径不会调模型。
  */
 export class FacilitatorMinutesService {
   private readonly running = new Map<string, Promise<void>>();
@@ -2269,6 +2542,7 @@ export class FacilitatorMinutesService {
       readonly agents: () => MeetingMinutesAgentServiceLike | undefined;
       readonly teammateRuntime: () => TeammateRuntimeLike | undefined;
       readonly team: () => TeamServiceLike | undefined;
+      readonly files?: () => MeetingFileService | undefined;
     },
   ) {}
 
@@ -2316,7 +2590,17 @@ export class FacilitatorMinutesService {
     };
   }
 
-  private async generate(meetingId: string): Promise<void> {
+  /**
+   * Dispatches (or finds) the bounded minutes run for a meeting.
+   *
+   * Returns the run identifiers so the phase-1 minutes runtime can await the
+   * result and write it into the single minutes object. Returns `undefined`
+   * when generation is not applicable: runtime unavailable, no dialogue, or no
+   * workspace owner able to open the facilitator identity.
+   */
+  async dispatchMinutes(
+    meetingId: string,
+  ): Promise<{ runId?: string; dispatchKey: string } | undefined> {
     const agents = this.deps.agents?.();
     const teammateRuntime = this.deps.teammateRuntime?.();
     if (agents === undefined || teammateRuntime === undefined) return;
@@ -2336,7 +2620,8 @@ export class FacilitatorMinutesService {
       instanceId: meetingId,
       nodeId: MEETING_MINUTES_NODE_ID,
     });
-    if (existing.some((run) => run.dispatchKey === dispatchKey)) return;
+    if (existing.some((run) => run.dispatchKey === dispatchKey))
+      return { dispatchKey };
     const actor = this.actorFor(meeting);
     if (actor === undefined) return;
     const ensured = await teammateRuntime.ensureRuntime({
@@ -2344,7 +2629,7 @@ export class FacilitatorMinutesService {
       workspaceId: meeting.workspaceId,
       actor,
     });
-    await agents.dispatch({
+    const run = await agents.dispatch({
       workspaceId: meeting.workspaceId,
       profileId: ensured.profileId,
       source: "meeting",
@@ -2372,11 +2657,69 @@ export class FacilitatorMinutesService {
             .map((message) => `${message.senderName}: ${message.content}`)
             .join("\n")
             .slice(-MEETING_MINUTES_TRANSCRIPT_LIMIT),
+          // 把会议关联的文本文件内容直接喂给 Facilitator，避免模型尝试用工具
+          // 去找文件（无工具时会把工具调用标记写进纪要）。
+          files: (this.deps.files?.()?.list(meetingId) ?? [])
+            .filter(
+              (file) =>
+                /text|markdown|json|csv/i.test(file.mime) ||
+                /\.(md|markdown|txt|json|csv)$/i.test(file.name),
+            )
+            .map(
+              (file) =>
+                `### ${file.name}\n${Buffer.from(file.data, "base64")
+                  .toString("utf8")
+                  .slice(0, 4_000)}`,
+            )
+            .join("\n\n")
+            .slice(-8_000),
         },
         deliverables: [],
       },
       createdBy: actor.userId,
     });
+    const runId =
+      typeof run === "object" && run !== null && "id" in run
+        ? (run as { readonly id?: unknown }).id
+        : undefined;
+    return {
+      dispatchKey,
+      ...(typeof runId === "string" ? { runId } : {}),
+    };
+  }
+
+  /** Reads back a dispatched run's terminal status and summary text. */
+  minutesRun(
+    meetingId: string,
+    dispatchKey: string,
+  ): { status: string; content?: string; error?: string } | undefined {
+    const agents = this.deps.agents?.();
+    if (agents === undefined) return undefined;
+    let meeting: Meeting;
+    try {
+      meeting = this.deps.meetings.get(meetingId);
+    } catch {
+      return undefined;
+    }
+    const run = agents
+      .runs({
+        workspaceId: meeting.workspaceId,
+        instanceId: meetingId,
+        nodeId: MEETING_MINUTES_NODE_ID,
+      })
+      .find((candidate) => candidate.dispatchKey === dispatchKey);
+    if (run === undefined) return undefined;
+    return {
+      status: run.status,
+      ...(run.output?.summary === undefined
+        ? {}
+        : { content: run.output.summary }),
+      ...(run.error === undefined ? {} : { error: run.error }),
+    };
+  }
+
+  private async generate(meetingId: string): Promise<void> {
+    await this.dispatchMinutes(meetingId);
   }
 }
 
@@ -2470,7 +2813,21 @@ interface ToolDefinitionLike {
 
 export interface MeetingContext {
   effect(register: () => () => void): void;
+  /** Cordis 事件总线：订阅任务域变更，用于把 run 产出回写会议群聊。 */
+  on?(event: string, handler: (payload: unknown) => void): unknown;
   provide(key: "collabMeeting", value: MeetingService): unknown;
+  provide(key: "collabMeetingMinutes", value: MeetingMinutesService): unknown;
+  provide(
+    key: "collabMeetingMinutesRuntime",
+    value: MeetingMinutesRuntime,
+  ): unknown;
+  provide(
+    key: "collabMeetingDelegates",
+    value: MeetingDelegateService,
+  ): unknown;
+  provide(key: "collabMeetingReads", value: MeetingReadService): unknown;
+  provide(key: "collabMeetingFiles", value: MeetingFileService): unknown;
+  provide(key: "collabMeetingTasks", value: MeetingTaskService): unknown;
   commands: {
     register(definition: {
       name: string;
@@ -2486,18 +2843,19 @@ export interface MeetingContext {
   };
   collabTeam?: TeamServiceLike;
   collabEmployee?: EmployeeServiceLike;
-  collabAssignment?: AssignmentServiceLike;
   collabPersonas?: PersonaServiceLike;
   agents?: AgentRegistryLike;
   agentDefaultModel?: AgentDefaultModelLike;
   subagents?: SubagentsRuntimeLike;
-  get(key: "collabAssignment"): AssignmentServiceLike | undefined;
   get(key: "collabPersonas"): PersonaServiceLike | undefined;
   get(key: "agents"): AgentsServiceLike | undefined;
   get(key: "collabAgent"): MeetingMinutesAgentServiceLike | undefined;
   get(key: "subagents"): SubagentsRuntimeLike | undefined;
   get(key: "collabEmployee"): EmployeeServiceLike | undefined;
   get(key: "collabTeammateRuntime"): TeammateRuntimeLike | undefined;
+  /** 任务域（dsh-collab-task 提供）；未安装时为 undefined，会议降级不建任务。 */
+  get(key: "collabTasks"): TaskServiceLike | undefined;
+  get(key: "collabTaskDispatch"): TaskDispatchLike | undefined;
   inject(
     keys: readonly ["collabEmployee"],
     callback: (
@@ -2620,13 +2978,21 @@ export function createMeetingRoutes(
   meetings: MeetingService,
   team: TeamServiceLike,
   dependencies: {
-    readonly assignments?: () => AssignmentServiceLike | undefined;
     readonly agents?: () => AgentsServiceLike | undefined;
     readonly personas?: () => PersonaServiceLike | undefined;
     readonly subagents?: () => SubagentsRuntimeLike | undefined;
     readonly runtime?: () => MeetingRuntime | undefined;
     readonly employees?: () => EmployeeServiceLike | undefined;
     readonly teammateRuntime?: () => TeammateRuntimeLike | undefined;
+    readonly minutes?: () => MeetingMinutesService | undefined;
+    readonly minutesRuntime?: () => MeetingMinutesRuntime | undefined;
+    readonly delegates?: () => MeetingDelegateService | undefined;
+    readonly reads?: () => MeetingReadService | undefined;
+    readonly files?: () => MeetingFileService | undefined;
+    readonly tasks?: () => MeetingTaskService | undefined;
+    /** 任务域：会议里的 AI 参会方据此建「会议」任务并派发会话。 */
+    readonly taskService?: () => TaskServiceLike | undefined;
+    readonly taskDispatch?: () => TaskDispatchLike | undefined;
   } = {},
 ): WebRouteLike[] {
   const memberNames = (workspaceId: string) =>
@@ -2635,33 +3001,68 @@ export function createMeetingRoutes(
         .members(workspaceId)
         .map((member) => [member.userId, member.name ?? member.userId]),
     );
-  const readableParticipants = (
-    workspaceId: string,
-    participants: readonly MeetingParticipant[],
-  ) => {
-    const names = memberNames(workspaceId);
-    return participants.map((participant) => {
-      if (
-        participant.source !== "seat" ||
-        participant.refId.startsWith("seat:")
-      )
-        return participant;
-      const name = names.get(participant.refId);
-      if (
-        name === undefined ||
-        name === participant.refId ||
-        !participant.displayName.endsWith(`:${participant.refId}`)
-      )
-        return participant;
-      return {
-        ...participant,
-        displayName:
-          participant.displayName.slice(
-            0,
-            participant.displayName.length - participant.refId.length,
-          ) + name,
-      };
-    });
+  const activeHumanCaller = (
+    meeting: Meeting,
+    actor: MeetingActor,
+  ): MeetingParticipant => {
+    const caller = meetings
+      .participants(meeting.id)
+      .find(
+        (candidate) =>
+          candidate.status === "active" &&
+          candidate.kind === actorKind(actor) &&
+          candidate.refId === actor.id,
+      );
+    if (actor.kind !== "user" || caller === undefined)
+      throw new MeetingError(
+        "forbidden",
+        "an active human participant is required",
+      );
+    return caller;
+  };
+  const ownerCaller = (meeting: Meeting, actor: MeetingActor): void => {
+    const owner = meeting.ownerUserId ?? meeting.createdBy;
+    if (actor.kind !== "user" || (actor.id !== owner && !managerActor(actor)))
+      throw new MeetingError(
+        "forbidden",
+        "only the meeting owner can confirm minutes",
+      );
+  };
+  const requireMinutes = (): MeetingMinutesService => {
+    const service = dependencies.minutes?.();
+    if (service === undefined)
+      throw new MeetingError("not_found", "meeting minutes service is unavailable");
+    return service;
+  };
+  const requireMinutesRuntime = (): MeetingMinutesRuntime => {
+    const service = dependencies.minutesRuntime?.();
+    if (service === undefined)
+      throw new MeetingError("not_found", "minutes runtime is unavailable");
+    return service;
+  };
+  const requireDelegates = (): MeetingDelegateService => {
+    const service = dependencies.delegates?.();
+    if (service === undefined)
+      throw new MeetingError("not_found", "meeting delegate service is unavailable");
+    return service;
+  };
+  const requireReads = (): MeetingReadService => {
+    const service = dependencies.reads?.();
+    if (service === undefined)
+      throw new MeetingError("not_found", "meeting read service is unavailable");
+    return service;
+  };
+  const requireFiles = (): MeetingFileService => {
+    const service = dependencies.files?.();
+    if (service === undefined)
+      throw new MeetingError("not_found", "meeting file service is unavailable");
+    return service;
+  };
+  const requireTasks = (): MeetingTaskService => {
+    const service = dependencies.tasks?.();
+    if (service === undefined)
+      throw new MeetingError("not_found", "meeting task service is unavailable");
+    return service;
   };
   const routes = [
     {
@@ -2698,18 +3099,9 @@ export function createMeetingRoutes(
           meeting.id,
           body.displayName ?? `用户-${actor.id.slice(0, 6)}`,
         );
-        const assignments = dependencies.assignments?.();
-        if (assignments !== undefined) {
-          // 每个会议默认带一个「会议 Facilitator」席位；未认领时保持
-          // 「待认领 / 未启动」态，由现有 seat sync 生成参会人。
-          try {
-            await meetings.pullSeats(actor, meeting.id, assignments, [
-              MEETING_FACILITATOR_SEAT_ID,
-            ]);
-          } catch {
-            // 工作区未物化角色或席位缺失时跳过；建会本身不受影响。
-          }
-        }
+        // Phase 1 下线席位：建会不再默认物化「会议 Facilitator」席位。
+        // 纪要服务改为由任意活跃人类参与者按需开启（/facilitator/open），
+        // 旧的席位同步链路仅保留给历史数据。
         sendJson(response, 201, {
           ok: true,
           meeting,
@@ -2734,10 +3126,9 @@ export function createMeetingRoutes(
           );
         const employees = dependencies.employees?.();
         const now = new Date();
-        const participants = readableParticipants(
-          meeting.workspaceId,
-          meetings.participants(meeting.id),
-        ).map((participant) => {
+        const participants = meetings
+          .participants(meeting.id)
+          .map((participant) => {
           if (participant.delegationId === undefined) return participant;
           const status = employees?.getDelegationStatus(
             participant.delegationId,
@@ -2759,15 +3150,10 @@ export function createMeetingRoutes(
           transcript: meetings.transcript(meeting.id),
           actorId: actor.id,
           canRemove:
-            caller?.leader === true ||
-            meeting.createdBy === actor.id ||
+            (actor.kind === "user" && caller !== undefined) ||
             managerActor(actor),
           canInvite:
             caller !== undefined ||
-            meeting.createdBy === actor.id ||
-            managerActor(actor),
-          canManageSeats:
-            caller?.leader === true ||
             meeting.createdBy === actor.id ||
             managerActor(actor),
         });
@@ -2841,7 +3227,6 @@ export function createMeetingRoutes(
             role: member.memberRole,
             participantId: current?.id,
             state: current?.status,
-            seatLabel: current?.seatLabel,
           };
         });
         sendJson(response, 200, { ok: true, people });
@@ -2858,8 +3243,6 @@ export function createMeetingRoutes(
               .array(
                 z.object({
                   targetId: z.string().trim().min(1).max(160),
-                  seatLabel: z.string().trim().max(80).optional(),
-                  seatId: idSchema.optional(),
                 }),
               )
               .min(1)
@@ -2889,217 +3272,10 @@ export function createMeetingRoutes(
             await meetings.inviteParticipant(actor, meeting.id, {
               targetId: member.userId,
               displayName: member.name ?? member.userId,
-              ...(person.seatLabel === undefined || person.seatLabel === ""
-                ? {}
-                : { seatLabel: person.seatLabel }),
-              ...(person.seatId === undefined ? {} : { seatId: person.seatId }),
             }),
           );
         }
         sendJson(response, 201, { ok: true, participants: invited });
-      },
-    },
-    {
-      method: "POST",
-      path: "/api/collab/meeting/participant/change-seat",
-      handler: async (request: IncomingMessage, response: ServerResponse) => {
-        const body = parseOrInvalid(
-          z.object({
-            meetingId: z.string().min(1).max(160),
-            participantId: idSchema.optional(),
-            seatLabel: z.string().trim().max(80).optional(),
-            seatId: idSchema.optional(),
-          }),
-          await readBody(request),
-        );
-        const meeting = meetings.get(body.meetingId);
-        const actor = browserActor(team, request, meeting.workspaceId);
-        if (body.participantId !== undefined) {
-          sendJson(response, 200, {
-            ok: true,
-            participant: await meetings.changeParticipantSeat(
-              actor,
-              meeting.id,
-              body.participantId,
-              body.seatLabel,
-              body.seatId,
-            ),
-          });
-          return;
-        }
-        sendJson(response, 200, {
-          ok: true,
-          participant: await meetings.changeOwnSeat(
-            actor,
-            meeting.id,
-            body.seatLabel,
-            body.seatId,
-          ),
-        });
-      },
-    },
-    {
-      method: "POST",
-      path: "/api/collab/meeting/seats/manage",
-      handler: async (request: IncomingMessage, response: ServerResponse) => {
-        const body = parseOrInvalid(
-          z.object({
-            meetingId: z.string().min(1).max(160),
-            label: seatNameSchema,
-          }),
-          await readBody(request),
-        );
-        const meeting = meetings.get(body.meetingId);
-        const actor = browserActor(team, request, meeting.workspaceId);
-        sendJson(response, 201, {
-          ok: true,
-          meeting: await meetings.addSeat(actor, meeting.id, body.label),
-        });
-      },
-    },
-    {
-      method: "PATCH",
-      path: "/api/collab/meeting/seats/manage",
-      handler: async (request: IncomingMessage, response: ServerResponse) => {
-        const body = parseOrInvalid(
-          z.object({
-            meetingId: z.string().min(1).max(160),
-            seatId: idSchema,
-            label: seatNameSchema,
-          }),
-          await readBody(request),
-        );
-        const meeting = meetings.get(body.meetingId);
-        const actor = browserActor(team, request, meeting.workspaceId);
-        sendJson(response, 200, {
-          ok: true,
-          meeting: await meetings.renameSeat(
-            actor,
-            meeting.id,
-            body.seatId,
-            body.label,
-          ),
-        });
-      },
-    },
-    {
-      method: "DELETE",
-      path: "/api/collab/meeting/seats/manage",
-      handler: async (request: IncomingMessage, response: ServerResponse) => {
-        const body = parseOrInvalid(
-          z.object({
-            meetingId: z.string().min(1).max(160),
-            seatId: idSchema,
-          }),
-          await readBody(request),
-        );
-        const meeting = meetings.get(body.meetingId);
-        const actor = browserActor(team, request, meeting.workspaceId);
-        sendJson(response, 200, {
-          ok: true,
-          meeting: await meetings.removeSeat(
-            actor,
-            meeting.id,
-            body.seatId,
-          ),
-        });
-      },
-    },
-    {
-      method: "GET",
-      path: "/api/collab/meeting/seats",
-      handler: (request: IncomingMessage, response: ServerResponse) => {
-        const meetingId = requireQuery(request, "meetingId");
-        const meeting = meetings.get(meetingId);
-        browserActor(team, request, meeting.workspaceId);
-        const assignments = dependencies.assignments?.();
-        if (assignments === undefined)
-          throw new MeetingError("not_found", "roles service is unavailable");
-        const names = memberNames(meeting.workspaceId);
-        const assignmentsBySeat = new Map(
-          assignments
-            .seats(meeting.workspaceId)
-            .map((seat) => [seat.seatId, seat]),
-        );
-        const currentBySeat = new Map(
-          meetings
-            .participants(meeting.id)
-            .filter((participant) => participant.source === "seat")
-            .flatMap((participant) =>
-              participant.seatId === undefined
-                ? []
-                : [[participant.seatId, participant] as const],
-            ),
-        );
-        const seats = assignments
-          .config(meeting.workspaceId)
-          .seats.map((seat) => {
-            const assignment = assignmentsBySeat.get(seat.id);
-            const current = currentBySeat.get(seat.id);
-            const assigned =
-              assignment !== undefined && assignment.status !== "released";
-            const assigneeId = assignment?.assigneeId;
-            return {
-              seatId: seat.id,
-              label: seat.label,
-              participantKind: seat.participantKind,
-              personaId: assignment?.personaId ?? seat.personaId,
-              availability:
-                current?.status === "active"
-                  ? "joined"
-                  : current?.status === "left"
-                    ? "left"
-                    : "selectable",
-              occupancy:
-                current?.status === "pending"
-                  ? "pending"
-                  : assigned
-                    ? "filled"
-                    : "open",
-              assigneeId,
-              assigneeName:
-                assigneeId === undefined
-                  ? undefined
-                  : (names.get(assigneeId) ?? assigneeId),
-              leader: assignment?.leader === true,
-              hint:
-                assigned || current?.status === "left"
-                  ? undefined
-                  : `/assignment claim ${meeting.workspaceId} ${seat.id}`,
-            };
-          });
-        sendJson(response, 200, { ok: true, seats });
-      },
-    },
-    {
-      method: "POST",
-      path: "/api/collab/meeting/seats/pull",
-      handler: async (request: IncomingMessage, response: ServerResponse) => {
-        const body = parseOrInvalid(
-          z.object({
-            meetingId: z.string().min(1).max(160),
-            seatIds: z
-              .array(z.string().trim().min(1).max(160))
-              .min(1)
-              .max(100)
-              .optional(),
-          }),
-          await readBody(request),
-        );
-        const meeting = meetings.get(body.meetingId);
-        const actor = browserActor(team, request, meeting.workspaceId);
-        const assignments = dependencies.assignments?.();
-        if (assignments === undefined)
-          throw new MeetingError("not_found", "roles service is unavailable");
-        sendJson(response, 200, {
-          ok: true,
-          participants: await meetings.pullSeats(
-            actor,
-            meeting.id,
-            assignments,
-            body.seatIds,
-          ),
-        });
       },
     },
     {
@@ -3123,15 +3299,37 @@ export function createMeetingRoutes(
           body.mentions === undefined ? {} : { mentions: body.mentions },
         );
         const runtime = dependencies.runtime?.();
-        if (message.deliveries.length > 0 && runtime !== undefined) {
-          runtime.dispatch(
-            message,
-            meetings.participants(meeting.id).filter((participant) =>
+        const delivered = meetings
+          .participants(meeting.id)
+          .filter(
+            (participant) =>
               message.deliveries.some(
                 (delivery) => delivery.participantId === participant.id,
               ),
-            ),
           );
+        // AI 参会方分流：已绑定「会议」任务的走任务会话链路（被动 @ / 主动监听
+        // 都落到它自己的任务上，run 产出经 collab/task-changed 回写群聊）；
+        // 没绑定任务的仍用一次性 worker 兜底。两条路径互斥，避免重复跑模型。
+        const taskService = dependencies.taskService?.();
+        const taskDispatch = dependencies.taskDispatch?.();
+        // 任务域可用时 AI 参会方统一走任务会话链路（缺任务会按需补建），
+        // 只有任务域不可用时才退回一次性 worker。
+        const bridgeReady =
+          taskService !== undefined && taskDispatch !== undefined;
+        for (const participant of delivered) {
+          if (participant.kind === "human") continue;
+          if (!bridgeReady || participant.teammateInstanceId === undefined) {
+            runtime?.dispatch(message, [participant]);
+            continue;
+          }
+          void feedMeetingMessageToAgent({
+            meeting,
+            participant,
+            message,
+            senderName: message.senderName,
+            taskService,
+            taskDispatch,
+          });
         }
         sendJson(response, 201, { ok: true, message });
       },
@@ -3179,6 +3377,108 @@ export function createMeetingRoutes(
           ok: true,
           meeting: await meetings.close(actor, meeting.id, body.summary),
         });
+      },
+    },
+    {
+      method: "POST",
+      path: "/api/collab/meeting/archive",
+      handler: async (request: IncomingMessage, response: ServerResponse) => {
+        const body = parseOrInvalid(
+          z.object({ meetingId: z.string().min(1).max(160) }),
+          await readBody(request),
+        );
+        const meeting = meetings.get(body.meetingId);
+        const actor = browserActor(team, request, meeting.workspaceId);
+        sendJson(response, 200, {
+          ok: true,
+          meeting: await meetings.archive(actor, meeting.id),
+        });
+      },
+    },
+    {
+      method: "POST",
+      path: "/api/collab/meeting/update",
+      handler: async (request: IncomingMessage, response: ServerResponse) => {
+        const body = parseOrInvalid(
+          z.object({
+            meetingId: z.string().min(1).max(160),
+            title: titleSchema.optional(),
+            agenda: z.string().trim().max(20_000).optional(),
+          }),
+          await readBody(request),
+        );
+        const meeting = meetings.get(body.meetingId);
+        const actor = browserActor(team, request, meeting.workspaceId);
+        sendJson(response, 200, {
+          ok: true,
+          meeting: await meetings.update(actor, meeting.id, {
+            ...(body.title === undefined ? {} : { title: body.title }),
+            ...(body.agenda === undefined ? {} : { agenda: body.agenda }),
+          }),
+        });
+      },
+    },
+    {
+      method: "POST",
+      path: "/api/collab/meeting/participant/ai",
+      handler: async (request: IncomingMessage, response: ServerResponse) => {
+        const body = parseOrInvalid(
+          z.object({
+            meetingId: z.string().min(1).max(160),
+            teammateInstanceId: idSchema,
+            displayName: displayNameSchema,
+            speechMode: z
+              .enum(["observe", "mention", "key_topic", "active"])
+              .default("mention"),
+          }),
+          await readBody(request),
+        );
+        const meeting = meetings.get(body.meetingId);
+        const actor = browserActor(team, request, meeting.workspaceId);
+        activeHumanCaller(meeting, actor);
+        let personaId: string | undefined;
+        const teammateRuntime = dependencies.teammateRuntime?.();
+        if (teammateRuntime !== undefined) {
+          try {
+            const ensured = await teammateRuntime.ensureRuntime({
+              teammateId: body.teammateInstanceId,
+              workspaceId: meeting.workspaceId,
+              actor: {
+                userId: actor.id,
+                name: memberNames(meeting.workspaceId).get(actor.id) ?? actor.id,
+                role:
+                  actor.globalRole === "admin"
+                    ? "admin"
+                    : actor.workspaceRole === "owner"
+                      ? "owner"
+                      : actor.workspaceRole === "guest"
+                        ? "guest"
+                        : "member",
+              },
+            });
+            personaId = ensured.personaId;
+          } catch {
+            // best effort
+          }
+        }
+        const participant = await meetings.addAiTeammate(actor, {
+          meetingId: meeting.id,
+          teammateInstanceId: body.teammateInstanceId,
+          displayName: body.displayName,
+          speechMode: body.speechMode,
+          ...(personaId === undefined ? {} : { personaId }),
+        });
+        // AI 参会方入会即建「会议」任务并派发会话：左侧项目树能看到它的运行过程。
+        const agentTaskId = await ensureAgentMeetingTask({
+          meeting,
+          teammateInstanceId: body.teammateInstanceId,
+          teammateName: body.displayName,
+          actorId: actor.id,
+          actorName: memberNames(meeting.workspaceId).get(actor.id) ?? actor.id,
+          taskService: dependencies.taskService?.(),
+          taskDispatch: dependencies.taskDispatch?.(),
+        });
+        sendJson(response, 201, { ok: true, participant, agentTaskId });
       },
     },
     {
@@ -3359,6 +3659,464 @@ export function createMeetingRoutes(
         sendJson(response, 202, { ok: true, participant });
       },
     },
+    {
+      method: "POST",
+      path: "/api/collab/meeting/facilitator/open",
+      handler: async (request: IncomingMessage, response: ServerResponse) => {
+        const body = parseOrInvalid(
+          z.object({ meetingId: z.string().min(1).max(160) }),
+          await readBody(request),
+        );
+        const meeting = meetings.get(body.meetingId);
+        const actor = browserActor(team, request, meeting.workspaceId);
+        activeHumanCaller(meeting, actor);
+        const facilitator = await requireMinutes().openFacilitator(
+          meeting.id,
+          actor.id,
+        );
+        sendJson(response, 201, { ok: true, facilitator });
+      },
+    },
+    {
+      method: "POST",
+      path: "/api/collab/meeting/facilitator/close",
+      handler: async (request: IncomingMessage, response: ServerResponse) => {
+        const body = parseOrInvalid(
+          z.object({ meetingId: z.string().min(1).max(160) }),
+          await readBody(request),
+        );
+        const meeting = meetings.get(body.meetingId);
+        const actor = browserActor(team, request, meeting.workspaceId);
+        activeHumanCaller(meeting, actor);
+        const facilitator = await requireMinutes().closeFacilitator(
+          meeting.id,
+          actor.id,
+        );
+        sendJson(response, 200, { ok: true, facilitator });
+      },
+    },
+    {
+      method: "POST",
+      path: "/api/collab/meeting/facilitator/replace",
+      handler: async (request: IncomingMessage, response: ServerResponse) => {
+        const body = parseOrInvalid(
+          z.object({ meetingId: z.string().min(1).max(160) }),
+          await readBody(request),
+        );
+        const meeting = meetings.get(body.meetingId);
+        const actor = browserActor(team, request, meeting.workspaceId);
+        activeHumanCaller(meeting, actor);
+        const facilitator = await requireMinutes().replaceFacilitator(
+          meeting.id,
+          actor.id,
+        );
+        sendJson(response, 201, { ok: true, facilitator });
+      },
+    },
+    {
+      method: "GET",
+      path: "/api/collab/meeting/minutes",
+      handler: (request: IncomingMessage, response: ServerResponse) => {
+        const meetingId = requireQuery(request, "meetingId");
+        const meeting = meetings.get(meetingId);
+        const actor = browserActor(team, request, meeting.workspaceId);
+        const minutes = requireMinutes();
+        sendJson(response, 200, {
+          ok: true,
+          minutes: minutes.minutes(meeting.id) ?? null,
+          activeVersion: minutes.activeVersion(meeting.id) ?? null,
+          versions: minutes.versions(meeting.id),
+          facilitator: minutes.activeFacilitator(meeting.id) ?? null,
+          actorId: actor.id,
+        });
+      },
+    },
+    {
+      method: "POST",
+      path: "/api/collab/meeting/minutes/trigger",
+      handler: async (request: IncomingMessage, response: ServerResponse) => {
+        const body = parseOrInvalid(
+          z.object({
+            meetingId: z.string().min(1).max(160),
+            trigger: z.enum(["manual", "post_close_manual"]).optional(),
+          }),
+          await readBody(request),
+        );
+        const meeting = meetings.get(body.meetingId);
+        const actor = browserActor(team, request, meeting.workspaceId);
+        activeHumanCaller(meeting, actor);
+        const version = await requireMinutesRuntime().trigger({
+          meetingId: meeting.id,
+          trigger: body.trigger ?? "manual",
+          requestedBy: actor.id,
+        });
+        sendJson(response, 202, { ok: true, version });
+      },
+    },
+    {
+      method: "POST",
+      path: "/api/collab/meeting/minutes/confirm",
+      handler: async (request: IncomingMessage, response: ServerResponse) => {
+        const body = parseOrInvalid(
+          z.object({
+            meetingId: z.string().min(1).max(160),
+            versionId: z.string().min(1).max(160),
+            content: z.string().max(400_000).optional(),
+          }),
+          await readBody(request),
+        );
+        const meeting = meetings.get(body.meetingId);
+        const actor = browserActor(team, request, meeting.workspaceId);
+        ownerCaller(meeting, actor);
+        const version = await requireMinutes().confirmVersion({
+          meetingId: meeting.id,
+          versionId: body.versionId,
+          confirmedBy: actor.id,
+          ...(body.content === undefined ? {} : { content: body.content }),
+        });
+        // 待确认事项完成：编辑确认会生成新版本，两个 id 都要清掉。
+        // 任务服务缺失时不阻塞确认本身。
+        const tasks = dependencies.tasks?.();
+        if (tasks !== undefined) {
+          await tasks.completeByTarget(body.versionId, actor.id);
+          if (version.id !== body.versionId)
+            await tasks.completeByTarget(version.id, actor.id);
+        }
+        sendJson(response, 200, { ok: true, version });
+      },
+    },
+    {
+      method: "GET",
+      path: "/api/collab/meeting/delegates",
+      handler: (request: IncomingMessage, response: ServerResponse) => {
+        const meetingId = requireQuery(request, "meetingId");
+        const meeting = meetings.get(meetingId);
+        const actor = browserActor(team, request, meeting.workspaceId);
+        sendJson(response, 200, {
+          ok: true,
+          delegates: requireDelegates().list(meeting.id),
+          actorId: actor.id,
+        });
+      },
+    },
+    {
+      method: "POST",
+      path: "/api/collab/meeting/delegate/assign",
+      handler: async (request: IncomingMessage, response: ServerResponse) => {
+        const body = parseOrInvalid(
+          z.object({
+            meetingId: z.string().min(1).max(160),
+            teammateInstanceId: z.string().min(1).max(160),
+            employeeId: z.string().min(1).max(160).optional(),
+            speechMode: z
+              .enum(["observe", "mention", "key_topic", "active"])
+              .optional(),
+            instruction: delegateInstructionInputSchema.optional(),
+          }),
+          await readBody(request),
+        );
+        const meeting = meetings.get(body.meetingId);
+        const actor = browserActor(team, request, meeting.workspaceId);
+        activeHumanCaller(meeting, actor);
+        const principalName =
+          memberNames(meeting.workspaceId).get(actor.id) ?? actor.id;
+        const assigned = await requireDelegates().assign({
+          meetingId: meeting.id,
+          principalUserId: actor.id,
+          principalName,
+          teammateInstanceId: body.teammateInstanceId,
+          ...(body.employeeId === undefined
+            ? {}
+            : { employeeId: body.employeeId }),
+          ...(body.speechMode === undefined
+            ? {}
+            : { speechMode: body.speechMode }),
+          ...(body.instruction === undefined
+            ? {}
+            : { instruction: body.instruction }),
+        });
+        // Provision the teammate runtime and join the representative so the
+        // delegate actually attends (target selection + worker dispatch).
+        let personaId: string | undefined;
+        const teammateRuntime = dependencies.teammateRuntime?.();
+        if (teammateRuntime !== undefined) {
+          try {
+            const ensured = await teammateRuntime.ensureRuntime({
+              teammateId: body.teammateInstanceId,
+              workspaceId: meeting.workspaceId,
+              actor: {
+                userId: actor.id,
+                name: principalName,
+                role:
+                  actor.globalRole === "admin"
+                    ? "admin"
+                    : actor.workspaceRole === "owner"
+                      ? "owner"
+                      : actor.workspaceRole === "guest"
+                        ? "guest"
+                        : "member",
+              },
+            });
+            personaId = ensured.personaId;
+          } catch {
+            // Runtime provisioning is best effort; the binding still exists and
+            // the representative retries dispatch once the runtime is ready.
+          }
+        }
+        const participant = await meetings.addAiRepresentative(actor, {
+          meetingId: meeting.id,
+          delegateId: assigned.delegate.id,
+          principalUserId: actor.id,
+          principalName,
+          teammateInstanceId: body.teammateInstanceId,
+          speechMode: body.speechMode ?? "mention",
+          ...(personaId === undefined ? {} : { personaId }),
+        });
+        // 参会代表同样落到任务域：任务描述带上主人的嘱咐。
+        const agentTaskId = await ensureAgentMeetingTask({
+          meeting,
+          teammateInstanceId: body.teammateInstanceId,
+          teammateName: `${principalName} 的 AI 参会代表`,
+          actorId: actor.id,
+          actorName: principalName,
+          instruction: formatDelegateInstruction(assigned.instruction),
+          taskService: dependencies.taskService?.(),
+          taskDispatch: dependencies.taskDispatch?.(),
+        });
+        sendJson(response, 201, {
+          ok: true,
+          delegate: assigned.delegate,
+          participant,
+          agentTaskId,
+        });
+      },
+    },
+    {
+      method: "POST",
+      path: "/api/collab/meeting/delegate/update",
+      handler: async (request: IncomingMessage, response: ServerResponse) => {
+        const body = parseOrInvalid(
+          z.object({
+            delegateId: z.string().min(1).max(160),
+            teammateInstanceId: z.string().min(1).max(160).optional(),
+            employeeId: z.string().min(1).max(160).optional(),
+            speechMode: z
+              .enum(["observe", "mention", "key_topic", "active"])
+              .optional(),
+            instruction: delegateInstructionInputSchema.optional(),
+          }),
+          await readBody(request),
+        );
+        const delegates = requireDelegates();
+        const actor = browserActor(
+          team,
+          request,
+          meetings.get(delegates.get(body.delegateId).meetingId).workspaceId,
+        );
+        const updated = await delegates.update({
+          delegateId: body.delegateId,
+          actorUserId: actor.id,
+          ...(body.teammateInstanceId === undefined
+            ? {}
+            : { teammateInstanceId: body.teammateInstanceId }),
+          ...(body.employeeId === undefined
+            ? {}
+            : { employeeId: body.employeeId }),
+          ...(body.speechMode === undefined
+            ? {}
+            : { speechMode: body.speechMode }),
+          ...(body.instruction === undefined
+            ? {}
+            : { instruction: body.instruction }),
+        });
+        const meeting = meetings.get(updated.delegate.meetingId);
+        const representative = meeting.status === "active"
+          ? await meetings.addAiRepresentative(actor, {
+              meetingId: meeting.id,
+              delegateId: updated.delegate.id,
+              principalUserId: updated.delegate.principalUserId,
+              principalName: updated.delegate.principalName,
+              teammateInstanceId: updated.delegate.teammateInstanceId,
+              speechMode: updated.delegate.speechMode,
+            })
+          : undefined;
+        sendJson(response, 200, {
+          ok: true,
+          delegate: updated.delegate,
+          ...(representative === undefined ? {} : { participant: representative }),
+        });
+      },
+    },
+    {
+      method: "POST",
+      path: "/api/collab/meeting/delegate/state",
+      handler: async (request: IncomingMessage, response: ServerResponse) => {
+        const body = parseOrInvalid(
+          z.object({
+            delegateId: z.string().min(1).max(160),
+            status: z.enum(["active", "paused", "revoked"]),
+          }),
+          await readBody(request),
+        );
+        const delegates = requireDelegates();
+        const actor = browserActor(
+          team,
+          request,
+          meetings.get(delegates.get(body.delegateId).meetingId).workspaceId,
+        );
+        const delegate =
+          body.status === "active"
+            ? await delegates.resume(body.delegateId, actor.id)
+            : body.status === "paused"
+              ? await delegates.pause(body.delegateId, actor.id)
+              : await delegates.revoke(body.delegateId, actor.id);
+        if (body.status === "revoked")
+          await meetings.removeAiRepresentative(body.delegateId);
+        sendJson(response, 200, { ok: true, delegate });
+      },
+    },
+    {
+      method: "GET",
+      path: "/api/collab/meeting/delegate/instruction",
+      handler: (request: IncomingMessage, response: ServerResponse) => {
+        const delegateId = requireQuery(request, "delegateId");
+        const delegates = requireDelegates();
+        const meeting = meetings.get(delegates.get(delegateId).meetingId);
+        const actor = browserActor(team, request, meeting.workspaceId);
+        sendJson(response, 200, {
+          ok: true,
+          instruction: delegates.instructionFor(delegateId, actor.id),
+        });
+      },
+    },
+    {
+      method: "POST",
+      path: "/api/collab/meeting/read",
+      handler: async (request: IncomingMessage, response: ServerResponse) => {
+        const body = parseOrInvalid(
+          z.object({
+            meetingId: z.string().min(1).max(160),
+            lastReadSeq: z.number().int().nonnegative(),
+          }),
+          await readBody(request),
+        );
+        const meeting = meetings.get(body.meetingId);
+        const actor = browserActor(team, request, meeting.workspaceId);
+        const read = await requireReads().markRead(
+          meeting.id,
+          actor.id,
+          body.lastReadSeq,
+        );
+        sendJson(response, 200, { ok: true, read });
+      },
+    },
+    {
+      method: "GET",
+      path: "/api/collab/meeting/read",
+      handler: (request: IncomingMessage, response: ServerResponse) => {
+        const meetingId = requireQuery(request, "meetingId");
+        const meeting = meetings.get(meetingId);
+        const actor = browserActor(team, request, meeting.workspaceId);
+        const reads = requireReads();
+        sendJson(response, 200, {
+          ok: true,
+          read: reads.read(meeting.id, actor.id) ?? {
+            meetingId: meeting.id,
+            userId: actor.id,
+            lastReadSeq: 0,
+          },
+        });
+      },
+    },
+    {
+      method: "GET",
+      path: "/api/collab/meeting/tasks",
+      handler: (request: IncomingMessage, response: ServerResponse) => {
+        const meetingId = requireQuery(request, "meetingId");
+        const meeting = meetings.get(meetingId);
+        browserActor(team, request, meeting.workspaceId);
+        const tasks = requireTasks();
+        sendJson(response, 200, {
+          ok: true,
+          tasks: tasks.list(meeting.id),
+          pending: tasks.pending(meeting.id),
+        });
+      },
+    },
+    {
+      method: "GET",
+      path: "/api/collab/meeting/files",
+      handler: (request: IncomingMessage, response: ServerResponse) => {
+        const meetingId = requireQuery(request, "meetingId");
+        const meeting = meetings.get(meetingId);
+        browserActor(team, request, meeting.workspaceId);
+        const files = requireFiles().list(meeting.id);
+        sendJson(response, 200, {
+          ok: true,
+          files: files.map((file) => ({
+            id: file.id,
+            name: file.name,
+            mime: file.mime,
+            size: file.size,
+            uploadedBy: file.uploadedBy,
+            createdAt: file.createdAt,
+          })),
+        });
+      },
+    },
+    {
+      method: "GET",
+      path: "/api/collab/meeting/file",
+      handler: (request: IncomingMessage, response: ServerResponse) => {
+        const fileId = requireQuery(request, "fileId");
+        const file = requireFiles().get(fileId);
+        const meeting = meetings.get(file.meetingId);
+        browserActor(team, request, meeting.workspaceId);
+        sendJson(response, 200, { ok: true, file });
+      },
+    },
+    {
+      method: "POST",
+      path: "/api/collab/meeting/file",
+      handler: async (request: IncomingMessage, response: ServerResponse) => {
+        const body = parseOrInvalid(
+          z.object({
+            meetingId: z.string().min(1).max(160),
+            name: z.string().trim().min(1).max(240),
+            mime: z.string().trim().max(160).optional(),
+            data: z.string().min(1).max(800_000),
+          }),
+          await readBody(request),
+        );
+        const meeting = meetings.get(body.meetingId);
+        const actor = browserActor(team, request, meeting.workspaceId);
+        activeHumanCaller(meeting, actor);
+        const file = await requireFiles().put({
+          meetingId: meeting.id,
+          uploadedBy: actor.id,
+          name: body.name,
+          ...(body.mime === undefined ? {} : { mime: body.mime }),
+          data: body.data,
+        });
+        const message = await meetings.post(actor, meeting.id, `上传了文件：${file.name}`, {
+          attachments: [
+            {
+              id: file.id,
+              name: file.name,
+              mime: file.mime,
+              size: file.size,
+              storageRef: file.id,
+            },
+          ],
+        });
+        sendJson(response, 201, { ok: true, file: {
+          id: file.id,
+          name: file.name,
+          mime: file.mime,
+          size: file.size,
+        }, message });
+      },
+    },
   ];
   return [...new Set(routes.map((route) => route.path))].map((path) => ({
     kind: "exact" as const,
@@ -3400,7 +4158,6 @@ function actorFromExec(exec: ToolExecLike): MeetingActor {
 
 function commandOperation(
   meetings: MeetingService,
-  assignments: AssignmentServiceLike | undefined,
   rawInput: string,
 ): CommandResultLike {
   const parts = rawInput.trim().split(/\s+/).filter(Boolean);
@@ -3430,14 +4187,6 @@ function commandOperation(
     if (operation === "join" && second !== undefined && rest.length > 0) {
       void meetings.join(actor, second, rest.join(" ")).catch(() => undefined);
       return { kind: "success", text: "meeting join accepted" };
-    }
-    if (operation === "seats" && second !== undefined) {
-      if (assignments === undefined)
-        return { kind: "error", text: "roles service is unavailable" };
-      void meetings
-        .pullSeats(actor, second, assignments)
-        .catch(() => undefined);
-      return { kind: "success", text: "seat sync accepted" };
     }
     if (operation === "read" && second !== undefined) {
       const meeting = meetings.get(second);
@@ -3471,7 +4220,7 @@ function commandOperation(
   }
   return {
     kind: "error",
-    text: "usage: /meeting [list <workspace>] | create <workspace> <title> | join <meeting> <name> | seats <meeting> | read <meeting> | say <meeting> <text> | leave <meeting> | close <meeting> <summary>",
+    text: "usage: /meeting [list <workspace>] | create <workspace> <title> | join <meeting> <name> | read <meeting> | say <meeting> <text> | leave <meeting> | close <meeting> <summary>",
   };
 }
 
@@ -3483,20 +4232,15 @@ function registerMeetingInterfaces(
     name: "meeting",
     description: "manage DSH Pluginmax meetings",
     input: {
-      hint: "list [workspace] | create <workspace> <title> | join <meeting> <name> | seats <meeting> | read <meeting> | say <meeting> <text> | leave <meeting> | close <meeting> <summary>",
+      hint: "list [workspace] | create <workspace> <title> | join <meeting> <name> | read <meeting> | say <meeting> <text> | leave <meeting> | close <meeting> <summary>",
       attachments: false,
     },
-    handler: (invocation) =>
-      commandOperation(
-        meetings,
-        ctx.get("collabAssignment"),
-        invocation.rawInput,
-      ),
+    handler: (invocation) => commandOperation(meetings, invocation.rawInput),
   });
   ctx.tools.register({
     name: "collab_meeting",
     description:
-      "Create or inspect meetings, join a seat, speak, leave, or spawn a bounded meeting Agent.",
+      "Create or inspect meetings, join, speak, leave, or spawn a bounded meeting Agent.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -3507,7 +4251,6 @@ function registerMeetingInterfaces(
             "list",
             "create",
             "join",
-            "seats",
             "read",
             "say",
             "leave",
@@ -3521,7 +4264,6 @@ function registerMeetingInterfaces(
         displayName: { type: "string" },
         content: { type: "string" },
         summary: { type: "string" },
-        seatId: { type: "string" },
         personaId: { type: "string" },
         basePersonaId: { type: "string" },
         provider: { type: "string" },
@@ -3537,7 +4279,6 @@ function registerMeetingInterfaces(
             "list",
             "create",
             "join",
-            "seats",
             "read",
             "say",
             "leave",
@@ -3550,7 +4291,6 @@ function registerMeetingInterfaces(
           displayName: displayNameSchema.optional(),
           content: textSchema.optional(),
           summary: textSchema.optional(),
-          seatId: idSchema.optional(),
           personaId: idSchema.optional(),
           basePersonaId: idSchema.optional(),
           provider: z.string().trim().min(1).max(80).optional(),
@@ -3558,6 +4298,18 @@ function registerMeetingInterfaces(
         args,
       );
       const actor = actorFromExec(exec);
+      // 会议里只有人类能拉参会者进来：AI 调用会议工具时只允许「看」和「说」，
+      // create / join / leave / close / spawn 一律拒绝（否则会出现 AI 自己拉人、
+      // 甚至把自己重复拉进会里被改名成「名字 · Agent」的情况）。
+      if (
+        actor.kind !== "user" &&
+        !["list", "read", "say"].includes(parsed.operation)
+      ) {
+        throw new MeetingError(
+          "forbidden",
+          "只有人类可以把参会者拉进会议；AI 只能查看会议与发言",
+        );
+      }
       if (parsed.operation === "list") {
         if (parsed.workspaceId === undefined)
           throw new MeetingError("invalid_input", "workspaceId is required");
@@ -3594,22 +4346,6 @@ function registerMeetingInterfaces(
         );
         return `joined ${participant.meetingId} as ${participant.displayName}`;
       }
-      if (parsed.operation === "seats") {
-        const assignments = ctx.get("collabAssignment");
-        if (assignments === undefined)
-          throw new MeetingError("not_found", "roles service is unavailable");
-        const participants = await meetings.pullSeats(
-          actor,
-          parsed.meetingId,
-          assignments,
-        );
-        return participants
-          .map(
-            (participant) =>
-              `${participant.seatId}\t${participant.status}\t${participant.displayName}${participant.hint === undefined ? "" : `\t${participant.hint}`}`,
-          )
-          .join("\n");
-      }
       if (parsed.operation === "read") {
         const meeting = meetings.get(parsed.meetingId);
         return JSON.stringify({
@@ -3642,7 +4378,6 @@ function registerMeetingInterfaces(
         actor,
         {
           meetingId: parsed.meetingId,
-          ...(parsed.seatId === undefined ? {} : { seatId: parsed.seatId }),
           ...(parsed.personaId === undefined
             ? {}
             : { personaId: parsed.personaId }),
@@ -3668,22 +4403,74 @@ export async function apply(ctx: MeetingContext): Promise<void | (() => void)> {
   // Mount is the one moment no dispatch can still be live, so the restart sweep
   // retires every dispatch-backed row at once; runtime delivery reaps the rest.
   await reapRestartedDispatchParticipants(domain.table("participants"), () => new Date());
-  await collapseDuplicateSeatParticipants(domain.table("participants"));
+  // Phase 1 正式下线席位 / Lead：清除 leader 并补齐人类 owner。
+  // 席位记录不再读取，旧字段由记录 schema 在下次写入时丢弃。幂等。
+  await migrateMeetingOwnership(
+    domain.table("meetings"),
+    domain.table("participants"),
+    () => new Date(),
+  );
   const meetings = new MeetingService({
     meetings: domain.table("meetings"),
     participants: domain.table("participants"),
     messages: domain.table("messages"),
   });
+  const delegateInstructionRef: {
+    current?: (delegateId: string) => string | undefined;
+  } = {};
   const runtime = new MeetingRuntime({
     meetings,
     agents: () => ctx.agents,
     defaultModel: () => ctx.agentDefaultModel,
     personas: () => ctx.get("collabPersonas"),
     subagents: () => ctx.get("subagents"),
+    delegateInstruction: (delegateId) =>
+      delegateInstructionRef.current?.(delegateId),
   });
   ctx.provide("collabMeeting", meetings);
   ctx.effect(() => () => void domain.close());
   ctx.effect(() => () => void runtime.dispose());
+  // Phase 1 领域服务：Facilitator/纪要、AI 参会代表绑定、已读游标。
+  // 各自独立持有新增表，不改变旧 MeetingService 的行为契约。
+  const meetingMinutes = new MeetingMinutesService({
+    facilitators: domain.table("facilitators"),
+    minutes: domain.table("minutes"),
+    versions: domain.table("minute_versions"),
+    meetingStatus: (meetingId) => {
+      try {
+        return meetings.get(meetingId).status;
+      } catch {
+        return undefined;
+      }
+    },
+  });
+  const meetingDelegates = new MeetingDelegateService({
+    delegates: domain.table("delegates"),
+    instructions: domain.table("delegate_instructions"),
+  });
+  delegateInstructionRef.current = (delegateId) => {
+    try {
+      return formatDelegateInstruction(
+        meetingDelegates.runtimeInstruction(delegateId),
+      );
+    } catch {
+      return undefined;
+    }
+  };
+  const meetingReads = new MeetingReadService({
+    reads: domain.table("meeting_reads"),
+  });
+  const meetingFiles = new MeetingFileService({
+    files: domain.table("meeting_files"),
+  });
+  const meetingTasks = new MeetingTaskService({
+    tasks: domain.table("meeting_tasks"),
+  });
+  ctx.provide("collabMeetingMinutes", meetingMinutes);
+  ctx.provide("collabMeetingDelegates", meetingDelegates);
+  ctx.provide("collabMeetingReads", meetingReads);
+  ctx.provide("collabMeetingFiles", meetingFiles);
+  ctx.provide("collabMeetingTasks", meetingTasks);
   // 纪要：只在写入事件里触发；读取 / 轮询路径不调模型。
   let teamService: TeamServiceLike | undefined;
   const minutes = new FacilitatorMinutesService({
@@ -3691,23 +4478,136 @@ export async function apply(ctx: MeetingContext): Promise<void | (() => void)> {
     agents: () => ctx.get("collabAgent"),
     teammateRuntime: () => ctx.get("collabTeammateRuntime"),
     team: () => teamService,
+    files: () => meetingFiles,
   });
-  meetings.onTranscriptChanged = (meetingId) => minutes.schedule(meetingId);
+  const minutesRuntime = new MeetingMinutesRuntime({
+    minutes: meetingMinutes,
+    generator: createAgentMinutesGenerator({
+      dispatch: (meetingId) => minutes.dispatchMinutes(meetingId),
+      status: (meetingId, dispatchKey) =>
+        minutes.minutesRun(meetingId, dispatchKey),
+    }),
+    onCompleted: async (version) => {
+      // 纪要生成后直接发到群聊，并给会议负责人一条待确认提示。
+      try {
+        await meetings.postSystemMessage(
+          version.meetingId,
+          `会议纪要 v${version.version}\n\n${version.content}`,
+        );
+        const meeting = meetings.get(version.meetingId);
+        const owner = meeting.ownerUserId ?? meeting.createdBy;
+        // 独立待确认事项：新版本取代旧版本的 pending，再建一条新的。
+        await meetingTasks.replacePending(version.meetingId, version.id);
+        await meetingTasks.create({
+          meetingId: version.meetingId,
+          kind: "minutes_confirm",
+          targetId: version.id,
+          assigneeUserId: owner,
+        });
+        await meetings.postSystemMessage(
+          version.meetingId,
+          `@${owner} 会议纪要 v${version.version} 待确认：请在纪要面板确认或编辑。`,
+        );
+      } catch {
+        // 纪要版本已落库；发帖失败不回滚版本。
+      }
+    },
+  });
+  ctx.provide("collabMeetingMinutesRuntime", minutesRuntime);
+  // 过度实现修正：纪要不再随每条消息自动生成。触发点收敛为「手动按钮」
+  // 与「会议关闭」两处，避免每条发言都调一次模型、产生无人确认的版本。
+  meetings.onMeetingClosed = (meetingId) => {
+    void meetingDelegates.completeByMeeting(meetingId).catch(() => undefined);
+    // 已有新 Facilitator 时走单一纪要对象；否则保留旧纪要卡片路径。
+    const facilitator = meetingMinutes.activeFacilitator(meetingId);
+    if (facilitator === undefined) {
+      minutes.schedule(meetingId);
+      return;
+    }
+    let requestedBy = facilitator.createdBy;
+    try {
+      const meeting = meetings.get(meetingId);
+      requestedBy = meeting.ownerUserId ?? meeting.createdBy;
+    } catch {
+      // keep the facilitator creator as the requester
+    }
+    void minutesRuntime
+      .trigger({ meetingId, trigger: "close_auto", requestedBy })
+      .catch(() => undefined);
+  };
   ctx.effect(() => () => {
     void minutes.waitIdle();
   });
+  ctx.effect(() => () => {
+    void minutesRuntime.waitIdle();
+  });
   registerMeetingInterfaces(ctx, meetings);
+  // 任务域 → 会议回写：AI 参会方在任务会话里产出的定稿发言，落回会议群聊。
+  // 走 collab/task-changed 事件（任务域每次写入都会 emit），不再轮询。
+  const mirroredAgentReplies = new Set<string>();
+  const mirrorTaskReplyToMeeting = async (change: unknown): Promise<void> => {
+    const taskId =
+      change !== null && typeof change === "object" && "taskId" in change
+        ? String((change as { taskId?: unknown }).taskId ?? "")
+        : "";
+    if (taskId === "") return;
+    const taskService = ctx.get("collabTasks");
+    if (taskService === undefined) return;
+    let task: TaskRecordLike;
+    try {
+      task = taskService.get(taskId);
+    } catch {
+      return;
+    }
+    const link = task.links.find((item) => item.type === "meeting");
+    if (link === undefined) return;
+    const reply = latestAgentMessage(task);
+    if (reply === undefined || mirroredAgentReplies.has(reply.id)) return;
+    let meeting: Meeting;
+    try {
+      meeting = meetings.get(link.id);
+    } catch {
+      return;
+    }
+    if (meeting.status !== "active") return;
+    const participant = meetings
+      .participants(meeting.id)
+      .find(
+        (candidate) =>
+          candidate.status === "active" &&
+          candidate.kind !== "human" &&
+          candidate.teammateInstanceId !== undefined &&
+          candidate.teammateInstanceId === task.receiverId,
+      );
+    if (participant === undefined) return;
+    mirroredAgentReplies.add(reply.id);
+    try {
+      await meetings.postWorkerReply(participant.id, reply.content);
+    } catch {
+      // 参与者可能已离会：忽略，任务时间线仍然保留这条发言。
+    }
+  };
+  ctx.on?.("collab/task-changed", (change: unknown) => {
+    void mirrorTaskReplyToMeeting(change);
+  });
   let routeDisposers: Array<() => void> = [];
   const identityFiber = ctx.inject(["collabTeam"], (child) => {
     teamService = child.collabTeam;
     routeDisposers = createMeetingRoutes(meetings, child.collabTeam, {
-      assignments: () => ctx.get("collabAssignment"),
       agents: () => ctx.get("agents"),
       personas: () => ctx.get("collabPersonas"),
       subagents: () => ctx.get("subagents"),
       runtime: () => runtime,
       employees: () => ctx.get("collabEmployee"),
       teammateRuntime: () => ctx.get("collabTeammateRuntime"),
+      minutes: () => meetingMinutes,
+      minutesRuntime: () => minutesRuntime,
+      delegates: () => meetingDelegates,
+      reads: () => meetingReads,
+      files: () => meetingFiles,
+      tasks: () => meetingTasks,
+      taskService: () => ctx.get("collabTasks"),
+      taskDispatch: () => ctx.get("collabTaskDispatch"),
     }).map((route) => ctx.webServer.register(route)) as Array<() => void>;
   });
   const employeeFiber = ctx.inject(["collabEmployee"], (child) => {

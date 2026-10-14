@@ -121,7 +121,7 @@ describe("external agent process runner", () => {
       signal: new AbortController().signal,
     });
     expect(result.stopReason).toBe("failed");
-    expect(result.diagnostic).toBe("Agent returned empty output");
+    expect(result.diagnostic).toBe("外部 Agent 未返回可用的文本输出");
   });
 
   it("cancels a long-running process", async () => {

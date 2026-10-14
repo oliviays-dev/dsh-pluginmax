@@ -7,6 +7,7 @@ import {
   migrateTeammateTemplates,
   nextVersion,
   type KvTableLike,
+  type TeammateActor,
   type TeammateTemplateTables,
   type TeammateTables,
 } from "./service.js";
@@ -16,7 +17,10 @@ import type {
   TeammateTemplate,
   ProfileTemplate,
 } from "./models.js";
-import { calculateTeammateActivity } from "./index.js";
+import {
+  calculateInstanceLastUsedAt,
+  calculateTeammateActivity,
+} from "./index.js";
 
 function memoryTable<V>(): KvTableLike<V> {
   const values = new Map<string, V>();
@@ -405,7 +409,8 @@ describe("dsh-collab-teammate service", () => {
     expect(created.source).toBe("platform");
     expect(created.ownerUserId).toBe("olivia");
     expect(created.ownerName).toBe("Olivia");
-    expect(created.state).toBe("inactive");
+    // 新建实例默认生效。
+    expect(created.state).toBe("active");
     expect(created.name).toBe("Research Partner");
     expect(canManageInstance(created, olivia)).toBe(true);
     expect(canManageInstance(created, peter)).toBe(false);
@@ -436,11 +441,8 @@ describe("dsh-collab-teammate service", () => {
       role: "研究分析",
       templateName: "Research Partner",
     });
-    const active = await teammates.changeState(olivia, {
-      teammateId: created.id,
-      state: "active",
-    });
-    expect(active.state).toBe("active");
+    // 新建实例默认生效，这里不再需要额外切一次状态。
+    expect(overridden.state).toBe("active");
     await expect(
       teammates.changeState(peter, {
         teammateId: created.id,
@@ -546,13 +548,13 @@ describe("dsh-collab-teammate service", () => {
     ).rejects.toMatchObject({ code: "forbidden" });
   });
 
-  it("creates an inactive instance from a personal template and updates the template on save", async () => {
+  it("creates an active instance from a personal template and updates the template on save", async () => {
     const templates = templateService();
     const teammates = service(undefined, templates);
     const draft = await teammates.create(olivia, { source: "personal" });
     expect(draft.source).toBe("personal");
     expect(draft.ownerName).toBe("Olivia");
-    expect(draft.state).toBe("inactive");
+    expect(draft.state).toBe("active");
     expect(draft.version).toBe("v0.1");
     if (draft.templateId === undefined) throw new Error("template not linked");
     expect(templates.get(draft.templateId)?.state).toBe("active");
@@ -567,7 +569,7 @@ describe("dsh-collab-teammate service", () => {
       goals: ["减少准备时间"],
       avatar: "berry",
     });
-    expect(saved.state).toBe("inactive");
+    expect(saved.state).toBe("active");
     expect(saved.version).toBe("v0.1");
     expect(templates.get(draft.templateId)).toMatchObject({
       role: "研究与会前分析",
@@ -582,7 +584,7 @@ describe("dsh-collab-teammate service", () => {
       name: "Research Avatar",
     });
     expect(next.version).toBe("v0.1");
-    expect(next.state).toBe("inactive");
+    expect(next.state).toBe("active");
     expect(templates.get(draft.templateId)?.version).toBe("v1.1");
 
     const events = teammates.events(draft.id);
@@ -845,7 +847,7 @@ describe("dsh-collab-teammate service", () => {
     expect(updated.version).toBe(published.version);
     expect(updated.state).toBe(published.state);
     expect(teammates.events(created.id)[0]?.message).toBe(
-      "将实例名称改为「小白 PD · 供应链」",
+      "将 Teammate 名称改为「小白 PD · 供应链」",
     );
     // 内容没变化时不写库、不记录事件。
     const same = await teammates.updateInstanceProfile(admin, {
@@ -855,7 +857,7 @@ describe("dsh-collab-teammate service", () => {
     });
     expect(same.updatedAt).toBe(updated.updatedAt);
     expect(teammates.events(created.id)[0]?.message).toBe(
-      "将实例名称改为「小白 PD · 供应链」",
+      "将 Teammate 名称改为「小白 PD · 供应链」",
     );
     await expect(
       teammates.updateInstanceProfile(admin, {
@@ -950,7 +952,7 @@ describe("dsh-collab-teammate service", () => {
       name: platform.name,
       role: "后端开发",
     });
-    expect(saved.state).toBe("inactive");
+    expect(saved.state).toBe("active");
     expect(templates.get(platformTemplate.id)).toMatchObject({
       role: "后端开发",
       version: "v1.1",
@@ -992,14 +994,13 @@ describe("dsh-collab-teammate service", () => {
   it("enforces the instance state machine", async () => {
     const teammates = service();
     const draft = await teammates.create(olivia, { source: "personal" });
-    expect(draft.state).toBe("inactive");
+    // 新建即生效：不用再手动切一次 active。
+    expect(draft.state).toBe("active");
 
     await teammates.update(olivia, { teammateId: draft.id, name: "Ops" });
-    const active = await teammates.changeState(olivia, {
-      teammateId: draft.id,
-      state: "active",
-    });
-    expect(active.state).toBe("active");
+    await expect(
+      teammates.changeState(olivia, { teammateId: draft.id, state: "active" }),
+    ).rejects.toMatchObject({ code: "conflict" });
 
     const paused = await teammates.changeState(olivia, {
       teammateId: draft.id,
@@ -1043,5 +1044,215 @@ describe("dsh-collab-teammate service", () => {
     expect(nextVersion("v1.8")).toBe("v1.9");
     expect(nextVersion("v3.4")).toBe("v3.5");
     expect(nextVersion("unknown")).toBe("v1.0");
+  });
+});
+
+describe("实例列表可见性", () => {
+  it("运行态列表先按状态排序，同状态按最近使用倒序", async () => {
+    const tables = {
+      teammates: memoryTable<Teammate>(),
+      events: memoryTable<TeammateEvent>(),
+    };
+    const teammates = service(tables);
+    const make = (id: string, state: Teammate["state"], updatedAt: string) => ({
+      ...definition(id, "platform", state, id),
+      ownerUserId: "olivia",
+      ownerName: "Olivia",
+      updatedAt,
+    });
+    for (const item of [
+      make("tm-active-old", "active", "2026-01-01T00:00:00.000Z"),
+      make("tm-active-new", "active", "2026-03-01T00:00:00.000Z"),
+      make("tm-draft", "draft", "2026-05-01T00:00:00.000Z"),
+      make("tm-paused", "paused", "2026-06-01T00:00:00.000Z"),
+    ]) {
+      await tables.teammates.put(item.id, item);
+    }
+    expect(teammates.listInstances(olivia).map((item) => item.id)).toEqual([
+      "tm-active-new",
+      "tm-active-old",
+      "tm-draft",
+      "tm-paused",
+    ]);
+  });
+
+  it("同状态内按真实最近使用时间排序，可覆盖记录更新时间", async () => {
+    const tables = {
+      teammates: memoryTable<Teammate>(),
+      events: memoryTable<TeammateEvent>(),
+    };
+    const teammates = service(tables);
+    const make = (id: string, state: Teammate["state"], updatedAt: string) => ({
+      ...definition(id, "platform", state, id),
+      ownerUserId: "olivia",
+      ownerName: "Olivia",
+      updatedAt,
+    });
+    for (const item of [
+      make("tm-active-old", "active", "2026-01-01T00:00:00.000Z"),
+      make("tm-active-new", "active", "2026-03-01T00:00:00.000Z"),
+    ]) {
+      await tables.teammates.put(item.id, item);
+    }
+    // 记录更新时间更早、但最近实际被使用过的实例，应排在同状态最前。
+    expect(
+      teammates
+        .listInstances(olivia, {
+          lastUsedAt: new Map([["tm-active-old", "2026-07-01T00:00:00.000Z"]]),
+        })
+        .map((item) => item.id),
+    ).toEqual(["tm-active-old", "tm-active-new"]);
+    // 未提供最近使用时间时，回退到记录更新时间。
+    expect(teammates.listInstances(olivia).map((item) => item.id)).toEqual([
+      "tm-active-new",
+      "tm-active-old",
+    ]);
+  });
+
+  it("非管理员看不到他人的个人实例，管理员可见全部", async () => {
+    const tables = {
+      teammates: memoryTable<Teammate>(),
+      events: memoryTable<TeammateEvent>(),
+    };
+    const teammates = service(tables);
+    const mine = {
+      ...definition("tm-mine", "personal", "active", "我的实例"),
+      ownerUserId: "olivia",
+      ownerName: "Olivia",
+    };
+    const othersPersonal = {
+      ...definition("tm-others-personal", "personal", "active", "他人个人实例"),
+      ownerUserId: "owner",
+      ownerName: "Owner",
+    };
+    const othersPlatform = {
+      ...definition("tm-others-platform", "platform", "active", "团队平台实例"),
+      ownerUserId: "owner",
+      ownerName: "Owner",
+    };
+    await tables.teammates.put(mine.id, mine);
+    await tables.teammates.put(othersPersonal.id, othersPersonal);
+    await tables.teammates.put(othersPlatform.id, othersPlatform);
+
+    const idsFor = (actor: TeammateActor) =>
+      teammates
+        .listInstances(actor)
+        .map((item) => item.id)
+        .sort();
+
+    expect(idsFor(olivia)).toEqual(
+      ["tm-mine", "tm-others-platform"].sort(),
+    );
+    // 方案 B：管理员普通视图同样只看"自己的 + 平台"，全量需要显式 scope。
+    expect(idsFor(admin)).toEqual(["tm-others-platform"]);
+    expect(
+      teammates
+        .listInstances(admin, { scope: "all" })
+        .map((item) => item.id)
+        .sort(),
+    ).toEqual(
+      ["tm-mine", "tm-others-personal", "tm-others-platform"].sort(),
+    );
+    // 非管理员即使传 scope=all 也不能拿到全量。
+    expect(
+      teammates
+        .listInstances(olivia, { scope: "all" })
+        .map((item) => item.id)
+        .sort(),
+    ).toEqual(["tm-mine", "tm-others-platform"].sort());
+  });
+});
+
+describe("运行态最近使用时间", () => {
+  it("取实例编辑、绑定运行与参会记录中的最大时间", () => {
+    const now = new Date("2026-10-09T12:00:00.000Z");
+    const iso = (hours: number) =>
+      new Date(now.getTime() + hours * 3_600_000).toISOString();
+    const runs = [
+      {
+        id: "run-task",
+        instanceId: "task-1",
+        nodeId: "development",
+        employeeId: "emp-1",
+        status: "succeeded",
+        runSeq: 1,
+        startedAt: iso(-100),
+        endedAt: iso(-90),
+        updatedAt: iso(-90),
+        createdAt: iso(-100),
+      },
+      {
+        id: "run-free",
+        instanceId: "manual",
+        nodeId: "manual",
+        employeeId: "emp-1",
+        status: "succeeded",
+        runSeq: 2,
+        startedAt: iso(-20),
+        endedAt: iso(-10),
+        updatedAt: iso(-10),
+        createdAt: iso(-20),
+      },
+      {
+        id: "run-other",
+        instanceId: "task-2",
+        nodeId: "development",
+        employeeId: "emp-other",
+        status: "succeeded",
+        runSeq: 1,
+        startedAt: iso(-1),
+        endedAt: iso(-0.5),
+        updatedAt: iso(-0.5),
+        createdAt: iso(-1),
+      },
+    ];
+    const result = calculateInstanceLastUsedAt({
+      teammates: [
+        { id: "tm-1", employeeId: "emp-1", updatedAt: iso(-200) },
+        { id: "tm-2", employeeId: "emp-2", updatedAt: iso(-5) },
+      ],
+      tasks: [
+        {
+          id: "task-1",
+          workspaceId: "main",
+          title: "任务",
+          status: "done",
+          receiverType: "agent",
+          receiverId: "tm-1",
+          createdAt: iso(-100),
+          updatedAt: iso(-90),
+          workflow: { instanceId: "task-1", nodeId: "development" },
+        },
+      ],
+      agents: {
+        runs: ({ workspaceId }: { readonly workspaceId?: string | undefined }) =>
+          workspaceId === "main" ? runs : [],
+      },
+      meetings: {
+        list: (workspaceId: string) =>
+          workspaceId === "main"
+            ? [{ id: "meeting-1", status: "active" }]
+            : [],
+        participants: () => [
+          {
+            id: "p-1",
+            meetingId: "meeting-1",
+            kind: "agent",
+            refId: "emp-1",
+            status: "left",
+            joinedAt: iso(-40),
+            leftAt: iso(-30),
+            updatedAt: iso(-30),
+          },
+        ],
+      },
+      workspaces: { list: () => [{ id: "main" }] },
+    });
+    // tm-1：运行最近 -10、会议 -30、编辑 -200 → 取运行时间。
+    expect(result.get("tm-1")).toBe(iso(-10));
+    // tm-2：没有运行/会议记录，回退到实例编辑时间。
+    expect(result.get("tm-2")).toBe(iso(-5));
+    // 其他实例的运行不参与。
+    expect(result.has("tm-other")).toBe(false);
   });
 });

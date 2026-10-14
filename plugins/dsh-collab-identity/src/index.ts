@@ -42,10 +42,13 @@ const isoTimeSchema = z.string().datetime({ precision: 3 });
 
 const userRoleSchema = z.enum(USER_ROLES);
 const memberRoleSchema = z.enum(MEMBER_ROLES);
+const userStatusSchema = z.enum(["active", "disabled"]);
 const userRecordSchema = z.object({
   id: idSchema,
   name: nameSchema,
   role: userRoleSchema,
+  /** 缺省视为启用，兼容历史数据。 */
+  status: userStatusSchema.default("active"),
   passwordHash: z.string().min(1),
   createdAt: isoTimeSchema,
   updatedAt: isoTimeSchema,
@@ -101,6 +104,7 @@ export interface PublicUser {
   readonly id: string;
   readonly name: string;
   readonly role: UserRole;
+  readonly status: "active" | "disabled";
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -344,6 +348,7 @@ function publicUser(user: UserRecord): PublicUser {
     id: user.id,
     name: user.name,
     role: user.role,
+    status: user.status ?? "active",
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   };
@@ -435,6 +440,7 @@ export class TeamService {
       id: input.userId,
       name: input.name,
       role,
+      status: "active",
       passwordHash: hashPassword(input.password),
       createdAt: at,
       updatedAt: at,
@@ -519,7 +525,11 @@ export class TeamService {
   updateUser(
     actorId: string,
     targetId: string,
-    changes: { name?: string; role?: UserRole },
+    changes: {
+      name?: string;
+      role?: UserRole;
+      status?: "active" | "disabled";
+    },
   ): Promise<PublicUser> {
     const parsedActor = parseOrInvalid(idSchema, actorId);
     const parsedTarget = parseOrInvalid(idSchema, targetId);
@@ -527,16 +537,29 @@ export class TeamService {
       z.object({
         name: nameSchema.optional(),
         role: userRoleSchema.optional(),
+        status: userStatusSchema.optional(),
       }),
       changes,
     );
     return this.enqueue(async () => {
       const actor = this.requireAdmin(parsedActor);
       const current = this.requireUser(parsedTarget);
-      if (
+      const disabling =
+        (current.status ?? "active") !== "disabled" &&
+        parsedChanges.status === "disabled";
+      if (disabling && current.id === actor.id) {
+        throw new IdentityError(
+          "conflict",
+          "you cannot disable your own account",
+        );
+      }
+      const wouldDropAdmin =
         current.role === "admin" &&
-        parsedChanges.role !== undefined &&
-        parsedChanges.role !== "admin" &&
+        ((parsedChanges.role !== undefined &&
+          parsedChanges.role !== "admin") ||
+          disabling);
+      if (
+        wouldDropAdmin &&
         this.adminCount() === 1
       ) {
         throw new IdentityError(
@@ -546,28 +569,51 @@ export class TeamService {
       }
       const updated: UserRecord = {
         ...current,
+        status: current.status ?? "active",
         ...(parsedChanges.name === undefined
           ? {}
           : { name: parsedChanges.name }),
         ...(parsedChanges.role === undefined
           ? {}
           : { role: parsedChanges.role }),
+        ...(parsedChanges.status === undefined
+          ? {}
+          : { status: parsedChanges.status }),
         updatedAt: this.time(),
       };
       await this.tables.users.put(updated.id, updated);
-      await this.appendAudit(actor, "update_user", {
-        targetId: updated.id,
-        detail: Object.fromEntries(
-          Object.entries({
-            ...(parsedChanges.name === undefined
-              ? {}
-              : { name: parsedChanges.name }),
-            ...(parsedChanges.role === undefined
-              ? {}
-              : { role: parsedChanges.role }),
-          }).map(([key, value]) => [key, String(value)] as const),
-        ),
-      });
+      if (disabling) {
+        // 停用账号：吊销其全部登录会话，但保留账号本身与历史数据。
+        await Promise.all(
+          [...this.tables.sessions.entries()]
+            .filter(([, session]) => session.userId === updated.id)
+            .map(([hash]) => this.tables.sessions.delete(hash)),
+        );
+      }
+      await this.appendAudit(
+        actor,
+        parsedChanges.status === undefined
+          ? "update_user"
+          : disabling
+            ? "disable_user"
+            : "enable_user",
+        {
+          targetId: updated.id,
+          detail: Object.fromEntries(
+            Object.entries({
+              ...(parsedChanges.name === undefined
+                ? {}
+                : { name: parsedChanges.name }),
+              ...(parsedChanges.role === undefined
+                ? {}
+                : { role: parsedChanges.role }),
+              ...(parsedChanges.status === undefined
+                ? {}
+                : { status: parsedChanges.status }),
+            }).map(([key, value]) => [key, String(value)] as const),
+          ),
+        },
+      );
       return publicUser(updated);
     });
   }
@@ -580,6 +626,7 @@ export class TeamService {
         id: parsed.userId,
         name: "unknown",
         role: "guest",
+        status: "active",
         passwordHash: "",
         createdAt: this.time(),
         updatedAt: this.time(),
@@ -593,6 +640,13 @@ export class TeamService {
           targetId: parsed.userId,
         });
         throw new IdentityError("unauthorized", "invalid user or password");
+      }
+      if ((user.status ?? "active") === "disabled") {
+        await this.appendAudit(user, "login_failed", {
+          targetId: user.id,
+          detail: { reason: "account_disabled" },
+        });
+        throw new IdentityError("forbidden", "account is disabled");
       }
       const result = await this.issueSession(user);
       await this.appendAudit(user, "login", { targetId: user.id });
@@ -611,6 +665,10 @@ export class TeamService {
     }
     const user = this.tables.users.get(session.userId);
     if (user === undefined) return undefined;
+    if ((user.status ?? "active") === "disabled") {
+      void this.tables.sessions.delete(fingerprint);
+      return undefined;
+    }
     return { userId: user.id, role: user.role };
   }
 
@@ -871,6 +929,7 @@ const userUpdateSchema = z.object({
   userId: idSchema,
   name: nameSchema.optional(),
   role: userRoleSchema.optional(),
+  status: userStatusSchema.optional(),
 });
 const auditFilterSchema = z.object({
   actorId: idSchema.optional(),
@@ -1114,7 +1173,16 @@ export function createIdentityRoutes(
       handler: (request, response) => {
         assertSameOrigin(request);
         requireAdmin(request, service);
-        sendJson(response, 200, { ok: true, users: service.users() });
+        const all = service.users();
+        sendJson(response, 200, {
+          ok: true,
+          users: all,
+          counts: {
+            total: all.length,
+            active: all.filter((user) => user.status !== "disabled").length,
+            disabled: all.filter((user) => user.status === "disabled").length,
+          },
+        });
       },
     },
     {
@@ -1143,6 +1211,7 @@ export function createIdentityRoutes(
         const user = await service.updateUser(actor.userId, input.userId, {
           ...(input.name === undefined ? {} : { name: input.name }),
           ...(input.role === undefined ? {} : { role: input.role }),
+          ...(input.status === undefined ? {} : { status: input.status }),
         });
         sendJson(response, 200, { ok: true, user });
       },

@@ -298,6 +298,9 @@ describe("work report generation", () => {
       defaultModel: () => ({
         currentSelection: () => ({ provider: "spawn", model: "test-model" }),
       }),
+      personas: () => ({
+        get: async () => ({ soul: "REPORT-SOUL-BODY" }),
+      }),
       subagents: () => ({
         start: async (name, spec) => {
           started.push({ name, spec });
@@ -319,10 +322,15 @@ describe("work report generation", () => {
     expect(created).toHaveLength(1);
     const run = started[0] as {
       name: string;
-      spec: { toolFilter?: { allow: readonly string[] } };
+      spec: {
+        toolFilter?: { allow: readonly string[] };
+        persona?: string;
+      };
     };
     expect(run.name).toBe("spawn");
     expect(run.spec.toolFilter).toEqual({ allow: [] });
+    // 日报 worker 也要带上 teammate 的 SOUL，而不是 personaId。
+    expect(run.spec.persona).toBe("REPORT-SOUL-BODY");
   });
 
   it("rejects non-completed worker runs", async () => {

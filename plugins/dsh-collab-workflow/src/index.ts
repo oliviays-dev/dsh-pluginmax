@@ -472,10 +472,26 @@ export const workflowDomainSpec = {
 
 interface WorkflowWorkspaceLike {
   readonly path: string;
+  readonly title?: string | undefined;
 }
 
 interface WorkflowWorkspaceRegistryLike {
   get(workspaceId: string): WorkflowWorkspaceLike | undefined;
+}
+
+/** 实例接口下发的项目名：优先工作区标题，缺省回退到目录名。 */
+function workflowWorkspaceName(
+  workspace: WorkflowWorkspaceLike | undefined,
+): string | undefined {
+  if (workspace === undefined) return undefined;
+  const title = workspace.title?.trim();
+  if (title !== undefined && title !== "") return title;
+  const segment = workspace.path
+    .split("/")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .at(-1);
+  return segment === undefined || segment === "" ? undefined : segment;
 }
 
 export class WorkflowError extends Error {
@@ -4637,6 +4653,7 @@ export function createWorkflowRoutes(
   team: () => TeamServiceLike | undefined,
   dependencies: {
     readonly agent?: () => AgentServiceLike | undefined;
+    readonly workspaces?: () => WorkflowWorkspaceRegistryLike | undefined;
   } = {},
 ): WebRouteLike[] {
   const requireTeam = (): TeamServiceLike => {
@@ -4645,6 +4662,9 @@ export function createWorkflowRoutes(
       throw new WorkflowError("not_found", "identity service is unavailable");
     return value;
   };
+  /** 列表/详情统一带上项目名，前端不再依赖"当前范围内的项目清单"解析。 */
+  const projectNameOf = (workspaceId: string): string | undefined =>
+    workflowWorkspaceName(dependencies.workspaces?.()?.get(workspaceId));
   const routes: WebRouteLike[] = [
     {
       kind: "exact",
@@ -4705,10 +4725,17 @@ export function createWorkflowRoutes(
         const sessionId = queryParam(request, "sessionId");
         sendJson(response, 200, {
           ok: true,
-          instances: service.instances(
-            workspaceId,
-            sessionId === undefined ? {} : { sessionId },
-          ),
+          instances: service
+            .instances(
+              workspaceId,
+              sessionId === undefined ? {} : { sessionId },
+            )
+            .map((instance) => {
+              const workspaceTitle = projectNameOf(instance.workspaceId);
+              return workspaceTitle === undefined
+                ? instance
+                : { ...instance, workspaceTitle };
+            }),
           actor,
         });
       },
@@ -4730,9 +4757,13 @@ export function createWorkflowRoutes(
         await service.reconcileAgentRunProjections(instanceId);
         const agent = dependencies.agent?.();
         const agentRuns = agent?.runs(instanceId) ?? [];
+        const workspaceTitle = projectNameOf(instance.workspaceId);
         sendJson(response, 200, {
           ok: true,
-          instance,
+          instance:
+            workspaceTitle === undefined
+              ? instance
+              : { ...instance, workspaceTitle },
           definition: service.definition(instance.definitionId),
           submissions: service.submissions(instanceId),
           events: service.events(instanceId),
@@ -5340,6 +5371,7 @@ export async function apply(
     const team = injectedTeam;
     for (const route of createWorkflowRoutes(service, () => team, {
       agent: () => ctx.get("collabAgent"),
+      workspaces: () => injectedWorkspaces,
     })) {
       ctx.webServer.register(route);
     }

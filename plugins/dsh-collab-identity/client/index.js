@@ -293,6 +293,12 @@ window.__ModuleLoader__.load({
         return "登录状态已过期，请重新登录。";
       if (message === "bearer token is required") return "请先登录。";
       if (message === "user id already exists") return "用户 ID 已存在。";
+      if (message === "account is disabled")
+        return "该账号已停用，请联系管理员启用。";
+      if (message === "you cannot disable your own account")
+        return "不能停用当前登录的管理员账号。";
+      if (message === "the last admin role cannot be changed")
+        return "最后一个管理员不能被降级或停用。";
       return message;
     }
 
@@ -329,6 +335,14 @@ window.__ModuleLoader__.load({
         userId: "",
         role: "member",
       });
+      /** 账号管理：行内编辑 / 停用启用 / 是否查看已停用。 */
+      const [editUserId, setEditUserId] = react.useState("");
+      const [editUserForm, setEditUserForm] = react.useState({
+        name: "",
+        role: "member",
+      });
+      const [userBusy, setUserBusy] = react.useState("");
+      const [showDisabled, setShowDisabled] = react.useState(false);
 
       const notify = (text) => {
         setError("");
@@ -542,6 +556,48 @@ window.__ModuleLoader__.load({
         }
       };
 
+      /** 账号管理：行内保存「显示名称 / 全局角色」。 */
+      const saveUserAccount = async (userId) => {
+        const name = editUserForm.name.trim();
+        if (name === "") {
+          setError("请填写显示名称。");
+          return;
+        }
+        try {
+          setUserBusy(userId);
+          await request("/api/collab/team/users/update", {
+            method: "POST",
+            body: JSON.stringify({ userId, name, role: editUserForm.role }),
+          });
+          setEditUserId("");
+          notify("账号已更新。");
+          await loadAdmin();
+        } catch (cause) {
+          fail(cause);
+        } finally {
+          setUserBusy("");
+        }
+      };
+
+      /** 账号管理：停用/启用（停用会吊销该账号的登录会话）。 */
+      const changeUserStatus = async (userId, status) => {
+        try {
+          setUserBusy(userId);
+          await request("/api/collab/team/users/update", {
+            method: "POST",
+            body: JSON.stringify({ userId, status }),
+          });
+          // 停用/启用后都回到「启用账号」列表，避免停留在一个空视图。
+          setShowDisabled(false);
+          notify(status === "disabled" ? "账号已停用。" : "账号已启用。");
+          await loadAdmin();
+        } catch (cause) {
+          fail(cause);
+        } finally {
+          setUserBusy("");
+        }
+      };
+
       const submitMember = async (event) => {
         event.preventDefault();
         if (noWorkspace) {
@@ -689,7 +745,32 @@ window.__ModuleLoader__.load({
             "zh-Hans-CN",
           ),
         );
+      /** 平台管理员对全部宿主工作区可见，但"可见"不等于"已加入"；这里分开呈现。 */
+      const isPlatformAdmin = me?.role === "admin";
+      const visibleWorkspaces = (
+        isPlatformAdmin ? [...workspaces] : myWorkspaces
+      ).sort((left, right) =>
+        workspaceLabel(left).localeCompare(
+          workspaceLabel(right),
+          "zh-Hans-CN",
+        ),
+      );
       const noWorkspace = !activeWorkspace;
+      const disabledUserCount = users.filter(
+        (user) => user.status === "disabled",
+      ).length;
+      const visibleUsers = users.filter((user) =>
+        showDisabled
+          ? user.status === "disabled"
+          : user.status !== "disabled",
+      );
+      /** 账号表格行的紧凑按钮，避免操作列换行成两行。 */
+      const rowButtonStyle = {
+        ...buttonStyle,
+        height: 30,
+        fontSize: 12,
+        padding: "0 10px",
+      };
 
       const loginFields = jsxRuntime.jsxs(jsxRuntime.Fragment, {
         children: [
@@ -784,7 +865,21 @@ window.__ModuleLoader__.load({
             children: jsxRuntime.jsxs("div", {
               style: { display: "grid", gap: 8 },
               children: [
-                myWorkspaces.length === 0
+                isPlatformAdmin
+                  ? jsxRuntime.jsxs("p", {
+                      style: {
+                        color: "var(--dsw-alias-label-secondary)",
+                        fontSize: 13,
+                        lineHeight: 1.5,
+                        margin: 0,
+                      },
+                      children: [
+                        jsxRuntime.jsx("strong", { children: "平台管理员" }),
+                        ` · 可见全部 ${String(workspaces.length)} 个工作区（已加入 ${String(myWorkspaces.length)} 个）；未加入的工作区仅平台管理员可见。`,
+                      ],
+                    })
+                  : null,
+                visibleWorkspaces.length === 0
                   ? jsxRuntime.jsx("p", {
                       style: {
                         color: "var(--dsw-alias-label-secondary)",
@@ -793,7 +888,7 @@ window.__ModuleLoader__.load({
                       },
                       children: "暂无已加入的工作区。",
                     })
-                  : myWorkspaces.map((workspace) =>
+                  : visibleWorkspaces.map((workspace) =>
                       jsxRuntime.jsxs(
                         "div",
                         {
@@ -838,17 +933,24 @@ window.__ModuleLoader__.load({
                                 fontSize: 11,
                                 whiteSpace: "nowrap",
                               },
-                              children: workspaceRoleLabel(
-                                workspace.memberRole,
-                              ),
+                              children:
+                                isPlatformAdmin && !workspace.isMember
+                                  ? "未加入 · 管理员可见"
+                                  : `已加入 · ${workspaceRoleLabel(
+                                      workspace.memberRole,
+                                    )}`,
                             }),
-                            jsxRuntime.jsx("button", {
-                              type: "button",
-                              style: secondaryButtonStyle,
-                              disabled: saving,
-                              onClick: () => leaveWorkspace(workspace.id),
-                              children: saving ? "退出中..." : "退出",
-                            }),
+                            workspace.isMember
+                              ? jsxRuntime.jsx("button", {
+                                  type: "button",
+                                  style: secondaryButtonStyle,
+                                  disabled: saving,
+                                  onClick: () => leaveWorkspace(workspace.id),
+                                  children: saving ? "退出中..." : "退出",
+                                })
+                              : jsxRuntime.jsx("span", {
+                                  style: { width: 0 },
+                                }),
                           ],
                         },
                         workspace.id,
@@ -1177,6 +1279,35 @@ window.__ModuleLoader__.load({
                               }),
                             ],
                           }),
+                          jsxRuntime.jsxs("div", {
+                            style: {
+                              alignItems: "center",
+                              display: "flex",
+                              gap: 8,
+                              justifyContent: "space-between",
+                            },
+                            children: [
+                              jsxRuntime.jsx("span", {
+                                style: {
+                                  color:
+                                    "var(--dsw-alias-label-secondary)",
+                                  fontSize: 12,
+                                },
+                                children: `共 ${String(users.length)} 个账号 · 已停用 ${String(disabledUserCount)}`,
+                              }),
+                              jsxRuntime.jsx("button", {
+                                type: "button",
+                                style: buttonStyle,
+                                disabled:
+                                  disabledUserCount === 0 && !showDisabled,
+                                onClick: () =>
+                                  setShowDisabled((value) => !value),
+                                children: showDisabled
+                                  ? "返回启用账号"
+                                  : `查看已停用 ${String(disabledUserCount)}`,
+                              }),
+                            ],
+                          }),
                           jsxRuntime.jsxs("table", {
                             style: tableStyle,
                             children: [
@@ -1187,6 +1318,7 @@ window.__ModuleLoader__.load({
                                     "名称",
                                     "角色",
                                     "创建时间",
+                                    "操作",
                                   ].map((title) =>
                                     jsxRuntime.jsx(
                                       "th",
@@ -1197,8 +1329,11 @@ window.__ModuleLoader__.load({
                                 }),
                               }),
                               jsxRuntime.jsx("tbody", {
-                                children: users.map((user) =>
-                                  jsxRuntime.jsxs(
+                                children: visibleUsers.map((user) => {
+                                  const editing = editUserId === user.id;
+                                  const disabled = user.status === "disabled";
+                                  const rowBusy = userBusy === user.id;
+                                  return jsxRuntime.jsxs(
                                     "tr",
                                     {
                                       children: [
@@ -1208,22 +1343,145 @@ window.__ModuleLoader__.load({
                                         }),
                                         jsxRuntime.jsx("td", {
                                           style: cellStyle,
-                                          children: user.name,
+                                          children: editing
+                                            ? jsxRuntime.jsx("input", {
+                                                style: {
+                                                  ...inputStyle,
+                                                  width: "150px",
+                                                },
+                                                maxLength: 80,
+                                                value: editUserForm.name,
+                                                "aria-label": "编辑显示名称",
+                                                onChange: (event) =>
+                                                  setEditUserForm((current) => ({
+                                                    ...current,
+                                                    name: event.target.value,
+                                                  })),
+                                              })
+                                            : user.name,
                                         }),
                                         jsxRuntime.jsx("td", {
                                           style: cellStyle,
-                                          children: user.role,
+                                          children: editing
+                                            ? jsxRuntime.jsx("select", {
+                                                style: {
+                                                  ...inputStyle,
+                                                  width: "110px",
+                                                },
+                                                value: editUserForm.role,
+                                                "aria-label": "编辑全局角色",
+                                                onChange: (event) =>
+                                                  setEditUserForm((current) => ({
+                                                    ...current,
+                                                    role: event.target.value,
+                                                  })),
+                                                children: [
+                                                  "admin",
+                                                  "owner",
+                                                  "member",
+                                                  "guest",
+                                                ].map((role) =>
+                                                  jsxRuntime.jsx(
+                                                    "option",
+                                                    {
+                                                      value: role,
+                                                      children: role,
+                                                    },
+                                                    role,
+                                                  ),
+                                                ),
+                                              })
+                                            : user.role,
                                         }),
                                         jsxRuntime.jsx("td", {
                                           style: cellStyle,
                                           title: user.createdAt,
                                           children: localTime(user.createdAt),
                                         }),
+                                        jsxRuntime.jsx("td", {
+                                          style: cellStyle,
+                                          children: jsxRuntime.jsxs("div", {
+                                            style: {
+                                              display: "flex",
+                                              flexWrap: "nowrap",
+                                              gap: 6,
+                                            },
+                                            children: editing
+                                              ? [
+                                                  jsxRuntime.jsx(
+                                                    "button",
+                                                    {
+                                                      type: "button",
+                                                      style: rowButtonStyle,
+                                                      disabled: rowBusy,
+                                                      onClick: () =>
+                                                        void saveUserAccount(
+                                                          user.id,
+                                                        ),
+                                                      children: rowBusy
+                                                        ? "保存中…"
+                                                        : "保存",
+                                                    },
+                                                    "save",
+                                                  ),
+                                                  jsxRuntime.jsx(
+                                                    "button",
+                                                    {
+                                                      type: "button",
+                                                      style: rowButtonStyle,
+                                                      disabled: rowBusy,
+                                                      onClick: () =>
+                                                        setEditUserId(""),
+                                                      children: "取消",
+                                                    },
+                                                    "cancel",
+                                                  ),
+                                                ]
+                                              : [
+                                                  jsxRuntime.jsx(
+                                                    "button",
+                                                    {
+                                                      type: "button",
+                                                      style: rowButtonStyle,
+                                                      disabled: rowBusy,
+                                                      onClick: () => {
+                                                        setEditUserId(user.id);
+                                                        setEditUserForm({
+                                                          name: user.name,
+                                                          role: user.role,
+                                                        });
+                                                      },
+                                                      children: "编辑",
+                                                    },
+                                                    "edit",
+                                                  ),
+                                                  jsxRuntime.jsx(
+                                                    "button",
+                                                    {
+                                                      type: "button",
+                                                      style: rowButtonStyle,
+                                                      disabled: rowBusy,
+                                                      onClick: () =>
+                                                        void changeUserStatus(
+                                                          user.id,
+                                                          disabled
+                                                            ? "active"
+                                                            : "disabled",
+                                                        ),
+                                                      children: disabled
+                                                        ? "启用"
+                                                        : "停用",
+                                                    },
+                                                    "status",
+                                                  ),
+                                                ],
+                                          }),
+                                        }),
                                       ],
                                     },
                                     user.id,
-                                  ),
-                                ),
+                                  );
+                                }),
                               }),
                             ],
                           }),

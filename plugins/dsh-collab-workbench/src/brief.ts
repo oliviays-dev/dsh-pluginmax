@@ -235,6 +235,7 @@ function contentChanged(
   right: BriefItemRecord,
 ): boolean {
   return (
+    left.tag !== right.tag ||
     left.title !== right.title ||
     left.conclusion !== right.conclusion ||
     left.reason !== right.reason ||
@@ -394,6 +395,7 @@ const TAG_LABEL: Record<BriefItemRecord["tag"], string> = {
   data: "数据异常",
   conclusion: "结论",
   decision: "待决策",
+  review: "待我验收",
 };
 
 export function briefTagLabel(tag: BriefItemRecord["tag"]): string {
@@ -414,7 +416,13 @@ export function briefSummary(input: {
         3_600_000,
     ),
   );
-  const counts = { data: 0, decision: 0, conclusion: 0, progress: 0 };
+  const counts = {
+    data: 0,
+    decision: 0,
+    review: 0,
+    conclusion: 0,
+    progress: 0,
+  };
   for (const item of input.items) {
     if (item.readState !== "unread") continue;
     counts[item.tag] += 1;
@@ -422,6 +430,7 @@ export function briefSummary(input: {
   const parts = [
     ["data", "数据异常"],
     ["decision", "升级关注"],
+    ["review", "待我验收"],
     ["conclusion", "结论"],
     ["progress", "进展"],
   ]

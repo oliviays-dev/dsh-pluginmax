@@ -566,7 +566,7 @@ export class TeammateService {
     if (conflict !== undefined) {
       throw new TeammateError(
         "conflict",
-        `同一 Agent 模版下已存在未归档实例「${conflict.name}」，不能重名`,
+        `同一 Agent 模版下已存在未归档 Teammate「${conflict.name}」，不能重名`,
       );
     }
   }
@@ -737,15 +737,50 @@ export class TeammateService {
     };
   }
 
-  listInstances(): readonly TeammateInstanceView[] {
-    return this.values(this.options.tables.teammates)
+  /**
+   * 实例列表默认只返回"平台归属（团队共享）+ 自己创建"的实例；
+   * 平台管理员需要看全量时，必须显式传 `scope: "all"`（对应独立的"全量视图"入口）。
+   */
+  listInstances(
+    actor?: TeammateActor,
+    options?: {
+      readonly scope?: "mine" | "all" | undefined;
+      /**
+       * 每个实例的"最近使用"时间（ISO 字符串）。语义是真实使用：绑定到该实例的
+       * Agent 运行、以该实例身份参与的会议、以及实例编辑时间取最大值；缺省时
+       * 回退到实例自身的 `updatedAt`。
+       */
+      readonly lastUsedAt?: ReadonlyMap<string, string> | undefined;
+    },
+  ): readonly TeammateInstanceView[] {
+    const includeAll =
+      actor !== undefined &&
+      actor.role === "admin" &&
+      options?.scope === "all";
+    const visible = this.values(this.options.tables.teammates).filter(
+      (teammate) => {
+        if (actor === undefined) return true;
+        if (includeAll) return true;
+        if (teammate.ownerUserId === actor.userId) return true;
+        return (this.templateOf(teammate)?.source ?? teammate.source) ===
+          "platform";
+      },
+    );
+    const lastUsedAt = options?.lastUsedAt;
+    return visible
       .map((teammate) => this.viewOf(teammate))
       .sort((left, right) => {
+        // 运行态列表：先按实例状态（生效 > 草稿 > 暂停 > 失效 > 已归档），
+        // 同一状态内按最近使用倒序，最后用来源与名称兜底保证稳定。
+        const stateOrder = STATE_ORDER[left.state] - STATE_ORDER[right.state];
+        if (stateOrder !== 0) return stateOrder;
+        const leftUsedAt = lastUsedAt?.get(left.id) ?? left.updatedAt;
+        const rightUsedAt = lastUsedAt?.get(right.id) ?? right.updatedAt;
+        const recency = rightUsedAt.localeCompare(leftUsedAt);
+        if (recency !== 0) return recency;
         if (left.templateSource !== right.templateSource) {
           return left.templateSource === "platform" ? -1 : 1;
         }
-        const stateOrder = STATE_ORDER[left.state] - STATE_ORDER[right.state];
-        if (stateOrder !== 0) return stateOrder;
         return left.name.localeCompare(right.name, "zh-Hans-CN");
       });
   }
@@ -827,7 +862,7 @@ export class TeammateService {
   create(actor: TeammateActor, input: CreateTeammateInput): Promise<Teammate> {
     return this.enqueue(async () => {
       if (actor.role === "guest") {
-        throw new TeammateError("forbidden", "访客不能创建 AI Teammate 实例");
+        throw new TeammateError("forbidden", "访客不能创建 AI Teammate");
       }
       const templates = this.templates;
       if (templates === undefined) {
@@ -855,14 +890,17 @@ export class TeammateService {
         });
       }
       if (template.state === "archived") {
-        throw new TeammateError("invalid_input", "归档的模版不能创建新实例");
+        throw new TeammateError("invalid_input", "归档的模版不能创建新 Teammate");
       }
       if (
         template.source === "personal" &&
         template.ownerUserId !== actor.userId &&
         actor.role !== "admin"
       ) {
-        throw new TeammateError("forbidden", "个人模版只有归属人可以用于创建实例");
+        throw new TeammateError(
+          "forbidden",
+          "个人模版只有归属人可以用于创建 Teammate",
+        );
       }
       const timestamp = this.timestamp();
       const teammate = teammateSchema.parse({
@@ -871,7 +909,8 @@ export class TeammateService {
         name: input.name?.trim() || template.name,
         ownerUserId: actor.userId,
         ownerName: actor.name,
-        state: "inactive",
+        // 新建实例默认生效：创建完即可被派发，无需再手动点一次「生效」。
+        state: "active",
         version: "v0.1",
         templateId: template.id,
         ...(input.execution === undefined
@@ -889,7 +928,7 @@ export class TeammateService {
         teammate,
         actor,
         "created",
-        `基于${template.source === "platform" ? "平台" : "个人"}模版「${template.name}」创建了实例`,
+        `基于${template.source === "platform" ? "平台" : "个人"}模版「${template.name}」创建了 Teammate`,
       );
       return teammate;
     });
@@ -918,7 +957,7 @@ export class TeammateService {
       if (!canManageInstance(current, actor)) {
         throw new TeammateError(
           "forbidden",
-          "只有实例 owner 或平台管理员可以切换实例模版",
+          "只有 Teammate owner 或平台管理员可以切换模版",
         );
       }
       const next = teammateSchema.parse({
@@ -931,7 +970,7 @@ export class TeammateService {
         next,
         actor,
         "updated",
-        `将实例切换到模版「${template.name}」`,
+        `将 Teammate 切换到模版「${template.name}」`,
       );
       return next;
     });
@@ -995,7 +1034,7 @@ export class TeammateService {
       if (!canManageInstance(current, actor)) {
         throw new TeammateError(
           "forbidden",
-          "只有实例 owner 或平台管理员可以维护实例资料",
+          "只有 Teammate owner 或平台管理员可以维护 Teammate 资料",
         );
       }
       const teammate = teammateSchema.parse({
@@ -1017,10 +1056,10 @@ export class TeammateService {
         actor,
         "updated",
         wasDraft
-          ? "保存实例资料并发布"
+          ? "保存 Teammate 资料并发布"
           : definitionTouched
-            ? "更新了实例资料和模版定义"
-            : "更新了实例资料",
+            ? "更新了 Teammate 资料和模版定义"
+            : "更新了 Teammate 资料",
       );
       return teammate;
     });
@@ -1040,12 +1079,12 @@ export class TeammateService {
       if (!canManageInstance(current, actor)) {
         throw new TeammateError(
           "forbidden",
-          "只有实例 owner 或平台管理员可以维护实例资料",
+          "只有 Teammate owner 或平台管理员可以维护 Teammate 资料",
         );
       }
       const name = input.name.trim();
       if (name === "") {
-        throw new TeammateError("invalid_input", "实例名称不能为空");
+        throw new TeammateError("invalid_input", "Teammate 名称不能为空");
       }
       const description = input.description.trim();
       if (name === current.name && description === current.description) {
@@ -1066,8 +1105,8 @@ export class TeammateService {
         actor,
         "updated",
         name === current.name
-          ? "更新了实例描述"
-          : `将实例名称改为「${name}」`,
+          ? "更新了 Teammate 描述"
+          : `将 Teammate 名称改为「${name}」`,
       );
       return teammate;
     });
@@ -1086,7 +1125,7 @@ export class TeammateService {
       if (!canManageInstance(current, actor)) {
         throw new TeammateError(
           "forbidden",
-          "只有实例 owner 或平台管理员可以归档实例",
+          "只有 Teammate owner 或平台管理员可以归档 Teammate",
         );
       }
       if (current.state === "archived") return current;
@@ -1096,7 +1135,7 @@ export class TeammateService {
         updatedAt: this.timestamp(),
       });
       await this.options.tables.teammates.put(teammate.id, teammate);
-      await this.record(teammate, actor, "archived", "归档了该实例");
+      await this.record(teammate, actor, "archived", "归档了该 Teammate");
       return teammate;
     });
   }
@@ -1110,11 +1149,11 @@ export class TeammateService {
       if (!canManageInstance(current, actor)) {
         throw new TeammateError(
           "forbidden",
-          "只有实例 owner 或平台管理员可以变更实例状态",
+          "只有 Teammate owner 或平台管理员可以变更 Teammate 状态",
         );
       }
       if (input.state === current.state) {
-        throw new TeammateError("conflict", "实例已处于该状态");
+        throw new TeammateError("conflict", "Teammate 已处于该状态");
       }
       if (!STATUS_TRANSITIONS[current.state].includes(input.state)) {
         throw new TeammateError(
@@ -1133,7 +1172,7 @@ export class TeammateService {
         actor,
         input.state === "archived" ? "archived" : "state",
         current.state === "archived" && input.state === "inactive"
-          ? "复原了该实例"
+          ? "复原了该 Teammate"
           : `将实例设为「${STATE_LABELS[input.state]}」`,
       );
       return teammate;
@@ -1151,7 +1190,7 @@ export class TeammateService {
       if (!canManageInstance(current, actor)) {
         throw new TeammateError(
           "forbidden",
-          "只有实例 owner 或平台管理员可以绑定执行身份",
+          "只有 Teammate owner 或平台管理员可以绑定执行身份",
         );
       }
       if (current.employeeId === employeeId) return current;
@@ -1446,7 +1485,7 @@ export async function migrateTeammateTemplates(
         actorUserId: actor.userId,
         actorName: actor.name,
         kind: "updated",
-        message: "系统补齐了该实例的 Agent 模版引用",
+        message: "系统补齐了该 Teammate 的 Agent 模版引用",
       });
       await options.events.put(event.id, event);
     }
