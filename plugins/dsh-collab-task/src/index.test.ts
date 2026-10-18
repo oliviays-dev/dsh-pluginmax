@@ -3,7 +3,11 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createTaskRoutes } from "./index.js";
+import {
+  canReviewTask,
+  createTaskDispatcher,
+  createTaskRoutes,
+} from "./index.js";
 import {
   orderQueue,
   pickNextTask,
@@ -44,6 +48,69 @@ function service(): TaskService {
 const olivia = { id: "olivia", name: "Olivia", kind: "human" as const };
 
 describe("dsh-collab-task service", () => {
+  it("separates review authority from task assignment", async () => {
+    const tasks = service();
+    const task = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Review authority",
+      priority: "P2",
+      receiverType: "human",
+      receiverId: "worker",
+      receiverName: "Worker",
+      description: "Verify reviewer selection.",
+      acceptance: ["Only authorized reviewers can approve"],
+    });
+    const team = {
+      resolveToken: () => undefined,
+      users: () => [
+        { id: "admin", name: "Admin", role: "admin" },
+        { id: "owner", name: "Owner", role: "member" },
+        { id: "approver", name: "Approver", role: "member" },
+        { id: "worker", name: "Worker", role: "member" },
+      ],
+      members: () => [
+        { userId: "owner", memberRole: "owner" },
+        { userId: "worker", memberRole: "member" },
+        { userId: "approver", memberRole: "member" },
+      ],
+    };
+    const assignments = {
+      config: () => ({
+        seats: [
+          { id: "builder", label: "Builder", permissions: ["read", "write"] },
+          {
+            id: "reviewer",
+            label: "Reviewer",
+            permissions: ["read", "approve"],
+          },
+        ],
+      }),
+      members: (_workspaceId: string, seatId: string) =>
+        seatId === "reviewer"
+          ? [
+              {
+                seatId,
+                assigneeKind: "user" as const,
+                assigneeId: "approver",
+                status: "assigned" as const,
+              },
+            ]
+          : [],
+    };
+    const canReview = (actor: { id: string; role: "admin" | "member" }) =>
+      canReviewTask({
+        task,
+        actor: { ...actor, name: actor.id, kind: "human" },
+        team,
+        assignments,
+      });
+    expect(canReview({ id: "admin", role: "admin" })).toBe(true);
+    expect(canReview({ id: "olivia", role: "member" })).toBe(true);
+    expect(canReview({ id: "owner", role: "member" })).toBe(true);
+    expect(canReview({ id: "approver", role: "member" })).toBe(true);
+    expect(canReview({ id: "worker", role: "member" })).toBe(false);
+  });
+
   it("creates, assigns, claims, transitions, comments, and replies", async () => {
     const tasks = service();
     const created = await tasks.create(olivia, {
@@ -612,6 +679,88 @@ describe("dsh-collab-task service", () => {
     expect(rejected.status).toBe("done");
     expect(rejected.workflow?.outcome).toBe("rejected");
     expect(events).toContainEqual({ kind: "decision", decision: "rejected" });
+  });
+
+  it("auto-approves a human workflow task after submission", async () => {
+    const tasks = service();
+    const submitted: string[] = [];
+    tasks.bindWorkflowActions({
+      assign: () => {},
+      decide: () => {},
+      submit: (task) => {
+        submitted.push(task.status);
+      },
+    });
+    const created = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Human workflow execution",
+      priority: "P2",
+      status: "progress",
+      receiverType: "human",
+      receiverId: "olivia",
+      receiverName: "Olivia",
+      description: "Submit the completed deliverable.",
+      acceptance: ["PRD is ready"],
+      workflow: {
+        instanceId: "wf-human",
+        nodeId: "prd",
+        instanceTitle: "Product delivery",
+        nodeName: "PRD",
+        reviewRequired: true,
+      },
+    });
+
+    expect(created.autoApproveReview).toBe(false);
+    const configured = await tasks.updateReviewApproval(olivia, {
+      taskId: created.id,
+      autoApproveReview: true,
+    });
+    expect(configured.autoApproveReview).toBe(true);
+
+    const completed = await tasks.submit(olivia, configured.id);
+    expect(completed.status).toBe("done");
+    expect(completed.progress).toBe(100);
+    expect(completed.steps.map((step) => step.done)).toEqual([true]);
+    expect(submitted).toEqual(["progress"]);
+  });
+
+  it("settles an in-review workflow task when auto approval is enabled", async () => {
+    const tasks = service();
+    const submitted: string[] = [];
+    tasks.bindWorkflowActions({
+      assign: () => {},
+      decide: () => {},
+      submit: (task) => {
+        submitted.push(task.status);
+      },
+    });
+    const created = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Existing human review task",
+      priority: "P2",
+      status: "progress",
+      receiverType: "human",
+      receiverId: "olivia",
+      receiverName: "Olivia",
+      description: "The task is already waiting for review.",
+      acceptance: ["PRD is ready"],
+      workflow: {
+        instanceId: "wf-review",
+        nodeId: "prd",
+        instanceTitle: "Product delivery",
+        nodeName: "PRD",
+        reviewRequired: true,
+      },
+    });
+    await tasks.submit(olivia, created.id);
+    expect(tasks.get(created.id).status).toBe("review");
+
+    const completed = await tasks.updateReviewApproval(olivia, {
+      taskId: created.id,
+      autoApproveReview: true,
+    });
+    expect(completed.status).toBe("done");
+    expect(submitted).toEqual(["review"]);
   });
 
   it("does not auto-submit when the agent run fails", async () => {
@@ -1402,10 +1551,12 @@ describe("teammate task assignment", () => {
       ),
     ).toBe(true);
     // 实例归属：目录要带上实例 owner（创建人）与员工身份 id 别名。
-    expect(directory.agents.find((agent) => agent.id === "tm-1")).toMatchObject({
-      employeeId: "digital-1",
-      ownerAuthUserId: "admin",
-    });
+    expect(directory.agents.find((agent) => agent.id === "tm-1")).toMatchObject(
+      {
+        employeeId: "digital-1",
+        ownerAuthUserId: "admin",
+      },
+    );
     expect(
       directory.agents.filter((agent) => agent.name === "测小白"),
     ).toHaveLength(1);
@@ -1444,6 +1595,217 @@ describe("teammate task assignment", () => {
       personaId: "persona-tm-1",
       source: "task",
       payload: { context: { employeeName: "测小白" } },
+    });
+  });
+
+  it("dispatches through Principal Runtime and issues an action ticket", async () => {
+    const tasks = new TaskService({ tasks: memoryTable() });
+    const dispatched: Array<Record<string, unknown>> = [];
+    const tickets: Array<Record<string, unknown>> = [];
+    const actor = { id: "admin", name: "Admin", kind: "human" as const };
+    const task = await tasks.create(actor, {
+      workspaceId: "workspace-1",
+      title: "Principal task",
+      priority: "P2",
+      receiverType: "agent",
+      receiverId: "tm-principal",
+      receiverName: "Principal Worker",
+      description: "Run with Principal identity",
+      acceptance: ["Completed"],
+    });
+    const dispatch = createTaskDispatcher({
+      service: tasks,
+      team: {
+        resolveToken: () => undefined,
+        users: () => [{ id: "admin", name: "Admin", role: "admin" }],
+        members: () => [{ userId: "admin", memberRole: "owner" }],
+      },
+      agent: () => ({
+        bindTask: () => undefined,
+        dispatch: async (input) => {
+          dispatched.push(input as unknown as Record<string, unknown>);
+          return {
+            id: "run-principal",
+            instanceId: task.id,
+            nodeId: "task",
+            status: "queued",
+          };
+        },
+      }),
+      workspaces: {
+        get: () => ({ id: "workspace-1", path: "/tmp/workspace-1" }),
+        list: () => [{ id: "workspace-1", path: "/tmp/workspace-1" }],
+      },
+      teammates: () => ({
+        assignable: () => [],
+        ensureRuntime: async () => ({
+          teammateId: "tm-principal",
+          principalId: "principal-ai-tm-principal",
+          profileId: "agent-principal",
+        }),
+      }),
+      principalRuntime: () => ({
+        profile: () => ({ id: "principal-runtime-1" }),
+        issueTicket: async (input) => {
+          tickets.push(input);
+          return { id: "principal-ticket-task" };
+        },
+      }),
+    });
+
+    await dispatch(task, actor);
+
+    expect(dispatched[0]).toMatchObject({
+      profileId: "agent-principal",
+      principalId: "principal-ai-tm-principal",
+      principalType: "principal-runtime",
+      ticketId: "principal-ticket-task",
+    });
+    expect(dispatched[0]?.employeeId).toBeUndefined();
+    expect(tickets[0]).toMatchObject({
+      principalId: "principal-ai-tm-principal",
+      contextType: "task",
+      contextId: task.id,
+    });
+  });
+});
+
+describe("project role tasks", () => {
+  function roleRoutes() {
+    const tasks = service();
+    const routes = createTaskRoutes(
+      tasks,
+      {
+        resolveToken: (candidate) =>
+          candidate === "token"
+            ? { userId: "alice", role: "member" }
+            : candidate === "bob"
+              ? { userId: "bob", role: "member" }
+              : undefined,
+        users: () => [
+          { id: "alice", name: "Alice", role: "member" },
+          { id: "bob", name: "Bob", role: "member" },
+        ],
+        members: () => [
+          { userId: "alice", memberRole: "member" },
+          { userId: "bob", memberRole: "member" },
+        ],
+      },
+      undefined,
+      {
+        config: () => ({
+          seats: [
+            {
+              id: "reviewer",
+              label: "评审组",
+              participantKind: "any" as const,
+              permissions: ["read", "approve"] as const,
+            },
+          ],
+        }),
+        seats: () => [
+          {
+            seatId: "reviewer",
+            assigneeKind: "user" as const,
+            assigneeId: "alice",
+            status: "claimed" as const,
+          },
+          {
+            seatId: "reviewer",
+            assigneeKind: "agent" as const,
+            assigneeId: "tm-tester",
+            status: "assigned" as const,
+          },
+        ],
+        members: (_workspaceId, seatId) =>
+          seatId === "reviewer"
+            ? [
+                {
+                  assigneeKind: "user" as const,
+                  assigneeId: "alice",
+                  status: "claimed" as const,
+                },
+                {
+                  assigneeKind: "agent" as const,
+                  assigneeId: "tm-tester",
+                  status: "assigned" as const,
+                },
+              ]
+            : [],
+      },
+    );
+    return { routes, tasks };
+  }
+
+  it("lists role candidates and only lets current members claim", async () => {
+    const { routes, tasks } = roleRoutes();
+    const bootstrap = routes.find(
+      (route) => route.path === "/api/collab/tasks/bootstrap",
+    );
+    const listed = fakeResponse();
+    await bootstrap?.handler(
+      fakeRequest({
+        method: "GET",
+        url: "/api/collab/tasks/bootstrap?workspaceId=workspace-1",
+      }),
+      listed.response,
+    );
+    const directory = listed.read().body?.directory as {
+      roles: Array<{
+        id: string;
+        name: string;
+        members?: Array<{ kind: string; id: string; name?: string }>;
+      }>;
+    };
+    expect(directory.roles[0]).toMatchObject({
+      id: "reviewer",
+      name: "评审组",
+    });
+    expect(directory.roles[0]?.members).toEqual([
+      { kind: "user", id: "alice", name: "Alice" },
+      { kind: "agent", id: "tm-tester" },
+    ]);
+
+    const created = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "角色任务",
+      priority: "P2",
+      receiverType: "role",
+      receiverId: "reviewer",
+      receiverName: "评审组",
+      description: "由角色成员或签完成",
+      acceptance: ["任一成员完成即可"],
+    });
+
+    const claim = routes.find(
+      (route) => route.path === "/api/collab/tasks/claim",
+    );
+    const bob = fakeResponse();
+    await claim?.handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/claim",
+        token: "bob",
+        body: { taskId: created.id },
+      }),
+      bob.response,
+    );
+    expect(bob.read().status).toBe(403);
+
+    const alice = fakeResponse();
+    await claim?.handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/claim",
+        body: { taskId: created.id },
+      }),
+      alice.response,
+    );
+    expect(alice.read().status).toBe(200);
+    expect(tasks.get(created.id)).toMatchObject({
+      receiverType: "human",
+      receiverId: "alice",
+      status: "progress",
     });
   });
 });
@@ -1552,21 +1914,36 @@ interface CapturedRun {
   sessionId?: string;
 }
 
-function contextHarness() {
+function contextHarness(
+  options: { readonly execution?: "builtin" | "external" } = {},
+) {
   const tasks = service();
   const dispatched: Array<{
     profileId: string;
     payload: { context: Record<string, string> };
   }> = [];
   const runs = new Map<string, CapturedRun>();
+  /** 每次派发交给 teammate runtime 的操作者信息（角色是首次开通执行身份的关键）。 */
+  const runtimeActors: Array<{ teammateId: string; role?: string }> = [];
+  const team = {
+    resolveToken: (
+      candidate: string,
+    ):
+      | { userId: string; role?: "admin" | "owner" | "member" | "guest" }
+      | undefined =>
+      candidate === "token" ? { userId: "admin", role: "admin" } : undefined,
+    users: (): Array<{ id: string; name: string; role: string }> => [
+      { id: "admin", name: "Admin", role: "admin" },
+    ],
+    members: (
+      _workspaceId: string,
+    ): Array<{ userId: string; memberRole: "owner" | "member" }> => [
+      { userId: "admin", memberRole: "owner" },
+    ],
+  };
   const routes = createTaskRoutes(
     tasks,
-    {
-      resolveToken: (candidate) =>
-        candidate === "token" ? { userId: "admin", role: "admin" } : undefined,
-      users: () => [{ id: "admin", name: "Admin", role: "admin" }],
-      members: () => [{ userId: "admin", memberRole: "owner" }],
-    },
+    team,
     undefined,
     undefined,
     () => ({
@@ -1607,20 +1984,34 @@ function contextHarness() {
         },
       ],
       // 每个 teammate 实例对应一套独立执行身份：被 @ 的协作方要落到自己的会话。
-      ensureRuntime: async (input) =>
-        input.teammateId === "tm-1"
-          ? {
-              teammateId: input.teammateId,
-              employeeId: "digital-1",
-              profileId: "agent-1",
-              personaId: "persona-tm-1",
-            }
-          : {
-              teammateId: input.teammateId,
-              employeeId: `digital-${input.teammateId.replace(/[^a-zA-Z0-9]/g, "")}`,
-              profileId: `agent-${input.teammateId.replace(/[^a-zA-Z0-9]/g, "")}`,
-              personaId: `persona-${input.teammateId.replace(/[^a-zA-Z0-9]/g, "")}`,
-            },
+      ensureRuntime: async (input) => {
+        runtimeActors.push({
+          teammateId: input.teammateId,
+          ...(input.actor?.role === undefined
+            ? {}
+            : { role: input.actor.role }),
+        });
+        const base =
+          input.teammateId === "tm-1"
+            ? {
+                teammateId: input.teammateId,
+                employeeId: "digital-1",
+                profileId: "agent-1",
+                personaId: "persona-tm-1",
+              }
+            : {
+                teammateId: input.teammateId,
+                employeeId: `digital-${input.teammateId.replace(/[^a-zA-Z0-9]/g, "")}`,
+                profileId: `agent-${input.teammateId.replace(/[^a-zA-Z0-9]/g, "")}`,
+                personaId: `persona-${input.teammateId.replace(/[^a-zA-Z0-9]/g, "")}`,
+              };
+        return {
+          ...base,
+          ...(options.execution === undefined
+            ? {}
+            : { execution: options.execution }),
+        };
+      },
     }),
   );
   const route = (path: string) => {
@@ -1628,7 +2019,7 @@ function contextHarness() {
     if (found === undefined) throw new Error(`missing route ${path}`);
     return found;
   };
-  return { tasks, dispatched, runs, route };
+  return { tasks, dispatched, runs, route, team, runtimeActors };
 }
 
 describe("task context delivery", () => {
@@ -1759,6 +2150,67 @@ describe("task context delivery", () => {
     expect(dispatched[3]?.payload.context.taskSessionEpoch).toBe("1");
     expect(dispatched[3]?.payload.context.firstDelivery).toBe("true");
     expect(dispatched[3]?.payload.context.instruction).toContain("# 任务");
+  });
+
+  it("resends full task context to stateless external agents", async () => {
+    const { tasks, route, dispatched } = contextHarness({
+      execution: "external",
+    });
+    const created = fakeResponse();
+    await route("/api/collab/tasks/create").handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/create",
+        body: {
+          workspaceId: "workspace-1",
+          title: "外部 Agent 反馈修复",
+          priority: "P2",
+          receiverType: "agent",
+          receiverId: "tm-1",
+          receiverName: "测小白",
+          description: "先生成报告。",
+          acceptance: ["报告可直接审阅"],
+        },
+      }),
+      created.response,
+    );
+    expect(created.read().status).toBe(200);
+    expect(dispatched[0]?.payload.context.instruction).toContain("# 任务");
+
+    const task = (created.read().body?.task ?? {}) as { id: string };
+    await tasks.addMessage(olivia, {
+      taskId: task.id,
+      content: "补充前置约束：不要改目录结构。",
+    });
+    await tasks.attachAgentRun(
+      task.id,
+      {
+        id: "run-1",
+        instanceId: task.id,
+        status: "succeeded",
+        output: { summary: "旧结论" },
+      },
+      "测小白",
+    );
+
+    const followUp = fakeResponse();
+    await route("/api/collab/tasks/message").handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/message",
+        body: { taskId: task.id, content: "需形成 md 文档报告。" },
+      }),
+      followUp.response,
+    );
+    expect(followUp.read().status).toBe(200);
+    const second = dispatched[1]?.payload.context.instruction ?? "";
+    expect(second).toContain("# 任务");
+    expect(second).toContain("先生成报告。");
+    expect(second).toContain("补充前置约束：不要改目录结构。");
+    expect(second).toContain("## 验收标准");
+    expect(second).toContain("旧结论");
+    expect(second).toContain("需形成 md 文档报告。");
+    expect(dispatched[1]?.payload.context.firstDelivery).toBe("true");
   });
 });
 
@@ -2049,9 +2501,10 @@ describe("task cross-agent mention", () => {
 
     // 两个被 @ 的 Agent 各自一轮，各自用自己的执行身份（= 各自的会话）。
     expect(dispatched).toHaveLength(2);
-    expect(
-      dispatched.map((item) => item.payload.context.taskRunRole),
-    ).toEqual(["assist", "assist"]);
+    expect(dispatched.map((item) => item.payload.context.taskRunRole)).toEqual([
+      "assist",
+      "assist",
+    ]);
     expect(
       dispatched.map((item) => item.payload.context.taskReceiverId),
     ).toEqual(["tm-qa", "tm-dev"]);
@@ -2091,9 +2544,10 @@ describe("task cross-agent mention", () => {
       ],
     });
     expect(result.status).toBe(200);
-    expect(
-      dispatched.map((item) => item.payload.context.taskRunRole),
-    ).toEqual(["assist", "owner"]);
+    expect(dispatched.map((item) => item.payload.context.taskRunRole)).toEqual([
+      "assist",
+      "owner",
+    ]);
     expect(dispatched[1]?.payload.context.taskReceiverId).toBe("tm-1");
     expect(dispatched[1]?.payload.context.triggerMessageId).not.toBe("");
   });
@@ -2181,6 +2635,81 @@ describe("task cross-agent mention", () => {
     ).toBe("workspace-1");
     expect(harness.tasks.get(task.id).workspaceId).toBe("workspace-1");
     expect(harness.tasks.get(task.id).title).toBe("试图换项目");
+  });
+
+  it("only allows nudging tasks assigned to a human", async () => {
+    const harness = contextHarness();
+    const { route, tasks } = harness;
+    const agentTask = await createAssignedTask(harness);
+
+    // Agent 承接的任务：催办没有意义（推进靠指令/改派），接口层直接拒绝。
+    const refused = fakeResponse();
+    await route("/api/collab/tasks/action").handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/action",
+        body: { taskId: agentTask.id, action: "nudge" },
+      }),
+      refused.response,
+    );
+    expect(refused.read().status).toBe(409);
+
+    const humanTask = await tasks.create(
+      { id: "admin", name: "Admin", kind: "human", role: "admin" },
+      {
+        workspaceId: "workspace-1",
+        title: "指派给人的任务",
+        priority: "P2",
+        receiverType: "human",
+        receiverId: "admin",
+        receiverName: "Admin",
+        description: "请尽快处理。",
+        acceptance: ["完成"],
+      },
+    );
+    const nudged = fakeResponse();
+    await route("/api/collab/tasks/action").handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/action",
+        body: { taskId: humanTask.id, action: "nudge" },
+      }),
+      nudged.response,
+    );
+    expect(nudged.read().status).toBe(200);
+    // 催办留一条 nudge 事件：工作台简报按它把任务带进被催办人的简报。
+    expect(tasks.get(humanTask.id).events.at(-1)?.kind).toBe("nudge");
+  });
+
+  it("resolves the caller's role before provisioning a fresh agent runtime", async () => {
+    const harness = contextHarness();
+    // 会议模块那条内域路径：调用方只带 id/name，没有 role（平台管理员也是）。
+    harness.team.resolveToken = () => ({ userId: "admin" });
+    const created = fakeResponse();
+    await harness.route("/api/collab/tasks/create").handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/create",
+        body: {
+          workspaceId: "workspace-1",
+          title: "贪食蛇 0.1迭代 需求评审会 · 会议 Facilitator",
+          priority: "P2",
+          receiverType: "agent",
+          receiverId: "meeting-facilitator",
+          receiverName: "会议 Facilitator",
+          description: "你是这场会议的 AI 参会方。",
+          acceptance: ["被 @ 时给出反馈"],
+        },
+      }),
+      created.response,
+    );
+    expect(created.read().status).toBe(200);
+    // 首次开通执行身份时 teammate/employee 域按 owner/admin 校验操作者；
+    // 角色被丢成 member 就会直接 403「workspace owner or admin is required」。
+    expect(harness.runtimeActors.at(-1)).toEqual({
+      teammateId: "meeting-facilitator",
+      role: "admin",
+    });
   });
 
   it("exposes the task's agent session so the UI can jump to it", async () => {

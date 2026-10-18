@@ -8,6 +8,8 @@ import {
 } from "@pluginmax/shared";
 import { z } from "zod";
 import {
+  EXTERNAL_AGENT_PROTOCOLS,
+  EXTERNAL_AGENT_PROVIDERS,
   agentProfileSchema,
   agentRunSchema,
   externalAgentRuntimeSchema,
@@ -20,6 +22,7 @@ import {
   ExternalAgentProcessRunner,
   externalSessionId,
   probeExternalRuntime,
+  terminalExternalAgentTrace,
   type ExternalAgentRunner,
 } from "./external.js";
 
@@ -509,8 +512,9 @@ export interface AgentDispatchInput {
   readonly timeoutMs: number;
   readonly personaId?: string | undefined;
   readonly employeeId?: string | undefined;
+  readonly principalId?: string | undefined;
   readonly principalType?:
-    "transitional-agent" | "digital-employee" | undefined;
+    "transitional-agent" | "digital-employee" | "principal-runtime" | undefined;
   readonly ticketId?: string | undefined;
   readonly payload: AgentRun["payload"];
   readonly createdBy: string;
@@ -573,6 +577,25 @@ export const agentDomainSpec = {
   },
 } as const;
 
+const EXTERNAL_RUNTIME_STATUS_LABEL: Record<
+  ExternalAgentRuntime["status"],
+  string
+> = {
+  active: "启用",
+  disabled: "停用",
+  archived: "已归档",
+};
+
+const EXTERNAL_RUNTIME_STATUS_TRANSITIONS: Record<
+  ExternalAgentRuntime["status"],
+  readonly ExternalAgentRuntime["status"][]
+> = {
+  active: ["active", "disabled", "archived"],
+  disabled: ["active", "disabled", "archived"],
+  // 归档为终态：只能通过 restore 复原回停用，常规 update 不放行。
+  archived: ["archived"],
+};
+
 export class ExternalAgentRuntimeService {
   private queue: Promise<unknown> = Promise.resolve();
 
@@ -591,11 +614,19 @@ export class ExternalAgentRuntimeService {
     return this.deps.now?.() ?? new Date();
   }
 
-  list(workspaceId?: string): ExternalAgentRuntime[] {
+  /**
+   * 默认只返回可用运行时（启用/停用）；归档是终态视图，
+   * 由 includeArchived 显式请求，避免归档项污染常规选择与列表。
+   */
+  list(
+    workspaceId?: string,
+    options?: { readonly includeArchived?: boolean | undefined },
+  ): ExternalAgentRuntime[] {
     return values(this.table)
       .filter(
         (runtime) =>
-          runtime.status !== "archived" &&
+          (options?.includeArchived === true ||
+            runtime.status !== "archived") &&
           (workspaceId === undefined ||
             runtime.workspaceId === undefined ||
             runtime.workspaceId === workspaceId),
@@ -615,6 +646,44 @@ export class ExternalAgentRuntimeService {
     const runtime = this.get(runtimeId);
     if (runtime === undefined)
       throw new AgentError("not_found", "外部 Agent 运行时不存在");
+    return runtime;
+  }
+
+  /**
+   * 状态流转：启用/停用可互切，归档可从两者进入；归档为终态，
+   * 只能先复原回停用，再按常规流程启用（与 Teammate 模版归档口径一致）。
+   */
+  private assertTransition(
+    current: ExternalAgentRuntime,
+    next: ExternalAgentRuntime["status"],
+  ): void {
+    if (EXTERNAL_RUNTIME_STATUS_TRANSITIONS[current.status].includes(next))
+      return;
+    if (current.status === "archived") {
+      throw new AgentError(
+        "conflict",
+        "外部 Agent 运行时已归档，请先复原为停用状态后再启用",
+      );
+    }
+    throw new AgentError(
+      "conflict",
+      `外部 Agent 运行时不能从「${EXTERNAL_RUNTIME_STATUS_LABEL[current.status]}」变更为「${EXTERNAL_RUNTIME_STATUS_LABEL[next]}」`,
+    );
+  }
+
+  /** 探测等管理动作统一入口：校验权限并拒绝已归档运行时。 */
+  requireForManagement(
+    runtimeId: string,
+    actor: AgentActor,
+  ): ExternalAgentRuntime {
+    const runtime = this.require(runtimeId);
+    this.assertCanManage(runtime, actor);
+    if (runtime.status === "archived") {
+      throw new AgentError(
+        "conflict",
+        "外部 Agent 运行时已归档，请先复原后再操作",
+      );
+    }
     return runtime;
   }
 
@@ -692,6 +761,8 @@ export class ExternalAgentRuntimeService {
     input: {
       readonly runtimeId: string;
       readonly name?: string | undefined;
+      readonly provider?: ExternalAgentRuntime["provider"] | undefined;
+      readonly protocol?: ExternalAgentRuntime["protocol"] | undefined;
       readonly command?: string | undefined;
       readonly args?: readonly string[] | undefined;
       readonly status?: ExternalAgentRuntime["status"] | undefined;
@@ -700,12 +771,72 @@ export class ExternalAgentRuntimeService {
     return this.enqueue(async () => {
       const current = this.require(input.runtimeId);
       this.assertCanManage(current, actor);
+      if (input.status !== undefined) {
+        this.assertTransition(current, input.status);
+      }
+      const commandChanged =
+        input.command !== undefined && input.command !== current.command;
+      const argsChanged =
+        input.args !== undefined &&
+        (input.args.length !== current.args.length ||
+          input.args.some((arg, index) => arg !== current.args[index]));
       const next = parseOrInvalid(externalAgentRuntimeSchema, {
         ...current,
         name: input.name ?? current.name,
+        provider: input.provider ?? current.provider,
+        protocol: input.protocol ?? current.protocol,
         command: input.command ?? current.command,
         args: input.args ?? current.args,
         status: input.status ?? current.status,
+        updatedAt: iso(this.now()),
+        ...(commandChanged || argsChanged
+          ? {
+              lastProbeAt: undefined,
+              lastProbeOk: undefined,
+              lastProbeMessage: undefined,
+            }
+          : {}),
+      });
+      await this.table.put(next.id, next);
+      return next;
+    });
+  }
+
+  archive(
+    actor: AgentActor,
+    input: { readonly runtimeId: string },
+  ): Promise<ExternalAgentRuntime> {
+    return this.enqueue(async () => {
+      const current = this.require(input.runtimeId);
+      this.assertCanManage(current, actor);
+      if (current.status === "archived") return current;
+      const next = parseOrInvalid(externalAgentRuntimeSchema, {
+        ...current,
+        status: "archived",
+        updatedAt: iso(this.now()),
+      });
+      await this.table.put(next.id, next);
+      return next;
+    });
+  }
+
+  /** 复原：归档 → 停用，不直接生效，避免误把旧绑定当可用运行时派发。 */
+  restore(
+    actor: AgentActor,
+    input: { readonly runtimeId: string },
+  ): Promise<ExternalAgentRuntime> {
+    return this.enqueue(async () => {
+      const current = this.require(input.runtimeId);
+      this.assertCanManage(current, actor);
+      if (current.status !== "archived") {
+        throw new AgentError(
+          "conflict",
+          "只有已归档的外部 Agent 运行时才能复原",
+        );
+      }
+      const next = parseOrInvalid(externalAgentRuntimeSchema, {
+        ...current,
+        status: "disabled",
         updatedAt: iso(this.now()),
       });
       await this.table.put(next.id, next);
@@ -731,6 +862,22 @@ export class ExternalAgentRuntimeService {
       return next;
     });
   }
+}
+
+/**
+ * 派发失败原因要能直接指导用户：不存在 / 已停用 / 已归档三态分开，
+ * 并给出「启用、改绑或切回内置执行」的可执行下一步。
+ */
+function externalRuntimeUnavailableReason(
+  runtime: ExternalAgentRuntime | undefined,
+): string {
+  if (runtime === undefined) {
+    return "外部 Agent 运行时不存在，请在 AI伙伴 > 外部 Agent 中重新选择运行时";
+  }
+  if (runtime.status === "archived") {
+    return `外部 Agent 运行时「${runtime.name}」已归档，请复原或改绑其他运行时`;
+  }
+  return `外部 Agent 运行时「${runtime.name}」已停用，请启用后重试或切换为内置执行`;
 }
 
 function buildPrompt(run: AgentRun, profile: AgentProfile): string {
@@ -779,9 +926,7 @@ function buildPrompt(run: AgentRun, profile: AgentProfile): string {
       "## 会议记录",
       transcript.trim() === "" ? "（暂无对话）" : transcript,
       "",
-      ...(meetingFiles === ""
-        ? []
-        : ["## 会议文件", meetingFiles, ""]),
+      ...(meetingFiles === "" ? [] : ["## 会议文件", meetingFiles, ""]),
       ...(brief === "" ? [] : ["## 本次嘱咐", brief, ""]),
       "## 输出要求",
       "用中文 Markdown 输出一份结构化会议纪要，且只包含以下小节（顺序固定，标题原样保留）：",
@@ -851,17 +996,15 @@ function buildPrompt(run: AgentRun, profile: AgentProfile): string {
     ...(deliverableLines.length === 0
       ? []
       : ["## 交付要求", ...deliverableLines, ""]),
-    ...(hasRequiredText
-      ? [
-          "## 输出格式",
-          "最终回复必须直接从「# 交付报告」开始；不要先输出计划、推理、检查步骤或工具调用。",
-          "如果上下文不足，也要立刻交付报告，并在交付说明中列出缺失信息。",
-          "",
-          "## 交付说明",
-          "<针对必交文本交付物的正文，满足最少字数要求；说明结果、覆盖范围、验证方式和风险>",
-          "",
-        ]
-      : []),
+    "## 输出格式",
+    "最终回复必须直接从「# 交付报告」开始；不要先输出计划、推理、检查步骤或工具调用。",
+    "报告必须包含二级标题「## 交付说明」；如果上下文不足，也要在该节列出缺失信息。",
+    "",
+    "## 交付说明",
+    hasRequiredText
+      ? "<针对必交文本交付物的正文，满足最少字数要求；说明结果、覆盖范围、验证方式和风险>"
+      : "<说明交付结果、验证方式和风险；没有形式化交付物时也必须保留此节>",
+    "",
     "## 工具",
     profile.allowedTools.length === 0
       ? "本任务不限制可用工具；但最终回复仍必须直接交付报告，不要输出工具调用语法。"
@@ -922,6 +1065,7 @@ export class AgentTaskRuntime {
   private readonly hosts = new Map<string, Promise<AgentHandleLike>>();
   private readonly homeHandles = new Map<string, Promise<AgentHandleLike>>();
   private readonly homeQueues = new Map<string, Promise<void>>();
+  private readonly publishedSessions = new Set<string>();
   private readonly progressBySession = new Map<string, AgentRunProgress>();
   private activeWorkers = 0;
   private readonly waiting: Array<() => void> = [];
@@ -1136,93 +1280,12 @@ export class AgentTaskRuntime {
       throw new AgentError("not_found", "agent registry is unavailable");
     }
     const sessionId = taskSessionId(run);
-    const model = this.deps.defaultModel?.()?.currentSelection();
-    const setup = async (agentCtx: AgentSetupContextLike): Promise<void> => {
-      await agentCtx.get?.("agentPresets")?.mount(agentCtx, "standard");
-      // 人设注入：standard preset 自己占用了 deployment:persona，这里用独立
-      // section 追加本 teammate 的 SOUL，避免同层同名冲突，让 worker 真正读到人设。
-      if (personaSoul !== "") {
-        const systemPrompt = agentCtx.get?.("systemPrompt");
-        if (systemPrompt !== undefined) {
-          const order =
-            systemPrompt.getSectionOrder?.("DEPLOYMENT_PERSONA") ?? 0;
-          systemPrompt.section({
-            name: "dsh-collab:teammate-soul",
-            order,
-            text: `# 你的人设（AI Teammate）\n\n${personaSoul}`,
-          });
-        }
-      }
-      const tools = agentCtx.tools;
-      // 空清单 = 不限制（与「未限制工具清单」的语义一致）：只有显式配置了工具
-      // 才收窄，否则保持挂载预设后的默认工具集。
-      const configured = [...new Set(profile.allowedTools)].filter(
-        (name) => name.trim() !== "",
-      );
-      if (tools !== undefined && configured.length > 0) {
-        const allow = configured.filter((name) => tools.get(name) !== undefined);
-        tools.restrict({ allow });
-      }
-    };
-    let pending = this.homeHandles.get(sessionId);
-    if (pending === undefined) {
-      pending = (async () => {
-        const adoptLive = (): AgentHandleLike | undefined => {
-          const live = agents.get?.(sessionId);
-          return live === undefined
-            ? undefined
-            : { agent: live, dispose: async () => undefined };
-        };
-        const live = adoptLive();
-        if (live !== undefined) return live;
-        const persisted = await this.deps
-          .sessionPersistence?.()
-          ?.stat(sessionId);
-        const createSession = () =>
-          agents.create({
-            sessionId,
-            meta: { cwd: workspacePath },
-            setup,
-            ...(model === undefined ? {} : { agentOptions: model }),
-          });
-        try {
-          if (persisted !== undefined) {
-            if (agents.resume === undefined) {
-              throw new AgentError(
-                "conflict",
-                `persisted task session cannot be resumed: ${sessionId}`,
-              );
-            }
-            try {
-              return await agents.resume({
-                resumeSessionId: sessionId,
-                setup,
-                ...(model === undefined ? {} : { agentOptions: model }),
-              });
-            } catch (cause) {
-              // 会话「登记过」不等于产物还在：目录被清理/删除后恢复会以
-              // ENOENT / not-found 失败。这种情况重建会话，而不是把整轮判死。
-              if (!isMissingSessionArtifact(cause)) throw cause;
-              return await createSession();
-            }
-          }
-          return await createSession();
-        } catch (cause) {
-          // 会话可能已被本进程内另一个活跃 handle 占用（例如重复启动或热重载）：
-          // 能拿到现存活句柄就复用，避免任务因为写句柄冲突直接失败。
-          const adopted = adoptLive();
-          if (adopted !== undefined) return adopted;
-          throw cause;
-        }
-      })();
-      this.homeHandles.set(sessionId, pending);
-      void pending.catch(() => {
-        if (this.homeHandles.get(sessionId) === pending) {
-          this.homeHandles.delete(sessionId);
-        }
-      });
-    }
-    const handle = await pending;
+    const handle = await this.ensureHomeHandle(
+      run,
+      profile,
+      workspacePath,
+      personaSoul,
+    );
     const agent = handle.agent as AgentLike;
     return await this.enqueueHome(sessionId, async () => {
       this.progressBySession.set(sessionId, {
@@ -1265,6 +1328,155 @@ export class AgentTaskRuntime {
   }
 
   /**
+   * 运行排队阶段就建立确定性任务会话。左侧清单依赖 workspace 的 session
+   * 挂载记录；如果等到发送首条消息才挂载，并发排队或重启前的窗口会让用户
+   * 看到任务已存在但会话消失。
+   */
+  private async reserveHomeSession(
+    run: AgentRun,
+    profile: AgentProfile,
+    personaSoul: string,
+  ): Promise<AgentRun> {
+    if (run.workspacePath === undefined) return run;
+    const sessionId = taskSessionId(run);
+    await this.ensureHomeHandle(run, profile, run.workspacePath, personaSoul);
+    const persistence = this.deps.sessionPersistence?.();
+    if (persistence !== undefined) {
+      // agents.create 返回时，workspace attach 可能仍读不到首次 checkpoint。
+      // 只等会话产物可见，避免左侧清单在创建瞬间丢失挂载。
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        if ((await persistence.stat(sessionId)) !== undefined) break;
+        await new Promise<void>((resolve) => setTimeout(resolve, 25));
+      }
+    }
+    await this.attachSession(run, sessionId);
+    return this.deps.tables.runs.get(run.id) ?? run;
+  }
+
+  private async ensureHomeHandle(
+    run: AgentRun,
+    profile: AgentProfile,
+    workspacePath: string,
+    personaSoul: string,
+  ): Promise<AgentHandleLike> {
+    const agents = this.deps.agents();
+    if (agents === undefined) {
+      throw new AgentError("not_found", "agent registry is unavailable");
+    }
+    const sessionId = taskSessionId(run);
+    const existing = this.homeHandles.get(sessionId);
+    if (existing !== undefined) return await existing;
+    const setup = async (agentCtx: AgentSetupContextLike): Promise<void> => {
+      await agentCtx.get?.("agentPresets")?.mount(agentCtx, "standard");
+      // 人设注入：standard preset 自己占用了 deployment:persona，这里用独立
+      // section 追加本 teammate 的 SOUL，避免同层同名冲突，让 worker 真正读到人设。
+      if (personaSoul !== "") {
+        const systemPrompt = agentCtx.get?.("systemPrompt");
+        if (systemPrompt !== undefined) {
+          const order =
+            systemPrompt.getSectionOrder?.("DEPLOYMENT_PERSONA") ?? 0;
+          systemPrompt.section({
+            name: "dsh-collab:teammate-soul",
+            order,
+            text: `# 你的人设（AI伙伴）\n\n${personaSoul}`,
+          });
+        }
+      }
+      const tools = agentCtx.tools;
+      // 空清单 = 不限制（与「未限制工具清单」的语义一致）：只有显式配置了工具
+      // 才收窄，否则保持挂载预设后的默认工具集。
+      const configured = [...new Set(profile.allowedTools)].filter(
+        (name) => name.trim() !== "",
+      );
+      if (tools !== undefined && configured.length > 0) {
+        const allow = configured.filter(
+          (name) => tools.get(name) !== undefined,
+        );
+        tools.restrict({ allow });
+      }
+    };
+    const model = this.deps.defaultModel?.()?.currentSelection();
+    const pending = (async () => {
+      const adoptLive = (): AgentHandleLike | undefined => {
+        const live = agents.get?.(sessionId);
+        return live === undefined
+          ? undefined
+          : { agent: live, dispose: async () => undefined };
+      };
+      const live = adoptLive();
+      if (live !== undefined) return live;
+      const persisted = await this.deps.sessionPersistence?.()?.stat(sessionId);
+      const createSession = () =>
+        agents.create({
+          sessionId,
+          meta: { cwd: workspacePath },
+          setup,
+          ...(model === undefined ? {} : { agentOptions: model }),
+        });
+      try {
+        if (persisted !== undefined) {
+          if (agents.resume === undefined) {
+            throw new AgentError(
+              "conflict",
+              `persisted task session cannot be resumed: ${sessionId}`,
+            );
+          }
+          try {
+            return await agents.resume({
+              resumeSessionId: sessionId,
+              setup,
+              ...(model === undefined ? {} : { agentOptions: model }),
+            });
+          } catch (cause) {
+            // 会话「登记过」不等于产物还在：目录被清理/删除后恢复会以
+            // ENOENT / not-found 失败。这种情况重建会话，而不是把整轮判死。
+            if (!isMissingSessionArtifact(cause)) throw cause;
+            return await createSession();
+          }
+        }
+        return await createSession();
+      } catch (cause) {
+        // 会话可能已被本进程内另一个活跃 handle 占用（例如重复启动或热重载）：
+        // 能拿到现存活句柄就复用，避免任务因为写句柄冲突直接失败。
+        const adopted = adoptLive();
+        if (adopted !== undefined) return adopted;
+        throw cause;
+      }
+    })();
+    this.homeHandles.set(sessionId, pending);
+    void pending.catch(() => {
+      if (this.homeHandles.get(sessionId) === pending) {
+        this.homeHandles.delete(sessionId);
+      }
+    });
+    return await pending;
+  }
+
+  /** 修复旧版本重启后留下的“任务已启动但从未挂载会话”的窄范围断档。 */
+  async republishLegacyRestart(run: AgentRun): Promise<void> {
+    if (
+      run.source !== "workflow" ||
+      run.error !== "服务重启导致运行中断，可重试或转人工" ||
+      run.payload.context.workflowTaskId === undefined ||
+      run.workspacePath === undefined
+    ) {
+      return;
+    }
+    const profile = this.deps.tables.profiles.get(run.agentProfileId);
+    if (profile === undefined || profile.execution === "external") return;
+    try {
+      if (run.sessionId !== undefined) {
+        await this.attachSession(run, run.sessionId);
+        return;
+      }
+      const personaSoul = await this.resolvePersonaSoul(run.personaId);
+      await this.reserveHomeSession(run, profile, personaSoul);
+    } catch {
+      // This is compatibility repair for legacy runs; the interrupted result stays.
+    }
+  }
+
+  /**
    * 本轮结束后确认会话仍然落盘。`stat` 返回 undefined 说明磁盘上已经没有这个
    * 会话（目录被清理/删除），此时后续每次落盘都会 ENOENT；agent 循环却可能已经
    * 返回「完成」——必须显式识别，不能当成成功回写任务。
@@ -1295,11 +1507,14 @@ export class AgentTaskRuntime {
   ): Promise<AgentRun> {
     const saved = await this.saveRun({ ...run, sessionId });
     try {
+      const publicationKey = `${run.workspaceId}\u0000${sessionId}`;
+      if (this.publishedSessions.has(publicationKey)) return saved;
       const workspaces = this.deps.workspaces?.();
       if (workspaces !== undefined && run.workspacePath !== undefined) {
         const workspace = await workspaces.create(run.workspacePath);
         await workspace.attachSession(sessionId);
       }
+      this.publishedSessions.add(publicationKey);
       const session = this.deps.sessions?.()?.get(sessionId);
       const title = this.deps.sessionTitle?.();
       if (session !== undefined && title !== undefined) {
@@ -1499,7 +1714,7 @@ export class AgentTaskRuntime {
   }
 
   private async execute(runId: string): Promise<void> {
-    const claimed = this.deps.tables.runs.get(runId);
+    let claimed = this.deps.tables.runs.get(runId);
     if (claimed === undefined || claimed.status !== "queued") return;
     if (this.cancelledRunIds.has(runId)) return;
     const profile = this.deps.tables.profiles.get(claimed.agentProfileId);
@@ -1536,7 +1751,7 @@ export class AgentTaskRuntime {
       if (runtime === undefined || runtime.status !== "active") {
         await this.settle(claimed, {
           status: "failed",
-          error: "外部 Agent 运行时不存在或已停用",
+          error: externalRuntimeUnavailableReason(runtime),
           endedAt: iso(this.now()),
         });
         return;
@@ -1549,6 +1764,17 @@ export class AgentTaskRuntime {
         });
         return;
       }
+    }
+    let reservedPersonaSoul = "";
+    if (!isExternal && claimed.workspacePath !== undefined) {
+      // 会话必须先可见，再进入全局并发/执行队列；否则排队期间左侧清单
+      // 会缺项，服务重启后也可能留下「有任务、无 session」的断档。
+      reservedPersonaSoul = await this.resolvePersonaSoul(claimed.personaId);
+      claimed = await this.reserveHomeSession(
+        claimed,
+        profile,
+        reservedPersonaSoul,
+      );
     }
     const task: AgentTask = {
       runId,
@@ -1588,15 +1814,30 @@ export class AgentTaskRuntime {
       await this.acquire(current.workspaceId);
       const signal = task.controller.signal;
       // 人设文本在启动前解析一次：内置会话与 subagent 两条路径共用。
-      const personaSoul = await this.resolvePersonaSoul(current.personaId);
+      const personaSoul =
+        reservedPersonaSoul !== "" || current.personaId === undefined
+          ? reservedPersonaSoul
+          : await this.resolvePersonaSoul(current.personaId);
       let result: SubagentResultLike;
       if (isExternal) {
         const runner = this.deps.externalRunner?.();
         const externalRuntime = this.deps
           .externalRuntimes?.()
           ?.get(profile.externalRuntimeId ?? "");
-        if (runner === undefined || externalRuntime === undefined) {
-          throw new AgentError("conflict", "外部 Agent 运行时不可用");
+        if (runner === undefined) {
+          throw new AgentError(
+            "conflict",
+            "外部 Agent 执行器不可用，请稍后重试",
+          );
+        }
+        if (
+          externalRuntime === undefined ||
+          externalRuntime.status !== "active"
+        ) {
+          throw new AgentError(
+            "conflict",
+            externalRuntimeUnavailableReason(externalRuntime),
+          );
         }
         if (current.workspacePath === undefined) {
           throw new AgentError(
@@ -1716,9 +1957,7 @@ export class AgentTaskRuntime {
             parent: await this.hostAgent(workspacePath),
             // persona 参数语义是人设文本（会 shadow deployment:persona），
             // 传 personaId 只会把 id 字面量当成人设，这里改成 SOUL 正文。
-            ...(personaSoul === ""
-              ? {}
-              : { persona: personaSoul }),
+            ...(personaSoul === "" ? {} : { persona: personaSoul }),
             // 空清单 = 不限制：不传 toolFilter，交给挂载的预设决定工具集。
             ...(profile.allowedTools.length === 0
               ? {}
@@ -1758,9 +1997,7 @@ export class AgentTaskRuntime {
                 },
               ],
               parent: await this.hostAgent(workspacePath),
-              ...(personaSoul === ""
-                ? {}
-                : { persona: personaSoul }),
+              ...(personaSoul === "" ? {} : { persona: personaSoul }),
               ...(profile.allowedTools.length === 0
                 ? {}
                 : { toolFilter: { allow: profile.allowedTools } }),
@@ -2033,6 +2270,50 @@ export class AgentRegistryService {
     },
   ): Promise<AgentProfile> {
     this.requireManager(actor);
+    return this.createProfileRecord(actor, input);
+  }
+
+  /**
+   * Internal provisioning path for a trusted domain module.
+   *
+   * The caller must authorize the product workflow before invoking this method.
+   * It is intentionally not exposed through the HTTP route surface.
+   */
+  createRuntimeProfile(
+    actor: AgentActor,
+    input: {
+      workspaceId: string;
+      id?: string | undefined;
+      name: string;
+      description?: string | undefined;
+      personaId?: string | undefined;
+      execution?: AgentProfile["execution"] | undefined;
+      externalRuntimeId?: string | undefined;
+      runtimeKind?: AgentProfile["runtimeKind"] | undefined;
+      defaultModel?: AgentProfile["defaultModel"] | undefined;
+      allowedTools?: readonly string[] | undefined;
+      visibility?: AgentProfile["visibility"] | undefined;
+    },
+  ): Promise<AgentProfile> {
+    return this.createProfileRecord(actor, input);
+  }
+
+  private createProfileRecord(
+    actor: AgentActor,
+    input: {
+      workspaceId: string;
+      id?: string | undefined;
+      name: string;
+      description?: string | undefined;
+      personaId?: string | undefined;
+      execution?: AgentProfile["execution"] | undefined;
+      externalRuntimeId?: string | undefined;
+      runtimeKind?: AgentProfile["runtimeKind"] | undefined;
+      defaultModel?: AgentProfile["defaultModel"] | undefined;
+      allowedTools?: readonly string[] | undefined;
+      visibility?: AgentProfile["visibility"] | undefined;
+    },
+  ): Promise<AgentProfile> {
     return this.enqueue(async () => {
       const timestamp = iso(this.now());
       const id = input.id?.trim() || `agent-${randomUUID().slice(0, 8)}`;
@@ -2084,6 +2365,43 @@ export class AgentRegistryService {
     },
   ): Promise<AgentProfile> {
     this.requireManager(actor);
+    return this.updateProfileRecord(actor, input);
+  }
+
+  /**
+   * Internal counterpart of {@link updateProfile}; see createRuntimeProfile.
+   */
+  updateRuntimeProfile(
+    actor: AgentActor,
+    input: {
+      workspaceId: string;
+      profileId: string;
+      name?: string | undefined;
+      description?: string | undefined;
+      personaId?: string | null | undefined;
+      execution?: AgentProfile["execution"] | undefined;
+      externalRuntimeId?: string | null | undefined;
+      allowedTools?: readonly string[] | undefined;
+      status?: AgentProfile["status"] | undefined;
+    },
+  ): Promise<AgentProfile> {
+    return this.updateProfileRecord(actor, input);
+  }
+
+  private updateProfileRecord(
+    actor: AgentActor,
+    input: {
+      workspaceId: string;
+      profileId: string;
+      name?: string | undefined;
+      description?: string | undefined;
+      personaId?: string | null | undefined;
+      execution?: AgentProfile["execution"] | undefined;
+      externalRuntimeId?: string | null | undefined;
+      allowedTools?: readonly string[] | undefined;
+      status?: AgentProfile["status"] | undefined;
+    },
+  ): Promise<AgentProfile> {
     return this.enqueue(async () => {
       const profile = this.profile(input.workspaceId, input.profileId);
       if (profile === undefined)
@@ -2183,6 +2501,9 @@ export class AgentRegistryService {
         ...(input.employeeId === undefined
           ? {}
           : { employeeId: input.employeeId }),
+        ...(input.principalId === undefined
+          ? {}
+          : { principalId: input.principalId }),
         ...(input.principalType === undefined
           ? {}
           : { principalType: input.principalType }),
@@ -2256,7 +2577,13 @@ export class AgentRegistryService {
             }),
           );
           const saved = this.tables.runs.get(run.id);
-          if (saved !== undefined) await this.deliverSettle(saved);
+          if (saved === undefined) return;
+          await this.runtime?.republishLegacyRestart(saved);
+          await this.deliverSettle(saved);
+        });
+      } else if (run.status === "interrupted") {
+        void this.enqueue(async () => {
+          await this.runtime?.republishLegacyRestart(run);
         });
       }
     }
@@ -2478,9 +2805,12 @@ export function createAgentRoutes(
           const runtimeService = externalRuntimes?.();
           if (runtimeService === undefined)
             throw new AgentError("not_found", "外部 Agent 服务不可用");
+          const includeArchived = ["1", "true"].includes(
+            (queryParam(request, "includeArchived") ?? "").toLowerCase(),
+          );
           sendJson(response, 200, {
             ok: true,
-            runtimes: runtimeService.list(workspaceId),
+            runtimes: runtimeService.list(workspaceId, { includeArchived }),
             canManage: isManager(actor),
           });
         }, response);
@@ -2528,6 +2858,8 @@ export function createAgentRoutes(
               workspaceId: z.string().min(1),
               runtimeId: z.string().min(1),
               name: z.string().trim().min(1).max(120).optional(),
+              provider: z.enum(EXTERNAL_AGENT_PROVIDERS).optional(),
+              protocol: z.enum(EXTERNAL_AGENT_PROTOCOLS).optional(),
               command: z.string().trim().min(1).max(500).optional(),
               args: z.array(z.string().min(1).max(1_000)).max(50).optional(),
               status: z.enum(["active", "disabled", "archived"]).optional(),
@@ -2538,6 +2870,48 @@ export function createAgentRoutes(
             throw new AgentError("not_found", "外部 Agent 服务不可用");
           const actor = browserActor(requireTeam(), request, body.workspaceId);
           const runtime = await runtimeService.update(actor, body);
+          sendJson(response, 200, { ok: true, runtime });
+        }, response);
+      },
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/agent/external-runtimes/archive",
+      handler: (request, response) => {
+        void runHandler(async () => {
+          assertMethod(request, response, "POST");
+          const body = z
+            .object({
+              workspaceId: z.string().min(1),
+              runtimeId: z.string().min(1),
+            })
+            .parse(await readBody(request));
+          const runtimeService = externalRuntimes?.();
+          if (runtimeService === undefined)
+            throw new AgentError("not_found", "外部 Agent 服务不可用");
+          const actor = browserActor(requireTeam(), request, body.workspaceId);
+          const runtime = await runtimeService.archive(actor, body);
+          sendJson(response, 200, { ok: true, runtime });
+        }, response);
+      },
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/agent/external-runtimes/restore",
+      handler: (request, response) => {
+        void runHandler(async () => {
+          assertMethod(request, response, "POST");
+          const body = z
+            .object({
+              workspaceId: z.string().min(1),
+              runtimeId: z.string().min(1),
+            })
+            .parse(await readBody(request));
+          const runtimeService = externalRuntimes?.();
+          if (runtimeService === undefined)
+            throw new AgentError("not_found", "外部 Agent 服务不可用");
+          const actor = browserActor(requireTeam(), request, body.workspaceId);
+          const runtime = await runtimeService.restore(actor, body);
           sendJson(response, 200, { ok: true, runtime });
         }, response);
       },
@@ -2558,14 +2932,10 @@ export function createAgentRoutes(
           if (runtimeService === undefined)
             throw new AgentError("not_found", "外部 Agent 服务不可用");
           const actor = browserActor(requireTeam(), request, body.workspaceId);
-          const current = runtimeService.get(body.runtimeId);
-          if (current === undefined)
-            throw new AgentError("not_found", "外部 Agent 运行时不存在");
-          if (!isManager(actor))
-            throw new AgentError(
-              "forbidden",
-              "workspace owner or admin is required",
-            );
+          const current = runtimeService.requireForManagement(
+            body.runtimeId,
+            actor,
+          );
           const probe = await probeExternalRuntime(current.command);
           const runtime = await runtimeService.markProbe(body.runtimeId, probe);
           sendJson(response, 200, { ok: true, runtime, probe });
@@ -2793,7 +3163,8 @@ export async function apply(ctx: AgentContext): Promise<void | (() => void)> {
       runs: domain.table("runs"),
     },
     externalRuntimes: () => domain.table("external_runtimes"),
-    externalRunner: () => new ExternalAgentProcessRunner(),
+    externalRunner: () =>
+      new ExternalAgentProcessRunner({ onTrace: terminalExternalAgentTrace }),
     subagents: () => ctx.get("subagents"),
     agents: () => ctx.get("agents"),
     personas: () => ctx.get("collabPersonas"),
@@ -2834,7 +3205,7 @@ export async function apply(ctx: AgentContext): Promise<void | (() => void)> {
   const restoreTimer = setTimeout(() => {
     service.restore();
     void service.backfillOutputTokens().catch(() => undefined);
-  }, 0);
+  }, 1_000);
   ctx.effect(() => () => {
     clearTimeout(restoreTimer);
     streamDisposer?.();

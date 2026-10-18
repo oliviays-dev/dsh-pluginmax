@@ -59,6 +59,7 @@ export const teammateSchema = z.object({
   templateId: idSchema.optional(),
   personaId: idSchema.optional(),
   employeeId: idSchema.optional(),
+  principalId: z.string().trim().min(1).max(180).optional(),
   profileTemplateId: idSchema.optional(),
   execution: z.enum(["builtin", "external"]).optional(),
   externalRuntimeId: idSchema.optional(),

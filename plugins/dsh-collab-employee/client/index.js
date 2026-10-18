@@ -191,6 +191,8 @@ window.__ModuleLoader__.load({
         generated: "已生成",
         failed: "失败",
       })[status] ?? status;
+    const loginStatusLabel = (status) =>
+      status === "disabled" ? "登录已停用" : "登录正常";
     const runStatusLabel = (status) =>
       ({
         queued: "排队中",
@@ -232,19 +234,26 @@ window.__ModuleLoader__.load({
         blocked: { color: "#e26d6d", background: "rgba(226,109,109,0.14)" },
         failed: { color: "#e26d6d", background: "rgba(226,109,109,0.14)" },
         completed: { color: "#4c9aff", background: "rgba(76,154,255,0.14)" },
-        cancelled: { color: "var(--dsw-alias-label-secondary)", background: "var(--dsw-alias-bg-layer-2)" },
+        cancelled: {
+          color: "var(--dsw-alias-label-secondary)",
+          background: "var(--dsw-alias-bg-layer-2)",
+        },
       };
-      return { ...workflowPillStyle, ...(palette[status] ?? palette.cancelled) };
+      return {
+        ...workflowPillStyle,
+        ...(palette[status] ?? palette.cancelled),
+      };
     };
     const workflowDot = (status) => ({
       ...workflowDotStyle,
-      background: {
-        running: "#37b76a",
-        waiting: "#d99a26",
-        blocked: "#e26d6d",
-        failed: "#e26d6d",
-        completed: "#4c9aff",
-      }[status] ?? "var(--dsw-alias-label-secondary)",
+      background:
+        {
+          running: "#37b76a",
+          waiting: "#d99a26",
+          blocked: "#e26d6d",
+          failed: "#e26d6d",
+          completed: "#4c9aff",
+        }[status] ?? "var(--dsw-alias-label-secondary)",
     });
     const friendly = (error) =>
       error?.message === "bearer token is required"
@@ -267,9 +276,10 @@ window.__ModuleLoader__.load({
       return h(
         "button",
         {
-          style: allowed && !disabled
-            ? ghost
-            : { ...ghost, opacity: 0.4, cursor: "not-allowed" },
+          style:
+            allowed && !disabled
+              ? ghost
+              : { ...ghost, opacity: 0.4, cursor: "not-allowed" },
           disabled: !allowed || disabled,
           onClick: () => onAction(status),
         },
@@ -289,7 +299,9 @@ window.__ModuleLoader__.load({
         workflow: "工作流",
         task: "任务",
         review: "评审",
-      })[type] ?? type ?? "-";
+      })[type] ??
+      type ??
+      "-";
 
     const actionLabel = (action) =>
       ({
@@ -353,7 +365,13 @@ window.__ModuleLoader__.load({
               fontSize: 13,
               overflowWrap: "anywhere",
               whiteSpace: preserveLines ? "pre-wrap" : undefined,
-              ...(isLongId ? { cursor: "pointer", textDecoration: "underline dotted", textUnderlineOffset: 3 } : {}),
+              ...(isLongId
+                ? {
+                    cursor: "pointer",
+                    textDecoration: "underline dotted",
+                    textUnderlineOffset: 3,
+                  }
+                : {}),
             },
             title: isLongId ? `${value}（点击复制）` : undefined,
             onClick: isLongId
@@ -389,7 +407,10 @@ window.__ModuleLoader__.load({
           `${persona.name || persona.id}（${persona.id}）`,
         ),
       );
-      if (currentValue && !options.some((persona) => persona.id === currentValue)) {
+      if (
+        currentValue &&
+        !options.some((persona) => persona.id === currentValue)
+      ) {
         items.unshift(
           h(
             "option",
@@ -410,7 +431,7 @@ window.__ModuleLoader__.load({
           null,
           "Persona ID",
           h(
-          "select",
+            "select",
             {
               key: currentValue || personas[0]?.id || "no-persona",
               name: "personaId",
@@ -484,7 +505,8 @@ window.__ModuleLoader__.load({
       const [selectedInstance, setSelectedInstance] = react.useState("");
       const [selectedNodeId, setSelectedNodeId] = react.useState("");
       const [workflowDetail, setWorkflowDetail] = react.useState(null);
-      const [workflowDetailLoading, setWorkflowDetailLoading] = react.useState(false);
+      const [workflowDetailLoading, setWorkflowDetailLoading] =
+        react.useState(false);
       const [governance, setGovernance] = react.useState(null);
       const [reportQuery, setReportQuery] = react.useState("");
       const [reportBusy, setReportBusy] = react.useState("");
@@ -498,16 +520,21 @@ window.__ModuleLoader__.load({
         [employees],
       );
       const memberNames = react.useMemo(
-        () => new Map(members.map((item) => [item.userId, item.name ?? item.userId])),
+        () =>
+          new Map(
+            members.map((item) => [item.userId, item.name ?? item.userId]),
+          ),
         [members],
       );
       const workflowActorNames = react.useMemo(
         () => new Map([...employeeNames, ...memberNames]),
         [employeeNames, memberNames],
       );
-      const selectedSubjectValue = selectedSubject
-        || (selectedEmployee ? `employee:${selectedEmployee}` : "");
-      const [selectedSubjectType, selectedSubjectId] = selectedSubjectValue.split(":");
+      const selectedSubjectValue =
+        selectedSubject ||
+        (selectedEmployee ? `employee:${selectedEmployee}` : "");
+      const [selectedSubjectType, selectedSubjectId] =
+        selectedSubjectValue.split(":");
       const showAvatarDetail = selectedSubjectType === "avatar";
       const selectedDefinition = definitions.find(
         (item) => item.id === workflowDetail?.instance?.definitionId,
@@ -592,11 +619,14 @@ window.__ModuleLoader__.load({
               request("/api/collab/employee/me"),
               request("/api/collab/team/workspaces"),
             ]);
-            const [delegationResult, reportResult, expiryResult] = await Promise.all([
-              request("/api/collab/delegation"),
-              request("/api/collab/delegation/report"),
-              request("/api/collab/delegation/expiry-notices").catch(() => ({ notices: [] })),
-            ]);
+            const [delegationResult, reportResult, expiryResult] =
+              await Promise.all([
+                request("/api/collab/delegation"),
+                request("/api/collab/delegation/report"),
+                request("/api/collab/delegation/expiry-notices").catch(() => ({
+                  notices: [],
+                })),
+              ]);
             const directory = await request("/api/collab/employee").catch(
               () => null,
             );
@@ -617,8 +647,8 @@ window.__ModuleLoader__.load({
               return options.some((item) => item.id === current)
                 ? current
                 : (options.find((item) => item.isMember)?.id ??
-                  options[0]?.id ??
-                  "");
+                    options[0]?.id ??
+                    "");
             });
             const contextWorkspaceIds = [
               ...new Set(nextDelegations.map((item) => item.workspaceId)),
@@ -640,9 +670,7 @@ window.__ModuleLoader__.load({
                 };
               }),
             );
-            setContextMeetings(
-              contextResults.flatMap((item) => item.meetings),
-            );
+            setContextMeetings(contextResults.flatMap((item) => item.meetings));
             setContextWorkflows(
               contextResults.flatMap((item) => item.workflows),
             );
@@ -765,8 +793,7 @@ window.__ModuleLoader__.load({
         } catch (cause) {
           setWorkflowDetail(null);
           fail(cause);
-        }
-        finally {
+        } finally {
           setWorkflowDetailLoading(false);
         }
       }, [effectiveWorkspaceId, selectedInstance]);
@@ -938,35 +965,54 @@ window.__ModuleLoader__.load({
                   "主体类型",
                   `${kindLabel(employeeDetail.employee.kind)} · ${statusLabel(employeeDetail.employee.status)}`,
                 ),
-                fieldRow("部门 / 岗位", `${employeeDetail.employee.department || "-"} / ${employeeDetail.employee.title || "-"}`),
+                fieldRow(
+                  "部门 / 岗位",
+                  `${employeeDetail.employee.department || "-"} / ${employeeDetail.employee.title || "-"}`,
+                ),
                 fieldRow("Employee ID", employeeDetail.employee.id),
               ),
               h(
                 "details",
                 null,
-                h("summary", { style: muted }, `工作区授权（${employeeDetail.roles.length}）`),
+                h(
+                  "summary",
+                  { style: muted },
+                  `工作区授权（${employeeDetail.roles.length}）`,
+                ),
                 employeeDetail.roles.length === 0
                   ? h("div", { style: muted }, "暂无授权。")
                   : employeeDetail.roles.map((role) =>
                       h(
                         "div",
-                        { key: role.id, style: { ...muted, display: "flex", alignItems: "center", gap: 8, justifyContent: "space-between" } },
+                        {
+                          key: role.id,
+                          style: {
+                            ...muted,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                            justifyContent: "space-between",
+                          },
+                        },
                         h(
                           "span",
                           null,
                           `${workspaceLabel(workspaces.find((item) => item.id === role.workspaceId))} · ${role.role} · ${role.permissions.join("、") || "无权限"} · 到期 ${localTime(role.expiresAt)}`,
                         ),
-                        (isAdmin && role.status === "active")
+                        isAdmin && role.status === "active"
                           ? h(
                               "button",
                               {
                                 style: { ...ghost, fontSize: 12, minWidth: 48 },
                                 onClick: async () => {
                                   try {
-                                    await request("/api/collab/employee/roles/revoke", {
-                                      method: "POST",
-                                      body: { assignmentId: role.id },
-                                    });
+                                    await request(
+                                      "/api/collab/employee/roles/revoke",
+                                      {
+                                        method: "POST",
+                                        body: { assignmentId: role.id },
+                                      },
+                                    );
                                     setNotice("授权已撤销。");
                                     const refreshed = await request(
                                       `/api/collab/employee/detail?employeeId=${encodeURIComponent(employeeDetail.employee.id)}`,
@@ -993,7 +1039,11 @@ window.__ModuleLoader__.load({
               h(
                 "details",
                 null,
-                h("summary", { style: muted }, `Runtime Profile（${employeeDetail.runtimeProfiles.length}）`),
+                h(
+                  "summary",
+                  { style: muted },
+                  `Runtime Profile（${employeeDetail.runtimeProfiles.length}）`,
+                ),
                 employeeDetail.runtimeProfiles.length === 0
                   ? h("div", { style: muted }, "暂无运行配置。")
                   : employeeDetail.runtimeProfiles.map((profile) =>
@@ -1008,174 +1058,285 @@ window.__ModuleLoader__.load({
                 ? h(
                     "details",
                     null,
-                    h("summary", { style: muted }, `审计（${employeeDetail.audit.length}）`),
-                    employeeDetail.audit.slice(0, 20).map((item) =>
-                      h(
-                        "div",
-                        { key: item.id, style: muted },
-                        `${localTime(item.at)} · ${item.action} · ${item.decision}`,
-                      ),
+                    h(
+                      "summary",
+                      { style: muted },
+                      `审计（${employeeDetail.audit.length}）`,
                     ),
+                    employeeDetail.audit
+                      .slice(0, 20)
+                      .map((item) =>
+                        h(
+                          "div",
+                          { key: item.id, style: muted },
+                          `${localTime(item.at)} · ${item.action} · ${item.decision}`,
+                        ),
+                      ),
                   )
                 : null,
             )
-        : showAvatarDetail && selectedDelegationItem
-          ? h(
-              "div",
-              { style: { display: "grid", gap: 8 } },
-              h(
-                "div",
-              { style: grid2 },
-                fieldRow("分身名称", selectedDelegationItem.displayName),
-                fieldRow("所属员工", selectedDelegationItem.ownerName),
-                fieldRow("有效期", selectedDelegationItem.expiresAt ? localTime(selectedDelegationItem.expiresAt) : "不限"),
-              ),
-              fieldRow("目标", selectedDelegationItem.objective, { preserveLines: true }),
-              fieldRow("立场与指令", selectedDelegationItem.stance || "未设置", { preserveLines: true }),
-              h(
-                "div",
-                { style: grid2 },
-                fieldRow("所在项目", workspaceLabel(selectedWorkspace)),
-                fieldRow(
-                  "当前状态",
-                  statusLabel(selectedDelegationItem.status),
-                ),
-              ),
-              selectedDelegationItem.status === "expired"
-                ? h(
-                    "div",
-                    {
-                      style: {
-                        background: "rgba(217,154,38,0.14)",
-                        borderRadius: 6,
-                        color: "#d99a26",
-                        display: "grid",
-                        fontSize: 12,
-                        gap: 8,
-                        lineHeight: 1.5,
-                        padding: "9px 10px",
-                      },
-                    },
-                    h(
-                      "span",
-                      null,
-                      "分身已到期：相关事项的自动跟进已暂停。可恢复并延期继续使用，也可以另派分身接手。",
-                    ),
-                    h(
-                      "div",
-                      { style: row },
-                      h("button", { style: ghost, onClick: () => delegationAction(selectedDelegationItem.id, "active") }, "恢复"),
-                      h("button", { style: ghost, onClick: () => extendDelegation(selectedDelegationItem.id) }, "延期"),
-                    ),
-                  )
-                : null,
-              h(
+          : showAvatarDetail && selectedDelegationItem
+            ? h(
                 "div",
                 { style: { display: "grid", gap: 8 } },
-                h("strong", { style: { fontSize: 13 } }, "参与事项"),
-                relatedItems.map((item) =>
-                  h(
-                    "div",
-                    {
-                      key: item.key,
-                      style: {
-                        alignItems: "center",
-                        border: "0.5px solid var(--dsw-alias-border-l2)",
-                        borderRadius: 6,
-                        display: "flex",
-                        gap: 8,
-                        padding: "8px 10px",
-                      },
-                    },
-                    h(
-                      "div",
-                      { style: { flex: 1, minWidth: 0 } },
-                      h(
-                        "div",
-                        { style: { fontSize: 13, fontWeight: 600, overflowWrap: "anywhere" } },
-                        `${item.meta} · ${item.title}`,
-                      ),
-                      h(
-                        "div",
-                        { style: muted },
-                        item.status ? statusLabel(item.status) : "可参与",
-                      ),
-                    ),
-                    ["meeting", "workflow"].includes(item.type)
-                      ? h(
-                          "button",
-                          { style: ghost, onClick: () => openRelatedItem(item, openView) },
-                          "详情 / 编辑",
-                        )
-                      : null,
+                h(
+                  "div",
+                  { style: grid2 },
+                  fieldRow("分身名称", selectedDelegationItem.displayName),
+                  fieldRow("所属员工", selectedDelegationItem.ownerName),
+                  fieldRow(
+                    "有效期",
+                    selectedDelegationItem.expiresAt
+                      ? localTime(selectedDelegationItem.expiresAt)
+                      : "不限",
                   ),
                 ),
-              ),
-              h(
-                "div",
-                { style: grid2 },
-                fieldRow("授权动作", actionListLabel(selectedDelegationItem.allowedActions), { preserveLines: true }),
-                fieldRow("禁止动作", actionListLabel(selectedDelegationItem.deniedActions), { preserveLines: true }),
-              ),
-              h(
-                "div",
-                { style: grid2 },
-                fieldRow("发言策略", speakPolicyLabel(selectedDelegationItem.speakPolicy)),
-                fieldRow("审批策略", approvalPolicyLabel(selectedDelegationItem.approvalPolicy)),
-              ),
-              ["active", "paused"].includes(selectedDelegationItem.status)
-                ? h(
-                    "div",
-                    { style: row },
-                    h("button", { style: ghost, onClick: () => extendDelegation(selectedDelegationItem.id) }, "延期"),
-                    h("button", { style: ghost, onClick: () => delegationAction(selectedDelegationItem.id, selectedDelegationItem.status === "active" ? "paused" : "active") }, selectedDelegationItem.status === "active" ? "暂停" : "恢复"),
-                    h("button", { style: danger, onClick: () => delegationAction(selectedDelegationItem.id, "revoked") }, "召回"),
-                  )
-                : null,
-              (() => {
-                const delegationReports = reports.filter(
-                  (item) => item.delegationId === selectedDelegationItem.id,
-                );
-                const report = delegationReports[0];
-                return h(
+                fieldRow("目标", selectedDelegationItem.objective, {
+                  preserveLines: true,
+                }),
+                fieldRow(
+                  "立场与指令",
+                  selectedDelegationItem.stance || "未设置",
+                  { preserveLines: true },
+                ),
+                h(
                   "div",
-                  { style: { display: "grid", gap: 8 } },
-                  h(
-                    "div",
-                    { style: row },
-                    h(
-                      "strong",
-                      { style: { fontSize: 13 } },
-                      `分身报告（${delegationReports.length}）`,
-                    ),
-                    selectedDelegationItem.contextType === "meeting"
-                      ? h(
+                  { style: grid2 },
+                  fieldRow("所在项目", workspaceLabel(selectedWorkspace)),
+                  fieldRow(
+                    "当前状态",
+                    statusLabel(selectedDelegationItem.status),
+                  ),
+                ),
+                selectedDelegationItem.status === "expired"
+                  ? h(
+                      "div",
+                      {
+                        style: {
+                          background: "rgba(217,154,38,0.14)",
+                          borderRadius: 6,
+                          color: "#d99a26",
+                          display: "grid",
+                          fontSize: 12,
+                          gap: 8,
+                          lineHeight: 1.5,
+                          padding: "9px 10px",
+                        },
+                      },
+                      h(
+                        "span",
+                        null,
+                        "分身已到期：相关事项的自动跟进已暂停。可恢复并延期继续使用，也可以另派分身接手。",
+                      ),
+                      h(
+                        "div",
+                        { style: row },
+                        h(
                           "button",
                           {
                             style: ghost,
-                            disabled: reportBusy === selectedDelegationItem.id,
-                            onClick: () => void generateReport(selectedDelegationItem),
+                            onClick: () =>
+                              delegationAction(
+                                selectedDelegationItem.id,
+                                "active",
+                              ),
                           },
-                          reportBusy === selectedDelegationItem.id
-                            ? "生成中..."
-                            : report
-                              ? "刷新报告"
-                              : "生成报告",
-                        )
-                      : null,
-                  ),
-                  !report
-                    ? h("div", { style: muted }, "暂无分身报告。")
-                    : h(
-                        "details",
-                        null,
-                        h("summary", { style: muted }, `最新报告 · ${statusLabel(report.status)} · ${localTime(report.createdAt)}`),
-                        h("pre", { style: { ...muted, whiteSpace: "pre-wrap", margin: "8px 0 0" } }, report.status === "failed" ? report.error : report.report),
+                          "恢复",
+                        ),
+                        h(
+                          "button",
+                          {
+                            style: ghost,
+                            onClick: () =>
+                              extendDelegation(selectedDelegationItem.id),
+                          },
+                          "延期",
+                        ),
                       ),
-                );
-              })(),
-            )
-          : h("div", { style: muted }, "选择员工或数字分身后显示详情。"),
+                    )
+                  : null,
+                h(
+                  "div",
+                  { style: { display: "grid", gap: 8 } },
+                  h("strong", { style: { fontSize: 13 } }, "参与事项"),
+                  relatedItems.map((item) =>
+                    h(
+                      "div",
+                      {
+                        key: item.key,
+                        style: {
+                          alignItems: "center",
+                          border: "0.5px solid var(--dsw-alias-border-l2)",
+                          borderRadius: 6,
+                          display: "flex",
+                          gap: 8,
+                          padding: "8px 10px",
+                        },
+                      },
+                      h(
+                        "div",
+                        { style: { flex: 1, minWidth: 0 } },
+                        h(
+                          "div",
+                          {
+                            style: {
+                              fontSize: 13,
+                              fontWeight: 600,
+                              overflowWrap: "anywhere",
+                            },
+                          },
+                          `${item.meta} · ${item.title}`,
+                        ),
+                        h(
+                          "div",
+                          { style: muted },
+                          item.status ? statusLabel(item.status) : "可参与",
+                        ),
+                      ),
+                      ["meeting", "workflow"].includes(item.type)
+                        ? h(
+                            "button",
+                            {
+                              style: ghost,
+                              onClick: () => openRelatedItem(item, openView),
+                            },
+                            "详情 / 编辑",
+                          )
+                        : null,
+                    ),
+                  ),
+                ),
+                h(
+                  "div",
+                  { style: grid2 },
+                  fieldRow(
+                    "授权动作",
+                    actionListLabel(selectedDelegationItem.allowedActions),
+                    { preserveLines: true },
+                  ),
+                  fieldRow(
+                    "禁止动作",
+                    actionListLabel(selectedDelegationItem.deniedActions),
+                    { preserveLines: true },
+                  ),
+                ),
+                h(
+                  "div",
+                  { style: grid2 },
+                  fieldRow(
+                    "发言策略",
+                    speakPolicyLabel(selectedDelegationItem.speakPolicy),
+                  ),
+                  fieldRow(
+                    "审批策略",
+                    approvalPolicyLabel(selectedDelegationItem.approvalPolicy),
+                  ),
+                ),
+                ["active", "paused"].includes(selectedDelegationItem.status)
+                  ? h(
+                      "div",
+                      { style: row },
+                      h(
+                        "button",
+                        {
+                          style: ghost,
+                          onClick: () =>
+                            extendDelegation(selectedDelegationItem.id),
+                        },
+                        "延期",
+                      ),
+                      h(
+                        "button",
+                        {
+                          style: ghost,
+                          onClick: () =>
+                            delegationAction(
+                              selectedDelegationItem.id,
+                              selectedDelegationItem.status === "active"
+                                ? "paused"
+                                : "active",
+                            ),
+                        },
+                        selectedDelegationItem.status === "active"
+                          ? "暂停"
+                          : "恢复",
+                      ),
+                      h(
+                        "button",
+                        {
+                          style: danger,
+                          onClick: () =>
+                            delegationAction(
+                              selectedDelegationItem.id,
+                              "revoked",
+                            ),
+                        },
+                        "召回",
+                      ),
+                    )
+                  : null,
+                (() => {
+                  const delegationReports = reports.filter(
+                    (item) => item.delegationId === selectedDelegationItem.id,
+                  );
+                  const report = delegationReports[0];
+                  return h(
+                    "div",
+                    { style: { display: "grid", gap: 8 } },
+                    h(
+                      "div",
+                      { style: row },
+                      h(
+                        "strong",
+                        { style: { fontSize: 13 } },
+                        `分身报告（${delegationReports.length}）`,
+                      ),
+                      selectedDelegationItem.contextType === "meeting"
+                        ? h(
+                            "button",
+                            {
+                              style: ghost,
+                              disabled:
+                                reportBusy === selectedDelegationItem.id,
+                              onClick: () =>
+                                void generateReport(selectedDelegationItem),
+                            },
+                            reportBusy === selectedDelegationItem.id
+                              ? "生成中..."
+                              : report
+                                ? "刷新报告"
+                                : "生成报告",
+                          )
+                        : null,
+                    ),
+                    !report
+                      ? h("div", { style: muted }, "暂无分身报告。")
+                      : h(
+                          "details",
+                          null,
+                          h(
+                            "summary",
+                            { style: muted },
+                            `最新报告 · ${statusLabel(report.status)} · ${localTime(report.createdAt)}`,
+                          ),
+                          h(
+                            "pre",
+                            {
+                              style: {
+                                ...muted,
+                                whiteSpace: "pre-wrap",
+                                margin: "8px 0 0",
+                              },
+                            },
+                            report.status === "failed"
+                              ? report.error
+                              : report.report,
+                          ),
+                        ),
+                  );
+                })(),
+              )
+            : h("div", { style: muted }, "选择员工或数字分身后显示详情。"),
       );
 
       const workflowPanel = h(
@@ -1185,7 +1346,11 @@ window.__ModuleLoader__.load({
           "div",
           { style: { ...row, justifyContent: "space-between" } },
           h("strong", null, "工作流"),
-          h("button", { style: ghost, onClick: () => void loadWorkflowDetail() }, "刷新"),
+          h(
+            "button",
+            { style: ghost, onClick: () => void loadWorkflowDetail() },
+            "刷新",
+          ),
         ),
         instances.length === 0
           ? h("div", { style: muted }, "当前工作区暂无工作流。")
@@ -1221,197 +1386,322 @@ window.__ModuleLoader__.load({
                       padding: isOpen ? "4px 10px 10px" : "2px 10px",
                     },
                   },
-                  h("button", { style: summaryButton, onClick: () => toggleWorkflow(item.id) }, [
-                    h("span", { style: workflowDot(item.status) }),
-                    h(
-                      "span",
-                      { style: { display: "grid", gap: 3, minWidth: 0 } },
+                  h(
+                    "button",
+                    {
+                      style: summaryButton,
+                      onClick: () => toggleWorkflow(item.id),
+                    },
+                    [
+                      h("span", { style: workflowDot(item.status) }),
                       h(
                         "span",
-                        { style: { fontSize: 13, fontWeight: 600, overflowWrap: "anywhere" } },
-                        item.title,
+                        { style: { display: "grid", gap: 3, minWidth: 0 } },
+                        h(
+                          "span",
+                          {
+                            style: {
+                              fontSize: 13,
+                              fontWeight: 600,
+                              overflowWrap: "anywhere",
+                            },
+                          },
+                          item.title,
+                        ),
+                        h(
+                          "span",
+                          { style: muted },
+                          `${definition?.name ?? item.definitionKey} v${item.definitionVersion} · ${localTime(item.updatedAt)}`,
+                        ),
                       ),
                       h(
                         "span",
-                        { style: muted },
-                        `${definition?.name ?? item.definitionKey} v${item.definitionVersion} · ${localTime(item.updatedAt)}`,
+                        { style: workflowPill(item.status) },
+                        statusLabel(item.status),
                       ),
-                    ),
-                    h("span", { style: workflowPill(item.status) }, statusLabel(item.status)),
-                  ]),
+                    ],
+                  ),
                   isOpen
                     ? h(
                         "div",
-                        { style: { display: "grid", gap: 9, borderTop: "0.5px solid var(--dsw-alias-border-l2)", paddingTop: 9 } },
+                        {
+                          style: {
+                            display: "grid",
+                            gap: 9,
+                            borderTop: "0.5px solid var(--dsw-alias-border-l2)",
+                            paddingTop: 9,
+                          },
+                        },
                         h(
                           "div",
-                          { style: { ...row, justifyContent: "space-between" } },
-                          h("span", { style: { ...muted, fontWeight: 600 } }, "节点状态明细"),
+                          {
+                            style: { ...row, justifyContent: "space-between" },
+                          },
+                          h(
+                            "span",
+                            { style: { ...muted, fontWeight: 600 } },
+                            "节点状态明细",
+                          ),
                           h(
                             "button",
                             {
                               style: ghost,
-                              onClick: () => openView?.("pluginmax-workflow", item.id),
+                              onClick: () =>
+                                openView?.("pluginmax-workflow", item.id),
                             },
                             "详情 / 编辑",
                           ),
                         ),
                         workflowDetailLoading && !workflowDetail
                           ? h("div", { style: muted }, "正在加载节点明细…")
-                        : (definition?.graph.nodes ?? []).map((node) => {
-                            const state = workflowDetail?.instance?.nodes?.[node.id];
-                            const isSelected = selectedNodeId === node.id;
-                            const nodeRuns = (workflowDetail?.agentRuns ?? []).filter(
-                              (run) => run.nodeId === node.id,
-                            );
-                            const runSeq = Math.max(
-                              0,
-                              ...nodeRuns.map((run) => run.runSeq ?? 0),
-                            );
-                            const attemptLabel = runSeq > 0
-                              ? `第 ${state?.attempts ?? 0} 次激活 · 本轮第 ${runSeq} 次派发`
-                              : `第 ${state?.attempts ?? 0} 次激活`;
-                            return h(
-                              "div",
-                              { key: node.id, style: { display: "grid", gap: 8 } },
-                              h(
-                                "button",
+                          : (definition?.graph.nodes ?? []).map((node) => {
+                              const state =
+                                workflowDetail?.instance?.nodes?.[node.id];
+                              const isSelected = selectedNodeId === node.id;
+                              const nodeRuns = (
+                                workflowDetail?.agentRuns ?? []
+                              ).filter((run) => run.nodeId === node.id);
+                              const runSeq = Math.max(
+                                0,
+                                ...nodeRuns.map((run) => run.runSeq ?? 0),
+                              );
+                              const attemptLabel =
+                                runSeq > 0
+                                  ? `第 ${state?.attempts ?? 0} 次激活 · 本轮第 ${runSeq} 次派发`
+                                  : `第 ${state?.attempts ?? 0} 次激活`;
+                              return h(
+                                "div",
                                 {
-                                  style: {
-                                    alignItems: "center",
-                                    background: isSelected ? "var(--dsw-alias-bg-layer-2)" : "transparent",
-                                    border: "0.5px solid var(--dsw-alias-border-l2)",
-                                    borderRadius: 6,
-                                    color: "inherit",
-                                    cursor: "pointer",
-                                    display: "grid",
-                                    font: "inherit",
-                                    gap: 8,
-                                    gridTemplateColumns: "70px minmax(0,1fr)",
-                                    padding: "8px 9px",
-                                    textAlign: "left",
-                                  },
-                                  onClick: () => setSelectedNodeId(node.id),
+                                  key: node.id,
+                                  style: { display: "grid", gap: 8 },
                                 },
-                                [
-                                  h("span", { style: workflowPill(state?.status ?? "waiting") }, statusLabel(state?.status ?? "waiting")),
-                                  h(
-                                    "span",
-                                    { style: { display: "grid", gap: 3, minWidth: 0 } },
+                                h(
+                                  "button",
+                                  {
+                                    style: {
+                                      alignItems: "center",
+                                      background: isSelected
+                                        ? "var(--dsw-alias-bg-layer-2)"
+                                        : "transparent",
+                                      border:
+                                        "0.5px solid var(--dsw-alias-border-l2)",
+                                      borderRadius: 6,
+                                      color: "inherit",
+                                      cursor: "pointer",
+                                      display: "grid",
+                                      font: "inherit",
+                                      gap: 8,
+                                      gridTemplateColumns: "70px minmax(0,1fr)",
+                                      padding: "8px 9px",
+                                      textAlign: "left",
+                                    },
+                                    onClick: () => setSelectedNodeId(node.id),
+                                  },
+                                  [
                                     h(
                                       "span",
-                                      { style: { fontSize: 13, fontWeight: 600, overflowWrap: "anywhere" } },
-                                      node.name,
+                                      {
+                                        style: workflowPill(
+                                          state?.status ?? "waiting",
+                                        ),
+                                      },
+                                      statusLabel(state?.status ?? "waiting"),
                                     ),
                                     h(
                                       "span",
-                                      { style: muted },
-                                      `${actorDisplay(node.executor, workflowActorNames)} · ${attemptLabel}`,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              isSelected && state
-                                ? h(
-                                    "div",
-                                    { style: { display: "grid", gap: 8, padding: "0 2px" } },
-                                    (() => {
-                                      const executorEmployee = node.executor.kind === "employee"
-                                        ? employees.find((candidate) => candidate.id === node.executor.id)
-                                        : null;
-                                      const executorBlocked = executorEmployee
-                                        && ["paused", "archived"].includes(executorEmployee.status);
-                                      return h(
-                                        "div",
+                                      {
+                                        style: {
+                                          display: "grid",
+                                          gap: 3,
+                                          minWidth: 0,
+                                        },
+                                      },
+                                      h(
+                                        "span",
                                         {
                                           style: {
-                                            alignItems: "flex-start",
-                                            display: "flex",
-                                            flexWrap: "wrap",
-                                            gap: 10,
-                                            justifyContent: "space-between",
+                                            fontSize: 13,
+                                            fontWeight: 600,
+                                            overflowWrap: "anywhere",
                                           },
                                         },
-                                        h(
+                                        node.name,
+                                      ),
+                                      h(
+                                        "span",
+                                        { style: muted },
+                                        `${actorDisplay(node.executor, workflowActorNames)} · ${attemptLabel}`,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                isSelected && state
+                                  ? h(
+                                      "div",
+                                      {
+                                        style: {
+                                          display: "grid",
+                                          gap: 8,
+                                          padding: "0 2px",
+                                        },
+                                      },
+                                      (() => {
+                                        const executorEmployee =
+                                          node.executor.kind === "employee"
+                                            ? employees.find(
+                                                (candidate) =>
+                                                  candidate.id ===
+                                                  node.executor.id,
+                                              )
+                                            : null;
+                                        const executorBlocked =
+                                          executorEmployee &&
+                                          ["paused", "archived"].includes(
+                                            executorEmployee.status,
+                                          );
+                                        return h(
                                           "div",
-                                          { style: { ...grid2, flex: "1 1 260px", minWidth: 0 } },
-                                          fieldRow("执行者", actorDisplay(node.executor, workflowActorNames)),
-                                          fieldRow("责任人", actorDisplay(node.responsible, workflowActorNames)),
-                                        ),
-                                        h(
-                                          "div",
-                                          { style: { ...row, flex: "0 0 auto", justifyContent: "flex-end" } },
-                                          executorBlocked
-                                            ? h("span", { style: muted }, "执行者已停用")
-                                            : [
-                                                node.type === "approval"
-                                                  ? h(
-                                                      "button",
-                                                      { style: ghost, onClick: () => openView?.("pluginmax-workflow", item.id) },
-                                                      "去审批",
-                                                    )
-                                                  : null,
-                                                node.type !== "approval"
-                                                  && node.execution === "task-worker"
-                                                  && state.status === "ready"
-                                                  ? h(
-                                                      "button",
-                                                      {
-                                                        style: ghost,
-                                                        onClick: () => workflowAction(
-                                                          "/api/collab/workflow/agent-runs/dispatch",
-                                                          {
-                                                            workspaceId: effectiveWorkspaceId,
-                                                            instanceId: item.id,
-                                                            nodeId: node.id,
-                                                          },
-                                                          "已派发运行。",
-                                                        ),
-                                                      },
-                                                      "派发",
-                                                    )
-                                                  : null,
-                                                state.status === "ready"
-                                                  ? h(
-                                                      "button",
-                                                      {
-                                                        style: ghost,
-                                                        onClick: () => workflowAction(
-                                                          "/api/collab/workflow/nodes/complete",
-                                                          {
-                                                            workspaceId: effectiveWorkspaceId,
-                                                            instanceId: item.id,
-                                                            nodeId: node.id,
-                                                          },
-                                                          "节点已尝试完成。",
-                                                        ),
-                                                      },
-                                                      "完成",
-                                                    )
-                                                  : null,
-                                              ],
-                                        ),
-                                      );
-                                    })(),
-                                    state.note ? fieldRow("说明", state.note, { preserveLines: true }) : null,
-                                    nodeRuns.length > 0
-                                      ? h(
-                                          "details",
-                                          null,
-                                          h("summary", { style: muted }, `运行记录（${nodeRuns.length}）`),
-                                          nodeRuns.slice(0, 10).map((run) =>
-                                            h(
-                                              "div",
-                                              { key: run.id, style: muted },
-                                              `${run.principalType === "digital-employee" ? "Digital Employee" : "Task Worker"} · ${runStatusLabel(run.status)} · ${run.employeeId ? employeeNames.get(run.employeeId) ?? run.employeeId : run.profileId || "未指定执行者"}`,
+                                          {
+                                            style: {
+                                              alignItems: "flex-start",
+                                              display: "flex",
+                                              flexWrap: "wrap",
+                                              gap: 10,
+                                              justifyContent: "space-between",
+                                            },
+                                          },
+                                          h(
+                                            "div",
+                                            {
+                                              style: {
+                                                ...grid2,
+                                                flex: "1 1 260px",
+                                                minWidth: 0,
+                                              },
+                                            },
+                                            fieldRow(
+                                              "执行者",
+                                              actorDisplay(
+                                                node.executor,
+                                                workflowActorNames,
+                                              ),
+                                            ),
+                                            fieldRow(
+                                              "责任人",
+                                              actorDisplay(
+                                                node.responsible,
+                                                workflowActorNames,
+                                              ),
                                             ),
                                           ),
-                                        )
-                                      : null,
-                                  )
-                                : null,
-                            );
-                          }),
+                                          h(
+                                            "div",
+                                            {
+                                              style: {
+                                                ...row,
+                                                flex: "0 0 auto",
+                                                justifyContent: "flex-end",
+                                              },
+                                            },
+                                            executorBlocked
+                                              ? h(
+                                                  "span",
+                                                  { style: muted },
+                                                  "执行者已停用",
+                                                )
+                                              : [
+                                                  node.type === "approval"
+                                                    ? h(
+                                                        "button",
+                                                        {
+                                                          style: ghost,
+                                                          onClick: () =>
+                                                            openView?.(
+                                                              "pluginmax-workflow",
+                                                              item.id,
+                                                            ),
+                                                        },
+                                                        "去审批",
+                                                      )
+                                                    : null,
+                                                  node.type !== "approval" &&
+                                                  node.execution ===
+                                                    "task-worker" &&
+                                                  state.status === "ready"
+                                                    ? h(
+                                                        "button",
+                                                        {
+                                                          style: ghost,
+                                                          onClick: () =>
+                                                            workflowAction(
+                                                              "/api/collab/workflow/agent-runs/dispatch",
+                                                              {
+                                                                workspaceId:
+                                                                  effectiveWorkspaceId,
+                                                                instanceId:
+                                                                  item.id,
+                                                                nodeId: node.id,
+                                                              },
+                                                              "已派发运行。",
+                                                            ),
+                                                        },
+                                                        "派发",
+                                                      )
+                                                    : null,
+                                                  state.status === "ready"
+                                                    ? h(
+                                                        "button",
+                                                        {
+                                                          style: ghost,
+                                                          onClick: () =>
+                                                            workflowAction(
+                                                              "/api/collab/workflow/nodes/complete",
+                                                              {
+                                                                workspaceId:
+                                                                  effectiveWorkspaceId,
+                                                                instanceId:
+                                                                  item.id,
+                                                                nodeId: node.id,
+                                                              },
+                                                              "节点已尝试完成。",
+                                                            ),
+                                                        },
+                                                        "完成",
+                                                      )
+                                                    : null,
+                                                ],
+                                          ),
+                                        );
+                                      })(),
+                                      state.note
+                                        ? fieldRow("说明", state.note, {
+                                            preserveLines: true,
+                                          })
+                                        : null,
+                                      nodeRuns.length > 0
+                                        ? h(
+                                            "details",
+                                            null,
+                                            h(
+                                              "summary",
+                                              { style: muted },
+                                              `运行记录（${nodeRuns.length}）`,
+                                            ),
+                                            nodeRuns
+                                              .slice(0, 10)
+                                              .map((run) =>
+                                                h(
+                                                  "div",
+                                                  { key: run.id, style: muted },
+                                                  `${run.principalType === "digital-employee" ? "Digital Employee" : "Task Worker"} · ${runStatusLabel(run.status)} · ${run.employeeId ? (employeeNames.get(run.employeeId) ?? run.employeeId) : run.profileId || "未指定执行者"}`,
+                                                ),
+                                              ),
+                                          )
+                                        : null,
+                                    )
+                                  : null,
+                              );
+                            }),
                       )
                     : null,
                 );
@@ -1423,17 +1713,44 @@ window.__ModuleLoader__.load({
         "div",
         { style: card },
         h("strong", null, "分身报告"),
-        h("input", { style: input, value: reportQuery, placeholder: "搜索分身、主人或报告内容", onChange: (event) => setReportQuery(event.target.value) }),
+        h("input", {
+          style: input,
+          value: reportQuery,
+          placeholder: "搜索分身、主人或报告内容",
+          onChange: (event) => setReportQuery(event.target.value),
+        }),
         reportMatches.length === 0
           ? h("div", { style: muted }, "没有匹配的分身报告。")
           : reportMatches.map((report) => {
-              const delegation = delegations.find((item) => item.id === report.delegationId);
+              const delegation = delegations.find(
+                (item) => item.id === report.delegationId,
+              );
               return h(
                 "details",
                 { key: report.id },
-                h("summary", { style: muted }, `${delegation?.displayName ?? "分身报告"} · ${statusLabel(report.status)} · ${localTime(report.createdAt)}`),
-                h("div", { style: muted }, delegation ? `${delegation.ownerName} · ${delegation.contextType} · ${delegation.contextId}` : report.delegationId),
-                h("pre", { style: { ...muted, whiteSpace: "pre-wrap", margin: "8px 0 0" } }, report.status === "failed" ? report.error : report.report),
+                h(
+                  "summary",
+                  { style: muted },
+                  `${delegation?.displayName ?? "分身报告"} · ${statusLabel(report.status)} · ${localTime(report.createdAt)}`,
+                ),
+                h(
+                  "div",
+                  { style: muted },
+                  delegation
+                    ? `${delegation.ownerName} · ${delegation.contextType} · ${delegation.contextId}`
+                    : report.delegationId,
+                ),
+                h(
+                  "pre",
+                  {
+                    style: {
+                      ...muted,
+                      whiteSpace: "pre-wrap",
+                      margin: "8px 0 0",
+                    },
+                  },
+                  report.status === "failed" ? report.error : report.report,
+                ),
               );
             }),
       );
@@ -1451,8 +1768,18 @@ window.__ModuleLoader__.load({
                 { style: grid2 },
                 fieldRow("员工", String(governance.employees?.length ?? 0)),
                 fieldRow("授权记录", String(governance.roles?.length ?? 0)),
-                fieldRow("Runtime Profile", String(governance.profiles?.length ?? 0)),
-                fieldRow("有效票据", String((governance.tickets ?? []).filter((item) => item.status === "active").length)),
+                fieldRow(
+                  "Runtime Profile",
+                  String(governance.profiles?.length ?? 0),
+                ),
+                fieldRow(
+                  "有效票据",
+                  String(
+                    (governance.tickets ?? []).filter(
+                      (item) => item.status === "active",
+                    ).length,
+                  ),
+                ),
               ),
               h(
                 "div",
@@ -1466,28 +1793,53 @@ window.__ModuleLoader__.load({
                     h(
                       "tr",
                       null,
-                      ["员工", "工作区", "角色", "权限", "到期"].map((label) => h("th", { key: label, style: cell }, label)),
+                      ["员工", "工作区", "角色", "权限", "到期"].map((label) =>
+                        h("th", { key: label, style: cell }, label),
+                      ),
                     ),
                   ),
                   h(
                     "tbody",
                     null,
-                    (governance.roles ?? []).slice(0, 50).map((role) =>
-                      h(
-                        "tr",
-                        { key: role.id },
-                        h("td", { style: cell }, employeeNames.get(role.employeeId) ?? role.employeeId),
-                        h("td", { style: cell }, workspaceLabel(workspaces.find((item) => item.id === role.workspaceId))),
-                        h("td", { style: cell }, role.role),
-                        h("td", { style: cell }, role.permissions.join("、") || "无"),
-                        h("td", { style: cell }, localTime(role.expiresAt)),
+                    (governance.roles ?? [])
+                      .slice(0, 50)
+                      .map((role) =>
+                        h(
+                          "tr",
+                          { key: role.id },
+                          h(
+                            "td",
+                            { style: cell },
+                            employeeNames.get(role.employeeId) ??
+                              role.employeeId,
+                          ),
+                          h(
+                            "td",
+                            { style: cell },
+                            workspaceLabel(
+                              workspaces.find(
+                                (item) => item.id === role.workspaceId,
+                              ),
+                            ),
+                          ),
+                          h("td", { style: cell }, role.role),
+                          h(
+                            "td",
+                            { style: cell },
+                            role.permissions.join("、") || "无",
+                          ),
+                          h("td", { style: cell }, localTime(role.expiresAt)),
+                        ),
                       ),
-                    ),
                   ),
                 ),
               ),
             )
-          : h("div", { style: muted }, isAdmin ? "治理数据加载中。" : "此面板需要全局管理员权限。"),
+          : h(
+              "div",
+              { style: muted },
+              isAdmin ? "治理数据加载中。" : "此面板需要全局管理员权限。",
+            ),
       );
 
       const expiryNoticePanel = expiryNotices.length
@@ -1507,9 +1859,12 @@ window.__ModuleLoader__.load({
             expiryNotices.map((notice) => {
               const contextTitle =
                 notice.contextType === "meeting"
-                  ? contextMeetings.find((item) => item.id === notice.contextId)?.title
+                  ? contextMeetings.find((item) => item.id === notice.contextId)
+                      ?.title
                   : notice.contextType === "workflow"
-                    ? contextWorkflows.find((item) => item.id === notice.contextId)?.title
+                    ? contextWorkflows.find(
+                        (item) => item.id === notice.contextId,
+                      )?.title
                     : undefined;
               const relatedItem = {
                 type: notice.contextType,
@@ -1542,8 +1897,23 @@ window.__ModuleLoader__.load({
                 h(
                   "div",
                   { style: row },
-                  h("button", { style: ghost, onClick: () => extendDelegation(notice.delegationId) }, "延期并恢复"),
-                  h("button", { style: ghost, onClick: () => delegationAction(notice.delegationId, "active") }, "恢复"),
+                  h(
+                    "button",
+                    {
+                      style: ghost,
+                      onClick: () => extendDelegation(notice.delegationId),
+                    },
+                    "延期并恢复",
+                  ),
+                  h(
+                    "button",
+                    {
+                      style: ghost,
+                      onClick: () =>
+                        delegationAction(notice.delegationId, "active"),
+                    },
+                    "恢复",
+                  ),
                   h(
                     "button",
                     {
@@ -1551,7 +1921,9 @@ window.__ModuleLoader__.load({
                       onClick: () => {
                         setSelectedDelegation(notice.delegationId);
                         setSelectedSubject(`avatar:${notice.delegationId}`);
-                        if (["meeting", "workflow"].includes(notice.contextType))
+                        if (
+                          ["meeting", "workflow"].includes(notice.contextType)
+                        )
                           openRelatedItem(relatedItem, openView);
                       },
                     },
@@ -1564,7 +1936,12 @@ window.__ModuleLoader__.load({
         : null;
 
       if (phase === "loading") return h("div", { style: muted }, "加载工作台…");
-      if (phase === "login") return h("div", { style: muted }, "请先在「协作身份」登录。");
+      if (phase === "login")
+        return h(
+          "div",
+          { style: muted },
+          "请先在「账号与权限 → 登录账号」登录。",
+        );
 
       return h(
         "div",
@@ -1586,13 +1963,21 @@ window.__ModuleLoader__.load({
               onChange: (event) => setWorkspaceId(event.target.value),
             },
             workspaces.map((item) =>
-              h("option", { key: item.id, value: item.id }, workspaceLabel(item)),
+              h(
+                "option",
+                { key: item.id, value: item.id },
+                workspaceLabel(item),
+              ),
             ),
           ),
           h("button", { style: ghost, onClick: () => void loadCore() }, "刷新"),
         ),
-        error ? h("div", { style: { ...muted, color: "#e26d6d" } }, error) : null,
-        notice ? h("div", { style: { ...muted, color: "#4fc487" } }, notice) : null,
+        error
+          ? h("div", { style: { ...muted, color: "#e26d6d" } }, error)
+          : null,
+        notice
+          ? h("div", { style: { ...muted, color: "#4fc487" } }, notice)
+          : null,
         expiryNoticePanel,
         employeePanel,
         workflowPanel,
@@ -1609,6 +1994,7 @@ window.__ModuleLoader__.load({
       const [me, setMe] = react.useState(null);
       const [employees, setEmployees] = react.useState([]);
       const [personas, setPersonas] = react.useState([]);
+      const [aiTemplates, setAiTemplates] = react.useState([]);
       const [isAdmin, setIsAdmin] = react.useState(false);
       const [detail, setDetail] = react.useState(null);
       const [delegations, setDelegations] = react.useState([]);
@@ -1624,6 +2010,8 @@ window.__ModuleLoader__.load({
       const [govFrom, setGovFrom] = react.useState("");
       const [govTo, setGovTo] = react.useState("");
       const [govSearch, setGovSearch] = react.useState("");
+      const [createKind, setCreateKind] = react.useState("");
+      const [createLogin, setCreateLogin] = react.useState(false);
       const [saving, setSaving] = react.useState(false);
       const savingRef = react.useRef(false);
       const [openPanels, setOpenPanels] = react.useState({
@@ -1647,22 +2035,27 @@ window.__ModuleLoader__.load({
           );
           setIsAdmin(directory !== null);
           setEmployees(directory?.employees ?? [meResult.employee]);
-          const [delegationResult, reportResult, workspaceResult, personaResult] =
-            await Promise.all([
-              request("/api/collab/delegation"),
-              request("/api/collab/delegation/report"),
-              request("/api/collab/team/workspaces"),
-              request("/api/collab/roles/personas").catch(() => null),
-            ]);
+          const [
+            delegationResult,
+            reportResult,
+            workspaceResult,
+            personaResult,
+            templateResult,
+          ] = await Promise.all([
+            request("/api/collab/delegation"),
+            request("/api/collab/delegation/report"),
+            request("/api/collab/team/workspaces"),
+            request("/api/collab/roles/personas").catch(() => null),
+            request("/api/collab/teammate-templates").catch(() => null),
+          ]);
           setDelegations(delegationResult.delegations ?? []);
           setReports(reportResult.reports ?? []);
           setWorkspaces(workspaceResult.workspaces ?? []);
           setPersonas(personaResult?.personas ?? []);
+          setAiTemplates(templateResult?.templates ?? []);
           if (directory !== null) {
             const [auditResult, instanceResults] = await Promise.all([
-              request("/api/collab/employee/audit?limit=100").catch(
-                () => null,
-              ),
+              request("/api/collab/employee/audit?limit=100").catch(() => null),
               Promise.all(
                 (workspaceResult.workspaces ?? []).map((workspace) =>
                   request(
@@ -1736,15 +2129,85 @@ window.__ModuleLoader__.load({
           await refresh();
         }
       };
-      const changeStatus = async (employeeId, status) =>
-        runBusy(async () => {
-          await request("/api/collab/employee/status", {
+      const createHumanEmployee = async (event) => {
+        event.preventDefault();
+        if (saving) return;
+        const form = event.currentTarget;
+        const values = formEntries(event);
+        let employeeId = "";
+        const ok = await runBusy(async () => {
+          const result = await request("/api/collab/employee/human", {
             method: "POST",
-            body: { employeeId, status },
+            body: {
+              employeeId: values.text("employeeId") || undefined,
+              displayName: values.text("displayName"),
+              email: values.text("email") || undefined,
+              department: values.text("department"),
+              title: values.text("title"),
+              tags: values.list("tags"),
+              managerEmployeeId: values.text("managerEmployeeId") || undefined,
+              account: createLogin
+                ? {
+                    userId: values.text("accountUserId"),
+                    password: values.text("accountPassword"),
+                  }
+                : undefined,
+            },
           });
-          await refresh();
-          if (detail?.employee.id === employeeId) await loadDetail(employeeId);
-        }, `员工状态已更新为${statusLabel(status)}。`);
+          employeeId = result.employee.id;
+        }, "人类员工已创建。");
+        if (!ok) return;
+        form.reset();
+        setCreateLogin(false);
+        setCreateKind("");
+        await refresh();
+        if (employeeId !== "") await loadDetail(employeeId);
+      };
+      const createAiEmployee = async (event) => {
+        event.preventDefault();
+        if (saving) return;
+        const form = event.currentTarget;
+        const values = formEntries(event);
+        let employeeId = "";
+        const ok = await runBusy(async () => {
+          const result = await request(
+            "/api/collab/teammates/create-with-employee",
+            {
+              method: "POST",
+              body: {
+                templateId: values.text("templateId"),
+                workspaceId: values.text("workspaceId"),
+                name: values.text("displayName"),
+                employeeId: values.text("employeeId") || undefined,
+                displayName: values.text("displayName"),
+                department: values.text("department"),
+                title: values.text("title"),
+                tags: values.list("tags"),
+                managerEmployeeId: values.text("managerEmployeeId"),
+              },
+            },
+          );
+          employeeId = result.employee.id;
+        }, "AI 员工与 AI 伙伴已创建并绑定。");
+        if (!ok) return;
+        form.reset();
+        setCreateKind("");
+        await refresh();
+        if (employeeId !== "") await loadDetail(employeeId);
+      };
+      const changeStatus = async (employeeId, status) =>
+        runBusy(
+          async () => {
+            await request("/api/collab/employee/status", {
+              method: "POST",
+              body: { employeeId, status },
+            });
+            await refresh();
+            if (detail?.employee.id === employeeId)
+              await loadDetail(employeeId);
+          },
+          `员工状态已更新为${statusLabel(status)}。`,
+        );
       const delegationStatus = async (delegationId, status) =>
         runBusy(async () => {
           await request("/api/collab/delegation/status", {
@@ -2092,9 +2555,17 @@ window.__ModuleLoader__.load({
       };
 
       if (phase === "loading")
-        return h("div", { style: muted }, auditOnly ? "加载审计…" : "加载员工平台…");
+        return h(
+          "div",
+          { style: muted },
+          auditOnly ? "加载审计…" : "加载员工平台…",
+        );
       if (phase === "login")
-        return h("div", { style: muted }, "请先在「协作身份」登录。");
+        return h(
+          "div",
+          { style: muted },
+          "请先在「账号与权限 → 登录账号」登录。",
+        );
 
       const humans = employees.filter(
         (item) => item.kind === "human" && item.status !== "archived",
@@ -2110,7 +2581,353 @@ window.__ModuleLoader__.load({
               `${workspaceLabel(workspace)}（${workspace.id}）`,
             ),
           );
+          const activeTemplates = aiTemplates.filter(
+            (template) => template.state === "active",
+          );
+          const createToolbar = h(
+            "div",
+            {
+              style: {
+                alignItems: "center",
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 8,
+                justifyContent: "space-between",
+              },
+            },
+            h(
+              "div",
+              { style: { display: "grid", gap: 3 } },
+              h("strong", { style: { fontSize: 14 } }, "员工目录"),
+              h(
+                "span",
+                { style: muted },
+                `${employees.length} 名员工 · 人类 ${humans.length} · AI ${employees.filter((item) => item.kind === "digital").length}`,
+              ),
+            ),
+            isAdmin
+              ? h(
+                  "div",
+                  { style: row },
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      style: ghost,
+                      onClick: () => {
+                        setCreateKind("human");
+                        setCreateLogin(false);
+                      },
+                    },
+                    "新增人类员工",
+                  ),
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      style: primary,
+                      onClick: () => setCreateKind("digital"),
+                    },
+                    "新增 AI 员工",
+                  ),
+                )
+              : null,
+          );
+          const cancelCreate = h(
+            "button",
+            {
+              type: "button",
+              style: ghost,
+              onClick: () => {
+                setCreateKind("");
+                setCreateLogin(false);
+              },
+            },
+            "取消",
+          );
+          const createForm =
+            createKind === "human"
+              ? h(
+                  "form",
+                  {
+                    style: { ...card, gap: 12 },
+                    onSubmit: createHumanEmployee,
+                  },
+                  h(
+                    "div",
+                    { style: row },
+                    h("strong", null, "新增人类员工"),
+                    h("div", { style: { flex: 1 } }),
+                    cancelCreate,
+                  ),
+                  h(
+                    "div",
+                    { style: grid2 },
+                    h(
+                      "label",
+                      { style: field },
+                      "Employee ID（可选）",
+                      h("input", {
+                        name: "employeeId",
+                        style: input,
+                        placeholder: "默认使用登录账号或自动生成",
+                      }),
+                    ),
+                    h(
+                      "label",
+                      { style: field },
+                      "姓名",
+                      h("input", {
+                        name: "displayName",
+                        style: input,
+                        required: true,
+                      }),
+                    ),
+                    h(
+                      "label",
+                      { style: field },
+                      "部门",
+                      h("input", { name: "department", style: input }),
+                    ),
+                    h(
+                      "label",
+                      { style: field },
+                      "岗位",
+                      h("input", { name: "title", style: input }),
+                    ),
+                    h(
+                      "label",
+                      { style: field },
+                      "邮箱",
+                      h("input", {
+                        name: "email",
+                        type: "email",
+                        style: input,
+                      }),
+                    ),
+                    h(
+                      "label",
+                      { style: field },
+                      "直属负责人",
+                      h(
+                        "select",
+                        { name: "managerEmployeeId", style: input },
+                        h("option", { value: "" }, "暂不指定"),
+                        humans.map((employee) =>
+                          h(
+                            "option",
+                            { key: employee.id, value: employee.id },
+                            `${employee.displayName}（${employee.id}）`,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  h(
+                    "label",
+                    { style: field },
+                    "标签（逗号分隔）",
+                    h("input", { name: "tags", style: input }),
+                  ),
+                  h(
+                    "label",
+                    {
+                      style: {
+                        alignItems: "center",
+                        display: "flex",
+                        gap: 7,
+                        fontSize: 12,
+                      },
+                    },
+                    h("input", {
+                      type: "checkbox",
+                      checked: createLogin,
+                      onChange: (event) => setCreateLogin(event.target.checked),
+                    }),
+                    "同时创建登录账号",
+                  ),
+                  createLogin
+                    ? h(
+                        "div",
+                        { style: grid2 },
+                        h(
+                          "label",
+                          { style: field },
+                          "登录 ID",
+                          h("input", {
+                            name: "accountUserId",
+                            style: input,
+                            required: true,
+                          }),
+                        ),
+                        h(
+                          "label",
+                          { style: field },
+                          "初始密码",
+                          h("input", {
+                            name: "accountPassword",
+                            type: "password",
+                            minLength: 8,
+                            style: input,
+                            required: true,
+                          }),
+                        ),
+                      )
+                    : null,
+                  h(
+                    "div",
+                    { style: row },
+                    h(
+                      "button",
+                      { style: primary, disabled: saving },
+                      saving ? "创建中…" : "创建人类员工",
+                    ),
+                  ),
+                )
+              : createKind === "digital"
+                ? h(
+                    "form",
+                    { style: { ...card, gap: 12 }, onSubmit: createAiEmployee },
+                    h(
+                      "div",
+                      { style: row },
+                      h("strong", null, "新增 AI 员工"),
+                      h("div", { style: { flex: 1 } }),
+                      cancelCreate,
+                    ),
+                    h(
+                      "div",
+                      { style: muted },
+                      "创建后会同时开通数字员工、Runtime Profile，并绑定到所选 AI 伙伴。",
+                    ),
+                    h(
+                      "div",
+                      { style: grid2 },
+                      h(
+                        "label",
+                        { style: field },
+                        "AI 伙伴模版",
+                        h(
+                          "select",
+                          {
+                            name: "templateId",
+                            style: input,
+                            required: true,
+                            defaultValue: activeTemplates[0]?.id ?? "",
+                          },
+                          activeTemplates.length === 0
+                            ? h("option", { value: "" }, "暂无可用模版")
+                            : activeTemplates.map((template) =>
+                                h(
+                                  "option",
+                                  { key: template.id, value: template.id },
+                                  template.name,
+                                ),
+                              ),
+                        ),
+                      ),
+                      h(
+                        "label",
+                        { style: field },
+                        "首个工作区",
+                        h(
+                          "select",
+                          {
+                            name: "workspaceId",
+                            style: input,
+                            required: true,
+                            defaultValue: workspaces[0]?.id ?? "",
+                          },
+                          workspaces.map((workspace) =>
+                            h(
+                              "option",
+                              { key: workspace.id, value: workspace.id },
+                              workspaceLabel(workspace),
+                            ),
+                          ),
+                        ),
+                      ),
+                      h(
+                        "label",
+                        { style: field },
+                        "Employee ID（可选）",
+                        h("input", {
+                          name: "employeeId",
+                          style: input,
+                          placeholder: "例如 ai-supply-planner",
+                        }),
+                      ),
+                      h(
+                        "label",
+                        { style: field },
+                        "姓名",
+                        h("input", {
+                          name: "displayName",
+                          style: input,
+                          required: true,
+                        }),
+                      ),
+                      h(
+                        "label",
+                        { style: field },
+                        "部门",
+                        h("input", { name: "department", style: input }),
+                      ),
+                      h(
+                        "label",
+                        { style: field },
+                        "岗位",
+                        h("input", { name: "title", style: input }),
+                      ),
+                      h(
+                        "label",
+                        { style: field },
+                        "直属负责人",
+                        h(
+                          "select",
+                          {
+                            name: "managerEmployeeId",
+                            style: input,
+                            required: true,
+                            defaultValue: me?.id ?? "",
+                          },
+                          humans.map((employee) =>
+                            h(
+                              "option",
+                              { key: employee.id, value: employee.id },
+                              `${employee.displayName}（${employee.id}）`,
+                            ),
+                          ),
+                        ),
+                      ),
+                      h(
+                        "label",
+                        { style: field },
+                        "标签（逗号分隔）",
+                        h("input", { name: "tags", style: input }),
+                      ),
+                    ),
+                    h(
+                      "div",
+                      { style: row },
+                      h(
+                        "button",
+                        {
+                          style: primary,
+                          disabled:
+                            saving ||
+                            activeTemplates.length === 0 ||
+                            workspaces.length === 0 ||
+                            humans.length === 0,
+                        },
+                        saving ? "创建中…" : "创建 AI 员工",
+                      ),
+                    ),
+                  )
+                : null;
           return [
+            createToolbar,
+            createForm,
             detail
               ? h(
                   "div",
@@ -2139,7 +2956,7 @@ window.__ModuleLoader__.load({
                     "div",
                     { style: muted },
                     detail.employee.kind === "human"
-                      ? `登录账号：${detail.employee.authUserId}`
+                      ? `登录账号：${detail.employee.authUserId} · ${loginStatusLabel(detail.employee.authStatus)}`
                       : `Persona：${detail.employee.personaId}${personas.some((persona) => persona.id === detail.employee.personaId) ? "" : " · 未找到 / 待配置"} · 负责人：${detail.employee.managerEmployeeId} · 无密码登录`,
                   ),
                   detail.employee.kind === "digital" && isAdmin
@@ -2633,7 +3450,7 @@ window.__ModuleLoader__.load({
                                   fontWeight: 500,
                                 },
                               },
-                              "AI Teammate 托管",
+                              "AI伙伴托管",
                             )
                           : null,
                       ),
@@ -2651,7 +3468,8 @@ window.__ModuleLoader__.load({
                           : employee.personaId
                             ? `Persona：${employee.personaId}${
                                 personas.some(
-                                  (persona) => persona.id === employee.personaId,
+                                  (persona) =>
+                                    persona.id === employee.personaId,
                                 )
                                   ? ""
                                   : " · 未找到 / 待配置"
@@ -2665,7 +3483,23 @@ window.__ModuleLoader__.load({
                       employee.title || "-",
                       h("div", { style: muted }, employee.department || "-"),
                     ),
-                    h("td", { style: cell }, statusLabel(employee.status)),
+                    h(
+                      "td",
+                      { style: cell },
+                      statusLabel(employee.status),
+                      employee.kind === "human"
+                        ? h(
+                            "div",
+                            {
+                              style:
+                                employee.authStatus === "disabled"
+                                  ? { ...muted, color: "#e26d6d" }
+                                  : muted,
+                            },
+                            loginStatusLabel(employee.authStatus),
+                          )
+                        : null,
+                    ),
                     h(
                       "td",
                       { style: cell },
@@ -2825,12 +3659,10 @@ window.__ModuleLoader__.load({
             h(
               "button",
               {
-                            style: primary,
-                            disabled: saving || personas.length === 0,
+                style: primary,
+                disabled: saving || personas.length === 0,
                 title:
-                  personas.length === 0
-                    ? "请先创建一个 Persona"
-                    : undefined,
+                  personas.length === 0 ? "请先创建一个 Persona" : undefined,
               },
               saving ? "创建中..." : "创建草稿",
             ),
@@ -3099,12 +3931,11 @@ window.__ModuleLoader__.load({
                         ? muted
                         : {
                             ...muted,
-                            color:
-                              "var(--dsw-alias-accent-primary,#4f8ef7)",
+                            color: "var(--dsw-alias-accent-primary,#4f8ef7)",
                           },
                   },
                   item.teammateName === undefined
-                    ? "来源：未关联 AI Teammate"
+                    ? "来源：未关联 AI伙伴"
                     : `来自：${item.teammateName}`,
                 ),
                 h("div", { style: muted }, `目标：${item.objective}`),
@@ -3273,7 +4104,9 @@ window.__ModuleLoader__.load({
             runStatusLabel(run.status),
             run.employeeId,
             run.profileId,
-            run.principalType === "digital-employee" ? "数字员工" : "Task Worker",
+            run.principalType === "digital-employee"
+              ? "数字员工"
+              : "Task Worker",
           ]),
       );
       const riskItems = [
@@ -3656,7 +4489,7 @@ window.__ModuleLoader__.load({
               lineHeight: 1.6,
             },
           },
-          "数字员工与分身委托已统一到左侧「AI Teammates」管理。",
+          "数字员工与分身委托已统一到左侧「AI伙伴」管理。",
         ),
         me
           ? h(
@@ -3703,31 +4536,8 @@ window.__ModuleLoader__.load({
     void registerWorkstationGlobalPage;
 
     exports.inject = ["slots"];
-    exports.apply = (ctx) => {
-      ctx.slots.inject("settings.section", () =>
-        ctx.slots.register(
-          {
-            name: "settings.section",
-            id: "pluginmax-employee",
-            order: 75,
-            label: () => "员工",
-            inject: () => ({}),
-          },
-          () => h(EmployeeSection, {}),
-        ),
-      );
-      ctx.slots.inject("settings.section", () =>
-        ctx.slots.register(
-          {
-            name: "settings.section",
-            id: "pluginmax-employee-audit",
-            order: 76,
-            label: () => "审计",
-            inject: () => ({}),
-          },
-          () => h(EmployeeSection, { surface: "audit" }),
-        ),
-      );
+    exports.apply = () => {
+      // Employee 产品写入口与页面已冻结；账号审计由身份主路径提供。
     };
 
     return module.exports;

@@ -97,6 +97,53 @@ describe("external agent process runner", () => {
     expect(result.output[0]?.text).toContain("Codex 已完成。");
   });
 
+  it("streams process evidence to the configured terminal trace listener", async () => {
+    const path = await script(
+      [
+        "process.stderr.write('starting\\n');",
+        "let prompt = '';",
+        "process.stdin.on('data', (chunk) => { prompt += chunk; });",
+        "process.stdin.on('end', () => {",
+        "  process.stdout.write('working\\n');",
+        "  process.stdout.write(`echo:${prompt.trim()}`);",
+        "});",
+      ].join("\n"),
+    );
+    const traces: Array<{
+      kind: string;
+      pid?: number | undefined;
+      data?: string | undefined;
+      exitCode?: number | null | undefined;
+    }> = [];
+    const runner = new ExternalAgentProcessRunner({
+      onTrace: (event) =>
+        traces.push({
+          kind: event.kind,
+          pid: event.pid,
+          data: event.data,
+          exitCode: event.exitCode,
+        }),
+    });
+    const result = await runner.execute({
+      runId: "run-trace",
+      runtime: runtime({ command: "node", args: [path] }),
+      prompt: "请完成交付报告",
+      workspacePath,
+      signal: new AbortController().signal,
+    });
+    expect(result.stopReason).toBe("completed");
+    expect(traces.find((event) => event.kind === "spawn")?.pid).toEqual(
+      expect.any(Number),
+    );
+    expect(traces.find((event) => event.kind === "stderr")?.data).toContain(
+      "starting",
+    );
+    expect(traces.find((event) => event.kind === "stdout")?.data).toContain(
+      "working",
+    );
+    expect(traces.find((event) => event.kind === "close")?.exitCode).toBe(0);
+  });
+
   it("reports launch failures as failed runs", async () => {
     const runner = new ExternalAgentProcessRunner();
     const result = await runner.execute({
@@ -124,6 +171,24 @@ describe("external agent process runner", () => {
     expect(result.diagnostic).toBe("外部 Agent 未返回可用的文本输出");
   });
 
+  it("includes stderr in a zero-exit empty-output diagnostic", async () => {
+    const path = await script(
+      "process.stderr.write('Authentication required...'); process.exit(0);",
+    );
+    const runner = new ExternalAgentProcessRunner();
+    const result = await runner.execute({
+      runId: "run-4-diagnostic",
+      runtime: runtime({ command: "node", args: [path] }),
+      prompt: "hello",
+      workspacePath,
+      signal: new AbortController().signal,
+    });
+    expect(result.stopReason).toBe("failed");
+    expect(result.diagnostic).toBe(
+      "外部 Agent 未返回可用的文本输出：Authentication required...",
+    );
+  });
+
   it("cancels a long-running process", async () => {
     const path = await script(
       [
@@ -143,7 +208,11 @@ describe("external agent process runner", () => {
       signal: controller.signal,
       onProgress: (text) => chunks.push(text),
     });
-    for (let index = 0; index < 50 && !chunks.join("").includes("started"); index += 1) {
+    for (
+      let index = 0;
+      index < 50 && !chunks.join("").includes("started");
+      index += 1
+    ) {
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
     controller.abort();

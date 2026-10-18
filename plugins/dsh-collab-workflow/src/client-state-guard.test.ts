@@ -51,4 +51,26 @@ describe("workflow client state setters", () => {
     );
     expect(missing).toEqual([]);
   });
+
+  it("opens shared template management with the currently selected project", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain("currentWorkspaceId: workspaceId");
+    expect(source).toContain(
+      "workspaceOptions.some((item) => item.id === currentWorkspaceId)",
+    );
+  });
+
+  it("clears account-scoped workflow detail when the login token changes", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    const start = source.indexOf("const synchronize = () => {");
+    const end = source.indexOf(
+      'window.addEventListener("pluginmax:collab-token", synchronize)',
+      start,
+    );
+    const synchronize = source.slice(start, end);
+    expect(synchronize).toContain("setTokenVersion");
+    expect(synchronize).toContain("setDetail(null)");
+    expect(synchronize).toContain('setOpenId("")');
+    expect(synchronize).toContain('setBusy("")');
+  });
 });

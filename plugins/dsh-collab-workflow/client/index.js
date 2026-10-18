@@ -36,22 +36,19 @@ window.__ModuleLoader__.load({
     const scopeStore = ensureScopeStore();
 
     const RefreshIcon = () =>
-      jsxRuntime.jsxs(
-        "svg",
-        {
-          viewBox: "0 0 24 24",
-          fill: "none",
-          stroke: "currentColor",
-          strokeWidth: 2,
-          strokeLinecap: "round",
-          strokeLinejoin: "round",
-          "aria-hidden": true,
-          children: [
-            jsxRuntime.jsx("path", { d: "M21 12a9 9 0 1 1-3-6.7" }),
-            jsxRuntime.jsx("path", { d: "M21 3v6h-6" }),
-          ],
-        },
-      );
+      jsxRuntime.jsxs("svg", {
+        viewBox: "0 0 24 24",
+        fill: "none",
+        stroke: "currentColor",
+        strokeWidth: 2,
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        "aria-hidden": true,
+        children: [
+          jsxRuntime.jsx("path", { d: "M21 12a9 9 0 1 1-3-6.7" }),
+          jsxRuntime.jsx("path", { d: "M21 3v6h-6" }),
+        ],
+      });
     const css = `
 .pmwf{container-type:inline-size;color:var(--dsw-alias-label-primary);font-family:inherit}
 .pmwf *{box-sizing:border-box}
@@ -61,7 +58,7 @@ window.__ModuleLoader__.load({
 .pmwf-context strong{overflow:hidden;text-overflow:ellipsis;color:var(--dsw-alias-label-primary);font-weight:600}
 .pmwf-context span{overflow:hidden;text-overflow:ellipsis}
 .pmwf-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin:0 0 14px}
-.pmwf-heading h1{margin:0;font-size:19px;line-height:1.25}
+.pmwf-heading h1{margin:0;font-size:19px;line-height:1.25;white-space:nowrap}
 .pmwf-heading-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .pmwf-meeting-toggle{width:32px;height:32px;flex:none;display:grid;place-items:center;padding:0;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-secondary);cursor:pointer}
 .pmwf-meeting-toggle:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2)}
@@ -70,10 +67,87 @@ window.__ModuleLoader__.load({
 .pmwf-filter{flex:none;border:0.5px solid color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 34%,transparent);border-radius:999px;padding:4px 8px;color:var(--dsw-alias-accent-primary,#4f8ef7);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 10%,transparent);font-size:11px;white-space:nowrap}
 .pmwf-inline-feedback{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-state-success-primary,#1f8f53);font-size:11.5px}
 .pmwf-inline-feedback.error{color:var(--dsw-alias-state-error-primary,#e5534b)}
-.pmwf-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;margin-bottom:12px}
+.pmwf-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.pmwf-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:0 0 12px}
+.pmwf-kpi{display:grid;gap:3px;min-width:0;padding:10px 12px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base))}
+.pmwf-kpi>span{color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pmwf-kpi>strong{font-size:22px;line-height:1.15;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-primary)}
+.pmwf-kpi>strong.up{color:var(--dsw-alias-state-success-primary,#34d47e)}
+.pmwf-kpi>strong.down{color:var(--dsw-alias-state-error-primary,#e5534b)}
+.pmwf-kpi>small{color:var(--dsw-alias-label-tertiary);font-size:10.5px;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pmwf-toolbar-clear{flex:none;margin-left:0;white-space:nowrap}
+.pmwf-overview{display:grid;gap:6px;margin:0 0 12px;padding:10px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base))}
+.pmwf-overview-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.pmwf-overview-head-left{display:flex;align-items:center;gap:12px;flex-wrap:wrap;min-width:0}
+.pmwf-overview-head h3{margin:0;font-size:12.5px;line-height:1.4}
+.pmwf-overview-legend{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--dsw-alias-label-tertiary);font-size:10.5px}
+.pmwf-overview-legend span{display:inline-flex;align-items:center;gap:3px;white-space:nowrap}
+.pmwf-overview-legend i{width:9px;height:9px;display:inline-block;border:1px solid var(--dsw-alias-border-l3)}
+.pmwf-overview-legend i.task{border-radius:0;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 18%,transparent)}
+.pmwf-overview-legend i.approval{border-radius:4px;background:color-mix(in srgb,var(--dsw-alias-agent-primary,#9b8cff) 20%,transparent)}
+.pmwf-overview-legend i.decision{transform:skewX(-12deg);background:color-mix(in srgb,var(--dsw-alias-label-primary) 10%,transparent)}
+.pmwf-overview-legend i.subworkflow{border-style:dashed;background:transparent}
+.pmwf-overview-track{display:flex;align-items:center;gap:4px;overflow-x:auto;padding:2px 0 4px}
+.pmwf-overview-stage{display:flex;flex-direction:column;gap:5px;flex:none}
+.pmwf-overview-stage.parallel{align-self:center;padding:5px;border:0.5px dashed var(--dsw-alias-border-l3);border-radius:7px;background:var(--dsw-alias-bg-base)}
+.pmwf-overview-stage.branch{align-self:center;padding:5px;border:1px solid var(--dsw-alias-border-l3);border-radius:7px;background:var(--dsw-alias-bg-base)}
+.pmwf-overview-stage.branch .pmwf-overview-stage-title{color:var(--dsw-alias-accent-primary,#4f8ef7)}
+.pmwf-overview-stage-title{color:var(--dsw-alias-label-secondary);font-size:10px;font-weight:600;line-height:1.3;white-space:nowrap}
+.pmwf-overview-lane{display:flex;min-width:0}
+.pmwf-overview-node{flex:1 1 auto;display:grid;gap:4px;min-width:124px;max-width:170px;padding:7px 8px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:5px;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;font:inherit}
+.pmwf-overview-node:hover{border-color:var(--dsw-alias-border-l4,var(--dsw-alias-border-l3))}
+.pmwf-overview-node.approval{border-radius:10px}
+.pmwf-overview-node.decision{clip-path:polygon(5% 0,100% 0,95% 100%,0 100%)}
+.pmwf-overview-node.subworkflow{border-style:dashed}
+.pmwf-overview-node.current{box-shadow:0 0 0 1px var(--dsw-alias-accent-primary,#4f8ef7)}
+.pmwf-overview-node.completed{border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary,#34d47e) 45%,transparent)}
+.pmwf-overview-node.blocked,.pmwf-overview-node.failed{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 45%,transparent)}
+.pmwf-overview-node-title{display:flex;align-items:flex-start;gap:5px;min-width:0}
+.pmwf-overview-node-index{flex:none;display:inline-grid;place-items:center;min-width:17px;height:15px;padding:0 3px;border-radius:4px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary);font-size:9px;font-weight:700;line-height:1}
+.pmwf-overview-kind{flex:none;padding:0 4px;border-radius:3px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary);font-size:8.5px;font-weight:600;line-height:1.7}
+.pmwf-overview-node-title strong{min-width:0;font-size:11.5px;line-height:1.35;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pmwf-overview-node-meta{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pmwf-overview-branch-label{color:var(--dsw-alias-label-tertiary);font-size:8.5px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pmwf-overview-subflow{align-self:flex-start;padding:0 4px;border-radius:3px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary);font-size:8.5px;line-height:1.7;white-space:nowrap}
+.pmwf-overview-node-foot{display:flex;align-items:center;justify-content:space-between;gap:4px;min-width:0}
+.pmwf-overview-state{margin-left:auto;font-size:9.5px;line-height:1.3;color:var(--dsw-alias-label-tertiary);white-space:nowrap}
+.pmwf-overview-state.completed{color:var(--dsw-alias-state-success-primary,#34d47e)}
+.pmwf-overview-state.current{color:var(--dsw-alias-accent-primary,#4f8ef7)}
+.pmwf-overview-state.blocked,.pmwf-overview-state.failed{color:var(--dsw-alias-state-error-primary,#e5534b)}
+.pmwf-overview-state.waiting{color:var(--dsw-alias-state-warning-primary,#d99a26)}
+.pmwf-overview-delivery{padding:0;border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:9.5px;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px;cursor:pointer;white-space:nowrap}
+.pmwf-overview-delivery:hover{color:var(--dsw-alias-accent-primary,#4f8ef7)}
+.pmwf-overview-arrow{flex:none;display:grid;place-items:center;color:var(--dsw-alias-label-tertiary);font-size:12px;user-select:none}
+.pmwf-overview-reset{margin-left:auto}
+.pmwf-overview-loop{display:flex;align-items:center;gap:5px;flex-wrap:wrap;color:var(--dsw-alias-state-warning-primary,#d99a26);font-size:10.5px;line-height:1.4}
+.pmwf-overview-loop small{color:var(--dsw-alias-label-tertiary)}
+.pmwf-overview-template{padding:0;border:0;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:10.5px;cursor:pointer}
+.pmwf-overview-template b{color:var(--dsw-alias-accent-primary,#4f8ef7);font-weight:600;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px}
+.pmwf-overview-template:hover b{color:var(--dsw-alias-label-primary)}
+.pmwf-delivery-popover{position:fixed;z-index:60;width:min(320px,calc(100vw - 24px));max-height:min(280px,calc(100vh - 24px));overflow:auto;padding:10px 12px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));box-shadow:0 12px 28px rgba(0,0,0,.18);color:var(--dsw-alias-label-primary)}
+.pmwf-delivery-popover h4{margin:0 0 6px;font-size:12px}
+.pmwf-delivery-popover ul{display:grid;gap:4px;margin:0;padding:0;list-style:none}
+.pmwf-delivery-popover li{display:grid;grid-template-columns:minmax(80px,.9fr) minmax(0,1.1fr);gap:8px;padding:5px 0;border-top:0.5px solid var(--dsw-alias-border-l2);font-size:11px}
+.pmwf-delivery-popover li span:first-child{color:var(--dsw-alias-label-secondary)}
+.pmwf-delivery-popover li span:last-child{text-align:right;overflow-wrap:anywhere}
+.pmwf-delivery-popover .pending{color:var(--dsw-alias-label-tertiary)}
+.pmwf-delivery-popover .submitted{color:var(--dsw-alias-state-success-primary,#34d47e)}
+.pmwf-delivery-popover .rejected{color:var(--dsw-alias-state-error-primary,#e5534b)}
+.pmwf-delivery-popover .pmwf-delivery-time{display:inline;color:var(--dsw-alias-label-tertiary);font-size:9.5px;font-weight:400;white-space:nowrap}
+.pmwf-list-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:2px 0 8px}
+.pmwf-list-head h2{margin:0;font-size:14px;line-height:1.4}
+.pmwf-list-head span{color:var(--dsw-alias-label-tertiary);font-size:11px}
+.pmwf.is-detail-mode .pmwf-kpis,.pmwf.is-detail-mode .pmwf-toolbar,.pmwf.is-detail-mode .pmwf-list-head,.pmwf.is-detail-mode .pmwf-toolbar-note{display:none}
+.pmwf-list.detail-mode{grid-template-columns:minmax(0,1fr)}
+.pmwf-list.detail-mode .pmwf-summary-row,.pmwf-list.detail-mode .pmwf-placeholder{display:none}
+.pmwf-list.detail-mode .pmwf-detail{grid-column:1;grid-row:auto}
+.pmwf-list.detail-mode .pmwf-detail-inner{position:static;max-height:none}
+.pmwf-detail-back{flex:none}
+.pmwf-detail-page-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+@media(max-width:960px){.pmwf-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .pmwf-project-filter,.pmwf-status-multi,.pmwf-owner-filter{flex:0 0 180px;width:180px;min-width:0}
-.pmwf-search{min-width:180px;flex:1 1 auto}
-.pmwf-search-submit{flex:0 0 auto;min-width:96px;margin-left:auto}
+.pmwf-search{width:auto;min-width:180px;flex:1 1 240px}
+.pmwf-search-submit{flex:0 0 auto;min-width:96px;margin-left:0}
 .pmwf-select,.pmwf-input,.pmwf-area{border:0.5px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);border-radius:6px;padding:7px 9px;font:inherit;font-size:13px;min-width:0;width:100%;box-sizing:border-box}
 .pmwf-select{width:auto;min-width:112px}
 .pmwf-status-multi{position:relative}
@@ -169,25 +243,38 @@ window.__ModuleLoader__.load({
 .pmwf-profile-node-main{min-width:0}.pmwf-profile-node-title{display:flex;align-items:center;flex-wrap:wrap;gap:7px}.pmwf-profile-node-title strong{font-size:12.5px}
 .pmwf-profile-node-meta{display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:6px;color:var(--dsw-alias-label-tertiary);font-size:10.5px}.pmwf-profile-node-meta b{color:var(--dsw-alias-label-primary);font-weight:600}
 .pmwf-profile-node-main p{margin:7px 0 0;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.55}
-.pmwf-list{position:relative;display:grid;grid-template-columns:minmax(300px,420px) minmax(0,1fr);gap:10px 14px;align-items:start;align-content:start}
+.pmwf-list{position:relative;display:grid;grid-template-columns:minmax(0,1fr);gap:8px;align-items:start;align-content:start}
+.pmwf-placeholder{display:none}
 /* 左列表 + 右详情：流程卡片用 display:contents 把行与详情面板变成同一网格的两列。 */
 .pmwf-flow{display:contents;min-width:0}
 .pmwf-summary-row{grid-column:1;min-width:0;max-width:100%;overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base))}
 .pmwf-summary-row:hover{border-color:var(--dsw-alias-border-l4,var(--dsw-alias-border-l3))}
 .pmwf-summary-row.active{border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 55%,transparent);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 8%,var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base)))}
 .pmwf-summary-row>.pmwf-summary{flex:1 1 auto;min-width:0}
-.pmwf-summary{display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,auto);gap:10px;align-items:center;width:100%;min-height:56px;padding:9px 12px;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.pmwf-summary{display:grid;grid-template-columns:auto minmax(240px,.8fr) minmax(280px,1.2fr) 160px;gap:10px;align-items:center;width:100%;min-height:56px;padding:9px 12px;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .pmwf-summary:hover{background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base))}
 .pmwf-chevron{display:none}
 .pmwf-dot{width:8px;height:8px;border-radius:50%;flex:none}
 .pmwf-dot.running{background:#37b76a}.pmwf-dot.blocked,.pmwf-dot.failed{background:#e26d6d}.pmwf-dot.waiting{background:#d99a26}.pmwf-dot.completed{background:#4c9aff}
 .pmwf-name{display:grid;min-width:0;gap:3px}
+.pmwf-row-meta{display:grid;gap:2px;min-width:0;justify-items:start;text-align:left;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:1.45}
+.pmwf-row-meta>span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pmwf-current-line{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary);font-size:10.5px}
+.pmwf-current-line b{color:var(--dsw-alias-label-secondary);font-weight:600}
+.pmwf-current-line.overdue{color:var(--dsw-alias-state-error-primary,#e5534b)}
 .pmwf-title-line{display:flex;align-items:center;gap:5px;min-width:0}
-.pmwf-title-line strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13.5px}
+.pmwf-title-line strong{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13.5px}
+.pmwf-current-due{white-space:nowrap}
+.pmwf-current-due.overdue{color:var(--dsw-alias-state-error-primary,#e5534b)}
+.pmwf-follow-bare{display:inline-flex;align-items:center;flex:none;margin-left:2px}
+.pmwf-follow-bare>button{border:0!important;background:transparent!important;padding:0!important;min-width:0!important;min-height:0!important;border-radius:0!important;box-shadow:none!important}
 .pmwf-name>span:not(.pmwf-title-line){overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:11px}
 .pmwf-time-separator{margin:0 4px;color:var(--dsw-alias-label-tertiary)}
-.pmwf-status-note{min-width:0;max-width:160px;display:grid;gap:1px;justify-items:end;justify-self:end;align-self:center;font-size:11.5px;font-weight:600;line-height:1.35;text-align:right}
+.pmwf-time{min-width:0;color:var(--dsw-alias-label-tertiary);font-size:11px;font-weight:400;line-height:1.45;text-align:right;overflow-wrap:anywhere}
+.pmwf-detail-head>.pmwf-time{flex:none;max-width:150px}
+.pmwf-status-note{width:160px;min-width:0;max-width:160px;display:grid;gap:1px;justify-items:center;justify-self:stretch;align-self:center;font-size:11.5px;font-weight:600;line-height:1.35;text-align:center}
 .pmwf-status-note>span{max-width:100%;overflow-wrap:anywhere}
+.pmwf-status-meta{color:var(--dsw-alias-label-tertiary);font-size:10.5px;font-weight:400;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pmwf-status-note.running,.pmwf-status-note.completed{color:color-mix(in srgb,var(--dsw-alias-state-success-primary,#34d47e) 72%,var(--dsw-alias-label-primary))}
 .pmwf-status-note.waiting{color:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d99a26) 78%,var(--dsw-alias-label-primary))}
 .pmwf-status-note.blocked,.pmwf-status-note.failed{color:var(--dsw-alias-state-error-primary,#e5534b)}
@@ -206,22 +293,54 @@ window.__ModuleLoader__.load({
 .pmwf-detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin:0 0 12px;padding-bottom:10px;border-bottom:1px solid var(--dsw-alias-border-l2)}
 .pmwf-detail-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
 .pmwf-detail-title strong{font-size:15px;line-height:1.35}
+.pmwf-crumb{display:inline-flex;align-items:center;gap:4px;min-width:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.5}
+.pmwf-crumb b{min-width:0;color:var(--dsw-alias-label-primary);font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pmwf-detail-sub{color:var(--dsw-alias-label-tertiary);font-size:11.5px}
 .pmwf-detail-meta{display:flex;flex-wrap:wrap;gap:6px 14px;margin:0 0 12px;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.5}
 .pmwf-detail-meta span{min-width:0;overflow-wrap:anywhere}
 .pmwf-detail-meta b{color:var(--dsw-alias-label-primary);font-weight:600}
-.pmwf-nodes{margin:0;padding:0;list-style:none}
-.pmwf-node{display:grid;grid-template-columns:minmax(0,1fr);gap:7px;align-items:start;padding:9px 0;border-bottom:1px solid var(--dsw-alias-border-l2)}
-.pmwf-node:last-child{border-bottom:0}
-.pmwf-node.branch{margin-left:9px;padding-left:10px;border-left:2px solid var(--dsw-alias-border-l2)}
+.pmwf-detail-meta-right{margin-left:auto;display:inline-flex;gap:6px 14px;flex-wrap:wrap;justify-content:flex-end}
+.pmwf-nodes{display:grid;gap:10px;margin:0;padding:0;list-style:none}
+.pmwf-node{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;align-items:start;padding:14px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base))}
+.pmwf-node-card-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0;cursor:pointer;user-select:none}
+.pmwf-node-index{order:0}
+.pmwf-node-card-head h3{order:1}
+.pmwf-type-tag{order:2}
+.pmwf-node-head-fields{order:3}
+.pmwf-node-card-head .pmwf-state{order:4}
+.pmwf-node-arrow{order:5}
+.pmwf-node-card-head h3{margin:0;min-width:0;font-size:14px;line-height:1.35;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pmwf-node-card-head .pmwf-state{margin-left:auto}
+.pmwf-node-index{flex:none;display:inline-grid;place-items:center;min-width:22px;height:20px;padding:0 5px;border-radius:5px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary);font-size:10px;font-weight:700;line-height:1}
+.pmwf-type-tag{flex:none;padding:1px 6px;border-radius:4px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:1.7}
+.pmwf-type-tag.join{background:color-mix(in srgb,var(--dsw-alias-label-secondary) 10%,transparent);color:var(--dsw-alias-label-secondary)}
+.pmwf-node-head-fields{display:flex;align-items:center;gap:6px 16px;flex-wrap:wrap;min-width:0;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.5}
+.pmwf-node-head-fields>span{white-space:nowrap}
+.pmwf-node-head-fields b{color:var(--dsw-alias-label-primary);font-weight:600}
+.pmwf-node-arrow{margin-left:2px;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:1;transform:rotate(-90deg);transition:transform .16s ease}
+.pmwf-node-arrow.open{transform:rotate(0)}
+.pmwf-node.collapsed>:not(.pmwf-node-card-head){display:none}
+.pmwf-node-facts{display:none}
+.pmwf-fact{display:grid;gap:2px;min-width:0}
+.pmwf-fact>span{color:var(--dsw-alias-label-tertiary);font-size:10.5px;line-height:1.4}
+.pmwf-fact>strong{color:var(--dsw-alias-label-primary);font-size:12px;font-weight:600;line-height:1.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pmwf-node-desc{margin:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.6}
+.pmwf-node-section-title{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:14px 0 8px}
+.pmwf-node-section-title h2{margin:0;font-size:14px;line-height:1.4}
+.pmwf-node-section-title span{color:var(--dsw-alias-label-tertiary);font-size:11px}
 .pmwf-state{justify-self:start;border-radius:999px;padding:3px 8px;text-align:center;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2);font-size:10.5px;white-space:nowrap}
 .pmwf-node.completed .pmwf-state{color:color-mix(in srgb,var(--dsw-alias-state-success-primary,#34d47e) 78%,var(--dsw-alias-label-primary));background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#34d47e) 14%,transparent)}
 .pmwf-node.current .pmwf-state{color:var(--dsw-alias-accent-primary,#4f8ef7);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 14%,transparent)}
 .pmwf-node.waiting .pmwf-state{color:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d99a26) 78%,var(--dsw-alias-label-primary));background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d99a26) 14%,transparent)}
 .pmwf-node.blocked .pmwf-state,.pmwf-node.failed .pmwf-state{color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 80%,var(--dsw-alias-label-primary));background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 14%,transparent)}
 .pmwf-node-main{min-width:0}.pmwf-node-main strong{display:block;font-size:12.5px}.pmwf-node-main span{display:block;margin-top:2px;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.4}
+.pmwf-child-title{display:flex;align-items:center;gap:6px;min-width:0}
+.pmwf-child-code{flex:none;display:inline-block;padding:1px 5px;border-radius:4px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary);font-size:9.5px;font-weight:700;line-height:1.5}
+.pmwf-child-title strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pmwf-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
 .pmwf-nested{margin-top:9px;background:var(--dsw-alias-bg-base)}
+.pmwf-subflow-preview{margin-top:9px;border-style:dashed}
+.pmwf-subflow-preview>.pmwf-nodes{margin-top:8px}
 .pmwf-nested-summary{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:8px;align-items:center}
 .pmwf-nested-summary span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:11px}
 .pmwf-form{display:grid;gap:7px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--dsw-alias-border-l3)}
@@ -285,7 +404,8 @@ window.__ModuleLoader__.load({
 .pmwf-definition-main{min-width:0}.pmwf-definition-main>div{margin-top:3px;line-height:1.45;overflow-wrap:anywhere}.pmwf-actions-right{display:flex;justify-content:flex-end;gap:6px;flex-wrap:wrap}
 @media(max-width:900px){.pmwf-toolbar{flex-wrap:wrap}.pmwf-project-filter,.pmwf-status-multi,.pmwf-owner-filter{flex:1 1 calc(33.333% - 6px);width:auto}.pmwf-search{flex-basis:100%}.pmwf-search-submit{flex:1 1 100%;margin-left:0;}}
 @media(max-width:760px){.pmwf-template-layout,.pmwf-template-inline-body{grid-template-columns:1fr}.pmwf-template-sidebar{border-right:0;border-bottom:1px solid var(--dsw-alias-border-l2)}}
-@media(max-width:560px){.pmwf-heading{flex-direction:column;gap:8px}.pmwf-summary{grid-template-columns:auto minmax(0,1fr) auto;align-items:start}.pmwf-name span{white-space:normal}.pmwf-select{width:100%}}
+@media(max-width:760px){.pmwf-summary{grid-template-columns:auto minmax(0,1fr) auto;align-items:start}.pmwf-name{grid-column:2;grid-row:1}.pmwf-row-meta{grid-column:2 / 4;grid-row:2;display:grid;gap:2px;justify-items:start;text-align:left}.pmwf-status-note{grid-column:3;grid-row:1;width:auto;max-width:140px}.pmwf-node-facts{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:560px){.pmwf-heading{flex-direction:column;gap:8px}.pmwf-name span{white-space:normal}.pmwf-select{width:100%}}
 @media(max-width:960px){.pmwf-list{grid-template-columns:1fr}.pmwf-placeholder{grid-column:1;grid-row:auto !important}.pmwf-detail{grid-column:1;grid-row:auto !important}.pmwf-detail-inner{position:static;max-height:none;overflow:visible}}
 @container (max-width:780px){.pmwf-list{grid-template-columns:1fr}.pmwf-placeholder{grid-column:1;grid-row:auto !important}.pmwf-detail{grid-column:1;grid-row:auto !important}.pmwf-detail-inner{position:static;max-height:none;overflow:visible}}
 `;
@@ -682,7 +802,7 @@ window.__ModuleLoader__.load({
 
     function executorLabel(node) {
       const kind =
-        { system: "系统", user: "用户", agent: "Agent", employee: "数字员工" }[
+        { system: "系统", user: "用户", agent: "Agent", employee: "AI伙伴" }[
           node.executor.kind
         ] ?? node.executor.kind;
       return `${kind} · ${node.executor.label ?? node.executor.id}`;
@@ -694,7 +814,7 @@ window.__ModuleLoader__.load({
         approver.kind === "agent"
           ? "Agent"
           : approver.kind === "employee"
-            ? "数字员工"
+            ? "AI伙伴"
             : "用户";
       return `${kind} · ${name}`;
     }
@@ -939,7 +1059,8 @@ window.__ModuleLoader__.load({
               : "system";
       if (kind === "agent") {
         const teammate = teammateById?.get(approver?.id);
-        const source = teammate?.source === "personal" ? "personal" : "platform";
+        const source =
+          teammate?.source === "personal" ? "personal" : "platform";
         return h(
           "span",
           {
@@ -1034,9 +1155,11 @@ window.__ModuleLoader__.load({
       });
     }
 
-    function canSubmitDeliverable(node, actor, manager) {
+    function canSubmitDeliverable(node, actor, manager, state) {
       if (!actor || (actor.kind !== "user" && !actor.id)) return false;
       if (manager) return true;
+      // 执行实例失效兜底改派到的 owner 与节点责任人同权。
+      if (state?.executorFallback?.id === actor.id) return true;
       if (node.type === "service" || node.type === "subworkflow") return false;
       const responsibleId = ["agent", "employee"].includes(node.executor.kind)
         ? node.responsible?.id
@@ -1046,9 +1169,10 @@ window.__ModuleLoader__.load({
       return responsibleId === actor.id;
     }
 
-    function canCompleteNode(node, actor, manager) {
+    function canCompleteNode(node, actor, manager, state) {
       if (!actor || actor.kind !== "user") return false;
       if (manager) return true;
+      if (state?.executorFallback?.id === actor.id) return true;
       if (node.type === "service" || node.type === "subworkflow") return false;
       const responsible = node.responsible;
       if (["agent", "employee"].includes(node.executor.kind)) {
@@ -1074,6 +1198,18 @@ window.__ModuleLoader__.load({
       return statusText(state?.status ?? "waiting");
     }
 
+    function workflowNodeTypeLabel(type) {
+      return (
+        {
+          task: "执行",
+          approval: "审批",
+          decision: "决策",
+          subworkflow: "子流程",
+          service: "服务",
+        }[type] ?? type
+      );
+    }
+
     function systemServiceHint(node, state, manager) {
       if (!isSystemServiceNode(node) || state?.status !== "ready") return null;
       const service = node.executor.label ?? node.executor.id;
@@ -1086,11 +1222,11 @@ window.__ModuleLoader__.load({
       const missing = missingDeliverables(node, state);
       if (missing.length > 0) return `缺少 ${missing.length} 项交付物`;
       if (isSystemServiceNode(node)) {
-        return canCompleteNode(node, actor, manager)
+        return canCompleteNode(node, actor, manager, state)
           ? "管理员完成"
           : "等待 Owner/Admin 完成";
       }
-      if (canCompleteNode(node, actor, manager)) return "完成";
+      if (canCompleteNode(node, actor, manager, state)) return "完成";
       if (
         ["agent", "employee"].includes(node.executor.kind) &&
         node.responsible === undefined
@@ -1114,10 +1250,12 @@ window.__ModuleLoader__.load({
         ["agent", "employee"].includes(node.executor.kind) &&
         node.execution === "task-worker";
       const runnerLabel =
-        node.executor.kind === "employee" ? "Digital Employee" : "Agent";
+        node.executor.kind === "employee" ? "AI伙伴" : "Agent";
       const ticketRejected =
         state?.status === "blocked" &&
-        state.note?.startsWith("Digital Employee 输出被拒绝") === true;
+        /^(Digital Employee|AI伙伴|Teammate)\s*输出被拒绝/.test(
+          state.note ?? "",
+        );
       const latestRun = props.runs?.[0];
       const staleInterruptedRun =
         ["interrupted", "cancelled", "failed", "timeout"].includes(
@@ -1128,12 +1266,12 @@ window.__ModuleLoader__.load({
       );
       const baseEditable =
         ["ready", "running", "waiting"].includes(state?.status) &&
-        canSubmitDeliverable(node, detail.actor, manager);
+        canSubmitDeliverable(node, detail.actor, manager, state);
       const fallbackEditable =
         agentWorker &&
         (state?.status === "blocked" || staleInterruptedRun) &&
         !activeAgentRun &&
-        canSubmitDeliverable(node, detail.actor, manager);
+        canSubmitDeliverable(node, detail.actor, manager, state);
       return jsxRuntime.jsxs("div", {
         className: "pmwf-deliverables",
         children: [
@@ -1286,8 +1424,7 @@ window.__ModuleLoader__.load({
                                 type: "button",
                                 className: "pmwf-btn small",
                                 disabled:
-                                  props.busy !== "" ||
-                                  rejectNote.trim() === "",
+                                  props.busy !== "" || rejectNote.trim() === "",
                                 onClick: () =>
                                   props.onReject(latest.id, rejectNote),
                                 children: "确认退回",
@@ -1416,7 +1553,7 @@ window.__ModuleLoader__.load({
       const runnerKind =
         node.executor.kind === "employee" ||
         runs.some((run) => run.principalType === "digital-employee")
-          ? "Digital Employee"
+          ? "AI伙伴"
           : "Agent";
       const runnerName = (run) =>
         run.payload.employeeName ?? run.payload.profileName;
@@ -1442,7 +1579,9 @@ window.__ModuleLoader__.load({
       const ticketRejected =
         latest?.status === "succeeded" &&
         state?.status === "blocked" &&
-        state.note?.startsWith("Digital Employee 输出被拒绝") === true;
+        /^(Digital Employee|AI伙伴|Teammate)\s*输出被拒绝/.test(
+          state.note ?? "",
+        );
       const latestRunLabel =
         latest?.status === "succeeded" && outputRejected
           ? "已成功 · 输出未通过交付校验"
@@ -1453,8 +1592,13 @@ window.__ModuleLoader__.load({
         active === null &&
         latest === null &&
         state?.status === "blocked" &&
-        /^(Agent Profile|Digital Employee)/.test(state.note || "");
+        /^(Agent Profile|Digital Employee|AI伙伴|AI Teammate|Teammate)/.test(
+          state.note || "",
+        );
+      // 执行实例失效兜底：节点已转交 owner 人工处理，不再提供派发/重试入口。
+      const fallback = state?.executorFallback ?? null;
       const canDispatch =
+        fallback === null &&
         (state?.status === "ready" || serviceRecoverable) &&
         active === null &&
         canOperate;
@@ -1463,6 +1607,7 @@ window.__ModuleLoader__.load({
         state.status === "blocked" &&
         (state.note ?? "").startsWith("已触发 break：");
       const canRetry =
+        fallback === null &&
         canOperate &&
         !loopBreakBlocked &&
         (retryable ||
@@ -1481,6 +1626,12 @@ window.__ModuleLoader__.load({
       const missingCount = missingDeliverables(node, state).length;
       const noteKey = `${instanceId}:${node.id}`;
       const interventionNote = notes?.[noteKey] ?? "";
+      const dispatchOutcome = (result) => {
+        const applied = result?.instance?.nodes?.[node.id]?.executorFallback;
+        return applied
+          ? `执行实例已失效，已转交 ${applied.label ?? applied.id} 人工处理`
+          : `已派发 ${runnerKind} 运行`;
+      };
       return jsxRuntime.jsxs("div", {
         className: "pmwf-deliverables",
         children: [
@@ -1488,6 +1639,12 @@ window.__ModuleLoader__.load({
             className: "pmwf-deliverable-heading",
             children: `${runnerKind} 运行`,
           }),
+          fallback !== null
+            ? jsxRuntime.jsx("div", {
+                className: "pmwf-note info",
+                children: `原执行实例「${fallback.originalExecutorLabel ?? fallback.originalExecutorId}」已失效：${fallback.reason}。节点已转交「${fallback.label ?? fallback.id}」人工处理。`,
+              })
+            : null,
           active !== null
             ? jsxRuntime.jsxs("div", {
                 className: "pmwf-deliverable",
@@ -1609,7 +1766,7 @@ window.__ModuleLoader__.load({
                           `agent-dispatch:${instanceId}:${node.id}`,
                           "/api/collab/workflow/agent-runs/dispatch",
                           { workspaceId, instanceId, nodeId: node.id },
-                          `已派发 ${runnerKind} 运行`,
+                          dispatchOutcome,
                         ),
                       children: `派发 ${runnerKind}`,
                     },
@@ -1647,7 +1804,14 @@ window.__ModuleLoader__.load({
                           `agent-retry:${latest.id}`,
                           "/api/collab/workflow/agent-runs/retry",
                           { workspaceId, runId: latest.id },
-                          `已重新派发 ${runnerKind} 运行`,
+                          (result) => {
+                            const applied =
+                              result?.instance?.nodes?.[node.id]
+                                ?.executorFallback;
+                            return applied
+                              ? `执行实例已失效，已转交 ${applied.label ?? applied.id} 人工处理`
+                              : `已重新派发 ${runnerKind} 运行`;
+                          },
                         ),
                       children: `重新派发 ${runnerKind}`,
                     },
@@ -1930,12 +2094,6 @@ window.__ModuleLoader__.load({
         );
     }
 
-    function isBranch(definition, nodeId) {
-      return (
-        definition?.graph.edges.filter((edge) => edge.to === nodeId).length > 1
-      );
-    }
-
     function parseLoopLimit(expression) {
       const match =
         /^\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*(>=|<=|>|<|==|===)\s*(\d+)\s*$/.exec(
@@ -1986,6 +2144,593 @@ window.__ModuleLoader__.load({
       return "waiting";
     }
 
+    /** 工作流关键指标：全部由现有实例数据派生，不新增任何后端能力。 */
+    function workflowKpis(instances) {
+      const total = instances.length;
+      const running = instances.filter(
+        (item) => item.status === "running",
+      ).length;
+      const blocked = instances.filter((item) =>
+        ["blocked", "failed"].includes(item.status),
+      ).length;
+      const completed = instances.filter(
+        (item) => item.status === "completed",
+      ).length;
+      const projects = new Set(instances.map((item) => item.workspaceId)).size;
+      return [
+        { label: "实例总数", value: total, note: `${projects} 个项目` },
+        {
+          label: "进行中",
+          value: running,
+          note: running > 0 ? "节点持续流转" : "暂无进行中实例",
+        },
+        {
+          label: "阻塞 / 失败",
+          value: blocked,
+          note: blocked > 0 ? "需优先处理" : "当前无阻塞",
+          tone: blocked > 0 ? "down" : "",
+        },
+        {
+          label: "已完成",
+          value: completed,
+          note: total > 0 ? `${Math.round((completed / total) * 100)}% 完成率` : "暂无实例",
+          tone: completed > 0 ? "up" : "",
+        },
+      ];
+    }
+
+    const WORKFLOW_HUMAN_SLA_MS = 3 * 60 * 60 * 1000;
+
+    /** 节点相对 SLA：Agent / Teammate 用配置的运行上限，人工节点统一 T+3h。 */
+    function workflowSlaMs(node) {
+      if (!["agent", "employee"].includes(node?.executor?.kind)) {
+        return WORKFLOW_HUMAN_SLA_MS;
+      }
+      const configured = Number(node?.timeoutMs);
+      return Number.isFinite(configured) && configured > 0
+        ? configured
+        : WORKFLOW_HUMAN_SLA_MS;
+    }
+
+    function workflowSlaLabel(node) {
+      return `T+${formatDuration(workflowSlaMs(node))}`;
+    }
+
+    /** DDL 按「进入节点时刻 + 相对 SLA」换算；已完成节点显示完成时间。 */
+    function workflowNodeDeadline(node, state) {
+      const start = Date.parse(state?.enteredAt ?? "");
+      if (!Number.isFinite(start)) return undefined;
+      return new Date(start + workflowSlaMs(node)).toISOString();
+    }
+
+    function workflowNodeDue(node, state) {
+      if (!state) return undefined;
+      if (state.status === "completed" || state.status === "skipped") {
+        return state.completedAt
+          ? {
+              at: state.completedAt,
+              completed: true,
+              skipped: state.status === "skipped",
+            }
+          : undefined;
+      }
+      const at = workflowNodeDeadline(node, state);
+      return at === undefined ? undefined : { at, completed: false };
+    }
+
+    function workflowDateTime(value) {
+      if (!value) return "—";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "—";
+      const pad = (part) => String(part).padStart(2, "0");
+      return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(
+        date.getHours(),
+      )}:${pad(date.getMinutes())}`;
+    }
+
+    function workflowOverdueSpan(deadline, completedAt) {
+      const diff = Date.parse(completedAt ?? "") - Date.parse(deadline ?? "");
+      if (!Number.isFinite(diff) || diff <= 0) return "";
+      const days = Math.floor(diff / 86_400_000);
+      const hours = Math.floor((diff % 86_400_000) / 3_600_000);
+      if (days > 0) return `逾期${days}天`;
+      if (hours > 0) return `逾期${hours}小时`;
+      return "逾期不足1小时";
+    }
+
+    function workflowNodeExecutionTime(node, state) {
+      if (!state) return "—";
+      const deadline = workflowNodeDeadline(node, state);
+      if (state.status === "completed" || state.status === "skipped") {
+        if (!state.completedAt) return "—";
+        const overdue =
+          deadline === undefined
+            ? ""
+            : workflowOverdueSpan(deadline, state.completedAt);
+        return `${workflowDateTime(state.completedAt)}${overdue ? `（${overdue}）` : ""}`;
+      }
+      return deadline === undefined
+        ? "—"
+        : `${workflowDateTime(deadline)}（计划）`;
+    }
+
+    function formatDueLabel(due) {
+      if (due === undefined) return "";
+      if (due.completed) return due.skipped ? "已跳过" : "已完成";
+      const target = Date.parse(due.at);
+      if (!Number.isFinite(target)) return "";
+      const diff = target - Date.now();
+      const minutes = Math.max(1, Math.round(Math.abs(diff) / 60_000));
+      const text =
+        minutes < 60
+          ? `${minutes}m`
+          : minutes < 1_440
+            ? `${Math.floor(minutes / 60)}h${minutes % 60 ? ` ${minutes % 60}m` : ""}`
+            : `${Math.floor(minutes / 1_440)}d`;
+      return diff >= 0 ? `剩余 ${text}` : `已超时 ${text}`;
+    }
+
+    function workflowDueOverdue(due) {
+      if (due === undefined || due.completed) return false;
+      const target = Date.parse(due.at);
+      return Number.isFinite(target) && target < Date.now();
+    }
+
+    /** 交付物汇总：供流程节点上的 x/y 与浮层使用。 */
+    function workflowDeliverableSummary(node, state, submissions) {
+      const rows = (node?.deliverables ?? []).map((requirement) => {
+        const current = state?.deliverables?.[requirement.key];
+        const matches = (submissions ?? []).filter(
+          (item) =>
+            item.nodeId === node.id &&
+            item.requirementKey === requirement.key,
+        );
+        const latest =
+          matches.find((item) => item.id === current?.latestSubmissionId) ??
+          matches.at(-1);
+        const done = current?.status === "submitted";
+        const value = !done
+          ? "NA"
+          : latest?.type === "file"
+            ? (latest.artifacts ?? [])
+                .map((artifact) => artifact.fileName)
+                .join("、") || "文件已提交"
+            : (latest?.value ?? "已提交");
+        return {
+          key: requirement.key,
+          title: requirement.title,
+          status: current?.status ?? "pending",
+          done,
+          value: String(value).replace(/\s+/g, " ").slice(0, 120),
+          submittedAt: latest?.submittedAt ?? "",
+        };
+      });
+      return {
+        rows,
+        done: rows.filter((row) => row.done).length,
+        total: rows.length,
+      };
+    }
+
+    /** 按边关系分层：同层是并行分支，回边作为循环标注。 */
+    function workflowFlowLayout(definition) {
+      const nodes = definition?.graph?.nodes ?? [];
+      const edges = definition?.graph?.edges ?? [];
+      if (nodes.length === 0)
+        return { stages: [], loops: [], backKeys: new Set() };
+      const ids = new Set(nodes.map((node) => node.id));
+      const outgoing = new Map(nodes.map((node) => [node.id, []]));
+      const incoming = new Map(nodes.map((node) => [node.id, []]));
+      for (const edge of edges) {
+        if (!ids.has(edge.from) || !ids.has(edge.to)) continue;
+        outgoing.get(edge.from).push(edge);
+        incoming.get(edge.to).push(edge);
+      }
+      const backKeys = new Set();
+      const loops = [];
+      const visitState = new Map();
+      const visit = (id) => {
+        visitState.set(id, 1);
+        for (const edge of outgoing.get(id) ?? []) {
+          const next = visitState.get(edge.to) ?? 0;
+          if (next === 1) {
+            const key = `${edge.from}->${edge.to}`;
+            if (!backKeys.has(key)) {
+              backKeys.add(key);
+              loops.push(edge);
+            }
+          } else if (next === 0) {
+            visit(edge.to);
+          }
+        }
+        visitState.set(id, 2);
+      };
+      const starts = (definition?.graph?.startNodeIds ?? []).filter((id) =>
+        ids.has(id),
+      );
+      const roots =
+        starts.length > 0
+          ? starts
+          : nodes
+              .filter((node) => (incoming.get(node.id)?.length ?? 0) === 0)
+              .map((node) => node.id);
+      for (const id of roots) if (!visitState.get(id)) visit(id);
+      for (const node of nodes) {
+        if (!visitState.get(node.id)) visit(node.id);
+      }
+      const forward = edges.filter(
+        (edge) =>
+          ids.has(edge.from) &&
+          ids.has(edge.to) &&
+          !backKeys.has(`${edge.from}->${edge.to}`),
+      );
+      const layer = new Map(nodes.map((node) => [node.id, 0]));
+      const indegree = new Map(nodes.map((node) => [node.id, 0]));
+      for (const edge of forward) {
+        indegree.set(edge.to, (indegree.get(edge.to) ?? 0) + 1);
+      }
+      const queue = nodes
+        .filter((node) => (indegree.get(node.id) ?? 0) === 0)
+        .map((node) => node.id);
+      while (queue.length > 0) {
+        const id = queue.shift();
+        for (const edge of forward.filter((item) => item.from === id)) {
+          layer.set(
+            edge.to,
+            Math.max(layer.get(edge.to) ?? 0, (layer.get(id) ?? 0) + 1),
+          );
+          indegree.set(edge.to, (indegree.get(edge.to) ?? 1) - 1);
+          if (indegree.get(edge.to) === 0) queue.push(edge.to);
+        }
+      }
+      const stages = [];
+      for (const node of nodes) {
+        const index = layer.get(node.id) ?? 0;
+        if (stages[index] === undefined) stages[index] = [];
+        stages[index].push(node);
+      }
+      return {
+        stages: stages.filter(
+          (stage) => stage !== undefined && stage.length > 0,
+        ),
+        loops,
+        backKeys,
+      };
+    }
+
+    /**
+     * 节点展示模型：编码、缩进层级、并行/汇合/子流程标识。
+     *
+     * - `-` 表示同层并行分支；
+     * - `.` 表示进入子流程后的层级；
+     * - 只有子流程增加 depth；并行分支与汇合节点都不缩进。
+     */
+    function workflowNodePresentation(definition, options = {}) {
+      const prefix = options.prefix ?? "";
+      const depth = options.depth ?? 0;
+      const layout = workflowFlowLayout(definition);
+      const nodes = definition?.graph?.nodes ?? [];
+      const ids = new Set(nodes.map((node) => node.id));
+      const forwardIn = new Map();
+      for (const edge of definition?.graph?.edges ?? []) {
+        if (!ids.has(edge.from) || !ids.has(edge.to)) continue;
+        // 循环回边不参与汇合判定。
+        if (layout.backKeys?.has(`${edge.from}->${edge.to}`)) continue;
+        forwardIn.set(edge.to, (forwardIn.get(edge.to) ?? 0) + 1);
+      }
+      const entries = [];
+      const byId = new Map();
+      const branchLabelOf = (edge) => {
+        if ((edge?.label ?? "").trim() !== "") return edge.label.trim();
+        if ((edge?.condition ?? "").trim() !== "") {
+          return `条件：${edge.condition.trim()}`;
+        }
+        if (edge?.default === true) return "默认分支";
+        if (edge?.result === "approved") return "通过";
+        if (edge?.result === "rejected") return "退回";
+        return "";
+      };
+      const push = (node, localCode, mode, branchLabel = "") => {
+        const entry = {
+          node,
+          code: prefix === "" ? localCode : `${prefix}.${localCode}`,
+          depth,
+          parallel: mode === "parallel",
+          branch: mode === "branch",
+          branchLabel,
+          join: (forwardIn.get(node.id) ?? 0) > 1,
+          subflow: node.type === "subworkflow",
+        };
+        entries.push(entry);
+        byId.set(node.id, entry);
+      };
+      layout.stages.forEach((stage, stageIndex) => {
+        const stageNo = stageIndex + 1;
+        if (stage.length === 1) {
+          push(stage[0], String(stageNo), "sequence");
+          return;
+        }
+        const targetIds = new Set(stage.map((node) => node.id));
+        const incoming = (definition?.graph?.edges ?? []).filter(
+          (edge) =>
+            targetIds.has(edge.to) &&
+            !layout.backKeys?.has(`${edge.from}->${edge.to}`),
+        );
+        const sources = new Set(incoming.map((edge) => edge.from));
+        const source =
+          sources.size === 1
+            ? nodes.find((node) => node.id === [...sources][0])
+            : undefined;
+        const hasCondition = incoming.some(
+          (edge) =>
+            (edge.condition ?? "").trim() !== "" || edge.default === true,
+        );
+        const distinctResults = new Set(
+          incoming.map((edge) => edge.result ?? "").filter(Boolean),
+        );
+        // 决策节点、条件边、默认边或不同 result 表示 N 选 1 分叉；
+        // 普通多出边（例如审批通过后同时启动开发与测试）才是并行流程。
+        const isBranch =
+          source?.type === "decision" ||
+          hasCondition ||
+          distinctResults.size > 1;
+        stage.forEach((node, laneIndex) => {
+          const edge = incoming.find((item) => item.to === node.id);
+          if (isBranch) {
+            const letter = String.fromCharCode(97 + laneIndex);
+            push(node, `${stageNo}${letter}`, "branch", branchLabelOf(edge));
+          } else {
+            push(node, `${stageNo}-${laneIndex + 1}`, "parallel");
+          }
+        });
+      });
+      return { entries, byId, layout, depth };
+    }
+
+    /**
+     * 只读流程图：分层展示并行分支、汇合与循环。
+     * 点击节点会滚动到下方节点卡片；交付物按钮打开只读清单浮层。
+     */
+    function WorkflowFlowOverview({
+      definition,
+      states,
+      submissions,
+      onDeliverableOpen,
+      onTemplateOpen,
+      onSelectNode,
+      resolveSubflow,
+    }) {
+      const presentation = workflowNodePresentation(definition);
+      const layout = presentation.layout;
+      if (layout.stages.length === 0) return null;
+      const legend = [
+        ["task", "执行"],
+        ["approval", "审批"],
+        ["decision", "决策"],
+        ["subworkflow", "子流程"],
+        ["service", "服务"],
+      ];
+      const renderNode = (node) => {
+        const state = states?.[node.id];
+        const info = presentation.byId.get(node.id);
+        const subflowDefinition = info?.subflow
+          ? resolveSubflow?.(node)
+          : undefined;
+        const subflowCount = subflowDefinition?.graph?.nodes?.length ?? 0;
+        const due = workflowNodeDue(node, state);
+        const dueLabel = formatDueLabel(due);
+        const delivery = workflowDeliverableSummary(
+          node,
+          state,
+          submissions,
+        );
+        const executor =
+          state?.assignedTo ?? node.executor.label ?? node.executor.id;
+        return jsxRuntime.jsxs(
+          "div",
+          {
+            className: `pmwf-overview-node ${node.type} ${nodeClass(state)}`,
+            role: "button",
+            tabIndex: 0,
+            title: `${node.name} · ${workflowNodeStatusText(node, state)}`,
+            onClick: () => {
+              onSelectNode?.(node.id);
+              const target = document.getElementById(`pmwf-node-${node.id}`);
+              target?.scrollIntoView({ behavior: "smooth", block: "center" });
+            },
+            onKeyDown: (event) => {
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              event.currentTarget.click();
+            },
+            children: [
+              jsxRuntime.jsxs("div", {
+                className: "pmwf-overview-node-title",
+                children: [
+                  jsxRuntime.jsx("span", {
+                    className: "pmwf-overview-node-index",
+                    children: info?.code ?? "?",
+                  }),
+                  jsxRuntime.jsx("strong", { children: node.name }),
+                ],
+              }),
+              jsxRuntime.jsx("small", {
+                className: "pmwf-overview-node-meta",
+                children: `${executor}${dueLabel ? ` · ${dueLabel}` : ""}`,
+              }),
+              info?.branch && info.branchLabel
+                ? jsxRuntime.jsx("small", {
+                    className: "pmwf-overview-branch-label",
+                    children: info.branchLabel,
+                  })
+                : null,
+              info?.subflow
+                ? jsxRuntime.jsx("small", {
+                    className: "pmwf-overview-subflow",
+                    children:
+                      subflowCount > 0
+                        ? `子流程 · ${subflowCount} 个节点`
+                        : "子流程 · 模板未找到",
+                  })
+                : null,
+              jsxRuntime.jsxs("div", {
+                className: "pmwf-overview-node-foot",
+                children: [
+                  delivery.total > 0
+                    ? jsxRuntime.jsxs("button", {
+                        type: "button",
+                        className: "pmwf-overview-delivery",
+                        "aria-label": `查看${node.name}交付物清单`,
+                        onClick: (event) => {
+                          event.stopPropagation();
+                          onDeliverableOpen?.(
+                            node.id,
+                            event.currentTarget.getBoundingClientRect(),
+                          );
+                        },
+                        children: [`交付 ${delivery.done}/${delivery.total}`],
+                      })
+                    : null,
+                  jsxRuntime.jsx("span", {
+                    className: `pmwf-overview-state ${nodeClass(state)}`,
+                    children: workflowNodeStatusText(node, state),
+                  }),
+                ],
+              }),
+            ],
+          },
+          node.id,
+        );
+      };
+      const nodeName = (id) =>
+        definition?.graph?.nodes.find((node) => node.id === id)?.name ?? id;
+      return jsxRuntime.jsxs("div", {
+        className: "pmwf-overview",
+        children: [
+          jsxRuntime.jsxs("div", {
+            className: "pmwf-overview-head",
+            children: [
+              jsxRuntime.jsxs("div", {
+                className: "pmwf-overview-head-left",
+                children: [
+                  jsxRuntime.jsx("h3", { children: "流程概览" }),
+                  jsxRuntime.jsxs("button", {
+                    type: "button",
+                    className: "pmwf-overview-template",
+                    disabled: definition === undefined,
+                    onClick: onTemplateOpen,
+                    title: "查看工作流模版详情",
+                    children: [
+                      "模板：",
+                      jsxRuntime.jsx("b", {
+                        children:
+                          definition === undefined
+                            ? "不可用"
+                            : `${definition.name} v${definition.version}`,
+                      }),
+                    ],
+                  }),
+                ],
+              }),
+              jsxRuntime.jsx("div", {
+                className: "pmwf-overview-legend",
+                children: legend.map(([kind, label]) =>
+                  jsxRuntime.jsxs(
+                    "span",
+                    {
+                      children: [
+                        jsxRuntime.jsx("i", { className: kind }),
+                        label,
+                      ],
+                    },
+                    kind,
+                  ),
+                ),
+              }),
+            ],
+          }),
+          jsxRuntime.jsx("div", {
+            className: "pmwf-overview-track",
+            children: layout.stages.flatMap((stage, index) => {
+              const parts = [];
+              if (index > 0) {
+                parts.push(
+                  jsxRuntime.jsx(
+                    "span",
+                    {
+                      className: "pmwf-overview-arrow",
+                      "aria-hidden": true,
+                      children: "→",
+                    },
+                    `arrow-${index}`,
+                  ),
+                );
+              }
+              const stageEntries = stage.map((node) =>
+                presentation.byId.get(node.id),
+              );
+              const branchStage = stageEntries.some(
+                (entry) => entry?.branch,
+              );
+              const parallelStage = stage.length > 1 && !branchStage;
+              parts.push(
+                jsxRuntime.jsxs(
+                  "div",
+                  {
+                    className: `pmwf-overview-stage${branchStage ? " branch" : parallelStage ? " parallel" : ""}`,
+                    children: [
+                      branchStage || parallelStage
+                        ? jsxRuntime.jsx("span", {
+                            className: "pmwf-overview-stage-title",
+                            children: branchStage
+                              ? `分支流程 · ${stage.length} 选 1`
+                              : "并行流程",
+                          })
+                        : null,
+                      ...stage.map((node) =>
+                        jsxRuntime.jsx(
+                          "div",
+                          {
+                            className: "pmwf-overview-lane",
+                            children: renderNode(node),
+                          },
+                          node.id,
+                        ),
+                      ),
+                    ],
+                  },
+                  `stage-${index}`,
+                ),
+              );
+              return parts;
+            }),
+          }),
+          ...layout.loops.map((edge) =>
+            jsxRuntime.jsxs(
+              "div",
+              {
+                className: "pmwf-overview-loop",
+                children: [
+                  jsxRuntime.jsx("span", { children: "↺" }),
+                  jsxRuntime.jsx("strong", {
+                    children: edge.label ?? edge.condition ?? "循环",
+                  }),
+                  jsxRuntime.jsxs("small", {
+                    children: [
+                      nodeName(edge.from),
+                      " → ",
+                      nodeName(edge.to),
+                    ],
+                  }),
+                ],
+              },
+              `loop-${edge.from}-${edge.to}`,
+            ),
+          ),
+        ],
+      });
+    }
+
     function Feedback({ error, notice }) {
       if (error)
         return jsxRuntime.jsx("div", {
@@ -2013,10 +2758,17 @@ window.__ModuleLoader__.load({
 - 补充完成条件。
 `;
 
-    function WorkflowTemplateManager({ workspaceOptions, canManage, onClose }) {
+    function WorkflowTemplateManager({
+      workspaceOptions,
+      currentWorkspaceId,
+      canManage,
+      onClose,
+    }) {
       const [definitions, setDefinitions] = react.useState([]);
       const [workspaceId, setWorkspaceId] = react.useState(
-        workspaceOptions.find((item) => item.isMember)?.id ??
+        (workspaceOptions.some((item) => item.id === currentWorkspaceId)
+          ? currentWorkspaceId
+          : workspaceOptions.find((item) => item.isMember)?.id) ??
           workspaceOptions[0]?.id ??
           "",
       );
@@ -2807,6 +3559,8 @@ window.__ModuleLoader__.load({
         scopeStore.getSnapshot,
       );
       const showAllWorkspacesRef = react.useRef(showAllWorkspaces);
+      /** 数据范围切换会产生多次并发加载，只允许最后一次结果落到页面。 */
+      const loadGeneration = react.useRef(0);
       react.useEffect(() => {
         showAllWorkspacesRef.current = showAllWorkspaces;
       }, [showAllWorkspaces]);
@@ -2840,6 +3594,20 @@ window.__ModuleLoader__.load({
       const [agentInterventionNotes, setAgentInterventionNotes] =
         react.useState({});
       const [templatePreview, setTemplatePreview] = react.useState(null);
+      /** 流程节点交付物浮层：{ nodeId, left, top }；只读展示，不触发提交。 */
+      const [deliveryPopover, setDeliveryPopover] = react.useState(null);
+      /** 已展开的节点：默认全部折叠，多个节点可以同时展开。 */
+      const [expandedNodeIds, setExpandedNodeIds] = react.useState(
+        () => new Set(),
+      );
+      const toggleNodeExpanded = (nodeId) => {
+        setExpandedNodeIds((current) => {
+          const next = new Set(current);
+          if (next.has(nodeId)) next.delete(nodeId);
+          else next.add(nodeId);
+          return next;
+        });
+      };
 
       const notify = (text) => {
         setError("");
@@ -2877,6 +3645,32 @@ window.__ModuleLoader__.load({
         document.addEventListener("pointerdown", close);
         return () => document.removeEventListener("pointerdown", close);
       }, [statusMenuOpen]);
+      react.useEffect(() => {
+        if (deliveryPopover === null) return undefined;
+        const close = (event) => {
+          if (
+            event.target.closest?.(".pmwf-delivery-popover") ||
+            event.target.closest?.(".pmwf-overview-delivery")
+          ) {
+            return;
+          }
+          setDeliveryPopover(null);
+        };
+        document.addEventListener("pointerdown", close);
+        return () => document.removeEventListener("pointerdown", close);
+      }, [deliveryPopover]);
+      react.useEffect(() => {
+        setExpandedNodeIds(new Set());
+      }, [openId]);
+      // 数据范围切换后，原详情可能已不在列表里：自动回到列表，避免只剩空白页。
+      react.useEffect(() => {
+        if (openId === "" || instances.length === 0) return;
+        if (instances.some((item) => item.id === openId)) return;
+        setOpenId("");
+        setDetail(null);
+        setExpandedNodeIds(new Set());
+        setDeliveryPopover(null);
+      }, [instances, openId]);
       const memberNames = react.useMemo(
         () =>
           new Map(
@@ -2898,6 +3692,19 @@ window.__ModuleLoader__.load({
         () => new Map(workspaceOptions.map((item) => [item.id, item])),
         [workspaceOptions],
       );
+      /** 解析子流程模板：优先匹配 subworkflowVersion，找不到时回退同 key 的最新定义。 */
+      const resolveSubflowDefinition = (node) => {
+        const key = node?.subworkflowKey;
+        if (key === undefined || key === "") return undefined;
+        return (
+          definitions.find(
+            (item) =>
+              item.key === key &&
+              (node.subworkflowVersion === undefined ||
+                item.version === node.subworkflowVersion),
+          ) ?? definitions.find((item) => item.key === key)
+        );
+      };
       /**
        * 「新建工作流」可选项目：不受页面范围开关影响——管理员可选全部项目，
        * 成员只能选已加入的项目。否则管理员在"仅看已加入"且未加入项目时，
@@ -2905,9 +3712,7 @@ window.__ModuleLoader__.load({
        */
       const selectableWorkspaces = react.useMemo(
         () =>
-          allWorkspaces.filter(
-            (item) => item.isMember || me?.role === "admin",
-          ),
+          allWorkspaces.filter((item) => item.isMember || me?.role === "admin"),
         [allWorkspaces, me?.role],
       );
       const teammateById = react.useMemo(
@@ -2968,16 +3773,13 @@ window.__ModuleLoader__.load({
               meResult.user?.role === "admin" &&
               showAllWorkspacesRef.current === true
                 ? allOptions
-                : allOptions.filter(
-                    (workspace) => workspace.isMember === true,
-                  );
+                : allOptions.filter((workspace) => workspace.isMember === true);
             setAllWorkspaces(allOptions);
             setWorkspaceOptions(options);
+            // 每次进入工作流页，项目筛选默认「全部项目」；仅外部指定项目时才定位过去。
             const initial =
               options.find((item) => item.id === viewRequest?.workspaceId)
-                ?.id ??
-              options.find((item) => item.isMember)?.id ??
-              "";
+                ?.id ?? "";
             setWorkspaceId(initial);
             setStartWorkspaceId(initial);
             setPhase("ready");
@@ -2995,7 +3797,15 @@ window.__ModuleLoader__.load({
       }, [tokenVersion, showAllWorkspaces]);
 
       react.useEffect(() => {
-        const synchronize = () => setTokenVersion((version) => version + 1);
+        const synchronize = () => {
+          setTokenVersion((version) => version + 1);
+          setDetail(null);
+          setNestedDetails({});
+          setOpenId("");
+          setBusy("");
+          setNotice("");
+          setError("");
+        };
         window.addEventListener("pluginmax:collab-token", synchronize);
         return () =>
           window.removeEventListener("pluginmax:collab-token", synchronize);
@@ -3003,6 +3813,7 @@ window.__ModuleLoader__.load({
 
       const load = react.useCallback(
         async (silent = true) => {
+          const generation = ++loadGeneration.current;
           // 共享模版是全局数据：即使当前页面范围为 0 个项目，
           // 也要为「新建工作流」弹窗把模版列表加载出来。
           const definitionWorkspaceIds = [
@@ -3057,6 +3868,8 @@ window.__ModuleLoader__.load({
                   teammates: [],
                 })),
               ]);
+            // 范围切换后，旧请求可能晚于新请求返回；丢弃过期结果。
+            if (generation !== loadGeneration.current) return;
             setDefinitions(dedupeWorkflowDefinitions(definitionResults.flat()));
             setInstances(results.flatMap((item) => item.instances));
             setDirectoryMembers(results.flatMap((item) => item.members));
@@ -3104,7 +3917,9 @@ window.__ModuleLoader__.load({
             if (detail.kind === "success") {
               setStartOpen(false);
               const focusWorkspaceId =
-                typeof detail.workspaceId === "string" ? detail.workspaceId : "";
+                typeof detail.workspaceId === "string"
+                  ? detail.workspaceId
+                  : "";
               const focusInstanceId =
                 typeof detail.instanceId === "string" ? detail.instanceId : "";
               if (focusWorkspaceId !== "" && focusInstanceId !== "") {
@@ -3156,9 +3971,7 @@ window.__ModuleLoader__.load({
           // 然后等异步加载出来的清单包含它再继续；中途不要清掉待定位请求。
           const canReveal =
             me?.role === "admin" &&
-            selectableWorkspaces.some(
-              (item) => item.id === target.workspaceId,
-            );
+            selectableWorkspaces.some((item) => item.id === target.workspaceId);
           if (canReveal && !showAllWorkspaces) {
             scopeStore.setAll(true);
             return;
@@ -3302,8 +4115,11 @@ window.__ModuleLoader__.load({
         }
         setBusy(key);
         try {
-          await request(path, { method: "POST", body: JSON.stringify(body) });
-          notify(message);
+          const result = await request(path, {
+            method: "POST",
+            body: JSON.stringify(body),
+          });
+          notify(typeof message === "function" ? message(result) : message);
           await load();
           const loaded = openId ? await loadDetail(openId) : null;
           if (loaded) {
@@ -3466,7 +4282,11 @@ window.__ModuleLoader__.load({
       };
       const isManager = me?.role === "admin" || me?.workspaceRole === "owner";
 
-      const nestedChildCard = (childInstanceId) => {
+      const nestedChildCard = (
+        childInstanceId,
+        parentCode = "",
+        parentDepth = 0,
+      ) => {
         const childDetail = nestedDetails[childInstanceId];
         const childInstance = childDetail?.instance;
         const childDefinition = childInstance
@@ -3481,6 +4301,10 @@ window.__ModuleLoader__.load({
           instances.find((instance) => instance.id === childInstanceId)
             ?.status ??
           "running";
+        const childPresentation = workflowNodePresentation(childDefinition, {
+          prefix: parentCode,
+          depth: parentDepth + 1,
+        });
         return jsxRuntime.jsxs("div", {
           className: "pmwf-card pmwf-nested",
           children: [
@@ -3513,6 +4337,7 @@ window.__ModuleLoader__.load({
                   className: "pmwf-nodes",
                   children: (childDefinition?.graph.nodes ?? []).map((node) => {
                     const state = childInstance.nodes[node.id];
+                    const childInfo = childPresentation.byId.get(node.id);
                     const approvalKey = pendingApproverKey(state, detail.actor);
                     const actionable =
                       state?.status === "ready" ||
@@ -3540,7 +4365,18 @@ window.__ModuleLoader__.load({
                           jsxRuntime.jsxs("div", {
                             className: "pmwf-node-main",
                             children: [
-                              jsxRuntime.jsx("strong", { children: node.name }),
+                              jsxRuntime.jsxs("div", {
+                                className: "pmwf-child-title",
+                                children: [
+                                  jsxRuntime.jsx("span", {
+                                    className: "pmwf-child-code",
+                                    children: childInfo?.code ?? "",
+                                  }),
+                                  jsxRuntime.jsx("strong", {
+                                    children: node.name,
+                                  }),
+                                ],
+                              }),
                               jsxRuntime.jsx("span", {
                                 children: executorLabel(node),
                               }),
@@ -3617,6 +4453,102 @@ window.__ModuleLoader__.load({
         });
       };
 
+      /**
+       * 子流程未启动时的模板预览：分支未命中 / 子流程尚未创建实例时，
+       * 仍可展开查看内部节点与层级编码。
+       */
+      const subflowTemplatePreview = (node, parentCode, parentDepth) => {
+        const subflowDefinition = resolveSubflowDefinition(node);
+        if (subflowDefinition === undefined) {
+          return jsxRuntime.jsx("div", {
+            className: "pmwf-note info",
+            children: "子流程模板暂不可用，无法预览内部节点。",
+          });
+        }
+        const presentation = workflowNodePresentation(subflowDefinition, {
+          prefix: parentCode,
+          depth: parentDepth + 1,
+        });
+        return jsxRuntime.jsxs("div", {
+          className: "pmwf-card pmwf-nested pmwf-subflow-preview",
+          children: [
+            jsxRuntime.jsxs("div", {
+              className: "pmwf-nested-summary",
+              children: [
+                jsxRuntime.jsx("span", {
+                  className: "pmwf-dot waiting",
+                }),
+                jsxRuntime.jsxs("strong", {
+                  children: [
+                    subflowDefinition.name,
+                    " v",
+                    subflowDefinition.version,
+                  ],
+                }),
+                jsxRuntime.jsxs("span", {
+                  children: [
+                    String(subflowDefinition.graph.nodes.length),
+                    " 个节点",
+                  ],
+                }),
+                jsxRuntime.jsx("span", {
+                  className: "pmwf-pill waiting",
+                  children: "模板预览",
+                }),
+              ],
+            }),
+            jsxRuntime.jsx("div", {
+              className: "pmwf-note info",
+              children:
+                "当前分支未命中，子流程尚未启动；以下为子流程模板内容。",
+            }),
+            jsxRuntime.jsx("ol", {
+              className: "pmwf-nodes",
+              children: subflowDefinition.graph.nodes.map((childNode) => {
+                const childInfo = presentation.byId.get(childNode.id);
+                return jsxRuntime.jsxs(
+                  "li",
+                  {
+                    className: "pmwf-node",
+                    children: [
+                      jsxRuntime.jsxs("div", {
+                        className: "pmwf-node-card-head",
+                        style: { cursor: "default" },
+                        children: [
+                          jsxRuntime.jsx("span", {
+                            className: "pmwf-node-index",
+                            children: childInfo?.code ?? "?",
+                          }),
+                          jsxRuntime.jsx("h3", {
+                            children: childNode.name,
+                          }),
+                          jsxRuntime.jsx("span", {
+                            className: `pmwf-type-tag ${childNode.type}`,
+                            children: workflowNodeTypeLabel(childNode.type),
+                          }),
+                          jsxRuntime.jsx("span", {
+                            className: "pmwf-state waiting",
+                            style: { marginLeft: "auto" },
+                            children: "未启动",
+                          }),
+                        ],
+                      }),
+                      childNode.description
+                        ? jsxRuntime.jsx("p", {
+                            className: "pmwf-node-desc",
+                            children: childNode.description,
+                          })
+                        : null,
+                    ],
+                  },
+                  childNode.id,
+                );
+              }),
+            }),
+          ],
+        });
+      };
+
       const currentOwnerIds = (instance) => {
         const definition =
           definitions.find(
@@ -3665,13 +4597,18 @@ window.__ModuleLoader__.load({
           (definition?.name ?? "").toLowerCase().includes(needle)
         );
       });
+      /** 详情页模式：选中某条实例后整页切到详情，列表与筛选暂时隐藏。 */
+      // 只有当前数据范围内仍存在这条实例时才进入详情模式；否则切范围后会只剩空白页。
+      const detailMode =
+        openId !== "" &&
+        instances.some((item) => item.id === openId);
 
       if (phase === "login") {
         return jsxRuntime.jsx("div", {
           className: "pmwf",
           children: jsxRuntime.jsx("div", {
             className: "pmwf-empty",
-            children: "请先在「协作身份」登录。",
+            children: "请先在「账号与权限 → 登录账号」登录。",
           }),
         });
       }
@@ -3712,18 +4649,23 @@ window.__ModuleLoader__.load({
                   className: "pmwf-page-head",
                   children: [
                     jsxRuntime.jsxs("div", {
-                      children: [jsxRuntime.jsx("h1", { children: "工作流" })],
+                      children: [
+                        jsxRuntime.jsx("h1", {
+                          children: "工作流模版管理",
+                        }),
+                      ],
                     }),
                     jsxRuntime.jsx("button", {
                       type: "button",
                       className: "pmwf-btn small",
                       onClick: () => setTemplateMode(false),
-                      children: "模版管理",
+                      children: "返回工作流",
                     }),
                   ],
                 }),
                 jsxRuntime.jsx(WorkflowTemplateManager, {
                   workspaceOptions,
+                  currentWorkspaceId: workspaceId,
                   canManage,
                   onClose: () => {
                     setTemplateMode(false);
@@ -3737,7 +4679,7 @@ window.__ModuleLoader__.load({
       }
 
       return jsxRuntime.jsxs("div", {
-        className: "pmwf",
+        className: `pmwf${detailMode ? " is-detail-mode" : ""}`,
         children: [
           jsxRuntime.jsx("style", { children: css }),
           jsxRuntime.jsxs("div", {
@@ -3746,7 +4688,7 @@ window.__ModuleLoader__.load({
               jsxRuntime.jsxs("div", {
                 className: "pmwf-heading",
                 children: [
-                  jsxRuntime.jsx("h1", { children: "工作流管理" }),
+                  jsxRuntime.jsx("h1", { children: "工作流" }),
                   jsxRuntime.jsxs("div", {
                     className: "pmwf-heading-actions",
                     children: [
@@ -3764,7 +4706,12 @@ window.__ModuleLoader__.load({
                                 "aria-pressed": !showAllWorkspaces,
                                 title: "只看我已加入的项目（默认视图）",
                                 onClick: () => {
-                                  if (showAllWorkspaces) scopeStore.setAll(false);
+                                  setOpenId("");
+                                  setDetail(null);
+                                  setExpandedNodeIds(new Set());
+                                  setDeliveryPopover(null);
+                                  if (showAllWorkspaces)
+                                    scopeStore.setAll(false);
                                 },
                                 children: "仅看已加入",
                               }),
@@ -3774,9 +4721,14 @@ window.__ModuleLoader__.load({
                                   showAllWorkspaces ? " active" : ""
                                 }`,
                                 "aria-pressed": showAllWorkspaces,
-                                title: "平台管理员全量视图：显示全部项目",
+                                title: "平台管理员全量视图",
                                 onClick: () => {
-                                  if (!showAllWorkspaces) scopeStore.setAll(true);
+                                  setOpenId("");
+                                  setDetail(null);
+                                  setExpandedNodeIds(new Set());
+                                  setDeliveryPopover(null);
+                                  if (!showAllWorkspaces)
+                                    scopeStore.setAll(true);
                                 },
                                 children: "平台全量",
                               }),
@@ -3791,7 +4743,7 @@ window.__ModuleLoader__.load({
                           ? "打开工作流模板管理"
                           : "需要工作区 Owner 或全局管理员权限",
                         onClick: openWorkflowTemplateSettings,
-                        children: "模板管理",
+                        children: "模版管理",
                       }),
                       jsxRuntime.jsx("button", {
                         type: "button",
@@ -3808,6 +4760,27 @@ window.__ModuleLoader__.load({
                   }),
                 ],
               }),
+              jsxRuntime.jsx("div", {
+                className: "pmwf-kpis",
+                "aria-label": "工作流关键指标",
+                children: workflowKpis(instances).map((item) =>
+                  jsxRuntime.jsxs(
+                    "div",
+                    {
+                      className: "pmwf-kpi",
+                      children: [
+                        jsxRuntime.jsx("span", { children: item.label }),
+                        jsxRuntime.jsx("strong", {
+                          className: item.tone ?? "",
+                          children: String(item.value),
+                        }),
+                        jsxRuntime.jsx("small", { children: item.note }),
+                      ],
+                    },
+                    item.label,
+                  ),
+                ),
+              }),
               jsxRuntime.jsxs("div", {
                 className: "pmwf-toolbar",
                 children: [
@@ -3819,6 +4792,8 @@ window.__ModuleLoader__.load({
                       setStartWorkspaceId(event.target.value);
                       setOpenId("");
                       setDetail(null);
+                      setExpandedNodeIds(new Set());
+                      setDeliveryPopover(null);
                     },
                     "aria-label": "选择项目",
                     children: [
@@ -3844,12 +4819,9 @@ window.__ModuleLoader__.load({
                       jsxRuntime.jsxs("summary", {
                         title: `按状态筛选：${statusFilterLabel(statusFilters)}`,
                         children: [
-                          jsxRuntime.jsx(
-                            "span",
-                            {
-                              children: `状态：${statusFilterLabel(statusFilters)}`,
-                            },
-                          ),
+                          jsxRuntime.jsx("span", {
+                            children: `状态：${statusFilterLabel(statusFilters)}`,
+                          }),
                           jsxRuntime.jsx(
                             "span",
                             { className: "pmwf-status-multi-arrow" },
@@ -3872,24 +4844,20 @@ window.__ModuleLoader__.load({
                                     checked: statusFilters.has(value),
                                     onChange: () => toggleStatusFilter(value),
                                   }),
-                                  jsxRuntime.jsx(
-                                    "span",
-                                    { children: statusText(value) },
-                                  ),
+                                  jsxRuntime.jsx("span", {
+                                    children: statusText(value),
+                                  }),
                                 ],
                               },
                               value,
                             ),
                           ),
-                          jsxRuntime.jsx(
-                            "button",
-                            {
-                              type: "button",
-                              className: "pmwf-btn secondary pmwf-status-clear",
-                              onClick: () => setStatusFilters(new Set()),
-                              children: "清空筛选",
-                            },
-                          ),
+                          jsxRuntime.jsx("button", {
+                            type: "button",
+                            className: "pmwf-btn secondary pmwf-status-clear",
+                            onClick: () => setStatusFilters(new Set()),
+                            children: "清空筛选",
+                          }),
                         ],
                       }),
                     ],
@@ -3928,11 +4896,27 @@ window.__ModuleLoader__.load({
                     onClick: () => setQuery(searchInput.trim()),
                     children: "搜索",
                   }),
+                  jsxRuntime.jsx("button", {
+                    type: "button",
+                    className: "pmwf-btn secondary small pmwf-toolbar-clear",
+                    disabled:
+                      statusFilters.size === 0 &&
+                      ownerFilter === "all" &&
+                      query.trim() === "" &&
+                      searchInput.trim() === "",
+                    onClick: () => {
+                      setStatusFilters(new Set());
+                      setOwnerFilter("all");
+                      setQuery("");
+                      setSearchInput("");
+                    },
+                    children: "清除筛选",
+                  }),
                 ],
               }),
               !canStart
                 ? jsxRuntime.jsx("div", {
-                    className: "pmwf-note info",
+                    className: "pmwf-note info pmwf-toolbar-note",
                     children:
                       "访客不能发起流程；需要工作区成员、负责人或管理员权限。",
                   })
@@ -4267,6 +5251,19 @@ window.__ModuleLoader__.load({
                     onClose: () => setTemplatePreview(null),
                   })
                 : null,
+              jsxRuntime.jsxs("div", {
+                className: "pmwf-list-head",
+                children: [
+                  jsxRuntime.jsx("h2", { children: "工作流实例" }),
+                  jsxRuntime.jsx("span", {
+                    children: `${filtered.length} 个${
+                      filtered.length === instances.length
+                        ? ""
+                        : ` / 共 ${instances.length} 个`
+                    }`,
+                  }),
+                ],
+              }),
               filtered.length === 0
                 ? jsxRuntime.jsx("div", {
                     className: "pmwf-empty",
@@ -4304,987 +5301,1513 @@ window.__ModuleLoader__.load({
                           : "当前项目暂无流程实例。",
                   })
                 : jsxRuntime.jsx("div", {
-                    className: "pmwf-list",
-	                    children: [
-	                      openId === ""
-	                        ? jsxRuntime.jsx("div", {
-	                            className: "pmwf-placeholder",
-	                            style: {
-	                              gridRow: `1 / span ${Math.max(filtered.length, 1)}`,
-	                            },
-	                            children:
-	                              "从左侧列表选择一条流程，这里显示节点、任务与审计详情",
-	                          }, "workflow-placeholder")
-	                        : null,
-	                      ...filtered.map((instance, index) => {
-                      const definition =
-                        (detail?.instance?.id === instance.id
-                          ? detail.definition
-                          : undefined) ??
-                        definitions.find(
-                          (item) => item.definitionId === instance.definitionId,
-                        ) ??
-                        definitions.find(
-                          (item) => item.id === instance.definitionId,
+                    className: `pmwf-list${detailMode ? " detail-mode" : ""}`,
+                    children: [
+                      openId === ""
+                        ? jsxRuntime.jsx(
+                            "div",
+                            {
+                              className: "pmwf-placeholder",
+                              style: {
+                                gridRow: `1 / span ${Math.max(filtered.length, 1)}`,
+                              },
+                              children:
+                                "从左侧列表选择一条流程，这里显示节点、任务与审计详情",
+                            },
+                            "workflow-placeholder",
+                          )
+                        : null,
+                      ...filtered.map((instance, index) => {
+                        const definition =
+                          (detail?.instance?.id === instance.id
+                            ? detail.definition
+                            : undefined) ??
+                          definitions.find(
+                            (item) =>
+                              item.definitionId === instance.definitionId,
+                          ) ??
+                          definitions.find(
+                            (item) => item.id === instance.definitionId,
+                          );
+                        const nodePresentation =
+                          workflowNodePresentation(definition);
+                        const isOpen = openId === instance.id;
+                        const currentState = currentStates(instance)[0];
+                        const currentNode = definition?.graph?.nodes?.find(
+                          (node) => node.id === currentState?.nodeId,
                         );
-                      const isOpen = openId === instance.id;
-                      return jsxRuntime.jsxs(
-                        "article",
-                        {
-                          className: "pmwf-flow",
-	                          key: instance.id,
-                          children: [
-                            jsxRuntime.jsxs("div", {
-                              className: `pmwf-summary-row${isOpen ? " active" : ""}`,
-	                              style: { gridRow: String(index + 1) },
-                              children: [
-                            jsxRuntime.jsxs("button", {
-                              type: "button",
-                              className: "pmwf-summary",
-                              "aria-expanded": isOpen,
-                              onClick: () => expand(instance.id),
-                              children: [
-                                jsxRuntime.jsx("span", {
-                                  className: `pmwf-dot ${pillClass(instance.status)}`,
-                                }),
-                                jsxRuntime.jsxs("span", {
-                                  className: "pmwf-name",
-                                  children: [
-                                    jsxRuntime.jsxs("span", {
-                                      className: "pmwf-title-line",
-                                      children: [
-                                        jsxRuntime.jsx("strong", {
-                                          children: instance.title,
-                                        }),
-                                        jsxRuntime.jsx(WorkflowFollowButton, {
-                                          instanceId: instance.id,
-                                          workspaceId: instance.workspaceId,
-                                          iconOnly: true,
-                                        }),
-                                      ],
-                                    }),
-                                    jsxRuntime.jsxs("span", {
-                                      className: "pmwf-time",
-                                      title: `项目：${projectName(instance)} · 更新时间：${timeShort(instance.updatedAt)}`,
-                                      children: [
-                                        `项目：${projectName(instance)}`,
-                                        jsxRuntime.jsx("span", {
-                                          className: "pmwf-time-separator",
-                                          children: "·",
-                                        }),
-                                        timeShort(instance.updatedAt),
-                                      ],
-                                    }),
-                                  ],
-                                }),
-                                jsxRuntime.jsx("span", {
-                                  className: `pmwf-status-note ${pillClass(instance.status)}`,
-                                  children: statusNoteLines(instance, definition),
-                                }),
-                                jsxRuntime.jsx("span", {
-                                  className: "pmwf-chevron",
-                                  "aria-hidden": true,
-                                }),
-                              ],
-                            }),
-                              ],
-                            }),
-	                            jsxRuntime.jsxs("div", {
-	                              className: "pmwf-detail open",
-	                              style: {
-	                                display: isOpen ? "block" : "none",
-	                                gridRow: `1 / span ${filtered.length}`,
-	                              },
-	                              children: [
-                                jsxRuntime.jsxs("div", {
-                                  className: "pmwf-detail-inner",
-                                  children: [
-                                    jsxRuntime.jsxs("div", {
-                                      className: "pmwf-detail-head",
-                                      children: [
-                                        jsxRuntime.jsxs("div", {
-                                          className: "pmwf-detail-title",
-                                          children: [
-                                            jsxRuntime.jsx("span", {
-                                              className: `pmwf-dot ${pillClass(instance.status)}`,
-                                            }),
-                                            jsxRuntime.jsx("strong", {
-                                              children: instance.title,
-                                            }),
-                                            jsxRuntime.jsxs("span", {
-                                              className: "pmwf-detail-sub",
-                                              children: [
-                                                `${instance.definitionKey} v${instance.definitionVersion} · `,
-                                                currentSummary(instance, definition),
-                                              ],
-                                            }),
-                                          ],
-                                        }),
-                                        jsxRuntime.jsx("span", {
-                                          className: "pmwf-time",
-                                          title: `更新时间：${timeShort(instance.updatedAt)}`,
-                                          children: `更新 ${timeShort(instance.updatedAt)}`,
-                                        }),
-                                      ],
-                                    }),
-                                    jsxRuntime.jsxs("div", {
-                                      className: "pmwf-detail-meta",
-                                      children: [
-                                        jsxRuntime.jsxs("span", {
-                                          children: [
-                                            "项目：",
-                                            jsxRuntime.jsx("b", {
-                                              children: projectName(instance),
-                                            }),
-                                          ],
-                                        }),
-                                        jsxRuntime.jsxs("span", {
-                                          children: [
-                                            "创建人：",
-                                            jsxRuntime.jsx("b", {
-                                              children:
-                                                creatorName(instance),
-                                            }),
-                                          ],
-                                        }),
-                                        jsxRuntime.jsxs("span", {
-                                          children: [
-                                            "创建时间：",
-                                            jsxRuntime.jsx("b", {
-                                              children:
-                                                timeShort(instance.createdAt),
-                                            }),
-                                          ],
-                                        }),
-                                      ],
-                                    }),
-                                    detail?.instance?.id !== instance.id
-                                      ? jsxRuntime.jsx("div", {
-                                          className: "pmwf-note info",
-                                          children: "加载节点详情…",
-                                        })
-                                      : jsxRuntime.jsxs(react.Fragment, {
-                                          children: [
-                                        jsxRuntime.jsxs("div", {
-                                          className: "pmwf-row",
-                                          style: {
-                                            alignItems: "center",
-                                            justifyContent: "space-between",
-                                            marginBottom: 8,
-                                          },
-                                          children: [
-                                            jsxRuntime.jsxs("span", {
-                                              className: "pmwf-label",
-                                              children: [
-                                                "基于模板：",
-                                                jsxRuntime.jsx("b", {
-                                                  children: definition
-                                                    ? `${definition.name} v${definition.version}`
-                                                    : `${instance.definitionKey} v${instance.definitionVersion}`,
-                                                }),
-                                              ],
-                                            }),
-                                            jsxRuntime.jsx("button", {
-                                              type: "button",
-                                              className:
-                                                "pmwf-btn secondary small",
-                                              disabled: !definition,
-                                              title: definition
-                                                ? "查看工作流模版详情"
-                                                : "模板详情不可用",
-                                              onClick: () =>
-                                                setTemplatePreview(definition),
-                                              children: "查看模板详情",
-                                            }),
-                                          ],
-                                        }),
-                                        jsxRuntime.jsx("ol", {
-                                          className: "pmwf-nodes",
-                                          children: (
-                                            definition?.graph.nodes ?? []
-                                          ).map((node) => {
-                                            const state =
-                                              detail.instance.nodes[node.id];
-                                            const approvalKey =
-                                              pendingApproverKey(
-                                                state,
-                                                detail.actor,
-                                              );
-                                            const actionable =
-                                              state?.status === "ready" ||
-                                              (approvalKey !== undefined &&
-                                                state?.status === "waiting" &&
-                                                state?.enteredAt !== undefined);
-                                            const canCountersign =
-                                              node.type === "approval" &&
-                                              approvalKey !== undefined;
-                                            const pendingApproverNames =
-                                              node.type === "approval"
-                                                ? Object.values(
-                                                    state?.approvals ?? {},
-                                                  )
-                                                    .filter(
-                                                      (approval) =>
-                                                        approval.status ===
-                                                        "pending",
-                                                    )
-                                                    .map((approval) =>
-                                                      approverLabel(
-                                                        approval.approver,
-                                                        memberNames,
-                                                      ),
-                                                    )
-                                                    .join("、")
-                                                : "";
-                                            const activeLoopRules =
-                                              loopRules(definition);
-                                            const outgoingLoopRule =
-                                              activeLoopRules.find(
-                                                (rule) =>
-                                                  rule.edge.from === node.id,
-                                              );
-                                            const blockedLoopRule =
-                                              triggeredLoopRule(
-                                                activeLoopRules,
-                                                node.id,
-                                                state,
-                                              );
-                                            return jsxRuntime.jsxs(
-                                              "li",
-                                              {
-                                                className: `pmwf-node ${nodeClass(state)} ${isBranch(definition, node.id) ? "branch" : ""}`,
+                        const currentDue = currentNode
+                          ? workflowNodeDue(currentNode, currentState)
+                          : undefined;
+                        const currentDueLabel =
+                          formatDueLabel(currentDue);
+                        return jsxRuntime.jsxs(
+                          "article",
+                          {
+                            className: "pmwf-flow",
+                            key: instance.id,
+                            children: [
+                              jsxRuntime.jsxs("div", {
+                                className: `pmwf-summary-row${isOpen ? " active" : ""}`,
+                                style: { gridRow: String(index + 1) },
+                                children: [
+                                  jsxRuntime.jsxs("button", {
+                                    type: "button",
+                                    className: "pmwf-summary",
+                                    "aria-expanded": isOpen,
+                                    onClick: () => expand(instance.id),
+                                    children: [
+                                      jsxRuntime.jsx("span", {
+                                        className: `pmwf-dot ${pillClass(instance.status)}`,
+                                      }),
+                                      jsxRuntime.jsxs("span", {
+                                        className: "pmwf-name",
+                                        children: [
+                                          jsxRuntime.jsxs("span", {
+                                            className: "pmwf-title-line",
+                                            children: [
+                                              jsxRuntime.jsx("strong", {
+                                                children: instance.title,
+                                              }),
+                                              jsxRuntime.jsx(
+                                                WorkflowFollowButton,
+                                                {
+                                                  instanceId: instance.id,
+                                                  workspaceId:
+                                                    instance.workspaceId,
+                                                  iconOnly: true,
+                                                },
+                                              ),
+                                            ],
+                                          }),
+                                          jsxRuntime.jsxs("span", {
+                                            className: "pmwf-current-line",
+                                            title: currentDueLabel,
+                                            children: [
+                                              "当前：",
+                                              jsxRuntime.jsx("b", {
+                                                children:
+                                                  currentNode?.name ??
+                                                  (instance.status ===
+                                                  "completed"
+                                                    ? "流程已完成"
+                                                    : "—"),
+                                              }),
+                                              currentState?.assignedTo
+                                                ? ` · ${currentState.assignedTo}`
+                                                : "",
+                                              currentDueLabel
+                                                ? jsxRuntime.jsx("span", {
+                                                    className: `pmwf-current-due${workflowDueOverdue(currentDue) ? " overdue" : ""}`,
+                                                    children: ` · ${currentDueLabel}`,
+                                                  })
+                                                : null,
+                                            ],
+                                          }),
+                                        ],
+                                      }),
+                                      jsxRuntime.jsxs("span", {
+                                        className: "pmwf-row-meta",
+                                        children: [
+                                          jsxRuntime.jsxs("span", {
+                                            title: `项目：${projectName(instance)}`,
+                                            children: [
+                                              "项目：",
+                                              projectName(instance),
+                                            ],
+                                          }),
+                                        ],
+                                      }),
+                                      jsxRuntime.jsx("span", {
+                                        className: `pmwf-status-note ${pillClass(instance.status)}`,
+                                        children: [
+                                          jsxRuntime.jsx("span", {
+                                            children: statusText(
+                                              instance.status,
+                                            ),
+                                          }),
+                                          jsxRuntime.jsx("span", {
+                                            className: "pmwf-status-meta",
+                                            title: `更新：${instance.updatedByName ?? creatorName(instance)} ${timeShort(instance.updatedAt)}`,
+                                            children: `${instance.updatedByName ?? creatorName(instance)} ${timeShort(instance.updatedAt)}`,
+                                          }),
+                                        ],
+                                      }),
+                                      jsxRuntime.jsx("span", {
+                                        className: "pmwf-chevron",
+                                        "aria-hidden": true,
+                                      }),
+                                    ],
+                                  }),
+                                ],
+                              }),
+                              jsxRuntime.jsxs("div", {
+                                className: "pmwf-detail open",
+                                style: {
+                                  display: isOpen ? "block" : "none",
+                                  gridRow: detailMode
+                                    ? "auto"
+                                    : `1 / span ${filtered.length}`,
+                                },
+                                children: [
+                                  jsxRuntime.jsxs("div", {
+                                    className: "pmwf-detail-inner",
+                                    children: [
+                                      jsxRuntime.jsxs("div", {
+                                        className: "pmwf-detail-head",
+                                        children: [
+                                          jsxRuntime.jsxs("div", {
+                                            className: "pmwf-detail-title",
+                                            children: [
+                                              jsxRuntime.jsx("button", {
+                                                type: "button",
+                                                className:
+                                                  "pmwf-btn secondary small pmwf-detail-back",
+                                                onClick: () => {
+                                                  setOpenId("");
+                                                  setDetail(null);
+                                                  setDeliveryPopover(null);
+                                                },
+                                                children: "← 返回",
+                                              }),
+                                              jsxRuntime.jsxs("span", {
+                                                className: "pmwf-crumb",
+                                                title: `工作流 / ${instance.title}`,
                                                 children: [
-                                                  jsxRuntime.jsx("span", {
-                                                    className: "pmwf-state",
-                                                    children:
-                                                      workflowNodeStatusText(
-                                                        node,
-                                                        state,
-                                                      ),
+                                                  "工作流 / ",
+                                                  jsxRuntime.jsx("b", {
+                                                    children: instance.title,
                                                   }),
-                                                  jsxRuntime.jsxs("div", {
-                                                    className: "pmwf-node-main",
-                                                    children: [
-                                                      jsxRuntime.jsx("strong", {
-                                                        children: node.name,
-                                                      }),
-                                                      jsxRuntime.jsxs("span", {
-                                                        children: [
-                                                          executorLabel(node),
-                                                          state?.enteredAt
-                                                            ? ` · 进入 ${timeShort(state.enteredAt)}`
-                                                            : "",
-                                                          state?.note
-                                                            ? ` · ${state.note}`
-                                                            : "",
-                                                        ],
-                                                      }),
-                                                      outgoingLoopRule
-                                                        ? jsxRuntime.jsx(
-                                                            "div",
-                                                            {
-                                                              className:
-                                                                "pmwf-note warning",
-                                                              children:
-                                                                loopHint(
-                                                                  outgoingLoopRule,
-                                                                  detail.instance,
-                                                                ),
-                                                            },
+                                                ],
+                                              }),
+                                              jsxRuntime.jsx(
+                                                WorkflowFollowButton,
+                                                {
+                                                  instanceId: instance.id,
+                                                  workspaceId:
+                                                    instance.workspaceId,
+                                                  iconOnly: true,
+                                                },
+                                              ),
+                                            ],
+                                          }),
+                                          jsxRuntime.jsx("span", {
+                                            className: "pmwf-time",
+                                            title: `更新时间：${timeShort(instance.updatedAt)}`,
+                                            children: `更新 ${timeShort(instance.updatedAt)}`,
+                                          }),
+                                        ],
+                                      }),
+                                      jsxRuntime.jsxs("div", {
+                                        className: "pmwf-detail-meta",
+                                        children: [
+                                          jsxRuntime.jsxs("span", {
+                                            children: [
+                                              "项目：",
+                                              jsxRuntime.jsx("b", {
+                                                children: projectName(instance),
+                                              }),
+                                            ],
+                                          }),
+                                          jsxRuntime.jsxs("span", {
+                                            className:
+                                              "pmwf-detail-meta-right",
+                                            children: [
+                                              jsxRuntime.jsxs("span", {
+                                                children: [
+                                                  "创建人：",
+                                                  jsxRuntime.jsx("b", {
+                                                    children:
+                                                      creatorName(instance),
+                                                  }),
+                                                ],
+                                              }),
+                                              jsxRuntime.jsxs("span", {
+                                                children: [
+                                                  "创建时间：",
+                                                  jsxRuntime.jsx("b", {
+                                                    children: timeShort(
+                                                      instance.createdAt,
+                                                    ),
+                                                  }),
+                                                ],
+                                              }),
+                                            ],
+                                          }),
+                                        ],
+                                      }),
+                                      detail?.instance?.id !== instance.id
+                                        ? jsxRuntime.jsx("div", {
+                                            className: "pmwf-note info",
+                                            children: "加载节点详情…",
+                                          })
+                                        : jsxRuntime.jsxs(react.Fragment, {
+                                            children: [
+                                              jsxRuntime.jsx(
+                                                WorkflowFlowOverview,
+                                                {
+                                                  definition,
+                                                  states:
+                                                    detail.instance.nodes,
+                                                  submissions:
+                                                    detail.submissions ?? [],
+                                                  onTemplateOpen: () =>
+                                                    setTemplatePreview(
+                                                      definition,
+                                                    ),
+                                                  onSelectNode:
+                                                    toggleNodeExpanded,
+                                                  resolveSubflow:
+                                                    resolveSubflowDefinition,
+                                                  onDeliverableOpen: (
+                                                    nodeId,
+                                                    rect,
+                                                  ) =>
+                                                    setDeliveryPopover({
+                                                      nodeId,
+                                                      left: rect.left,
+                                                      top: rect.bottom + 6,
+                                                    }),
+                                                },
+                                              ),
+                                              jsxRuntime.jsxs("div", {
+                                                className:
+                                                  "pmwf-node-section-title",
+                                                children: [
+                                                  jsxRuntime.jsx("h2", {
+                                                    children: "节点详情",
+                                                  }),
+                                                  jsxRuntime.jsx("span", {
+                                                    children: `${(definition?.graph.nodes ?? []).length} 个节点`,
+                                                  }),
+                                                ],
+                                              }),
+                                              jsxRuntime.jsx("ol", {
+                                                className: "pmwf-nodes",
+                                                children: (
+                                                  definition?.graph.nodes ?? []
+                                                ).map((node) => {
+                                                  const state =
+                                                    detail.instance.nodes[
+                                                      node.id
+                                                    ];
+                                                  const info =
+                                                    nodePresentation.byId.get(
+                                                      node.id,
+                                                    );
+                                                  const expanded =
+                                                    expandedNodeIds.has(
+                                                      node.id,
+                                                    );
+                                                  const subflowDefinition =
+                                                    node.type === "subworkflow"
+                                                      ? resolveSubflowDefinition(
+                                                          node,
+                                                        )
+                                                      : undefined;
+                                                  const subflowCount =
+                                                    subflowDefinition?.graph
+                                                      ?.nodes?.length ?? 0;
+                                                  const headlineDelivery =
+                                                    workflowDeliverableSummary(
+                                                      node,
+                                                      state,
+                                                      detail.submissions ?? [],
+                                                    );
+                                                  const approvalKey =
+                                                    pendingApproverKey(
+                                                      state,
+                                                      detail.actor,
+                                                    );
+                                                  const actionable =
+                                                    state?.status === "ready" ||
+                                                    (approvalKey !==
+                                                      undefined &&
+                                                      state?.status ===
+                                                        "waiting" &&
+                                                      state?.enteredAt !==
+                                                        undefined);
+                                                  const canCountersign =
+                                                    node.type === "approval" &&
+                                                    approvalKey !== undefined;
+                                                  const pendingApproverNames =
+                                                    node.type === "approval"
+                                                      ? Object.values(
+                                                          state?.approvals ??
+                                                            {},
+                                                        )
+                                                          .filter(
+                                                            (approval) =>
+                                                              approval.status ===
+                                                              "pending",
                                                           )
-                                                        : null,
-                                                      blockedLoopRule
-                                                        ? jsxRuntime.jsx(
-                                                            "div",
-                                                            {
-                                                              className:
-                                                                "pmwf-note error",
-                                                              children:
-                                                                blockedLoopRule.limit ===
-                                                                null
-                                                                  ? `循环保护已触发，后续流程阻断。触发条件：${blockedLoopRule.edge.breakCondition}`
-                                                                  : `已达到尝试上限：最多尝试 ${blockedLoopRule.limit} 次，后续流程已阻断。`,
-                                                            },
-                                                          )
-                                                        : null,
-                                                      node.type ===
-                                                        "subworkflow" &&
-                                                      state?.childInstanceId
-                                                        ? nestedChildCard(
-                                                            state.childInstanceId,
-                                                          )
-                                                        : null,
-                                                      node.type === "approval"
-                                                        ? jsxRuntime.jsx(
-                                                            WorkflowApprovalList,
-                                                            {
-                                                              approvals:
-                                                                state?.approvals,
+                                                          .map((approval) =>
+                                                            approverLabel(
+                                                              approval.approver,
                                                               memberNames,
-                                                              teammateById,
-                                                            },
-                                                          )
-                                                        : null,
-                                                      node.type ===
-                                                        "approval" &&
-                                                      actionable &&
-                                                      !approvalKey &&
-                                                      pendingApproverNames
-                                                        ? jsxRuntime.jsx(
-                                                            "div",
-                                                            {
-                                                              className:
-                                                                "pmwf-note info",
-                                                              children: `当前账号不是该审批的审批人。请切换到 ${pendingApproverNames} 登录，或由当前审批人加签给你。`,
-                                                            },
-                                                          )
-                                                        : null,
-                                                      node.executor.kind ===
-                                                        "agent" ||
-                                                      node.executor.kind ===
-                                                        "employee"
-                                                        ? AgentRunPanel({
-                                                            node,
-                                                            state,
-                                                            runs: (
-                                                              detail.agentRuns ??
-                                                              []
-                                                            ).filter(
-                                                              (run) =>
-                                                                run.instanceId ===
-                                                                  instance.id &&
-                                                                run.nodeId ===
-                                                                  node.id,
                                                             ),
-                                                            busy,
-                                                            act,
-                                                            workspaceId:
-                                                              effectiveWorkspaceId,
-                                                            instanceId:
-                                                              instance.id,
-                                                            actor: detail.actor,
-                                                            isManager,
-                                                            notes:
-                                                              agentInterventionNotes,
-                                                            onNoteChange:
-                                                              setAgentInterventionNote,
-                                                          })
-                                                        : null,
-                                                      jsxRuntime.jsx(DeliverablePanel, {
-                                                        node,
-                                                        state,
-                                                        detail,
-                                                        instance,
-                                                        runs: (
-                                                          detail.agentRuns ?? []
-                                                        ).filter(
-                                                          (run) =>
-                                                            run.instanceId ===
-                                                              instance.id &&
-                                                            run.nodeId ===
+                                                          )
+                                                          .join("、")
+                                                      : "";
+                                                  const activeLoopRules =
+                                                    loopRules(definition);
+                                                  const outgoingLoopRule =
+                                                    activeLoopRules.find(
+                                                      (rule) =>
+                                                        rule.edge.from ===
+                                                        node.id,
+                                                    );
+                                                  const blockedLoopRule =
+                                                    triggeredLoopRule(
+                                                      activeLoopRules,
+                                                      node.id,
+                                                      state,
+                                                    );
+                                                  return jsxRuntime.jsxs(
+                                                    "li",
+                                                    {
+                                                      id: `pmwf-node-${node.id}`,
+                                                      className: `pmwf-node ${nodeClass(state)}${info?.join ? " join" : ""}${expanded ? "" : " collapsed"}`,
+                                                      children: [
+                                                        jsxRuntime.jsxs("div", {
+                                                          className:
+                                                            "pmwf-node-card-head",
+                                                          role: "button",
+                                                          tabIndex: 0,
+                                                          "aria-expanded":
+                                                            expanded,
+                                                          onClick: () =>
+                                                            toggleNodeExpanded(
                                                               node.id,
-                                                        ),
-                                                        isManager,
-                                                        busy,
-                                                        drafts:
-                                                          deliverableDrafts,
-                                                        files: deliverableFiles,
-                                                        onDraft:
-                                                          setDeliverableDraft,
-                                                        onFile:
-                                                          setDeliverableFile,
-                                                        onSubmit:
-                                                          submitDeliverable,
-                                                        onDownload:
-                                                          downloadDeliverable,
-                                                        onReject:
-                                                          rejectDeliverable,
-                                                      }),
-                                                      systemServiceHint(
-                                                        node,
-                                                        state,
-                                                        isManager,
-                                                      )
-                                                        ? jsxRuntime.jsx(
-                                                            "div",
-                                                            {
-                                                              className:
-                                                                "pmwf-note info",
-                                                              children:
-                                                                systemServiceHint(
-                                                                  node,
-                                                                  state,
-                                                                  isManager,
-                                                                ),
-                                                            },
-                                                            "system-service-hint",
-                                                          )
-                                                        : null,
-                                                      actionable
-                                                        ? jsxRuntime.jsxs(
-                                                            "div",
-                                                            {
-                                                              className:
-                                                                "pmwf-actions",
-                                                              children: [
-                                                                [
-                                                                  "task",
-                                                                  "service",
-                                                                ].includes(
-                                                                  node.type,
-                                                                )
-                                                                  ? jsxRuntime.jsx(
-                                                                      "button",
-                                                                      {
-                                                                        type: "button",
-                                                                        className:
-                                                                          "pmwf-btn small",
-                                                                        disabled:
-                                                                          busy !==
-                                                                            "" ||
-                                                                          missingDeliverables(
-                                                                            node,
-                                                                            state,
-                                                                          )
-                                                                            .length >
-                                                                            0 ||
-                                                                          !canCompleteNode(
-                                                                            node,
-                                                                            detail.actor,
-                                                                            isManager,
-                                                                          ),
-                                                                        onClick:
-                                                                          () =>
-                                                                            act(
-                                                                              `complete:${node.id}`,
-                                                                              "/api/collab/workflow/nodes/complete",
-                                                                              {
-                                                                                instanceId:
-                                                                                  instance.id,
-                                                                                nodeId:
-                                                                                  node.id,
-                                                                              },
-                                                                              `已完成「${node.name}」`,
-                                                                            ),
-                                                                        children:
-                                                                          completeButtonLabel(
-                                                                            node,
-                                                                            detail.actor,
-                                                                            isManager,
-                                                                            memberNames,
-                                                                            state,
-                                                                          ),
-                                                                      },
-                                                                    )
-                                                                  : null,
-                                                                node.type ===
-                                                                  "approval" &&
-                                                                approvalKey
-                                                                  ? [
-                                                                      jsxRuntime.jsx(
-                                                                        "input",
-                                                                        {
-                                                                          type: "text",
-                                                                          className:
-                                                                            "pmwf-input small",
-                                                                          placeholder:
-                                                                            "审批意见（可选）",
-                                                                          value:
-                                                                            approvalNote,
-                                                                          onChange:
-                                                                            (
-                                                                              event,
-                                                                            ) =>
-                                                                              setApprovalNote(
-                                                                                event
-                                                                                  .target
-                                                                                  .value,
-                                                                              ),
-                                                                          style:
-                                                                            {
-                                                                              minWidth: 160,
-                                                                              flex: "1 1 120px",
-                                                                            },
-                                                                        },
-                                                                        "approval-note",
-                                                                      ),
-                                                                      jsxRuntime.jsx(
-                                                                        "button",
-                                                                        {
-                                                                          type: "button",
-                                                                          className:
-                                                                            "pmwf-btn small",
-                                                                          disabled:
-                                                                            busy !==
-                                                                            "",
-                                                                          onClick:
-                                                                            () =>
-                                                                              act(
-                                                                                `approve:${node.id}`,
-                                                                                "/api/collab/workflow/approvals/decide",
-                                                                                {
-                                                                                  instanceId:
-                                                                                    instance.id,
-                                                                                  nodeId:
-                                                                                    node.id,
-                                                                                  decision:
-                                                                                    "approved",
-                                                                                  note:
-                                                                                    approvalNote ||
-                                                                                    undefined,
-                                                                                },
-                                                                                "已通过审批",
-                                                                              ),
-                                                                          children:
-                                                                            "通过",
-                                                                        },
-                                                                        "approve",
-                                                                      ),
-                                                                      jsxRuntime.jsx(
-                                                                        "button",
-                                                                        {
-                                                                          type: "button",
-                                                                          className:
-                                                                            "pmwf-btn secondary small",
-                                                                          disabled:
-                                                                            busy !==
-                                                                            "",
-                                                                          onClick:
-                                                                            () =>
-                                                                              act(
-                                                                                `reject:${node.id}`,
-                                                                                "/api/collab/workflow/approvals/decide",
-                                                                                {
-                                                                                  instanceId:
-                                                                                    instance.id,
-                                                                                  nodeId:
-                                                                                    node.id,
-                                                                                  decision:
-                                                                                    "rejected",
-                                                                                  note:
-                                                                                    approvalNote ||
-                                                                                    undefined,
-                                                                                },
-                                                                                "已否决审批",
-                                                                              ),
-                                                                          children:
-                                                                            "否决",
-                                                                        },
-                                                                        "reject",
-                                                                      ),
-                                                                      jsxRuntime.jsx(
-                                                                        "button",
-                                                                        {
-                                                                          type: "button",
-                                                                          className:
-                                                                            "pmwf-btn secondary small",
-                                                                          onClick:
-                                                                            () =>
-                                                                              setGateForm(
-                                                                                {
-                                                                                  mode: "delegate",
-                                                                                  instanceId:
-                                                                                    instance.id,
-                                                                                  nodeId:
-                                                                                    node.id,
-                                                                                  toId: "",
-                                                                                },
-                                                                              ),
-                                                                          children:
-                                                                            "转交",
-                                                                        },
-                                                                        "delegate",
-                                                                      ),
-                                                                    ]
-                                                                  : null,
-                                                                node.type ===
-                                                                  "approval" &&
-                                                                canCountersign
-                                                                  ? jsxRuntime.jsx(
-                                                                      "button",
-                                                                      {
-                                                                        type: "button",
-                                                                        className:
-                                                                          "pmwf-btn secondary small",
-                                                                        onClick:
-                                                                          () =>
-                                                                            setGateForm(
-                                                                              {
-                                                                                mode: "countersign",
-                                                                                instanceId:
-                                                                                  instance.id,
-                                                                                nodeId:
-                                                                                  node.id,
-                                                                                toId: "",
-                                                                              },
-                                                                            ),
-                                                                        children:
-                                                                          "加签",
-                                                                      },
-                                                                    )
-                                                                  : null,
-                                                                node.type ===
-                                                                "decision"
-                                                                  ? jsxRuntime.jsx(
-                                                                      "button",
-                                                                      {
-                                                                        type: "button",
-                                                                        className:
-                                                                          "pmwf-btn small",
-                                                                        onClick:
-                                                                          () => {
-                                                                            setDecisionValues(
-                                                                              JSON.stringify(
-                                                                                detail
-                                                                                  .instance
-                                                                                  .context ??
-                                                                                  {},
-                                                                                null,
-                                                                                2,
-                                                                              ),
-                                                                            );
-                                                                            setGateForm(
-                                                                              {
-                                                                                mode: "decision",
-                                                                                instanceId:
-                                                                                  instance.id,
-                                                                                nodeId:
-                                                                                  node.id,
-                                                                              },
-                                                                            );
-                                                                          },
-                                                                        children:
-                                                                          "录入判断",
-                                                                      },
-                                                                    )
-                                                                  : null,
-                                                              ],
-                                                            },
-                                                          )
-                                                        : null,
-                                                      gateForm?.instanceId ===
-                                                        instance.id &&
-                                                      gateForm.nodeId ===
-                                                        node.id
-                                                        ? jsxRuntime.jsxs(
-                                                            "form",
-                                                            {
-                                                              className:
-                                                                "pmwf-form",
-                                                              onSubmit: (
-                                                                event,
-                                                              ) => {
-                                                                event.preventDefault();
-                                                                if (
-                                                                  gateForm.mode ===
-                                                                  "decision"
-                                                                ) {
-                                                                  let values;
-                                                                  try {
-                                                                    values =
-                                                                      JSON.parse(
-                                                                        decisionValues,
-                                                                      );
-                                                                  } catch {
-                                                                    setError(
-                                                                      '判断结果必须是 JSON，例如 {"complexity":8}',
-                                                                    );
-                                                                    return;
-                                                                  }
-                                                                  act(
-                                                                    `decision:${node.id}`,
-                                                                    "/api/collab/workflow/decisions/resolve",
-                                                                    {
-                                                                      instanceId:
-                                                                        instance.id,
-                                                                      nodeId:
-                                                                        node.id,
-                                                                      values,
-                                                                    },
-                                                                    "已记录判断",
-                                                                  );
-                                                                } else {
-                                                                  const target =
-                                                                    members.find(
-                                                                      (item) =>
-                                                                        item.userId ===
-                                                                        gateForm.toId,
-                                                                    );
-                                                                  act(
-                                                                    `${gateForm.mode}:${node.id}`,
-                                                                    `/api/collab/workflow/approvals/${gateForm.mode === "delegate" ? "delegate" : "countersign"}`,
-                                                                    {
-                                                                      instanceId:
-                                                                        instance.id,
-                                                                      nodeId:
-                                                                        node.id,
-                                                                      toId: gateForm.toId,
-                                                                      toName:
-                                                                        target?.name ??
-                                                                        gateForm.toId,
-                                                                    },
-                                                                    gateForm.mode ===
-                                                                      "delegate"
-                                                                      ? "已转交审批"
-                                                                      : "已加签审批",
-                                                                  );
-                                                                }
+                                                            ),
+                                                          onKeyDown: (event) => {
+                                                            if (
+                                                              event.key !==
+                                                                "Enter" &&
+                                                              event.key !== " "
+                                                            ) {
+                                                              return;
+                                                            }
+                                                            event.preventDefault();
+                                                            toggleNodeExpanded(
+                                                              node.id,
+                                                            );
+                                                          },
+                                                          children: [
+                                                            jsxRuntime.jsx(
+                                                              "span",
+                                                              {
+                                                                className:
+                                                                  "pmwf-node-index",
+                                                                children:
+                                                                  info?.code ??
+                                                                  "?",
                                                               },
-                                                              children: [
-                                                                gateForm.mode ===
-                                                                "decision"
-                                                                  ? jsxRuntime.jsx(
-                                                                      "textarea",
-                                                                      {
-                                                                        className:
-                                                                          "pmwf-area",
-                                                                        rows: 3,
-                                                                        value:
-                                                                          decisionValues,
-                                                                        onChange:
-                                                                          (
-                                                                            event,
-                                                                          ) =>
-                                                                            setDecisionValues(
-                                                                              event
-                                                                                .target
-                                                                                .value,
-                                                                            ),
-                                                                        placeholder:
-                                                                          '{"complexity": 8}',
-                                                                      },
-                                                                    )
-                                                                  : jsxRuntime.jsxs(
-                                                                      "div",
-                                                                      {
-                                                                        className:
-                                                                          "pmwf-row",
-                                                                        children:
-                                                                          [
-                                                                            jsxRuntime.jsx(
-                                                                              "span",
-                                                                              {
-                                                                                className:
-                                                                                  "pmwf-label",
-                                                                                children:
-                                                                                  gateForm.mode ===
-                                                                                  "delegate"
-                                                                                    ? "转交给"
-                                                                                    : "加签人",
-                                                                              },
-                                                                            ),
-                                                                            jsxRuntime.jsxs(
-                                                                              "select",
-                                                                              {
-                                                                                className:
-                                                                                  "pmwf-select",
-                                                                                value:
-                                                                                  gateForm.toId,
-                                                                                onChange:
-                                                                                  (
-                                                                                    event,
-                                                                                  ) =>
-                                                                                    setGateForm(
-                                                                                      {
-                                                                                        ...gateForm,
-                                                                                        toId: event
-                                                                                          .target
-                                                                                          .value,
-                                                                                      },
-                                                                                    ),
-                                                                                required: true,
-                                                                                children:
-                                                                                  [
-                                                                                    jsxRuntime.jsx(
-                                                                                      "option",
-                                                                                      {
-                                                                                        value:
-                                                                                          "",
-                                                                                        children:
-                                                                                          "选择成员",
-                                                                                      },
-                                                                                    ),
-                                                                                    ...members
-                                                                                      .filter(
-                                                                                        (
-                                                                                          item,
-                                                                                        ) => {
-                                                                                          if (
-                                                                                            item.userId ===
-                                                                                            me?.id
-                                                                                          ) {
-                                                                                            return false;
-                                                                                          }
-                                                                                          const approval =
-                                                                                            state
-                                                                                              ?.approvals?.[
-                                                                                              `${node.id}:${item.userId}`
-                                                                                            ];
-                                                                                          return gateForm.mode ===
-                                                                                            "delegate"
-                                                                                            ? approval ===
-                                                                                                undefined
-                                                                                            : approval?.status ===
-                                                                                                "delegated";
-                                                                                        },
-                                                                                      )
-                                                                                      .map(
-                                                                                        (
-                                                                                          item,
-                                                                                        ) =>
-                                                                                          jsxRuntime.jsx(
-                                                                                            "option",
-                                                                                            {
-                                                                                              value:
-                                                                                                item.userId,
-                                                                                              children: `${item.name ?? item.userId}${state?.approvals?.[`${node.id}:${item.userId}`]?.status === "delegated" ? "（已转交）" : ""}`,
-                                                                                            },
-                                                                                            item.userId,
-                                                                                          ),
-                                                                                      ),
-                                                                                  ],
-                                                                              },
-                                                                            ),
-                                                                          ],
-                                                                      },
-                                                                    ),
-                                                                jsxRuntime.jsxs(
+                                                            ),
+                                                            jsxRuntime.jsx(
+                                                              "h3",
+                                                              {
+                                                                children:
+                                                                  node.name,
+                                                              },
+                                                            ),
+                                                            jsxRuntime.jsxs(
+                                                              "span",
+                                                              {
+                                                                className:
+                                                                  "pmwf-node-head-fields",
+                                                                children: [
+                                                                  jsxRuntime.jsxs(
+                                                                    "span",
+                                                                    {
+                                                                      children: [
+                                                                        "负责人：",
+                                                                        jsxRuntime.jsx(
+                                                                          "b",
+                                                                          {
+                                                                            children:
+                                                                              node
+                                                                                .responsible
+                                                                                ?.label ??
+                                                                              node
+                                                                                .responsible
+                                                                                ?.id ??
+                                                                              executorLabel(
+                                                                                node,
+                                                                              ),
+                                                                          },
+                                                                        ),
+                                                                      ],
+                                                                    },
+                                                                  ),
+                                                                  jsxRuntime.jsxs(
+                                                                    "span",
+                                                                    {
+                                                                      children: [
+                                                                        "执行时间：",
+                                                                        jsxRuntime.jsx(
+                                                                          "b",
+                                                                          {
+                                                                            children:
+                                                                              workflowNodeExecutionTime(
+                                                                                node,
+                                                                                state,
+                                                                              ),
+                                                                          },
+                                                                        ),
+                                                                      ],
+                                                                    },
+                                                                  ),
+                                                                  jsxRuntime.jsxs(
+                                                                    "span",
+                                                                    {
+                                                                      children: [
+                                                                        "交付物：",
+                                                                        jsxRuntime.jsx(
+                                                                          "b",
+                                                                          {
+                                                                            children:
+                                                                              headlineDelivery.total >
+                                                                              0
+                                                                                ? `${headlineDelivery.done}/${headlineDelivery.total}`
+                                                                                : "—",
+                                                                          },
+                                                                        ),
+                                                                      ],
+                                                                    },
+                                                                  ),
+                                                                ],
+                                                              },
+                                                            ),
+                                                            info?.join
+                                                              ? jsxRuntime.jsx(
+                                                                  "span",
+                                                                  {
+                                                                    className:
+                                                                      "pmwf-type-tag join",
+                                                                    children:
+                                                                      "汇合",
+                                                                  },
+                                                                )
+                                                              : null,
+                                                            jsxRuntime.jsx(
+                                                              "span",
+                                                              {
+                                                                className: `pmwf-type-tag ${node.type}`,
+                                                                children:
+                                                                  node.type ===
+                                                                    "subworkflow" &&
+                                                                  subflowCount >
+                                                                    0
+                                                                    ? `子流程 · ${subflowCount}`
+                                                                    : workflowNodeTypeLabel(
+                                                                        node.type,
+                                                                      ),
+                                                              },
+                                                            ),
+                                                            jsxRuntime.jsx(
+                                                              "span",
+                                                              {
+                                                                className: `pmwf-state ${nodeClass(state)}`,
+                                                                children:
+                                                                  workflowNodeStatusText(
+                                                                    node,
+                                                                    state,
+                                                                  ),
+                                                              },
+                                                            ),
+                                                            jsxRuntime.jsx(
+                                                              "span",
+                                                              {
+                                                                className: `pmwf-node-arrow${expanded ? " open" : ""}`,
+                                                                "aria-hidden": true,
+                                                                children: "▾",
+                                                              },
+                                                            ),
+                                                          ],
+                                                        }),
+                                                        jsxRuntime.jsxs("div", {
+                                                          className:
+                                                            "pmwf-node-facts",
+                                                          children: [
+                                                            jsxRuntime.jsxs(
+                                                              "div",
+                                                              {
+                                                                className:
+                                                                  "pmwf-fact",
+                                                                children: [
+                                                                  jsxRuntime.jsx(
+                                                                    "span",
+                                                                    {
+                                                                      children:
+                                                                        "负责人",
+                                                                    },
+                                                                  ),
+                                                                  jsxRuntime.jsx(
+                                                                    "strong",
+                                                                    {
+                                                                      children:
+                                                                        node
+                                                                          .responsible
+                                                                          ?.label ??
+                                                                        node
+                                                                          .responsible
+                                                                          ?.id ??
+                                                                        executorLabel(
+                                                                          node,
+                                                                        ),
+                                                                    },
+                                                                  ),
+                                                                ],
+                                                              },
+                                                            ),
+                                                            jsxRuntime.jsxs(
+                                                              "div",
+                                                              {
+                                                                className:
+                                                                  "pmwf-fact",
+                                                                children: [
+                                                                  jsxRuntime.jsx(
+                                                                    "span",
+                                                                    {
+                                                                      children:
+                                                                        "实际执行人",
+                                                                    },
+                                                                  ),
+                                                                  jsxRuntime.jsx(
+                                                                    "strong",
+                                                                    {
+                                                                      children:
+                                                                        state?.assignedTo ??
+                                                                        executorLabel(
+                                                                          node,
+                                                                        ),
+                                                                    },
+                                                                  ),
+                                                                ],
+                                                              },
+                                                            ),
+                                                            jsxRuntime.jsxs(
+                                                              "div",
+                                                              {
+                                                                className:
+                                                                  "pmwf-fact",
+                                                                children: [
+                                                                  jsxRuntime.jsx(
+                                                                    "span",
+                                                                    {
+                                                                      children:
+                                                                        "SLA / DDL",
+                                                                    },
+                                                                  ),
+                                                                  jsxRuntime.jsx(
+                                                                    "strong",
+                                                                    {
+                                                                      children: `${workflowSlaLabel(node)}${
+                                                                        formatDueLabel(
+                                                                          workflowNodeDue(
+                                                                            node,
+                                                                            state,
+                                                                          ),
+                                                                        )
+                                                                          ? ` · ${formatDueLabel(
+                                                                              workflowNodeDue(
+                                                                                node,
+                                                                                state,
+                                                                              ),
+                                                                            )}`
+                                                                          : ""
+                                                                      }`,
+                                                                    },
+                                                                  ),
+                                                                ],
+                                                              },
+                                                            ),
+                                                            jsxRuntime.jsxs(
+                                                              "div",
+                                                              {
+                                                                className:
+                                                                  "pmwf-fact",
+                                                                children: [
+                                                                  jsxRuntime.jsx(
+                                                                    "span",
+                                                                    {
+                                                                      children:
+                                                                        "更新时间",
+                                                                    },
+                                                                  ),
+                                                                  jsxRuntime.jsx(
+                                                                    "strong",
+                                                                    {
+                                                                      children:
+                                                                        state?.completedAt ??
+                                                                        state?.enteredAt
+                                                                          ? timeShort(
+                                                                              state.completedAt ??
+                                                                                state.enteredAt,
+                                                                            )
+                                                                          : "—",
+                                                                    },
+                                                                  ),
+                                                                ],
+                                                              },
+                                                            ),
+                                                          ],
+                                                        }),
+                                                        node.description
+                                                          ? jsxRuntime.jsx(
+                                                              "p",
+                                                              {
+                                                                className:
+                                                                  "pmwf-node-desc",
+                                                                children:
+                                                                  node.description,
+                                                              },
+                                                            )
+                                                          : null,
+                                                        state?.note
+                                                          ? jsxRuntime.jsx(
+                                                              "div",
+                                                              {
+                                                                className:
+                                                                  "pmwf-note info",
+                                                                children:
+                                                                  state.note,
+                                                              },
+                                                            )
+                                                          : null,
+                                                        jsxRuntime.jsxs("div", {
+                                                          className:
+                                                            "pmwf-node-main",
+                                                          children: [
+                                                            outgoingLoopRule
+                                                              ? jsxRuntime.jsx(
                                                                   "div",
                                                                   {
                                                                     className:
-                                                                      "pmwf-row",
+                                                                      "pmwf-note warning",
+                                                                    children:
+                                                                      loopHint(
+                                                                        outgoingLoopRule,
+                                                                        detail.instance,
+                                                                      ),
+                                                                  },
+                                                                )
+                                                              : null,
+                                                            blockedLoopRule
+                                                              ? jsxRuntime.jsx(
+                                                                  "div",
+                                                                  {
+                                                                    className:
+                                                                      "pmwf-note error",
+                                                                    children:
+                                                                      blockedLoopRule.limit ===
+                                                                      null
+                                                                        ? `循环保护已触发，后续流程阻断。触发条件：${blockedLoopRule.edge.breakCondition}`
+                                                                        : `已达到尝试上限：最多尝试 ${blockedLoopRule.limit} 次，后续流程已阻断。`,
+                                                                  },
+                                                                )
+                                                              : null,
+                                                            node.type ===
+                                                            "subworkflow"
+                                                              ? state?.childInstanceId
+                                                                ? nestedChildCard(
+                                                                    state.childInstanceId,
+                                                                    info?.code ??
+                                                                      "",
+                                                                    info?.depth ??
+                                                                      0,
+                                                                  )
+                                                                : subflowTemplatePreview(
+                                                                    node,
+                                                                    info?.code ??
+                                                                      "",
+                                                                    info?.depth ??
+                                                                      0,
+                                                                  )
+                                                              : null,
+                                                            node.type ===
+                                                            "approval"
+                                                              ? jsxRuntime.jsxs(
+                                                                  react.Fragment,
+                                                                  {
                                                                     children: [
                                                                       jsxRuntime.jsx(
-                                                                        "button",
+                                                                        "div",
                                                                         {
-                                                                          type: "submit",
                                                                           className:
-                                                                            "pmwf-btn small",
-                                                                          disabled:
-                                                                            busy !==
-                                                                              "" ||
-                                                                            ((gateForm.mode ===
-                                                                              "delegate" ||
-                                                                              gateForm.mode ===
-                                                                                "countersign") &&
-                                                                              gateForm.toId ===
-                                                                                (me ===
-                                                                                null
-                                                                                  ? undefined
-                                                                                  : me.id)),
-                                                                          title:
-                                                                            (gateForm.mode ===
-                                                                              "delegate" ||
-                                                                              gateForm.mode ===
-                                                                                "countersign") &&
-                                                                            gateForm.toId ===
-                                                                              (me ===
-                                                                              null
-                                                                                ? undefined
-                                                                                : me.id)
-                                                                              ? gateForm.mode ===
-                                                                                "delegate"
-                                                                                ? "不能转交给自己"
-                                                                                : "不能加签给自己"
-                                                                              : undefined,
+                                                                            "pmwf-node-section-head",
                                                                           children:
-                                                                            "确认",
+                                                                            jsxRuntime.jsx(
+                                                                              "strong",
+                                                                              {
+                                                                                children:
+                                                                                  "审批信息",
+                                                                              },
+                                                                            ),
                                                                         },
                                                                       ),
                                                                       jsxRuntime.jsx(
-                                                                        "button",
+                                                                        WorkflowApprovalList,
                                                                         {
-                                                                          type: "button",
-                                                                          className:
-                                                                            "pmwf-btn secondary small",
-                                                                          onClick:
-                                                                            () =>
-                                                                              setGateForm(
-                                                                                null,
-                                                                              ),
-                                                                          children:
-                                                                            "取消",
+                                                                          approvals:
+                                                                            state?.approvals,
+                                                                          memberNames,
+                                                                          teammateById,
                                                                         },
                                                                       ),
                                                                     ],
                                                                   },
+                                                                )
+                                                              : null,
+                                                            node.type ===
+                                                              "approval" &&
+                                                            actionable &&
+                                                            !approvalKey &&
+                                                            pendingApproverNames
+                                                              ? jsxRuntime.jsx(
+                                                                  "div",
+                                                                  {
+                                                                    className:
+                                                                      "pmwf-note info",
+                                                                    children: `当前账号不是该审批的审批人。请切换到 ${pendingApproverNames} 登录，或由当前审批人加签给你。`,
+                                                                  },
+                                                                )
+                                                              : null,
+                                                            node.executor
+                                                              .kind ===
+                                                              "agent" ||
+                                                            node.executor
+                                                              .kind ===
+                                                              "employee"
+                                                              ? AgentRunPanel({
+                                                                  node,
+                                                                  state,
+                                                                  runs: (
+                                                                    detail.agentRuns ??
+                                                                    []
+                                                                  ).filter(
+                                                                    (run) =>
+                                                                      run.instanceId ===
+                                                                        instance.id &&
+                                                                      run.nodeId ===
+                                                                        node.id,
+                                                                  ),
+                                                                  busy,
+                                                                  act,
+                                                                  workspaceId:
+                                                                    effectiveWorkspaceId,
+                                                                  instanceId:
+                                                                    instance.id,
+                                                                  actor:
+                                                                    detail.actor,
+                                                                  isManager,
+                                                                  notes:
+                                                                    agentInterventionNotes,
+                                                                  onNoteChange:
+                                                                    setAgentInterventionNote,
+                                                                })
+                                                              : null,
+                                                            jsxRuntime.jsx(
+                                                              DeliverablePanel,
+                                                              {
+                                                                node,
+                                                                state,
+                                                                detail,
+                                                                instance,
+                                                                runs: (
+                                                                  detail.agentRuns ??
+                                                                  []
+                                                                ).filter(
+                                                                  (run) =>
+                                                                    run.instanceId ===
+                                                                      instance.id &&
+                                                                    run.nodeId ===
+                                                                      node.id,
                                                                 ),
-                                                              ],
-                                                            },
-                                                          )
-                                                        : null,
+                                                                isManager,
+                                                                busy,
+                                                                drafts:
+                                                                  deliverableDrafts,
+                                                                files:
+                                                                  deliverableFiles,
+                                                                onDraft:
+                                                                  setDeliverableDraft,
+                                                                onFile:
+                                                                  setDeliverableFile,
+                                                                onSubmit:
+                                                                  submitDeliverable,
+                                                                onDownload:
+                                                                  downloadDeliverable,
+                                                                onReject:
+                                                                  rejectDeliverable,
+                                                              },
+                                                            ),
+                                                            systemServiceHint(
+                                                              node,
+                                                              state,
+                                                              isManager,
+                                                            )
+                                                              ? jsxRuntime.jsx(
+                                                                  "div",
+                                                                  {
+                                                                    className:
+                                                                      "pmwf-note info",
+                                                                    children:
+                                                                      systemServiceHint(
+                                                                        node,
+                                                                        state,
+                                                                        isManager,
+                                                                      ),
+                                                                  },
+                                                                  "system-service-hint",
+                                                                )
+                                                              : null,
+                                                            actionable
+                                                              ? jsxRuntime.jsxs(
+                                                                  "div",
+                                                                  {
+                                                                    className:
+                                                                      "pmwf-actions",
+                                                                    children: [
+                                                                      [
+                                                                        "task",
+                                                                        "service",
+                                                                      ].includes(
+                                                                        node.type,
+                                                                      )
+                                                                        ? jsxRuntime.jsx(
+                                                                            "button",
+                                                                            {
+                                                                              type: "button",
+                                                                              className:
+                                                                                "pmwf-btn small",
+                                                                              disabled:
+                                                                                busy !==
+                                                                                  "" ||
+                                                                                missingDeliverables(
+                                                                                  node,
+                                                                                  state,
+                                                                                )
+                                                                                  .length >
+                                                                                  0 ||
+                                                                                !canCompleteNode(
+                                                                                  node,
+                                                                                  detail.actor,
+                                                                                  isManager,
+                                                                                  state,
+                                                                                ),
+                                                                              onClick:
+                                                                                () =>
+                                                                                  act(
+                                                                                    `complete:${node.id}`,
+                                                                                    "/api/collab/workflow/nodes/complete",
+                                                                                    {
+                                                                                      instanceId:
+                                                                                        instance.id,
+                                                                                      nodeId:
+                                                                                        node.id,
+                                                                                    },
+                                                                                    `已完成「${node.name}」`,
+                                                                                  ),
+                                                                              children:
+                                                                                completeButtonLabel(
+                                                                                  node,
+                                                                                  detail.actor,
+                                                                                  isManager,
+                                                                                  memberNames,
+                                                                                  state,
+                                                                                ),
+                                                                            },
+                                                                          )
+                                                                        : null,
+                                                                      node.type ===
+                                                                        "approval" &&
+                                                                      approvalKey
+                                                                        ? [
+                                                                            jsxRuntime.jsx(
+                                                                              "input",
+                                                                              {
+                                                                                type: "text",
+                                                                                className:
+                                                                                  "pmwf-input small",
+                                                                                placeholder:
+                                                                                  "审批意见（可选）",
+                                                                                value:
+                                                                                  approvalNote,
+                                                                                onChange:
+                                                                                  (
+                                                                                    event,
+                                                                                  ) =>
+                                                                                    setApprovalNote(
+                                                                                      event
+                                                                                        .target
+                                                                                        .value,
+                                                                                    ),
+                                                                                style:
+                                                                                  {
+                                                                                    minWidth: 160,
+                                                                                    flex: "1 1 120px",
+                                                                                  },
+                                                                              },
+                                                                              "approval-note",
+                                                                            ),
+                                                                            jsxRuntime.jsx(
+                                                                              "button",
+                                                                              {
+                                                                                type: "button",
+                                                                                className:
+                                                                                  "pmwf-btn small",
+                                                                                disabled:
+                                                                                  busy !==
+                                                                                  "",
+                                                                                onClick:
+                                                                                  () =>
+                                                                                    act(
+                                                                                      `approve:${node.id}`,
+                                                                                      "/api/collab/workflow/approvals/decide",
+                                                                                      {
+                                                                                        instanceId:
+                                                                                          instance.id,
+                                                                                        nodeId:
+                                                                                          node.id,
+                                                                                        decision:
+                                                                                          "approved",
+                                                                                        note:
+                                                                                          approvalNote ||
+                                                                                          undefined,
+                                                                                      },
+                                                                                      "已通过审批",
+                                                                                    ),
+                                                                                children:
+                                                                                  "通过",
+                                                                              },
+                                                                              "approve",
+                                                                            ),
+                                                                            jsxRuntime.jsx(
+                                                                              "button",
+                                                                              {
+                                                                                type: "button",
+                                                                                className:
+                                                                                  "pmwf-btn secondary small",
+                                                                                disabled:
+                                                                                  busy !==
+                                                                                  "",
+                                                                                onClick:
+                                                                                  () =>
+                                                                                    act(
+                                                                                      `reject:${node.id}`,
+                                                                                      "/api/collab/workflow/approvals/decide",
+                                                                                      {
+                                                                                        instanceId:
+                                                                                          instance.id,
+                                                                                        nodeId:
+                                                                                          node.id,
+                                                                                        decision:
+                                                                                          "rejected",
+                                                                                        note:
+                                                                                          approvalNote ||
+                                                                                          undefined,
+                                                                                      },
+                                                                                      "已否决审批",
+                                                                                    ),
+                                                                                children:
+                                                                                  "否决",
+                                                                              },
+                                                                              "reject",
+                                                                            ),
+                                                                            jsxRuntime.jsx(
+                                                                              "button",
+                                                                              {
+                                                                                type: "button",
+                                                                                className:
+                                                                                  "pmwf-btn secondary small",
+                                                                                onClick:
+                                                                                  () =>
+                                                                                    setGateForm(
+                                                                                      {
+                                                                                        mode: "delegate",
+                                                                                        instanceId:
+                                                                                          instance.id,
+                                                                                        nodeId:
+                                                                                          node.id,
+                                                                                        toId: "",
+                                                                                      },
+                                                                                    ),
+                                                                                children:
+                                                                                  "转交",
+                                                                              },
+                                                                              "delegate",
+                                                                            ),
+                                                                          ]
+                                                                        : null,
+                                                                      node.type ===
+                                                                        "approval" &&
+                                                                      canCountersign
+                                                                        ? jsxRuntime.jsx(
+                                                                            "button",
+                                                                            {
+                                                                              type: "button",
+                                                                              className:
+                                                                                "pmwf-btn secondary small",
+                                                                              onClick:
+                                                                                () =>
+                                                                                  setGateForm(
+                                                                                    {
+                                                                                      mode: "countersign",
+                                                                                      instanceId:
+                                                                                        instance.id,
+                                                                                      nodeId:
+                                                                                        node.id,
+                                                                                      toId: "",
+                                                                                    },
+                                                                                  ),
+                                                                              children:
+                                                                                "加签",
+                                                                            },
+                                                                          )
+                                                                        : null,
+                                                                      node.type ===
+                                                                      "decision"
+                                                                        ? jsxRuntime.jsx(
+                                                                            "button",
+                                                                            {
+                                                                              type: "button",
+                                                                              className:
+                                                                                "pmwf-btn small",
+                                                                              onClick:
+                                                                                () => {
+                                                                                  setDecisionValues(
+                                                                                    JSON.stringify(
+                                                                                      detail
+                                                                                        .instance
+                                                                                        .context ??
+                                                                                        {},
+                                                                                      null,
+                                                                                      2,
+                                                                                    ),
+                                                                                  );
+                                                                                  setGateForm(
+                                                                                    {
+                                                                                      mode: "decision",
+                                                                                      instanceId:
+                                                                                        instance.id,
+                                                                                      nodeId:
+                                                                                        node.id,
+                                                                                    },
+                                                                                  );
+                                                                                },
+                                                                              children:
+                                                                                "录入判断",
+                                                                            },
+                                                                          )
+                                                                        : null,
+                                                                    ],
+                                                                  },
+                                                                )
+                                                              : null,
+                                                            gateForm?.instanceId ===
+                                                              instance.id &&
+                                                            gateForm.nodeId ===
+                                                              node.id
+                                                              ? jsxRuntime.jsxs(
+                                                                  "form",
+                                                                  {
+                                                                    className:
+                                                                      "pmwf-form",
+                                                                    onSubmit: (
+                                                                      event,
+                                                                    ) => {
+                                                                      event.preventDefault();
+                                                                      if (
+                                                                        gateForm.mode ===
+                                                                        "decision"
+                                                                      ) {
+                                                                        let values;
+                                                                        try {
+                                                                          values =
+                                                                            JSON.parse(
+                                                                              decisionValues,
+                                                                            );
+                                                                        } catch {
+                                                                          setError(
+                                                                            '判断结果必须是 JSON，例如 {"complexity":8}',
+                                                                          );
+                                                                          return;
+                                                                        }
+                                                                        act(
+                                                                          `decision:${node.id}`,
+                                                                          "/api/collab/workflow/decisions/resolve",
+                                                                          {
+                                                                            instanceId:
+                                                                              instance.id,
+                                                                            nodeId:
+                                                                              node.id,
+                                                                            values,
+                                                                          },
+                                                                          "已记录判断",
+                                                                        );
+                                                                      } else {
+                                                                        const target =
+                                                                          members.find(
+                                                                            (
+                                                                              item,
+                                                                            ) =>
+                                                                              item.userId ===
+                                                                              gateForm.toId,
+                                                                          );
+                                                                        act(
+                                                                          `${gateForm.mode}:${node.id}`,
+                                                                          `/api/collab/workflow/approvals/${gateForm.mode === "delegate" ? "delegate" : "countersign"}`,
+                                                                          {
+                                                                            instanceId:
+                                                                              instance.id,
+                                                                            nodeId:
+                                                                              node.id,
+                                                                            toId: gateForm.toId,
+                                                                            toName:
+                                                                              target?.name ??
+                                                                              gateForm.toId,
+                                                                          },
+                                                                          gateForm.mode ===
+                                                                            "delegate"
+                                                                            ? "已转交审批"
+                                                                            : "已加签审批",
+                                                                        );
+                                                                      }
+                                                                    },
+                                                                    children: [
+                                                                      gateForm.mode ===
+                                                                      "decision"
+                                                                        ? jsxRuntime.jsx(
+                                                                            "textarea",
+                                                                            {
+                                                                              className:
+                                                                                "pmwf-area",
+                                                                              rows: 3,
+                                                                              value:
+                                                                                decisionValues,
+                                                                              onChange:
+                                                                                (
+                                                                                  event,
+                                                                                ) =>
+                                                                                  setDecisionValues(
+                                                                                    event
+                                                                                      .target
+                                                                                      .value,
+                                                                                  ),
+                                                                              placeholder:
+                                                                                '{"complexity": 8}',
+                                                                            },
+                                                                          )
+                                                                        : jsxRuntime.jsxs(
+                                                                            "div",
+                                                                            {
+                                                                              className:
+                                                                                "pmwf-row",
+                                                                              children:
+                                                                                [
+                                                                                  jsxRuntime.jsx(
+                                                                                    "span",
+                                                                                    {
+                                                                                      className:
+                                                                                        "pmwf-label",
+                                                                                      children:
+                                                                                        gateForm.mode ===
+                                                                                        "delegate"
+                                                                                          ? "转交给"
+                                                                                          : "加签人",
+                                                                                    },
+                                                                                  ),
+                                                                                  jsxRuntime.jsxs(
+                                                                                    "select",
+                                                                                    {
+                                                                                      className:
+                                                                                        "pmwf-select",
+                                                                                      value:
+                                                                                        gateForm.toId,
+                                                                                      onChange:
+                                                                                        (
+                                                                                          event,
+                                                                                        ) =>
+                                                                                          setGateForm(
+                                                                                            {
+                                                                                              ...gateForm,
+                                                                                              toId: event
+                                                                                                .target
+                                                                                                .value,
+                                                                                            },
+                                                                                          ),
+                                                                                      required: true,
+                                                                                      children:
+                                                                                        [
+                                                                                          jsxRuntime.jsx(
+                                                                                            "option",
+                                                                                            {
+                                                                                              value:
+                                                                                                "",
+                                                                                              children:
+                                                                                                "选择成员",
+                                                                                            },
+                                                                                          ),
+                                                                                          ...members
+                                                                                            .filter(
+                                                                                              (
+                                                                                                item,
+                                                                                              ) => {
+                                                                                                if (
+                                                                                                  item.userId ===
+                                                                                                  me?.id
+                                                                                                ) {
+                                                                                                  return false;
+                                                                                                }
+                                                                                                const approval =
+                                                                                                  state
+                                                                                                    ?.approvals?.[
+                                                                                                    `${node.id}:${item.userId}`
+                                                                                                  ];
+                                                                                                return gateForm.mode ===
+                                                                                                  "delegate"
+                                                                                                  ? approval ===
+                                                                                                      undefined
+                                                                                                  : approval?.status ===
+                                                                                                      "delegated";
+                                                                                              },
+                                                                                            )
+                                                                                            .map(
+                                                                                              (
+                                                                                                item,
+                                                                                              ) =>
+                                                                                                jsxRuntime.jsx(
+                                                                                                  "option",
+                                                                                                  {
+                                                                                                    value:
+                                                                                                      item.userId,
+                                                                                                    children: `${item.name ?? item.userId}${state?.approvals?.[`${node.id}:${item.userId}`]?.status === "delegated" ? "（已转交）" : ""}`,
+                                                                                                  },
+                                                                                                  item.userId,
+                                                                                                ),
+                                                                                            ),
+                                                                                        ],
+                                                                                    },
+                                                                                  ),
+                                                                                ],
+                                                                            },
+                                                                          ),
+                                                                      jsxRuntime.jsxs(
+                                                                        "div",
+                                                                        {
+                                                                          className:
+                                                                            "pmwf-row",
+                                                                          children:
+                                                                            [
+                                                                              jsxRuntime.jsx(
+                                                                                "button",
+                                                                                {
+                                                                                  type: "submit",
+                                                                                  className:
+                                                                                    "pmwf-btn small",
+                                                                                  disabled:
+                                                                                    busy !==
+                                                                                      "" ||
+                                                                                    ((gateForm.mode ===
+                                                                                      "delegate" ||
+                                                                                      gateForm.mode ===
+                                                                                        "countersign") &&
+                                                                                      gateForm.toId ===
+                                                                                        (me ===
+                                                                                        null
+                                                                                          ? undefined
+                                                                                          : me.id)),
+                                                                                  title:
+                                                                                    (gateForm.mode ===
+                                                                                      "delegate" ||
+                                                                                      gateForm.mode ===
+                                                                                        "countersign") &&
+                                                                                    gateForm.toId ===
+                                                                                      (me ===
+                                                                                      null
+                                                                                        ? undefined
+                                                                                        : me.id)
+                                                                                      ? gateForm.mode ===
+                                                                                        "delegate"
+                                                                                        ? "不能转交给自己"
+                                                                                        : "不能加签给自己"
+                                                                                      : undefined,
+                                                                                  children:
+                                                                                    "确认",
+                                                                                },
+                                                                              ),
+                                                                              jsxRuntime.jsx(
+                                                                                "button",
+                                                                                {
+                                                                                  type: "button",
+                                                                                  className:
+                                                                                    "pmwf-btn secondary small",
+                                                                                  onClick:
+                                                                                    () =>
+                                                                                      setGateForm(
+                                                                                        null,
+                                                                                      ),
+                                                                                  children:
+                                                                                    "取消",
+                                                                                },
+                                                                              ),
+                                                                            ],
+                                                                        },
+                                                                      ),
+                                                                    ],
+                                                                  },
+                                                                )
+                                                              : null,
+                                                          ],
+                                                        }),
+                                                      ],
+                                                    },
+                                                    node.id,
+                                                  );
+                                                }),
+                                              }),
+                                              (detail.events ?? []).length > 0
+                                                ? jsxRuntime.jsxs("div", {
+                                                    className: "pmwf-note info",
+                                                    children: [
+                                                      "最近：",
+                                                      detail.events
+                                                        .slice(-3)
+                                                        .reverse()
+                                                        .map(
+                                                          (event) =>
+                                                            `${event.message}（${timeShort(event.at)}）`,
+                                                        )
+                                                        .join("；"),
                                                     ],
-                                                  }),
-                                                ],
-                                              },
-                                              node.id,
-                                            );
-                                          }),
-                                        }),
-                                        (detail.events ?? []).length > 0
-                                          ? jsxRuntime.jsxs("div", {
-                                              className: "pmwf-note info",
-                                              children: [
-                                                "最近：",
-                                                detail.events
-                                                  .slice(-3)
-                                                  .reverse()
-                                                  .map(
-                                                    (event) =>
-                                                      `${event.message}（${timeShort(event.at)}）`,
-                                                  )
-                                                  .join("；"),
-                                              ],
-                                            })
-                                          : null,
-                                        instance.status !== "completed" &&
-                                        instance.status !== "cancelled"
-                                          ? jsxRuntime.jsx("div", {
-                                              className: "pmwf-actions",
-                                              children: jsxRuntime.jsx(
-                                                "button",
-                                                {
-                                                  type: "button",
-                                                  className:
-                                                    "pmwf-btn secondary small",
-                                                  disabled:
-                                                    busy !== "" ||
-                                                    !(
-                                                      canManage ||
-                                                      instance.createdBy ===
-                                                        (me === null
-                                                          ? undefined
-                                                          : me.id)
-                                                    ),
-                                                  onClick: () =>
-                                                    act(
-                                                      `cancel:${instance.id}`,
-                                                      "/api/collab/workflow/instances/cancel",
+                                                  })
+                                                : null,
+                                              instance.status !== "completed" &&
+                                              instance.status !== "cancelled"
+                                                ? jsxRuntime.jsx("div", {
+                                                    className: "pmwf-actions",
+                                                    children: jsxRuntime.jsx(
+                                                      "button",
                                                       {
-                                                        instanceId: instance.id,
+                                                        type: "button",
+                                                        className:
+                                                          "pmwf-btn secondary small",
+                                                        disabled:
+                                                          busy !== "" ||
+                                                          !(
+                                                            canManage ||
+                                                            instance.createdBy ===
+                                                              (me === null
+                                                                ? undefined
+                                                                : me.id)
+                                                          ),
+                                                        onClick: () =>
+                                                          act(
+                                                            `cancel:${instance.id}`,
+                                                            "/api/collab/workflow/instances/cancel",
+                                                            {
+                                                              instanceId:
+                                                                instance.id,
+                                                            },
+                                                            "已取消流程",
+                                                          ),
+                                                        children: "取消流程",
                                                       },
-                                                      "已取消流程",
                                                     ),
-                                                  children: "取消流程",
-                                                },
-                                              ),
-                                            })
-                                          : null,
-                                      ],
-                                    }),
-                              ],
-                            }),
-                              ],
-                            }),
-                          ],
-                        },
-                        instance.id,
-                      );
-                    }),
-                  ],
-                }),
+                                                  })
+                                                : null,
+                                            ],
+                                          }),
+                                    ],
+                                  }),
+                                ],
+                              }),
+                            ],
+                          },
+                          instance.id,
+                        );
+                      }),
+                    ],
+                  }),
             ],
           }),
+          deliveryPopover === null || detail?.instance?.id === undefined
+            ? null
+            : (() => {
+                const node = detail.definition?.graph?.nodes?.find(
+                  (item) => item.id === deliveryPopover.nodeId,
+                );
+                if (node === undefined) return null;
+                const state =
+                  detail.instance.nodes?.[deliveryPopover.nodeId] ?? null;
+                const summary = workflowDeliverableSummary(
+                  node,
+                  state,
+                  detail.submissions ?? [],
+                );
+                const width = Math.min(320, window.innerWidth - 24);
+                const left = Math.max(
+                  12,
+                  Math.min(
+                    deliveryPopover.left,
+                    window.innerWidth - width - 12,
+                  ),
+                );
+                return jsxRuntime.jsxs(
+                  "div",
+                  {
+                    className: "pmwf-delivery-popover",
+                    role: "dialog",
+                    "aria-label": `${node.name} 交付物清单`,
+                    style: {
+                      left,
+                      top: Math.max(
+                        12,
+                        Math.min(deliveryPopover.top, window.innerHeight - 320),
+                      ),
+                    },
+                    children: [
+                      jsxRuntime.jsx("h4", {
+                        children: `${node.name} · 交付物 ${summary.done}/${summary.total}`,
+                      }),
+                      jsxRuntime.jsx("ul", {
+                        children: summary.rows.map((row) =>
+                          jsxRuntime.jsxs(
+                            "li",
+                            {
+                              children: [
+                                jsxRuntime.jsx("span", {
+                                  children: row.title,
+                                }),
+                                jsxRuntime.jsxs("span", {
+                                  className: row.status,
+                                  children: [
+                                    row.done
+                                      ? row.value
+                                      : row.status === "rejected"
+                                        ? "已退回"
+                                        : "待提交",
+                                    row.done && row.submittedAt
+                                      ? jsxRuntime.jsx("small", {
+                                          className:
+                                            "pmwf-delivery-time",
+                                          children: ` · ${workflowDateTime(row.submittedAt)}`,
+                                        })
+                                      : null,
+                                  ],
+                                }),
+                              ],
+                            },
+                            row.key,
+                          ),
+                        ),
+                      }),
+                    ],
+                  },
+                );
+              })(),
         ],
       });
     }
@@ -5359,9 +6882,7 @@ window.__ModuleLoader__.load({
               meResult.user?.role === "admin" &&
               showAllWorkspacesRef.current === true
                 ? allOptions
-                : allOptions.filter(
-                    (workspace) => workspace.isMember === true,
-                  );
+                : allOptions.filter((workspace) => workspace.isMember === true);
             setWorkspaces(options);
             const selected = options.some((item) => item.id === workspaceId)
               ? workspaceId
@@ -5456,7 +6977,7 @@ window.__ModuleLoader__.load({
       if (phase === "login")
         return jsxRuntime.jsx("p", {
           style: { color: "var(--dsw-alias-label-secondary)" },
-          children: "请先在「协作身份」登录。",
+          children: "请先在「账号与权限 → 登录账号」登录。",
         });
       if (phase === "loading")
         return jsxRuntime.jsx("p", {
@@ -5868,12 +7389,15 @@ window.__ModuleLoader__.load({
       }, [ready]);
       const Button = window.__pluginmaxFollow?.FollowButton;
       if (!ready || typeof Button !== "function") return null;
-      return jsxRuntime.jsx(Button, {
-        type: "workflow",
-        id: props.instanceId,
-        compact: true,
-        iconOnly: true,
-        workspaceId: props.workspaceId,
+      return jsxRuntime.jsx("span", {
+        className: "pmwf-follow-bare",
+        children: jsxRuntime.jsx(Button, {
+          type: "workflow",
+          id: props.instanceId,
+          compact: true,
+          iconOnly: true,
+          workspaceId: props.workspaceId,
+        }),
       });
     }
 
@@ -5892,22 +7416,25 @@ window.__ModuleLoader__.load({
         "aria-pressed": meetingOpen,
         title: "展开会议侧边栏",
         onClick: () => window.__pluginmaxMeeting?.toggle(),
-        children: jsxRuntime.jsxs(
-          "svg",
-          {
-            viewBox: "0 0 24 24",
-            fill: "none",
-            stroke: "currentColor",
-            strokeWidth: 2,
-            strokeLinecap: "round",
-            strokeLinejoin: "round",
-            "aria-hidden": true,
-            children: [
-              jsxRuntime.jsx("path", { d: "m22 8-6 4 6 4V8Z" }),
-              jsxRuntime.jsx("rect", { x: 2, y: 6, width: 14, height: 12, rx: 2 }),
-            ],
-          },
-        ),
+        children: jsxRuntime.jsxs("svg", {
+          viewBox: "0 0 24 24",
+          fill: "none",
+          stroke: "currentColor",
+          strokeWidth: 2,
+          strokeLinecap: "round",
+          strokeLinejoin: "round",
+          "aria-hidden": true,
+          children: [
+            jsxRuntime.jsx("path", { d: "m22 8-6 4 6 4V8Z" }),
+            jsxRuntime.jsx("rect", {
+              x: 2,
+              y: 6,
+              width: 14,
+              height: 12,
+              rx: 2,
+            }),
+          ],
+        }),
       });
     }
 

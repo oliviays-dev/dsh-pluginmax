@@ -1094,4 +1094,11 @@ describe("meeting client", () => {
       "重新打开后应加载到刚刚邀请的成员",
     ).toBeDefined();
   });
+
+  it("supports pointer and keyboard activation for structured AI mentions", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain("onClick: () => pickMention(participant)");
+    expect(source).toContain("pickPanelMention(participant)");
+    expect(source).not.toContain("onMouseDown: (event) =>");
+  });
 });

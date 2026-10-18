@@ -148,4 +148,11 @@ describe("workbench client navigation", () => {
       harness.events.map((event) => (event as { type: string }).type),
     ).toContain("pluginmax:collab-navigate");
   });
+
+  it("reloads shared follow state when another module changes a follow", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain('"pluginmax:follow-change"');
+    expect(source).toContain("followStore.loaded = false");
+    expect(source).toContain('refreshModule("focus", { silent: true })');
+  });
 });

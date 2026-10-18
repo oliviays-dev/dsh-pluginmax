@@ -34,6 +34,33 @@ interface ClientExports {
       showMetrics: boolean;
       panelsClass: string;
     };
+    externalRuntimeStatusLabel(status: string): string;
+    splitExternalRuntimes(
+      runtimes: readonly { id: string; status: string }[],
+    ): {
+      active: readonly { id: string; status: string }[];
+      archived: readonly { id: string; status: string }[];
+      defaultView: readonly { id: string; status: string }[];
+    };
+    teammateExecutionPill(
+      teammate: { execution?: string; externalRuntimeId?: string },
+      runtimes: readonly { id: string; name: string; status: string }[],
+    ): { text: string; tone: string };
+    externalRuntimeOptions(
+      runtimes: readonly {
+        id: string;
+        name: string;
+        provider: string;
+        status: string;
+      }[],
+      boundId?: string,
+    ): readonly {
+      props: { value: string; disabled?: boolean };
+    }[];
+    unavailableBoundRuntime(
+      runtimes: readonly { id: string; status: string }[],
+      boundId?: string,
+    ): { id: string; status: string } | undefined;
   };
 }
 
@@ -82,12 +109,7 @@ function loadClientExports(): ClientExports {
     },
   };
   const source = readFileSync(CLIENT_PATH, "utf8");
-  const factory = new Function(
-    "window",
-    "module",
-    "exports",
-    source,
-  ) as (
+  const factory = new Function("window", "module", "exports", source) as (
     window: unknown,
     module: { exports: unknown },
     exports: unknown,
@@ -98,6 +120,13 @@ function loadClientExports(): ClientExports {
 }
 
 describe("AI Teammate runtime client", () => {
+  it("creates AI companions with a project through the bundled runtime route", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain('"/api/collab/teammates/create-with-employee"');
+    expect(source).toContain("关联项目");
+    expect(source).toContain("createInstanceWorkspaceId");
+  });
+
   it("declares the fixed runtime tabs in product order", () => {
     const exported = loadClientExports();
     const tabs = exported.__test?.runtimeTabs();
@@ -170,9 +199,10 @@ describe("AI Teammate runtime client", () => {
     expect(exported.__test?.isMarkdownTableSeparator("| 任务 | 状态 |")).toBe(
       false,
     );
-    expect(
-      exported.__test?.markdownTableCells("| TSK-1 | 已完成 |"),
-    ).toEqual(["TSK-1", "已完成"]);
+    expect(exported.__test?.markdownTableCells("| TSK-1 | 已完成 |")).toEqual([
+      "TSK-1",
+      "已完成",
+    ]);
   });
 
   it("locks runtime detail panels while editing base info", () => {
@@ -204,5 +234,157 @@ describe("AI Teammate runtime client", () => {
     expect(source).toMatch(
       /function defaultReportRange\(\)[\s\S]{0,260}?return \{ from: "", to: "" \};/,
     );
+  });
+
+  it("renders task progress through the markdown renderer", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toMatch(
+      /function LatestProgressText[\s\S]{0,1200}?renderMarkdown\(task\.latestProgress/,
+    );
+    expect(source).toMatch(
+      /const latestOf = \(task, fallback\) =>[\s\S]{0,600}?renderMarkdown\(/,
+    );
+    expect(source).toMatch(
+      /run\.summary === undefined[\s\S]{0,700}?renderMarkdown\(run\.summary\)/,
+    );
+  });
+
+  it("edits teammate definitions through SOUL only", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    // 场景行为 / 工作目标已并入 SOUL.md，编辑表单不再有独立输入框。
+    expect(source).not.toContain("场景行为（每行一项");
+    expect(source).not.toContain("工作目标（每行一项");
+    // 编辑态直接用生效人格全文，保存时清空旧字段。
+    expect(source).toMatch(/soul: effectiveSoulText\(selected\)/);
+    expect(source).toContain("scenarios: [],");
+    expect(source).toContain("goals: [],");
+  });
+
+  it("filters the definition list by the archived view", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toMatch(
+      /archivedOnly\s*\?\s*item\.state === "archived"\s*:\s*item\.state !== "archived"/,
+    );
+  });
+
+  it("labels external runtime status and splits the archived view", () => {
+    const exported = loadClientExports();
+    const test = exported.__test;
+    expect(test?.externalRuntimeStatusLabel("active")).toBe("启用中");
+    expect(test?.externalRuntimeStatusLabel("disabled")).toBe("已停用");
+    expect(test?.externalRuntimeStatusLabel("archived")).toBe("已归档");
+    const groups = test?.splitExternalRuntimes([
+      { id: "ext-1", status: "active" },
+      { id: "ext-2", status: "disabled" },
+      { id: "ext-3", status: "archived" },
+    ]);
+    expect(groups?.defaultView.map((item) => item.id)).toEqual([
+      "ext-1",
+      "ext-2",
+    ]);
+    expect(groups?.archived.map((item) => item.id)).toEqual(["ext-3"]);
+    expect(groups?.active.map((item) => item.id)).toEqual(["ext-1"]);
+  });
+
+  it("flags teammate bindings whose external runtime is unavailable", () => {
+    const exported = loadClientExports();
+    const test = exported.__test;
+    const runtimes = [
+      { id: "ext-1", name: "Codex 本机", status: "active" },
+      { id: "ext-2", name: "WorkBuddy CLI", status: "disabled" },
+      { id: "ext-3", name: "旧运行时", status: "archived" },
+    ];
+    expect(
+      test?.teammateExecutionPill({ execution: "builtin" }, runtimes),
+    ).toEqual({ text: "内置执行", tone: "builtin" });
+    expect(
+      test?.teammateExecutionPill(
+        { execution: "external", externalRuntimeId: "ext-1" },
+        runtimes,
+      ),
+    ).toEqual({ text: "外部 Agent · Codex 本机", tone: "external" });
+    expect(
+      test?.teammateExecutionPill(
+        { execution: "external", externalRuntimeId: "ext-2" },
+        runtimes,
+      ),
+    ).toEqual({
+      text: "外部 Agent · WorkBuddy CLI（已停用）",
+      tone: "external warn",
+    });
+    expect(
+      test?.teammateExecutionPill(
+        { execution: "external", externalRuntimeId: "ext-3" },
+        runtimes,
+      ).tone,
+    ).toBe("external warn");
+    expect(
+      test?.teammateExecutionPill({ execution: "external" }, runtimes),
+    ).toEqual({ text: "外部 Agent · 未选择", tone: "external warn" });
+    expect(
+      test?.teammateExecutionPill(
+        { execution: "external", externalRuntimeId: "ext-missing" },
+        runtimes,
+      ),
+    ).toEqual({
+      text: "外部 Agent · ext-missing（运行时不存在）",
+      tone: "external warn",
+    });
+  });
+
+  it("keeps the bound runtime visible as a disabled option when it is unavailable", () => {
+    const exported = loadClientExports();
+    const test = exported.__test;
+    const runtimes = [
+      { id: "ext-1", name: "Codex 本机", provider: "codex", status: "active" },
+      {
+        id: "ext-2",
+        name: "WorkBuddy CLI",
+        provider: "workbuddy",
+        status: "disabled",
+      },
+      {
+        id: "ext-3",
+        name: "旧运行时",
+        provider: "command",
+        status: "archived",
+      },
+    ];
+    const options = test?.externalRuntimeOptions(runtimes, "ext-3");
+    expect(options?.map((item) => item.props.value)).toEqual([
+      "",
+      "ext-1",
+      "ext-3",
+    ]);
+    expect(options?.[1]?.props.disabled).toBeUndefined();
+    expect(options?.[2]?.props.disabled).toBe(true);
+    expect(test?.unavailableBoundRuntime(runtimes, "ext-1")).toBeUndefined();
+    expect(test?.unavailableBoundRuntime(runtimes, "ext-2")).toMatchObject({
+      id: "ext-2",
+      status: "disabled",
+    });
+  });
+
+  it("supports editing external runtime definitions", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain("const startExternalEdit = (runtime)");
+    expect(source).toContain("已更新外部 Agent");
+    expect(source).toContain("/api/collab/agent/external-runtimes/update");
+  });
+
+  it("archives external runtimes through the shared archive view", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain("/api/collab/agent/external-runtimes/archive");
+    expect(source).toContain("/api/collab/agent/external-runtimes/restore");
+    expect(source).toContain("includeArchived=1");
+    expect(source).toMatch(
+      /externalArchivedOnly\s*\?\s*runtimeGroups\.archived\s*:\s*runtimeGroups\.defaultView/,
+    );
+  });
+
+  it("requires an explicit action to create or save", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    // 输入框不再用回车隐式提交：中文输入法确认候选词时按 Enter 会误触发。
+    expect(source).not.toContain('event.key === "Enter"');
   });
 });

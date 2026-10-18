@@ -112,6 +112,8 @@ const participantSchema = z.object({
   /** AI participant provenance: who a representative speaks for. */
   principalUserId: idSchema.optional(),
   principalName: displayNameSchema.optional(),
+  /** Explicit AI Principal backing this runtime participant. */
+  aiPrincipalId: idSchema.optional(),
   teammateInstanceId: idSchema.optional(),
   autoSpeak: z.enum(["all", "mentions", "manual"]).optional(),
   initialGreeting: z.boolean().optional(),
@@ -244,7 +246,10 @@ function unavailableDeliveryParticipants(
   const unavailable = new Set<string>();
   for (const message of transcript) {
     for (const delivery of message.deliveries) {
-      if (delivery.status === "failed" && isUnavailableTargetFailure(delivery.error)) {
+      if (
+        delivery.status === "failed" &&
+        isUnavailableTargetFailure(delivery.error)
+      ) {
         unavailable.add(delivery.participantId);
       }
     }
@@ -355,10 +360,7 @@ export interface SchemaLike {
 export interface DomainSpecLike {
   readonly name: string;
   readonly version: number;
-  readonly tables: Record<
-    string,
-    { readonly valueSchema: z.ZodType<unknown> }
-  >;
+  readonly tables: Record<string, { readonly valueSchema: z.ZodType<unknown> }>;
 }
 
 export interface MeetingDomainLike {
@@ -447,7 +449,10 @@ export interface MeetingWorkerStartLike {
 }
 
 export interface SubagentsRuntimeLike {
-  start(name: string, spec: MeetingWorkerStartLike): Promise<MeetingWorkerRunLike>;
+  start(
+    name: string,
+    spec: MeetingWorkerStartLike,
+  ): Promise<MeetingWorkerRunLike>;
 }
 
 export interface AgentHandleLike {
@@ -515,8 +520,9 @@ function uniqueAgentName(
   const candidates = [
     baseName,
     `${baseName} · ${ownerName ?? "Agent"}`,
-    ...Array.from({ length: 20 }, (_, index) =>
-      `${baseName} · ${ownerName ?? "Agent"} (${index + 2})`,
+    ...Array.from(
+      { length: 20 },
+      (_, index) => `${baseName} · ${ownerName ?? "Agent"} (${index + 2})`,
     ),
   ];
   const used = new Set(
@@ -562,15 +568,15 @@ function formatDelegateInstruction(instruction: DelegateInstruction): string {
     instruction.permissionBoundary === ""
       ? ""
       : `权限边界：${instruction.permissionBoundary}`,
-    instruction.reportPlan === ""
-      ? ""
-      : `会后汇报：${instruction.reportPlan}`,
+    instruction.reportPlan === "" ? "" : `会后汇报：${instruction.reportPlan}`,
   ]
     .filter((line) => line !== "")
     .join("\n");
 }
 
-function workerParticipant(participant: MeetingParticipant): MeetingParticipant {
+function workerParticipant(
+  participant: MeetingParticipant,
+): MeetingParticipant {
   return {
     ...participant,
     kind: "agent" as const,
@@ -625,7 +631,8 @@ interface TeammateRuntimeLike {
     };
   }): Promise<{
     readonly teammateId: string;
-    readonly employeeId: string;
+    readonly employeeId?: string | undefined;
+    readonly principalId?: string | undefined;
     readonly profileId: string;
     readonly personaId?: string | undefined;
   }>;
@@ -843,16 +850,17 @@ async function ensureAgentMeetingTask(input: {
   const dispatcher = input.taskDispatch;
   if (service === undefined || dispatcher === undefined) return undefined;
   try {
-    const existing = service.list(input.meeting.workspaceId).find(
-      (task) =>
-        task.status !== "done" &&
-        task.status !== "cancelled" &&
-        task.receiverId === input.teammateInstanceId &&
-        task.links.some(
-          (link) =>
-            link.type === "meeting" && link.id === input.meeting.id,
-        ),
-    );
+    const existing = service
+      .list(input.meeting.workspaceId)
+      .find(
+        (task) =>
+          task.status !== "done" &&
+          task.status !== "cancelled" &&
+          task.receiverId === input.teammateInstanceId &&
+          task.links.some(
+            (link) => link.type === "meeting" && link.id === input.meeting.id,
+          ),
+      );
     const taskActor: TaskActorLike = {
       id: input.actorId,
       name: input.actorName,
@@ -929,7 +937,10 @@ export class MeetingRuntime {
 
   constructor(private readonly deps: MeetingWorkerDeps) {}
 
-  dispatch(message: MeetingMessage, targets: readonly MeetingParticipant[]): void {
+  dispatch(
+    message: MeetingMessage,
+    targets: readonly MeetingParticipant[],
+  ): void {
     for (const participant of targets) {
       this.enqueue(participant.id, () =>
         this.executeDelivery({
@@ -942,14 +953,18 @@ export class MeetingRuntime {
   }
 
   greet(participant: MeetingParticipant): void {
-    this.enqueue(participant.id, () => this.executePrompt(
-      participant,
-      "派遣完成。请用一句话自我介绍，并说明你当前被配置的发言策略。",
-    ));
+    this.enqueue(participant.id, () =>
+      this.executePrompt(
+        participant,
+        "派遣完成。请用一句话自我介绍，并说明你当前被配置的发言策略。",
+      ),
+    );
   }
 
   trigger(participant: MeetingParticipant, instruction: string): void {
-    this.enqueue(participant.id, () => this.executePrompt(participant, instruction));
+    this.enqueue(participant.id, () =>
+      this.executePrompt(participant, instruction),
+    );
   }
 
   /** Test and graceful-shutdown seam for draining every participant queue. */
@@ -961,7 +976,8 @@ export class MeetingRuntime {
 
   cancelParticipant(participantId: string): void {
     for (const task of this.tasks) {
-      if (task.participantId === participantId) task.controller.abort("participant left");
+      if (task.participantId === participantId)
+        task.controller.abort("participant left");
     }
   }
 
@@ -972,7 +988,8 @@ export class MeetingRuntime {
   }
 
   async dispose(): Promise<void> {
-    for (const task of this.tasks) task.controller.abort("meeting runtime disposed");
+    for (const task of this.tasks)
+      task.controller.abort("meeting runtime disposed");
     const currentHost = this.host;
     this.host = undefined;
     if (currentHost !== undefined) {
@@ -991,7 +1008,8 @@ export class MeetingRuntime {
       .catch(() => undefined)
       .then(operation)
       .finally(() => {
-        if (this.queues.get(participantId) === next) this.queues.delete(participantId);
+        if (this.queues.get(participantId) === next)
+          this.queues.delete(participantId);
       });
     this.queues.set(participantId, next);
   }
@@ -1016,14 +1034,16 @@ export class MeetingRuntime {
       if (agents === undefined)
         throw new MeetingError("not_found", "agent registry is unavailable");
       const model = this.deps.defaultModel?.()?.currentSelection();
-      const current = agents.create({
-        sessionId: randomUUID(),
-        meta: { cwd: process.cwd() },
-        ...(model === undefined ? {} : { agentOptions: model }),
-      }).catch((cause) => {
-        if (this.host === current) this.host = undefined;
-        throw cause;
-      });
+      const current = agents
+        .create({
+          sessionId: randomUUID(),
+          meta: { cwd: process.cwd() },
+          ...(model === undefined ? {} : { agentOptions: model }),
+        })
+        .catch((cause) => {
+          if (this.host === current) this.host = undefined;
+          throw cause;
+        });
       this.host = current;
     }
     return (await this.host).agent;
@@ -1071,9 +1091,7 @@ export class MeetingRuntime {
         meetingContext,
       );
     }
-    let rolePersona: Awaited<
-      ReturnType<PersonaServiceLike["get"]>
-    > | undefined;
+    let rolePersona: Awaited<ReturnType<PersonaServiceLike["get"]>> | undefined;
     if (
       participant.personaId !== undefined &&
       personaService !== undefined &&
@@ -1121,20 +1139,22 @@ export class MeetingRuntime {
     const participants = this.deps.meetings
       .participants(meeting.id)
       .map((candidate) => {
-        const owner = candidate.ownerName === undefined
-          ? ""
-          : ` · ${candidate.ownerName}的分身`;
+        const owner =
+          candidate.ownerName === undefined
+            ? ""
+            : ` · ${candidate.ownerName}的分身`;
         return `- ${candidate.displayName}${owner} (${candidate.kind}/${candidate.status})`;
       });
     const transcript = this.deps.meetings
       .transcript(meeting.id)
       .slice(-TRANSCRIPT_WINDOW)
       .map((message) => `${message.senderName}: ${message.content}`);
-    const strategy = participant.autoSpeak === "all"
-      ? "所有会议消息都会转发给你。"
-      : participant.autoSpeak === "mentions"
-        ? "只有定向 @ 你的消息才会转发给你。"
-        : "只有主人显式触发时才会运行你。";
+    const strategy =
+      participant.autoSpeak === "all"
+        ? "所有会议消息都会转发给你。"
+        : participant.autoSpeak === "mentions"
+          ? "只有定向 @ 你的消息才会转发给你。"
+          : "只有主人显式触发时才会运行你。";
     const delegateBrief =
       participant.delegationId === undefined
         ? ""
@@ -1145,7 +1165,9 @@ export class MeetingRuntime {
       identitySection,
       "",
       `这是为「${meeting.title}」运行的一次性会议任务。会议结束后这个 worker 不保留状态。`,
-      participant.ownerName === undefined ? "" : `主人：${participant.ownerName}`,
+      participant.ownerName === undefined
+        ? ""
+        : `主人：${participant.ownerName}`,
       `工作区：${meeting.workspaceId}`,
       `发言策略：${strategy}`,
       ...(delegateBrief === ""
@@ -1165,10 +1187,14 @@ export class MeetingRuntime {
       "- 你的最终回复就是写入会议的唯一发言；不要调用任何工具。",
       "- 只处理本次会议范围内的内容；不要向任何父会话、主人主对话框或外部渠道汇报。",
       "- 保持简短、具体；如果信息不足，明确说明缺失的信息。",
-    ].filter((line) => line !== "").join("\n");
+    ]
+      .filter((line) => line !== "")
+      .join("\n");
   }
 
-  private async executeDelivery(envelope: MeetingDeliveryEnvelope): Promise<void> {
+  private async executeDelivery(
+    envelope: MeetingDeliveryEnvelope,
+  ): Promise<void> {
     const current = this.deps.meetings
       .participants(envelope.meetingId)
       .find((participant) => participant.id === envelope.participant.id);
@@ -1177,15 +1203,17 @@ export class MeetingRuntime {
       .transcript(envelope.meetingId)
       .find((candidate) => candidate.id === envelope.messageId);
     if (message === undefined) return;
-    const mentionNames = message.mentions
-      .map((participantId) =>
+    const mentionNames = message.mentions.map(
+      (participantId) =>
         this.deps.meetings
           .participants(envelope.meetingId)
-          .find((participant) => participant.id === participantId)?.displayName
-          ?? participantId,
-      );
+          .find((participant) => participant.id === participantId)
+          ?.displayName ?? participantId,
+    );
     const instruction = [
-      message.senderKind === "system" ? "请回应以下系统事项。" : "请回应以下消息。",
+      message.senderKind === "system"
+        ? "请回应以下系统事项。"
+        : "请回应以下消息。",
       message.mentions.includes(envelope.participant.id)
         ? `这条消息定向 @ ${envelope.participant.displayName}。`
         : message.mentions.length > 0
@@ -1202,7 +1230,12 @@ export class MeetingRuntime {
     participant: MeetingParticipant,
     instruction: string,
   ): Promise<void> {
-    await this.runWorker(participant.meetingId, participant, undefined, instruction);
+    await this.runWorker(
+      participant.meetingId,
+      participant,
+      undefined,
+      instruction,
+    );
   }
 
   private async runWorker(
@@ -1218,7 +1251,10 @@ export class MeetingRuntime {
     if (current === undefined || current.status !== "active") return;
     const subagents = this.deps.subagents();
     if (subagents === undefined)
-      throw new MeetingError("not_found", "meeting worker runtime is unavailable");
+      throw new MeetingError(
+        "not_found",
+        "meeting worker runtime is unavailable",
+      );
     const controller = new AbortController();
     const task = {
       meetingId,
@@ -1248,7 +1284,8 @@ export class MeetingRuntime {
       const reply = workerText(result);
       if (result.stopReason !== "completed")
         throw new MeetingError("conflict", workerFailure(result));
-      if (reply !== "") await this.deps.meetings.postWorkerReply(current.id, reply);
+      if (reply !== "")
+        await this.deps.meetings.postWorkerReply(current.id, reply);
       if (messageId !== undefined) {
         await this.deps.meetings.markDelivery(
           messageId,
@@ -1300,8 +1337,26 @@ export interface DelegationReporterLike {
   ): { status: string; expiresAt?: string } | undefined;
 }
 
+/** Facilitator 席位的一次参会记录，供会议成员展示与「参会次数」统计使用。 */
+export interface MeetingFacilitatorActivity {
+  readonly teammateId: string;
+  readonly status: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly deactivatedAt?: string | undefined;
+}
+
 export class MeetingService {
   private delegationReporter: DelegationReporterLike | undefined;
+  /**
+   * Facilitator 生命周期读取器（由纪要服务注入）。
+   *
+   * Facilitator 是会议服务席位，只落在 facilitators 表、不占 participants 行；
+   * 统计「参会次数」和会议成员展示都需要读它，这里做一次转发，避免让
+   * MeetingService 直接依赖纪要服务。
+   */
+  private facilitatorReader:
+    ((meetingId: string) => readonly MeetingFacilitatorActivity[]) | undefined;
   /**
    * 对话内容变化（发言、worker 回复、散会）时触发一次。
    * 仅由写入路径调用，读取 / 轮询路径绝不触发；实现方负责异步与去重。
@@ -1318,6 +1373,19 @@ export class MeetingService {
 
   setDelegationReporter(reporter: DelegationReporterLike | undefined): void {
     this.delegationReporter = reporter;
+  }
+
+  setFacilitatorReader(
+    reader:
+      | ((meetingId: string) => readonly MeetingFacilitatorActivity[])
+      | undefined,
+  ): void {
+    this.facilitatorReader = reader;
+  }
+
+  /** 会议内的 facilitator 生命周期记录（无则空数组）。 */
+  facilitatorsOf(meetingId: string): readonly MeetingFacilitatorActivity[] {
+    return this.facilitatorReader?.(meetingId) ?? [];
   }
 
   constructor(
@@ -1521,13 +1589,11 @@ export class MeetingService {
         candidate.kind === actorKind(parsedActor) &&
         candidate.refId === parsedActor.id,
     );
-    if (
-      !(
-        caller !== undefined ||
-        meeting.createdBy === parsedActor.id ||
-        managerActor(parsedActor)
-      )
-    ) {
+    if (!(
+      caller !== undefined ||
+      meeting.createdBy === parsedActor.id ||
+      managerActor(parsedActor)
+    )) {
       throw new MeetingError(
         "forbidden",
         "an active meeting participant, creator, or workspace owner role is required",
@@ -1594,6 +1660,7 @@ export class MeetingService {
       readonly delegateId: string;
       readonly principalUserId: string;
       readonly principalName: string;
+      readonly aiPrincipalId?: string;
       readonly teammateInstanceId: string;
       readonly speechMode: "observe" | "mention" | "key_topic" | "active";
       readonly personaId?: string;
@@ -1607,6 +1674,7 @@ export class MeetingService {
         delegateId: idSchema,
         principalUserId: idSchema,
         principalName: displayNameSchema,
+        aiPrincipalId: idSchema.optional(),
         teammateInstanceId: idSchema,
         speechMode: z.enum(["observe", "mention", "key_topic", "active"]),
         personaId: idSchema.optional(),
@@ -1644,6 +1712,9 @@ export class MeetingService {
       ownerName: parsed.principalName,
       principalUserId: parsed.principalUserId,
       principalName: parsed.principalName,
+      ...(parsed.aiPrincipalId === undefined
+        ? {}
+        : { aiPrincipalId: parsed.aiPrincipalId }),
       teammateInstanceId: parsed.teammateInstanceId,
       delegationId: parsed.delegateId,
       principalType: "delegation",
@@ -1735,12 +1806,10 @@ export class MeetingService {
         candidate.kind === actorKind(parsedActor) &&
         candidate.refId === parsedActor.id,
     );
-    if (
-      !(
-        (parsedActor.kind === "user" && caller !== undefined) ||
-        managerActor(parsedActor)
-      )
-    ) {
+    if (!(
+      (parsedActor.kind === "user" && caller !== undefined) ||
+      managerActor(parsedActor)
+    )) {
       throw new MeetingError(
         "forbidden",
         "an active human participant or workspace owner role is required",
@@ -1749,10 +1818,7 @@ export class MeetingService {
     const participant = participants.find(
       (candidate) => candidate.id === parsedParticipantId,
     );
-    if (
-      participant === undefined ||
-      participant.status === "left"
-    ) {
+    if (participant === undefined || participant.status === "left") {
       throw new MeetingError(
         "not_found",
         "active meeting participant not found",
@@ -1772,9 +1838,7 @@ export class MeetingService {
       leftAt: timestamp,
       updatedAt: timestamp,
     };
-    const operator =
-      caller?.displayName ??
-      parsedActor.id;
+    const operator = caller?.displayName ?? parsedActor.id;
     await this.tables.participants.put(removed.id, removed);
     const systemMessageId = randomUUID();
     await this.tables.messages.put(systemMessageId, {
@@ -1797,7 +1861,11 @@ export class MeetingService {
     participant: MeetingParticipant,
     finalize: boolean,
   ): Promise<void> {
-    if (participant.delegationId === undefined || this.delegationReporter === undefined) return;
+    if (
+      participant.delegationId === undefined ||
+      this.delegationReporter === undefined
+    )
+      return;
     const transcript = this.transcript(participant.meetingId)
       .map((message) => `${message.senderName}: ${message.content}`)
       .join("\n");
@@ -1943,7 +2011,10 @@ export class MeetingService {
   ): Promise<MeetingParticipant> {
     const parsedActor = parseOrInvalid(actorSchema, actor);
     if (parsedActor.kind !== "user")
-      throw new MeetingError("forbidden", "only humans can dispatch meeting agents");
+      throw new MeetingError(
+        "forbidden",
+        "only humans can dispatch meeting agents",
+      );
     const parsed = parseOrInvalid(
       z.object({
         meetingId: z.string().min(1).max(160),
@@ -1969,7 +2040,10 @@ export class MeetingService {
         participant.status === "active",
     );
     if (requester === undefined)
-      throw new MeetingError("forbidden", "join the meeting before dispatching an agent");
+      throw new MeetingError(
+        "forbidden",
+        "join the meeting before dispatching an agent",
+      );
     const persona = await personas.get(parsed.personaId);
     // 幂等：同一个人用同一个 persona 再 spawn 一次时，复用已有参与者更新配置。
     // 否则会新建第二条同名参与者，被 uniqueAgentName 改名成「名字 · Agent」，
@@ -2016,8 +2090,12 @@ export class MeetingService {
       ownerName: parsed.ownerName,
       autoSpeak: parsed.autoSpeak,
       initialGreeting: parsed.initialGreeting,
-      ...(parsed.ownerEmployeeId === undefined ? {} : { principalType: "delegation" as const }),
-      ...(parsed.delegationId === undefined ? {} : { delegationId: parsed.delegationId }),
+      ...(parsed.ownerEmployeeId === undefined
+        ? {}
+        : { principalType: "delegation" as const }),
+      ...(parsed.delegationId === undefined
+        ? {}
+        : { delegationId: parsed.delegationId }),
       leader: false,
       status: "active",
       source: "spawned",
@@ -2075,10 +2153,15 @@ export class MeetingService {
       if (name !== "" && parsedContent.includes(`@${name}`))
         mentionedIds.add(participant.id);
     }
-    if (![...mentionedIds].every((participantId) =>
-      participants.some((participant) => participant.id === participantId),
-    )) {
-      throw new MeetingError("invalid_input", "mention targets must be meeting participants");
+    if (
+      ![...mentionedIds].every((participantId) =>
+        participants.some((participant) => participant.id === participantId),
+      )
+    ) {
+      throw new MeetingError(
+        "invalid_input",
+        "mention targets must be meeting participants",
+      );
     }
     const sender = participants.find(
       (participant) =>
@@ -2174,10 +2257,7 @@ export class MeetingService {
         meeting.id,
         `${current.displayName} 的委托${reason}，暂不能继续自动发言。请主人延期、恢复委托，或另行指派。`,
       );
-      throw new MeetingError(
-        "conflict",
-        `delegation is ${delegationStatus}`,
-      );
+      throw new MeetingError("conflict", `delegation is ${delegationStatus}`);
     }
     const parsedContent = parseOrInvalid(textSchema, content);
     const timestamp = nowIso(this.options.now);
@@ -2214,6 +2294,18 @@ export class MeetingService {
       createdAt: timestamp,
     };
     await this.tables.messages.put(message.id, parseMessage(message));
+    const pending = [...this.transcript(meeting.id)]
+      .reverse()
+      .find((candidate) =>
+        candidate.deliveries.some(
+          (delivery) =>
+            delivery.participantId === current.id &&
+            delivery.status === "pending",
+        ),
+      );
+    if (pending !== undefined) {
+      await this.markDelivery(pending.id, current.id, "delivered");
+    }
     this.onTranscriptChanged?.(meeting.id);
     return message;
   }
@@ -2237,7 +2329,10 @@ export class MeetingService {
           }
         : delivery,
     );
-    await this.tables.messages.put(message.id, parseMessage({ ...message, deliveries }));
+    await this.tables.messages.put(
+      message.id,
+      parseMessage({ ...message, deliveries }),
+    );
   }
 
   async close(
@@ -2403,6 +2498,8 @@ export class MeetingService {
       readonly displayName: string;
       readonly speechMode: "observe" | "mention" | "key_topic" | "active";
       readonly personaId?: string;
+      /** false = 静默加入（存量数据补偿），不追加「进入会议」系统消息。 */
+      readonly announce?: boolean;
     },
   ): Promise<MeetingParticipant> {
     parseOrInvalid(actorSchema, actor);
@@ -2413,6 +2510,7 @@ export class MeetingService {
         displayName: displayNameSchema,
         speechMode: z.enum(["observe", "mention", "key_topic", "active"]),
         personaId: idSchema.optional(),
+        announce: z.boolean().optional(),
       }),
       input,
     );
@@ -2451,7 +2549,7 @@ export class MeetingService {
       updatedAt: timestamp,
     });
     await this.tables.participants.put(participant.id, participant);
-    if (existing === undefined)
+    if (existing === undefined && parsed.announce !== false)
       await this.appendSystemMessage(
         meeting.id,
         // Facilitator 是会议服务席位，文案按「几点进入会议」表达。
@@ -2467,6 +2565,8 @@ export class MeetingService {
 
 /** 平台归属「会议 Facilitator」AI Teammate 的固定 id（数据种子）。 */
 export const MEETING_FACILITATOR_TEAMMATE_ID = "meeting-facilitator";
+/** 「会议 Facilitator」席位对应的人格 id（与 collab-roles 的 facilitator seat 一致）。 */
+export const MEETING_FACILITATOR_PERSONA_ID = "persona-meeting-facilitator";
 /** 纪要 run 的节点 id：工作台按它筛选会议来源的 agent run。 */
 export const MEETING_MINUTES_NODE_ID = "meeting-minutes";
 
@@ -2504,9 +2604,11 @@ interface MeetingMinutesAgentServiceLike {
     readonly timeoutMs: number;
     readonly personaId?: string | undefined;
     readonly employeeId?: string | undefined;
+    readonly principalId?: string | undefined;
     readonly principalType?:
       | "transitional-agent"
       | "digital-employee"
+      | "principal-runtime"
       | undefined;
     readonly payload: {
       readonly instanceTitle: string;
@@ -2644,8 +2746,16 @@ export class FacilitatorMinutesService {
       ...(ensured.personaId === undefined
         ? {}
         : { personaId: ensured.personaId }),
-      employeeId: ensured.employeeId,
-      principalType: "digital-employee",
+      ...(ensured.employeeId === undefined
+        ? {}
+        : { employeeId: ensured.employeeId }),
+      ...(ensured.principalId === undefined
+        ? {}
+        : { principalId: ensured.principalId }),
+      principalType:
+        ensured.employeeId === undefined
+          ? "principal-runtime"
+          : "digital-employee",
       payload: {
         instanceTitle: meeting.title,
         nodeName: "会议纪要",
@@ -2755,9 +2865,7 @@ interface TeamServiceLike {
 }
 
 interface EmployeeServiceLike {
-  getByAuthUserId(
-    authUserId: string,
-  ):
+  getByAuthUserId(authUserId: string):
     | {
         readonly id: string;
         readonly displayName: string;
@@ -2782,7 +2890,10 @@ interface EmployeeServiceLike {
       durationMinutes?: number;
     },
   ): Promise<{ readonly id: string }>;
-  attachParticipant(delegationId: string, participantId: string): Promise<unknown>;
+  attachParticipant(
+    delegationId: string,
+    participantId: string,
+  ): Promise<unknown>;
   getDelegationStatus(
     delegationId: string,
   ): { status: string; expiresAt?: string } | undefined;
@@ -2856,6 +2967,7 @@ export interface MeetingContext {
   /** 任务域（dsh-collab-task 提供）；未安装时为 undefined，会议降级不建任务。 */
   get(key: "collabTasks"): TaskServiceLike | undefined;
   get(key: "collabTaskDispatch"): TaskDispatchLike | undefined;
+  get(key: "collabPrincipal"): PrincipalServiceLike | undefined;
   inject(
     keys: readonly ["collabEmployee"],
     callback: (
@@ -2870,6 +2982,20 @@ export interface MeetingContext {
       child: MeetingContext & { readonly collabTeam: TeamServiceLike },
     ) => void,
   ): { dispose(): void };
+}
+
+interface PrincipalServiceLike {
+  resolveReference(reference: string):
+    | {
+        readonly id: string;
+        readonly kind: "human" | "ai";
+        readonly status: "active" | "suspended" | "archived";
+      }
+    | undefined;
+  preferredSubjectId(
+    principalId: string,
+    subjectTypes: readonly ("auth-user" | "employee" | "teammate" | "hrm")[],
+  ): string | undefined;
 }
 
 function browserActor(
@@ -2993,8 +3119,27 @@ export function createMeetingRoutes(
     /** 任务域：会议里的 AI 参会方据此建「会议」任务并派发会话。 */
     readonly taskService?: () => TaskServiceLike | undefined;
     readonly taskDispatch?: () => TaskDispatchLike | undefined;
+    readonly principals?: () => PrincipalServiceLike | undefined;
   } = {},
 ): WebRouteLike[] {
+  const resolveAgentReference = (
+    reference: string,
+    preferred: readonly ("employee" | "teammate")[],
+  ): string => {
+    const principals = dependencies.principals?.();
+    const principal = principals?.resolveReference(reference);
+    if (principals === undefined || principal === undefined) return reference;
+    if (principal.kind !== "ai") {
+      throw new MeetingError(
+        "invalid_input",
+        "AI 参会代表必须绑定 AI Principal",
+      );
+    }
+    if (principal.status === "archived") {
+      throw new MeetingError("conflict", "已归档 AI Principal 不能参会");
+    }
+    return principals.preferredSubjectId(principal.id, preferred) ?? reference;
+  };
   const memberNames = (workspaceId: string) =>
     new Map(
       team
@@ -3031,8 +3176,35 @@ export function createMeetingRoutes(
   const requireMinutes = (): MeetingMinutesService => {
     const service = dependencies.minutes?.();
     if (service === undefined)
-      throw new MeetingError("not_found", "meeting minutes service is unavailable");
+      throw new MeetingError(
+        "not_found",
+        "meeting minutes service is unavailable",
+      );
     return service;
+  };
+  /**
+   * Facilitator 是会议成员：关闭席位时把它从成员列表移除（置 left），
+   * 让成员列表与「参会次数」统计同源。成员状态异常不影响席位关闭结果。
+   */
+  const removeFacilitatorParticipant = async (
+    meetingId: string,
+    actor: MeetingActor,
+  ): Promise<void> => {
+    const participant = meetings
+      .participants(meetingId)
+      .find(
+        (candidate) =>
+          candidate.status === "active" &&
+          candidate.kind === "ai_teammate" &&
+          (candidate.teammateInstanceId ?? candidate.refId) ===
+            MEETING_FACILITATOR_TEAMMATE_ID,
+      );
+    if (participant === undefined) return;
+    try {
+      await meetings.removeParticipant(actor, meetingId, participant.id);
+    } catch {
+      // 已不在成员列表时忽略：席位关闭不因成员状态回退而失败。
+    }
   };
   const requireMinutesRuntime = (): MeetingMinutesRuntime => {
     const service = dependencies.minutesRuntime?.();
@@ -3043,25 +3215,37 @@ export function createMeetingRoutes(
   const requireDelegates = (): MeetingDelegateService => {
     const service = dependencies.delegates?.();
     if (service === undefined)
-      throw new MeetingError("not_found", "meeting delegate service is unavailable");
+      throw new MeetingError(
+        "not_found",
+        "meeting delegate service is unavailable",
+      );
     return service;
   };
   const requireReads = (): MeetingReadService => {
     const service = dependencies.reads?.();
     if (service === undefined)
-      throw new MeetingError("not_found", "meeting read service is unavailable");
+      throw new MeetingError(
+        "not_found",
+        "meeting read service is unavailable",
+      );
     return service;
   };
   const requireFiles = (): MeetingFileService => {
     const service = dependencies.files?.();
     if (service === undefined)
-      throw new MeetingError("not_found", "meeting file service is unavailable");
+      throw new MeetingError(
+        "not_found",
+        "meeting file service is unavailable",
+      );
     return service;
   };
   const requireTasks = (): MeetingTaskService => {
     const service = dependencies.tasks?.();
     if (service === undefined)
-      throw new MeetingError("not_found", "meeting task service is unavailable");
+      throw new MeetingError(
+        "not_found",
+        "meeting task service is unavailable",
+      );
     return service;
   };
   const routes = [
@@ -3129,20 +3313,20 @@ export function createMeetingRoutes(
         const participants = meetings
           .participants(meeting.id)
           .map((participant) => {
-          if (participant.delegationId === undefined) return participant;
-          const status = employees?.getDelegationStatus(
-            participant.delegationId,
-          );
-          if (status === undefined) return participant;
-          return {
-            ...participant,
-            delegationStatus: resolvedDelegationStatus(
-              status.status,
-              status.expiresAt,
-              now,
-            ),
-          };
-        });
+            if (participant.delegationId === undefined) return participant;
+            const status = employees?.getDelegationStatus(
+              participant.delegationId,
+            );
+            if (status === undefined) return participant;
+            return {
+              ...participant,
+              delegationStatus: resolvedDelegationStatus(
+                status.status,
+                status.expiresAt,
+                now,
+              ),
+            };
+          });
         sendJson(response, 200, {
           ok: true,
           meeting,
@@ -3176,14 +3360,31 @@ export function createMeetingRoutes(
           .participants(meeting.id)
           .find((candidate) => candidate.id === body.participantId);
         const runtime = dependencies.runtime?.();
-        if (runtime !== undefined) runtime.cancelParticipant(participant?.id ?? "");
+        if (runtime !== undefined)
+          runtime.cancelParticipant(participant?.id ?? "");
+        const removed = await meetings.removeParticipant(
+          actor,
+          meeting.id,
+          body.participantId,
+        );
+        // 反向联动：从成员列表移除 Facilitator 等同于停用它的会议席位。
+        if (
+          removed.kind === "ai_teammate" &&
+          (removed.teammateInstanceId ?? removed.refId) ===
+            MEETING_FACILITATOR_TEAMMATE_ID
+        ) {
+          const minutes = requireMinutes();
+          if (minutes.activeFacilitator(meeting.id) !== undefined) {
+            try {
+              await minutes.closeFacilitator(meeting.id, actor.id);
+            } catch {
+              // 已停用或并发关闭：成员移除结果不受影响。
+            }
+          }
+        }
         sendJson(response, 200, {
           ok: true,
-          participant: await meetings.removeParticipant(
-            actor,
-            meeting.id,
-            body.participantId,
-          ),
+          participant: removed,
         });
       },
     },
@@ -3301,11 +3502,10 @@ export function createMeetingRoutes(
         const runtime = dependencies.runtime?.();
         const delivered = meetings
           .participants(meeting.id)
-          .filter(
-            (participant) =>
-              message.deliveries.some(
-                (delivery) => delivery.participantId === participant.id,
-              ),
+          .filter((participant) =>
+            message.deliveries.some(
+              (delivery) => delivery.participantId === participant.id,
+            ),
           );
         // AI 参会方分流：已绑定「会议」任务的走任务会话链路（被动 @ / 主动监听
         // 都落到它自己的任务上，run 产出经 collab/task-changed 回写群聊）；
@@ -3346,12 +3546,14 @@ export function createMeetingRoutes(
         const actor = browserActor(team, request, meeting.workspaceId);
         const participant = meetings
           .participants(meeting.id)
-          .find((candidate) =>
-            candidate.kind === actorKind(actor) &&
-            candidate.refId === actor.id,
+          .find(
+            (candidate) =>
+              candidate.kind === actorKind(actor) &&
+              candidate.refId === actor.id,
           );
         const runtime = dependencies.runtime?.();
-        if (runtime !== undefined) runtime.cancelParticipant(participant?.id ?? "");
+        if (runtime !== undefined)
+          runtime.cancelParticipant(participant?.id ?? "");
         sendJson(response, 200, {
           ok: true,
           participant: await meetings.leave(actor, meeting.id),
@@ -3425,13 +3627,17 @@ export function createMeetingRoutes(
         const body = parseOrInvalid(
           z.object({
             meetingId: z.string().min(1).max(160),
-            teammateInstanceId: idSchema,
+            teammateInstanceId: z.string().min(1).max(240),
             displayName: displayNameSchema,
             speechMode: z
               .enum(["observe", "mention", "key_topic", "active"])
               .default("mention"),
           }),
           await readBody(request),
+        );
+        const teammateInstanceId = resolveAgentReference(
+          body.teammateInstanceId,
+          ["teammate", "employee"],
         );
         const meeting = meetings.get(body.meetingId);
         const actor = browserActor(team, request, meeting.workspaceId);
@@ -3441,11 +3647,12 @@ export function createMeetingRoutes(
         if (teammateRuntime !== undefined) {
           try {
             const ensured = await teammateRuntime.ensureRuntime({
-              teammateId: body.teammateInstanceId,
+              teammateId: teammateInstanceId,
               workspaceId: meeting.workspaceId,
               actor: {
                 userId: actor.id,
-                name: memberNames(meeting.workspaceId).get(actor.id) ?? actor.id,
+                name:
+                  memberNames(meeting.workspaceId).get(actor.id) ?? actor.id,
                 role:
                   actor.globalRole === "admin"
                     ? "admin"
@@ -3463,7 +3670,7 @@ export function createMeetingRoutes(
         }
         const participant = await meetings.addAiTeammate(actor, {
           meetingId: meeting.id,
-          teammateInstanceId: body.teammateInstanceId,
+          teammateInstanceId,
           displayName: body.displayName,
           speechMode: body.speechMode,
           ...(personaId === undefined ? {} : { personaId }),
@@ -3471,7 +3678,7 @@ export function createMeetingRoutes(
         // AI 参会方入会即建「会议」任务并派发会话：左侧项目树能看到它的运行过程。
         const agentTaskId = await ensureAgentMeetingTask({
           meeting,
-          teammateInstanceId: body.teammateInstanceId,
+          teammateInstanceId,
           teammateName: body.displayName,
           actorId: actor.id,
           actorName: memberNames(meeting.workspaceId).get(actor.id) ?? actor.id,
@@ -3494,12 +3701,20 @@ export function createMeetingRoutes(
             basePersonaId: idSchema.optional(),
             parentSessionId: idSchema.optional(),
             displayName: displayNameSchema.optional(),
-            autoSpeak: z.enum(["all", "mentions", "manual"]).default("mentions"),
+            autoSpeak: z
+              .enum(["all", "mentions", "manual"])
+              .default("mentions"),
             initialGreeting: z.boolean().default(true),
             objective: z.string().trim().min(1).max(4_000).optional(),
             stance: z.string().trim().max(4_000).optional(),
-            watchItems: z.array(z.string().trim().min(1).max(500)).max(20).optional(),
-            allowedActions: z.array(z.string().trim().min(1).max(120)).max(100).optional(),
+            watchItems: z
+              .array(z.string().trim().min(1).max(500))
+              .max(20)
+              .optional(),
+            allowedActions: z
+              .array(z.string().trim().min(1).max(120))
+              .max(100)
+              .optional(),
             speakPolicy: z.enum(["manual", "mentions", "all"]).optional(),
             durationMinutes: z.number().int().min(1).max(10_080).optional(),
           }),
@@ -3508,7 +3723,10 @@ export function createMeetingRoutes(
         const meeting = meetings.get(body.meetingId);
         const actor = browserActor(team, request, meeting.workspaceId);
         if (actor.kind !== "user")
-          throw new MeetingError("forbidden", "only humans can dispatch agents");
+          throw new MeetingError(
+            "forbidden",
+            "only humans can dispatch agents",
+          );
         const participants = meetings.participants(meeting.id);
         const requester = participants.find(
           (participant) =>
@@ -3524,29 +3742,39 @@ export function createMeetingRoutes(
         const runtime = dependencies.runtime?.();
         const personas = dependencies.personas?.();
         if (dependencies.subagents?.() === undefined)
-          throw new MeetingError("not_found", "meeting worker runtime is unavailable");
+          throw new MeetingError(
+            "not_found",
+            "meeting worker runtime is unavailable",
+          );
         if (runtime === undefined)
           throw new MeetingError("not_found", "meeting runtime is unavailable");
         if (personas === undefined)
-          throw new MeetingError("not_found", "roles persona service is unavailable");
+          throw new MeetingError(
+            "not_found",
+            "roles persona service is unavailable",
+          );
         const employees = dependencies.employees?.();
         if (employees === undefined) {
-          throw new MeetingError("not_found", "employee service is unavailable");
+          throw new MeetingError(
+            "not_found",
+            "employee service is unavailable",
+          );
         }
         const owner = employees.getByAuthUserId(actor.id);
         if (owner === undefined) {
-          throw new MeetingError("forbidden", "Human Employee record is required");
+          throw new MeetingError(
+            "forbidden",
+            "Human Employee record is required",
+          );
         }
         const ownerName =
-          memberNames(meeting.workspaceId).get(actor.id) ?? requester.displayName;
+          memberNames(meeting.workspaceId).get(actor.id) ??
+          requester.displayName;
         const teammateRuntime = dependencies.teammateRuntime?.();
         let teammatePersonaId: string | undefined;
         if (body.teammateId !== undefined) {
           if (teammateRuntime === undefined) {
-            throw new MeetingError(
-              "not_found",
-              "AI Teammate runtime is unavailable",
-            );
+            throw new MeetingError("not_found", "AI伙伴运行身份不可用");
           }
           const ensured = await teammateRuntime.ensureRuntime({
             teammateId: body.teammateId,
@@ -3563,7 +3791,7 @@ export function createMeetingRoutes(
         if (personaId === undefined) {
           throw new MeetingError(
             "invalid_input",
-            "personaId or teammateId is required",
+            "personaId 或 teammateId 必填",
           );
         }
         const ownerWorkspaceRole =
@@ -3590,14 +3818,26 @@ export function createMeetingRoutes(
           contextType: "meeting",
           contextId: meeting.id,
           objective:
-            body.objective ?? `代表 ${ownerName} 参加「${meeting.title}」，如实表达指定立场并汇报结论。`,
+            body.objective ??
+            `代表 ${ownerName} 参加「${meeting.title}」，如实表达指定立场并汇报结论。`,
           ...(body.stance === undefined ? {} : { stance: body.stance }),
-          ...(body.watchItems === undefined ? {} : { watchItems: body.watchItems }),
-          allowedActions: body.allowedActions ?? ["meeting.read", "meeting.speak"],
-          deniedActions: ["approval.final", "employee.manage", "workflow.approve"],
+          ...(body.watchItems === undefined
+            ? {}
+            : { watchItems: body.watchItems }),
+          allowedActions: body.allowedActions ?? [
+            "meeting.read",
+            "meeting.speak",
+          ],
+          deniedActions: [
+            "approval.final",
+            "employee.manage",
+            "workflow.approve",
+          ],
           speakPolicy: body.speakPolicy ?? body.autoSpeak,
           approvalPolicy: "never",
-          ...(body.durationMinutes === undefined ? {} : { durationMinutes: body.durationMinutes }),
+          ...(body.durationMinutes === undefined
+            ? {}
+            : { durationMinutes: body.durationMinutes }),
         });
         const participant = await meetings.spawnAgentForUser(
           actor,
@@ -3648,7 +3888,10 @@ export function createMeetingRoutes(
           participant.status !== "active" ||
           participant.ownerId !== actor.id
         )
-          throw new MeetingError("forbidden", "only the owner can trigger this agent");
+          throw new MeetingError(
+            "forbidden",
+            "only the owner can trigger this agent",
+          );
         const runtime = dependencies.runtime?.();
         if (runtime === undefined)
           throw new MeetingError("not_found", "meeting runtime is unavailable");
@@ -3670,6 +3913,14 @@ export function createMeetingRoutes(
         const meeting = meetings.get(body.meetingId);
         const actor = browserActor(team, request, meeting.workspaceId);
         activeHumanCaller(meeting, actor);
+        // 双向联动：Facilitator 是会议成员，开启席位后要在成员列表里出现。
+        await meetings.addAiTeammate(actor, {
+          meetingId: meeting.id,
+          teammateInstanceId: MEETING_FACILITATOR_TEAMMATE_ID,
+          displayName: "会议 Facilitator",
+          speechMode: "observe",
+          personaId: MEETING_FACILITATOR_PERSONA_ID,
+        });
         const facilitator = await requireMinutes().openFacilitator(
           meeting.id,
           actor.id,
@@ -3692,6 +3943,8 @@ export function createMeetingRoutes(
           meeting.id,
           actor.id,
         );
+        // 双向联动：席位关闭后，成员列表里也不应再留着 Facilitator。
+        await removeFacilitatorParticipant(meeting.id, actor);
         sendJson(response, 200, { ok: true, facilitator });
       },
     },
@@ -3806,8 +4059,8 @@ export function createMeetingRoutes(
         const body = parseOrInvalid(
           z.object({
             meetingId: z.string().min(1).max(160),
-            teammateInstanceId: z.string().min(1).max(160),
-            employeeId: z.string().min(1).max(160).optional(),
+            teammateInstanceId: z.string().min(1).max(240),
+            employeeId: z.string().min(1).max(240).optional(),
             speechMode: z
               .enum(["observe", "mention", "key_topic", "active"])
               .optional(),
@@ -3815,6 +4068,14 @@ export function createMeetingRoutes(
           }),
           await readBody(request),
         );
+        const teammateInstanceId = resolveAgentReference(
+          body.teammateInstanceId,
+          ["teammate", "employee"],
+        );
+        const employeeId =
+          body.employeeId === undefined
+            ? undefined
+            : resolveAgentReference(body.employeeId, ["employee", "teammate"]);
         const meeting = meetings.get(body.meetingId);
         const actor = browserActor(team, request, meeting.workspaceId);
         activeHumanCaller(meeting, actor);
@@ -3824,10 +4085,8 @@ export function createMeetingRoutes(
           meetingId: meeting.id,
           principalUserId: actor.id,
           principalName,
-          teammateInstanceId: body.teammateInstanceId,
-          ...(body.employeeId === undefined
-            ? {}
-            : { employeeId: body.employeeId }),
+          teammateInstanceId,
+          ...(employeeId === undefined ? {} : { employeeId }),
           ...(body.speechMode === undefined
             ? {}
             : { speechMode: body.speechMode }),
@@ -3838,11 +4097,12 @@ export function createMeetingRoutes(
         // Provision the teammate runtime and join the representative so the
         // delegate actually attends (target selection + worker dispatch).
         let personaId: string | undefined;
+        let aiPrincipalId: string | undefined;
         const teammateRuntime = dependencies.teammateRuntime?.();
         if (teammateRuntime !== undefined) {
           try {
             const ensured = await teammateRuntime.ensureRuntime({
-              teammateId: body.teammateInstanceId,
+              teammateId: teammateInstanceId,
               workspaceId: meeting.workspaceId,
               actor: {
                 userId: actor.id,
@@ -3858,6 +4118,7 @@ export function createMeetingRoutes(
               },
             });
             personaId = ensured.personaId;
+            aiPrincipalId = ensured.principalId;
           } catch {
             // Runtime provisioning is best effort; the binding still exists and
             // the representative retries dispatch once the runtime is ready.
@@ -3868,14 +4129,15 @@ export function createMeetingRoutes(
           delegateId: assigned.delegate.id,
           principalUserId: actor.id,
           principalName,
-          teammateInstanceId: body.teammateInstanceId,
+          teammateInstanceId,
           speechMode: body.speechMode ?? "mention",
           ...(personaId === undefined ? {} : { personaId }),
+          ...(aiPrincipalId === undefined ? {} : { aiPrincipalId }),
         });
         // 参会代表同样落到任务域：任务描述带上主人的嘱咐。
         const agentTaskId = await ensureAgentMeetingTask({
           meeting,
-          teammateInstanceId: body.teammateInstanceId,
+          teammateInstanceId,
           teammateName: `${principalName} 的 AI 参会代表`,
           actorId: actor.id,
           actorName: principalName,
@@ -3898,8 +4160,8 @@ export function createMeetingRoutes(
         const body = parseOrInvalid(
           z.object({
             delegateId: z.string().min(1).max(160),
-            teammateInstanceId: z.string().min(1).max(160).optional(),
-            employeeId: z.string().min(1).max(160).optional(),
+            teammateInstanceId: z.string().min(1).max(240).optional(),
+            employeeId: z.string().min(1).max(240).optional(),
             speechMode: z
               .enum(["observe", "mention", "key_topic", "active"])
               .optional(),
@@ -3907,6 +4169,17 @@ export function createMeetingRoutes(
           }),
           await readBody(request),
         );
+        const teammateInstanceId =
+          body.teammateInstanceId === undefined
+            ? undefined
+            : resolveAgentReference(body.teammateInstanceId, [
+                "teammate",
+                "employee",
+              ]);
+        const employeeId =
+          body.employeeId === undefined
+            ? undefined
+            : resolveAgentReference(body.employeeId, ["employee", "teammate"]);
         const delegates = requireDelegates();
         const actor = browserActor(
           team,
@@ -3916,12 +4189,8 @@ export function createMeetingRoutes(
         const updated = await delegates.update({
           delegateId: body.delegateId,
           actorUserId: actor.id,
-          ...(body.teammateInstanceId === undefined
-            ? {}
-            : { teammateInstanceId: body.teammateInstanceId }),
-          ...(body.employeeId === undefined
-            ? {}
-            : { employeeId: body.employeeId }),
+          ...(teammateInstanceId === undefined ? {} : { teammateInstanceId }),
+          ...(employeeId === undefined ? {} : { employeeId }),
           ...(body.speechMode === undefined
             ? {}
             : { speechMode: body.speechMode }),
@@ -3930,20 +4199,23 @@ export function createMeetingRoutes(
             : { instruction: body.instruction }),
         });
         const meeting = meetings.get(updated.delegate.meetingId);
-        const representative = meeting.status === "active"
-          ? await meetings.addAiRepresentative(actor, {
-              meetingId: meeting.id,
-              delegateId: updated.delegate.id,
-              principalUserId: updated.delegate.principalUserId,
-              principalName: updated.delegate.principalName,
-              teammateInstanceId: updated.delegate.teammateInstanceId,
-              speechMode: updated.delegate.speechMode,
-            })
-          : undefined;
+        const representative =
+          meeting.status === "active"
+            ? await meetings.addAiRepresentative(actor, {
+                meetingId: meeting.id,
+                delegateId: updated.delegate.id,
+                principalUserId: updated.delegate.principalUserId,
+                principalName: updated.delegate.principalName,
+                teammateInstanceId: updated.delegate.teammateInstanceId,
+                speechMode: updated.delegate.speechMode,
+              })
+            : undefined;
         sendJson(response, 200, {
           ok: true,
           delegate: updated.delegate,
-          ...(representative === undefined ? {} : { participant: representative }),
+          ...(representative === undefined
+            ? {}
+            : { participant: representative }),
         });
       },
     },
@@ -4098,23 +4370,32 @@ export function createMeetingRoutes(
           ...(body.mime === undefined ? {} : { mime: body.mime }),
           data: body.data,
         });
-        const message = await meetings.post(actor, meeting.id, `上传了文件：${file.name}`, {
-          attachments: [
-            {
-              id: file.id,
-              name: file.name,
-              mime: file.mime,
-              size: file.size,
-              storageRef: file.id,
-            },
-          ],
+        const message = await meetings.post(
+          actor,
+          meeting.id,
+          `上传了文件：${file.name}`,
+          {
+            attachments: [
+              {
+                id: file.id,
+                name: file.name,
+                mime: file.mime,
+                size: file.size,
+                storageRef: file.id,
+              },
+            ],
+          },
+        );
+        sendJson(response, 201, {
+          ok: true,
+          file: {
+            id: file.id,
+            name: file.name,
+            mime: file.mime,
+            size: file.size,
+          },
+          message,
         });
-        sendJson(response, 201, { ok: true, file: {
-          id: file.id,
-          name: file.name,
-          mime: file.mime,
-          size: file.size,
-        }, message });
       },
     },
   ];
@@ -4402,7 +4683,10 @@ export async function apply(ctx: MeetingContext): Promise<void | (() => void)> {
   const domain = await ctx.storageDomain.open(meetingDomainSpec);
   // Mount is the one moment no dispatch can still be live, so the restart sweep
   // retires every dispatch-backed row at once; runtime delivery reaps the rest.
-  await reapRestartedDispatchParticipants(domain.table("participants"), () => new Date());
+  await reapRestartedDispatchParticipants(
+    domain.table("participants"),
+    () => new Date(),
+  );
   // Phase 1 正式下线席位 / Lead：清除 leader 并补齐人类 owner。
   // 席位记录不再读取，旧字段由记录 schema 在下次写入时丢弃。幂等。
   await migrateMeetingOwnership(
@@ -4444,6 +4728,48 @@ export async function apply(ctx: MeetingContext): Promise<void | (() => void)> {
       }
     },
   });
+  // Facilitator 是服务席位、只落在 facilitators 表：把生命周期转给会议服务，
+  // 让「参会次数」统计与成员展示都能看到它实际进过会。
+  meetings.setFacilitatorReader((meetingId) =>
+    meetingMinutes.facilitators(meetingId).map((facilitator) => ({
+      teammateId: MEETING_FACILITATOR_TEAMMATE_ID,
+      status: facilitator.status,
+      createdAt: facilitator.createdAt,
+      updatedAt: facilitator.updatedAt,
+      ...(facilitator.deactivatedAt === undefined
+        ? {}
+        : { deactivatedAt: facilitator.deactivatedAt }),
+    })),
+  );
+  // 存量补偿：旧版本只开了 Facilitator 席位、没写成员记录。启动后静默补齐，
+  // 让成员列表与席位状态同源（幂等：已有活跃成员则跳过，不追加系统消息）。
+  void (async () => {
+    for (const meeting of tableValues(domain.table("meetings"))) {
+      if (meeting.status !== "active") continue;
+      if (meetingMinutes.activeFacilitator(meeting.id) === undefined) continue;
+      const joined = meetings
+        .participants(meeting.id)
+        .some(
+          (candidate) =>
+            candidate.status === "active" &&
+            candidate.kind === "ai_teammate" &&
+            (candidate.teammateInstanceId ?? candidate.refId) ===
+              MEETING_FACILITATOR_TEAMMATE_ID,
+        );
+      if (joined) continue;
+      await meetings.addAiTeammate(
+        { kind: "user", id: meeting.createdBy, workspaceRole: "member" },
+        {
+          meetingId: meeting.id,
+          teammateInstanceId: MEETING_FACILITATOR_TEAMMATE_ID,
+          displayName: "会议 Facilitator",
+          speechMode: "observe",
+          personaId: MEETING_FACILITATOR_PERSONA_ID,
+          announce: false,
+        },
+      );
+    }
+  })().catch(() => undefined);
   const meetingDelegates = new MeetingDelegateService({
     delegates: domain.table("delegates"),
     instructions: domain.table("delegate_instructions"),
@@ -4488,25 +4814,12 @@ export async function apply(ctx: MeetingContext): Promise<void | (() => void)> {
         minutes.minutesRun(meetingId, dispatchKey),
     }),
     onCompleted: async (version) => {
-      // 纪要生成后直接发到群聊，并给会议负责人一条待确认提示。
+      // 纪要在右侧面板展示：群聊里不再贴全文，也不再建「待确认」任务，
+      // 只留一条中性的「已生成」通知。
       try {
         await meetings.postSystemMessage(
           version.meetingId,
-          `会议纪要 v${version.version}\n\n${version.content}`,
-        );
-        const meeting = meetings.get(version.meetingId);
-        const owner = meeting.ownerUserId ?? meeting.createdBy;
-        // 独立待确认事项：新版本取代旧版本的 pending，再建一条新的。
-        await meetingTasks.replacePending(version.meetingId, version.id);
-        await meetingTasks.create({
-          meetingId: version.meetingId,
-          kind: "minutes_confirm",
-          targetId: version.id,
-          assigneeUserId: owner,
-        });
-        await meetings.postSystemMessage(
-          version.meetingId,
-          `@${owner} 会议纪要 v${version.version} 待确认：请在纪要面板确认或编辑。`,
+          `会议纪要 v${version.version} 已生成。`,
         );
       } catch {
         // 纪要版本已落库；发帖失败不回滚版本。
@@ -4608,6 +4921,7 @@ export async function apply(ctx: MeetingContext): Promise<void | (() => void)> {
       tasks: () => meetingTasks,
       taskService: () => ctx.get("collabTasks"),
       taskDispatch: () => ctx.get("collabTaskDispatch"),
+      principals: () => ctx.get("collabPrincipal"),
     }).map((route) => ctx.webServer.register(route)) as Array<() => void>;
   });
   const employeeFiber = ctx.inject(["collabEmployee"], (child) => {

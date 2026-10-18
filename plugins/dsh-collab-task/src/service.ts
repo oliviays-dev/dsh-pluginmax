@@ -32,12 +32,32 @@ export interface TaskActor {
   readonly name: string;
   readonly kind: "human" | "agent" | "system";
   readonly role?: "admin" | "owner" | "member" | "guest" | undefined;
+  readonly principalId?: string | undefined;
+}
+
+interface PrincipalRecordLike {
+  readonly id: string;
+  readonly kind: "human" | "ai";
+  readonly status: "active" | "suspended" | "archived";
+}
+
+export interface TaskPrincipalServiceLike {
+  resolveReference(reference: string): PrincipalRecordLike | undefined;
+  resolveSubject(
+    subjectType: "auth-user" | "employee" | "teammate",
+    subjectId: string,
+  ): PrincipalRecordLike | undefined;
+  preferredSubjectId(
+    principalId: string,
+    subjectTypes: readonly ("auth-user" | "employee" | "teammate" | "hrm")[],
+  ): string | undefined;
 }
 
 export interface TaskAgentRun {
   readonly id: string;
   readonly instanceId: string;
   readonly nodeId?: string | undefined;
+  readonly principalId?: string | undefined;
   /** 派发时写入的上下文：run 角色 / 执行者身份，结算回写时要用。 */
   readonly payload?:
     | {
@@ -107,7 +127,7 @@ const createInputSchema = z.object({
   priority: z.enum(["P1", "P2", "P3"]),
   status: taskStatusSchema.default("todo"),
   receiverType: z.enum(["unassigned", "human", "agent", "role"]),
-  receiverId: z.string().max(160).optional(),
+  receiverId: z.string().max(240).optional(),
   receiverName: z.string().max(200).optional(),
   description: z.string().min(1).max(20000),
   acceptance: z.array(z.string().min(1).max(500)).min(1).max(30),
@@ -122,6 +142,7 @@ const createInputSchema = z.object({
     )
     .default([]),
   autoSubmitReview: z.boolean().default(true),
+  autoApproveReview: z.boolean().optional(),
   workflow: taskWorkflowRefSchema.optional(),
 });
 
@@ -135,10 +156,15 @@ const updateInputSchema = z.object({
   autoSubmitReview: z.boolean().optional(),
 });
 
+const reviewApprovalInputSchema = z.object({
+  taskId: z.string().min(1).max(160),
+  autoApproveReview: z.boolean(),
+});
+
 const assignInputSchema = z.object({
   taskId: z.string().min(1).max(160),
   receiverType: z.enum(["unassigned", "human", "agent", "role"]),
-  receiverId: z.string().max(160).optional(),
+  receiverId: z.string().max(240).optional(),
   receiverName: z.string().max(200).optional(),
 });
 
@@ -209,7 +235,20 @@ function parseTask(value: unknown): TaskRecord {
   if (!result.success) {
     throw new TaskError("invalid_input", "stored task is invalid");
   }
-  return result.data;
+  const task = result.data;
+  // 历史人类工作流任务没有这个开关；按新的产品语义推导为提交后自动完成。
+  // 显式存成 false 的新数据不会被覆盖，因此用户仍可关闭自动验收。
+  if (
+    value !== null &&
+    typeof value === "object" &&
+    !("autoApproveReview" in value) &&
+    task.receiverType === "human" &&
+    task.workflow !== undefined &&
+    task.workflow.approvalPolicy === undefined
+  ) {
+    return { ...task, autoApproveReview: true };
+  }
+  return task;
 }
 
 function progressForSteps(steps: TaskRecord["steps"]): number {
@@ -278,7 +317,8 @@ export function compareDraftQueue(
     (QUEUE_PRIORITY_RANK[left.priority] ?? 9) -
     (QUEUE_PRIORITY_RANK[right.priority] ?? 9);
   if (byPriority !== 0) return byPriority;
-  const leftDue = left.due === undefined || left.due === "" ? "9999-99-99" : left.due;
+  const leftDue =
+    left.due === undefined || left.due === "" ? "9999-99-99" : left.due;
   const rightDue =
     right.due === undefined || right.due === "" ? "9999-99-99" : right.due;
   if (leftDue !== rightDue) return leftDue.localeCompare(rightDue);
@@ -316,7 +356,8 @@ export function isQueueRunnable<T extends QueueTaskLike>(
 ): boolean {
   if (task.archivedAt !== undefined) return false;
   if (task.status !== "todo") return false;
-  if (task.queueState === "paused" || task.queueState === "blocked") return false;
+  if (task.queueState === "paused" || task.queueState === "blocked")
+    return false;
   if (options.autoRun && task.autoRunEligible === false) return false;
   return dependenciesSatisfied(task, byId);
 }
@@ -352,6 +393,7 @@ export class TaskService {
        * sibling plugins (e.g. the workbench brief) can react to changes.
        */
       readonly onChange?: (task: TaskRecord) => void;
+      readonly principals?: () => TaskPrincipalServiceLike | undefined;
     } = {},
   ) {}
 
@@ -363,6 +405,73 @@ export class TaskService {
     const task = this.tables.tasks.get(taskIdValue);
     if (task === undefined) throw new TaskError("not_found", "task not found");
     return parseTask(task);
+  }
+
+  private principalForActor(actor: TaskActor): PrincipalRecordLike | undefined {
+    const principals = this.options.principals?.();
+    if (principals === undefined) return undefined;
+    if (actor.principalId !== undefined) {
+      return principals.resolveReference(actor.principalId);
+    }
+    if (actor.kind === "human") {
+      return principals.resolveSubject("auth-user", actor.id);
+    }
+    if (actor.kind === "agent") {
+      return (
+        principals.resolveSubject("teammate", actor.id) ??
+        principals.resolveSubject("employee", actor.id)
+      );
+    }
+    return undefined;
+  }
+
+  private normalizeReceiver(input: {
+    readonly receiverType: TaskRecord["receiverType"];
+    readonly receiverId?: string | undefined;
+  }): {
+    readonly receiverType: TaskRecord["receiverType"];
+    readonly receiverId?: string;
+    readonly receiverPrincipalId?: string;
+  } {
+    if (input.receiverType === "unassigned" || input.receiverId === undefined) {
+      return { receiverType: input.receiverType };
+    }
+    if (input.receiverType === "role") {
+      return {
+        receiverType: input.receiverType,
+        receiverId: input.receiverId,
+      };
+    }
+    const principals = this.options.principals?.();
+    const principal = principals?.resolveReference(input.receiverId);
+    if (principals === undefined || principal === undefined) {
+      return {
+        receiverType: input.receiverType,
+        receiverId: input.receiverId,
+      };
+    }
+    if (principal.status === "archived") {
+      throw new TaskError("conflict", "已归档主体不能接收任务");
+    }
+    if (principal.kind === "human") {
+      const authUserId = principals.preferredSubjectId(principal.id, [
+        "auth-user",
+      ]);
+      return {
+        receiverType: "human",
+        receiverId: authUserId ?? input.receiverId,
+        receiverPrincipalId: principal.id,
+      };
+    }
+    const agentId = principals.preferredSubjectId(principal.id, [
+      "teammate",
+      "employee",
+    ]);
+    return {
+      receiverType: "agent",
+      receiverId: agentId ?? input.receiverId,
+      receiverPrincipalId: principal.id,
+    };
   }
 
   /** Archived tasks are read-only until they are restored. */
@@ -378,7 +487,10 @@ export class TaskService {
     const stored = this.tables.tasks.get(parsed.id);
     // 归属项目创建后不可变更：任务一旦落在某个项目上，任何写入都不许换项目
     // （谁都不能把任务挪到别人的项目里，也不能靠改项目绕过项目权限）。
-    if (stored !== undefined && parseTask(stored).workspaceId !== parsed.workspaceId) {
+    if (
+      stored !== undefined &&
+      parseTask(stored).workspaceId !== parsed.workspaceId
+    ) {
       throw new TaskError("conflict", "任务归属项目创建后不可变更");
     }
     await this.tables.tasks.put(parsed.id, parsed);
@@ -400,10 +512,12 @@ export class TaskService {
     kind: TaskRecord["events"][number]["kind"],
     message: string,
   ): TaskRecord {
+    const principal = this.principalForActor(actor);
     const event = taskEventSchema.parse({
       id: randomUUID(),
       at: this.now(),
       actorId: actor.id,
+      ...(principal === undefined ? {} : { actorPrincipalId: principal.id }),
       actorName: actor.name,
       kind,
       message,
@@ -416,6 +530,57 @@ export class TaskService {
       .map(parseTask)
       .filter((task) => task.workspaceId === workspaceId)
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
+
+  /**
+   * 项目角色下线：把仍活跃、指向该角色的任务转为「需改派」。
+   * 已完成 / 已取消 / 已归档任务保留历史快照；受实例快照保护的工作流任务跳过。
+   */
+  async markRoleUnavailable(
+    workspaceId: string,
+    roles: ReadonlyMap<string, string>,
+    skipTaskIds: ReadonlySet<string> = new Set(),
+  ): Promise<number> {
+    let marked = 0;
+    for (const task of this.list(workspaceId)) {
+      if (skipTaskIds.has(task.id)) continue;
+      if (task.archivedAt !== undefined || task.deletedAt !== undefined) {
+        continue;
+      }
+      if (task.receiverType !== "role" || task.receiverId === undefined) {
+        continue;
+      }
+      if (!["todo", "progress", "review"].includes(task.status)) continue;
+      const roleName = roles.get(task.receiverId);
+      if (roleName === undefined) continue;
+      const {
+        receiverId,
+        receiverName,
+        reassignmentReason: _previousReason,
+        ...rest
+      } = task;
+      let next: TaskRecord = {
+        ...rest,
+        receiverType: "unassigned",
+        receiverState: "needs_reassignment",
+        reassignmentReason: `项目角色「${roleName}」已下线`,
+        previousReceiver: {
+          type: "role",
+          id: receiverId,
+          name: receiverName ?? roleName,
+        },
+        updatedAt: this.now(),
+      };
+      next = this.event(
+        next,
+        { id: "system", name: "项目角色", kind: "system" },
+        "updated",
+        `项目角色「${roleName}」已下线，任务需改派`,
+      );
+      await this.put(next);
+      marked += 1;
+    }
+    return marked;
   }
 
   get(taskIdValue: string): TaskRecord {
@@ -499,6 +664,7 @@ export class TaskService {
 
   async create(actor: TaskActor, input: unknown): Promise<TaskRecord> {
     const parsed = parse(createInputSchema, input);
+    const receiver = this.normalizeReceiver(parsed);
     const at = this.now();
     const steps = parsed.acceptance.map((label) =>
       taskStepSchema.parse({ id: randomUUID(), label, done: false }),
@@ -510,10 +676,13 @@ export class TaskService {
       type: parsed.type,
       status: parsed.status,
       priority: parsed.priority,
-      receiverType: parsed.receiverType,
-      ...(parsed.receiverId === undefined
+      receiverType: receiver.receiverType,
+      ...(receiver.receiverId === undefined
         ? {}
-        : { receiverId: parsed.receiverId }),
+        : { receiverId: receiver.receiverId }),
+      ...(receiver.receiverPrincipalId === undefined
+        ? {}
+        : { receiverPrincipalId: receiver.receiverPrincipalId }),
       ...(parsed.receiverName === undefined
         ? {}
         : { receiverName: parsed.receiverName }),
@@ -525,6 +694,9 @@ export class TaskService {
       links: parsed.links,
       ...(parsed.workflow === undefined ? {} : { workflow: parsed.workflow }),
       autoSubmitReview: parsed.autoSubmitReview,
+      ...(parsed.autoApproveReview === undefined
+        ? {}
+        : { autoApproveReview: parsed.autoApproveReview }),
       progress: 0,
       steps,
       messages: [],
@@ -590,6 +762,7 @@ export class TaskService {
 
   async assign(actor: TaskActor, input: unknown): Promise<TaskRecord> {
     const parsed = parse(assignInputSchema, input);
+    const receiverRef = this.normalizeReceiver(parsed);
     // 已完成的任务被重新指派 = 还有人要接着做，重开一轮后继续。
     const task = requireContinuable(
       this.requireActive(this.require(parsed.taskId)),
@@ -605,38 +778,38 @@ export class TaskService {
       await this.workflowActions?.assign(
         {
           ...task,
-          receiverType: parsed.receiverType,
-          receiverId:
-            parsed.receiverType === "unassigned"
-              ? undefined
-              : parsed.receiverId,
+          receiverType: receiverRef.receiverType,
+          receiverId: receiverRef.receiverId,
+          receiverPrincipalId: receiverRef.receiverPrincipalId,
           receiverName:
-            parsed.receiverType === "unassigned"
+            receiverRef.receiverType === "unassigned"
               ? undefined
               : parsed.receiverName,
         },
         actor,
       );
     }
-    const receiver =
-      parsed.receiverType === "unassigned"
+    const receiverLabel =
+      receiverRef.receiverType === "unassigned"
         ? "待指派"
-        : parsed.receiverName?.trim() || parsed.receiverId || "未知责任人";
+        : parsed.receiverName?.trim() ||
+          receiverRef.receiverId ||
+          "未知责任人";
+    const { reassignmentReason: _previousReason, ...base } = task;
     const updated = await this.put(
       this.event(
         {
-          ...task,
-          receiverType: parsed.receiverType,
-          receiverId:
-            parsed.receiverType === "unassigned"
-              ? undefined
-              : parsed.receiverId,
+          ...base,
+          receiverType: receiverRef.receiverType,
+          receiverState: "active",
+          receiverId: receiverRef.receiverId,
+          receiverPrincipalId: receiverRef.receiverPrincipalId,
           receiverName:
-            parsed.receiverType === "unassigned"
+            receiverRef.receiverType === "unassigned"
               ? undefined
               : parsed.receiverName,
           status:
-            parsed.receiverType === "unassigned" || reopened
+            receiverRef.receiverType === "unassigned" || reopened
               ? "todo"
               : task.status,
           updatedAt: this.now(),
@@ -644,8 +817,8 @@ export class TaskService {
         actor,
         "assigned",
         reopened
-          ? `${actor.name} 重新开启任务并调整责任人为 ${receiver}`
-          : `${actor.name} 调整责任人为 ${receiver}`,
+          ? `${actor.name} 重新开启任务并调整责任人为 ${receiverLabel}`
+          : `${actor.name} 调整责任人为 ${receiverLabel}`,
       ),
     );
     return updated;
@@ -656,11 +829,17 @@ export class TaskService {
     if (task.receiverType !== "role") {
       throw new TaskError("conflict", "only role tasks can be claimed");
     }
+    const principal = this.principalForActor(actor);
+    const { reassignmentReason: _previousReason, ...base } = task;
     const updated = this.event(
       {
-        ...task,
+        ...base,
         receiverType: "human",
+        receiverState: "active",
         receiverId: actor.id,
+        ...(principal === undefined
+          ? {}
+          : { receiverPrincipalId: principal.id }),
         receiverName: actor.name,
         status: "progress",
         updatedAt: this.now(),
@@ -693,7 +872,11 @@ export class TaskService {
     let task = requireOpen(this.require(taskIdValue));
     if (task.workflow !== undefined) {
       const reviewRequired = task.workflow.reviewRequired !== false;
-      if (reviewRequired && task.status === "progress") {
+      if (
+        task.autoApproveReview !== true &&
+        reviewRequired &&
+        task.status === "progress"
+      ) {
         return this.setStatus(actor, task, "review", "提交验收");
       }
       await this.workflowActions?.submit(task, actor);
@@ -725,6 +908,42 @@ export class TaskService {
     return approved;
   }
 
+  /** 工作流执行任务允许单独切换自动验收；审批任务必须保留显式结论。 */
+  async updateReviewApproval(
+    actor: TaskActor,
+    input: unknown,
+  ): Promise<TaskRecord> {
+    const parsed = parse(reviewApprovalInputSchema, input);
+    const task = requireOpen(this.requireActive(this.require(parsed.taskId)));
+    if (task.workflow?.approvalPolicy !== undefined) {
+      throw new TaskError("conflict", "审批任务不能自动通过");
+    }
+    if (task.autoApproveReview === parsed.autoApproveReview) return task;
+    const updated = await this.put(
+      this.event(
+        {
+          ...task,
+          autoApproveReview: parsed.autoApproveReview,
+          updatedAt: this.now(),
+        },
+        actor,
+        "updated",
+        `${actor.name} ${parsed.autoApproveReview ? "开启" : "关闭"}了自动验收`,
+      ),
+    );
+    if (
+      !parsed.autoApproveReview ||
+      updated.status !== "review" ||
+      updated.workflow === undefined
+    ) {
+      return updated;
+    }
+    await this.workflowActions?.submit(updated, actor);
+    const settled = this.require(parsed.taskId);
+    if (isSettled(settled)) return settled;
+    return this.settleProjection(actor, parsed.taskId, "approved");
+  }
+
   async reject(actor: TaskActor, taskIdValue: string): Promise<TaskRecord> {
     let task = requireOpen(this.require(taskIdValue));
     if (task.workflow !== undefined) {
@@ -753,18 +972,20 @@ export class TaskService {
   ): Promise<TaskRecord> {
     const task = this.requireActive(this.require(input.taskId));
     if (isSettled(task)) return task;
+    const receiver = this.normalizeReceiver(input);
     return this.put(
       this.event(
         {
           ...task,
-          receiverType: input.receiverType,
-          receiverId:
-            input.receiverType === "unassigned" ? undefined : input.receiverId,
+          receiverType: receiver.receiverType,
+          receiverId: receiver.receiverId,
+          receiverPrincipalId: receiver.receiverPrincipalId,
           receiverName:
-            input.receiverType === "unassigned"
+            receiver.receiverType === "unassigned"
               ? undefined
               : input.receiverName,
-          status: input.receiverType === "unassigned" ? "todo" : task.status,
+          status:
+            receiver.receiverType === "unassigned" ? "todo" : task.status,
           updatedAt: this.now(),
         },
         actor,
@@ -785,14 +1006,15 @@ export class TaskService {
     },
   ): Promise<TaskRecord> {
     const task = this.require(input.taskId);
-    const receiverId =
-      input.receiverType === "unassigned" ? undefined : input.receiverId;
+    const receiver = this.normalizeReceiver(input);
+    const receiverId = receiver.receiverId;
     const receiverName =
       input.receiverType === "unassigned" ? undefined : input.receiverName;
     if (
-      task.receiverType === input.receiverType &&
+      task.receiverType === receiver.receiverType &&
       task.receiverId === receiverId &&
-      task.receiverName === receiverName
+      task.receiverName === receiverName &&
+      task.receiverPrincipalId === receiver.receiverPrincipalId
     ) {
       return task;
     }
@@ -800,13 +1022,46 @@ export class TaskService {
       this.event(
         {
           ...task,
-          receiverType: input.receiverType,
+          receiverType: receiver.receiverType,
           receiverId,
+          receiverPrincipalId: receiver.receiverPrincipalId,
           receiverName,
         },
         actor,
         "assigned",
         `工作流同步负责人：${receiverName ?? receiverId ?? "待指派"}`,
+      ),
+    );
+  }
+
+  /** Approval Tasks can have several readable approvers even though they use one primary receiver. */
+  async projectApprovalApprovers(
+    actor: TaskActor,
+    input: { taskId: string; approverIds: readonly string[] },
+  ): Promise<TaskRecord> {
+    const task = this.require(input.taskId);
+    if (task.workflow?.approvalPolicy === undefined) {
+      throw new TaskError("conflict", "只有审批任务支持同步审批人");
+    }
+    const approverIds = [...new Set(input.approverIds)].filter(
+      (id) => id.trim() !== "",
+    );
+    const previous = task.workflow.approverIds ?? [];
+    if (
+      previous.length === approverIds.length &&
+      previous.every((id, index) => id === approverIds[index])
+    ) {
+      return task;
+    }
+    return this.put(
+      this.event(
+        {
+          ...task,
+          workflow: { ...task.workflow, approverIds },
+        },
+        actor,
+        "updated",
+        "工作流同步审批人",
       ),
     );
   }
@@ -1256,12 +1511,12 @@ export class TaskService {
             ? run.output?.summary?.trim() ||
               run.error?.trim() ||
               "信息不足，等待人工补充后继续。"
-          : run.status === "failed" ||
-              run.status === "timeout" ||
-              run.status === "cancelled" ||
-              run.status === "interrupted"
-            ? run.error?.trim() || "Agent 执行未完成。"
-            : "已接收指令，正在执行…",
+            : run.status === "failed" ||
+                run.status === "timeout" ||
+                run.status === "cancelled" ||
+                run.status === "interrupted"
+              ? run.error?.trim() || "Agent 执行未完成。"
+              : "已接收指令，正在执行…",
       attachments: [],
       runId: run.id,
       state: run.status,
@@ -1314,7 +1569,7 @@ export class TaskService {
       isActive &&
       task.workflow !== undefined &&
       !isApprovalTask &&
-      !workflowReviewRequired;
+      (!workflowReviewRequired || task.autoApproveReview === true);
     const autoReview =
       run.status === "succeeded" &&
       task.receiverType === "agent" &&
@@ -1369,9 +1624,11 @@ export class TaskService {
         ? `${receiverName} 返回了执行反馈`
         : needsInput
           ? `${receiverName} 需要补充信息，已转交 ${handoff?.name ?? "负责人"} 处理`
-        : ["failed", "timeout", "cancelled", "interrupted"].includes(run.status)
-          ? `${receiverName} 执行未完成`
-          : `${receiverName} 开始执行任务`,
+          : ["failed", "timeout", "cancelled", "interrupted"].includes(
+                run.status,
+              )
+            ? `${receiverName} 执行未完成`
+            : `${receiverName} 开始执行任务`,
     );
     if (!autoReview && !workflowReview && !workflowDirect)
       return this.put(withRun);
@@ -1519,6 +1776,11 @@ export class TaskService {
 
   async nudge(actor: TaskActor, taskIdValue: string): Promise<TaskRecord> {
     const task = requireOpen(this.requireActive(this.require(taskIdValue)));
+    // 催办是「提醒某个人」的动作：只有指派给人类的任务才有意义。
+    // 交给 Agent 的任务要推进就发指令 / 改派 / 重置会话，别用催办。
+    if (task.receiverType !== "human") {
+      throw new TaskError("conflict", "只有指派给人类的任务可以催办");
+    }
     return this.put(
       this.event(
         { ...task, updatedAt: this.now() },
@@ -1624,7 +1886,10 @@ export class TaskService {
       }
     }
     const notes: string[] = [];
-    if (input.queueState !== undefined && input.queueState !== task.queueState) {
+    if (
+      input.queueState !== undefined &&
+      input.queueState !== task.queueState
+    ) {
       notes.push(
         input.queueState === "paused"
           ? "暂停出队"

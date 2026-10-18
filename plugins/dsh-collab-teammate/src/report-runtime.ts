@@ -219,7 +219,7 @@ export function buildWorkReportPrompt(
   const lines = (items: readonly string[]): string =>
     items.length > 0 ? items.join("\n") : "- 无";
   return [
-    `你是 AI Teammate「${context.teammate.name}」，负责${context.teammate.role || "当前岗位职责"}。`,
+    `你是 AI伙伴「${context.teammate.name}」，负责${context.teammate.role || "当前岗位职责"}。`,
     `请基于下面提供的授权上下文，生成 ${context.reportDate} 的工作日报。`,
     "",
     "硬性要求：",

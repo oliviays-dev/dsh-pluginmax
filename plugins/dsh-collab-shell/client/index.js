@@ -12,8 +12,7 @@ window.__ModuleLoader__.load({
         // 刷新后的默认落地页：工作台
         route: "workbench",
         // 窄屏（手机）默认收起左侧栏，避免主区被挤到不可用；桌面/平板保持展开。
-        leftOpen:
-          typeof window === "undefined" || window.innerWidth >= 600,
+        leftOpen: typeof window === "undefined" || window.innerWidth >= 600,
         meetingOpen: false,
         meetingWidth: 380,
         detailsOpen: false,
@@ -273,6 +272,35 @@ window.__ModuleLoader__.load({
       .pmx-shell[data-left-closed] .pmx-account-wrap{width:42px;flex:none;}
       .pmx-shell[data-left-closed] .pmx-toggle{position:absolute;opacity:0;pointer-events:none;}
 
+      @media (max-width:600px){
+        div[role="presentation"] > div[role="dialog"]:has(> nav){
+          width:calc(100vw - 16px) !important;height:calc(100vh - 16px) !important;
+          max-width:none !important;max-height:none !important;margin:8px !important;
+          display:flex !important;flex-direction:column !important;border-radius:10px !important;
+        }
+        div[role="presentation"] > div[role="dialog"]:has(> nav) > nav{
+          width:100% !important;height:auto !important;max-height:none !important;
+          flex:none !important;display:flex !important;flex-direction:column !important;
+          padding:8px 10px !important;border-right:0 !important;
+          border-bottom:0.5px solid var(--dsw-alias-border-l2) !important;
+          overflow:hidden !important;
+        }
+        div[role="presentation"] > div[role="dialog"]:has(> nav) > nav > div:first-child{
+          display:none !important;
+        }
+        div[role="presentation"] > div[role="dialog"]:has(> nav) > nav > div:last-child{
+          width:100% !important;display:flex !important;flex-direction:row !important;
+          gap:4px !important;overflow-x:auto !important;
+        }
+        div[role="presentation"] > div[role="dialog"]:has(> nav) > nav button{
+          width:auto !important;flex:none !important;white-space:nowrap !important;
+        }
+        div[role="presentation"] > div[role="dialog"]:has(> nav) > div{
+          width:100% !important;min-width:0 !important;flex:1 !important;
+          overflow:auto !important;padding:14px !important;
+        }
+      }
+
       @media (max-width:900px){
         .pmx-shell[data-meeting-open]{
           grid-template-columns:72px minmax(0,1fr) 0
@@ -434,10 +462,11 @@ window.__ModuleLoader__.load({
 
     const navItems = [
       { key: "workbench", label: "工作台", icon: icons.people },
-      { key: "task", label: "任务管理", icon: icons.task },
+      { key: "projects", label: "项目", icon: icons.project },
+      { key: "task", label: "任务", icon: icons.task },
       { key: "workflow", label: "工作流", icon: icons.workflow },
       { key: "meetings", label: "会议", icon: icons.meeting },
-      { key: "teammates", label: "AI Teammates", icon: icons.teammate },
+      { key: "teammates", label: "AI伙伴", icon: icons.teammate },
     ];
 
     /**
@@ -451,7 +480,10 @@ window.__ModuleLoader__.load({
       viewBox: "0 0 23.16 17.04",
       fill: "none",
       "aria-hidden": "true",
-      children: jsxRuntime.jsx("path", { d: FISH_LOGO_PATH, fill: "currentColor" }),
+      children: jsxRuntime.jsx("path", {
+        d: FISH_LOGO_PATH,
+        fill: "currentColor",
+      }),
     });
 
     async function requestIdentity(path) {
@@ -461,6 +493,17 @@ window.__ModuleLoader__.load({
       const response = await fetch(path, { headers });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return response.json();
+    }
+
+    function friendlyAuthError(cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      if (message === "invalid user or password")
+        return "用户 ID 或密码不正确。";
+      if (message === "account is disabled")
+        return "该账号已停用，请联系管理员启用。";
+      if (message === "invalid or expired token")
+        return "登录状态已过期，请重新登录。";
+      return message;
     }
 
     /** 密码可见性图标：睁眼 = 显示中，闭眼（带斜线）= 已隐藏。 */
@@ -480,9 +523,7 @@ window.__ModuleLoader__.load({
             d: "M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z",
           }),
           jsxRuntime.jsx("circle", { cx: 12, cy: 12, r: 3 }),
-          off
-            ? jsxRuntime.jsx("path", { d: "M4 4l16 16" })
-            : null,
+          off ? jsxRuntime.jsx("path", { d: "M4 4l16 16" }) : null,
         ],
       });
 
@@ -495,7 +536,8 @@ window.__ModuleLoader__.load({
         userId: "",
         password: "",
       });
-      const [authPasswordVisible, setAuthPasswordVisible] = react.useState(false);
+      const [authPasswordVisible, setAuthPasswordVisible] =
+        react.useState(false);
       const [authError, setAuthError] = react.useState("");
       const [authBusy, setAuthBusy] = react.useState(false);
       const wrapRef = react.useRef(null);
@@ -592,13 +634,7 @@ window.__ModuleLoader__.load({
           setAuthForm({ userId: "", password: "" });
           setAuthPasswordVisible(false);
         } catch (cause) {
-          setAuthError(
-            cause instanceof Error && cause.message === "invalid user or password"
-              ? "用户 ID 或密码不正确。"
-              : cause instanceof Error
-                ? cause.message
-                : String(cause),
-          );
+          setAuthError(friendlyAuthError(cause));
         } finally {
           setAuthBusy(false);
         }
@@ -638,166 +674,182 @@ window.__ModuleLoader__.load({
               }),
             ],
           }),
-          menuOpen ? jsxRuntime.jsxs("div", {
-            className: "pmx-account-menu",
-            role: "menu",
-            children: [
-              account
-                ? jsxRuntime.jsxs("div", {
-                    className: "pmx-account-menu-head",
-                    children: [
-                      jsxRuntime.jsx("span", { className: "pmx-avatar", children: initials }),
-                      jsxRuntime.jsxs("span", {
+          menuOpen
+            ? jsxRuntime.jsxs("div", {
+                className: "pmx-account-menu",
+                role: "menu",
+                children: [
+                  account
+                    ? jsxRuntime.jsxs("div", {
+                        className: "pmx-account-menu-head",
                         children: [
-                          jsxRuntime.jsx("strong", { children: name }),
-                          jsxRuntime.jsxs("small", {
-                            children: [account.id, " · ", role],
+                          jsxRuntime.jsx("span", {
+                            className: "pmx-avatar",
+                            children: initials,
+                          }),
+                          jsxRuntime.jsxs("span", {
+                            children: [
+                              jsxRuntime.jsx("strong", { children: name }),
+                              jsxRuntime.jsxs("small", {
+                                children: [account.id, " · ", role],
+                              }),
+                            ],
                           }),
                         ],
-                      }),
-                    ],
-                  })
-                : null,
-              jsxRuntime.jsxs("button", {
-                type: "button",
-                role: "menuitem",
-                onClick: () => {
-                  onOpenAccountManagement();
-                  setMenuOpen(false);
-                },
-                children: account ? "账号设置" : "登录账号",
-              }),
-              account
-                ? jsxRuntime.jsx("button", {
+                      })
+                    : null,
+                  jsxRuntime.jsxs("button", {
                     type: "button",
                     role: "menuitem",
                     onClick: () => {
-                      openAuth("switch");
+                      onOpenAccountManagement();
+                      setMenuOpen(false);
                     },
-                    children: "切换账号",
-                  })
-                : null,
-              account
-                ? jsxRuntime.jsx("button", {
+                    children: account ? "账号设置" : "登录账号",
+                  }),
+                  account
+                    ? jsxRuntime.jsx("button", {
+                        type: "button",
+                        role: "menuitem",
+                        onClick: () => {
+                          openAuth("switch");
+                        },
+                        children: "切换账号",
+                      })
+                    : null,
+                  account
+                    ? jsxRuntime.jsx("button", {
+                        type: "button",
+                        role: "menuitem",
+                        className: "danger",
+                        onClick: () => {
+                          void logout();
+                        },
+                        children: "退出登录",
+                      })
+                    : null,
+                  jsxRuntime.jsx("button", {
                     type: "button",
                     role: "menuitem",
-                    className: "danger",
                     onClick: () => {
-                      void logout();
+                      setMenuOpen(false);
+                      onOpenSettings();
                     },
-                    children: "退出登录",
-                  })
-                : null,
-              jsxRuntime.jsx("button", {
-                type: "button",
-                role: "menuitem",
-                onClick: () => {
-                  setMenuOpen(false);
-                  onOpenSettings();
+                    children: "打开设置",
+                  }),
+                ],
+              })
+            : null,
+          authOpen
+            ? jsxRuntime.jsx("div", {
+                className: "pmx-auth-layer",
+                onMouseDown: (event) => {
+                  if (event.target === event.currentTarget) setAuthOpen(false);
                 },
-                children: "打开设置",
-              }),
-            ],
-          }) : null,
-          authOpen ? jsxRuntime.jsx("div", {
-            className: "pmx-auth-layer",
-            onMouseDown: (event) => {
-              if (event.target === event.currentTarget) setAuthOpen(false);
-            },
-            children: jsxRuntime.jsxs("form", {
-              className: "pmx-auth-card",
-              onSubmit: submitAuth,
-              children: [
-                jsxRuntime.jsxs("div", {
-                  className: "pmx-auth-head",
+                children: jsxRuntime.jsxs("form", {
+                  className: "pmx-auth-card",
+                  onSubmit: submitAuth,
                   children: [
-                    jsxRuntime.jsx("h3", {
-                      children: authMode === "switch" ? "切换账号" : "登录账号",
-                    }),
-                    jsxRuntime.jsx("p", {
-                      children: authMode === "switch"
-                        ? `新账号登录成功前，当前账号「${name}」仍然保持登录。`
-                        : "使用 Pluginmax 用户 ID 和密码登录。",
-                    }),
-                  ],
-                }),
-                jsxRuntime.jsxs("label", {
-                  children: [
-                    "用户 ID",
-                    jsxRuntime.jsx("input", {
-                      autoFocus: true,
-                      autoComplete: "username",
-                      value: authForm.userId,
-                      onChange: (event) =>
-                        setAuthForm((current) => ({
-                          ...current,
-                          userId: event.target.value,
-                        })),
-                    }),
-                  ],
-                }),
-                jsxRuntime.jsxs("label", {
-                  children: [
-                    "密码",
-                    jsxRuntime.jsxs("span", {
-                      className: "pmx-auth-password",
+                    jsxRuntime.jsxs("div", {
+                      className: "pmx-auth-head",
                       children: [
+                        jsxRuntime.jsx("h3", {
+                          children:
+                            authMode === "switch" ? "切换账号" : "登录账号",
+                        }),
+                        jsxRuntime.jsx("p", {
+                          children:
+                            authMode === "switch"
+                              ? `新账号登录成功前，当前账号「${name}」仍然保持登录。`
+                              : "使用 Pluginmax 用户 ID 和密码登录。",
+                        }),
+                      ],
+                    }),
+                    jsxRuntime.jsxs("label", {
+                      children: [
+                        "用户 ID",
                         jsxRuntime.jsx("input", {
-                          type: authPasswordVisible ? "text" : "password",
-                          autoComplete: "current-password",
-                          value: authForm.password,
+                          autoFocus: true,
+                          autoComplete: "username",
+                          value: authForm.userId,
                           onChange: (event) =>
                             setAuthForm((current) => ({
                               ...current,
-                              password: event.target.value,
+                              userId: event.target.value,
                             })),
                         }),
+                      ],
+                    }),
+                    jsxRuntime.jsxs("label", {
+                      children: [
+                        "密码",
+                        jsxRuntime.jsxs("span", {
+                          className: "pmx-auth-password",
+                          children: [
+                            jsxRuntime.jsx("input", {
+                              type: authPasswordVisible ? "text" : "password",
+                              autoComplete: "current-password",
+                              value: authForm.password,
+                              onChange: (event) =>
+                                setAuthForm((current) => ({
+                                  ...current,
+                                  password: event.target.value,
+                                })),
+                            }),
+                            jsxRuntime.jsx("button", {
+                              type: "button",
+                              "aria-label": authPasswordVisible
+                                ? "隐藏密码"
+                                : "显示密码",
+                              title: authPasswordVisible
+                                ? "隐藏密码"
+                                : "显示密码",
+                              onClick: () =>
+                                setAuthPasswordVisible((visible) => !visible),
+                              children: jsxRuntime.jsx(EyeIcon, {
+                                off: !authPasswordVisible,
+                              }),
+                            }),
+                          ],
+                        }),
+                      ],
+                    }),
+                    authError === ""
+                      ? null
+                      : jsxRuntime.jsx("div", {
+                          className: "pmx-auth-error",
+                          children: authError,
+                        }),
+                    jsxRuntime.jsxs("div", {
+                      className: "pmx-auth-actions",
+                      children: [
                         jsxRuntime.jsx("button", {
                           type: "button",
-                          "aria-label": authPasswordVisible ? "隐藏密码" : "显示密码",
-                          title: authPasswordVisible ? "隐藏密码" : "显示密码",
-                          onClick: () =>
-                            setAuthPasswordVisible((visible) => !visible),
-                          children: jsxRuntime.jsx(EyeIcon, {
-                            off: !authPasswordVisible,
-                          }),
+                          onClick: () => {
+                            setAuthOpen(false);
+                            setAuthPasswordVisible(false);
+                          },
+                          children: "取消",
+                        }),
+                        jsxRuntime.jsx("button", {
+                          type: "submit",
+                          className: "primary",
+                          disabled:
+                            authBusy ||
+                            authForm.userId === "" ||
+                            authForm.password === "",
+                          children: authBusy
+                            ? "处理中…"
+                            : authMode === "switch"
+                              ? "登录并切换"
+                              : "登录",
                         }),
                       ],
                     }),
                   ],
                 }),
-                authError === ""
-                  ? null
-                  : jsxRuntime.jsx("div", {
-                      className: "pmx-auth-error",
-                      children: authError,
-                    }),
-                jsxRuntime.jsxs("div", {
-                  className: "pmx-auth-actions",
-                  children: [
-                    jsxRuntime.jsx("button", {
-                      type: "button",
-                      onClick: () => {
-                        setAuthOpen(false);
-                        setAuthPasswordVisible(false);
-                      },
-                      children: "取消",
-                    }),
-                    jsxRuntime.jsx("button", {
-                      type: "submit",
-                      className: "primary",
-                      disabled: authBusy || authForm.userId === "" || authForm.password === "",
-                      children: authBusy
-                        ? "处理中…"
-                        : authMode === "switch"
-                          ? "登录并切换"
-                          : "登录",
-                    }),
-                  ],
-                }),
-              ],
-            }),
-          }) : null,
+              })
+            : null,
         ],
       });
     };
@@ -829,13 +881,7 @@ window.__ModuleLoader__.load({
           window.localStorage.setItem("pluginmax.collab.token", body.token);
           window.dispatchEvent(new CustomEvent("pluginmax:collab-token"));
         } catch (cause) {
-          setError(
-            cause instanceof Error && cause.message === "invalid user or password"
-              ? "用户 ID 或密码不正确。"
-              : cause instanceof Error
-                ? cause.message
-                : String(cause),
-          );
+          setError(friendlyAuthError(cause));
         } finally {
           setBusy(false);
         }
@@ -853,7 +899,7 @@ window.__ModuleLoader__.load({
                 jsxRuntime.jsx("p", {
                   children: initialized
                     ? "登录后即可查看项目、会话与协作数据。"
-                    : "协作身份尚未初始化：请先用管理员账号在「设置 → 账号管理」完成首次创建，然后再登录。",
+                    : "平台账号尚未初始化：请先用管理员账号在「设置 → 账号与权限 → 登录账号」完成首次创建，然后再登录。",
                 }),
               ],
             }),
@@ -916,7 +962,7 @@ window.__ModuleLoader__.load({
     const Sidebar = ({ renderSlot }) => {
       const shell = useShellState();
       const settingsHost = react.useRef(null);
-      const openSettings = (sectionLabel) => {
+      const openSettings = (sectionLabel, tabId) => {
         const button = settingsHost.current?.querySelector(
           'button[aria-haspopup="dialog"]',
         );
@@ -927,9 +973,24 @@ window.__ModuleLoader__.load({
             const dialog = document.querySelector('[role="dialog"]');
             const section = Array.from(
               dialog?.querySelectorAll("button") ?? [],
-            ).find((candidate) => candidate.textContent?.trim() === sectionLabel);
+            ).find(
+              (candidate) => candidate.textContent?.trim() === sectionLabel,
+            );
             if (section !== undefined) {
               section.click();
+              if (tabId !== undefined) {
+                window.localStorage.setItem(
+                  "pluginmax.accountAccess.activeTab",
+                  tabId,
+                );
+                requestAnimationFrame(() => {
+                  window.dispatchEvent(
+                    new CustomEvent("pluginmax:account-access-tab", {
+                      detail: { tabId },
+                    }),
+                  );
+                });
+              }
               return;
             }
             attempts += 1;
@@ -1019,7 +1080,8 @@ window.__ModuleLoader__.load({
             className: "pmx-sidebar-foot",
             children: [
               jsxRuntime.jsx(AccountButton, {
-                onOpenAccountManagement: () => openSettings("账号管理"),
+                onOpenAccountManagement: () =>
+                  openSettings("账号与权限", "accounts"),
                 onOpenSettings: () => openSettings(),
               }),
               jsxRuntime.jsx("div", {
@@ -1043,7 +1105,7 @@ window.__ModuleLoader__.load({
             children: [
               jsxRuntime.jsxs("div", {
                 children: [
-                  jsxRuntime.jsx("h1", { children: "任务与 Issue" }),
+                  jsxRuntime.jsx("h1", { children: "任务" }),
                   jsxRuntime.jsx("div", {
                     className: "pmx-page-sub",
                     children: "全局能力 · 按当前项目默认筛选",
@@ -1055,7 +1117,7 @@ window.__ModuleLoader__.load({
           jsxRuntime.jsx("div", {
             className: "pmx-placeholder",
             children:
-              "任务管理独立实现中。布局与全局入口已就位，后续在此挂载任务列表、详情和派发流程。",
+              "任务独立实现中。布局与全局入口已就位，后续在此挂载任务列表、详情和派发流程。",
           }),
         ],
       });
@@ -1084,7 +1146,9 @@ window.__ModuleLoader__.load({
         },
         onPointerMove: (event) => {
           if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
-          onResize(clampWidth(startWidth.current + startX.current - event.clientX));
+          onResize(
+            clampWidth(startWidth.current + startX.current - event.clientX),
+          );
         },
         onPointerUp: (event) => {
           if (event.currentTarget.hasPointerCapture(event.pointerId)) {
@@ -1116,13 +1180,19 @@ window.__ModuleLoader__.load({
               node.textContent = "项目";
             }
           }
-          for (const node of root.querySelectorAll('[aria-label="添加工作区"]')) {
+          for (const node of root.querySelectorAll(
+            '[aria-label="添加工作区"]',
+          )) {
             node.setAttribute("aria-label", "添加项目");
           }
         };
         renameWorkspaceLabels();
         const observer = new MutationObserver(renameWorkspaceLabels);
-        observer.observe(root, { childList: true, subtree: true, characterData: true });
+        observer.observe(root, {
+          childList: true,
+          subtree: true,
+          characterData: true,
+        });
         return () => observer.disconnect();
       }, []);
       react.useEffect(() => {
@@ -1183,9 +1253,7 @@ window.__ModuleLoader__.load({
         "data-meeting-open": shell.meetingOpen ? "true" : undefined,
         "data-details-closed": shell.detailsOpen ? undefined : "true",
         style: {
-          gridTemplateColumns: `${
-            shell.leftOpen ? 264 : 72
-          }px minmax(0,1fr) ${
+          gridTemplateColumns: `${shell.leftOpen ? 264 : 72}px minmax(0,1fr) ${
             shell.detailsOpen ? "min(360px,32vw)" : "0"
           } ${shell.meetingOpen ? `${shell.meetingWidth}px` : "0"}`,
         },
@@ -1218,10 +1286,9 @@ window.__ModuleLoader__.load({
             "aria-label": "详情",
             children: jsxRuntime.jsx("div", {
               className: "pmx-details-content",
-              children: jsxRuntime.jsx(
-                SessionProvider,
-                { children: renderSlot("details", {}) },
-              ),
+              children: jsxRuntime.jsx(SessionProvider, {
+                children: renderSlot("details", {}),
+              }),
             }),
           }),
           jsxRuntime.jsx("aside", {

@@ -1685,11 +1685,32 @@ export class WorkbenchService {
     return { active: false, resolved: true };
   }
 
+  /**
+   * 最近 24h 内的催办记录（取最新一条）。
+   * 「被催办」= 派我活的人在等我，应该出现在被催办的人自己的简报里。
+   */
+  private latestNudgeWithinDay(
+    task: TaskRecordLike,
+    now: Date,
+  ): { readonly actorName: string; readonly at: string } | undefined {
+    const since = now.getTime() - DAY_MS;
+    let latest: { actorName: string; at: string } | undefined;
+    for (const event of task.events ?? []) {
+      if (event.kind !== "nudge") continue;
+      const at = parseOrNull(event.at);
+      if (!Number.isFinite(at) || at < since) continue;
+      if (latest === undefined || event.at > latest.at) {
+        latest = { actorName: event.actorName ?? "派出方", at: event.at };
+      }
+    }
+    return latest;
+  }
+
   private escalationFor(
     task: TaskRecordLike,
     now: Date,
     tzOffsetMinutes: number,
-  ): { reason: string; score: number } | undefined {
+  ): { reason: string; score: number; fromNudge?: boolean } | undefined {
     if (task.archivedAt !== undefined) return undefined;
     if (task.status === "done" || task.status === "cancelled") return undefined;
     const today = localDayStamp(now, tzOffsetMinutes);
@@ -1721,6 +1742,15 @@ export class WorkbenchService {
       return {
         reason: `审批已等待 ${formatHours(waitingMs)}`,
         score: priorityScore.blocked(waitingMs),
+      };
+    }
+    // 被催办：不管优先级高低，都要让被催办的人在自己的简报里看到这条任务。
+    const nudge = this.latestNudgeWithinDay(task, now);
+    if (nudge !== undefined) {
+      return {
+        reason: `被 ${nudge.actorName} 催办`,
+        score: priorityScore.nudged(waitingMs),
+        fromNudge: true,
       };
     }
     if (ESCALATION_PRIORITIES.has(task.priority)) {
@@ -2013,7 +2043,8 @@ export class WorkbenchService {
         candidates.push({
           itemId: `B:task:${task.id}`,
           section: "escalation",
-          tag: "decision",
+          // 只被催办（不是逾期/审批等待/高优先级）的条目，标签要说清是「被催办」。
+          tag: escalation.fromNudge === true ? "nudge" : "decision",
           title: task.title,
           conclusion: `${task.type} · ${STATUS_LABEL[task.status]} · ${escalation.reason}`,
           reason: approval
@@ -2096,7 +2127,7 @@ export class WorkbenchService {
         title: task.title,
         conclusion,
         reason: `入选原因：任务 ${task.id}「${task.title}」已由 ${executor.name} 完成并进入待验收，你是它的责任人${
-          task.receiverType === "agent" ? "（由你名下的 AI Teammate 承接）" : ""
+          task.receiverType === "agent" ? "（由你名下的 AI伙伴承接）" : ""
         }，完成时间落在本次离开窗口内。`,
         executorName: executor.name,
         executorRole: executor.role,

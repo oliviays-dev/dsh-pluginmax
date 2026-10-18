@@ -278,10 +278,12 @@ window.__ModuleLoader__.load({
         return "这个全局路径已有待审批申请，请等待管理员处理后再提交。";
       }
       if (message === "workspace sharing permission is required") {
-        return "当前账号没有这个工作区的共享权限。请到「协作身份」选择同一个工作区，并把它保存为成员。";
+        return "当前账号没有这个工作区的共享权限。请到「账号与权限 → 登录账号」确认账号，并在项目管理中加入该工作区。";
       }
-      if (message === "invalid or expired token") return "登录状态已过期，请到「协作身份」重新登录。";
-      if (message === "bearer token is required") return "请先到「协作身份」登录。";
+      if (message === "invalid or expired token")
+        return "登录状态已过期，请到「账号与权限 → 登录账号」重新登录。";
+      if (message === "bearer token is required")
+        return "请先到「账号与权限 → 登录账号」登录。";
       if (message.startsWith("locked by ")) {
         const match = message.match(/^locked by (.+?) until (.+)$/);
         if (match) {
@@ -578,7 +580,7 @@ window.__ModuleLoader__.load({
       if (phase === "login") {
         return jsxRuntime.jsx("p", {
           style: { color: "var(--dsw-alias-label-secondary)" },
-          children: "请先在「协作身份」登录。",
+          children: "请先在「账号与权限 → 登录账号」登录。",
         });
       }
 

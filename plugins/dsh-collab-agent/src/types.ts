@@ -66,7 +66,10 @@ export const agentRunSchema = z.object({
   agentProfileId: z.string().regex(idPattern),
   personaId: z.string().regex(idPattern).optional(),
   employeeId: z.string().regex(idPattern).optional(),
-  principalType: z.enum(["transitional-agent", "digital-employee"]).optional(),
+  principalId: z.string().min(1).max(180).optional(),
+  principalType: z
+    .enum(["transitional-agent", "digital-employee", "principal-runtime"])
+    .optional(),
   ticketId: z.string().regex(idPattern).optional(),
   source: z.enum(["workflow", "task", "meeting"]),
   instanceId: z.string().min(1).max(160),

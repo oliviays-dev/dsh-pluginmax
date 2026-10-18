@@ -2,7 +2,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DSH_HOME="$ROOT/.tmp/dsh-home"
+# 默认使用隔离的 smoke 数据目录；需要复跑真实环境时用
+# PLUGINMAX_SMOKE_HOME 指向自己的 DSH_HOME，避免清空正在使用的数据。
+DSH_HOME="${PLUGINMAX_SMOKE_HOME:-$ROOT/.tmp/dsh-home}"
 DSH_BIN="$ROOT/vendor/deepseek-harness/apps/cli/lib/bin.js"
 LOG="$ROOT/.tmp/pluginmax-web.log"
 COOKIE="$ROOT/.tmp/pluginmax-smoke.cookies"
@@ -24,6 +26,8 @@ mkdir -p "$DSH_HOME/storages"
 : > "$LOG"
 rm -f "$COOKIE"
 rm -f "$DSH_HOME/storages/collab_team.json"
+rm -f "$DSH_HOME/storages/collab_principal.json"
+rm -f "$DSH_HOME/storages/collab_principal_runtime.json"
 rm -f "$DSH_HOME/storages/collab_sharing.json"
 rm -f "$DSH_HOME/storages/collab_config.json"
 rm -f "$DSH_HOME/storages/collab_locks.json"
@@ -340,6 +344,100 @@ grep -q '"action":"file_write"' "$BODY" || {
   exit 1
 }
 
+# ---- project management (dsh-collab-project) ----
+# 「项目」复用 DSH 工作区：这里把 smoke 工作区注册成项目，并验证项目角色、
+# 成员席位、日报与项目模版维护都在真实路由上可用。
+code="$(api GET /projects "$TOKEN")"
+expect_code 200 "$code" "project list"
+
+code="$(api GET /projects/templates "$TOKEN")"
+expect_code 200 "$code" "project template list"
+grep -q '"role-owner"' "$BODY" || {
+  echo "project template list is missing the built-in role library" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+
+code="$(api POST /projects/create "$TOKEN" "{\"path\":\"$WORKSPACE_ROOT\",\"name\":\"Pluginmax smoke\",\"templateId\":\"tpl-plugin-dev\"}" "http://127.0.0.1:$PORT")"
+expect_code 201 "$code" "project creation"
+PROJECT_ID="$(node -e 'const body=require(process.argv[1]);process.stdout.write(body.workspaceId)' "$BODY")"
+
+code="$(api GET "/projects/detail?workspaceId=$PROJECT_ID" "$TOKEN")"
+expect_code 200 "$code" "project detail"
+grep -q '"role-owner"' "$BODY" || {
+  echo "project detail is missing the materialized project roles" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+grep -q '"canManage":true' "$BODY" || {
+  echo "project detail should report the owner as manager" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+
+code="$(api POST /projects/update "$TOKEN" "{\"workspaceId\":\"$PROJECT_ID\",\"status\":\"进行中\",\"health\":\"健康\",\"progress\":40,\"description\":\"smoke project\"}" "http://127.0.0.1:$PORT")"
+expect_code 200 "$code" "project update"
+
+code="$(api GET "/projects/detail?workspaceId=$PROJECT_ID" "$TOKEN")"
+expect_code 200 "$code" "project detail for role draft"
+
+# 草稿确认：整组覆盖生效，改名 + 新增角色。
+node -e '
+const body = require(process.argv[1]);
+const workspaceId = process.argv[2];
+const roles = body.project.projectRoles.map((role) =>
+  role.code === "PROJECT_OWNER" ? { ...role, name: "项目总负责人" } : role,
+);
+roles.push({
+  id: "role-smoke-confirm",
+  name: "Smoke 项目角色",
+  code: "SMOKE_PROJECT_ROLE",
+  category: "支持",
+  description: "项目自己的角色副本",
+  permissions: ["read"],
+});
+process.stdout.write(
+  JSON.stringify({
+    workspaceId,
+    expectedRevision: body.project.rolesRevision,
+    roles,
+  }),
+);
+' "$BODY" "$PROJECT_ID" > "$ROOT/.tmp/project-role-confirm.json"
+
+code="$(api POST /projects/roles/confirm "$TOKEN" "$(cat "$ROOT/.tmp/project-role-confirm.json")" "http://127.0.0.1:$PORT")"
+expect_code 200 "$code" "project roles confirm"
+grep -q '"SMOKE_PROJECT_ROLE"' "$BODY" || {
+  echo "project roles confirm did not persist the project role" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+grep -q '"revision":2' "$BODY" || {
+  echo "project roles confirm did not bump rolesRevision" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+
+code="$(api POST /projects/members/save "$TOKEN" "{\"workspaceId\":\"$PROJECT_ID\",\"memberKind\":\"human\",\"memberId\":\"admin\",\"roleIds\":[\"role-owner\"]}" "http://127.0.0.1:$PORT")"
+expect_code 200 "$code" "project member save"
+
+code="$(api POST /projects/reports/generate "$TOKEN" "{\"workspaceId\":\"$PROJECT_ID\"}" "http://127.0.0.1:$PORT")"
+expect_code 200 "$code" "project report generation"
+grep -q '今日结论' "$BODY" || {
+  echo "project report is missing the 今日结论 section" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+
+code="$(api GET "/projects/reports?workspaceId=$PROJECT_ID" "$TOKEN")"
+expect_code 200 "$code" "project report list"
+
+code="$(api POST /projects/roles/save "$TOKEN" '{"id":"role-smoke","name":"Smoke 角色","code":"SMOKE_ROLE","category":"支持","description":"","permissions":["read"]}' "http://127.0.0.1:$PORT")"
+expect_code 200 "$code" "project role save"
+
+code="$(api POST /projects/roles/remove "$TOKEN" '{"id":"role-smoke"}' "http://127.0.0.1:$PORT")"
+expect_code 200 "$code" "project role remove"
+
 code="$(api POST /team/users/create "$TOKEN" '{"userId":"member","name":"Member","password":"password-456","role":"member"}')"
 expect_code 201 "$code" "member creation"
 
@@ -368,5 +466,5 @@ expect_code 409 "$code" "duplicate bootstrap"
 code="$(api POST /auth/logout "$TOKEN")"
 expect_code 200 "$code" "identity logout"
 
-echo "Pluginmax canary, identity, space, roles, and meeting smoke passed on port $PORT"
+echo "Pluginmax canary, identity, space, roles, meeting, and project smoke passed on port $PORT"
 exit 0

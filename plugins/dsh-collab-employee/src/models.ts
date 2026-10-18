@@ -8,6 +8,7 @@ const actionSchema = z.string().trim().min(1).max(120);
 const actionListSchema = z.array(actionSchema).max(100).default([]);
 
 export const EMPLOYEE_KINDS = ["human", "digital"] as const;
+export const LOGIN_STATUSES = ["active", "disabled"] as const;
 export const EMPLOYEE_STATUSES = [
   "draft",
   "active",
@@ -31,6 +32,7 @@ export const APPROVAL_POLICIES = ["never", "suggest", "explicit-only"] as const;
 export const REPORT_STATUSES = ["generated", "failed"] as const;
 
 export const employeeKindSchema = z.enum(EMPLOYEE_KINDS);
+export const loginStatusSchema = z.enum(LOGIN_STATUSES);
 export const employeeStatusSchema = z.enum(EMPLOYEE_STATUSES);
 export const workspaceRoleSchema = z.enum(WORKSPACE_ROLES);
 export const profileStatusSchema = z.enum(PROFILE_STATUSES);
@@ -52,6 +54,8 @@ export const employeeSchema = z.object({
   tags: z.array(z.string().trim().min(1).max(32)).max(16).default([]),
   personaId: idSchema.optional(),
   authUserId: idSchema.optional(),
+  /** 人类员工登录状态的只读投影；认证事实仍由 collab_team.users 拥有。 */
+  authStatus: loginStatusSchema.optional(),
   managerEmployeeId: idSchema.optional(),
   status: employeeStatusSchema,
   createdAt: isoTimeSchema,
@@ -62,6 +66,7 @@ export const employeeSchema = z.object({
 export const roleAssignmentSchema = z.object({
   id: idSchema,
   employeeId: idSchema,
+  principalId: z.string().trim().min(1).max(180).optional(),
   workspaceId: idSchema,
   role: workspaceRoleSchema,
   permissions: actionListSchema,
@@ -77,6 +82,7 @@ export const roleAssignmentSchema = z.object({
 export const runtimeProfileSchema = z.object({
   id: idSchema,
   employeeId: idSchema,
+  principalId: z.string().trim().min(1).max(180).optional(),
   workspaceId: idSchema,
   name: shortTextSchema,
   provider: z.string().trim().min(1).max(80).default("spawn"),
@@ -100,6 +106,7 @@ export const runtimeProfileSchema = z.object({
 
 export const employeePrincipalSchema = z.object({
   employeeId: idSchema,
+  principalId: z.string().trim().min(1).max(180).optional(),
   employeeKind: employeeKindSchema,
   authUserId: idSchema.optional(),
   source: principalSourceSchema,
@@ -127,6 +134,7 @@ export const actionTicketSchema = z.object({
 export const delegationSchema = z.object({
   id: idSchema,
   ownerId: idSchema,
+  ownerPrincipalId: z.string().trim().min(1).max(180).optional(),
   ownerAuthUserId: idSchema,
   ownerName: shortTextSchema,
   displayName: shortTextSchema,
@@ -171,6 +179,7 @@ export const auditEventSchema = z.object({
   id: idSchema,
   at: isoTimeSchema,
   actorEmployeeId: idSchema,
+  actorPrincipalId: z.string().trim().min(1).max(180).optional(),
   actorAuthUserId: idSchema.optional(),
   actorRole: z.string().min(1).max(40),
   workspaceId: idSchema.optional(),
@@ -188,6 +197,7 @@ export const auditEventSchema = z.object({
 });
 
 export type EmployeeKind = z.infer<typeof employeeKindSchema>;
+export type LoginStatus = z.infer<typeof loginStatusSchema>;
 export type EmployeeStatus = z.infer<typeof employeeStatusSchema>;
 export type Employee = z.infer<typeof employeeSchema>;
 export type WorkspaceRole = z.infer<typeof workspaceRoleSchema>;

@@ -71,10 +71,12 @@ function parseExecutor(
   errors: string[],
 ): WorkflowNode["executor"] | undefined {
   const match =
-    /^(system|user|agent|employee|系统|用户|员工)\s*[:：]\s*(.+)$/.exec(value);
+    /^(system|user|agent|employee|role|系统|用户|员工|角色)\s*[:：]\s*(.+)$/.exec(
+      value,
+    );
   if (match === null) {
     errors.push(
-      `invalid executor "${value}"; use system:user, user:alice, agent:architect, or employee:backend-engineer-01`,
+      `invalid executor "${value}"; use system:user, user:alice, agent:architect, employee:backend-engineer-01, or role:reviewer`,
     );
     return undefined;
   }
@@ -86,7 +88,9 @@ function parseExecutor(
         ? "user"
         : kindRaw === "employee" || kindRaw === "员工"
           ? "employee"
-          : "agent";
+          : kindRaw === "role" || kindRaw === "角色"
+            ? "role"
+            : "agent";
   const id = match[2]!.trim();
   if (!ID_PATTERN.test(id)) {
     errors.push(`invalid executor id "${id}"`);
@@ -96,10 +100,12 @@ function parseExecutor(
 }
 
 function parseApprover(value: string, errors: string[]): Approver | undefined {
-  const match = /^(用户|agent|employee|员工)\s*[:：]\s*(.+)$/.exec(value);
+  const match = /^(用户|agent|employee|员工|角色|role)\s*[:：]\s*(.+)$/.exec(
+    value,
+  );
   if (match === null) {
     errors.push(
-      `invalid approver "${value}"; use 用户:id, agent:id, or employee:id`,
+      `invalid approver "${value}"; use 用户:id, agent:id, employee:id, or 角色:id`,
     );
     return undefined;
   }
@@ -109,7 +115,9 @@ function parseApprover(value: string, errors: string[]): Approver | undefined {
       ? "agent"
       : rawKind === "employee" || rawKind === "员工"
         ? "employee"
-        : "user";
+        : rawKind === "role" || rawKind === "角色"
+          ? "role"
+          : "user";
   const id = match[2]!.trim();
   if (!ID_PATTERN.test(id)) {
     errors.push(`invalid approver id "${id}"`);

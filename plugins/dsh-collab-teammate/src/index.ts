@@ -37,12 +37,20 @@ import {
   type AgentServiceLike,
   type EmployeeServiceLike,
   type PersonaServiceLike,
+  type PrincipalServiceLike,
 } from "./runtime.js";
-import { parseWorkPlanInstruction, taskPriorityForDisplay } from "./plan-parser.js";
 import {
-  WorkReportService,
-  localDateString,
-} from "./reports.js";
+  PrincipalRuntimeService,
+  principalRuntimeDomainSpec,
+  type PrincipalActionTicket,
+  type PrincipalRuntimeProfile,
+  type PrincipalRuntimePrincipalServiceLike,
+} from "./principal-runtime.js";
+import {
+  parseWorkPlanInstruction,
+  taskPriorityForDisplay,
+} from "./plan-parser.js";
+import { WorkReportService, localDateString } from "./reports.js";
 import {
   fallbackWorkReport,
   WorkReportRuntime,
@@ -71,6 +79,14 @@ export type {
   TeammateInstanceView,
 } from "./service.js";
 export { TeammateRuntime } from "./runtime.js";
+export {
+  PrincipalRuntimeService,
+  principalRuntimeDomainSpec,
+} from "./principal-runtime.js";
+export type {
+  PrincipalActionTicket,
+  PrincipalRuntimeProfile,
+} from "./principal-runtime.js";
 export type {
   EnsuredRuntime,
   EnsureRuntimeInput,
@@ -132,6 +148,7 @@ type TeammateStorageTableName =
   | "work_reports"
   | "audit_events";
 type ProfileStorageTableName = "profile_templates";
+type PrincipalRuntimeStorageTableName = "profiles" | "action_tickets";
 
 interface DomainSpecLike {
   readonly name: string;
@@ -202,6 +219,7 @@ interface TaskRecordLike {
   readonly priority?: string | undefined;
   readonly receiverType: string;
   readonly receiverId?: string | undefined;
+  readonly receiverPrincipalId?: string | undefined;
   readonly receiverName?: string | undefined;
   readonly description?: string | undefined;
   readonly due?: string | undefined;
@@ -251,9 +269,7 @@ export function isTaskRunning(task: {
 interface TaskServiceLike {
   list(workspaceId: string): readonly TaskRecordLike[];
   /** 共享的队列排序口径（任务模块提供），避免各插件各写一套顺序。 */
-  sortQueue?(
-    tasks: readonly TaskRecordLike[],
-  ): readonly TaskRecordLike[];
+  sortQueue?(tasks: readonly TaskRecordLike[]): readonly TaskRecordLike[];
   create(
     actor: {
       readonly id: string;
@@ -325,10 +341,20 @@ interface MeetingActivityLike {
     readonly kind: string;
     readonly refId: string;
     readonly status: string;
+    /** 新版 AI 参会代表会额外记录所属 teammate 实例 id。 */
+    readonly teammateInstanceId?: string | undefined;
     readonly personaId?: string | undefined;
     readonly joinedAt?: string | undefined;
     readonly leftAt?: string | undefined;
     readonly updatedAt: string;
+  }[];
+  /** Facilitator 席位不占 participants 行，单独读取它的进出记录。 */
+  facilitators?(meetingId: string): readonly {
+    readonly teammateId: string;
+    readonly status: string;
+    readonly createdAt: string;
+    readonly updatedAt: string;
+    readonly deactivatedAt?: string | undefined;
   }[];
 }
 
@@ -443,6 +469,7 @@ export function calculateTeammateActivity(input: {
   readonly teammates: readonly {
     readonly id: string;
     readonly employeeId?: string | undefined;
+    readonly principalId?: string | undefined;
   }[];
   readonly tasks: readonly TaskRecordLike[];
   readonly agents?: Pick<AgentServiceLike, "runs"> | undefined;
@@ -503,14 +530,22 @@ export function calculateTeammateActivity(input: {
     if (teammate.employeeId !== undefined) {
       receiverIds.add(teammate.employeeId);
     }
+    const receiverPrincipalIds = new Set<string>();
+    if (teammate.principalId !== undefined) {
+      receiverPrincipalIds.add(teammate.principalId);
+    }
     if (scope === "template" && identity?.profileId !== undefined) {
       receiverIds.add(identity.profileId);
     }
     for (const task of input.tasks) {
-      if (task.receiverType !== "agent" || task.receiverId === undefined) {
-        continue;
-      }
-      if (!receiverIds.has(task.receiverId)) continue;
+      const assignedByAgentId =
+        task.receiverType === "agent" &&
+        task.receiverId !== undefined &&
+        receiverIds.has(task.receiverId);
+      const assignedByPrincipalId =
+        task.receiverPrincipalId !== undefined &&
+        receiverPrincipalIds.has(task.receiverPrincipalId);
+      if (!assignedByAgentId && !assignedByPrincipalId) continue;
       const instanceId = task.workflow?.instanceId ?? task.id;
       for (const run of runsByWorkspace.get(task.workspaceId) ?? []) {
         if (run.instanceId !== instanceId) continue;
@@ -579,25 +614,61 @@ export function calculateTeammateActivity(input: {
     if (scope === "template" && identity?.profileId !== undefined) {
       receiverIds.add(identity.profileId);
     }
-    const personaId = scope === "template" ? identity?.personaId : undefined;
+    // persona 回退：新版参会代表带 teammateInstanceId，旧数据只有 personaId，
+    // 两种口径都要能认出来，否则「实际参加过会议」会显示成 0 次。
+    const personaId = identity?.personaId;
     const meetingIds = new Set<string>();
     for (const workspace of workspaces) {
       for (const meeting of input.meetings?.list(workspace.id) ?? []) {
         if (meetingIds.has(meeting.id)) continue;
-        const participates = input.meetings?.participants(meeting.id).some(
-          (participant) =>
-            participant.kind === "agent" &&
-            (receiverIds.has(participant.refId) ||
-              (personaId !== undefined &&
-                participant.personaId === personaId)) &&
-            participationOverlapsWindow({
-              participant,
-              meeting,
-              windowStart,
-              now,
-            }),
-        );
-        if (participates === true) meetingIds.add(meeting.id);
+        const participates = input.meetings
+          ?.participants(meeting.id)
+          .some((participant) => {
+            if (
+              participant.kind !== "agent" &&
+              participant.kind !== "ai_teammate"
+            ) {
+              return false;
+            }
+            const ownerId = participant.teammateInstanceId ?? participant.refId;
+            const matched =
+              receiverIds.has(ownerId) ||
+              (personaId !== undefined && participant.personaId === personaId);
+            return (
+              matched &&
+              participationOverlapsWindow({
+                participant,
+                meeting,
+                windowStart,
+                now,
+              })
+            );
+          });
+        // Facilitator 是会议服务席位，只落在 facilitators 表，不占 participants 行。
+        const facilitated =
+          participates === true
+            ? false
+            : (input.meetings?.facilitators?.(meeting.id) ?? []).some(
+                (facilitator) =>
+                  receiverIds.has(facilitator.teammateId) &&
+                  participationOverlapsWindow({
+                    participant: {
+                      status:
+                        facilitator.status === "active" ? "joined" : "left",
+                      joinedAt: facilitator.createdAt,
+                      ...(facilitator.deactivatedAt === undefined
+                        ? {}
+                        : { leftAt: facilitator.deactivatedAt }),
+                      updatedAt: facilitator.updatedAt,
+                    },
+                    meeting,
+                    windowStart,
+                    now,
+                  }),
+              );
+        if (participates === true || facilitated === true) {
+          meetingIds.add(meeting.id);
+        }
       }
     }
     return meetingIds.size;
@@ -729,8 +800,8 @@ export function calculateInstanceLastUsedAt(input: {
     // 会议参会记录。
     for (const workspace of workspaces) {
       for (const meeting of input.meetings?.list(workspace.id) ?? []) {
-        for (const participant of
-          input.meetings?.participants(meeting.id) ?? []) {
+        for (const participant of input.meetings?.participants(meeting.id) ??
+          []) {
           if (participant.kind !== "agent") continue;
           if (!receiverIds.has(participant.refId)) continue;
           latest = laterTimestamp(
@@ -810,6 +881,34 @@ function errorStatus(code: TeammateError["code"]): number {
   return 400;
 }
 
+function runtimeError(
+  cause: unknown,
+): { code: TeammateError["code"]; message: string } | undefined {
+  if (
+    typeof cause !== "object" ||
+    cause === null ||
+    !("code" in cause) ||
+    !("message" in cause) ||
+    typeof cause.code !== "string" ||
+    typeof cause.message !== "string" ||
+    cause.message.trim() === ""
+  ) {
+    return undefined;
+  }
+  const code =
+    cause.code === "method_not_allowed" ? "invalid_input" : cause.code;
+  if (
+    code !== "invalid_input" &&
+    code !== "unauthorized" &&
+    code !== "forbidden" &&
+    code !== "not_found" &&
+    code !== "conflict"
+  ) {
+    return undefined;
+  }
+  return { code, message: cause.message };
+}
+
 async function runHandler(
   operation: () => Promise<void> | void,
   response: ServerResponse,
@@ -824,9 +923,17 @@ async function runHandler(
       });
       return;
     }
+    const runtime = runtimeError(cause);
+    if (runtime !== undefined) {
+      sendJson(response, errorStatus(runtime.code), {
+        ok: false,
+        error: runtime,
+      });
+      return;
+    }
     sendJson(response, 500, {
       ok: false,
-      error: { code: "internal_error", message: "teammate request failed" },
+      error: { code: "internal_error", message: "AI伙伴请求失败" },
     });
   }
 }
@@ -839,6 +946,21 @@ const createBodySchema = z.object({
   profileTemplateId: z.string().trim().min(1).max(160).optional(),
   execution: z.enum(["builtin", "external"]).optional(),
   externalRuntimeId: z.string().trim().min(1).max(160).optional(),
+});
+
+const createWithEmployeeBodySchema = createBodySchema.extend({
+  templateId: z.string().trim().min(1).max(160),
+  workspaceId: z.string().trim().min(1).max(160),
+  employeeId: z
+    .string()
+    .trim()
+    .regex(/^[a-zA-Z][a-zA-Z0-9._-]*$/)
+    .optional(),
+  displayName: z.string().trim().min(1).max(120).optional(),
+  department: z.string().trim().max(120).optional(),
+  title: z.string().trim().max(120).optional(),
+  tags: z.array(z.string().trim().min(1).max(32)).max(14).optional(),
+  managerEmployeeId: z.string().trim().min(1).max(120).optional(),
 });
 
 const teammateTemplateCreateBodySchema = z.object({
@@ -1081,7 +1203,8 @@ function resolveLeaveReceiver(
   users: readonly { readonly id: string; readonly name: string }[],
 ): { readonly id: string; readonly name: string } {
   const ownerId = teammate.ownerUserId;
-  const ownerName = users.find((user) => user.id === ownerId)?.name ?? teammate.ownerName;
+  const ownerName =
+    users.find((user) => user.id === ownerId)?.name ?? teammate.ownerName;
   if (members.some((member) => member.userId === ownerId)) {
     return { id: ownerId, name: ownerName };
   }
@@ -1206,6 +1329,7 @@ export function createTeammateRoutes(
   reportRuntime?: TeammateWorkReportRuntimeContext,
   taskDispatch?: () => TaskDispatchLike | undefined,
   teammateTemplates?: TeammateTemplateService,
+  employees?: () => EmployeeServiceLike | undefined,
 ): WebRouteLike[] {
   const requireTeam = (): TeamServiceLike => {
     const value = team();
@@ -1346,13 +1470,13 @@ export function createTeammateRoutes(
     const identity = requireTeam();
     const teammate = service.get(query(request).get("teammateId") ?? "");
     if (!canReadTeammate(actor, teammate, identity)) {
-      throw new TeammateError("forbidden", "无权查看该 Teammate 的详细数据");
+      throw new TeammateError("forbidden", "无权查看该 AI伙伴的详细数据");
     }
     return { actor, teammate };
   };
   const requireTeammateTemplates = (): TeammateTemplateService => {
     if (teammateTemplates === undefined) {
-      throw new TeammateError("not_found", "AI Teammate 模版服务不可用");
+      throw new TeammateError("not_found", "AI伙伴模版服务不可用");
     }
     return teammateTemplates;
   };
@@ -1533,6 +1657,118 @@ export function createTeammateRoutes(
     },
     {
       kind: "exact",
+      path: "/api/collab/teammates/migrate-principals",
+      handler: mutate(async (actor) => {
+        if (actor.role !== "admin") {
+          throw new TeammateError(
+            "forbidden",
+            "只有平台管理员可以执行 Principal 迁移",
+          );
+        }
+        if (teammateRuntime === undefined) {
+          throw new TeammateError("conflict", "AI伙伴运行时服务不可用");
+        }
+        return {
+          migration: await teammateRuntime.migrateEmployeeIdentities(),
+        };
+      }),
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/teammates/create-with-employee",
+      handler: mutate(async (actor, body) => {
+        if (actor.role === "guest") {
+          throw new TeammateError("forbidden", "访客不能创建 AI伙伴");
+        }
+        if (teammateRuntime === undefined) {
+          throw new TeammateError("conflict", "AI伙伴运行时服务不可用");
+        }
+        const input = parseOrInvalid(createWithEmployeeBodySchema, body);
+        const identity = requireTeam();
+        const workspace = workspaces?.()
+          ?.list()
+          .find((item) => item.id === input.workspaceId);
+        if (workspace === undefined) {
+          throw new TeammateError("not_found", "关联项目不存在");
+        }
+        const member = identity
+          .members(input.workspaceId)
+          .find((item) => item.userId === actor.userId);
+        if (actor.role !== "admin" && member === undefined) {
+          throw new TeammateError(
+            "forbidden",
+            "只能在自己加入的项目中创建 AI伙伴",
+          );
+        }
+        if (actor.role !== "admin" && member?.memberRole === "guest") {
+          throw new TeammateError("forbidden", "项目访客不能创建 AI伙伴");
+        }
+        const teammate = await service.create(actor, {
+          templateId: input.templateId,
+          ...(input.name === undefined ? {} : { name: input.name }),
+          ...(input.execution === undefined
+            ? {}
+            : { execution: input.execution }),
+          ...(input.externalRuntimeId === undefined
+            ? {}
+            : { externalRuntimeId: input.externalRuntimeId }),
+        });
+        try {
+          const ensured = await teammateRuntime.ensureRuntime({
+            teammateId: teammate.id,
+            workspaceId: input.workspaceId,
+            actor,
+            ...(member?.memberRole === undefined
+              ? {}
+              : { workspaceRole: member.memberRole }),
+            employee: {
+              ...(input.employeeId === undefined
+                ? {}
+                : { employeeId: input.employeeId }),
+              ...(input.displayName === undefined
+                ? {}
+                : { displayName: input.displayName }),
+              ...(input.department === undefined
+                ? {}
+                : { department: input.department }),
+              ...(input.title === undefined ? {} : { title: input.title }),
+              ...(input.tags === undefined ? {} : { tags: input.tags }),
+              ...(input.managerEmployeeId === undefined
+                ? {}
+                : { managerEmployeeId: input.managerEmployeeId }),
+            },
+          });
+          return {
+            teammate: service.get(teammate.id),
+            employee:
+              ensured.employeeId === undefined
+                ? undefined
+                : employees?.()?.get?.(ensured.employeeId),
+            ensured,
+          };
+        } catch (cause) {
+          const failed = service.get(teammate.id);
+          const employeeService = employees?.();
+          if (
+            employeeService !== undefined &&
+            failed.employeeId !== undefined
+          ) {
+            await employeeService
+              .changeStatus(actor.userId, failed.employeeId, "archived")
+              .catch(() => undefined);
+          }
+          await service
+            .changeState(actor, {
+              teammateId: teammate.id,
+              state: "archived",
+            })
+            .catch(() => undefined);
+          throw cause;
+        }
+      }),
+    },
+    {
+      kind: "exact",
       path: "/api/collab/teammates/update",
       handler: mutate((actor, body) => {
         const input = parseOrInvalid(updateBodySchema, body);
@@ -1585,7 +1821,10 @@ export function createTeammateRoutes(
           tasks: workspaceTasks,
           assignTask: (assignment) => {
             if (taskService === undefined) {
-              throw new TeammateError("conflict", "任务服务不可用，无法改派任务");
+              throw new TeammateError(
+                "conflict",
+                "任务服务不可用，无法改派任务",
+              );
             }
             return taskService.assign(actor, assignment);
           },
@@ -1608,7 +1847,7 @@ export function createTeammateRoutes(
           ) {
             throw new TeammateError(
               "conflict",
-              "任务或工作区服务不可用，无法归档运行态 Teammate",
+              "任务或工作区服务不可用，无法归档运行态 AI伙伴",
             );
           }
           const owner = requireTeam()
@@ -1669,7 +1908,7 @@ export function createTeammateRoutes(
         if (!canManageInstance(teammate, actor)) {
           throw new TeammateError(
             "forbidden",
-            "没有权限管理该 AI Teammate 的执行身份",
+            "没有权限管理该 AI伙伴的执行身份",
           );
         }
         const identity =
@@ -1702,37 +1941,34 @@ export function createTeammateRoutes(
               tasks: tasks(),
               workspaces: registry,
             }),
-          )
-            .map((task) => {
-              const agent = agentRuns?.();
-              return {
-                ...runtimeTask(
-                  task,
-                  workspaceTitleOf(registry, task.workspaceId),
-                ),
-                runs: (
-                  agent?.runs?.({
-                    workspaceId: task.workspaceId,
-                    instanceId: task.id,
-                  }) ?? []
-                ).map((run) => ({
-                  id: run.id,
-                  status: run.status,
-                  runSeq: run.runSeq,
-                  ...(run.error === undefined ? {} : { error: run.error }),
-                  ...(run.output?.summary === undefined
-                    ? {}
-                    : { summary: run.output.summary }),
-                  ...(run.startedAt === undefined
-                    ? {}
-                    : { startedAt: run.startedAt }),
-                  ...(run.endedAt === undefined
-                    ? {}
-                    : { endedAt: run.endedAt }),
-                  createdAt: run.createdAt,
-                })),
-              };
-            });
+          ).map((task) => {
+            const agent = agentRuns?.();
+            return {
+              ...runtimeTask(
+                task,
+                workspaceTitleOf(registry, task.workspaceId),
+              ),
+              runs: (
+                agent?.runs?.({
+                  workspaceId: task.workspaceId,
+                  instanceId: task.id,
+                }) ?? []
+              ).map((run) => ({
+                id: run.id,
+                status: run.status,
+                runSeq: run.runSeq,
+                ...(run.error === undefined ? {} : { error: run.error }),
+                ...(run.output?.summary === undefined
+                  ? {}
+                  : { summary: run.output.summary }),
+                ...(run.startedAt === undefined
+                  ? {}
+                  : { startedAt: run.startedAt }),
+                ...(run.endedAt === undefined ? {} : { endedAt: run.endedAt }),
+                createdAt: run.createdAt,
+              })),
+            };
+          });
           collected.sort((left, right) =>
             right.updatedAt.localeCompare(left.updatedAt),
           );
@@ -1745,7 +1981,10 @@ export function createTeammateRoutes(
       handler: (request, response) =>
         runHandler(async () => {
           const actor = requirePrincipal(request, requireTeam());
-          const input = parseOrInvalid(workPlanParseBodySchema, await readBody(request));
+          const input = parseOrInvalid(
+            workPlanParseBodySchema,
+            await readBody(request),
+          );
           service.get(input.teammateId);
           const available = accessibleWorkspaceIds(actor, requireTeam());
           const registry = workspaces();
@@ -1792,10 +2031,8 @@ export function createTeammateRoutes(
             (task) => task.archivedAt === undefined,
           );
           // 队列顺序统一由任务模块的排序口径给出（人工 queueSeq 优先，其次 draft）。
-          const ordered = (
-            taskService?.sortQueue?.(active) ?? active
-          ).map((task) =>
-            runtimeTask(task, titleOf(task.workspaceId)),
+          const ordered = (taskService?.sortQueue?.(active) ?? active).map(
+            (task) => runtimeTask(task, titleOf(task.workspaceId)),
           );
           const archived = collected
             .filter((task) => task.archivedAt !== undefined)
@@ -1837,7 +2074,10 @@ export function createTeammateRoutes(
       handler: (request, response) =>
         runHandler(async () => {
           const actor = requirePrincipal(request, requireTeam());
-          const input = parseOrInvalid(workPlanCreateBodySchema, await readBody(request));
+          const input = parseOrInvalid(
+            workPlanCreateBodySchema,
+            await readBody(request),
+          );
           const teammate = service.get(input.teammateId);
           const taskService = requireTaskService();
           const registry = workspaces();
@@ -1887,15 +2127,12 @@ export function createTeammateRoutes(
             },
           );
           // 创建任务后必须走任务模块的派发链路，否则 Agent 不会被唤起、也不会创建会话。
-          const dispatched = await taskDispatch?.()?.dispatch(
-            created,
-            {
-              id: actor.userId,
-              name: actorName,
-              kind: "human",
-              role: actor.role,
-            },
-          );
+          const dispatched = await taskDispatch?.()?.dispatch(created, {
+            id: actor.userId,
+            name: actorName,
+            kind: "human",
+            role: actor.role,
+          });
           const task = dispatched?.task ?? created;
           const execution = dispatched?.execution ?? {};
           await reportRuntime?.reports.writeAudit({
@@ -1947,7 +2184,7 @@ export function createTeammateRoutes(
           if (!canManageInstance(teammate, actor)) {
             throw new TeammateError(
               "forbidden",
-              "没有权限更新该 Teammate 的工作日报",
+              "没有权限更新该 AI伙伴的工作日报",
             );
           }
           const reportDate = input.reportDate ?? localDateString();
@@ -2066,9 +2303,17 @@ export function createTeammateRoutes(
 
 export interface TeammateContext {
   storageDomain: {
-    open(spec: typeof teammateDomainSpec | typeof profileDomainSpec): Promise<{
+    open(
+      spec:
+        | typeof teammateDomainSpec
+        | typeof profileDomainSpec
+        | typeof principalRuntimeDomainSpec,
+    ): Promise<{
       table<T>(
-        name: TeammateStorageTableName | ProfileStorageTableName,
+        name:
+          | TeammateStorageTableName
+          | ProfileStorageTableName
+          | PrincipalRuntimeStorageTableName,
       ): KvTableLike<T>;
       close(): Promise<void>;
     }>;
@@ -2080,6 +2325,10 @@ export interface TeammateContext {
     value: TeammateTemplateService,
   ): unknown;
   provide(key: "collabTeammateRuntime", value: TeammateRuntime): unknown;
+  provide(
+    key: "collabPrincipalRuntime",
+    value: PrincipalRuntimeService,
+  ): unknown;
   effect(operation: () => () => void): void;
   collabTeam?: TeamServiceLike;
   collabTasks?: TaskServiceLike;
@@ -2096,6 +2345,7 @@ export interface TeammateContext {
   get(key: "collabPersonas"): PersonaServiceLike | undefined;
   get(key: "collabEmployee"): EmployeeServiceLike | undefined;
   get(key: "collabAgent"): AgentServiceLike | undefined;
+  get(key: "collabPrincipal"): PrincipalServiceLike | undefined;
   get(key: "agents"): AgentsRegistryLike | undefined;
   get(key: "subagents"): SubagentsRuntimeLike | undefined;
   inject(
@@ -2109,6 +2359,9 @@ export interface TeammateContext {
 export async function apply(ctx: TeammateContext): Promise<void> {
   const domain = await ctx.storageDomain.open(teammateDomainSpec);
   const profileDomain = await ctx.storageDomain.open(profileDomainSpec);
+  const principalRuntimeDomain = await ctx.storageDomain.open(
+    principalRuntimeDomainSpec,
+  );
   const teammateTemplateService = new TeammateTemplateService({
     tables: {
       templates: domain.table<TeammateTemplate>("teammate_templates"),
@@ -2134,6 +2387,17 @@ export async function apply(ctx: TeammateContext): Promise<void> {
     templates: teammateTemplateService,
     users: () => ctx.get("collabTeam")?.users() ?? [],
   });
+  const principalRuntime = new PrincipalRuntimeService(
+    {
+      profiles:
+        principalRuntimeDomain.table<PrincipalRuntimeProfile>("profiles"),
+      tickets:
+        principalRuntimeDomain.table<PrincipalActionTicket>("action_tickets"),
+    },
+    () =>
+      ctx.get("collabPrincipal") as
+        PrincipalRuntimePrincipalServiceLike | undefined,
+  );
   // 平台内置数据：会议 Facilitator 开箱定义（只在缺失时写入，不覆盖平台维护）。
   await service.ensureSeededPlatformTeammate(MEETING_FACILITATOR_SEED);
   ctx.provide("collabTeammates", service);
@@ -2145,8 +2409,11 @@ export async function apply(ctx: TeammateContext): Promise<void> {
     personas: () => ctx.get("collabPersonas"),
     employees: () => ctx.get("collabEmployee"),
     agents: () => ctx.get("collabAgent"),
+    principals: () => ctx.get("collabPrincipal"),
+    principalRuntime: () => principalRuntime,
   });
   ctx.provide("collabTeammateRuntime", runtimeService);
+  ctx.provide("collabPrincipalRuntime", principalRuntime);
   const reportService = new WorkReportService({
     tables: {
       workReports: domain.table<TeammateWorkReport>("work_reports"),
@@ -2164,6 +2431,10 @@ export async function apply(ctx: TeammateContext): Promise<void> {
     runtime: reportRuntime,
     workspaces: () => ctx.get("workspaceRegistry"),
   };
+  const syncRuntimeIdentities = async (): Promise<void> => {
+    await runtimeService.syncFromEmployees();
+    await runtimeService.migrateEmployeeIdentities();
+  };
   const identityFiber = ctx.inject(["collabTeam"], async (child) => {
     await migrate(
       child.collabTeam.users().map((user) => ({
@@ -2176,19 +2447,22 @@ export async function apply(ctx: TeammateContext): Promise<void> {
       () => child.collabTeam,
       () => ctx.get("collabTasks"),
       () => ctx.get("workspaceRegistry"),
-      () => runtimeService.syncFromEmployees(),
+      syncRuntimeIdentities,
       runtimeService,
       () => ctx.get("collabAgent"),
       () => ctx.get("collabMeeting"),
       reportContext,
       () => ctx.get("collabTaskDispatch"),
       teammateTemplateService,
+      () => ctx.get("collabEmployee"),
     );
     for (const route of routes) ctx.webServer.register(route);
+    void syncRuntimeIdentities().catch(() => undefined);
   });
   ctx.effect(() => () => {
     identityFiber?.dispose();
     void domain.close();
     void profileDomain.close();
+    void principalRuntimeDomain.close();
   });
 }

@@ -140,6 +140,11 @@ function team(): TeamServiceLike {
             { userId: "workflow-admin", name: "Admin", memberRole: "member" },
             { userId: "flow-owner", name: "Owner", memberRole: "owner" },
             { userId: "workflow-member", name: "Member", memberRole: "member" },
+            {
+              userId: "flow-member",
+              name: "Flow Member",
+              memberRole: "member",
+            },
           ]
         : [],
     users: () => [
@@ -163,12 +168,50 @@ async function importedFixture(
   return service.importDefinition(actor, { workspaceId: "main", sourceMd });
 }
 
+function humanReviewFixture(key: string) {
+  return [
+    "# 工作流：人类执行验收",
+    "",
+    "## 元信息",
+    "",
+    `- key: ${key}`,
+    "- version: 1",
+    "",
+    "## 节点",
+    "",
+    "### 需求确认",
+    "",
+    "- id: requirement-confirmation",
+    "- type: approval",
+    "- executor: user:flow-owner",
+    "- approver: 用户:flow-owner",
+    "- policy: any",
+    "",
+    "### 方案设计",
+    "",
+    "- id: product-design",
+    "- type: task",
+    "- executor: user:workflow-member",
+    "- responsible: user:workflow-member",
+    "- deliverable: product-design",
+    "  title: 产品方案",
+    "  type: text",
+    "  required: true",
+    "  min-text-length: 20",
+    "",
+    "## 连接",
+    "",
+    "- requirement-confirmation -> product-design",
+  ].join("\n");
+}
+
 type FakeWorkflowRef = {
   instanceId: string;
   nodeId: string;
   nodeAttempt?: number | undefined;
   reviewRequired?: boolean | undefined;
   approvalPolicy?: "all" | "any";
+  approverIds?: Array<string> | undefined;
 };
 
 type FakeWorkflowTask = Omit<WorkflowTaskRef, "status"> & {
@@ -176,6 +219,7 @@ type FakeWorkflowTask = Omit<WorkflowTaskRef, "status"> & {
   workflow?: FakeWorkflowRef | undefined;
   description?: string | undefined;
   autoSubmitReview?: boolean | undefined;
+  autoApproveReview?: boolean | undefined;
 };
 
 class FakeTaskBridge implements WorkflowTaskBridge {
@@ -215,6 +259,7 @@ class FakeTaskBridge implements WorkflowTaskBridge {
       reviewRequired: input.reviewRequired as boolean | undefined,
       description: input.description as string,
       autoSubmitReview: input.autoSubmitReview as boolean,
+      autoApproveReview: input.autoApproveReview as boolean,
     };
     this.records.set(id, task);
     return task;
@@ -247,6 +292,23 @@ class FakeTaskBridge implements WorkflowTaskBridge {
       receiverId: input.receiverId,
       receiverName: input.receiverName,
     });
+    return task;
+  }
+
+  async projectApprovalApprovers(
+    _actor: Parameters<
+      NonNullable<WorkflowTaskBridge["projectApprovalApprovers"]>
+    >[0],
+    input: { taskId: string; approverIds: readonly string[] },
+  ) {
+    const task = this.records.get(input.taskId);
+    if (task === undefined) throw new Error("task not found");
+    task.workflow = {
+      instanceId: task.workflow?.instanceId ?? "",
+      nodeId: task.workflow?.nodeId ?? "",
+      ...task.workflow,
+      approverIds: [...input.approverIds],
+    };
     return task;
   }
 
@@ -354,6 +416,9 @@ class FakeAgentService implements AgentServiceLike {
       ...(input.employeeId === undefined
         ? {}
         : { employeeId: input.employeeId }),
+      ...(input.principalId === undefined
+        ? {}
+        : { principalId: input.principalId }),
       ...(input.principalType === undefined
         ? {}
         : { principalType: input.principalType }),
@@ -659,6 +724,67 @@ describe("workflow service", () => {
     ]);
   });
 
+  it("normalizes principal references to compatibility actor aliases", () => {
+    const service = new WorkflowService(current, {
+      now: () => new Date(timestamp),
+      team,
+      principals: () => ({
+        resolveReference: (reference) => {
+          if (reference === "principal:principal-ai-backend") {
+            return {
+              id: "principal-ai-backend",
+              kind: "ai",
+              status: "active",
+            };
+          }
+          if (reference === "principal:principal-human-owner") {
+            return {
+              id: "principal-human-owner",
+              kind: "human",
+              status: "active",
+            };
+          }
+          return undefined;
+        },
+        resolveSubject: () => undefined,
+        preferredSubjectId: (principalId) => {
+          if (principalId === "principal-ai-backend") return "backend-01";
+          if (principalId === "principal-human-owner") return "workflow-member";
+          return undefined;
+        },
+      }),
+    });
+    const sourceMd = [
+      "# 工作流：Principal 执行",
+      "",
+      "## 元信息",
+      "",
+      "- key: principal-execution",
+      "- version: 1",
+      "",
+      "## 节点",
+      "",
+      "### 执行",
+      "",
+      "- id: develop",
+      "- type: task",
+      "- executor: principal:principal-ai-backend",
+      "- responsible: principal:principal-human-owner",
+      "- review: false",
+      "",
+      "## 连接",
+    ].join("\n");
+
+    const checked = service.validate(sourceMd);
+    expect(checked.issues.filter((issue) => issue.level === "error")).toEqual(
+      [],
+    );
+    expect(checked.graph?.nodes[0]).toMatchObject({
+      executor: { kind: "employee", id: "backend-01" },
+      responsible: { kind: "user", id: "workflow-member" },
+    });
+  });
+
   it("reports the agent review missing responsible error", async () => {
     const sourceMd = [
       "# 工作流：Agent 缺少责任人",
@@ -949,6 +1075,106 @@ describe("workflow service", () => {
     const completed = service.instance(instance.id)!;
     expect(completed.nodes["release-approval"]?.status).toBe("completed");
     expect(completed.nodes.release?.status).toBe("ready");
+  });
+
+  it("auto-completes a human node after all deliverables are submitted when approval is enabled", async () => {
+    const tablesData = tables();
+    const tasks = new FakeTaskBridge();
+    const autoService = new WorkflowService(tablesData, {
+      now: () => new Date(timestamp),
+      team,
+      tasks: () => tasks,
+    });
+    const definition = await autoService.importDefinition(owner, {
+      workspaceId: "main",
+      sourceMd: humanReviewFixture("gui-human-auto-approve-on"),
+    });
+    const instance = await autoService.startInstance(owner, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "人类任务自动验收",
+    });
+    await autoService.decideApproval(owner, {
+      instanceId: instance.id,
+      nodeId: "requirement-confirmation",
+      decision: "approved",
+    });
+    const taskId = autoService
+      .instance(instance.id)!
+      .nodes["product-design"]!.taskIds.at(-1)!;
+    expect(tasks.records.get(taskId)?.autoApproveReview).toBe(true);
+    expect(tasks.records.get(taskId)?.description).toContain(
+      "提交后自动通过 Review，完成节点",
+    );
+
+    await autoService.submitDeliverable(member, {
+      instanceId: instance.id,
+      nodeId: "product-design",
+      requirementKey: "product-design",
+      type: "text",
+      value: "完成产品方案，补充边界条件、依赖影响、验证结果和已知风险。",
+    });
+    for (
+      let settled = false, attempts = 0;
+      !settled && attempts < 20;
+      attempts += 1
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      settled =
+        autoService.instance(instance.id)!.nodes["product-design"]?.status ===
+        "completed";
+    }
+
+    expect(
+      autoService.instance(instance.id)!.nodes["product-design"]?.status,
+    ).toBe("completed");
+    expect(tasks.records.get(taskId)?.status).toBe("done");
+    expect(tasks.outcomes.get(taskId)).toBe("approved");
+  });
+
+  it("keeps a human node open when automatic approval is disabled", async () => {
+    const tablesData = tables();
+    const tasks = new FakeTaskBridge();
+    const manualService = new WorkflowService(tablesData, {
+      now: () => new Date(timestamp),
+      team,
+      tasks: () => tasks,
+    });
+    const definition = await manualService.importDefinition(owner, {
+      workspaceId: "main",
+      sourceMd: humanReviewFixture("gui-human-auto-approve-off"),
+    });
+    const instance = await manualService.startInstance(owner, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "人类任务人工验收",
+    });
+    await manualService.decideApproval(owner, {
+      instanceId: instance.id,
+      nodeId: "requirement-confirmation",
+      decision: "approved",
+    });
+    const taskId = manualService
+      .instance(instance.id)!
+      .nodes["product-design"]!.taskIds.at(-1)!;
+    expect(tasks.records.get(taskId)?.description).toContain(
+      "提交后自动通过 Review，完成节点",
+    );
+    tasks.records.get(taskId)!.autoApproveReview = false;
+
+    await manualService.submitDeliverable(member, {
+      instanceId: instance.id,
+      nodeId: "product-design",
+      requirementKey: "product-design",
+      type: "text",
+      value: "完成产品方案，补充边界条件、依赖影响、验证结果和已知风险。",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(
+      manualService.instance(instance.id)!.nodes["product-design"]?.status,
+    ).toBe("ready");
+    expect(tasks.records.get(taskId)?.status).toBe("progress");
   });
 
   it("rejects decisions on a future approval node that is still waiting", async () => {
@@ -1277,7 +1503,14 @@ describe("workflow service", () => {
       status: "review",
       autoSubmitReview: false,
     });
+    expect(requirementTask.workflow?.approverIds).toEqual(["workflow-member"]);
     expect(requirementTask.description).toContain("或签：任一审批人通过即可");
+
+    delete requirementTask.workflow?.approverIds;
+    await taskService.reconcileTaskProjections(instance.id);
+    expect(tasks.records.get(requirementTaskId)?.workflow?.approverIds).toEqual(
+      ["workflow-member"],
+    );
 
     await taskService.decideApproval(member, {
       instanceId: instance.id,
@@ -1293,6 +1526,12 @@ describe("workflow service", () => {
             event.kind === "user" && event.message.includes("通过审批"),
         ),
     ).toBe(true);
+
+    delete tasks.records.get(requirementTaskId)?.workflow?.approverIds;
+    await taskService.reconcileTaskProjections(instance.id);
+    expect(tasks.records.get(requirementTaskId)?.workflow?.approverIds).toEqual(
+      ["workflow-member"],
+    );
 
     await taskService.submitDeliverable(member, {
       instanceId: instance.id,
@@ -1321,6 +1560,10 @@ describe("workflow service", () => {
       autoSubmitReview: false,
     });
     expect(releaseTask.workflow?.approvalPolicy).toBe("all");
+    expect(releaseTask.workflow?.approverIds).toEqual([
+      "flow-owner",
+      "workflow-member",
+    ]);
     expect(releaseTask.description).toContain("并签：全部审批人通过后才完成");
 
     await taskService.handleTaskAssigned(
@@ -1337,9 +1580,7 @@ describe("workflow service", () => {
     const reassigned = taskService.instance(instance.id)!.nodes[
       "release-approval"
     ]!;
-    expect(
-      reassigned.approvals["release-approval:flow-owner"],
-    ).toMatchObject({
+    expect(reassigned.approvals["release-approval:flow-owner"]).toMatchObject({
       status: "pending",
       approver: { kind: "user", id: "workflow-admin", name: "Admin" },
     });
@@ -1690,6 +1931,35 @@ describe("workflow agent nodes", () => {
       team,
       agent: () => agent,
       employee: () => employee,
+      principals: () => ({
+        resolveReference: (reference) =>
+          reference === "principal:principal-ai-backend-01" ||
+          reference === "employee:backend-01"
+            ? {
+                id: "principal-ai-backend-01",
+                kind: "ai",
+                status: "active",
+              }
+            : undefined,
+        resolveSubject: (subjectType, subjectId) =>
+          (subjectType === "employee" && subjectId === "backend-01") ||
+          (subjectType === "auth-user" && subjectId === "workflow-member")
+            ? {
+                id:
+                  subjectType === "employee"
+                    ? "principal-ai-backend-01"
+                    : "principal-human-workflow-member",
+                kind: subjectType === "employee" ? "ai" : "human",
+                status: "active",
+              }
+            : undefined,
+        preferredSubjectId: (principalId) =>
+          principalId === "principal-ai-backend-01"
+            ? "backend-01"
+            : principalId === "principal-human-workflow-member"
+              ? "workflow-member"
+              : undefined,
+      }),
     });
     return { agent, current, employee, service };
   }
@@ -1847,6 +2117,129 @@ describe("workflow agent nodes", () => {
     });
   });
 
+  it("keeps a manual task reassignment instead of reverting it on reconcile", async () => {
+    const { service, tasks } = await agentHarness();
+    const definition = await importedFixture(service, "agent-node.md");
+    const instance = await service.startInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "改派保持",
+    });
+    const taskId = instance.nodes.development?.taskIds[0]!;
+
+    await service.handleTaskAssigned(
+      {
+        id: taskId,
+        workspaceId: "main",
+        receiverType: "agent",
+        receiverId: "qa-agent",
+        receiverName: "QA Agent",
+        workflow: { instanceId: instance.id, nodeId: "development" },
+      },
+      owner,
+    );
+    Object.assign(tasks.records.get(taskId)!, {
+      receiverType: "agent",
+      receiverId: "qa-agent",
+      receiverName: "QA Agent",
+    });
+
+    const reassigned = service.instance(instance.id)!.nodes.development!;
+    expect(reassigned.receiverOverride).toMatchObject({
+      type: "agent",
+      id: "qa-agent",
+      name: "QA Agent",
+    });
+    expect(reassigned.assignedTo).toBe("QA Agent");
+
+    await service.handleTaskReconcile(tasks.records.get(taskId)!);
+
+    expect(tasks.records.get(taskId)).toMatchObject({
+      receiverType: "agent",
+      receiverId: "qa-agent",
+      receiverName: "QA Agent",
+    });
+  });
+
+  it("releases the owner fallback when the task is reassigned back to the node teammate", async () => {
+    const current = tables();
+    const agent = new FakeAgentService(true);
+    const employee = new FakeEmployeeService(
+      false,
+      false,
+      "Teammate「Backend Engineer 01」已暂停，不能派发",
+    );
+    const tasks = new FakeTaskBridge();
+    const service = new WorkflowService(current, {
+      now: () => new Date(timestamp),
+      team,
+      tasks: () => tasks,
+      agent: () => agent,
+      employee: () => employee,
+      teammates: () => ({
+        list: () => [
+          {
+            id: "tm-backend",
+            name: "Backend Engineer 01",
+            state: "inactive",
+            employeeId: "backend-01",
+            ownerUserId: "workflow-member",
+            ownerName: "Member",
+          },
+        ],
+      }),
+    });
+    const definition = await importedFixture(
+      service,
+      "employee-node-manual.md",
+    );
+    const instance = await service.startInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "改派解除兜底",
+    });
+    const dispatched = await service.dispatchAgentNode(member, {
+      instanceId: instance.id,
+      nodeId: "development",
+      trigger: "manual-dispatch",
+    });
+    expect(dispatched.nodes.development?.executorFallback).toBeDefined();
+    const taskId = dispatched.nodes.development?.taskIds.at(-1)!;
+
+    await service.handleTaskAssigned(
+      {
+        id: taskId,
+        workspaceId: "main",
+        receiverType: "agent",
+        receiverId: "tm-backend",
+        receiverName: "Backend Engineer 01",
+        workflow: { instanceId: instance.id, nodeId: "development" },
+      },
+      owner,
+    );
+
+    const released = service.instance(instance.id)!.nodes.development!;
+    expect(released.executorFallback).toBeUndefined();
+    expect(released.status).toBe("ready");
+    expect(released.receiverOverride).toMatchObject({
+      type: "agent",
+      id: "tm-backend",
+      name: "Backend Engineer 01",
+    });
+
+    Object.assign(tasks.records.get(taskId)!, {
+      receiverType: "agent",
+      receiverId: "tm-backend",
+      receiverName: "Backend Engineer 01",
+    });
+    await service.handleTaskReconcile(tasks.records.get(taskId)!);
+    expect(tasks.records.get(taskId)).toMatchObject({
+      receiverType: "agent",
+      receiverId: "tm-backend",
+      receiverName: "Backend Engineer 01",
+    });
+  });
+
   it("direct-completes a no-review Agent node without a task module", async () => {
     const { agent, service } = await agentHarness(true, false);
     const sourceMd = (
@@ -1928,7 +2321,7 @@ describe("workflow agent nodes", () => {
   });
 
   it("dispatches employee nodes through mapped runtime and preserves the principal", async () => {
-    const { agent, employee, service } = await employeeHarness();
+    const { agent, employee, service, current } = await employeeHarness();
     const definition = await importedFixture(service, "employee-node.md");
     const instance = await service.startInstance(member, {
       workspaceId: "main",
@@ -1940,11 +2333,19 @@ describe("workflow agent nodes", () => {
     expect(agent.dispatchInputs[0]).toMatchObject({
       profileId: "backend-agent",
       employeeId: "backend-01",
+      principalId: "principal-ai-backend-01",
       principalType: "digital-employee",
       ticketId: "ticket-1",
       payload: { employeeName: "Backend Engineer 01" },
     });
     const run = agent.runs(instance.id, "development")[0]!;
+    expect(run.principalId).toBe("principal-ai-backend-01");
+    expect(
+      [...current.events.entries()].some(
+        ([, event]) =>
+          event.actorPrincipalId === "principal-human-workflow-member",
+      ),
+    ).toBe(true);
     agent.settle(run.id, {
       ...run,
       status: "succeeded",
@@ -1978,9 +2379,7 @@ describe("workflow agent nodes", () => {
     expect(failed.nodes.development).toMatchObject({
       status: "blocked",
     });
-    expect(failed.nodes.development?.note).toContain(
-      "Digital Employee 运行票据签发失败",
-    );
+    expect(failed.nodes.development?.note).toContain("AI伙伴运行票据签发失败");
 
     const recovered = await service.dispatchAgentNode(owner, {
       instanceId: failed.id,
@@ -2032,7 +2431,7 @@ describe("workflow agent nodes", () => {
     expect(secondRun.ticketId).toBe("ticket-2");
     expect(retried.nodes.development).toMatchObject({
       status: "running",
-      note: "Digital Employee 运行中 · 第 2 次",
+      note: "AI伙伴运行中 · 第 2 次",
     });
 
     agent.settle(secondRun.id, {
@@ -2051,12 +2450,187 @@ describe("workflow agent nodes", () => {
     expect(employee.authorized).toEqual(["ticket-2"]);
   });
 
+  it("dispatches a Principal Runtime node without an Employee record", async () => {
+    const current = tables();
+    const agent = new FakeAgentService(true);
+    const issued: Array<Record<string, unknown>> = [];
+    const authorized: string[] = [];
+    const principalId = "principal-ai-tm-principal";
+    const service = new WorkflowService(current, {
+      now: () => new Date(timestamp),
+      team,
+      agent: () => agent,
+      teammates: () => ({
+        list: () => [
+          {
+            id: "tm-principal",
+            name: "Principal Worker",
+            state: "active",
+            ownerUserId: "workflow-member",
+            ownerName: "Member",
+          },
+        ],
+      }),
+      teammateRuntime: () => ({
+        ensureRuntime: async () => ({
+          teammateId: "tm-principal",
+          principalId,
+          profileId: "agent-principal",
+        }),
+      }),
+      principals: () => ({
+        resolveReference: () => ({
+          id: principalId,
+          kind: "ai",
+          status: "active",
+        }),
+        resolveSubject: (subjectType, subjectId) =>
+          subjectType === "teammate" && subjectId === "tm-principal"
+            ? { id: principalId, kind: "ai", status: "active" }
+            : undefined,
+        preferredSubjectId: () => undefined,
+      }),
+      principalRuntime: () => ({
+        profile: () => ({
+          id: "principal-runtime-1",
+          agentProfileId: "agent-principal",
+          status: "active",
+        }),
+        issueTicket: async (input) => {
+          issued.push(input);
+          return { id: "principal-ticket-1" };
+        },
+        authorizeTicket: async (input) => {
+          authorized.push(input.ticketId);
+          return { principalId };
+        },
+      }),
+    });
+    const source = (
+      await readFile(
+        new URL(
+          "../../../docs/fixtures/workflow/employee-node.md",
+          import.meta.url,
+        ),
+        "utf8",
+      )
+    )
+      .replace("executor: employee:backend-01", "executor: agent:tm-principal")
+      .replace("trigger: auto-on-ready", "trigger: manual-dispatch");
+    const definition = await service.importDefinition(owner, {
+      workspaceId: "main",
+      sourceMd: source,
+    });
+    const instance = await service.startInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "Principal Runtime",
+    });
+    await service.dispatchAgentNode(member, {
+      instanceId: instance.id,
+      nodeId: "development",
+      trigger: "manual-dispatch",
+    });
+    expect(agent.dispatchInputs[0]).toMatchObject({
+      profileId: "agent-principal",
+      principalId,
+      principalType: "principal-runtime",
+      ticketId: "principal-ticket-1",
+    });
+    expect(issued[0]).toMatchObject({
+      principalId,
+      contextType: "workflow",
+      contextId: instance.id,
+    });
+    const run = agent.runs(instance.id, "development")[0]!;
+    agent.settle(run.id, {
+      ...run,
+      status: "succeeded",
+      output: {
+        summary:
+          "## 交付说明\n\nPrincipal Runtime 已完成实现说明、范围检查和风险复核。",
+        stopReason: "completed",
+      },
+    });
+    await service.handleAgentSettle(agent.run(run.id)!);
+    expect(authorized).toContain("principal-ticket-1");
+  });
+
+  it("resolves a unique Principal Runtime for a legacy Agent Profile node", async () => {
+    const current = tables();
+    const agent = new FakeAgentService(true);
+    const principalId = "principal-ai-legacy-profile";
+    const service = new WorkflowService(current, {
+      now: () => new Date(timestamp),
+      team,
+      agent: () => agent,
+      teammates: () => ({ list: () => [] }),
+      principals: () => ({
+        resolveReference: () => undefined,
+        resolveSubject: () => undefined,
+        preferredSubjectId: () => undefined,
+      }),
+      principalRuntime: () => ({
+        profiles: () => [
+          {
+            id: "principal-runtime-legacy",
+            principalId,
+            workspaceId: "main",
+            agentProfileId: "agent-principal",
+            status: "active",
+          },
+        ],
+        profile: () => ({
+          id: "principal-runtime-legacy",
+          agentProfileId: "agent-principal",
+          status: "active",
+        }),
+        issueTicket: async () => ({ id: "principal-ticket-legacy" }),
+        authorizeTicket: async () => ({ principalId }),
+      }),
+    });
+    const source = (
+      await readFile(
+        new URL(
+          "../../../docs/fixtures/workflow/employee-node.md",
+          import.meta.url,
+        ),
+        "utf8",
+      )
+    )
+      .replace(
+        "executor: employee:backend-01",
+        "executor: agent:agent-principal",
+      )
+      .replace("trigger: auto-on-ready", "trigger: manual-dispatch");
+    const definition = await service.importDefinition(owner, {
+      workspaceId: "main",
+      sourceMd: source,
+    });
+    const instance = await service.startInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "Legacy Agent Profile",
+    });
+    await service.dispatchAgentNode(member, {
+      instanceId: instance.id,
+      nodeId: "development",
+      trigger: "manual-dispatch",
+    });
+    expect(agent.dispatchInputs[0]).toMatchObject({
+      profileId: "agent-principal",
+      principalId,
+      principalType: "principal-runtime",
+      ticketId: "principal-ticket-legacy",
+    });
+  });
+
   it("reports a suspended employee as the manual dispatch blocker", async () => {
     const { agent, service } = await employeeHarness(
       true,
       false,
       false,
-      "Digital Employee「Backend Engineer 01」已暂停，不能派发",
+      "Teammate「Backend Engineer 01」已暂停，不能派发",
     );
     const definition = await importedFixture(
       service,
@@ -2076,8 +2650,192 @@ describe("workflow agent nodes", () => {
       }),
     ).rejects.toMatchObject({
       code: "forbidden",
-      message: "Digital Employee「Backend Engineer 01」已暂停，不能派发",
+      message: "Teammate「Backend Engineer 01」已暂停，不能派发",
     });
+    expect(agent.dispatchInputs).toHaveLength(0);
+  });
+
+  it("falls back to the instance owner when the executor teammate is not dispatchable", async () => {
+    const current = tables();
+    const agent = new FakeAgentService(true);
+    const employee = new FakeEmployeeService(
+      false,
+      false,
+      "Teammate「Backend Engineer 01」已暂停，不能派发",
+    );
+    const tasks = new FakeTaskBridge();
+    const teammate = {
+      id: "tm-backend",
+      name: "Backend Engineer 01",
+      state: "inactive",
+      employeeId: "backend-01",
+      ownerUserId: "workflow-member",
+      ownerName: "Member",
+    };
+    const service = new WorkflowService(current, {
+      now: () => new Date(timestamp),
+      team,
+      tasks: () => tasks,
+      agent: () => agent,
+      employee: () => employee,
+      teammates: () => ({ list: () => [teammate] }),
+    });
+    const definition = await importedFixture(
+      service,
+      "employee-node-manual.md",
+    );
+    const instance = await service.startInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "执行实例失效兜底",
+    });
+    expect(instance.nodes.development?.status).toBe("ready");
+
+    const dispatched = await service.dispatchAgentNode(member, {
+      instanceId: instance.id,
+      nodeId: "development",
+      trigger: "manual-dispatch",
+    });
+    expect(dispatched.nodes.development).toMatchObject({
+      status: "ready",
+      assignedTo: "Member",
+      executorFallback: {
+        kind: "user",
+        id: "workflow-member",
+        label: "Member",
+        originalExecutorId: "backend-01",
+        originalExecutorLabel: "Backend Engineer 01",
+      },
+    });
+    expect(dispatched.nodes.development?.note).toContain("已自动转交");
+    expect(agent.dispatchInputs).toHaveLength(0);
+    const taskId = dispatched.nodes.development?.taskIds.at(-1)!;
+    expect(tasks.records.get(taskId)).toMatchObject({
+      receiverType: "human",
+      receiverId: "workflow-member",
+      receiverName: "Member",
+    });
+    expect(service.events(instance.id).map((event) => event.kind)).toContain(
+      "executor.fallback",
+    );
+
+    // 兜底接收人与节点责任人同权：可以补交交付物并人工完成节点。
+    await service.submitDeliverable(member, {
+      instanceId: instance.id,
+      nodeId: "development",
+      requirementKey: "implementation-report",
+      type: "text",
+      value: "人工兜底补交实现说明，覆盖范围与风险检查。",
+    });
+    const completed = await service.completeNode(member, {
+      instanceId: instance.id,
+      nodeId: "development",
+    });
+    expect(completed.nodes.development?.status).toBe("completed");
+  });
+
+  it("hands the node to the project owner when the instance owner is not a member", async () => {
+    const current = tables();
+    const agent = new FakeAgentService(true);
+    const employee = new FakeEmployeeService(
+      false,
+      false,
+      "Teammate「Backend Engineer 01」已暂停，不能派发",
+    );
+    const service = new WorkflowService(current, {
+      now: () => new Date(timestamp),
+      team,
+      agent: () => agent,
+      employee: () => employee,
+      teammates: () => ({
+        list: () => [
+          {
+            id: "tm-backend",
+            name: "Backend Engineer 01",
+            state: "inactive",
+            employeeId: "backend-01",
+            ownerUserId: "ghost-owner",
+            ownerName: "Ghost Owner",
+          },
+        ],
+      }),
+    });
+    const definition = await importedFixture(
+      service,
+      "employee-node-manual.md",
+    );
+    const instance = await service.startInstance(owner, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "执行实例失效兜底到项目 owner",
+    });
+
+    const dispatched = await service.dispatchAgentNode(owner, {
+      instanceId: instance.id,
+      nodeId: "development",
+      trigger: "manual-dispatch",
+    });
+    expect(dispatched.nodes.development?.executorFallback).toMatchObject({
+      id: "flow-owner",
+      label: "Owner",
+    });
+    expect(agent.dispatchInputs).toHaveLength(0);
+  });
+
+  it("still starts the instance when the referenced teammate is already inactive", async () => {
+    const current = tables();
+    const agent = new FakeAgentService(true);
+    const employee: EmployeeServiceLike = {
+      employeeWorkspaceTarget: () => undefined,
+      workflowTarget: () => undefined,
+      workflowDispatchBlockReason: () => undefined,
+      employeeApprovalTarget: () => undefined,
+      issueRuntimeTicket: async () => ({ id: "ticket-1" }),
+      authorizeTicket: async () => ({ employeeId: "backend-01" }),
+    };
+    const service = new WorkflowService(current, {
+      now: () => new Date(timestamp),
+      team,
+      agent: () => agent,
+      employee: () => employee,
+      teammates: () => ({
+        list: () => [
+          {
+            id: "tm-backend",
+            name: "Backend Engineer 01",
+            state: "inactive",
+            employeeId: "backend-01",
+            ownerUserId: "flow-owner",
+            ownerName: "Owner",
+          },
+        ],
+      }),
+    });
+    const definition = await importedFixture(
+      service,
+      "employee-node-manual.md",
+    );
+    const instance = await service.startInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "执行实例已停用时仍可启动",
+    });
+    expect(instance.nodes.development?.status).toBe("ready");
+
+    const dispatched = await service.dispatchAgentNode(member, {
+      instanceId: instance.id,
+      nodeId: "development",
+      trigger: "manual-dispatch",
+    });
+    expect(dispatched.nodes.development).toMatchObject({
+      status: "ready",
+      executorFallback: {
+        id: "flow-owner",
+        label: "Owner",
+        originalExecutorId: "backend-01",
+      },
+    });
+    expect(dispatched.nodes.development?.note).toContain("已自动转交");
     expect(agent.dispatchInputs).toHaveLength(0);
   });
 
@@ -2337,6 +3095,340 @@ describe("workflow agent nodes", () => {
     ).rejects.toMatchObject({ code: "forbidden" });
     await service.retryAgentRun(owner, secondRun.id);
     expect(agent.runs(instance.id)).toHaveLength(3);
+  });
+});
+
+describe("workflow project role nodes", () => {
+  type RoleMember = {
+    readonly assigneeKind: "user" | "agent";
+    readonly assigneeId: string;
+    readonly status: string;
+  };
+
+  function roleFixture(key: string) {
+    return [
+      "# 工作流：项目角色执行",
+      "",
+      "## 元信息",
+      "",
+      `- key: ${key}`,
+      "- version: 1",
+      "",
+      "## 节点",
+      "",
+      "### 评审",
+      "",
+      "- id: review",
+      "- type: approval",
+      "- executor: user:flow-owner",
+      "- approver: 角色:reviewer",
+      "- policy: any",
+      "",
+      "### 设计",
+      "",
+      "- id: design",
+      "- type: task",
+      "- executor: role:reviewer",
+      "- description: 输出设计说明",
+      "- deliverable: design-report",
+      "  title: 设计说明",
+      "  type: text",
+      "  required: true",
+      "  min-text-length: 10",
+      "",
+      "## 连接",
+      "",
+      "- review -> design",
+    ].join("\n");
+  }
+
+  function roleHarness(members: readonly RoleMember[]) {
+    const current = tables();
+    const tasks = new FakeTaskBridge();
+    const service = new WorkflowService(current, {
+      now: () => new Date(timestamp),
+      team,
+      tasks: () => tasks,
+      roles: () => ({
+        config: () => ({
+          seats: [{ id: "reviewer", label: "评审组", participantKind: "any" }],
+        }),
+        members: (_workspaceId: string, seatId: string) =>
+          seatId === "reviewer" ? members : [],
+      }),
+    });
+    return { current, tasks, service };
+  }
+
+  const roleMembers: RoleMember[] = [
+    { assigneeKind: "user", assigneeId: "workflow-member", status: "claimed" },
+    { assigneeKind: "user", assigneeId: "flow-member", status: "assigned" },
+    { assigneeKind: "agent", assigneeId: "tm-tester", status: "assigned" },
+  ];
+
+  it("projects a role node to the role and lets any member act", async () => {
+    const { service, tasks } = roleHarness(roleMembers);
+    const definition = await service.importDefinition(owner, {
+      workspaceId: "main",
+      sourceMd: roleFixture("role-node"),
+    });
+    const instance = await service.startInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "角色节点执行",
+    });
+
+    const reviewTaskId = instance.nodes.review?.taskIds[0]!;
+    expect(tasks.records.get(reviewTaskId)).toMatchObject({
+      receiverType: "role",
+      receiverId: "reviewer",
+      receiverName: "评审组",
+    });
+
+    // 角色成员的任一人都能给出审批结论（或签）。
+    const decided = await service.decideApproval(member, {
+      instanceId: instance.id,
+      nodeId: "review",
+      decision: "approved",
+    });
+    expect(decided.nodes.review?.status).toBe("completed");
+    const designTaskId = decided.nodes.design?.taskIds[0]!;
+    expect(tasks.records.get(designTaskId)).toMatchObject({
+      receiverType: "role",
+      receiverId: "reviewer",
+      receiverName: "评审组",
+    });
+
+    // 非角色成员不能代交 / 完成角色节点。
+    const outsider: WorkflowActor = {
+      kind: "user",
+      id: "workflow-admin",
+      name: "Admin",
+      workspaceRole: "member",
+    };
+    await expect(
+      service.submitDeliverable(outsider, {
+        instanceId: decided.id,
+        nodeId: "design",
+        requirementKey: "design-report",
+        type: "text",
+        value: "非成员提交的设计说明，不应该被接受。",
+      }),
+    ).rejects.toMatchObject({ code: "forbidden" });
+
+    // 角色里的另一名成员补交并完成节点。
+    const other: WorkflowActor = {
+      kind: "user",
+      id: "flow-member",
+      name: "Flow Member",
+      workspaceRole: "member",
+    };
+    await service.submitDeliverable(other, {
+      instanceId: decided.id,
+      nodeId: "design",
+      requirementKey: "design-report",
+      type: "text",
+      value: "角色成员提交的设计说明，覆盖范围与风险。",
+    });
+    const completed = await service.completeNode(other, {
+      instanceId: decided.id,
+      nodeId: "design",
+    });
+    expect(completed.nodes.design?.status).toBe("completed");
+  });
+
+  it("keeps active instances on their start-time role snapshot after the role is removed", async () => {
+    const current = tables();
+    const tasks = new FakeTaskBridge();
+    const seats = [{ id: "reviewer", label: "评审组", participantKind: "any" }];
+    let roleMembers: RoleMember[] = [
+      {
+        assigneeKind: "user",
+        assigneeId: "workflow-member",
+        status: "claimed",
+      },
+      { assigneeKind: "user", assigneeId: "flow-member", status: "assigned" },
+    ];
+    const service = new WorkflowService(current, {
+      now: () => new Date(timestamp),
+      team,
+      tasks: () => tasks,
+      roles: () => ({
+        config: () => ({ seats }),
+        members: (_workspaceId: string, seatId: string) =>
+          seatId === "reviewer" ? roleMembers : [],
+      }),
+    });
+    const definition = await service.importDefinition(owner, {
+      workspaceId: "main",
+      sourceMd: roleFixture("role-node"),
+    });
+    const instance = await service.startInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "角色快照",
+    });
+    expect(instance.roleSnapshot.reviewer).toMatchObject({
+      roleId: "reviewer",
+      name: "评审组",
+      members: [
+        { kind: "user", id: "workflow-member" },
+        { kind: "user", id: "flow-member" },
+      ],
+    });
+
+    // 角色从项目下线、成员指派清空；已启动实例继续用启动时快照。
+    seats.splice(0, seats.length);
+    roleMembers = [];
+    const decided = await service.decideApproval(
+      {
+        kind: "user",
+        id: "flow-member",
+        name: "Flow Member",
+        workspaceRole: "member",
+      },
+      {
+        instanceId: instance.id,
+        nodeId: "review",
+        decision: "approved",
+      },
+    );
+    expect(decided.nodes.review?.status).toBe("completed");
+
+    // 快照之后新加入的成员不能操作旧实例。
+    await expect(
+      service.submitDeliverable(
+        {
+          kind: "user",
+          id: "workflow-admin",
+          name: "Admin",
+          workspaceRole: "member",
+        },
+        {
+          instanceId: decided.id,
+          nodeId: "design",
+          requirementKey: "design-report",
+          type: "text",
+          value: "后加入的角色成员不能操作旧实例。",
+        },
+      ),
+    ).rejects.toMatchObject({ code: "forbidden" });
+
+    // 快照成员仍可在旧实例完成节点。
+    await service.submitDeliverable(
+      {
+        kind: "user",
+        id: "flow-member",
+        name: "Flow Member",
+        workspaceRole: "member",
+      },
+      {
+        instanceId: decided.id,
+        nodeId: "design",
+        requirementKey: "design-report",
+        type: "text",
+        value: "快照成员继续完成旧实例。",
+      },
+    );
+    const completed = await service.completeNode(
+      {
+        kind: "user",
+        id: "flow-member",
+        name: "Flow Member",
+        workspaceRole: "member",
+      },
+      { instanceId: decided.id, nodeId: "design" },
+    );
+    expect(completed.nodes.design?.status).toBe("completed");
+
+    // 角色已下线时不能启动新实例。
+    await expect(
+      service.startInstance(member, {
+        workspaceId: "main",
+        definitionId: definition.id,
+        title: "角色已下线的新实例",
+      }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+  });
+
+  it("pins a role node to a concrete executor at instance creation", async () => {
+    const { service, tasks } = roleHarness(roleMembers);
+    const definition = await service.importDefinition(owner, {
+      workspaceId: "main",
+      sourceMd: roleFixture("role-node-pinned"),
+    });
+    const instance = await service.startInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "角色节点指定执行人",
+      assignees: {
+        review: { kind: "user", id: "flow-owner", name: "Owner" },
+        design: { kind: "agent", id: "tm-tester", name: "柯真 01 测试" },
+      },
+    });
+
+    expect(instance.nodes.review?.approvals["review:reviewer"]).toMatchObject({
+      approver: { kind: "user", id: "flow-owner", name: "Owner" },
+    });
+    expect(instance.nodes.design?.receiverOverride).toMatchObject({
+      type: "agent",
+      id: "tm-tester",
+      name: "柯真 01 测试",
+    });
+    expect(tasks.records.get(instance.nodes.review!.taskIds[0]!)).toMatchObject(
+      {
+        receiverType: "human",
+        receiverId: "flow-owner",
+        receiverName: "Owner",
+      },
+    );
+
+    // 下游角色节点指定执行人后，节点任务直接落到那个执行人身上。
+    const decided = await service.decideApproval(owner, {
+      instanceId: instance.id,
+      nodeId: "review",
+      decision: "approved",
+    });
+    expect(tasks.records.get(decided.nodes.design!.taskIds[0]!)).toMatchObject({
+      receiverType: "agent",
+      receiverId: "tm-tester",
+      receiverName: "柯真 01 测试",
+    });
+
+    // 未在模板里的节点不允许指定执行人。
+    await expect(
+      service.startInstance(member, {
+        workspaceId: "main",
+        definitionId: definition.id,
+        title: "非法指定",
+        assignees: { missing: { kind: "user", id: "flow-owner" } },
+      }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+  });
+
+  it("rejects role references the project does not maintain", async () => {
+    const current = tables();
+    const service = new WorkflowService(current, {
+      now: () => new Date(timestamp),
+      team,
+      roles: () => ({
+        config: () => ({ seats: [] }),
+      }),
+    });
+    const definition = await service.importDefinition(owner, {
+      workspaceId: "main",
+      sourceMd: roleFixture("role-node-missing"),
+    });
+    await expect(
+      service.startInstance(member, {
+        workspaceId: "main",
+        definitionId: definition.id,
+        title: "角色不存在",
+      }),
+    ).rejects.toMatchObject({
+      code: "invalid_input",
+      message: expect.stringContaining("reviewer"),
+    });
   });
 });
 

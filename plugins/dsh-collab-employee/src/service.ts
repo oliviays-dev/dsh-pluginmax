@@ -23,6 +23,7 @@ import {
 
 export interface PublicEmployee {
   readonly id: string;
+  readonly principalId?: string;
   readonly kind: Employee["kind"];
   readonly displayName: string;
   readonly email?: string;
@@ -31,6 +32,7 @@ export interface PublicEmployee {
   readonly tags: readonly string[];
   readonly personaId?: string;
   readonly authUserId?: string;
+  readonly authStatus?: "active" | "disabled";
   readonly managerEmployeeId?: string;
   readonly status: EmployeeStatus;
   readonly createdAt: string;
@@ -40,6 +42,7 @@ export interface PublicEmployee {
 export interface PublicIdentityUser {
   readonly id: string;
   readonly name: string;
+  readonly status?: "active" | "disabled";
 }
 
 export interface TeamPrincipalLike {
@@ -50,12 +53,22 @@ export interface TeamPrincipalLike {
 export interface IdentityServiceLike {
   resolveToken(token: string): TeamPrincipalLike | undefined;
   users(): readonly PublicIdentityUser[];
+  updateUser(
+    actorId: string,
+    targetId: string,
+    changes: { readonly status?: "active" | "disabled" },
+  ): Promise<unknown>;
 }
 
 export class EmployeeError extends Error {
   constructor(
     readonly code:
-      "invalid_input" | "unauthorized" | "forbidden" | "not_found" | "conflict",
+      | "invalid_input"
+      | "unauthorized"
+      | "forbidden"
+      | "not_found"
+      | "conflict"
+      | "gone",
     message: string,
   ) {
     super(message);
@@ -94,12 +107,91 @@ export interface PersonaServiceLike {
   get(personaId: string): Promise<unknown>;
 }
 
+export interface PrincipalServiceLike {
+  syncEmployee(input: {
+    readonly employeeId: string;
+    readonly kind: "human" | "digital";
+    readonly displayName: string;
+    readonly status: "draft" | "active" | "suspended" | "archived";
+    readonly authUserId?: string | undefined;
+    readonly authStatus?: "active" | "disabled" | undefined;
+  }): Promise<unknown>;
+  resolveSubject(
+    subjectType: "employee",
+    subjectId: string,
+  ): {
+    readonly id: string;
+    readonly kind: "human" | "ai";
+    readonly status: "active" | "suspended" | "archived";
+  } | undefined;
+  syncGrant(input: {
+    readonly principalId: string;
+    readonly scopeType: "workspace";
+    readonly scopeId: string;
+    readonly role: string;
+    readonly permissions: readonly string[];
+    readonly grantedByPrincipalId?: string;
+  }): Promise<unknown>;
+  revokeMatchingGrants(input: {
+    readonly principalId: string;
+    readonly scopeType: "workspace";
+    readonly scopeId: string;
+    readonly role: string;
+  }): Promise<unknown>;
+  grants?(principalId?: string): readonly {
+    readonly principalId: string;
+    readonly scopeType: "platform" | "workspace" | "project";
+    readonly scopeId: string;
+    readonly role: string;
+    readonly status: "active" | "revoked" | "expired";
+  }[];
+}
+
 export type PublicRoleAssignment = RoleAssignment;
 export type PublicRuntimeProfile = RuntimeProfile;
 export type PublicDelegation = Delegation;
 export type PublicDelegationReport = DelegationReport;
 export type PublicAuditEvent = AuditEvent;
 export type PublicActionTicket = ActionTicket;
+
+export interface EmployeeCompatibilityIssue {
+  readonly code: string;
+  readonly severity: "error" | "warning";
+  readonly message: string;
+  readonly employeeId?: string;
+  readonly principalId?: string;
+  readonly recordId?: string;
+}
+
+export interface EmployeeCompatibilityReport {
+  readonly generatedAt: string;
+  readonly readOnly: true;
+  readonly summary: {
+    readonly employees: number;
+    readonly principalsLinked: number;
+    readonly roleAssignments: number;
+    readonly runtimeProfiles: number;
+    readonly actionTickets: number;
+    readonly delegations: number;
+    readonly auditEvents: number;
+    readonly errors: number;
+    readonly warnings: number;
+  };
+  readonly issues: readonly EmployeeCompatibilityIssue[];
+}
+
+export interface EmployeeCompatibilityExport {
+  readonly version: 1;
+  readonly exportedAt: string;
+  readonly compatibilityMode: "read-only";
+  readonly employees: readonly PublicEmployee[];
+  readonly roleAssignments: readonly RoleAssignment[];
+  readonly runtimeProfiles: readonly RuntimeProfile[];
+  readonly delegations: readonly Delegation[];
+  readonly delegationReports: readonly DelegationReport[];
+  readonly actionTickets: readonly ActionTicket[];
+  readonly auditEvents: readonly AuditEvent[];
+}
 
 const DEFAULT_ROLE_PERMISSIONS: Record<WorkspaceRole, string[]> = {
   viewer: ["read"],
@@ -158,9 +250,13 @@ function intersectScopes(
   );
 }
 
-function publicEmployee(employee: Employee): PublicEmployee {
+function publicEmployee(
+  employee: Employee,
+  principalId?: string,
+): PublicEmployee {
   return {
     id: employee.id,
+    ...(principalId === undefined ? {} : { principalId }),
     kind: employee.kind,
     displayName: employee.displayName,
     ...(employee.email === undefined ? {} : { email: employee.email }),
@@ -171,7 +267,10 @@ function publicEmployee(employee: Employee): PublicEmployee {
       ? {}
       : { personaId: employee.personaId }),
     ...(employee.kind === "human" && employee.authUserId !== undefined
-      ? { authUserId: employee.authUserId }
+      ? {
+          authUserId: employee.authUserId,
+          authStatus: employee.authStatus ?? "active",
+        }
       : {}),
     ...(employee.managerEmployeeId === undefined
       ? {}
@@ -237,7 +336,12 @@ function reportContent(delegation: Delegation, transcript: string): string {
 
 export class EmployeeService {
   private readonly now: () => Date;
-  private readonly personas?: (() => PersonaServiceLike | undefined) | undefined;
+  private readonly personas?:
+    (() => PersonaServiceLike | undefined) | undefined;
+  private identity: (() => IdentityServiceLike | undefined) | undefined;
+  private principals:
+    | (() => PrincipalServiceLike | undefined)
+    | undefined;
   private queue: Promise<unknown> = Promise.resolve();
 
   constructor(
@@ -246,6 +350,169 @@ export class EmployeeService {
   ) {
     this.now = options.now ?? (() => new Date());
     this.personas = options.personas;
+  }
+
+  setIdentityService(identity: () => IdentityServiceLike | undefined): void {
+    this.identity = identity;
+  }
+
+  setPrincipalService(
+    principals: () => PrincipalServiceLike | undefined,
+  ): void {
+    this.principals = principals;
+  }
+
+  private principalId(employee: Employee): string | undefined {
+    return this.principals?.()?.resolveSubject("employee", employee.id)?.id;
+  }
+
+  private publicEmployee(employee: Employee): PublicEmployee {
+    return publicEmployee(employee, this.principalId(employee));
+  }
+
+  private async syncPrincipal(employee: Employee): Promise<void> {
+    const principals = this.principals?.();
+    if (principals === undefined) return;
+    const effective =
+      employee.kind === "human" && employee.authUserId !== undefined
+        ? (this.byAuthUserId(employee.authUserId) ?? employee)
+        : employee;
+    await principals.syncEmployee({
+      employeeId: effective.id,
+      kind: effective.kind,
+      displayName: effective.displayName,
+      status: effective.status,
+      ...(effective.authUserId === undefined
+        ? {}
+        : {
+            authUserId: effective.authUserId,
+            authStatus: effective.authStatus ?? "active",
+          }),
+    });
+  }
+
+  private async syncAllPrincipals(): Promise<void> {
+    const employees = this.employeeValues();
+    const authUserIds = new Set(
+      employees.flatMap((employee) =>
+        employee.kind === "human" && employee.authUserId !== undefined
+          ? [employee.authUserId]
+          : [],
+      ),
+    );
+    for (const authUserId of authUserIds) {
+      const employee = this.byAuthUserId(authUserId);
+      if (employee !== undefined) {
+        await this.syncPrincipal(employee);
+      }
+    }
+    for (const employee of employees) {
+      if (
+        employee.kind === "digital" ||
+        employee.authUserId === undefined
+      ) {
+        await this.syncPrincipal(employee);
+      }
+    }
+    const principals = this.principals?.();
+    if (principals === undefined) return;
+    for (const [key, assignment] of this.tables.roleAssignments.entries()) {
+      const principal = principals.resolveSubject(
+        "employee",
+        assignment.employeeId,
+      );
+      if (principal === undefined) continue;
+      const next =
+        assignment.principalId === principal.id
+          ? assignment
+          : roleAssignmentSchema.parse({
+              ...assignment,
+              principalId: principal.id,
+              updatedAt: this.timestamp(),
+            });
+      if (next !== assignment) {
+        await this.tables.roleAssignments.put(key, next);
+      }
+      if (
+        principal.status !== "archived" &&
+        next.status === "active" &&
+        !isExpired(next.expiresAt, this.now())
+      ) {
+        await principals.syncGrant({
+          principalId: principal.id,
+          scopeType: "workspace",
+          scopeId: next.workspaceId,
+          role: next.role,
+          permissions: next.permissions,
+        });
+      } else {
+        await principals.revokeMatchingGrants({
+          principalId: principal.id,
+          scopeType: "workspace",
+          scopeId: next.workspaceId,
+          role: next.role,
+        });
+      }
+    }
+    for (const [key, profile] of this.tables.runtimeProfiles.entries()) {
+      const principal = principals.resolveSubject(
+        "employee",
+        profile.employeeId,
+      );
+      if (principal === undefined || profile.principalId === principal.id) {
+        continue;
+      }
+      await this.tables.runtimeProfiles.put(
+        key,
+        runtimeProfileSchema.parse({
+          ...profile,
+          principalId: principal.id,
+          updatedAt: this.timestamp(),
+        }),
+      );
+    }
+    for (const [key, ticket] of this.tables.actionTickets.entries()) {
+      const principal = principals.resolveSubject(
+        "employee",
+        ticket.principal.employeeId,
+      );
+      if (
+        principal === undefined ||
+        ticket.principal.principalId === principal.id
+      ) {
+        continue;
+      }
+      await this.tables.actionTickets.put(
+        key,
+        actionTicketSchema.parse({
+          ...ticket,
+          principal: {
+            ...ticket.principal,
+            principalId: principal.id,
+          },
+        }),
+      );
+    }
+    for (const [key, delegation] of this.tables.delegations.entries()) {
+      const principal = principals.resolveSubject(
+        "employee",
+        delegation.ownerId,
+      );
+      if (
+        principal === undefined ||
+        delegation.ownerPrincipalId === principal.id
+      ) {
+        continue;
+      }
+      await this.tables.delegations.put(
+        key,
+        delegationSchema.parse({
+          ...delegation,
+          ownerPrincipalId: principal.id,
+          updatedAt: this.timestamp(),
+        }),
+      );
+    }
   }
 
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {
@@ -292,10 +559,7 @@ export class EmployeeService {
   private async requirePersona(personaId: string): Promise<void> {
     const personas = this.personas?.();
     if (personas === undefined) {
-      throw new EmployeeError(
-        "not_found",
-        "persona registry is unavailable",
-      );
+      throw new EmployeeError("not_found", "persona registry is unavailable");
     }
     try {
       await personas.get(personaId);
@@ -323,10 +587,16 @@ export class EmployeeService {
       metadata?: Record<string, string | number | boolean>;
     },
   ): Promise<void> {
+    const actorEmployee = this.tables.employees.get(actor.id);
+    const actorPrincipalId =
+      actorEmployee === undefined ? undefined : this.principalId(actorEmployee);
     const event = auditEventSchema.parse({
       id: randomId(),
       at: this.timestamp(),
       actorEmployeeId: actor.id,
+      ...(actorPrincipalId === undefined
+        ? {}
+        : { actorPrincipalId }),
       ...(actor.authUserId === undefined
         ? {}
         : { actorAuthUserId: actor.authUserId }),
@@ -371,6 +641,9 @@ export class EmployeeService {
           employeeSchema.parse({
             ...employee,
             status: "archived",
+            ...(employee.kind === "human" && employee.authUserId !== undefined
+              ? { authStatus: "disabled" as const }
+              : {}),
             updatedAt: timestamp,
           }),
         );
@@ -384,12 +657,19 @@ export class EmployeeService {
             employee.status !== "archived",
         );
         if (existing !== undefined) {
-          if (existing.displayName === user.name) continue;
+          const authStatus = user.status ?? "active";
+          if (
+            existing.displayName === user.name &&
+            (existing.authStatus ?? "active") === authStatus
+          ) {
+            continue;
+          }
           await this.tables.employees.put(
             existing.id,
             employeeSchema.parse({
               ...existing,
               displayName: user.name,
+              authStatus,
               updatedAt: timestamp,
             }),
           );
@@ -405,6 +685,7 @@ export class EmployeeService {
           kind: "human",
           displayName: user.name,
           authUserId,
+          authStatus: user.status ?? "active",
           status: "active",
           createdAt: timestamp,
           updatedAt: timestamp,
@@ -412,12 +693,13 @@ export class EmployeeService {
         });
         await this.tables.employees.put(record.id, record);
       }
+      await this.syncAllPrincipals();
     });
   }
 
   list(): PublicEmployee[] {
     return this.employeeValues()
-      .map(publicEmployee)
+      .map((employee) => this.publicEmployee(employee))
       .sort(
         (left, right) =>
           left.kind.localeCompare(right.kind) ||
@@ -427,12 +709,313 @@ export class EmployeeService {
   }
 
   get(employeeId: string): PublicEmployee {
-    return publicEmployee(this.requireEmployee(employeeId));
+    return this.publicEmployee(this.requireEmployee(employeeId));
   }
 
   getByAuthUserId(authUserId: string): PublicEmployee | undefined {
     const employee = this.byAuthUserId(authUserId);
-    return employee === undefined ? undefined : publicEmployee(employee);
+    return employee === undefined
+      ? undefined
+      : this.publicEmployee(employee);
+  }
+
+  exportCompatibilityData(): EmployeeCompatibilityExport {
+    return {
+      version: 1,
+      exportedAt: this.timestamp(),
+      compatibilityMode: "read-only",
+      employees: this.list(),
+      roleAssignments: this.values(this.tables.roleAssignments),
+      runtimeProfiles: this.values(this.tables.runtimeProfiles),
+      delegations: this.listDelegations(),
+      delegationReports: this.listReports(),
+      actionTickets: this.listTickets(),
+      auditEvents: this.listAudit({ limit: Number.MAX_SAFE_INTEGER }),
+    };
+  }
+
+  compatibilityReport(): EmployeeCompatibilityReport {
+    const issues: EmployeeCompatibilityIssue[] = [];
+    const principals = this.principals?.();
+    const employees = this.employeeValues();
+    const roleAssignments = this.values(this.tables.roleAssignments);
+    const runtimeProfiles = this.values(this.tables.runtimeProfiles);
+    const actionTickets = this.values(this.tables.actionTickets);
+    const delegations = this.values(this.tables.delegations);
+    const auditEvents = this.values(this.tables.auditEvents);
+    let principalsLinked = 0;
+
+    const authUsers = new Map<string, string[]>();
+    for (const employee of employees) {
+      if (employee.authUserId !== undefined) {
+        authUsers.set(employee.authUserId, [
+          ...(authUsers.get(employee.authUserId) ?? []),
+          employee.id,
+        ]);
+      }
+      if (principals === undefined) continue;
+      const principal = principals.resolveSubject("employee", employee.id);
+      if (principal === undefined) {
+        issues.push({
+          code: "employee_principal_missing",
+          severity: "error",
+          message: "Employee 没有对应的 Principal 映射",
+          employeeId: employee.id,
+        });
+        continue;
+      }
+      principalsLinked += 1;
+      const expectedKind = employee.kind === "human" ? "human" : "ai";
+      if (principal.kind !== expectedKind) {
+        issues.push({
+          code: "employee_principal_kind_mismatch",
+          severity: "error",
+          message: `Employee 类型 ${employee.kind} 与 Principal 类型 ${principal.kind} 不一致`,
+          employeeId: employee.id,
+          principalId: principal.id,
+        });
+      }
+      const expectedStatus =
+        employee.status === "archived"
+          ? "archived"
+          : employee.status === "active" &&
+              (employee.authStatus ?? "active") !== "disabled"
+            ? "active"
+            : "suspended";
+      if (principal.status !== expectedStatus) {
+        issues.push({
+          code: "employee_principal_status_mismatch",
+          severity: "warning",
+          message: `Employee 状态投影应为 ${expectedStatus}，当前 Principal 为 ${principal.status}`,
+          employeeId: employee.id,
+          principalId: principal.id,
+        });
+      }
+    }
+    for (const [authUserId, employeeIds] of authUsers) {
+      if (employeeIds.length <= 1) continue;
+      issues.push({
+        code: "duplicate_human_employee_projection",
+        severity: "warning",
+        message: `登录账号 ${authUserId} 关联了多条 Employee 兼容记录`,
+        employeeId: employeeIds[0]!,
+      });
+    }
+
+    if (principals === undefined) {
+      issues.push({
+        code: "principal_service_unavailable",
+        severity: "error",
+        message: "Principal 服务不可用，无法完成兼容一致性检查",
+      });
+    } else {
+      for (const assignment of roleAssignments) {
+        const principal = principals.resolveSubject(
+          "employee",
+          assignment.employeeId,
+        );
+        if (principal === undefined) continue;
+        if (assignment.principalId !== principal.id) {
+          issues.push({
+            code: "role_assignment_principal_missing",
+            severity: "warning",
+            message: "历史工作区授权尚未写入 Principal ID",
+            employeeId: assignment.employeeId,
+            principalId: principal.id,
+            recordId: assignment.id,
+          });
+        }
+        if (
+          assignment.status !== "active" ||
+          isExpired(assignment.expiresAt, this.now())
+        ) {
+          continue;
+        }
+        const grant = principals
+          .grants?.(principal.id)
+          .some(
+            (candidate) =>
+              candidate.status === "active" &&
+              candidate.scopeType === "workspace" &&
+              candidate.scopeId === assignment.workspaceId &&
+              candidate.role === assignment.role,
+          );
+        if (grant === false) {
+          issues.push({
+            code: "role_grant_missing",
+            severity: "error",
+            message: "有效 Employee 工作区授权缺少对应的 Principal Grant",
+            employeeId: assignment.employeeId,
+            principalId: principal.id,
+            recordId: assignment.id,
+          });
+        }
+      }
+      for (const profile of runtimeProfiles) {
+        const principal = principals.resolveSubject(
+          "employee",
+          profile.employeeId,
+        );
+        if (principal !== undefined && profile.principalId !== principal.id) {
+          issues.push({
+            code: "runtime_profile_principal_missing",
+            severity: "warning",
+            message: "Runtime Profile 尚未写入 Principal ID",
+            employeeId: profile.employeeId,
+            principalId: principal.id,
+            recordId: profile.id,
+          });
+        }
+      }
+      for (const ticket of actionTickets) {
+        const principal = principals.resolveSubject(
+          "employee",
+          ticket.principal.employeeId,
+        );
+        if (
+          principal !== undefined &&
+          ticket.principal.principalId !== principal.id
+        ) {
+          issues.push({
+            code: "action_ticket_principal_missing",
+            severity: "warning",
+            message: "Action Ticket 尚未写入 Principal ID",
+            employeeId: ticket.principal.employeeId,
+            principalId: principal.id,
+            recordId: ticket.id,
+          });
+        }
+      }
+      for (const delegation of delegations) {
+        const principal = principals.resolveSubject(
+          "employee",
+          delegation.ownerId,
+        );
+        if (
+          principal !== undefined &&
+          delegation.ownerPrincipalId !== principal.id
+        ) {
+          issues.push({
+            code: "delegation_principal_missing",
+            severity: "warning",
+            message: "Delegation 尚未写入 owner Principal ID",
+            employeeId: delegation.ownerId,
+            principalId: principal.id,
+            recordId: delegation.id,
+          });
+        }
+      }
+    }
+
+    const errors = issues.filter((issue) => issue.severity === "error").length;
+    const warnings = issues.length - errors;
+    return {
+      generatedAt: this.timestamp(),
+      readOnly: true,
+      summary: {
+        employees: employees.length,
+        principalsLinked,
+        roleAssignments: roleAssignments.length,
+        runtimeProfiles: runtimeProfiles.length,
+        actionTickets: actionTickets.length,
+        delegations: delegations.length,
+        auditEvents: auditEvents.length,
+        errors,
+        warnings,
+      },
+      issues: issues.slice(0, 1_000),
+    };
+  }
+
+  createHuman(
+    actorAuthUserId: string,
+    input: {
+      employeeId?: string | undefined;
+      displayName: string;
+      email?: string | undefined;
+      department?: string | undefined;
+      title?: string | undefined;
+      tags?: readonly string[] | undefined;
+      authUserId?: string | undefined;
+      managerEmployeeId?: string | undefined;
+    },
+  ): Promise<PublicEmployee> {
+    return this.enqueue(async () => {
+      const actor = this.byAuthUserId(actorAuthUserId);
+      if (actor === undefined || actor.status !== "active") {
+        throw new EmployeeError(
+          "forbidden",
+          "active Human Employee is required",
+        );
+      }
+      const timestamp = this.timestamp();
+      const id =
+        input.employeeId?.trim() ||
+        input.authUserId?.trim() ||
+        `human-${randomUUID().slice(0, 8)}`;
+      if (this.tables.employees.get(id) !== undefined) {
+        throw new EmployeeError(
+          "conflict",
+          `employee id already exists: ${id}`,
+        );
+      }
+      if (
+        input.authUserId !== undefined &&
+        this.employeeValues().some(
+          (employee) =>
+            employee.kind === "human" &&
+            employee.authUserId === input.authUserId &&
+            employee.status !== "archived",
+        )
+      ) {
+        throw new EmployeeError(
+          "conflict",
+          `login account is already linked: ${input.authUserId}`,
+        );
+      }
+      if (input.managerEmployeeId !== undefined) {
+        const manager = this.tables.employees.get(input.managerEmployeeId);
+        if (manager === undefined || manager.status === "archived") {
+          throw new EmployeeError(
+            "invalid_input",
+            "manager employee does not exist",
+          );
+        }
+      }
+      const record = employeeSchema.parse({
+        id,
+        kind: "human",
+        displayName: input.displayName,
+        ...(input.email === undefined ? {} : { email: input.email }),
+        department: input.department ?? "",
+        title: input.title ?? "",
+        tags: input.tags ?? [],
+        ...(input.authUserId === undefined
+          ? {}
+          : { authUserId: input.authUserId, authStatus: "active" }),
+        ...(input.managerEmployeeId === undefined
+          ? {}
+          : { managerEmployeeId: input.managerEmployeeId }),
+        status: "active",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        createdBy: actor.id,
+      });
+      await this.tables.employees.put(record.id, record);
+      await this.syncPrincipal(record);
+      await this.audit(actor, {
+        action: "employee.created",
+        actorRole: "admin",
+        metadata: {
+          employeeId: record.id,
+          employeeKind: "human",
+          ...(record.authUserId === undefined
+            ? {}
+            : { authUserId: record.authUserId }),
+        },
+      });
+      return this.publicEmployee(record);
+    });
   }
 
   createDigital(
@@ -495,12 +1078,13 @@ export class EmployeeService {
         );
       }
       await this.tables.employees.put(record.id, record);
+      await this.syncPrincipal(record);
       await this.audit(actor, {
         action: "employee.created",
         actorRole: "admin",
         metadata: { employeeId: record.id },
       });
-      return publicEmployee(record);
+      return this.publicEmployee(record);
     });
   }
 
@@ -566,12 +1150,13 @@ export class EmployeeService {
         );
       }
       await this.tables.employees.put(updated.id, updated);
+      await this.syncPrincipal(updated);
       await this.audit(actor, {
         action: "employee.updated",
         actorRole: "admin",
         metadata: { employeeId: updated.id },
       });
-      return publicEmployee(updated);
+      return this.publicEmployee(updated);
     });
   }
 
@@ -589,7 +1174,22 @@ export class EmployeeService {
         );
       }
       const current = this.requireEmployee(employeeId);
-      if (current.status === status) return publicEmployee(current);
+      if (current.status === status) {
+        if (status === "archived" && current.kind === "human") {
+          await this.disableHumanLogin(actorAuthUserId, current);
+          if ((current.authStatus ?? "active") !== "disabled") {
+            const reconciled = employeeSchema.parse({
+              ...current,
+              authStatus: "disabled",
+              updatedAt: this.timestamp(),
+            });
+            await this.tables.employees.put(reconciled.id, reconciled);
+            await this.syncPrincipal(reconciled);
+            return this.publicEmployee(reconciled);
+          }
+        }
+        return this.publicEmployee(current);
+      }
       if (!STATUS_TRANSITIONS[current.status].includes(status)) {
         throw new EmployeeError(
           "conflict",
@@ -606,12 +1206,26 @@ export class EmployeeService {
           "persona and manager are required before activation",
         );
       }
+      if (
+        status === "archived" &&
+        current.kind === "human" &&
+        current.authUserId !== undefined
+      ) {
+        // 先停用登录，避免员工已归档但旧会话仍可继续使用。
+        await this.disableHumanLogin(actorAuthUserId, current);
+      }
       const updated = employeeSchema.parse({
         ...current,
         status,
+        ...(status === "archived" &&
+        current.kind === "human" &&
+        current.authUserId !== undefined
+          ? { authStatus: "disabled" as const }
+          : {}),
         updatedAt: this.timestamp(),
       });
       await this.tables.employees.put(updated.id, updated);
+      await this.syncPrincipal(updated);
       if (status !== "active") {
         const tickets = this.values(this.tables.actionTickets).filter(
           (ticket) =>
@@ -642,7 +1256,26 @@ export class EmployeeService {
         actorRole: "admin",
         metadata: { employeeId: updated.id, status },
       });
-      return publicEmployee(updated);
+      return this.publicEmployee(updated);
+    });
+  }
+
+  private async disableHumanLogin(
+    actorAuthUserId: string,
+    employee: Employee,
+  ): Promise<void> {
+    if (employee.kind !== "human" || employee.authUserId === undefined) {
+      return;
+    }
+    const identity = this.identity?.();
+    if (identity === undefined) {
+      throw new EmployeeError(
+        "conflict",
+        "identity service is unavailable; cannot archive Human Employee",
+      );
+    }
+    await identity.updateUser(actorAuthUserId, employee.authUserId, {
+      status: "disabled",
     });
   }
 
@@ -676,23 +1309,23 @@ export class EmployeeService {
   ): string | undefined {
     const employee = this.tables.employees.get(employeeId);
     if (employee === undefined || employee.kind !== "digital") {
-      return `Digital Employee「${employeeId}」不存在`;
+      return `AI伙伴「${employeeId}」不存在`;
     }
     if (employee.status === "suspended") {
-      return `Digital Employee「${employee.displayName}」已暂停，不能派发`;
+      return `AI伙伴「${employee.displayName}」已暂停，不能派发`;
     }
     if (employee.status !== "active") {
-      return `Digital Employee「${employee.displayName}」当前状态为${STATUS_LABELS[employee.status]}，不能派发`;
+      return `AI伙伴「${employee.displayName}」当前状态为${STATUS_LABELS[employee.status]}，不能派发`;
     }
     if (this.activeRole(employeeId, workspaceId) === undefined) {
-      return `Digital Employee「${employee.displayName}」缺少目标工作区授权，不能派发`;
+      return `AI伙伴「${employee.displayName}」缺少目标工作区授权，不能派发`;
     }
     const profile = this.activeProfile(employeeId, workspaceId);
     if (profile === undefined) {
-      return `Digital Employee「${employee.displayName}」缺少启用的 Runtime Profile，不能派发`;
+      return `AI伙伴「${employee.displayName}」缺少启用的 Runtime Profile，不能派发`;
     }
     if (profile.legacyAgentProfileId === undefined) {
-      return `Digital Employee「${employee.displayName}」的 Runtime Profile 未映射 Task Worker Profile，不能派发`;
+      return `AI伙伴「${employee.displayName}」的 Runtime Profile 未映射 Task Worker Profile，不能派发`;
     }
     return undefined;
   }
@@ -809,6 +1442,8 @@ export class EmployeeService {
         );
       }
       const employee = this.requireEmployee(input.employeeId);
+      const principalId = this.principalId(employee);
+      const actorPrincipalId = this.principalId(actor);
       const now = this.now();
       for (const assignment of this.listRoles({
         employeeId: input.employeeId,
@@ -825,6 +1460,16 @@ export class EmployeeService {
             revokedAt: this.timestamp(),
             updatedAt: this.timestamp(),
           });
+          const grantPrincipalId =
+            assignment.principalId ?? principalId;
+          if (grantPrincipalId !== undefined) {
+            await this.principals?.()?.revokeMatchingGrants({
+              principalId: grantPrincipalId,
+              scopeType: "workspace",
+              scopeId: assignment.workspaceId,
+              role: assignment.role,
+            });
+          }
         }
       }
       const timestamp = this.timestamp();
@@ -837,6 +1482,7 @@ export class EmployeeService {
       const record = roleAssignmentSchema.parse({
         id: randomId(),
         employeeId: employee.id,
+        ...(principalId === undefined ? {} : { principalId }),
         workspaceId: input.workspaceId,
         role: input.role,
         permissions: input.permissions ?? DEFAULT_ROLE_PERMISSIONS[input.role],
@@ -848,6 +1494,18 @@ export class EmployeeService {
         updatedAt: timestamp,
       });
       await this.tables.roleAssignments.put(record.id, record);
+      if (principalId !== undefined) {
+        await this.principals?.()?.syncGrant({
+          principalId,
+          scopeType: "workspace",
+          scopeId: record.workspaceId,
+          role: record.role,
+          permissions: record.permissions,
+          ...(actorPrincipalId === undefined
+            ? {}
+            : { grantedByPrincipalId: actorPrincipalId }),
+        });
+      }
       await this.audit(actor, {
         action: "employee.role_assigned",
         actorRole: "admin",
@@ -885,6 +1543,18 @@ export class EmployeeService {
         updatedAt: this.timestamp(),
       });
       await this.tables.roleAssignments.put(updated.id, updated);
+      const employee = this.tables.employees.get(updated.employeeId);
+      const principalId =
+        updated.principalId ??
+        (employee === undefined ? undefined : this.principalId(employee));
+      if (principalId !== undefined) {
+        await this.principals?.()?.revokeMatchingGrants({
+          principalId,
+          scopeType: "workspace",
+          scopeId: updated.workspaceId,
+          role: updated.role,
+        });
+      }
       await this.audit(actor, {
         action: "employee.role_revoked",
         actorRole: "admin",
@@ -978,6 +1648,7 @@ export class EmployeeService {
           }
         }
       }
+      const principalId = this.principalId(employee) ?? existing?.principalId;
       const record = runtimeProfileSchema.parse({
         ...(existing ?? {
           id: randomId(),
@@ -986,6 +1657,7 @@ export class EmployeeService {
           createdBy: actor.id,
           createdAt: timestamp,
         }),
+        ...(principalId === undefined ? {} : { principalId }),
         name: input.name,
         provider: input.provider ?? existing?.provider ?? "spawn",
         model: input.model ?? existing?.model ?? "",
@@ -1071,6 +1743,7 @@ export class EmployeeService {
         profile.resourceScopes.length === 0
           ? []
           : intersectScopes(input.resourceScopes ?? [], profile.resourceScopes);
+      const principalId = this.principalId(employee);
       const now = this.now();
       const expiresAt = new Date(
         now.getTime() +
@@ -1080,6 +1753,7 @@ export class EmployeeService {
         id: randomId(),
         principal: employeePrincipalSchema.parse({
           employeeId: employee.id,
+          ...(principalId === undefined ? {} : { principalId }),
           employeeKind: "digital",
           source: "runtime",
           ...(input.runId === undefined ? {} : { runId: input.runId }),
@@ -1341,9 +2015,11 @@ export class EmployeeService {
         );
       }
       const timestamp = this.timestamp();
+      const ownerPrincipalId = this.principalId(owner);
       const record = delegationSchema.parse({
         id: randomId(),
         ownerId: owner.id,
+        ...(ownerPrincipalId === undefined ? {} : { ownerPrincipalId }),
         ownerAuthUserId: ownerAuthUserId,
         ownerName: owner.displayName,
         displayName:
@@ -1575,10 +2251,14 @@ export class EmployeeService {
                   60_000,
               ),
             );
+      const ownerPrincipalId = this.principalId(owner);
       const ticket = actionTicketSchema.parse({
         id: randomId(),
         principal: employeePrincipalSchema.parse({
           employeeId: owner.id,
+          ...(ownerPrincipalId === undefined
+            ? {}
+            : { principalId: ownerPrincipalId }),
           employeeKind: "human",
           authUserId: owner.authUserId,
           source: "delegation",

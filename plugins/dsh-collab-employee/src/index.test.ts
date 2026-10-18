@@ -54,26 +54,67 @@ function tables(): Tables {
   };
 }
 
-function team(users: Array<[string, string]> = [["gui-owner", "Olivia Yang"]]) {
+function team(
+  users: Array<[string, string, ("active" | "disabled")?]> = [
+    ["gui-owner", "Olivia Yang"],
+  ],
+) {
+  const records = new Map(
+    users.map(([id, name, status = "active"]) => [id, { id, name, status }]),
+  );
   return {
-    users: () => users.map(([id, name]) => ({ id, name })),
+    users: () => [...records.values()],
     resolveToken: (token: string) =>
       token === "admin"
         ? { userId: "gui-owner", role: "admin" as const }
         : token === "member"
           ? { userId: "gui-member", role: "member" as const }
-          : undefined,
+          : token === "outsider"
+            ? { userId: "gui-outsider", role: "member" as const }
+            : undefined,
     members: (workspaceId: string) =>
       workspaceId === "ws-core"
         ? [{ userId: "gui-owner", memberRole: "owner" as const }]
         : [],
+    updateUser: async (
+      _actorId: string,
+      targetId: string,
+      changes: { status?: "active" | "disabled" },
+    ) => {
+      const current = records.get(targetId);
+      if (current === undefined) throw new Error("user not found");
+      const updated = {
+        ...current,
+        ...(changes.status === undefined ? {} : { status: changes.status }),
+      };
+      records.set(targetId, updated);
+      return updated;
+    },
+    registerUser: async (
+      _actorId: string,
+      input: {
+        userId: string;
+        name: string;
+        password: string;
+        role: "admin" | "owner" | "member" | "guest";
+      },
+    ) => {
+      if (records.has(input.userId)) throw new Error("user id already exists");
+      const user = {
+        id: input.userId,
+        name: input.name,
+        role: input.role,
+        status: "active" as const,
+      };
+      records.set(input.userId, user);
+      return user;
+    },
   };
 }
 
-function personaRegistry(ids: readonly string[] = [
-  "backend-engineer",
-  "arch-reviewer",
-]) {
+function personaRegistry(
+  ids: readonly string[] = ["backend-engineer", "arch-reviewer"],
+) {
   const known = new Set(ids);
   return {
     get: async (personaId: string) => {
@@ -83,14 +124,58 @@ function personaRegistry(ids: readonly string[] = [
   };
 }
 
-function service(users?: Array<[string, string]>) {
+function service(
+  users?: Array<[string, string, ("active" | "disabled")?]>,
+) {
   const storage = tables();
   const personas = personaRegistry();
+  const identity = team(users);
+  const principalSyncs: Array<{
+    employeeId: string;
+    kind: "human" | "digital";
+    displayName: string;
+    status: string;
+    authUserId?: string | undefined;
+    authStatus?: "active" | "disabled" | undefined;
+  }> = [];
+  const principalIds = new Map<string, string>();
   const employeeService = new EmployeeService(storage, {
     now,
     personas: () => personas,
   });
-  return { employeeService, personas, storage, team: team(users) };
+  employeeService.setIdentityService(() => identity);
+  employeeService.setPrincipalService(() => ({
+    syncEmployee: async (input) => {
+      principalSyncs.push(input);
+      principalIds.set(
+        input.employeeId,
+        input.kind === "human" && input.authUserId !== undefined
+          ? `principal-human-${input.authUserId}`
+          : `principal-${input.kind === "human" ? "human" : "ai"}-${
+              input.employeeId
+            }`,
+      );
+    },
+    resolveSubject: (_subjectType, subjectId) => {
+      const principalId = principalIds.get(subjectId);
+      return principalId === undefined
+        ? undefined
+        : {
+            id: principalId,
+            kind: subjectId.startsWith("digital-") ? "ai" : "human",
+            status: "active" as const,
+          };
+    },
+    syncGrant: async () => undefined,
+    revokeMatchingGrants: async () => undefined,
+  }));
+  return {
+    employeeService,
+    personas,
+    storage,
+    team: identity,
+    principalSyncs,
+  };
 }
 
 async function createBackend(
@@ -112,7 +197,7 @@ async function createBackend(
 
 async function response(
   route: WebRouteLike,
-  init: { method: string; token?: string; body?: unknown },
+  init: { method: string; token?: string; body?: unknown; url?: string },
 ) {
   const payload = {
     status: 0,
@@ -136,7 +221,7 @@ async function response(
               yield Buffer.from(JSON.stringify(init.body), "utf8");
             },
           }),
-      url: "/",
+      url: init.url ?? "/",
       headers: {
         host: "127.0.0.1:33117",
         origin: "http://127.0.0.1:33117",
@@ -179,6 +264,101 @@ describe("digital employee lifecycle", () => {
     expect(team.users().some((user) => user.id === digital.id)).toBe(false);
   });
 
+  it("projects login status and disables login when a Human Employee is archived", async () => {
+    const { employeeService, team } = service([
+      ["gui-owner", "Olivia Yang"],
+      ["gui-member", "Lee Gong"],
+    ]);
+    await employeeService.syncIdentityUsers([
+      { id: "gui-owner", name: "Olivia Yang", status: "active" },
+      { id: "gui-member", name: "Lee Gong", status: "disabled" },
+    ]);
+    expect(employeeService.getByAuthUserId("gui-member")).toMatchObject({
+      authStatus: "disabled",
+      status: "active",
+    });
+
+    const archived = await employeeService.changeStatus(
+      "gui-owner",
+      "gui-member",
+      "archived",
+    );
+    expect(archived).toMatchObject({
+      authStatus: "disabled",
+      status: "archived",
+    });
+    expect(team.users().find((user) => user.id === "gui-member")?.status).toBe(
+      "disabled",
+    );
+  });
+
+  it("projects human and AI employees into the Principal foundation", async () => {
+    const { employeeService, team, principalSyncs } = service([
+      ["gui-owner", "Olivia Yang"],
+    ]);
+    await employeeService.syncIdentityUsers(team.users());
+    const digital = await createBackend(employeeService, { status: "active" });
+
+    expect(employeeService.getByAuthUserId("gui-owner")?.principalId).toBe(
+      "principal-human-gui-owner",
+    );
+    expect(
+      principalSyncs.find(
+        (item) => item.employeeId === "gui-owner" && item.kind === "human",
+      ),
+    ).toMatchObject({
+      displayName: "Olivia Yang",
+      status: "active",
+      authUserId: "gui-owner",
+      authStatus: "active",
+    });
+    expect(
+      principalSyncs
+        .filter(
+          (item) => item.employeeId === digital.id && item.kind === "digital",
+        )
+        .at(-1),
+    ).toMatchObject({
+      displayName: "Backend Engineer 01",
+      status: "active",
+    });
+    expect(digital.principalId).toBe("principal-ai-backend-01");
+  });
+
+  it("projects only the current Human Employee and preserves its account status", async () => {
+    const { employeeService, storage, team, principalSyncs } = service([
+      ["gui-owner", "Olivia Yang", "disabled"],
+    ]);
+    await employeeService.syncIdentityUsers(team.users());
+    storage.employees.put("legacy-gui-owner", {
+      id: "legacy-gui-owner",
+      kind: "human",
+      displayName: "Legacy Olivia",
+      department: "",
+      title: "",
+      tags: [],
+      authUserId: "gui-owner",
+      authStatus: "disabled",
+      status: "archived",
+      createdAt: now().toISOString(),
+      updatedAt: now().toISOString(),
+      createdBy: "legacy",
+    });
+    principalSyncs.length = 0;
+
+    await employeeService.syncIdentityUsers(team.users());
+
+    const humanSyncs = principalSyncs.filter(
+      (item) => item.kind === "human" && item.authUserId === "gui-owner",
+    );
+    expect(humanSyncs).toHaveLength(1);
+    expect(humanSyncs[0]).toMatchObject({
+      employeeId: "gui-owner",
+      status: "active",
+      authStatus: "disabled",
+    });
+  });
+
   it("archives removed identity projections without changing Digital Employees", async () => {
     const { employeeService, team } = service([
       ["gui-owner", "Olivia Yang"],
@@ -197,6 +377,7 @@ describe("digital employee lifecycle", () => {
     ]);
     expect(employeeService.getByAuthUserId("gui-member")).toMatchObject({
       authUserId: "gui-member",
+      authStatus: "disabled",
       status: "archived",
     });
     expect(employeeService.get("backend-01")).toMatchObject({
@@ -223,11 +404,7 @@ describe("digital employee lifecycle", () => {
       status: "active",
     });
     expect(restored?.id).not.toBe(original?.id);
-    expect(
-      storage.employees
-        .get(original?.id ?? "")
-        ?.status,
-    ).toBe("archived");
+    expect(storage.employees.get(original?.id ?? "")?.status).toBe("archived");
   });
 
   it("requires Digital Employee personas to exist", async () => {
@@ -241,8 +418,9 @@ describe("digital employee lifecycle", () => {
         managerEmployeeId: "gui-owner",
       }),
     ).rejects.toThrow("persona does not exist: missing-persona");
-    expect(employeeService.list().find((item) => item.id === "invalid-persona"))
-      .toBeUndefined();
+    expect(
+      employeeService.list().find((item) => item.id === "invalid-persona"),
+    ).toBeUndefined();
   });
 
   it("enforces lifecycle transitions and blocks archived dispatch", async () => {
@@ -251,11 +429,12 @@ describe("digital employee lifecycle", () => {
     await expect(
       employeeService.changeStatus("gui-owner", digital.id, "active"),
     ).resolves.toMatchObject({ status: "active" });
-    await employeeService.assignRole("gui-owner", {
+    const assignment = await employeeService.assignRole("gui-owner", {
       employeeId: digital.id,
       workspaceId: "ws-core",
       role: "member",
     });
+    expect(assignment.principalId).toBe("principal-ai-backend-01");
     await employeeService.upsertRuntimeProfile("gui-owner", {
       employeeId: digital.id,
       workspaceId: "ws-core",
@@ -267,7 +446,7 @@ describe("digital employee lifecycle", () => {
     await employeeService.changeStatus("gui-owner", digital.id, "suspended");
     expect(
       employeeService.workflowDispatchBlockReason(digital.id, "ws-core"),
-    ).toBe("Digital Employee「Backend Engineer 01」已暂停，不能派发");
+    ).toBe("AI伙伴「Backend Engineer 01」已暂停，不能派发");
     await expect(
       employeeService.changeStatus("gui-owner", digital.id, "active"),
     ).resolves.toMatchObject({ status: "active" });
@@ -315,6 +494,7 @@ describe("runtime authorization", () => {
       ],
       resourceScopes: ["repo/alpha/src", "repo/beta"],
     });
+    expect(ticket.principal.principalId).toBe("principal-ai-backend-01");
     expect(ticket.allowedActions).toEqual(["read", "write", "tool:read"]);
     expect(ticket.deniedActions).toEqual(["tool:danger"]);
     expect(ticket.resourceScopes).toEqual(["repo/alpha/src"]);
@@ -326,7 +506,11 @@ describe("runtime authorization", () => {
         contextType: "task",
         contextId: "task-01",
       }),
-    ).resolves.toMatchObject({ employeeId: digital.id, source: "runtime" });
+    ).resolves.toMatchObject({
+      employeeId: digital.id,
+      principalId: "principal-ai-backend-01",
+      source: "runtime",
+    });
     await expect(
       employeeService.authorizeTicket({
         ticketId: ticket.id,
@@ -372,6 +556,7 @@ describe("runtime authorization", () => {
       workspaceId: "ws-core",
       name: "first",
     });
+    expect(first.principalId).toBe("principal-ai-backend-01");
     const second = await employeeService.upsertRuntimeProfile("gui-owner", {
       employeeId: digital.id,
       workspaceId: "ws-core",
@@ -530,13 +715,211 @@ describe("human avatar delegation", () => {
 });
 
 describe("employee HTTP surface", () => {
+  it("freezes Employee product writes while keeping export and compatibility reads", async () => {
+    const { employeeService, team } = service([["gui-owner", "Olivia Yang"]]);
+    await employeeService.syncIdentityUsers(team.users());
+    const routes = createEmployeeRoutes(employeeService, () => team);
+    const create = routes.find(
+      (route) => route.path === "/api/collab/employee/digital",
+    )!;
+    const denied = await response(create, {
+      method: "POST",
+      token: "admin",
+      body: {
+        employeeId: "phase4-new-ai",
+        displayName: "Phase 4 New AI",
+        personaId: "backend-engineer",
+        managerEmployeeId: "gui-owner",
+      },
+    });
+    expect(denied.status).toBe(410);
+    expect(denied.body).toMatchObject({
+      error: { code: "gone" },
+    });
+    expect(
+      employeeService.list().some((employee) => employee.id === "phase4-new-ai"),
+    ).toBe(false);
+
+    const exported = await response(
+      routes.find((route) => route.path === "/api/collab/employee/export")!,
+      { method: "GET", token: "admin" },
+    );
+    expect(exported.status).toBe(200);
+    expect(exported.body).toMatchObject({
+      export: {
+        version: 1,
+        compatibilityMode: "read-only",
+      },
+    });
+
+    const compatibility = await response(
+      routes.find(
+        (route) => route.path === "/api/collab/employee/compatibility",
+      )!,
+      { method: "GET", token: "admin" },
+    );
+    expect(compatibility.status).toBe(200);
+    expect(compatibility.body).toMatchObject({
+      report: {
+        readOnly: true,
+        summary: {
+          employees: 1,
+          principalsLinked: 1,
+          errors: 0,
+        },
+      },
+    });
+  });
+
+  it("creates a Human Employee with an optional login account", async () => {
+    const { employeeService, team } = service([["gui-owner", "Olivia Yang"]]);
+    await employeeService.syncIdentityUsers(team.users());
+    const create = createEmployeeRoutes(employeeService, () => team, {
+      compatibilityWrites: true,
+    }).find(
+      (route) => route.path === "/api/collab/employee/human",
+    )!;
+    const created = await response(create, {
+      method: "POST",
+      token: "admin",
+      body: {
+        employeeId: "human-designer",
+        displayName: "Design Partner",
+        department: "设计",
+        title: "产品设计师",
+        account: {
+          userId: "designer",
+          password: "password-123",
+        },
+      },
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.employee).toMatchObject({
+      id: "human-designer",
+      kind: "human",
+      authUserId: "designer",
+      status: "active",
+    });
+    expect(team.users()).toContainEqual(
+      expect.objectContaining({
+        id: "designer",
+        name: "Design Partner",
+        role: "member",
+      }),
+    );
+
+    const noAccount = await response(create, {
+      method: "POST",
+      token: "admin",
+      body: {
+        employeeId: "human-researcher",
+        displayName: "Research Partner",
+      },
+    });
+    expect(noAccount.status).toBe(201);
+    expect(noAccount.body.employee.authUserId).toBeUndefined();
+
+    const invalidManager = await response(create, {
+      method: "POST",
+      token: "admin",
+      body: {
+        displayName: "Invalid Manager",
+        managerEmployeeId: "missing-manager",
+        account: {
+          userId: "invalid-manager",
+          password: "password-123",
+        },
+      },
+    });
+    expect(invalidManager.status).toBe(400);
+    expect(team.users().some((user) => user.id === "invalid-manager")).toBe(
+      false,
+    );
+  });
+
+  it("limits employee roles to admins, the employee, or their manager", async () => {
+    const { employeeService, team } = service([
+      ["gui-owner", "Olivia Yang"],
+      ["gui-member", "Lee Gong"],
+      ["gui-outsider", "Peter Zhang"],
+    ]);
+    await employeeService.syncIdentityUsers(team.users());
+    const digital = await employeeService.createDigital("gui-owner", {
+      employeeId: "role-guard-ai",
+      displayName: "Role Guard AI",
+      personaId: "backend-engineer",
+      managerEmployeeId: "gui-member",
+    });
+    await employeeService.assignRole("gui-owner", {
+      employeeId: digital.id,
+      workspaceId: "ws-core",
+      role: "member",
+      permissions: ["read", "write"],
+    });
+    const roles = createEmployeeRoutes(employeeService, () => team, {
+      compatibilityWrites: true,
+    }).find(
+      (route) => route.path === "/api/collab/employee/roles",
+    )!;
+    const url = `/api/collab/employee/roles?employeeId=${digital.id}`;
+
+    expect(
+      (await response(roles, { method: "GET", token: "admin", url })).status,
+    ).toBe(200);
+    expect(
+      (
+        await response(roles, {
+          method: "GET",
+          token: "member",
+          url,
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await response(roles, {
+          method: "GET",
+          token: "outsider",
+          url,
+        })
+      ).status,
+    ).toBe(403);
+
+    const detail = createEmployeeRoutes(employeeService, () => team, {
+      compatibilityWrites: true,
+    }).find(
+      (route) => route.path === "/api/collab/employee/detail",
+    )!;
+    const detailUrl = `/api/collab/employee/detail?employeeId=${digital.id}`;
+    expect(
+      (
+        await response(detail, {
+          method: "GET",
+          token: "member",
+          url: detailUrl,
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await response(detail, {
+          method: "GET",
+          token: "outsider",
+          url: detailUrl,
+        })
+      ).status,
+    ).toBe(403);
+  });
+
   it("keeps directory admin-only and Digital Employees non-login", async () => {
     const { employeeService, team } = service([
       ["gui-owner", "Olivia Yang"],
       ["gui-member", "Lee Gong"],
     ]);
     await employeeService.syncIdentityUsers(team.users());
-    const routes = createEmployeeRoutes(employeeService, () => team);
+    const routes = createEmployeeRoutes(employeeService, () => team, {
+      compatibilityWrites: true,
+    });
     const create = routes.find(
       (route) => route.path === "/api/collab/employee/digital",
     )!;
@@ -606,7 +989,9 @@ describe("employee HTTP surface", () => {
       speakPolicy: "manual",
       approvalPolicy: "never",
     });
-    const routes = createEmployeeRoutes(employeeService, () => team);
+    const routes = createEmployeeRoutes(employeeService, () => team, {
+      compatibilityWrites: true,
+    });
     const issue = routes.find(
       (route) => route.path === "/api/collab/delegation/ticket",
     )!;
@@ -669,7 +1054,9 @@ describe("employee HTTP surface", () => {
       contextId: "instance-01",
       requestedActions: ["read", "write"],
     });
-    const routes = createEmployeeRoutes(employeeService, () => team);
+    const routes = createEmployeeRoutes(employeeService, () => team, {
+      compatibilityWrites: true,
+    });
     const route = routes.find(
       (item) => item.path === "/api/collab/employee/governance",
     )!;
@@ -719,7 +1106,9 @@ describe("employee HTTP surface", () => {
     expect(result).toEqual({ delegations: 1, tickets: 1 });
     expect(employeeService.getDelegation(delegation.id).status).toBe("expired");
     expect(storage.actionTickets.get(ticket.id)?.status).toBe("expired");
-    expect(employeeService.listDelegationExpiryNotices("gui-owner")).toMatchObject([
+    expect(
+      employeeService.listDelegationExpiryNotices("gui-owner"),
+    ).toMatchObject([
       {
         delegationId: delegation.id,
         contextType: "meeting",

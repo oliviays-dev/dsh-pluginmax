@@ -300,6 +300,22 @@ describe("agent profile registry", () => {
     expect(disabled.status).toBe("disabled");
   });
 
+  it("keeps the trusted runtime provisioning path separate from HTTP permissions", async () => {
+    const { service } = harness();
+    const profile = await service.createRuntimeProfile(member, {
+      workspaceId: "main",
+      id: "runtime-agent",
+      name: "Runtime Agent",
+    });
+    expect(profile.ownerUserId).toBe(member.id);
+    const updated = await service.updateRuntimeProfile(member, {
+      workspaceId: "main",
+      profileId: profile.id,
+      allowedTools: ["read"],
+    });
+    expect(updated.allowedTools).toEqual(["read"]);
+  });
+
   it("backfills output tokens for legacy runs from persisted sessions", async () => {
     const current = tables();
     const persistence = {
@@ -421,6 +437,146 @@ describe("external agent runtime", () => {
       status: "disabled",
     });
     expect(disabled.status).toBe("disabled");
+  });
+
+  it("edits runtime definitions and clears stale probe results", async () => {
+    const table = new FakeTable<ExternalAgentRuntime>();
+    const service = new ExternalAgentRuntimeService(table, { now });
+    const runtime = await service.create(owner, {
+      workspaceId: "main",
+      name: "Codex",
+      provider: "codex",
+      protocol: "codex-jsonl",
+      command: "codex",
+      args: ["--profile", "work"],
+    });
+    await service.markProbe(runtime.id, {
+      ok: true,
+      message: "命令可用",
+    });
+
+    const updated = await service.update(owner, {
+      runtimeId: runtime.id,
+      name: "WorkBuddy",
+      provider: "workbuddy",
+      protocol: "plain-text",
+      command: "/usr/local/bin/codebuddy",
+      args: ["--print", "--max-turns", "8"],
+    });
+    expect(updated).toMatchObject({
+      name: "WorkBuddy",
+      provider: "workbuddy",
+      protocol: "plain-text",
+      command: "/usr/local/bin/codebuddy",
+      args: ["--print", "--max-turns", "8"],
+      status: "active",
+    });
+    expect(updated.lastProbeAt).toBeUndefined();
+    expect(updated.lastProbeOk).toBeUndefined();
+    expect(updated.lastProbeMessage).toBeUndefined();
+  });
+
+  it("archives, restores and rejects illegal status transitions", async () => {
+    const table = new FakeTable<ExternalAgentRuntime>();
+    const service = new ExternalAgentRuntimeService(table, { now });
+    const runtime = await service.create(owner, {
+      workspaceId: "main",
+      name: "Codex",
+      provider: "codex",
+      protocol: "codex-jsonl",
+      command: "codex",
+    });
+    await expect(
+      service.archive(member, { runtimeId: runtime.id }),
+    ).rejects.toThrow("Owner/Admin");
+    const archived = await service.archive(owner, { runtimeId: runtime.id });
+    expect(archived.status).toBe("archived");
+    // 归档项默认不出现在常规列表，归档视图显式请求后才可见。
+    expect(service.list("main")).toEqual([]);
+    expect(service.list("main", { includeArchived: true })).toHaveLength(1);
+    // 归档为终态：不能直接启用，只能先复原回停用。
+    await expect(
+      service.update(owner, { runtimeId: runtime.id, status: "active" }),
+    ).rejects.toThrow("先复原");
+    await expect(
+      service.update(owner, { runtimeId: runtime.id, status: "disabled" }),
+    ).rejects.toThrow("先复原");
+    expect(() => service.requireForManagement(runtime.id, owner)).toThrow(
+      "已归档",
+    );
+    await expect(
+      service.restore(owner, { runtimeId: runtime.id }),
+    ).resolves.toMatchObject({ status: "disabled" });
+    const restored = service.get(runtime.id)!;
+    expect(restored.status).toBe("disabled");
+    await expect(
+      service.restore(owner, { runtimeId: runtime.id }),
+    ).rejects.toThrow("只有已归档");
+    const enabled = await service.update(owner, {
+      runtimeId: runtime.id,
+      status: "active",
+    });
+    expect(enabled.status).toBe("active");
+  });
+
+  it("fails dispatch with a status-specific reason for dirty runtimes", async () => {
+    const dispatchError = async (
+      status: ExternalAgentRuntime["status"],
+    ): Promise<string | undefined> => {
+      const current = tables();
+      const runtimeTable = new FakeTable<ExternalAgentRuntime>();
+      await runtimeTable.put("codex-local", {
+        id: "codex-local",
+        workspaceId: "main",
+        name: "Codex 本机",
+        provider: "codex",
+        protocol: "codex-jsonl",
+        command: "codex",
+        args: [],
+        status,
+        visibility: "workspace",
+        ownerUserId: "ws-owner",
+        createdAt: now().toISOString(),
+        updatedAt: now().toISOString(),
+      });
+      const service = new AgentRegistryService(current, { now });
+      await service.createProfile(owner, {
+        workspaceId: "main",
+        id: "backend-agent",
+        name: "Backend Agent",
+        execution: "external",
+        externalRuntimeId: "codex-local",
+      });
+      const runtime = new AgentTaskRuntime({
+        tables: current,
+        subagents: () => undefined,
+        agents: fakeAgents,
+        externalRuntimes: () => runtimeTable,
+        externalRunner: () => ({
+          progress: () => undefined,
+          execute: async () => ({
+            output: [{ type: "text", text: "should not run" }],
+            stopReason: "completed" as const,
+          }),
+        }),
+        onSettled: (run) => service.onRuntimeSettled(run),
+        now,
+      });
+      service.attachRuntime(runtime);
+      const run = await service.dispatch(
+        dispatchInput({ workspacePath: "/tmp/project" }),
+      );
+      await vi.waitFor(() =>
+        expect(["failed"]).toContain(service.run(run.id)?.status),
+      );
+      return service.run(run.id)?.error;
+    };
+    const disabled = await dispatchError("disabled");
+    expect(disabled).toContain("已停用");
+    expect(disabled).toContain("切换为内置执行");
+    const archived = await dispatchError("archived");
+    expect(archived).toContain("已归档");
+    expect(archived).toContain("改绑");
   });
 
   it("routes a dispatch through the selected external runner", async () => {
@@ -718,6 +874,66 @@ describe("agent task runtime", () => {
     expect(service.run(run.id)?.sessionId).toBe(sessionId);
   });
 
+  it("republishes a legacy restart-interrupted workflow session", async () => {
+    const attached: string[] = [];
+    const workspaces: WorkspaceRegistryLike = {
+      create: async (path) => ({
+        path,
+        attachSession: async (sessionId) => {
+          attached.push(sessionId);
+        },
+      }),
+    };
+    const sessions: AgentSessionsLike = {
+      get: (sessionId) => ({ id: sessionId, snapshotEvents: () => [] }),
+    };
+    const { service, store } = harness({
+      now,
+      workspaces,
+      sessions,
+      sessionTitle: { rename: () => undefined },
+    });
+    await createProfile(service);
+    const run = await service.dispatch(
+      dispatchInput({
+        workspacePath: "/tmp/pluginmax-workspace",
+        maxAttempts: 1,
+        payload: {
+          ...dispatchInput().payload,
+          context: { workflowTaskId: "TSK-LEGACY-0001" },
+        },
+      }),
+    );
+    const sessionId = "de-task-TSK-LEGACY-0001-development-backend-agent";
+    await vi.waitFor(() => {
+      expect(attached).toContain(sessionId);
+    });
+    expect(attached).toContain(sessionId);
+
+    // 模拟旧版本：sessionId 已回写，但工作区挂载在上次重启窗口丢失。
+    await store.runs.put(run.id, {
+      ...service.run(run.id)!,
+      settleDelivered: true,
+      error: "服务重启导致运行中断，可重试或转人工",
+      status: "interrupted",
+    } as AgentRun);
+    const restartRuntime = new AgentTaskRuntime({
+      tables: store,
+      subagents: () => undefined,
+      agents: fakeAgents,
+      workspaces: () => workspaces,
+      sessions: () => sessions,
+      sessionTitle: () => ({ rename: () => undefined }),
+      now,
+    });
+    service.attachRuntime(restartRuntime);
+    service.restore();
+    await vi.waitFor(() =>
+      expect(attached.filter((item) => item === sessionId)).toHaveLength(2),
+    );
+    expect(service.run(run.id)?.status).toBe("interrupted");
+  });
+
   it("recreates a task session when the recorded one is gone from disk", async () => {
     const sessionId = "de-task-TSK-MV827GO0-8326-digital-e386906a";
     const resumed: string[] = [];
@@ -914,7 +1130,11 @@ describe("agent task runtime", () => {
     const taskASecond = await dispatchFor("TSK-A", 2);
     const taskBFirst = await dispatchFor("TSK-B", 1);
     await runtime.waitIdle();
-    await vi.waitFor(() => expect(attached).toHaveLength(3));
+    await vi.waitFor(() =>
+      expect(new Set(attached)).toEqual(
+        new Set(["de-task-TSK-A-pluginmax-de", "de-task-TSK-B-pluginmax-de"]),
+      ),
+    );
     const sessionsOf = [taskAFirst, taskASecond, taskBFirst].map(
       (run) => service.run(run.id)?.sessionId,
     );
@@ -1319,6 +1539,19 @@ describe("agent task runtime", () => {
     expect(saved.settleDelivered).toBe(true);
     expect(onSettled).toHaveBeenCalledTimes(1);
     expect(settled.map((run) => run.status)).toEqual(["succeeded"]);
+  });
+
+  it("always includes the delivery report contract without formal deliverables", async () => {
+    const { service, subagents } = harness({ now });
+    await createProfile(service);
+    const input = dispatchInput();
+    input.payload.deliverables = [];
+    await service.dispatch(input);
+    await vi.waitFor(() => expect(subagents.runs.length).toBe(1));
+    const prompt = subagents.runs[0]!.spec.prompt[0]!.text;
+    expect(prompt).toContain("最终回复必须直接从「# 交付报告」开始");
+    expect(prompt).toContain("报告必须包含二级标题「## 交付说明」");
+    expect(prompt).toContain("## 交付说明");
   });
 
   it("narrows the tool set only when the profile configures tools", async () => {

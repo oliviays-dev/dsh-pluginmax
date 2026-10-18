@@ -68,6 +68,7 @@ for (const pluginName of pluginNames) {
       "sidebar",
       "conversation.view",
       "settings.section",
+      "pluginmax.account-access.tab",
       "sidebar.footer.action",
       "shell.overlay",
       "pluginmax.global",

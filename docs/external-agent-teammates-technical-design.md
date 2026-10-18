@@ -23,6 +23,7 @@
 | Protocol                 | `codex-jsonl` 或 `plain-text`            |
 | Working directory policy | 默认复用项目工作区；未绑定项目时拒绝执行 |
 | Status                   | 启用、停用、已归档                       |
+| Definition               | 名称、Provider、协议、命令和参数可编辑   |
 
 创建或编辑 AI Teammate 时选择：
 
@@ -74,6 +75,11 @@ interface ExternalAgentRuntime {
 3. `plain-text` 是最小接入协议：stdin 接收完整任务提示，stdout 返回最终文本，stderr 作为诊断日志。
 4. 项目运行时由 Workspace Owner/Admin 维护；平台管理员可跨项目维护。
 5. 敏感凭据不落在本表；第一版依赖执行机器上的 CLI 登录态。
+6. 状态流转：`active ↔ disabled`；`active | disabled → archived`；`archived → disabled`（复原）。
+   归档为终态，不能直接启用，必须经「复原」回到停用，再由管理员确认启用。
+7. 归档项从默认列表隐藏，只在「已归档」视图可见；已归档运行时不参与探测、绑定选择与派发。
+   归档一个仍被 Teammate 绑定的运行时时允许操作，但确认弹窗与归档结果必须提示受影响的 Teammate 数量。
+8. 定义编辑不允许变更 ID 和归属。命令或参数变化后清空旧探测结果，避免把上一条命令的探测结论误用于新定义。
 
 ### 3.2 Teammate 执行偏好
 
@@ -158,7 +164,28 @@ exit non-zero: failed
 SIGTERM: cancelled
 ```
 
+该协议没有 Provider 会话历史。平台把 Task 每一轮都视为无状态派发，会重发完整任务定义、任务时间线和本次反馈；不要在运行时参数里为工具任务固定 `--max-turns 1`，否则首轮工具调用可能触发 CLI 的 Max turns 终止，且最终 stdout 为空。
+
+零退出但 stdout 为空时运行失败。若 stderr 有内容，平台会把它合并进“外部 Agent 未返回可用的文本输出”诊断；未登录、权限拒绝和额度/网络问题应优先在 stderr 中输出可读原因。
+
 如果 WorkBuddy 后续提供 JSONL、会话恢复或工具事件，只需新增专用 protocol parser，不需要改动任务和工作流层。
+
+### 4.3 终端执行 trace
+
+外部 CLI 仍通过管道接入，stdout/stderr 会继续被平台采集；平台进程同时把执行证据写到
+DSH 服务进程的 stderr。每次执行会输出 run ID、运行时名称、子进程 PID、启动命令、stdin 字节数、
+stdout/stderr 增量和退出码：
+
+```text
+[外部Agent] run=run-... agent=WorkBuddy... pid=12345 spawn: codebuddy --print ...
+[外部Agent] run=run-... agent=WorkBuddy... pid=12345 stdin: stdin 已写入 2048 字节
+[外部Agent] run=run-... agent=WorkBuddy... pid=12345 stderr: ...
+[外部Agent] run=run-... agent=WorkBuddy... pid=12345 close: exit=0 signal=- duration=...
+```
+
+`plain-text` 协议下的 CodeBuddy 最终 stdout 可能在任务快结束时才写出。若要在终端实时看到模型和工具执行过程，
+可给演示或诊断用的临时运行时追加 `--debug`（或 `--debug api`）。不要把该参数长期用于正式运行时；
+trace 和 debug 日志可能包含任务上下文，展示或导出前要确认没有敏感信息。
 
 ## 5. 状态与错误
 
@@ -175,6 +202,18 @@ SIGTERM: cancelled
 | interrupted | 服务重启后无法恢复进程               |
 
 服务重启时，正在运行的外部子进程无法复活，运行记录标记为 `interrupted`；用户可以重新派发。排队中的外部 Run 重启后继续派发。
+
+外部运行时自身的三态在派发时变成明确的失败原因，而不是统一的「运行时不可用」：
+
+| 运行时状态 | 派发结果                                              |
+| ---------- | ----------------------------------------------------- |
+| 不存在     | 失败：提示到 AI Teammates > 外部 Agent 重新选择运行时 |
+| disabled   | 失败：提示启用该运行时，或切换为内置执行              |
+| archived   | 失败：提示复原或改绑其他运行时                        |
+
+页面侧同步表达同一状态：运行时列表用「启用中 / 已停用 / 已归档」徽标区分，
+Teammate 列表与详情在绑定的运行时不可用时标注「（已停用）」「（已归档）」「（运行时不存在）」，
+编辑执行方式时只允许选择启用中的运行时，当前绑定若已不可用则保留为禁用项并提示改绑。
 
 ## 6. 权限与安全
 
@@ -205,7 +244,7 @@ SIGTERM: cancelled
 
 第一阶段实现：
 
-1. 外部运行时注册、启停、探测；
+1. 外部运行时注册、编辑、启停、探测；
 2. Codex JSONL 与通用 plain-text adapter；
 3. AI Teammate 执行方式选择；
 4. AgentRun 与任务执行历史同步；

@@ -5,6 +5,7 @@ import {
   createIdentityRoutes,
   hashPassword,
   inject,
+  PrincipalService,
   teamDomainSpec,
   TeamService,
   verifyPassword,
@@ -12,11 +13,17 @@ import {
   type DomainLike,
   type IdentityContext,
   type MemberRecord,
+  type PrincipalDomainLike,
   type SessionRecord,
   type UserRecord,
   type WorkspaceRegistryLike,
   type WebRouteLike,
 } from "./index.ts";
+import type {
+  PrincipalGrant,
+  PrincipalLinkRecord,
+  PrincipalRecord,
+} from "./principal.ts";
 
 class FakeTable<V> {
   readonly records = new Map<string, V>();
@@ -105,11 +112,18 @@ const workspaceRegistry: WorkspaceRegistryLike = {
     id === "workspace-1"
       ? { id, path: "/tmp/workspace-1", title: "Workspace 1" }
       : undefined,
-  list: () => [{ id: "workspace-1", path: "/tmp/workspace-1", title: "Workspace 1" }],
+  list: () => [
+    { id: "workspace-1", path: "/tmp/workspace-1", title: "Workspace 1" },
+  ],
 };
 
 async function setupPlugin() {
   const currentTables = tables();
+  const principalTables = {
+    principals: new FakeTable<PrincipalRecord>(),
+    links: new FakeTable<PrincipalLinkRecord>(),
+    grants: new FakeTable<PrincipalGrant>(),
+  };
   const disposers: Array<() => void> = [];
   const provided: unknown[] = [];
   const commands: unknown[] = [];
@@ -124,14 +138,26 @@ async function setupPlugin() {
     workspaceRegistry,
     storageDomain: {
       open: async (spec) => {
-        expect(spec.name).toBe("collab_team");
-        return fakeDomain(currentTables);
+        if (spec.name === "collab_team") return fakeDomain(currentTables);
+        if (spec.name === "collab_principal") {
+          return {
+            table: (name: "principals" | "principal_links" | "role_grants") =>
+              name === "principal_links"
+                ? principalTables.links
+                : name === "role_grants"
+                  ? principalTables.grants
+                  : principalTables.principals,
+            close: async () => undefined,
+          } as unknown as PrincipalDomainLike;
+        }
+        throw new Error(`unexpected storage domain: ${spec.name}`);
       },
     },
   };
   await apply(ctx);
   return {
     currentTables,
+    principalTables,
     disposers,
     provided,
     commands,
@@ -384,10 +410,71 @@ describe("dsh-collab-identity", () => {
     expect(current.users.get("admin")?.role).toBe("admin");
   });
 
+  it("allows workspace owners to manage members only through an explicit project capability", async () => {
+    const { service: team } = service();
+    const admin = await team.bootstrap({
+      userId: "admin",
+      name: "Admin",
+      password: "password-123",
+    });
+    await team.registerUser(admin.userId, {
+      userId: "owner",
+      name: "Workspace Owner",
+      password: "password-456",
+      role: "member",
+    });
+    await team.registerUser(admin.userId, {
+      userId: "target",
+      name: "Target",
+      password: "password-789",
+      role: "member",
+    });
+    const owner = await team.login({
+      userId: "owner",
+      password: "password-456",
+    });
+    await team.addMember(admin.userId, {
+      workspaceId: "main",
+      userId: owner.userId,
+      role: "owner",
+    });
+    await expect(
+      team.addMember(owner.userId, {
+        workspaceId: "main",
+        userId: "target",
+        role: "member",
+      }),
+    ).rejects.toMatchObject({ code: "forbidden" });
+    await team.addMember(
+      owner.userId,
+      {
+        workspaceId: "main",
+        userId: "target",
+        role: "guest",
+      },
+      { allowWorkspaceOwner: true },
+    );
+    expect(team.members("main")).toContainEqual(
+      expect.objectContaining({
+        userId: "target",
+        memberRole: "guest",
+      }),
+    );
+    await team.removeMember(
+      owner.userId,
+      { workspaceId: "main", userId: "target" },
+      { allowWorkspaceOwner: true },
+    );
+    expect(team.members("main")).not.toContainEqual(
+      expect.objectContaining({ userId: "target" }),
+    );
+  });
+
   it("registers a flat service, command, tool, and HTTP routes", async () => {
     const plugin = await setupPlugin();
-    expect(plugin.provided).toHaveLength(1);
+    expect(plugin.provided).toHaveLength(2);
     expect(plugin.provided[0]).toBeInstanceOf(TeamService);
+    expect(plugin.provided[1]).toBeInstanceOf(PrincipalService);
     expect(plugin.commands).toHaveLength(1);
     expect(plugin.tools).toHaveLength(1);
     expect(inject).toContain("workspaceRegistry");
@@ -396,6 +483,9 @@ describe("dsh-collab-identity", () => {
     );
     expect(plugin.routes.map((item) => item.path)).toContain(
       "/api/collab/team/workspaces",
+    );
+    expect(plugin.routes.map((item) => item.path)).toContain(
+      "/api/collab/principals",
     );
     expect(new Set(plugin.routes.map((item) => item.path)).size).toBe(
       plugin.routes.length,
@@ -429,6 +519,7 @@ describe("dsh-collab-identity", () => {
     const bootstrap = route(routes, "/api/collab/auth/bootstrap");
     const me = route(routes, "/api/collab/auth/me");
     const users = route(routes, "/api/collab/team/users");
+    const userUpdate = route(routes, "/api/collab/team/users/update");
     const workspaces = route(routes, "/api/collab/team/workspaces");
 
     const crossOrigin = await call(
@@ -497,6 +588,118 @@ describe("dsh-collab-identity", () => {
     expect(adminResponse.status).toBe(200);
     expect((adminResponse.json() as { users: unknown[] }).users).toHaveLength(
       2,
+    );
+
+    const lastAdmin = await call(
+      userUpdate,
+      fakeRequest("POST", "/api/collab/team/users/update", {
+        authorization: `Bearer ${token}`,
+        body: { userId: "admin", name: "Admin", role: "member" },
+      }),
+    );
+    expect(lastAdmin.status).toBe(409);
+    expect(lastAdmin.json()).toMatchObject({
+      error: {
+        code: "conflict",
+        message: "the last admin role cannot be changed",
+      },
+    });
+  });
+
+  it("projects account users into Principal and exposes the mapping", async () => {
+    const plugin = await setupPlugin();
+    const bootstrap = route(plugin.routes, "/api/collab/auth/bootstrap");
+    const created = await call(
+      bootstrap,
+      fakeRequest("POST", "/api/collab/auth/bootstrap", {
+        body: { userId: "admin", name: "Admin", password: "password-123" },
+      }),
+    );
+    const token = (created.json() as { token: string }).token;
+    const list = await call(
+      route(plugin.routes, "/api/collab/principals"),
+      fakeRequest("GET", "/api/collab/principals", {
+        authorization: `Bearer ${token}`,
+      }),
+    );
+    expect(list.status).toBe(200);
+    expect(list.json()).toMatchObject({
+      principals: [
+        expect.objectContaining({
+          id: "principal-human-admin",
+          kind: "human",
+          displayName: "Admin",
+        }),
+      ],
+    });
+    const resolved = await call(
+      route(plugin.routes, "/api/collab/principals/resolve"),
+      fakeRequest(
+        "GET",
+        "/api/collab/principals/resolve?subjectType=auth-user&subjectId=admin",
+        { authorization: `Bearer ${token}` },
+      ),
+    );
+    expect(resolved.json()).toMatchObject({
+      principal: {
+        id: "principal-human-admin",
+        kind: "human",
+      },
+    });
+
+    const createUser = route(
+      plugin.routes,
+      "/api/collab/team/users/create",
+    );
+    const member = await call(
+      createUser,
+      fakeRequest("POST", "/api/collab/team/users/create", {
+        authorization: `Bearer ${token}`,
+        body: {
+          userId: "member",
+          name: "Member",
+          password: "password-123",
+          role: "member",
+        },
+      }),
+    );
+    expect(member.status).toBe(201);
+    const updateUser = route(
+      plugin.routes,
+      "/api/collab/team/users/update",
+    );
+    const disabled = await call(
+      updateUser,
+      fakeRequest("POST", "/api/collab/team/users/update", {
+        authorization: `Bearer ${token}`,
+        body: { userId: "member", status: "disabled" },
+      }),
+    );
+    expect(disabled.status).toBe(200);
+    expect(
+      plugin.principalTables.principals.get("principal-human-member"),
+    ).toMatchObject({
+      status: "suspended",
+    });
+    expect(
+      [...plugin.principalTables.grants.entries()].map(([, grant]) => grant),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          principalId: "principal-human-admin",
+          scopeType: "platform",
+          scopeId: "platform",
+          role: "admin",
+          status: "active",
+        }),
+        expect.objectContaining({
+          principalId: "principal-human-member",
+          scopeType: "platform",
+          scopeId: "platform",
+          role: "member",
+          status: "active",
+        }),
+      ]),
     );
   });
 
@@ -588,6 +791,12 @@ describe("账号编辑、停用与启用", () => {
       name: "Admin",
       password: "password-123",
     });
+    await team.registerUser("admin", {
+      userId: "admin-2",
+      name: "Admin 2",
+      password: "password-456",
+      role: "admin",
+    });
     await expect(
       team.updateUser("admin", "admin", { status: "disabled" }),
     ).rejects.toMatchObject({
@@ -608,7 +817,10 @@ describe("账号编辑、停用与启用", () => {
     ).rejects.toMatchObject({ code: "conflict" });
     await expect(
       team.updateUser("admin", "admin", { status: "disabled" }),
-    ).rejects.toMatchObject({ code: "conflict" });
+    ).rejects.toMatchObject({
+      code: "conflict",
+      message: "the last admin role cannot be changed",
+    });
   });
 
   it("存在其他管理员时可以停用另一名管理员", async () => {

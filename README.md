@@ -4,7 +4,19 @@ DSH Pluginmax is an out-of-tree collaboration plugin suite for DeepSeek Harness.
 
 ## Current milestone
 
-The current milestone is Phase X: workflow agent execution. It adds `dsh-collab-agent`, which provides:
+The current milestone is Phase 4C: Principal-first runtime migration. It adds:
+
+- `collab_principal_runtime` with Principal-owned Runtime Profiles and Action Tickets
+- new AI companions that bind `principalId` and no longer create Employee records
+- automatic migration of legacy Employee-backed AI companions to Principal-first runtime
+- Principal-first dispatch after migration, even when the legacy `employeeId` alias remains
+- Principal Action Ticket issuance in Task and Workflow dispatch
+- `principal-runtime` Agent Runs while retaining legacy Employee runs for history
+- read-only Employee compatibility APIs, data export, and consistency reporting from Phase 4A
+
+Phase 3 delivered canonical `principal:<id>` references, with `employee:` / teammate / account aliases during migration, and mirrored all platform, workspace, and project grants to Principal.
+
+Phase X introduced `dsh-collab-agent`, which provides:
 
 - workspace-scoped Agent Profiles and one-shot Task Worker runs
 - explicit manual and `auto-on-ready` workflow dispatch
@@ -33,6 +45,16 @@ Role-based workstation panel composition is deliberately reserved for a later it
 Workflow approval references can parse `employee:<employeeId>`, but final approval remains visibly pending until the dedicated Digital Employee runtime decision path is delivered. Browser users cannot approve on behalf of a Digital Employee.
 
 The employee model deliberately keeps Human Avatar / Delegation out of the employee directory and preserves existing `userId` compatibility.
+
+The project management milestone adds `dsh-collab-project`, which provides:
+
+- a `collab_project` storage domain that keeps project metadata (code, owner, status, health, progress, dates, description) keyed by DSH workspace id
+- a project role library and project templates that predefine project roles and reference workflow templates owned by `dsh-collab-workflow`
+- member project roles written through `dsh-collab-roles` assignments, so task dispatch and workflow `role:` executors share one source of truth
+- deterministic project daily reports with per-day snapshots
+- same-origin Bearer-protected `/api/collab/projects/*` routes and a Chinese 项目管理 global page
+
+Platform accounts and platform role permission stay read-only inside the module: member changes only touch project (workspace) membership and project role seats.
 
 Phase X builds on R4. `dsh-collab-meeting` provides:
 

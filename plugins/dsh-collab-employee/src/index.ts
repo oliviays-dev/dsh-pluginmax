@@ -28,6 +28,8 @@ import {
   EmployeeService,
   type KvTableLike,
   type PersonaServiceLike,
+  type PrincipalServiceLike,
+  type PublicEmployee,
 } from "./service.js";
 
 export {
@@ -79,7 +81,25 @@ interface TeamServiceLike {
         readonly role: "admin" | "owner" | "member" | "guest";
       }
     | undefined;
-  users(): readonly { readonly id: string; readonly name: string }[];
+  users(): readonly {
+    readonly id: string;
+    readonly name: string;
+    readonly status?: "active" | "disabled";
+  }[];
+  updateUser(
+    actorId: string,
+    targetId: string,
+    changes: { readonly status?: "active" | "disabled" },
+  ): Promise<unknown>;
+  registerUser(
+    actorId: string,
+    input: {
+      readonly userId: string;
+      readonly name: string;
+      readonly password: string;
+      readonly role: "admin" | "owner" | "member" | "guest";
+    },
+  ): Promise<{ readonly id: string }>;
   members(workspaceId: string): readonly TeamMemberLike[];
 }
 
@@ -158,6 +178,31 @@ function requireAdmin(
   return principal;
 }
 
+function canReadEmployee(
+  principal: { readonly role: "admin" | "owner" | "member" | "guest" },
+  me: PublicEmployee | undefined,
+  employee: PublicEmployee,
+): boolean {
+  return (
+    principal.role === "admin" ||
+    me?.id === employee.id ||
+    (me !== undefined && employee.managerEmployeeId === me.id)
+  );
+}
+
+function requireReadableEmployee(
+  principal: { readonly role: "admin" | "owner" | "member" | "guest" },
+  me: PublicEmployee | undefined,
+  employee: PublicEmployee,
+): void {
+  if (!canReadEmployee(principal, me, employee)) {
+    throw new EmployeeError(
+      "forbidden",
+      "employee detail and authorization require admin, self, or manager access",
+    );
+  }
+}
+
 function canManageWorkspace(
   request: IncomingMessage,
   team: TeamServiceLike,
@@ -212,6 +257,7 @@ function errorStatus(code: EmployeeError["code"]): number {
   if (code === "forbidden") return 403;
   if (code === "not_found") return 404;
   if (code === "conflict") return 409;
+  if (code === "gone") return 410;
   return 400;
 }
 
@@ -239,6 +285,7 @@ async function runHandler(
 export function createEmployeeRoutes(
   service: EmployeeService,
   team: () => TeamServiceLike | undefined,
+  options: { readonly compatibilityWrites?: boolean } = {},
 ): WebRouteLike[] {
   const requireTeam = (): TeamServiceLike => {
     const value = team();
@@ -251,6 +298,13 @@ export function createEmployeeRoutes(
     if (request.method !== allowed) {
       throw new EmployeeError("invalid_input", "method not allowed");
     }
+  };
+  const requireCompatibilityWrite = (): void => {
+    if (options.compatibilityWrites === true) return;
+    throw new EmployeeError(
+      "gone",
+      "Employee 产品写入已下线；请通过平台账号、Principal 授权和 AI 伙伴管理完成对应操作",
+    );
   };
   const sync = async (): Promise<void> => {
     await service.syncIdentityUsers(requireTeam().users());
@@ -292,11 +346,139 @@ export function createEmployeeRoutes(
     },
     {
       kind: "exact",
+      path: "/api/collab/employee/export",
+      handler: (request, response) =>
+        runHandler(async () => {
+          methods("GET", request);
+          requireAdmin(request, requireTeam());
+          sendJson(response, 200, {
+            ok: true,
+            export: service.exportCompatibilityData(),
+          });
+        }, response),
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/employee/compatibility",
+      handler: (request, response) =>
+        runHandler(async () => {
+          methods("GET", request);
+          requireAdmin(request, requireTeam());
+          sendJson(response, 200, {
+            ok: true,
+            report: service.compatibilityReport(),
+          });
+        }, response),
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/employee/human",
+      handler: (request, response) =>
+        runHandler(async () => {
+          methods("POST", request);
+          const identity = requireTeam();
+          const actor = requireAdmin(request, identity);
+          requireCompatibilityWrite();
+          const body = parseOrInvalid(
+            z.object({
+              employeeId: z
+                .string()
+                .trim()
+                .regex(/^[a-zA-Z][a-zA-Z0-9._-]*$/)
+                .optional(),
+              displayName: z.string().trim().min(1).max(120),
+              email: z.string().email().max(160).optional(),
+              department: z.string().trim().max(120).optional(),
+              title: z.string().trim().max(120).optional(),
+              tags: z
+                .array(z.string().trim().min(1).max(32))
+                .max(16)
+                .optional(),
+              managerEmployeeId: z.string().trim().min(1).max(120).optional(),
+              account: z
+                .object({
+                  userId: z
+                    .string()
+                    .trim()
+                    .min(1)
+                    .max(64)
+                    .regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/),
+                  password: z.string().min(8).max(256),
+                })
+                .optional(),
+            }),
+            await readBody(request),
+          );
+          if (
+            body.employeeId !== undefined &&
+            service.list().some((employee) => employee.id === body.employeeId)
+          ) {
+            throw new EmployeeError(
+              "conflict",
+              `employee id already exists: ${body.employeeId}`,
+            );
+          }
+          if (body.managerEmployeeId !== undefined) {
+            const manager = service
+              .list()
+              .find((employee) => employee.id === body.managerEmployeeId);
+            if (manager === undefined || manager.status === "archived") {
+              throw new EmployeeError(
+                "invalid_input",
+                "manager employee does not exist",
+              );
+            }
+          }
+          const user =
+            body.account === undefined
+              ? undefined
+              : await identity.registerUser(actor.userId, {
+                  userId: body.account.userId,
+                  name: body.displayName,
+                  password: body.account.password,
+                  role: "member",
+                });
+          let employee: Awaited<ReturnType<EmployeeService["createHuman"]>>;
+          try {
+            employee = await service.createHuman(actor.userId, {
+              ...(body.employeeId === undefined
+                ? {}
+                : { employeeId: body.employeeId }),
+              displayName: body.displayName,
+              ...(body.email === undefined ? {} : { email: body.email }),
+              ...(body.department === undefined
+                ? {}
+                : { department: body.department }),
+              ...(body.title === undefined ? {} : { title: body.title }),
+              ...(body.tags === undefined ? {} : { tags: body.tags }),
+              ...(user === undefined ? {} : { authUserId: user.id }),
+              ...(body.managerEmployeeId === undefined
+                ? {}
+                : { managerEmployeeId: body.managerEmployeeId }),
+            });
+          } catch (cause) {
+            if (user !== undefined) {
+              await identity
+                .updateUser(actor.userId, user.id, { status: "disabled" })
+                .catch(() => undefined);
+            }
+            throw cause;
+          }
+          sendJson(response, 201, {
+            ok: true,
+            employee,
+            ...(user === undefined ? {} : { user }),
+          });
+        }, response),
+    },
+    {
+      kind: "exact",
       path: "/api/collab/employee/digital",
       handler: (request, response) =>
         runHandler(async () => {
           methods("POST", request);
           const actor = requireAdmin(request, requireTeam());
+          requireCompatibilityWrite();
           const body = parseOrInvalid(
             z.object({
               employeeId: z
@@ -332,16 +514,7 @@ export function createEmployeeRoutes(
           await sync();
           const employee = service.get(requireQuery(request, "employeeId"));
           const me = service.getByAuthUserId(principal.userId);
-          if (
-            principal.role !== "admin" &&
-            employee.kind === "digital" &&
-            me?.id !== employee.id
-          ) {
-            throw new EmployeeError(
-              "forbidden",
-              "employee detail requires admin access",
-            );
-          }
+          requireReadableEmployee(principal, me, employee);
           sendJson(response, 200, {
             ok: true,
             employee,
@@ -369,6 +542,7 @@ export function createEmployeeRoutes(
         runHandler(async () => {
           methods("POST", request);
           const actor = requireAdmin(request, requireTeam());
+          requireCompatibilityWrite();
           const body = parseOrInvalid(
             z.object({
               employeeId: z.string().min(1),
@@ -400,6 +574,7 @@ export function createEmployeeRoutes(
         runHandler(async () => {
           methods("POST", request);
           const actor = requireAdmin(request, requireTeam());
+          requireCompatibilityWrite();
           const body = parseOrInvalid(
             z.object({
               employeeId: z.string().min(1),
@@ -421,11 +596,16 @@ export function createEmployeeRoutes(
       handler: (request, response) =>
         runHandler(async () => {
           methods("GET", request);
-          requireBrowserPrincipal(request, requireTeam());
+          const identity = requireTeam();
+          const principal = requireBrowserPrincipal(request, identity);
+          await sync();
+          const employee = service.get(requireQuery(request, "employeeId"));
+          const me = service.getByAuthUserId(principal.userId);
+          requireReadableEmployee(principal, me, employee);
           sendJson(response, 200, {
             ok: true,
             roles: service.listRoles({
-              employeeId: query(request).get("employeeId") ?? undefined,
+              employeeId: employee.id,
               workspaceId: query(request).get("workspaceId") ?? undefined,
             }),
           });
@@ -438,6 +618,8 @@ export function createEmployeeRoutes(
         runHandler(async () => {
           methods("POST", request);
           const identity = requireTeam();
+          requireBrowserPrincipal(request, identity);
+          requireCompatibilityWrite();
           const body = parseOrInvalid(
             z.object({
               employeeId: z.string().min(1),
@@ -464,6 +646,7 @@ export function createEmployeeRoutes(
           methods("POST", request);
           const identity = requireTeam();
           const actor = requireBrowserPrincipal(request, identity);
+          requireCompatibilityWrite();
           const body = parseOrInvalid(
             z.object({ assignmentId: z.string().min(1) }),
             await readBody(request),
@@ -491,11 +674,16 @@ export function createEmployeeRoutes(
       handler: (request, response) =>
         runHandler(async () => {
           methods("GET", request);
-          requireBrowserPrincipal(request, requireTeam());
+          const identity = requireTeam();
+          const principal = requireBrowserPrincipal(request, identity);
+          await sync();
+          const employee = service.get(requireQuery(request, "employeeId"));
+          const me = service.getByAuthUserId(principal.userId);
+          requireReadableEmployee(principal, me, employee);
           sendJson(response, 200, {
             ok: true,
             runtimeProfiles: service.listProfiles({
-              employeeId: query(request).get("employeeId") ?? undefined,
+              employeeId: employee.id,
               workspaceId: query(request).get("workspaceId") ?? undefined,
             }),
           });
@@ -508,6 +696,8 @@ export function createEmployeeRoutes(
         runHandler(async () => {
           methods("POST", request);
           const identity = requireTeam();
+          requireBrowserPrincipal(request, identity);
+          requireCompatibilityWrite();
           const body = parseOrInvalid(
             z.object({
               id: z.string().min(1).optional(),
@@ -556,6 +746,7 @@ export function createEmployeeRoutes(
         runHandler(async () => {
           methods("POST", request);
           const actor = requireAdmin(request, requireTeam());
+          requireCompatibilityWrite();
           const body = parseOrInvalid(
             z.object({
               employeeId: z.string().min(1),
@@ -609,6 +800,7 @@ export function createEmployeeRoutes(
           methods("POST", request);
           const identity = requireTeam();
           const principal = requireBrowserPrincipal(request, identity);
+          requireCompatibilityWrite();
           await sync();
           const body = parseOrInvalid(
             z.object({
@@ -687,6 +879,7 @@ export function createEmployeeRoutes(
           methods("POST", request);
           const identity = requireTeam();
           const principal = requireBrowserPrincipal(request, identity);
+          requireCompatibilityWrite();
           const body = parseOrInvalid(
             z.object({
               delegationId: z.string().min(1),
@@ -711,6 +904,7 @@ export function createEmployeeRoutes(
           methods("POST", request);
           const identity = requireTeam();
           const principal = requireBrowserPrincipal(request, identity);
+          requireCompatibilityWrite();
           const body = parseOrInvalid(
             z.object({
               delegationId: z.string().min(1),
@@ -735,6 +929,7 @@ export function createEmployeeRoutes(
           methods("POST", request);
           const identity = requireTeam();
           const principal = requireBrowserPrincipal(request, identity);
+          requireCompatibilityWrite();
           const body = parseOrInvalid(
             z.object({
               delegationId: z.string().min(1),
@@ -816,6 +1011,7 @@ export function createEmployeeRoutes(
           methods("POST", request);
           const identity = requireTeam();
           const principal = requireBrowserPrincipal(request, identity);
+          requireCompatibilityWrite();
           await sync();
           const body = parseOrInvalid(
             z.object({
@@ -931,7 +1127,9 @@ export interface EmployeeContext {
   effect(operation: () => () => void): void;
   collabTeam?: TeamServiceLike;
   collabPersonas?: PersonaServiceLike;
-  get(key: "collabPersonas"): PersonaServiceLike | undefined;
+  get(
+    key: "collabPersonas" | "collabPrincipal",
+  ): PersonaServiceLike | PrincipalServiceLike | undefined;
   inject(
     keys: readonly ["collabTeam"],
     callback: (
@@ -944,21 +1142,31 @@ export async function apply(
   ctx: EmployeeContext,
 ): Promise<void | (() => void)> {
   const domain = await ctx.storageDomain.open(employeeDomainSpec);
-  const service = new EmployeeService({
-    employees: domain.table("employees"),
-    roleAssignments: domain.table("role_assignments"),
-    runtimeProfiles: domain.table("runtime_profiles"),
-    delegations: domain.table("delegations"),
-    delegationReports: domain.table("delegation_reports"),
-    actionTickets: domain.table("action_tickets"),
-    auditEvents: domain.table("audit_events"),
-  }, {
-    personas: () => ctx.get("collabPersonas"),
-  });
+  const service = new EmployeeService(
+    {
+      employees: domain.table("employees"),
+      roleAssignments: domain.table("role_assignments"),
+      runtimeProfiles: domain.table("runtime_profiles"),
+      delegations: domain.table("delegations"),
+      delegationReports: domain.table("delegation_reports"),
+      actionTickets: domain.table("action_tickets"),
+      auditEvents: domain.table("audit_events"),
+    },
+    {
+      personas: () =>
+        ctx.get("collabPersonas") as PersonaServiceLike | undefined,
+    },
+  );
+  service.setPrincipalService(
+    () => ctx.get("collabPrincipal") as PrincipalServiceLike | undefined,
+  );
   ctx.provide("collabEmployee", service);
   const identityFiber = ctx.inject(["collabTeam"], (child) => {
+    service.setIdentityService(() => child.collabTeam);
     void service.syncIdentityUsers(child.collabTeam.users());
-    for (const route of createEmployeeRoutes(service, () => child.collabTeam)) {
+    for (const route of createEmployeeRoutes(service, () => child.collabTeam, {
+      compatibilityWrites: false,
+    })) {
       ctx.webServer.register(route);
     }
   });

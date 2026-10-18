@@ -102,7 +102,7 @@ describe("work plan parsing", () => {
     );
     expect(parseWorkPlanPriority("请按 P0 处理")).toBe("P0");
     expect(parseWorkPlanPriority("没有优先级")).toBeUndefined();
-    expect(compactWorkPlanTitle("")).toBe("新的 AI Teammate 工作计划");
+    expect(compactWorkPlanTitle("")).toBe("新的 AI伙伴工作计划");
   });
 
   it("maps display priorities onto the task storage scale", () => {

@@ -206,11 +206,112 @@ describe("dsh-collab-teammate service", () => {
     expect(activity).toEqual([
       {
         teammateId: "tm-1",
-        instance: { runtimeHours: 2, meetingCount: 0, outputTokens: 0 },
+        instance: { runtimeHours: 2, meetingCount: 1, outputTokens: 0 },
         template: { runtimeHours: 2, meetingCount: 1, outputTokens: 0 },
         templateShared: false,
       },
     ]);
+  });
+
+  it("keeps AI activity after a reviewed task is reassigned to a human", () => {
+    const now = new Date("2026-10-09T12:00:00.000Z");
+    const iso = (hours: number) =>
+      new Date(now.getTime() + hours * 3_600_000).toISOString();
+    const activity = calculateTeammateActivity({
+      teammates: [
+        {
+          id: "tm-1",
+          principalId: "principal-ai-tm-1",
+        },
+      ],
+      tasks: [
+        {
+          id: "task-review",
+          workspaceId: "main",
+          title: "Review",
+          status: "review",
+          receiverType: "human",
+          receiverId: "owner",
+          receiverPrincipalId: "principal-ai-tm-1",
+          createdAt: iso(-2),
+          updatedAt: iso(-0.5),
+        },
+      ],
+      agents: {
+        runs: () => [
+          {
+            id: "run-1",
+            instanceId: "task-review",
+            agentProfileId: "agent-1",
+            status: "succeeded",
+            runSeq: 1,
+            nodeId: "task",
+            outputTokens: 321,
+            startedAt: iso(-1),
+            endedAt: iso(-0.5),
+            createdAt: iso(-1),
+          },
+        ],
+      },
+      workspaces: { list: () => [{ id: "main" }] },
+      identities: new Map([["tm-1", { profileId: "agent-1" }]]),
+      now,
+    });
+    expect(activity[0]?.instance).toEqual({
+      runtimeHours: 0.5,
+      meetingCount: 0,
+      outputTokens: 321,
+    });
+  });
+
+  it("counts ai_teammate participants by their teammate instance id", () => {
+    const now = () => new Date("2026-10-14T12:00:00.000Z");
+    const meetings = {
+      list: () => [{ id: "m-1", status: "active" }],
+      participants: () => [
+        {
+          id: "p-1",
+          meetingId: "m-1",
+          kind: "ai_teammate",
+          refId: "tm-1",
+          teammateInstanceId: "tm-1",
+          status: "active",
+          joinedAt: "2026-10-14T10:00:00.000Z",
+          updatedAt: "2026-10-14T10:00:00.000Z",
+        },
+      ],
+    };
+    const activity = calculateTeammateActivity({
+      teammates: [{ id: "tm-1" }],
+      tasks: [],
+      meetings,
+      workspaces: { list: () => [{ id: "main" }] },
+      now: now(),
+    });
+    expect(activity[0]?.instance.meetingCount).toBe(1);
+  });
+
+  it("counts the facilitator seat as meeting attendance", () => {
+    const meetings = {
+      list: () => [{ id: "m-1", status: "active" }],
+      participants: () => [],
+      facilitators: () => [
+        {
+          teammateId: "meeting-facilitator",
+          status: "active",
+          createdAt: "2026-10-14T11:58:00.000Z",
+          updatedAt: "2026-10-14T11:58:00.000Z",
+        },
+      ],
+    };
+    const activity = calculateTeammateActivity({
+      teammates: [{ id: "meeting-facilitator" }],
+      tasks: [],
+      meetings,
+      workspaces: { list: () => [{ id: "main" }] },
+      now: new Date("2026-10-14T12:00:00.000Z"),
+    });
+    expect(activity[0]?.instance.meetingCount).toBe(1);
   });
 
   it("counts workflow runs through the teammate's bound Agent Profile", () => {
@@ -608,12 +709,13 @@ describe("dsh-collab-teammate service", () => {
       ...definition(id, "platform", state, "Backend Engineer"),
       createdAt: at,
       updatedAt: at,
-      ...(profileTemplateId === undefined
-        ? {}
-        : { profileTemplateId }),
+      ...(profileTemplateId === undefined ? {} : { profileTemplateId }),
     });
     await teammatesTable.put("tm-first", make("tm-first", "active", "backend"));
-    await teammatesTable.put("tm-second", make("tm-second", "active", "backend"));
+    await teammatesTable.put(
+      "tm-second",
+      make("tm-second", "active", "backend"),
+    );
     await teammatesTable.put("tm-third", make("tm-third", "paused", "backend"));
     await teammatesTable.put(
       "tm-archived",
@@ -847,7 +949,7 @@ describe("dsh-collab-teammate service", () => {
     expect(updated.version).toBe(published.version);
     expect(updated.state).toBe(published.state);
     expect(teammates.events(created.id)[0]?.message).toBe(
-      "将 Teammate 名称改为「小白 PD · 供应链」",
+      "将 AI伙伴名称改为「小白 PD · 供应链」",
     );
     // 内容没变化时不写库、不记录事件。
     const same = await teammates.updateInstanceProfile(admin, {
@@ -857,7 +959,7 @@ describe("dsh-collab-teammate service", () => {
     });
     expect(same.updatedAt).toBe(updated.updatedAt);
     expect(teammates.events(created.id)[0]?.message).toBe(
-      "将 Teammate 名称改为「小白 PD · 供应链」",
+      "将 AI伙伴名称改为「小白 PD · 供应链」",
     );
     await expect(
       teammates.updateInstanceProfile(admin, {
@@ -1140,9 +1242,7 @@ describe("实例列表可见性", () => {
         .map((item) => item.id)
         .sort();
 
-    expect(idsFor(olivia)).toEqual(
-      ["tm-mine", "tm-others-platform"].sort(),
-    );
+    expect(idsFor(olivia)).toEqual(["tm-mine", "tm-others-platform"].sort());
     // 方案 B：管理员普通视图同样只看"自己的 + 平台"，全量需要显式 scope。
     expect(idsFor(admin)).toEqual(["tm-others-platform"]);
     expect(
@@ -1150,9 +1250,7 @@ describe("实例列表可见性", () => {
         .listInstances(admin, { scope: "all" })
         .map((item) => item.id)
         .sort(),
-    ).toEqual(
-      ["tm-mine", "tm-others-personal", "tm-others-platform"].sort(),
-    );
+    ).toEqual(["tm-mine", "tm-others-personal", "tm-others-platform"].sort());
     // 非管理员即使传 scope=all 也不能拿到全量。
     expect(
       teammates
@@ -1225,14 +1323,15 @@ describe("运行态最近使用时间", () => {
         },
       ],
       agents: {
-        runs: ({ workspaceId }: { readonly workspaceId?: string | undefined }) =>
-          workspaceId === "main" ? runs : [],
+        runs: ({
+          workspaceId,
+        }: {
+          readonly workspaceId?: string | undefined;
+        }) => (workspaceId === "main" ? runs : []),
       },
       meetings: {
         list: (workspaceId: string) =>
-          workspaceId === "main"
-            ? [{ id: "meeting-1", status: "active" }]
-            : [],
+          workspaceId === "main" ? [{ id: "meeting-1", status: "active" }] : [],
         participants: () => [
           {
             id: "p-1",

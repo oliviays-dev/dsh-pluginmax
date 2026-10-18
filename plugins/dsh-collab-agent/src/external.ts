@@ -24,6 +24,56 @@ export interface ExternalRunnerResult {
   readonly diagnostic?: string | undefined;
 }
 
+export type ExternalAgentTraceKind =
+  "spawn" | "stdin" | "stdout" | "stderr" | "error" | "close";
+
+export interface ExternalAgentTraceEvent {
+  readonly kind: ExternalAgentTraceKind;
+  readonly runId: string;
+  readonly runtimeName: string;
+  readonly provider: ExternalAgentRuntime["provider"];
+  readonly protocol: ExternalAgentRuntime["protocol"];
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly workspacePath: string;
+  readonly pid?: number | undefined;
+  readonly stdinBytes?: number | undefined;
+  readonly data?: string | undefined;
+  readonly exitCode?: number | null | undefined;
+  readonly exitSignal?: string | null | undefined;
+  readonly durationMs?: number | undefined;
+  readonly message?: string | undefined;
+}
+
+export type ExternalAgentTraceListener = (
+  event: ExternalAgentTraceEvent,
+) => void;
+
+/** Writes execution evidence to the terminal hosting the DSH service. */
+export const terminalExternalAgentTrace: ExternalAgentTraceListener = (
+  event,
+) => {
+  try {
+    const header = [
+      `[外部Agent]`,
+      `run=${event.runId}`,
+      `agent=${event.runtimeName}`,
+      ...(event.pid === undefined ? [] : [`pid=${event.pid}`]),
+    ].join(" ");
+    const body =
+      event.kind === "spawn"
+        ? `${event.command} ${event.args.join(" ")} (cwd=${event.workspacePath})`
+        : event.kind === "stdin"
+          ? `stdin 已写入 ${event.stdinBytes ?? 0} 字节`
+          : event.kind === "close"
+            ? `exit=${event.exitCode ?? "-"} signal=${event.exitSignal ?? "-"} duration=${event.durationMs ?? 0}ms`
+            : (event.data ?? event.message ?? "");
+    process.stderr.write(`${header} ${event.kind}: ${body}\n`);
+  } catch {
+    // Terminal tracing is best-effort and must never affect task execution.
+  }
+};
+
 export interface ExternalAgentRunner {
   progress(runId: string): string | undefined;
   execute(request: ExternalRunnerRequest): Promise<ExternalRunnerResult>;
@@ -80,6 +130,12 @@ function terminate(child: ReturnType<typeof spawn>): void {
 export class ExternalAgentProcessRunner implements ExternalAgentRunner {
   private readonly progressByRun = new Map<string, string>();
 
+  constructor(
+    private readonly options: {
+      readonly onTrace?: ExternalAgentTraceListener | undefined;
+    } = {},
+  ) {}
+
   progress(runId: string): string | undefined {
     return this.progressByRun.get(runId);
   }
@@ -134,6 +190,9 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
       );
       const execution = await this.spawnAndCollect({
         ...request,
+        runtimeName: request.runtime.name,
+        provider: request.runtime.provider,
+        protocol: request.runtime.protocol,
         command,
         args,
         captureStdoutAsOutput: false,
@@ -188,6 +247,9 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
     );
     return await this.spawnAndCollect({
       ...request,
+      runtimeName: request.runtime.name,
+      provider: request.runtime.provider,
+      protocol: request.runtime.protocol,
       command,
       args,
       captureStdoutAsOutput: true,
@@ -205,6 +267,9 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
 
   private spawnAndCollect(input: {
     readonly runId: string;
+    readonly runtimeName: string;
+    readonly provider: ExternalAgentRuntime["provider"];
+    readonly protocol: ExternalAgentRuntime["protocol"];
     readonly command: string;
     readonly args: readonly string[];
     readonly prompt: string;
@@ -221,11 +286,36 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
       let sessionId: string | undefined;
       let lineBuffer = "";
       let settled = false;
+      const startedAt = Date.now();
+      const trace = (
+        event: Omit<
+          ExternalAgentTraceEvent,
+          | "runId"
+          | "runtimeName"
+          | "provider"
+          | "protocol"
+          | "command"
+          | "args"
+          | "workspacePath"
+        >,
+      ): void => {
+        this.options.onTrace?.({
+          runId: input.runId,
+          runtimeName: input.runtimeName,
+          provider: input.provider,
+          protocol: input.protocol,
+          command: input.command,
+          args: input.args,
+          workspacePath: input.workspacePath,
+          ...event,
+        });
+      };
       const child = spawn(input.command, [...input.args], {
         cwd: input.workspacePath,
         detached: true,
         stdio: ["pipe", "pipe", "pipe"],
       });
+      trace({ kind: "spawn", pid: child.pid });
       const finish = (result: ExternalRunnerResult): void => {
         if (settled) return;
         settled = true;
@@ -238,6 +328,7 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
       };
       input.signal.addEventListener("abort", onAbort, { once: true });
       child.once("error", (cause: Error) => {
+        trace({ kind: "error", message: cause.message });
         finish({
           output: [],
           stopReason: "failed",
@@ -248,6 +339,7 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
       child.stdout.setEncoding("utf8");
       child.stdout.on("data", (chunk: string) => {
         stdout = `${stdout}${chunk}`.slice(-120_000);
+        trace({ kind: "stdout", data: chunk });
         if (input.onStdoutChunk !== undefined) input.onStdoutChunk(chunk);
         if (input.onStdoutLine === undefined) return;
         lineBuffer += chunk;
@@ -262,8 +354,15 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
       child.stderr.setEncoding("utf8");
       child.stderr.on("data", (chunk: string) => {
         stderr = `${stderr}${chunk}`.slice(-20_000);
+        trace({ kind: "stderr", data: chunk });
       });
       child.once("close", (code) => {
+        trace({
+          kind: "close",
+          exitCode: code,
+          exitSignal: child.signalCode,
+          durationMs: Date.now() - startedAt,
+        });
         if (input.onStdoutLine !== undefined && lineBuffer.trim() !== "") {
           const found = input.onStdoutLine(lineBuffer);
           if (found !== undefined) sessionId = found;
@@ -287,7 +386,12 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
             stopReason: outputText === "" ? "failed" : "completed",
             ...(sessionId === undefined ? {} : { sessionId }),
             ...(outputText === ""
-              ? { diagnostic: "外部 Agent 未返回可用的文本输出" }
+              ? {
+                  diagnostic:
+                    diagnostic === undefined
+                      ? "外部 Agent 未返回可用的文本输出"
+                      : `外部 Agent 未返回可用的文本输出：${diagnostic}`,
+                }
               : {}),
           });
           return;
@@ -300,6 +404,7 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
         });
       });
       child.stdin.on("error", () => undefined);
+      trace({ kind: "stdin", stdinBytes: Buffer.byteLength(input.prompt) });
       child.stdin.end(input.prompt, "utf8");
     });
   }

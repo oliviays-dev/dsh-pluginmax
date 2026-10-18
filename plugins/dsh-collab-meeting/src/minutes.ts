@@ -209,6 +209,11 @@ export class MeetingMinutesService {
       const timestamp = nowIso(this.now);
       const document = await this.ensureMinutes(parsed.meetingId, timestamp);
       const version = document.currentVersion + 1;
+      // 纪要是「整场会议的纪要」而不是增量：新版本先继承上一版全文，
+      // 生成完成后再整体替换，避免中途出现「内容为空的更新版」。
+      const previousContent = [...this.versions(parsed.meetingId)]
+        .reverse()
+        .find((item) => String(item.content ?? "").trim() !== "")?.content;
       const record: MinuteVersion = parseOrInvalid(minuteVersionSchema, {
         id: randomUUID(),
         meetingId: parsed.meetingId,
@@ -218,6 +223,7 @@ export class MeetingMinutesService {
         requestedAt: timestamp,
         facilitatorId: facilitator.id,
         status: "generating",
+        content: previousContent ?? "",
         ...(parsed.sourceRefs === undefined
           ? {}
           : { sourceRefs: parsed.sourceRefs }),

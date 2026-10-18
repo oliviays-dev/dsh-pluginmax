@@ -11,7 +11,7 @@ window.__ModuleLoader__.load({
     const ACCENT = "var(--dsw-alias-accent-primary,#4f8ef7)";
 
     /*
-     * 「仅看已加入 / 平台全量」是跨模块偏好：任务、会议、工作流、Teammate
+     * 「仅看已加入 / 平台全量」是跨模块偏好：任务、会议、工作流、AI伙伴
      * 与工作台共用同一个 window store，点击跨模块跳转时沿用用户当前选择。
      * 这里幂等创建，谁先加载谁初始化。
      */
@@ -55,8 +55,108 @@ window.__ModuleLoader__.load({
     };
     const AUDIT_ACTOR_LABEL = {
       user: "人工操作",
-      "ai-teammate": "AI Teammate",
+      "ai-teammate": "AI伙伴",
       system: "系统",
+    };
+    /*
+     * 外部 Agent 运行时三态。归档沿用 AI伙伴模版口径：默认列表隐藏、
+     * 归档视图单独查看、归档项只能复原回停用，不直接生效。
+     */
+    const EXTERNAL_RUNTIME_STATUS = {
+      active: { label: "启用中", tone: "active" },
+      disabled: { label: "已停用", tone: "disabled" },
+      archived: { label: "已归档", tone: "archived" },
+    };
+    const externalRuntimeStatusLabel = (status) =>
+      EXTERNAL_RUNTIME_STATUS[status]?.label ?? status;
+    const externalRuntimeStatusTone = (status) =>
+      EXTERNAL_RUNTIME_STATUS[status]?.tone ?? "unknown";
+    const EXTERNAL_RUNTIME_PROVIDER_LABEL = {
+      codex: "Codex",
+      workbuddy: "WorkBuddy",
+      command: "通用命令",
+    };
+    const EXTERNAL_RUNTIME_PROTOCOL_LABEL = {
+      "codex-jsonl": "Codex JSONL",
+      "plain-text": "stdio 文本",
+    };
+    const externalRuntimeProviderLabel = (provider) =>
+      EXTERNAL_RUNTIME_PROVIDER_LABEL[provider] ?? provider;
+    const externalRuntimeProtocolLabel = (protocol) =>
+      EXTERNAL_RUNTIME_PROTOCOL_LABEL[protocol] ?? protocol;
+    /**
+     * 运行时下拉选项：只允许选择启用中的运行时；当前绑定若已停用/归档，
+     * 保留为禁用项以便如实展示现状，而不是静默显示成空选。
+     */
+    const externalRuntimeOptions = (runtimes, boundId) => {
+      const list = Array.isArray(runtimes) ? runtimes : [];
+      const bound = boundId ?? "";
+      return [
+        h("option", { key: "__empty", value: "" }, "请选择运行时"),
+        ...list
+          .filter((item) => item.status === "active")
+          .map((item) =>
+            h(
+              "option",
+              { key: item.id, value: item.id },
+              `${item.name} · ${externalRuntimeProviderLabel(item.provider)}`,
+            ),
+          ),
+        ...list
+          .filter((item) => item.status !== "active" && item.id === bound)
+          .map((item) =>
+            h(
+              "option",
+              { key: item.id, value: item.id, disabled: true },
+              `${item.name}（${externalRuntimeStatusLabel(item.status)} · 不可用）`,
+            ),
+          ),
+      ];
+    };
+    /** 当前绑定但不可用的运行时；用于编辑态提示改绑或切回内置。 */
+    const unavailableBoundRuntime = (runtimes, boundId) => {
+      const bound = (Array.isArray(runtimes) ? runtimes : []).find(
+        (item) => item.id === (boundId ?? ""),
+      );
+      return bound === undefined || bound.status === "active"
+        ? undefined
+        : bound;
+    };
+    const splitExternalRuntimes = (runtimes) => {
+      const list = Array.isArray(runtimes) ? runtimes : [];
+      return {
+        active: list.filter((item) => item.status === "active"),
+        archived: list.filter((item) => item.status === "archived"),
+        defaultView: list.filter((item) => item.status !== "archived"),
+      };
+    };
+    /**
+     * AI伙伴卡片的执行方式文案：绑定运行时缺失、停用或归档时，
+     * 必须在列表上直接可见，而不是等派发失败才暴露。
+     */
+    const teammateExecutionPill = (teammate, runtimes) => {
+      if ((teammate?.execution ?? "builtin") !== "external") {
+        return { text: "内置执行", tone: "builtin" };
+      }
+      const runtimeId = teammate?.externalRuntimeId;
+      if (runtimeId === undefined || runtimeId === "") {
+        return { text: "外部 Agent · 未选择", tone: "external warn" };
+      }
+      const runtime = (Array.isArray(runtimes) ? runtimes : []).find(
+        (item) => item.id === runtimeId,
+      );
+      if (runtime === undefined) {
+        return {
+          text: `外部 Agent · ${runtimeId}（运行时不存在）`,
+          tone: "external warn",
+        };
+      }
+      return runtime.status === "active"
+        ? { text: `外部 Agent · ${runtime.name}`, tone: "external" }
+        : {
+            text: `外部 Agent · ${runtime.name}（${externalRuntimeStatusLabel(runtime.status)}）`,
+            tone: "external warn",
+          };
     };
     const RUN_STATUS_LABEL = {
       queued: "排队中",
@@ -312,8 +412,10 @@ window.__ModuleLoader__.load({
       .pmtm-runtime-body .pmtm-latest{margin-top:0;}
       .pmtm-latest{min-width:0;display:flex;align-items:flex-start;gap:6px;margin-top:8px;color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1.45;}
       .pmtm-latest .label{flex:none;color:var(--dsw-alias-label-tertiary);}
-      .pmtm-latest .text{min-width:0;flex:1 1 auto;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere;}
-      .pmtm-latest .text.expanded{display:block;overflow:visible;}
+      /* Markdown 渲染成块级内容后 line-clamp 失效，改用 max-height 控制 3 行折叠。 */
+      .pmtm-latest .text{min-width:0;flex:1 1 auto;max-height:4.4em;overflow:hidden;overflow-wrap:anywhere;}
+      .pmtm-latest .text.expanded{max-height:none;overflow:visible;}
+      .pmtm-latest .text.pmtm-md{gap:3px;}
       .pmtm-latest-toggle{flex:none;border:0;padding:0;background:transparent;color:${ACCENT};font:inherit;font-size:11.5px;cursor:pointer;}
       .pmtm-latest-toggle:hover{text-decoration:underline;}
       .pmtm-latest.streaming .text{color:transparent;background:linear-gradient(90deg,#73839a 0%,#dcecff 42%,#9cb9dc 65%,#73839a 100%);background-size:220% 100%;-webkit-background-clip:text;background-clip:text;animation:pmtmStream 2.2s linear infinite,pmtmReveal 3.2s ease-in-out infinite;}
@@ -387,6 +489,9 @@ window.__ModuleLoader__.load({
       .pmtm-profile-item.runtime > div{min-width:0;overflow-wrap:anywhere;}
       .pmtm-profile-item.runtime strong{display:block;font-size:12.5px;color:var(--dsw-alias-label-primary);}
       .pmtm-profile-item.runtime .pmtm-actions{margin-top:0;justify-content:flex-end;}
+      .pmtm-profile-item.runtime.disabled{opacity:.9;}
+      .pmtm-profile-item.runtime.archived{border-style:dashed;opacity:.72;}
+      .pmtm-profile-item.runtime .pmtm-runtime-head-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0;}
       .pmtm-inline-sub{margin-top:2px;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.5;overflow-wrap:anywhere;}
       .pmtm-profile-detail{min-width:0;min-height:420px;padding:16px;}
       .pmtm-profile-detail h3,.pmtm-profile-form h3{margin:0;font-size:15px;}
@@ -461,6 +566,11 @@ window.__ModuleLoader__.load({
       .pmtm-pill.template{border:0.5px solid var(--dsw-alias-border-l3);background:transparent;color:var(--dsw-alias-label-secondary);}
       .pmtm-pill.execution{border:0.5px solid var(--dsw-alias-border-l3);background:transparent;color:var(--dsw-alias-label-secondary);}
       .pmtm-pill.execution.external{border-color:var(--dsw-alias-state-success-primary);color:var(--dsw-alias-state-success-primary);}
+      .pmtm-pill.execution.warn{border-color:rgba(232,163,61,.45);color:#e8a33d;background:rgba(232,163,61,.12);}
+      .pmtm-pill.runtime-status{font-weight:600;}
+      .pmtm-pill.runtime-status.active{border:0.5px solid color-mix(in srgb,var(--dsw-alias-state-success-primary,#34d47e) 45%,transparent);color:var(--dsw-alias-state-success-primary,#34d47e);background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#34d47e) 12%,transparent);}
+      .pmtm-pill.runtime-status.disabled{border:0.5px solid rgba(232,163,61,.45);color:#e8a33d;background:rgba(232,163,61,.12);}
+      .pmtm-pill.runtime-status.archived{border:0.5px dashed var(--dsw-alias-border-l3);color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-bg-layer-2);}
       /* 工作日报 */
       /* 日期区间 + 关键词 + 更新日报固定一行：搜索框可压缩，按钮与日期不换行。 */
       .pmtm-report-filters{display:flex;align-items:center;gap:8px;flex:0 1 auto;flex-wrap:nowrap;justify-content:flex-end;min-width:0;}
@@ -674,7 +784,11 @@ window.__ModuleLoader__.load({
     }
 
     function addLocalDays(date, days) {
-      const next = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      const next = new Date(
+        date.getFullYear(),
+        date.getMonth(),
+        date.getDate(),
+      );
       next.setDate(next.getDate() + days);
       return localIsoDate(next);
     }
@@ -777,7 +891,8 @@ window.__ModuleLoader__.load({
       const effectiveProject =
         projectOverride || parsed?.workspaceId || options[0]?.id || "";
       const effectivePriority = priorityOverride || parsed?.priority || "P2";
-      const effectiveDue = dueOverride || parsed?.due || addLocalDays(new Date(), 1);
+      const effectiveDue =
+        dueOverride || parsed?.due || addLocalDays(new Date(), 1);
       const recognized = [];
       if (parsed !== null) {
         recognized.push(`优先级 ${parsed.priority}`);
@@ -932,7 +1047,9 @@ window.__ModuleLoader__.load({
               type: "submit",
               className: "pmtm-btn small",
               disabled: !active || submitting,
-              title: active ? "创建计划项" : "Teammate 未生效，不能接收新的工作计划",
+              title: active
+                ? "创建计划项"
+                : "AI伙伴未生效，不能接收新的工作计划",
             },
             submitting ? "创建中…" : "创建计划项",
           ),
@@ -965,14 +1082,14 @@ window.__ModuleLoader__.load({
       };
     }
 
-    const LIVE_INSTANCES_HELP = "我的 / 平台生效 Teammate 数。";
+    const LIVE_INSTANCES_HELP = "我的 / 平台生效 AI伙伴数。";
 
     /** 近 24 小时统计的口径说明（列表标题与详情卡片共用）。 */
     function loadScopeTitle(scope, generatedAt = "") {
       return [
         scope === "template"
-          ? "口径：按同一 Agent 模版（profile）汇总，可能被多个 Teammate 共享。"
-          : "口径：仅统计绑定到该 Teammate 的运行（Teammate 绑定的 Run，以及指派给它的任务运行）。",
+          ? "口径：按同一 Agent 模版（profile）汇总，可能被多个 AI伙伴共享。"
+          : "口径：仅统计绑定到该 AI伙伴的运行（AI伙伴绑定的 Run，以及指派给它的任务运行）。",
         `统计周期：最近 24 小时，每 30 秒刷新${generatedAt === "" ? "" : `，截至 ${timeShort(generatedAt)}`}。`,
         "运行时长：Agent 任务运行开始到结束与统计窗口的交集，包含执行和思考时间；排队和等待人工输入不计入。",
         "参会次数：统计周期内实际参与过的 live 会议去重数，同一会议多次进出只计 1 次。",
@@ -980,18 +1097,18 @@ window.__ModuleLoader__.load({
       ].join("\n");
     }
 
-    function InstanceMetric({
-      liveInstances,
-      teammateId,
-      detailed = false,
-    }) {
+    function InstanceMetric({ liveInstances, teammateId, detailed = false }) {
       const counts = liveInstances[teammateId] ?? {};
       const title = LIVE_INSTANCES_HELP;
       const value = h(
         "span",
         { className: detailed ? "value" : "pmtm-load-value" },
         h("span", { className: "live" }, `${String(counts.ownCount ?? 0)}`),
-        h("span", { className: "owned" }, `/${String(counts.liveCount ?? 0)}个`),
+        h(
+          "span",
+          { className: "owned" },
+          `/${String(counts.liveCount ?? 0)}个`,
+        ),
       );
       if (!detailed) {
         return h(
@@ -1007,14 +1124,14 @@ window.__ModuleLoader__.load({
         h(
           "span",
           { className: "label" },
-          "Live Teammate 我的/平台",
+          "AI伙伴活跃（我的/平台）",
           h(
             "span",
             {
               className: "pmtm-info",
               tabIndex: 0,
               role: "button",
-              "aria-label": "Live Teammate 统计说明",
+              "aria-label": "AI伙伴活跃统计说明",
               title,
             },
             h(InfoIcon, null),
@@ -1244,14 +1361,20 @@ window.__ModuleLoader__.load({
             index += 1;
           }
           index += 1;
-          blocks.push(h("pre", { key: `code-${blocks.length}` }, code.join("\n")));
+          blocks.push(
+            h("pre", { key: `code-${blocks.length}` }, code.join("\n")),
+          );
           continue;
         }
         const heading = line.match(/^(#{1,6})\s+(.*)$/);
         if (heading !== null) {
           const Tag = heading[1].length <= 2 ? "h4" : "h5";
           blocks.push(
-            h(Tag, { key: `heading-${blocks.length}` }, markdownInline(heading[2], `h-${blocks.length}`)),
+            h(
+              Tag,
+              { key: `heading-${blocks.length}` },
+              markdownInline(heading[2], `h-${blocks.length}`),
+            ),
           );
           index += 1;
           continue;
@@ -1335,7 +1458,11 @@ window.__ModuleLoader__.load({
               "ul",
               { key: `ul-${blocks.length}` },
               ...items.map((item, itemIndex) =>
-                h("li", { key: String(itemIndex) }, markdownInline(item, `ul-${blocks.length}-${itemIndex}`)),
+                h(
+                  "li",
+                  { key: String(itemIndex) },
+                  markdownInline(item, `ul-${blocks.length}-${itemIndex}`),
+                ),
               ),
             ),
           );
@@ -1355,7 +1482,11 @@ window.__ModuleLoader__.load({
               "ol",
               { key: `ol-${blocks.length}` },
               ...items.map((item, itemIndex) =>
-                h("li", { key: String(itemIndex) }, markdownInline(item, `ol-${blocks.length}-${itemIndex}`)),
+                h(
+                  "li",
+                  { key: String(itemIndex) },
+                  markdownInline(item, `ol-${blocks.length}-${itemIndex}`),
+                ),
               ),
             ),
           );
@@ -1385,7 +1516,10 @@ window.__ModuleLoader__.load({
             ...paragraph.flatMap((part, partIndex) =>
               partIndex === 0
                 ? markdownInline(part, `p-${blocks.length}`)
-                : [" ", ...markdownInline(part, `p-${blocks.length}-${partIndex}`)],
+                : [
+                    " ",
+                    ...markdownInline(part, `p-${blocks.length}-${partIndex}`),
+                  ],
             ),
           ),
         );
@@ -1595,12 +1729,12 @@ window.__ModuleLoader__.load({
         react.Fragment,
         null,
         h(
-          "span",
+          "div",
           {
             ref: textRef,
-            className: `text${expanded ? " expanded" : ""}`,
+            className: `text pmtm-md${expanded ? " expanded" : ""}`,
           },
-          task.latestProgress,
+          renderMarkdown(task.latestProgress || "暂无说明。"),
         ),
         overflowing
           ? h(
@@ -1716,7 +1850,8 @@ window.__ModuleLoader__.load({
       const [canManagePlatform, setCanManagePlatform] = react.useState(false);
       const [section, setSection] = react.useState("teammate");
       const [teammateTemplates, setTeammateTemplates] = react.useState([]);
-      const [definitionTemplateId, setDefinitionTemplateId] = react.useState("");
+      const [definitionTemplateId, setDefinitionTemplateId] =
+        react.useState("");
       const [switchTemplateId, setSwitchTemplateId] = react.useState("");
       const [externalRuntimes, setExternalRuntimes] = react.useState([]);
       const [canManageExternal, setCanManageExternal] = react.useState(false);
@@ -1726,6 +1861,11 @@ window.__ModuleLoader__.load({
       const [externalEditing, setExternalEditing] = react.useState(false);
       const [externalForm, setExternalForm] = react.useState(null);
       const [externalBusy, setExternalBusy] = react.useState(false);
+      /** 外部 Agent 归档视图开关：默认列表隐藏归档项，与 AI伙伴模版一致。 */
+      const [externalArchivedOnly, setExternalArchivedOnly] =
+        react.useState(false);
+      const [externalArchiveTarget, setExternalArchiveTarget] =
+        react.useState(null);
       const [runningIds, setRunningIds] = react.useState([]);
       const [archivedOnly, setArchivedOnly] = react.useState(false);
       const archivedOnlyRef = react.useRef(false);
@@ -1750,6 +1890,8 @@ window.__ModuleLoader__.load({
       const [createInstanceTemplateId, setCreateInstanceTemplateId] =
         react.useState("");
       const [createInstanceName, setCreateInstanceName] = react.useState("");
+      const [createInstanceWorkspaceId, setCreateInstanceWorkspaceId] =
+        react.useState("");
       const backgroundRefresh = react.useRef(false);
       const [archiveOpen, setArchiveOpen] = react.useState(false);
       const [activity, setActivity] = react.useState({
@@ -1781,7 +1923,8 @@ window.__ModuleLoader__.load({
       const [currentUser, setCurrentUser] = react.useState(null);
       const [workReports, setWorkReports] = react.useState([]);
       const [workReportsLoading, setWorkReportsLoading] = react.useState(false);
-      const [workReportGenerating, setWorkReportGenerating] = react.useState(false);
+      const [workReportGenerating, setWorkReportGenerating] =
+        react.useState(false);
       const [reportNotice, setReportNotice] = react.useState("");
       const [reportRange, setReportRange] = react.useState(defaultReportRange);
       const [reportSearch, setReportSearch] = react.useState("");
@@ -1798,7 +1941,8 @@ window.__ModuleLoader__.load({
       });
       const [instanceBusy, setInstanceBusy] = react.useState(false);
       const [projectRoles, setProjectRoles] = react.useState([]);
-      const [projectRolesLoading, setProjectRolesLoading] = react.useState(false);
+      const [projectRolesLoading, setProjectRolesLoading] =
+        react.useState(false);
       const [projectRoleBusy, setProjectRoleBusy] = react.useState("");
       const [busy, setBusy] = react.useState(false);
       const [error, setError] = react.useState("");
@@ -1820,6 +1964,16 @@ window.__ModuleLoader__.load({
       const setArchivedView = (next) => {
         archivedOnlyRef.current = next;
         setArchivedOnly(next);
+        if (tab === "definition") {
+          // 定义态列表跟随归档视图：把选中模版切到对应集合，
+          // 否则右侧详情会停在另一侧的模版上，和列表对不上。
+          const pool = teammateTemplates.filter((item) =>
+            next ? item.state === "archived" : item.state !== "archived",
+          );
+          if (!pool.some((item) => item.id === definitionTemplateId)) {
+            setDefinitionTemplateId(pool[0]?.id ?? "");
+          }
+        }
       };
       /** 管理员全量视图：切换后重新拉取实例列表。 */
       const setScopeView = (next) => {
@@ -1830,7 +1984,7 @@ window.__ModuleLoader__.load({
 
       const loadList = react.useCallback(async (targetId) => {
         if (token() === null) {
-          setError("请先在账号管理中登录。");
+          setError("请先在「账号与权限 → 登录账号」中登录。");
           setLoading(false);
           return;
         }
@@ -1982,7 +2136,9 @@ window.__ModuleLoader__.load({
                     `/api/collab/teammates/detail?teammateId=${encodeURIComponent(teammateId)}`,
                   )
                 : Promise.resolve({ events: [] }),
-              request(`/api/collab/teammates/audit-events?${params.toString()}`),
+              request(
+                `/api/collab/teammates/audit-events?${params.toString()}`,
+              ),
             ]);
             const teammateEvents = (eventResult.events ?? []).map((event) => ({
               id: event.id,
@@ -1998,8 +2154,10 @@ window.__ModuleLoader__.load({
               actorType: event.actor?.type ?? "system",
               narrative: event.narrative,
             }));
-            const merged = [...teammateEvents, ...auditRows].sort((left, right) =>
-              right.at.localeCompare(left.at) || right.id.localeCompare(left.id),
+            const merged = [...teammateEvents, ...auditRows].sort(
+              (left, right) =>
+                right.at.localeCompare(left.at) ||
+                right.id.localeCompare(left.id),
             );
             setAuditEvents((current) =>
               cursor === "" ? merged : [...current, ...merged],
@@ -2056,8 +2214,14 @@ window.__ModuleLoader__.load({
             ) {
               return targetId;
             }
-            if (list.some((item) => item.id === current)) return current;
-            return list[0]?.id ?? "";
+            // 默认选择落在当前归档视图对应的模版集合里。
+            const pool = list.filter((item) =>
+              archivedOnlyRef.current
+                ? item.state === "archived"
+                : item.state !== "archived",
+            );
+            if (pool.some((item) => item.id === current)) return current;
+            return pool[0]?.id ?? "";
           });
         } catch (cause) {
           fail(cause);
@@ -2068,7 +2232,7 @@ window.__ModuleLoader__.load({
         if (token() === null || workspaceId === "") return;
         try {
           const result = await request(
-            `/api/collab/agent/external-runtimes?workspaceId=${encodeURIComponent(workspaceId)}`,
+            `/api/collab/agent/external-runtimes?workspaceId=${encodeURIComponent(workspaceId)}&includeArchived=1`,
           );
           setExternalRuntimes(result.runtimes ?? []);
           setCanManageExternal(result.canManage === true);
@@ -2117,7 +2281,7 @@ window.__ModuleLoader__.load({
         };
       }, []);
 
-      // 从任务详情返回时恢复到原来的 Teammate 与页签。
+      // 从任务详情返回时恢复到原来的 AI伙伴与页签。
       react.useEffect(() => {
         const pending = window.__pluginmaxPendingTeammate;
         if (pending === null || typeof pending !== "object") return;
@@ -2210,7 +2374,10 @@ window.__ModuleLoader__.load({
       ]);
 
       react.useEffect(() => {
-        const timer = window.setTimeout(() => setReportQuery(reportSearch), 320);
+        const timer = window.setTimeout(
+          () => setReportQuery(reportSearch),
+          320,
+        );
         return () => window.clearTimeout(timer);
       }, [reportSearch]);
 
@@ -2269,9 +2436,7 @@ window.__ModuleLoader__.load({
               setExternalWorkspaceId(identity.workspaceId);
               return;
             }
-            const memberWorkspace = list.find(
-              (item) => item.isMember === true,
-            );
+            const memberWorkspace = list.find((item) => item.isMember === true);
             if (!cancelled && memberWorkspace?.id !== undefined) {
               setExternalWorkspaceId(memberWorkspace.id);
             }
@@ -2305,12 +2470,17 @@ window.__ModuleLoader__.load({
         detail ?? teammates.find((item) => item.id === selectedId) ?? null;
       const selectedTemplate =
         teammateTemplates.find((item) => item.id === definitionTemplateId) ??
-        teammateTemplates.find(
-          (item) => selected !== null && item.id === selected.templateId,
-        ) ??
+        // 定义态严格跟随列表（definitionTemplateId）；运行态才回退到
+        // 当前实例所属的模版，避免详情显示列表里没有的模版。
+        (tab === "runtime"
+          ? teammateTemplates.find(
+              (item) => selected !== null && item.id === selected.templateId,
+            )
+          : undefined) ??
         null;
       const selectedTemplateInstances = teammates.filter(
-        (item) => selectedTemplate !== null && item.templateId === selectedTemplate.id,
+        (item) =>
+          selectedTemplate !== null && item.templateId === selectedTemplate.id,
       );
       const canManageSelectedTemplate =
         selectedTemplate !== null &&
@@ -2365,7 +2535,7 @@ window.__ModuleLoader__.load({
       /*
        * 定义态：只创建模版本身（草稿状态），随后直接进入模版编辑。
        * 这里不再连带创建实例——实例一律由运行态的「新建实例」显式创建，
-       * 否则只想要模版的人会在运行态凭空多出「未命名 AI Teammate」实例。
+       * 否则只想要模版的人会在运行态凭空多出「未命名 AI伙伴」实例。
        */
       const createTeammate = async (source) => {
         try {
@@ -2375,15 +2545,18 @@ window.__ModuleLoader__.load({
               .filter((item) => item.source === source)
               .map((item) => item.name.toLowerCase()),
           );
-          const base = "未命名 AI Teammate";
+          const base = "未命名 AI伙伴";
           let name = base;
           for (let index = 2; used.has(name.toLowerCase()); index += 1) {
             name = `${base} (${String(index)})`;
           }
-          const created = await request("/api/collab/teammate-templates/create", {
-            method: "POST",
-            body: { source, name, active: false },
-          });
+          const created = await request(
+            "/api/collab/teammate-templates/create",
+            {
+              method: "POST",
+              body: { source, name, active: false },
+            },
+          );
           await loadTeammateTemplates(created.template.id);
           setDefinitionTemplateId(created.template.id);
           setEditing(true);
@@ -2391,15 +2564,13 @@ window.__ModuleLoader__.load({
             name: created.template.name,
             role: created.template.role,
             description: created.template.description,
-            soul: created.template.soul,
-            scenarios: created.template.scenarios.join("\n"),
-            goals: created.template.goals.join("\n"),
+            soul: effectiveSoulText(created.template),
             tools: created.template.tools.join("\n"),
           });
           succeed(
             source === "platform"
-              ? "已创建平台模版草稿，保存后生效；需要 Teammate 时请在运行态「新建 Teammate」。"
-              : "已创建个人模版草稿，保存后生效；需要 Teammate 时请在运行态「新建 Teammate」。",
+              ? "已创建平台模版草稿，保存后生效；需要 AI伙伴时请在运行态「新建 AI伙伴」。"
+              : "已创建个人模版草稿，保存后生效；需要 AI伙伴时请在运行态「新建 AI伙伴」。",
           );
         } catch (cause) {
           fail(cause);
@@ -2417,7 +2588,7 @@ window.__ModuleLoader__.load({
             body: { teammateId: selected.id, templateId: switchTemplateId },
           });
           await Promise.all([loadList(selected.id), loadDetail(selected.id)]);
-          succeed("已切换 Teammate 引用的模版。");
+          succeed("已切换 AI伙伴引用的模版。");
         } catch (cause) {
           fail(cause);
         } finally {
@@ -2435,8 +2606,23 @@ window.__ModuleLoader__.load({
       });
 
       const startExternalCreate = () => {
+        setExternalArchivedOnly(false);
         setExternalEditing(true);
         setExternalForm(emptyExternalForm());
+      };
+
+      const startExternalEdit = (runtime) => {
+        setExternalArchivedOnly(false);
+        setExternalEditing(true);
+        setExternalForm({
+          runtimeId: runtime.id,
+          name: runtime.name,
+          provider: runtime.provider,
+          protocol: runtime.protocol,
+          command: runtime.command,
+          args: runtime.args.join("\n"),
+          active: runtime.status === "active",
+        });
       };
 
       const changeExternalProvider = (provider) => {
@@ -2447,27 +2633,32 @@ window.__ModuleLoader__.load({
                 ...current,
                 provider,
                 protocol: provider === "codex" ? "codex-jsonl" : "plain-text",
-                name:
-                  current.name === "" || current.name.startsWith("外部 Agent")
-                    ? provider === "codex"
-                      ? "Codex 本机"
-                      : provider === "workbuddy"
-                        ? "WorkBuddy CLI"
-                        : "自定义 Agent 命令"
-                    : current.name,
-                command:
-                  current.command === "" ||
-                  [
-                    "codex",
-                    "workbuddy",
-                    "/usr/local/bin/custom-agent",
-                  ].includes(current.command)
-                    ? provider === "codex"
-                      ? "codex"
-                      : provider === "workbuddy"
-                        ? "workbuddy"
-                        : "/usr/local/bin/custom-agent"
-                    : current.command,
+                ...(current.runtimeId !== undefined
+                  ? {}
+                  : {
+                      name:
+                        current.name === "" ||
+                        current.name.startsWith("外部 Agent")
+                          ? provider === "codex"
+                            ? "Codex 本机"
+                            : provider === "workbuddy"
+                              ? "WorkBuddy CLI"
+                              : "自定义 Agent 命令"
+                          : current.name,
+                      command:
+                        current.command === "" ||
+                        [
+                          "codex",
+                          "workbuddy",
+                          "/usr/local/bin/custom-agent",
+                        ].includes(current.command)
+                          ? provider === "codex"
+                            ? "codex"
+                            : provider === "workbuddy"
+                              ? "workbuddy"
+                              : "/usr/local/bin/custom-agent"
+                          : current.command,
+                    }),
               },
         );
       };
@@ -2480,25 +2671,39 @@ window.__ModuleLoader__.load({
             .split("\n")
             .map((item) => item.trim())
             .filter(Boolean);
-          const result = await request(
-            "/api/collab/agent/external-runtimes/create",
-            {
-              method: "POST",
-              body: {
-                workspaceId: externalWorkspaceId,
-                name: externalForm.name,
-                provider: externalForm.provider,
-                protocol: externalForm.protocol,
-                command: externalForm.command,
-                args,
-                status: externalForm.active ? "active" : "disabled",
-              },
-            },
-          );
+          const definition = {
+            name: externalForm.name,
+            provider: externalForm.provider,
+            protocol: externalForm.protocol,
+            command: externalForm.command,
+            args,
+            status: externalForm.active ? "active" : "disabled",
+          };
+          const result =
+            externalForm.runtimeId === undefined
+              ? await request("/api/collab/agent/external-runtimes/create", {
+                  method: "POST",
+                  body: {
+                    workspaceId: externalWorkspaceId,
+                    ...definition,
+                  },
+                })
+              : await request("/api/collab/agent/external-runtimes/update", {
+                  method: "POST",
+                  body: {
+                    workspaceId: externalWorkspaceId,
+                    runtimeId: externalForm.runtimeId,
+                    ...definition,
+                  },
+                });
           setExternalEditing(false);
           setExternalForm(null);
           await loadExternalRuntimes(externalWorkspaceId);
-          succeed(`已注册外部 Agent：${result.runtime.name}`);
+          succeed(
+            externalForm.runtimeId === undefined
+              ? `已注册外部 Agent：${result.runtime.name}`
+              : `已更新外部 Agent：${result.runtime.name}`,
+          );
         } catch (cause) {
           fail(cause);
         } finally {
@@ -2519,7 +2724,60 @@ window.__ModuleLoader__.load({
           });
           await loadExternalRuntimes(externalWorkspaceId);
           succeed(
-            status === "active" ? "外部 Agent 已启用。" : "外部 Agent 已停用。",
+            status === "active"
+              ? `外部 Agent「${runtime.name}」已启用。`
+              : `外部 Agent「${runtime.name}」已停用，绑定它的 AI伙伴在下一次派发时会失败。`,
+          );
+        } catch (cause) {
+          fail(cause);
+        } finally {
+          setExternalBusy(false);
+        }
+      };
+
+      /** 归档影响面：仍绑定该运行时、且未归档的 AI伙伴数量。 */
+      const externalRuntimeBindingCount = (runtime) =>
+        teammates.filter(
+          (item) =>
+            (item.execution ?? "builtin") === "external" &&
+            item.externalRuntimeId === runtime.id &&
+            item.state !== "archived",
+        ).length;
+
+      const archiveExternalRuntime = async () => {
+        const runtime = externalArchiveTarget;
+        if (runtime === null) return;
+        try {
+          setExternalBusy(true);
+          await request("/api/collab/agent/external-runtimes/archive", {
+            method: "POST",
+            body: { workspaceId: externalWorkspaceId, runtimeId: runtime.id },
+          });
+          setExternalArchiveTarget(null);
+          await loadExternalRuntimes(externalWorkspaceId);
+          const bindings = externalRuntimeBindingCount(runtime);
+          succeed(
+            bindings > 0
+              ? `外部 Agent「${runtime.name}」已归档，${bindings} 个 AI伙伴需要改绑或切回内置执行。`
+              : `外部 Agent「${runtime.name}」已归档。`,
+          );
+        } catch (cause) {
+          fail(cause);
+        } finally {
+          setExternalBusy(false);
+        }
+      };
+
+      const restoreExternalRuntime = async (runtime) => {
+        try {
+          setExternalBusy(true);
+          await request("/api/collab/agent/external-runtimes/restore", {
+            method: "POST",
+            body: { workspaceId: externalWorkspaceId, runtimeId: runtime.id },
+          });
+          await loadExternalRuntimes(externalWorkspaceId);
+          succeed(
+            `外部 Agent「${runtime.name}」已复原为停用，确认无误后再启用。`,
           );
         } catch (cause) {
           fail(cause);
@@ -2576,31 +2834,48 @@ window.__ModuleLoader__.load({
       const creatableTemplates = teammateTemplates.filter(
         (item) => item.state !== "archived",
       );
+      const createInstanceWorkspaces = workspaces.filter(
+        (item) => currentUser?.role === "admin" || item.isMember === true,
+      );
 
       const openCreateInstance = () => {
         const preferred =
           creatableTemplates.find((item) => item.id === selected?.templateId) ??
           creatableTemplates[0];
+        const preferredWorkspace =
+          createInstanceWorkspaces.find(
+            (item) => item.id === identity?.workspaceId,
+          ) ?? createInstanceWorkspaces[0];
         setCreateInstanceTemplateId(preferred?.id ?? "");
+        setCreateInstanceWorkspaceId(preferredWorkspace?.id ?? "");
         setCreateInstanceName("");
         setCreateInstanceOpen(true);
       };
 
       const createInstance = async () => {
-        if (createInstanceTemplateId === "" || busy) return;
+        if (
+          createInstanceTemplateId === "" ||
+          createInstanceWorkspaceId === "" ||
+          busy
+        )
+          return;
         const template = teammateTemplates.find(
           (item) => item.id === createInstanceTemplateId,
         );
         const name = createInstanceName.trim();
         try {
           setBusy(true);
-          const result = await request("/api/collab/teammates/create", {
-            method: "POST",
-            body: {
-              templateId: createInstanceTemplateId,
-              ...(name === "" ? {} : { name }),
+          const result = await request(
+            "/api/collab/teammates/create-with-employee",
+            {
+              method: "POST",
+              body: {
+                templateId: createInstanceTemplateId,
+                workspaceId: createInstanceWorkspaceId,
+                ...(name === "" ? {} : { name }),
+              },
             },
-          });
+          );
           const teammate = result.teammate;
           setCreateInstanceOpen(false);
           await loadList(teammate.id);
@@ -2617,7 +2892,7 @@ window.__ModuleLoader__.load({
           succeed(
             `已基于${
               template?.source === "platform" ? "平台" : "个人"
-            }模版「${template?.name ?? ""}」创建 Teammate，默认已生效；可继续完善名称与执行方式。`,
+            }模版「${template?.name ?? ""}」创建 AI伙伴，并绑定到关联项目。`,
           );
         } catch (cause) {
           fail(cause);
@@ -2630,7 +2905,7 @@ window.__ModuleLoader__.load({
         if (selected === null || instanceBusy) return;
         const name = instanceForm.name.trim();
         if (name === "") {
-          fail(new Error("Teammate 名称不能为空。"));
+          fail(new Error("AI伙伴名称不能为空。"));
           return;
         }
         const execution = instanceForm.execution ?? "builtin";
@@ -2657,7 +2932,7 @@ window.__ModuleLoader__.load({
           await loadDetail(result.teammate.id);
           succeed(
             (selected.execution ?? "builtin") === execution
-              ? "Teammate 资料已保存。"
+              ? "AI伙伴资料已保存。"
               : execution === "external"
                 ? "已切换为外部 Agent 执行。"
                 : "已切换为内置执行。",
@@ -2676,9 +2951,9 @@ window.__ModuleLoader__.load({
             name: selectedTemplate.name,
             role: selectedTemplate.role,
             description: selectedTemplate.description,
-            soul: selectedTemplate.soul,
-            scenarios: selectedTemplate.scenarios.join("\n"),
-            goals: selectedTemplate.goals.join("\n"),
+            // 场景行为 / 工作目标已并入 SOUL.md：编辑态直接呈现生效人格全文，
+            // 不再单独编辑这两个字段。
+            soul: effectiveSoulText(selectedTemplate),
             tools: selectedTemplate.tools.join("\n"),
           });
           setEditing(true);
@@ -2692,9 +2967,7 @@ window.__ModuleLoader__.load({
           name: selected.name,
           role: selected.role,
           description: selected.description,
-          soul: selected.soul,
-          scenarios: selected.scenarios.join("\n"),
-          goals: selected.goals.join("\n"),
+          soul: effectiveSoulText(selected),
           avatar: selected.avatar,
           execution: selected.execution ?? "builtin",
           externalRuntimeId: selected.externalRuntimeId ?? "",
@@ -2717,7 +2990,7 @@ window.__ModuleLoader__.load({
             if (
               selectedTemplate.source === "platform" &&
               !window.confirm(
-                "这是平台模版。保存后会影响后续使用该模版的 Teammate。",
+                "这是平台模版。保存后会影响后续使用该模版的 AI伙伴。",
               )
             ) {
               return;
@@ -2730,14 +3003,10 @@ window.__ModuleLoader__.load({
                 role: form.role,
                 description: form.description,
                 soul: form.soul,
-                scenarios: form.scenarios
-                  .split("\n")
-                  .map((item) => item.trim())
-                  .filter(Boolean),
-                goals: form.goals
-                  .split("\n")
-                  .map((item) => item.trim())
-                  .filter(Boolean),
+                // 场景行为 / 工作目标已并入 SOUL.md：清空旧字段，避免同一段内容
+                // 在生效人格里被追加两次。
+                scenarios: [],
+                goals: [],
                 tools: form.tools
                   .split("\n")
                   .map((item) => item.trim())
@@ -2765,7 +3034,7 @@ window.__ModuleLoader__.load({
           if (
             form.source === "platform" &&
             !window.confirm(
-              "这是平台归属定义。保存后会影响全平台该 DE 的所有 Teammate 行为。确认继续？",
+              "这是平台归属定义。保存后会影响全平台该模版的所有 AI伙伴行为。确认继续？",
             )
           ) {
             return;
@@ -2779,14 +3048,9 @@ window.__ModuleLoader__.load({
               role: form.role,
               description: form.description,
               soul: form.soul,
-              scenarios: form.scenarios
-                .split("\n")
-                .map((item) => item.trim())
-                .filter(Boolean),
-              goals: form.goals
-                .split("\n")
-                .map((item) => item.trim())
-                .filter(Boolean),
+              // 场景行为 / 工作目标已并入 SOUL.md，保存时清空旧字段。
+              scenarios: [],
+              goals: [],
               avatar: form.avatar,
               execution: form.execution,
               externalRuntimeId:
@@ -2824,10 +3088,13 @@ window.__ModuleLoader__.load({
           }
           try {
             setBusy(true);
-            const result = await request("/api/collab/teammate-templates/state", {
-              method: "POST",
-              body: { templateId: selectedTemplate.id, state: nextState },
-            });
+            const result = await request(
+              "/api/collab/teammate-templates/state",
+              {
+                method: "POST",
+                body: { templateId: selectedTemplate.id, state: nextState },
+              },
+            );
             await Promise.all([
               loadTeammateTemplates(result.template.id),
               loadList(selected?.id),
@@ -3066,7 +3333,7 @@ window.__ModuleLoader__.load({
         const roleLabel = (role) => WORKSPACE_ROLE_LABEL[role] ?? role;
         const confirmed = window.confirm(
           wholeProject
-            ? `让「${teammate.name}」退出项目「${workspaceTitle}」？\n\n· 撤销该项目下 ${String(activeRoles.length)} 条生效角色授权（历史记录保留）\n· 该项目下尚未完成的 ${String(pendingTasks.length)} 个任务将改派给 Teammate owner；Teammate owner 不是项目成员时改派给项目 owner`
+            ? `让「${teammate.name}」退出项目「${workspaceTitle}」？\n\n· 撤销该项目下 ${String(activeRoles.length)} 条生效角色授权（历史记录保留）\n· 该项目下尚未完成的 ${String(pendingTasks.length)} 个任务将改派给 AI伙伴负责人；AI伙伴负责人不是项目成员时改派给项目 owner`
             : `让「${teammate.name}」退出项目「${workspaceTitle}」的角色「${roleLabel(assignment.role)}」？\n\n角色授权会被撤销，历史记录保留；已指派的任务保持不变。`,
         );
         if (!confirmed) return;
@@ -3093,7 +3360,7 @@ window.__ModuleLoader__.load({
             loadRuntime(teammate.id),
           ]);
           const moved = (result.reassignedTaskIds ?? []).length;
-          const receiverName = result.receiver?.name ?? "Teammate owner";
+          const receiverName = result.receiver?.name ?? "AI伙伴负责人";
           succeed(
             moved === 0
               ? wholeProject
@@ -3234,13 +3501,17 @@ window.__ModuleLoader__.load({
               ...group,
               entries: groupTeammateTemplates(
                 visibleTeammates,
-                group.items.filter((item) => item.state !== "archived"),
+                group.items.filter((item) =>
+                  archivedOnly
+                    ? item.state === "archived"
+                    : item.state !== "archived",
+                ),
               ),
             }))
           : [
               {
                 key: "instances",
-                label: "全部 Teammate",
+                label: "全部 AI伙伴",
                 items: visibleTeammates,
                 entries: visibleTeammates.map((item) => ({
                   item,
@@ -3253,7 +3524,7 @@ window.__ModuleLoader__.load({
         "aside",
         {
           className: "pmtm-panel pmtm-directory",
-          "aria-label": "AI Teammates 列表",
+          "aria-label": "AI伙伴列表",
         },
         directoryGroups.map((group) => {
           const groupMetricTitle =
@@ -3289,7 +3560,7 @@ window.__ModuleLoader__.load({
                     "aria-label":
                       tab === "definition"
                         ? "模版近24小时统计说明"
-                        : "Teammate 近24小时统计说明",
+                        : "AI伙伴近24小时统计说明",
                     title: groupMetricTitle,
                   },
                   h(InfoIcon, null),
@@ -3339,7 +3610,7 @@ window.__ModuleLoader__.load({
                         "small",
                         null,
                         tab === "definition"
-                          ? `${item.role || "待定义"} · ${String(instanceIds.length)} 个 Teammate`
+                          ? `${item.role || "待定义"} · ${String(instanceIds.length)} 个 AI伙伴`
                           : `${item.role || "待定义"} · ${item.ownerName}`,
                       ),
                       h(
@@ -3552,17 +3823,30 @@ window.__ModuleLoader__.load({
                             ),
                         run.summary === undefined
                           ? null
-                          : h(
-                              "span",
-                              {
-                                style: {
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  whiteSpace: "nowrap",
+                          : expandedRunIds.includes(task.id)
+                            ? h(
+                                "div",
+                                {
+                                  className: "pmtm-md",
+                                  style: {
+                                    gap: 3,
+                                    maxHeight: "4.4em",
+                                    overflow: "hidden",
+                                  },
                                 },
-                              },
-                              run.summary,
-                            ),
+                                renderMarkdown(run.summary),
+                              )
+                            : h(
+                                "span",
+                                {
+                                  style: {
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                  },
+                                },
+                                run.summary,
+                              ),
                       ),
                     ),
                   )
@@ -3700,9 +3984,11 @@ window.__ModuleLoader__.load({
             { className: "pmtm-latest", style: { marginTop: 0 } },
             h("span", { className: "label" }, fallback),
             h(
-              "span",
-              { className: "text", style: { WebkitLineClamp: 3 } },
-              task.description || task.latestProgress || "暂无说明。",
+              "div",
+              { className: "text pmtm-md" },
+              renderMarkdown(
+                task.description || task.latestProgress || "暂无说明。",
+              ),
             ),
           );
         const plannedItem = (task, index) => {
@@ -3726,7 +4012,11 @@ window.__ModuleLoader__.load({
                 `队列第 ${String(index + 1)} 位 · ${meta(task)}`,
               ),
             ),
-            h("div", { className: "pmtm-runtime-body" }, latestOf(task, "计划说明")),
+            h(
+              "div",
+              { className: "pmtm-runtime-body" },
+              latestOf(task, "计划说明"),
+            ),
             h(
               "div",
               { className: "pmtm-queue-actions" },
@@ -3785,14 +4075,21 @@ window.__ModuleLoader__.load({
         const reviewItem = (task) =>
           h(
             "article",
-            { key: task.id, className: "pmtm-runtime-item status-review pmtm-plan-item" },
+            {
+              key: task.id,
+              className: "pmtm-runtime-item status-review pmtm-plan-item",
+            },
             h(
               "div",
               { className: "pmtm-runtime-main" },
               h("strong", null, `${task.id} · ${task.title}`),
               h("small", null, meta(task)),
             ),
-            h("div", { className: "pmtm-runtime-body" }, latestOf(task, "最新进展")),
+            h(
+              "div",
+              { className: "pmtm-runtime-body" },
+              latestOf(task, "最新进展"),
+            ),
             h(
               "div",
               { className: "pmtm-queue-actions" },
@@ -3802,7 +4099,8 @@ window.__ModuleLoader__.load({
                   type: "button",
                   className: "pmtm-btn small",
                   disabled: queueBusy,
-                  onClick: () => void confirmQueueTask(teammate, task, "approve"),
+                  onClick: () =>
+                    void confirmQueueTask(teammate, task, "approve"),
                 },
                 "通过",
               ),
@@ -3812,7 +4110,8 @@ window.__ModuleLoader__.load({
                   type: "button",
                   className: "pmtm-btn secondary small",
                   disabled: queueBusy,
-                  onClick: () => void confirmQueueTask(teammate, task, "reject"),
+                  onClick: () =>
+                    void confirmQueueTask(teammate, task, "reject"),
                 },
                 "退回并补充",
               ),
@@ -3832,7 +4131,8 @@ window.__ModuleLoader__.load({
                   { className: "pmtm-queue-reject" },
                   h("textarea", {
                     value: rejectNote,
-                    placeholder: "说明需要补充什么（必填），确认后任务会重新排队执行",
+                    placeholder:
+                      "说明需要补充什么（必填），确认后任务会重新排队执行",
                     "aria-label": "退回说明",
                     onChange: (event) => setRejectNote(event.target.value),
                   }),
@@ -3845,7 +4145,8 @@ window.__ModuleLoader__.load({
                         type: "button",
                         className: "pmtm-btn small",
                         disabled: queueBusy || rejectNote.trim() === "",
-                        onClick: () => void confirmQueueTask(teammate, task, "reject"),
+                        onClick: () =>
+                          void confirmQueueTask(teammate, task, "reject"),
                       },
                       "确认退回",
                     ),
@@ -3868,14 +4169,21 @@ window.__ModuleLoader__.load({
         const runningItem = (task) =>
           h(
             "article",
-            { key: task.id, className: "pmtm-runtime-item status-progress pmtm-plan-item" },
+            {
+              key: task.id,
+              className: "pmtm-runtime-item status-progress pmtm-plan-item",
+            },
             h(
               "div",
               { className: "pmtm-runtime-main" },
               h("strong", null, `${task.id} · ${task.title}`),
               h("small", null, meta(task)),
             ),
-            h("div", { className: "pmtm-runtime-body" }, latestOf(task, "最新进展")),
+            h(
+              "div",
+              { className: "pmtm-runtime-body" },
+              latestOf(task, "最新进展"),
+            ),
             h(
               "div",
               { className: "pmtm-queue-actions" },
@@ -4003,7 +4311,11 @@ window.__ModuleLoader__.load({
             running.length,
             running.length === 0
               ? null
-              : h("div", { className: "pmtm-runtime" }, running.map(runningItem)),
+              : h(
+                  "div",
+                  { className: "pmtm-runtime" },
+                  running.map(runningItem),
+                ),
             "当前没有正在执行的任务。",
           ),
           finished.length === 0
@@ -4130,7 +4442,7 @@ window.__ModuleLoader__.load({
                   disabled: workReportGenerating || !manageable,
                   title: manageable
                     ? "生成或更新今日工作日报"
-                    : "没有权限更新该 Teammate 的工作日报",
+                    : "没有权限更新该 AI伙伴的工作日报",
                   onClick: () => void generateWorkReport(teammate),
                 },
                 workReportGenerating ? "更新中" : "更新日报",
@@ -4163,21 +4475,13 @@ window.__ModuleLoader__.load({
                 "div",
                 { className: "pmtm-runtime-head-main" },
                 h("h3", null, "历史记录"),
-                h(
-                  "span",
-                  { className: "pmtm-count" },
-                  String(history.length),
-                ),
+                h("span", { className: "pmtm-count" }, String(history.length)),
               ),
             ),
             latest === null
               ? null
               : history.length === 0
-                ? h(
-                    "div",
-                    { className: "pmtm-empty" },
-                    "没有更早的历史快照。",
-                  )
+                ? h("div", { className: "pmtm-empty" }, "没有更早的历史快照。")
                 : h(
                     "div",
                     null,
@@ -4227,8 +4531,7 @@ window.__ModuleLoader__.load({
                 { className: "pmtm-role-perms" },
                 (assignment.permissions ?? [])
                   .map(
-                    (permission) =>
-                      PERMISSION_LABEL[permission] ?? permission,
+                    (permission) => PERMISSION_LABEL[permission] ?? permission,
                   )
                   .join(" · ") || "无权限项",
               ),
@@ -4330,7 +4633,7 @@ window.__ModuleLoader__.load({
             ? h(
                 "div",
                 { className: "pmtm-empty" },
-                "该 Teammate 还没有绑定员工档案，暂无项目角色。",
+                "该 AI伙伴还没有绑定员工档案，暂无项目角色。",
               )
             : projectRolesLoading && projectRoles.length === 0
               ? h("div", { className: "pmtm-empty" }, "角色加载中…")
@@ -4338,7 +4641,7 @@ window.__ModuleLoader__.load({
                 ? h(
                     "div",
                     { className: "pmtm-empty" },
-                    "该 Teammate 当前没有参与任何项目。",
+                    "该 AI伙伴当前没有参与任何项目。",
                   )
                 : h(
                     "div",
@@ -4404,10 +4707,7 @@ window.__ModuleLoader__.load({
                           className: "pmtm-btn secondary small",
                           disabled: auditLoading,
                           onClick: () =>
-                            void loadAuditEvents(
-                              selectedId,
-                              auditCursor,
-                            ),
+                            void loadAuditEvents(selectedId, auditCursor),
                         },
                         auditLoading ? "加载中…" : "加载更多",
                       ),
@@ -4417,6 +4717,7 @@ window.__ModuleLoader__.load({
 
       const renderRuntime = (teammate) => {
         const editPolicy = runtimeDetailEditPolicy(instanceEditing);
+        const executionPill = teammateExecutionPill(teammate, externalRuntimes);
         const template =
           teammate.templateId === undefined
             ? null
@@ -4449,19 +4750,13 @@ window.__ModuleLoader__.load({
                       className: "pmtm-input pmtm-instance-name",
                       value: instanceForm.name,
                       maxLength: 120,
-                      placeholder: "Teammate 名称",
-                      "aria-label": "Teammate 名称",
+                      placeholder: "AI伙伴名称",
+                      "aria-label": "AI伙伴名称",
                       onChange: (event) =>
                         setInstanceForm((current) => ({
                           ...current,
                           name: event.target.value,
                         })),
-                      onKeyDown: (event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          void saveInstanceProfileEdit();
-                        }
-                      },
                     })
                   : h(
                       "div",
@@ -4472,8 +4767,8 @@ window.__ModuleLoader__.load({
                         {
                           type: "button",
                           className: "pmtm-icon-btn",
-                          title: "编辑 Teammate 资料与执行方式",
-                          "aria-label": "编辑 Teammate 资料与执行方式",
+                          title: "编辑 AI伙伴资料与执行方式",
+                          "aria-label": "编辑 AI伙伴资料与执行方式",
                           onClick: startInstanceProfileEdit,
                         },
                         h(
@@ -4507,32 +4802,27 @@ window.__ModuleLoader__.load({
                   h(
                     "span",
                     {
-                      className: `pmtm-pill execution ${
-                        (teammate.execution ?? "builtin") === "external"
-                          ? "external"
-                          : "builtin"
-                      }`,
+                      className: `pmtm-pill execution ${executionPill.tone}`,
+                      title:
+                        executionPill.tone === "external warn"
+                          ? "绑定的外部 Agent 运行时不可用，派发前请改绑可用的运行时或切回内置执行"
+                          : undefined,
                     },
-                    (teammate.execution ?? "builtin") === "external"
-                      ? `外部 Agent · ${
-                          externalRuntimes.find(
-                            (runtime) =>
-                              runtime.id === teammate.externalRuntimeId,
-                          )?.name ??
-                          teammate.externalRuntimeId ??
-                          "未选择"
-                        }`
-                      : "内置执行",
+                    executionPill.text,
                   ),
-                  h("span", null, `最近同步于 ${timeShort(teammate.updatedAt)}`),
+                  h(
+                    "span",
+                    null,
+                    `最近同步于 ${timeShort(teammate.updatedAt)}`,
+                  ),
                   h(
                     "span",
                     {
                       className: "pmtm-pill template",
                       title:
                         template === null
-                          ? "该 Teammate 没有关联模版，按独立定义运行"
-                          : `同模版 Teammate ${String(template.instances)} 个`,
+                          ? "该 AI伙伴没有关联模版，按独立定义运行"
+                          : `同模版 AI伙伴 ${String(template.instances)} 个`,
                     },
                     template === null
                       ? "模版：未关联（独立定义）"
@@ -4548,8 +4838,8 @@ window.__ModuleLoader__.load({
                         value: instanceForm.description,
                         maxLength: 4_000,
                         placeholder:
-                          "描述这个 Teammate 负责什么、边界在哪，供指派和复盘时参考…",
-                        "aria-label": "Teammate 描述",
+                          "描述这个 AI伙伴负责什么、边界在哪，供指派和复盘时参考…",
+                        "aria-label": "AI伙伴描述",
                         onChange: (event) =>
                           setInstanceForm((current) => ({
                             ...current,
@@ -4575,16 +4865,8 @@ window.__ModuleLoader__.load({
                                   execution: event.target.value,
                                 })),
                             },
-                            h(
-                              "option",
-                              { value: "builtin" },
-                              "内置执行",
-                            ),
-                            h(
-                              "option",
-                              { value: "external" },
-                              "外部 Agent",
-                            ),
+                            h("option", { value: "builtin" }, "内置执行"),
+                            h("option", { value: "external" }, "外部 Agent"),
                           ),
                         ),
                         (instanceForm.execution ?? "builtin") === "external"
@@ -4604,23 +4886,24 @@ window.__ModuleLoader__.load({
                                       externalRuntimeId: event.target.value,
                                     })),
                                 },
-                                h(
-                                  "option",
-                                  { value: "" },
-                                  "请选择运行时",
+                                externalRuntimeOptions(
+                                  externalRuntimes,
+                                  instanceForm.externalRuntimeId,
                                 ),
-                                externalRuntimes
-                                  .filter(
-                                    (runtime) => runtime.status === "active",
-                                  )
-                                  .map((runtime) =>
-                                    h(
-                                      "option",
-                                      { key: runtime.id, value: runtime.id },
-                                      `${runtime.name} · ${runtime.provider}`,
-                                    ),
-                                  ),
                               ),
+                              (() => {
+                                const bound = unavailableBoundRuntime(
+                                  externalRuntimes,
+                                  instanceForm.externalRuntimeId,
+                                );
+                                return bound === undefined
+                                  ? null
+                                  : h(
+                                      "div",
+                                      { className: "pmtm-notice" },
+                                      `当前绑定的「${bound.name}」${externalRuntimeStatusLabel(bound.status)}，保存前请改绑启用中的运行时，或把执行方式切回内置执行。`,
+                                    );
+                              })(),
                             )
                           : null,
                       ),
@@ -4675,7 +4958,7 @@ window.__ModuleLoader__.load({
                     teammateId: teammate.id,
                     detailed: true,
                     scope: "instance",
-                    label: "Teammate 近24h工作负荷",
+                    label: "AI伙伴近24h工作负荷",
                   }),
                 )
               : null,
@@ -4737,11 +5020,11 @@ window.__ModuleLoader__.load({
                   className: "pmtm-btn quiet small",
                   disabled: busy || runningIds.includes(teammate.id),
                   title: runningIds.includes(teammate.id)
-                    ? "运行中的 Teammate 不能归档"
-                    : "归档运行态 Teammate",
+                    ? "运行中的 AI伙伴不能归档"
+                    : "归档运行态 AI伙伴",
                   onClick: () => setArchiveOpen(true),
                 },
-                "归档 Teammate",
+                "归档 AI伙伴",
               ),
             ),
           ),
@@ -4757,7 +5040,7 @@ window.__ModuleLoader__.load({
             {
               className: "pmtm-runtime-tabs",
               role: "tablist",
-              "aria-label": "AI Teammate 运行态内容",
+              "aria-label": "AI伙伴运行态内容",
             },
             ...RUNTIME_TABS.map((item) =>
               h(
@@ -4898,7 +5181,8 @@ window.__ModuleLoader__.load({
           return h("div", { className: "pmtm-actions" }, buttons);
         }
         const manageable =
-          canManagePlatform === true || teammate.ownerUserId === currentUser?.id;
+          canManagePlatform === true ||
+          teammate.ownerUserId === currentUser?.id;
         if (!manageable) return null;
         const buttons = [];
         if (teammate.state === "archived") {
@@ -4955,8 +5239,8 @@ window.__ModuleLoader__.load({
               className: "pmtm-btn secondary small",
               disabled: busy || runningIds.includes(teammate.id),
               title: runningIds.includes(teammate.id)
-                ? "运行中的 Teammate 不能归档"
-                : "归档运行态 Teammate",
+                ? "运行中的 AI伙伴不能归档"
+                : "归档运行态 AI伙伴",
               onClick: () => setArchiveOpen(true),
             },
             "归档",
@@ -4987,7 +5271,7 @@ window.__ModuleLoader__.load({
                 "h2",
                 null,
                 teammate.state === "draft"
-                  ? "新建 AI Teammate"
+                  ? "新建 AI伙伴"
                   : `编辑 ${teammate.name}`,
               ),
               h(
@@ -5171,17 +5455,24 @@ window.__ModuleLoader__.load({
                       onChange: (event) =>
                         setField("externalRuntimeId", event.target.value),
                     },
-                    h("option", { value: "" }, "请选择运行时"),
-                    externalRuntimes
-                      .filter((runtime) => runtime.status === "active")
-                      .map((runtime) =>
-                        h(
-                          "option",
-                          { key: runtime.id, value: runtime.id },
-                          `${runtime.name} · ${runtime.provider}`,
-                        ),
-                      ),
+                    externalRuntimeOptions(
+                      externalRuntimes,
+                      form.externalRuntimeId,
+                    ),
                   ),
+                  (() => {
+                    const bound = unavailableBoundRuntime(
+                      externalRuntimes,
+                      form.externalRuntimeId,
+                    );
+                    return bound === undefined
+                      ? null
+                      : h(
+                          "div",
+                          { className: "pmtm-notice" },
+                          `当前绑定的「${bound.name}」${externalRuntimeStatusLabel(bound.status)}，保存前请改绑启用中的运行时，或把执行方式切回内置执行。`,
+                        );
+                  })(),
                 )
               : null,
             h(
@@ -5249,34 +5540,6 @@ window.__ModuleLoader__.load({
               }),
             ),
             h(
-              "label",
-              { className: "pmtm-field" },
-              h(
-                "span",
-                { className: "label" },
-                "场景行为（每行一项，会并入 SOUL.md 的「## 工作场景」）",
-              ),
-              h("textarea", {
-                className: "pmtm-area",
-                value: form.scenarios,
-                onChange: (event) => setField("scenarios", event.target.value),
-              }),
-            ),
-            h(
-              "label",
-              { className: "pmtm-field" },
-              h(
-                "span",
-                { className: "label" },
-                "工作目标（每行一项，会并入 SOUL.md 的「## 工作目标」）",
-              ),
-              h("textarea", {
-                className: "pmtm-area",
-                value: form.goals,
-                onChange: (event) => setField("goals", event.target.value),
-              }),
-            ),
-            h(
               "div",
               {
                 className: "pmtm-actions wide",
@@ -5311,6 +5574,81 @@ window.__ModuleLoader__.load({
       };
 
       const renderExternalManager = () => {
+        const runtimeGroups = splitExternalRuntimes(externalRuntimes);
+        const archivedRuntimeCount = runtimeGroups.archived.length;
+        const visibleExternalRuntimes = externalArchivedOnly
+          ? runtimeGroups.archived
+          : runtimeGroups.defaultView;
+        const archivedBoundCount =
+          externalArchiveTarget === null
+            ? 0
+            : externalRuntimeBindingCount(externalArchiveTarget);
+        const externalArchiveDialog =
+          externalArchiveTarget === null
+            ? null
+            : h(
+                "div",
+                {
+                  className: "pmtm-mask",
+                  onClick: (event) => {
+                    if (event.target === event.currentTarget && !externalBusy)
+                      setExternalArchiveTarget(null);
+                  },
+                },
+                h(
+                  "div",
+                  {
+                    className: "pmtm-dialog",
+                    role: "dialog",
+                    "aria-modal": "true",
+                    "aria-label": `归档 ${externalArchiveTarget.name}`,
+                  },
+                  h(
+                    "div",
+                    { className: "pmtm-dialog-head" },
+                    h("h2", null, `归档 ${externalArchiveTarget.name}`),
+                    h(
+                      "button",
+                      {
+                        type: "button",
+                        className: "pmtm-btn secondary small",
+                        disabled: externalBusy,
+                        onClick: () => setExternalArchiveTarget(null),
+                      },
+                      "关闭",
+                    ),
+                  ),
+                  h(
+                    "div",
+                    {
+                      className: "pmtm-dialog-body",
+                      style: {
+                        margin: "14px 0 18px",
+                        color: "var(--dsw-alias-label-secondary)",
+                        fontSize: 12.5,
+                        lineHeight: 1.6,
+                      },
+                    },
+                    archivedBoundCount > 0
+                      ? `归档后该运行时会从默认列表隐藏，不能再被选择或执行。当前有 ${archivedBoundCount} 个 AI伙伴仍绑定它，需要改绑其他运行时或切回内置执行。归档可以复原，复原后为停用状态。`
+                      : "归档后该运行时会从默认列表隐藏，不能再被选择或执行。归档可以复原，复原后为停用状态。",
+                  ),
+                  h(
+                    "div",
+                    { className: "pmtm-dialog-foot" },
+                    h(
+                      "button",
+                      {
+                        type: "button",
+                        className: "pmtm-btn danger",
+                        disabled: externalBusy,
+                        onClick: () => void archiveExternalRuntime(),
+                      },
+                      externalBusy ? "归档中…" : "确认归档",
+                    ),
+                  ),
+                ),
+              );
         return h(
           "div",
           {
@@ -5324,6 +5662,20 @@ window.__ModuleLoader__.load({
             h(
               "div",
               { style: { marginLeft: "auto", display: "flex", gap: 8 } },
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: `pmtm-token${externalArchivedOnly ? " active" : ""}`,
+                  "aria-pressed": externalArchivedOnly,
+                  title: "在运行时列表与已归档运行时之间切换",
+                  disabled: externalEditing,
+                  onClick: () => setExternalArchivedOnly((current) => !current),
+                },
+                externalArchivedOnly
+                  ? "返回运行列表"
+                  : `已归档 ${archivedRuntimeCount}`,
+              ),
               canManageExternal
                 ? h(
                     "button",
@@ -5361,6 +5713,17 @@ window.__ModuleLoader__.load({
               ? h(
                   "div",
                   { className: "pmtm-profile-form" },
+                  h(
+                    "div",
+                    { className: "pmtm-editor-head" },
+                    h(
+                      "h2",
+                      null,
+                      externalForm.runtimeId === undefined
+                        ? "注册运行时"
+                        : "编辑运行时",
+                    ),
+                  ),
                   h(
                     "label",
                     { className: "pmtm-field" },
@@ -5479,34 +5842,51 @@ window.__ModuleLoader__.load({
                           externalBusy || externalForm.name.trim() === "",
                         onClick: () => void saveExternalRuntime(),
                       },
-                      externalBusy ? "保存中" : "保存运行时",
+                      externalBusy
+                        ? "保存中"
+                        : externalForm.runtimeId === undefined
+                          ? "保存运行时"
+                          : "保存修改",
                     ),
                   ),
                 )
-              : externalRuntimes.length === 0
+              : visibleExternalRuntimes.length === 0
                 ? h(
                     "div",
                     { className: "pmtm-profile-empty tall" },
-                    "还没有外部 Agent 运行时。",
+                    externalArchivedOnly
+                      ? "还没有已归档的外部 Agent 运行时。"
+                      : "还没有外部 Agent 运行时。",
                   )
                 : h(
                     "div",
                     { className: "pmtm-profile-list" },
-                    externalRuntimes.map((runtime) =>
+                    visibleExternalRuntimes.map((runtime) =>
                       h(
                         "div",
                         {
                           key: runtime.id,
-                          className: "pmtm-profile-item runtime",
+                          className: `pmtm-profile-item runtime ${externalRuntimeStatusTone(runtime.status)}`,
                         },
                         h(
                           "div",
                           null,
-                          h("strong", null, runtime.name),
+                          h(
+                            "div",
+                            { className: "pmtm-runtime-head-line" },
+                            h("strong", null, runtime.name),
+                            h(
+                              "span",
+                              {
+                                className: `pmtm-pill runtime-status ${externalRuntimeStatusTone(runtime.status)}`,
+                              },
+                              externalRuntimeStatusLabel(runtime.status),
+                            ),
+                          ),
                           h(
                             "div",
                             { className: "pmtm-inline-sub" },
-                            `${runtime.provider} · ${runtime.protocol} · ${runtime.status === "active" ? "启用" : "停用"}`,
+                            `${externalRuntimeProviderLabel(runtime.provider)} · ${externalRuntimeProtocolLabel(runtime.protocol)}`,
                           ),
                           h(
                             "div",
@@ -5516,6 +5896,13 @@ window.__ModuleLoader__.load({
                               ? ""
                               : ` ${runtime.args.join(" ")}`,
                           ),
+                          externalRuntimeBindingCount(runtime) > 0
+                            ? h(
+                                "div",
+                                { className: "pmtm-inline-sub" },
+                                `已绑定 ${externalRuntimeBindingCount(runtime)} 个 AI伙伴`,
+                              )
+                            : null,
                           runtime.lastProbeMessage !== undefined
                             ? h(
                                 "div",
@@ -5525,46 +5912,85 @@ window.__ModuleLoader__.load({
                             : null,
                         ),
                         canManageExternal
-                          ? h(
-                              "div",
-                              { className: "pmtm-actions" },
-                              h(
-                                "button",
-                                {
-                                  type: "button",
-                                  className: "pmtm-btn secondary small",
-                                  disabled: externalBusy,
-                                  onClick: () =>
-                                    void probeExternalRuntime(runtime),
-                                },
-                                "探测",
-                              ),
-                              h(
-                                "button",
-                                {
-                                  type: "button",
-                                  className: "pmtm-btn secondary small",
-                                  disabled: externalBusy,
-                                  onClick: () =>
-                                    void changeExternalState(
-                                      runtime,
-                                      runtime.status === "active"
-                                        ? "disabled"
-                                        : "active",
-                                    ),
-                                },
-                                runtime.status === "active" ? "停用" : "启用",
-                              ),
-                            )
+                          ? externalArchivedOnly
+                            ? h(
+                                "div",
+                                { className: "pmtm-actions" },
+                                h(
+                                  "button",
+                                  {
+                                    type: "button",
+                                    className: "pmtm-btn small",
+                                    disabled: externalBusy,
+                                    onClick: () =>
+                                      void restoreExternalRuntime(runtime),
+                                  },
+                                  "复原",
+                                ),
+                              )
+                            : h(
+                                "div",
+                                { className: "pmtm-actions" },
+                                h(
+                                  "button",
+                                  {
+                                    type: "button",
+                                    className: "pmtm-btn small",
+                                    disabled: externalBusy,
+                                    onClick: () => startExternalEdit(runtime),
+                                  },
+                                  "编辑",
+                                ),
+                                h(
+                                  "button",
+                                  {
+                                    type: "button",
+                                    className: "pmtm-btn secondary small",
+                                    disabled: externalBusy,
+                                    onClick: () =>
+                                      void probeExternalRuntime(runtime),
+                                  },
+                                  "探测",
+                                ),
+                                h(
+                                  "button",
+                                  {
+                                    type: "button",
+                                    className: "pmtm-btn secondary small",
+                                    disabled: externalBusy,
+                                    onClick: () =>
+                                      void changeExternalState(
+                                        runtime,
+                                        runtime.status === "active"
+                                          ? "disabled"
+                                          : "active",
+                                      ),
+                                  },
+                                  runtime.status === "active" ? "停用" : "启用",
+                                ),
+                                h(
+                                  "button",
+                                  {
+                                    type: "button",
+                                    className: "pmtm-btn danger small",
+                                    disabled: externalBusy,
+                                    onClick: () =>
+                                      setExternalArchiveTarget(runtime),
+                                  },
+                                  "归档",
+                                ),
+                              )
                           : null,
                       ),
                     ),
                   ),
+          externalArchiveDialog,
         );
       };
 
       const renderTemplateEditor = () => {
-        if (selectedTemplate === null) return h("div", { className: "pmtm-empty" }, "请选择模版。");
+        if (selectedTemplate === null)
+          return h("div", { className: "pmtm-empty" }, "请选择模版。");
         const setField = (key, value) =>
           setForm((current) =>
             current === null ? current : { ...current, [key]: value },
@@ -5590,7 +6016,7 @@ window.__ModuleLoader__.load({
             ? h(
                 "div",
                 { className: "pmtm-notice" },
-                "平台模版由平台管理员维护；任何活跃用户都可以基于它创建自己的 Teammate。",
+                "平台模版由平台管理员维护；任何活跃用户都可以基于它创建自己的 AI伙伴。",
               )
             : null,
           h(
@@ -5633,7 +6059,8 @@ window.__ModuleLoader__.load({
               h("textarea", {
                 className: "pmtm-area",
                 value: form.description,
-                onChange: (event) => setField("description", event.target.value),
+                onChange: (event) =>
+                  setField("description", event.target.value),
               }),
             ),
             h(
@@ -5677,34 +6104,6 @@ window.__ModuleLoader__.load({
                 className: "pmtm-area soul",
                 value: form.soul,
                 onChange: (event) => setField("soul", event.target.value),
-              }),
-            ),
-            h(
-              "label",
-              { className: "pmtm-field" },
-              h(
-                "span",
-                { className: "label" },
-                "场景行为（每行一项，会并入 SOUL.md 的「## 工作场景」）",
-              ),
-              h("textarea", {
-                className: "pmtm-area",
-                value: form.scenarios,
-                onChange: (event) => setField("scenarios", event.target.value),
-              }),
-            ),
-            h(
-              "label",
-              { className: "pmtm-field" },
-              h(
-                "span",
-                { className: "label" },
-                "工作目标（每行一项，会并入 SOUL.md 的「## 工作目标」）",
-              ),
-              h("textarea", {
-                className: "pmtm-area",
-                value: form.goals,
-                onChange: (event) => setField("goals", event.target.value),
               }),
             ),
             h(
@@ -5768,7 +6167,10 @@ window.__ModuleLoader__.load({
             h(
               "div",
               { className: "pmtm-editor-identity" },
-              h(TeammateAvatar, { teammate: selectedTemplate, className: "large" }),
+              h(TeammateAvatar, {
+                teammate: selectedTemplate,
+                className: "large",
+              }),
               h(
                 "div",
                 { className: "pmtm-editor-main" },
@@ -5779,7 +6181,8 @@ window.__ModuleLoader__.load({
                   h(
                     "span",
                     { className: `pmtm-state ${selectedTemplate.state}` },
-                    STATE_LABEL[selectedTemplate.state] ?? selectedTemplate.state,
+                    STATE_LABEL[selectedTemplate.state] ??
+                      selectedTemplate.state,
                   ),
                   h(
                     "span",
@@ -5787,7 +6190,11 @@ window.__ModuleLoader__.load({
                     `归属：${selectedTemplate.source === "platform" ? "平台" : "个人"}`,
                   ),
                   h("span", null, selectedTemplate.role || "待定义"),
-                  h("span", null, `${String(instances.length)} 个 Teammate · ${selectedTemplate.version}`),
+                  h(
+                    "span",
+                    null,
+                    `${String(instances.length)} 个 AI伙伴 · ${selectedTemplate.version}`,
+                  ),
                 ),
               ),
             ),
@@ -5815,8 +6222,8 @@ window.__ModuleLoader__.load({
                 "span",
                 { className: "value" },
                 selectedTemplate.state === "active"
-                  ? "可用于创建新 Teammate 和派发"
-                  : "只阻止新派发，不级联改 Teammate 状态",
+                  ? "可用于创建新 AI伙伴和派发"
+                  : "只阻止新派发，不级联改 AI伙伴状态",
               ),
             ),
             h(
@@ -5833,7 +6240,11 @@ window.__ModuleLoader__.load({
               "div",
               { className: "pmtm-field card wide" },
               h("span", { className: "label" }, "基础说明"),
-              h("span", { className: "value" }, selectedTemplate.description || "尚未填写。"),
+              h(
+                "span",
+                { className: "value" },
+                selectedTemplate.description || "尚未填写。",
+              ),
             ),
           ),
           h(
@@ -5851,7 +6262,16 @@ window.__ModuleLoader__.load({
               { className: "pmtm-block" },
               h("h3", null, "工具"),
               selectedTemplate.tools.length === 0
-                ? h("div", { style: { color: "var(--dsw-alias-label-tertiary)", fontSize: 11.5 } }, "未限制工具清单。")
+                ? h(
+                    "div",
+                    {
+                      style: {
+                        color: "var(--dsw-alias-label-tertiary)",
+                        fontSize: 11.5,
+                      },
+                    },
+                    "未限制工具清单。",
+                  )
                 : h(
                     "ul",
                     { className: "pmtm-rules" },
@@ -5863,9 +6283,18 @@ window.__ModuleLoader__.load({
             h(
               "section",
               { className: "pmtm-block", style: { gridColumn: "1 / -1" } },
-              h("h3", null, "使用该模版的 Teammate"),
+              h("h3", null, "使用该模版的 AI伙伴"),
               instances.length === 0
-                ? h("div", { style: { color: "var(--dsw-alias-label-tertiary)", fontSize: 11.5 } }, "暂无 Teammate。")
+                ? h(
+                    "div",
+                    {
+                      style: {
+                        color: "var(--dsw-alias-label-tertiary)",
+                        fontSize: 11.5,
+                      },
+                    },
+                    "暂无 AI伙伴。",
+                  )
                 : h(
                     "ul",
                     { className: "pmtm-rules" },
@@ -5910,11 +6339,7 @@ window.__ModuleLoader__.load({
                     { className: `pmtm-state ${teammate.state}` },
                     STATE_LABEL[teammate.state] ?? teammate.state,
                   ),
-                  h(
-                    "span",
-                    null,
-                    `创建人：${teammate.ownerName}`,
-                  ),
+                  h("span", null, `创建人：${teammate.ownerName}`),
                   h("span", null, teammate.role || "待定义"),
                   h("span", null, teammate.version),
                 ),
@@ -5959,7 +6384,7 @@ window.__ModuleLoader__.load({
                       value: switchTemplateId,
                       onChange: (event) =>
                         setSwitchTemplateId(event.target.value),
-                      "aria-label": "选择 AI Teammate 模版",
+                      "aria-label": "选择 AI伙伴模版",
                     },
                     teammateTemplates
                       .filter((item) => item.state !== "archived")
@@ -6060,8 +6485,9 @@ window.__ModuleLoader__.load({
                       h(CodeValue, {
                         label: "项目",
                         value:
-                          workspaces.find((item) => item.id === identity.workspaceId)
-                            ?.title ?? "项目",
+                          workspaces.find(
+                            (item) => item.id === identity.workspaceId,
+                          )?.title ?? "项目",
                         code: identity.workspaceId,
                       }),
                     ],
@@ -6130,11 +6556,7 @@ window.__ModuleLoader__.load({
               "div",
               { className: "pmtm-field card" },
               h("span", { className: "label" }, "创建人"),
-              h(
-                "span",
-                { className: "value" },
-                teammate.ownerName,
-              ),
+              h("span", { className: "value" }, teammate.ownerName),
             ),
             h(
               "div",
@@ -6241,14 +6663,24 @@ window.__ModuleLoader__.load({
           type: "button",
           className: `pmtm-token${archivedOnly ? " active" : ""}`,
           "aria-pressed": archivedOnly,
-          title: "在运行列表与已归档 Teammate 之间切换",
+          title:
+            tab === "definition"
+              ? "在模版列表与已归档模版之间切换"
+              : "在运行列表与已归档 AI伙伴之间切换",
           onClick: () => setArchivedView(!archivedOnlyRef.current),
         },
-        archivedOnly ? "返回运行列表" : `已归档 ${archivedTeammates.length}`,
+        archivedOnly
+          ? "返回运行列表"
+          : `已归档 ${
+              tab === "definition"
+                ? teammateTemplates.filter((item) => item.state === "archived")
+                    .length
+                : archivedTeammates.length
+            }`,
       );
 
       /*
-       * 运行态只管理 Teammate：入口是"选模版新建 Teammate"；模版的增删改属于定义态。
+       * 运行态只管理 AI伙伴：入口是"选模版新建 AI伙伴"；模版的增删改属于定义态。
        */
       /*
        * 数据范围开关（平台管理员）：两段式，高亮段 = 当前实际视图，
@@ -6269,7 +6701,7 @@ window.__ModuleLoader__.load({
                 className: `pmtm-token${scopeAll ? "" : " active"}`,
                 "aria-pressed": !scopeAll,
                 title:
-                  "默认视图：我创建的 Teammate + 平台共享 Teammate（不含其他用户的个人 Teammate）",
+                  "默认视图：我创建的 AI伙伴 + 平台共享 AI伙伴（不含其他用户的个人 AI伙伴）",
                 onClick: () => {
                   if (scopeAllRef.current) setScopeView(false);
                 },
@@ -6282,7 +6714,8 @@ window.__ModuleLoader__.load({
                 type: "button",
                 className: `pmtm-token${scopeAll ? " active" : ""}`,
                 "aria-pressed": scopeAll,
-                title: "平台全量视图：显示全部账号（含其他用户个人）的 Teammate",
+                title:
+                  "平台全量视图：显示全部账号（含其他用户个人）的 AI伙伴",
                 onClick: () => {
                   if (!scopeAllRef.current) setScopeView(true);
                 },
@@ -6301,10 +6734,10 @@ window.__ModuleLoader__.load({
           title:
             creatableTemplates.length === 0
               ? "还没有可用模版，请先到定义态管理创建模版"
-              : "基于已有模版创建一个新的 Teammate",
+              : "基于已有模版创建一个新的 AI伙伴",
           onClick: openCreateInstance,
         },
-        "新建 Teammate",
+        "新建 AI伙伴",
       );
 
       const templateCreateActions = canManagePlatform
@@ -6315,7 +6748,7 @@ window.__ModuleLoader__.load({
                 type: "button",
                 className: "pmtm-btn secondary",
                 disabled: busy,
-                title: "新建个人模版草稿（不会自动创建 Teammate）",
+                title: "新建个人模版草稿（不会自动创建 AI伙伴）",
                 onClick: () => void createTeammate("personal"),
               },
               "新建个人模版",
@@ -6326,7 +6759,7 @@ window.__ModuleLoader__.load({
                 type: "button",
                 className: "pmtm-btn",
                 disabled: busy,
-                title: "新建平台模版草稿（不会自动创建 Teammate）",
+                title: "新建平台模版草稿（不会自动创建 AI伙伴）",
                 onClick: () => void createTeammate("platform"),
               },
               "新建平台模版",
@@ -6339,7 +6772,7 @@ window.__ModuleLoader__.load({
                 type: "button",
                 className: "pmtm-btn",
                 disabled: busy,
-                title: "新建个人模版草稿（不会自动创建 Teammate）",
+                title: "新建个人模版草稿（不会自动创建 AI伙伴）",
                 onClick: () => void createTeammate("personal"),
               },
               "新建个人模版",
@@ -6360,7 +6793,7 @@ window.__ModuleLoader__.load({
         h(
           "div",
           { className: "pmtm-head" },
-          h("div", null, h("h1", null, "AI Teammates")),
+          h("div", null, h("h1", null, "AI伙伴")),
           h(
             "div",
             { className: "pmtm-head-actions" },
@@ -6375,7 +6808,7 @@ window.__ModuleLoader__.load({
                 "aria-selected": section === "teammate",
                 onClick: () => setSection("teammate"),
               },
-              "AI Teammate 管理",
+              "AI伙伴管理",
             ),
             h(
               "button",
@@ -6404,7 +6837,7 @@ window.__ModuleLoader__.load({
                 {
                   className: "pmtm-tabs",
                   role: "tablist",
-                  "aria-label": "AI Teammates 查看方式",
+                  "aria-label": "AI伙伴查看方式",
                 },
                 h(
                   "button",
@@ -6450,30 +6883,30 @@ window.__ModuleLoader__.load({
         section === "external"
           ? renderExternalManager()
           : h(
-                "div",
-                { className: "pmtm-layout" },
-                directory,
-                h(
-                  "section",
-                  {
-                    className: "pmtm-panel pmtm-editor",
-                    "aria-label": "AI Teammate 详情",
-                  },
-                  loading && teammates.length === 0
-                    ? h("div", { className: "pmtm-empty" }, "加载中…")
-                    : tab === "definition"
-                      ? renderDefinition(null)
-                      : selected === null
+              "div",
+              { className: "pmtm-layout" },
+              directory,
+              h(
+                "section",
+                {
+                  className: "pmtm-panel pmtm-editor",
+                  "aria-label": "AI伙伴详情",
+                },
+                loading && teammates.length === 0
+                  ? h("div", { className: "pmtm-empty" }, "加载中…")
+                  : tab === "definition"
+                    ? renderDefinition(null)
+                    : selected === null
                       ? h(
                           "div",
                           { className: "pmtm-empty" },
-                          "还没有 AI Teammate。",
+                          "还没有 AI伙伴。",
                         )
                       : tab === "runtime"
                         ? renderRuntime(selected)
                         : renderDefinition(selected),
-                ),
               ),
+            ),
         createInstanceOpen
           ? h(
               "div",
@@ -6490,12 +6923,12 @@ window.__ModuleLoader__.load({
                   className: "pmtm-dialog",
                   role: "dialog",
                   "aria-modal": "true",
-                  "aria-label": "新建 Teammate",
+                  "aria-label": "新建 AI伙伴",
                 },
                 h(
                   "div",
                   { className: "pmtm-dialog-head" },
-                  h("h2", null, "新建 Teammate"),
+                  h("h2", null, "新建 AI伙伴"),
                   h(
                     "button",
                     {
@@ -6516,7 +6949,35 @@ window.__ModuleLoader__.load({
                   h(
                     "div",
                     { style: { color: "var(--dsw-alias-label-secondary)" } },
-                    "Teammate 基于已有模版创建，创建后默认为已生效；模版本身的增删改请在「定义态管理」里操作。",
+                    "AI伙伴基于已有模版创建，并绑定一个可参与的项目；模版本身的增删改请在「定义态管理」里操作。",
+                  ),
+                  h(
+                    "label",
+                    { className: "pmtm-field" },
+                    h("span", { className: "label" }, "关联项目"),
+                    h(
+                      "select",
+                      {
+                        className: "pmtm-select",
+                        value: createInstanceWorkspaceId,
+                        "aria-label": "关联项目",
+                        onChange: (event) =>
+                          setCreateInstanceWorkspaceId(event.target.value),
+                      },
+                      createInstanceWorkspaces.length === 0
+                        ? h(
+                            "option",
+                            { value: "" },
+                            "请先加入一个项目",
+                          )
+                        : createInstanceWorkspaces.map((item) =>
+                            h(
+                              "option",
+                              { value: item.id, key: item.id },
+                              item.title?.trim() || item.path || item.id,
+                            ),
+                          ),
+                    ),
                   ),
                   h(
                     "label",
@@ -6545,22 +7006,16 @@ window.__ModuleLoader__.load({
                   h(
                     "label",
                     { className: "pmtm-field" },
-                    h("span", { className: "label" }, "Teammate 名称（可选）"),
+                    h("span", { className: "label" }, "AI伙伴名称（可选）"),
                     h("input", {
                       type: "text",
                       className: "pmtm-input",
                       value: createInstanceName,
                       maxLength: 120,
                       placeholder: "留空则沿用模版名称",
-                      "aria-label": "Teammate 名称",
+                      "aria-label": "AI伙伴名称",
                       onChange: (event) =>
                         setCreateInstanceName(event.target.value),
-                      onKeyDown: (event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          void createInstance();
-                        }
-                      },
                     }),
                   ),
                 ),
@@ -6581,10 +7036,13 @@ window.__ModuleLoader__.load({
                     {
                       type: "button",
                       className: "pmtm-btn",
-                      disabled: busy || createInstanceTemplateId === "",
+                      disabled:
+                        busy ||
+                        createInstanceTemplateId === "" ||
+                        createInstanceWorkspaceId === "",
                       onClick: () => void createInstance(),
                     },
-                    busy ? "创建中…" : "创建 Teammate",
+                    busy ? "创建中…" : "创建 AI伙伴",
                   ),
                 ),
               ),
@@ -6850,7 +7308,7 @@ window.__ModuleLoader__.load({
                       lineHeight: 1.6,
                     },
                   },
-                  `归档后该 Teammate 将从默认列表隐藏。${selected.ownerName} 将接管名下未归档且未完成的任务；历史已完成任务保持原责任人。`,
+                  `归档后该 AI伙伴将从默认列表隐藏。${selected.ownerName} 将接管名下未归档且未完成的任务；历史已完成任务保持原责任人。`,
                 ),
                 h(
                   "div",
@@ -6888,6 +7346,11 @@ window.__ModuleLoader__.load({
       markdownTableCells,
       isMarkdownTableSeparator,
       runtimeDetailEditPolicy,
+      externalRuntimeStatusLabel,
+      splitExternalRuntimes,
+      teammateExecutionPill,
+      externalRuntimeOptions,
+      unavailableBoundRuntime,
     };
     exports.apply = (ctx) => {
       ctx.slots.inject("pluginmax.global", () =>

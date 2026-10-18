@@ -302,10 +302,8 @@ window.__ModuleLoader__.load({
       const claimableSeats = (config?.seats ?? []).filter((seat) => {
         if (seat.participantKind !== "human" && seat.participantKind !== "any")
           return false;
-        return !seats.some(
-          (assignment) =>
-            assignment.seatId === seat.id && assignment.status !== "released",
-        );
+        // 项目角色是多人集合：已经有人在角色上，也不挡新成员加入。
+        return true;
       });
       const seatStatus = (status) => {
         if (status === "claimed") return "已认领";
@@ -349,17 +347,13 @@ window.__ModuleLoader__.load({
           setPhase("login");
           return;
         }
-        const [
-          personaResult,
-          typeResult,
-          workspaceResult,
-          currentUserResult,
-        ] = await Promise.all([
-          request("/api/collab/roles/personas"),
-          request("/api/collab/roles/types"),
-          request("/api/collab/team/workspaces"),
-          request("/api/collab/auth/me"),
-        ]);
+        const [personaResult, typeResult, workspaceResult, currentUserResult] =
+          await Promise.all([
+            request("/api/collab/roles/personas"),
+            request("/api/collab/roles/types"),
+            request("/api/collab/team/workspaces"),
+            request("/api/collab/auth/me"),
+          ]);
         setPersonas(personaResult.personas);
         setTypes(typeResult.types);
         setWorkspaces(workspaceResult.workspaces);
@@ -559,8 +553,7 @@ window.__ModuleLoader__.load({
                         id: "pluginmax-roles-workspace",
                         style: inputStyle,
                         value: workspaceId,
-                        onChange: (event) =>
-                          setWorkspaceId(event.target.value),
+                        onChange: (event) => setWorkspaceId(event.target.value),
                         children: workspaces.map((workspace) =>
                           jsxRuntime.jsx(
                             "option",
@@ -754,6 +747,16 @@ window.__ModuleLoader__.load({
           jsxRuntime.jsxs(Panel, {
             title: "工作区类型",
             children: [
+              jsxRuntime.jsx("p", {
+                role: "note",
+                style: {
+                  color: "var(--dsw-alias-label-secondary)",
+                  fontSize: 13,
+                  margin: 0,
+                },
+                children:
+                  "工作区类型只用于空项目或尚未初始化项目角色的项目；已有项目角色请到「项目设置 → 项目角色」调整。",
+              }),
               materializeFeedback.text === ""
                 ? null
                 : jsxRuntime.jsx("p", {
@@ -873,6 +876,8 @@ window.__ModuleLoader__.load({
                             type: "button",
                             style: secondaryButtonStyle,
                             disabled: materializeTypeId !== "",
+                            title:
+                              "仅用于尚未初始化项目角色的项目；已有项目角色请到项目设置中调整",
                             onClick: () => materialize(item.id),
                             children:
                               materializeTypeId === item.id
@@ -896,9 +901,7 @@ window.__ModuleLoader__.load({
               children: [
                 jsxRuntime.jsx("select", {
                   "aria-label": "选择可认领席位",
-                  disabled:
-                    config === null ||
-                    claimableSeats.length === 0,
+                  disabled: config === null || claimableSeats.length === 0,
                   style: { ...inputStyle, width: 180 },
                   value: claimSeat,
                   onChange: (event) => setClaimSeat(event.target.value),
@@ -986,8 +989,7 @@ window.__ModuleLoader__.load({
                                   })
                                 : jsxRuntime.jsx("span", {
                                     style: {
-                                      color:
-                                        "var(--dsw-alias-label-secondary)",
+                                      color: "var(--dsw-alias-label-secondary)",
                                     },
                                     children: "-",
                                   }),
@@ -1007,14 +1009,13 @@ window.__ModuleLoader__.load({
 
     exports.inject = ["slots"];
     exports.apply = (ctx) =>
-      ctx.slots.inject("settings.section", () =>
+      ctx.slots.inject("pluginmax.account-access.tab", () =>
         ctx.slots.register(
           {
-            name: "settings.section",
-            id: "pluginmax-roles",
-            order: 82,
+            name: "pluginmax.account-access.tab",
+            id: "roles",
+            order: 20,
             label: () => "角色",
-            inject: () => ({}),
           },
           () => jsxRuntime.jsx(RolesSection, {}),
         ),

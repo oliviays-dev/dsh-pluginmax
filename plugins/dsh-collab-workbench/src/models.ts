@@ -36,6 +36,8 @@ export const briefTagSchema = z.enum([
   "decision",
   /** 「待我验收」：条目生命周期是「任务已交付、等责任人验收」，与操作按钮一一对应。 */
   "review",
+  /** 「被催办」：派出方催过我，条目属于 escalation，但标签要说清是催办。 */
+  "nudge",
 ]);
 export const briefReadViaSchema = z.enum([
   "click",

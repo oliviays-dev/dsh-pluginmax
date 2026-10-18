@@ -58,21 +58,21 @@
 ### 1.3 账号和工作区初始化
 
 1. 建立三个独立 Chrome Profile：`Workflow A/B/C`，分别打开最新 `<ROOT_URL>`。
-2. 复用当前环境时，Profile A 使用 `admin / password-123` 登录。全新环境时，在 Settings > `账号管理` 初始化同一账号。
+2. 复用当前环境时，Profile A 使用 `admin / password-123` 登录。全新环境时，在 Settings > `身份与权限` > `登录账号` 初始化同一账号。
 3. 当前环境使用已注册的 `.tmp/smoke-workspace`。全新环境创建 `.tmp/gui-workflow-workspace`，在左侧项目区添加并记录真实 `<WS_ID>`。
-4. Settings > `协作身份` > `用户管理` 创建：
+4. Settings > `身份与权限` > `登录账号` 创建：
    - `flow-member / Flow Member / Pluginmax#2026 / member`
    - `flow-viewer / Flow Viewer / Pluginmax#2026 / guest`
    - `flow-outsider / Flow Outsider / Pluginmax#2026 / member`
    - 如果用户 ID 已存在且密码未知，改用 `flow-member2 / flow-viewer2`，并同步替换本文和 fixture 中的 ID；不要继续猜旧密码。
-5. Settings > `协作身份` > `工作区成员` 设置：
+5. 在项目管理 > `成员权限` 设置：
    - `admin`：`owner`
    - `flow-member`：`member`
    - `flow-viewer`：`guest`
 
 不要把 `flow-outsider` 加入任何测试项目；它只作为平台账号供 WF-03 验证模板校验和启动期项目成员校验。6. Profile B 使用 `flow-member / Pluginmax#2026` 登录；Profile C 使用 `flow-viewer / Pluginmax#2026` 登录。7. Settings > `员工` > `目录` 确认 `admin`、`flow-member`、`flow-viewer` 对应的真人员工是「启用」；历史环境中已删除的 `workflow-owner / workflow-member / workflow-viewer` 投影应显示「归档」。
 
-如果左下角已经显示 `Admin`，说明当前环境已经初始化。不要再初始化或尝试切换到一个不存在的账号；先在 `协作身份 > 用户管理` 创建所需账号，再通过左下角 `切换账号` 登录。
+如果左下角已经显示 `Admin`，说明当前环境已经初始化。不要再初始化或尝试切换到一个不存在的账号；先在 `身份与权限 > 登录账号` 创建所需账号，再通过左下角 `切换账号` 登录。
 
 预计结果：左下角显示当前账号；切换账号后任务、工作流和员工数据同步刷新；guest 不获得管理入口。
 
@@ -183,18 +183,18 @@ corepack pnpm test -- \
 
 必须确认以下测试通过：
 
-| 范围          | 测试用例                                                                                                                                                                                                                                                                                      |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Workflow 解析 | `parses parallel branches, approvals, and controlled cycles`、`rejects an uncontrolled cycle`、`parses Agent execution and runtime limits`                                                                                                                                                    |
-| Workflow 实例 | `imports, archives previous versions, and starts an instance`、`runs parallel nodes through a join and approval`                                                                                                                                                                              |
-| 审批门禁      | `rejects decisions on a future approval node that is still waiting`、`supports delegation and countersign`                                                                                                                                                                                    |
-| 交付物        | `rejects a deliverable and requires a new submission`、`does not accept an agent reply without the required delivery section`                                                                                                                                                                 |
-| 分支和循环    | `blocks a controlled loop when break becomes true`、`reactivates a completed node after a controlled rejection`、`starts and completes a sub-workflow`                                                                                                                                        |
-| 独立完整性    | `runs the human and approval lifecycle without an optional task module`、`direct-completes a no-review Agent node without a task module`                                                                                                                                                      |
+| 范围          | 测试用例                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Workflow 解析 | `parses parallel branches, approvals, and controlled cycles`、`rejects an uncontrolled cycle`、`parses Agent execution and runtime limits`                                                                                                                                                                                                                                                                                                        |
+| Workflow 实例 | `imports, archives previous versions, and starts an instance`、`runs parallel nodes through a join and approval`                                                                                                                                                                                                                                                                                                                                  |
+| 审批门禁      | `rejects decisions on a future approval node that is still waiting`、`supports delegation and countersign`                                                                                                                                                                                                                                                                                                                                        |
+| 交付物        | `rejects a deliverable and requires a new submission`、`does not accept an agent reply without the required delivery section`                                                                                                                                                                                                                                                                                                                     |
+| 分支和循环    | `blocks a controlled loop when break becomes true`、`reactivates a completed node after a controlled rejection`、`starts and completes a sub-workflow`                                                                                                                                                                                                                                                                                            |
+| 独立完整性    | `runs the human and approval lifecycle without an optional task module`、`direct-completes a no-review Agent node without a task module`                                                                                                                                                                                                                                                                                                          |
 | Agent 派发    | `auto-dispatches a ready Agent node and maps output to the delivery gate`、`allows the responsible user to recover a timed-out agent node manually`、`allows manual intervention to complete a running or blocked Agent node`、`allows manual intervention to cancel an Agent node and closes its task`、`supports manual dispatch, cancellation, retry, permissions, and attempt cap`、`runs workflow task workers in a persistent task session` |
-| Employee 派发 | `dispatches employee nodes through mapped runtime and preserves the principal`、`recovers an employee node after an automatic ticket failure`、`reports a suspended employee as the manual dispatch blocker`                                                                                  |
-| AI Teammates  | `creates a personal draft and promotes it on first save`、`restricts platform definitions to administrators`、`provisions one runtime identity and reuses it for later tasks`、`refuses to dispatch a teammate that is not active`                                                            |
-| 接口边界      | `requires same origin and a valid bearer token`、`blocks non-manager import`、`rejects a member of another workspace`                                                                                                                                                                         |
+| Employee 派发 | `dispatches employee nodes through mapped runtime and preserves the principal`、`recovers an employee node after an automatic ticket failure`、`reports a suspended employee as the manual dispatch blocker`                                                                                                                                                                                                                                      |
+| AI Teammates  | `creates a personal draft and promotes it on first save`、`restricts platform definitions to administrators`、`provisions one runtime identity and reuses it for later tasks`、`refuses to dispatch a teammate that is not active`                                                                                                                                                                                                                |
+| 接口边界      | `requires same origin and a valid bearer token`、`blocks non-manager import`、`rejects a member of another workspace`                                                                                                                                                                                                                                                                                                                             |
 
 ### 2.3 只跑关键用例
 
@@ -216,7 +216,7 @@ corepack pnpm test -- plugins/dsh-collab-workflow/src/index.test.ts \
 3. A 点击 `模板管理`，确认进入同页的 `工作流模版管理`，而不是打开设置弹窗。
 4. B 点击 `模板管理`，确认可查看但 `新建模版 / 编辑 / 启用 / 归档` 不可用；C 不能发起流程。
 
-预期：A（owner/admin）可维护模板；B 可查看但不能修改；C 不能发起流程。未登录时提示先在账号管理登录。
+预期：A（owner/admin）可维护模板；B 可查看但不能修改；C 不能发起流程。未登录时提示先在「身份与权限 → 登录账号」登录。
 
 测试记录：10-02 测试通过
 
@@ -237,14 +237,13 @@ corepack pnpm test -- plugins/dsh-collab-workflow/src/index.test.ts \
 
 测试记录：10-02 测试通过
 
-
 ### WF-03 项目筛选和新建工作流弹窗
 
 所需资料：已启用的 `GUI 从零验收` 当前版本（全新环境为 v1，复用环境可为 v3）；平台账号 `flow-outsider`（已在 1.3 创建，但未加入 `<WS_ID>`）；`docs/fixtures/workflow/wf-03/step-01-membership-check-v1.md`。
 
 1. A 在 `模板管理 > 新建模版` 粘贴 `step-01-membership-check-v1.md`，创建临时模板 `membership-check v1`：一个 approval 节点使用 `executor: user:flow-outsider` 和 `approver: 用户:admin`。点击 `校验`，确认通过；保存并启用。
 2. A 点击 `新建工作流`，选择 `<WS_ID>` 和 `membership-check`。点击 `启动`。
-3. A 在 `协作身份 > 工作区成员` 把 `flow-outsider` 加入 `<WS_ID>`，角色为 `member`，再重新启动。
+3. A 在项目管理 > `成员权限` 把 `flow-outsider` 加入 `<WS_ID>`，角色为 `member`，再重新启动。
 4. B 打开全局 `工作流`，切换项目筛选为 `<WS_ID>` 对应项目，再切回 `全部项目`。
 5. 使用状态和当前节点负责人筛选，确认列表随条件变化；输入流程标题并点击 `搜索`。
 6. 点击 `新建工作流`，确认打开弹窗而不是页面内常驻表单。
@@ -254,7 +253,6 @@ corepack pnpm test -- plugins/dsh-collab-workflow/src/index.test.ts \
 预期：`flow-outsider` 是平台账号时模板校验通过，但它还不属于 `<WS_ID>` 时启动被拒绝，提示包含「不是当前工作区成员」，且不创建实例；加入项目后可启动。全局页不再提供 `只看当前会话`；项目和状态筛选正确；新建弹窗同时显示项目归属、模板和节点预览；启动成功后弹窗关闭，列表出现实例；切换账号不会显示其他项目无权访问的实例。
 
 测试记录：10-02 测试通过
-
 
 ### WF-04 人工交付物、系统服务节点和管理员兜底
 
@@ -273,7 +271,6 @@ corepack pnpm test -- plugins/dsh-collab-workflow/src/index.test.ts \
 
 测试记录：10-02 测试通过
 
-
 ### WF-05 否决、返工和受控循环
 
 所需资料：`controlled-loop.md` 的 GUI 副本（替换真人账号并递增版本）。
@@ -286,7 +283,6 @@ corepack pnpm test -- plugins/dsh-collab-workflow/src/index.test.ts \
 预期：前两次否决回到 `开发`；审批 Task 在逆向流转后保持待 Review 并可再次产生结论，不因节点回退被误标完成；达到 break 后目标节点阻塞，后续 `发布就绪` 不 ready；节点显示尝试上限和触发条件。
 
 测试记录：10-02 测试通过
-
 
 ### WF-06 并行、汇合与多人审批
 
@@ -306,7 +302,6 @@ corepack pnpm test -- plugins/dsh-collab-workflow/src/index.test.ts \
 
 测试记录：10-09 测试通过
 
-
 ### WF-07 审批转交、加签、未来节点
 
 所需资料：`sub-process.md` 和 `product-delivery-v2.md` 的 GUI 副本（替换真人账号并递增版本）。
@@ -319,7 +314,6 @@ corepack pnpm test -- plugins/dsh-collab-workflow/src/index.test.ts \
 预期：未来审批节点拒绝操作且不产生记录；转交后原审批人不能继续操作；加签后必须新增审批人完成；事件保留转交 / 加签来源。
 
 测试记录：10-09 测试通过
-
 
 ### WF-08 判断、子流程和服务节点
 
@@ -336,7 +330,6 @@ corepack pnpm test -- plugins/dsh-collab-workflow/src/index.test.ts \
 预期：高分实例创建并回写子流程；低分实例跳过子流程；父流程在子流程完成后继续；两个实例都最终完成。
 
 测试记录：10-09 测试通过
-
 
 ### WF-09 Agent 自动 / 手动派发和失败兜底
 

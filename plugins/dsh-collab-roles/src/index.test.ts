@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,6 +21,16 @@ import {
   type WorkspaceRoleConfig,
   type WorkspaceType,
 } from "./index.ts";
+
+describe("role tool boundary", () => {
+  it("only exposes read-only seat inspection to agents", () => {
+    const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+    const tool = source.slice(source.indexOf("ctx.tools.register({"));
+    expect(tool).toContain('operation: z.enum(["list"])');
+    expect(tool).not.toContain('enum: ["list", "claim"]');
+    expect(tool).not.toContain('agentActor("collab-roles-tool")');
+  });
+});
 
 class FakeTable<V> {
   readonly records = new Map<string, V>();
@@ -257,7 +268,7 @@ describe("dsh-collab-roles", () => {
     expect(service.config("main").seats).toHaveLength(2);
   });
 
-  it("makes claims idempotent, elects the first leader, and rejects conflicts", async () => {
+  it("keeps every claimant as a role member and elects the first leader", async () => {
     const workspaces = new FakeTable<WorkspaceRoleConfig>();
     const assignments = new FakeTable<Assignment>();
     const service = new AssignmentService(
@@ -303,13 +314,23 @@ describe("dsh-collab-roles", () => {
       "human",
     );
     expect(same.id).toBe(first.id);
-    await expect(
-      service.claim(
-        { kind: "user", id: "bob", workspaceRole: "member" },
-        "main",
-        "human",
-      ),
-    ).rejects.toMatchObject({ code: "conflict" });
+    // 项目角色是多人集合：第二个成员加入不会把先到的人挤掉。
+    const second = await service.claim(
+      { kind: "user", id: "bob", workspaceRole: "member" },
+      "main",
+      "human",
+    );
+    expect(second).toMatchObject({
+      assigneeKind: "user",
+      assigneeId: "bob",
+      leader: false,
+    });
+    expect(
+      service
+        .members("main", "human")
+        .map((assignment) => assignment.assigneeId)
+        .sort(),
+    ).toEqual(["alice", "bob"]);
     const agent = await service.claim(
       {
         kind: "agent",
@@ -326,7 +347,149 @@ describe("dsh-collab-roles", () => {
       personaId: "architect",
       leader: false,
     });
-    expect(service.seats("main")).toHaveLength(2);
+    expect(service.seats("main")).toHaveLength(3);
+
+    const released = await service.release(
+      { kind: "user", id: "alice", workspaceRole: "member" },
+      "main",
+      "human",
+    );
+    expect(released.status).toBe("released");
+    expect(
+      service.members("main", "human").map((item) => item.assigneeId),
+    ).toEqual(["bob"]);
+  });
+
+  it("migrates single-occupant seat records into members", async () => {
+    const workspaces = new FakeTable<WorkspaceRoleConfig>();
+    const assignments = new FakeTable<Assignment>();
+    const service = new AssignmentService(
+      { workspaces, assignments },
+      { now: () => new Date("2026-01-01T00:00:00.000Z") },
+    );
+    const type: WorkspaceType = {
+      id: "team",
+      name: "团队",
+      description: "",
+      seats: [
+        {
+          id: "reviewer",
+          label: "评审",
+          participantKind: "human",
+          permissions: ["read", "approve"] as const,
+        },
+      ],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    await service.materialize(
+      { kind: "user", id: "owner", workspaceRole: "owner" },
+      "main",
+      type,
+    );
+    await assignments.put("main:reviewer", {
+      id: "legacy",
+      workspaceId: "main",
+      seatId: "reviewer",
+      seatLabel: "评审",
+      participantKind: "human",
+      assigneeKind: "user",
+      assigneeId: "alice",
+      permissions: ["read", "approve"],
+      leader: true,
+      status: "claimed",
+      claimedAt: "2026-01-01T00:00:00.000Z",
+      claimedBy: "alice",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    expect(await service.migrateLegacyAssignments()).toBe(1);
+    expect(assignments.get("main:reviewer")).toBeUndefined();
+    expect(service.members("main", "reviewer")).toMatchObject([
+      { id: "legacy", assigneeId: "alice", leader: true },
+    ]);
+    expect(await service.migrateLegacyAssignments()).toBe(0);
+  });
+
+  it("projects active project roles to Principal grants", async () => {
+    const workspaces = new FakeTable<WorkspaceRoleConfig>();
+    const assignments = new FakeTable<Assignment>();
+    const grants: Array<Record<string, unknown>> = [];
+    const revoked: Array<Record<string, unknown>> = [];
+    const service = new AssignmentService(
+      { workspaces, assignments },
+      {
+        now: () => new Date("2026-01-01T00:00:00.000Z"),
+        principals: () => ({
+          resolveSubject: (subjectType, subjectId) => {
+            if (subjectType === "auth-user" && subjectId === "alice") {
+              return { id: "principal-human-alice", status: "active" };
+            }
+            if (subjectType === "auth-user" && subjectId === "owner") {
+              return { id: "principal-human-owner", status: "active" };
+            }
+            return undefined;
+          },
+          syncGrant: async (input) => {
+            grants.push(input);
+          },
+          revokeMatchingGrants: async (input) => {
+            revoked.push(input);
+          },
+        }),
+      },
+    );
+    await service.materialize(
+      { kind: "user", id: "owner", workspaceRole: "owner" },
+      "main",
+      {
+        id: "team",
+        name: "团队",
+        description: "",
+        seats: [
+          {
+            id: "developer",
+            label: "开发",
+            participantKind: "human",
+            permissions: ["read", "write"],
+          },
+        ],
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    );
+
+    const assigned = await service.assign(
+      { kind: "user", id: "owner", workspaceRole: "owner" },
+      {
+        workspaceId: "main",
+        seatId: "developer",
+        assigneeKind: "user",
+        assigneeId: "alice",
+      },
+    );
+    expect(assigned.principalId).toBe("principal-human-alice");
+    expect(grants.at(-1)).toMatchObject({
+      principalId: "principal-human-alice",
+      scopeType: "project",
+      scopeId: "main",
+      role: "developer",
+      permissions: ["read", "write"],
+      grantedByPrincipalId: "principal-human-owner",
+    });
+
+    await service.release(
+      { kind: "user", id: "owner", workspaceRole: "owner" },
+      "main",
+      "developer",
+      { assigneeKind: "user", assigneeId: "alice" },
+    );
+    expect(revoked.at(-1)).toMatchObject({
+      principalId: "principal-human-alice",
+      scopeType: "project",
+      scopeId: "main",
+      role: "developer",
+    });
   });
 
   it("loads without identity and only provides browser routes in the identity fiber", async () => {
@@ -345,6 +508,7 @@ describe("dsh-collab-roles", () => {
       storageDomain: {
         open: async () => fakeDomain(workspaces, assignments),
       },
+      get: () => undefined,
       inject: (_keys, _callback) => ({ dispose: () => undefined }),
     };
     const previousHome = process.env.DSH_HOME;
@@ -447,5 +611,61 @@ describe("dsh-collab-roles", () => {
     );
     expect(claimed.status).toBe(201);
     expect(claimed.json()).toMatchObject({ ok: true });
+  });
+
+  it("does not overwrite initialized project roles through workspace type materialization", async () => {
+    const personas = new PersonaService(join(root, "personas"));
+    const types = new WorkspaceTypeService(join(root, "workspace-types"));
+    const assignments = new AssignmentService({
+      workspaces: new FakeTable<WorkspaceRoleConfig>(),
+      assignments: new FakeTable<Assignment>(),
+    });
+    const team = {
+      resolveToken: () => ({ userId: "admin", role: "admin" }),
+      members: () => [],
+    };
+    const routes = createRolesRoutes(
+      personas,
+      types,
+      assignments,
+      team,
+      () => ({
+        project: () => ({
+          rolesInitialized: true,
+          projectRoles: [{ code: "PROJECT_OWNER" }],
+        }),
+      }),
+    );
+    const timestamp = "2026-01-01T00:00:00.000Z";
+    await types.create({
+      id: "team",
+      name: "团队",
+      description: "",
+      seats: [
+        {
+          id: "owner",
+          label: "负责人",
+          participantKind: "human",
+          permissions: ["read", "write"],
+        },
+      ],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+
+    const response = await call(
+      findRoute(routes, "/api/collab/roles/materialize"),
+      fakeRequest("POST", "/api/collab/roles/materialize", {
+        token: "admin-token",
+        body: { workspaceId: "main", typeId: "team" },
+      }),
+    );
+    expect(response.status).toBe(409);
+    expect(response.json()).toMatchObject({
+      error: {
+        code: "conflict",
+        message: expect.stringContaining("只能用于初始化"),
+      },
+    });
   });
 });

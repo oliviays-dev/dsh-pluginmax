@@ -148,6 +148,20 @@ describe("phase 1 routes", () => {
       minutesRuntime: () => runtime,
       delegates: () => delegates,
       reads: () => reads,
+      principals: () => ({
+        resolveReference: (reference) =>
+          reference === "principal:principal-ai-tm-1"
+            ? { id: "principal-ai-tm-1", kind: "ai", status: "active" }
+            : reference === "tm-1" || reference === "employee-1"
+              ? { id: "principal-ai-tm-1", kind: "ai", status: "active" }
+              : undefined,
+        preferredSubjectId: (principalId, subjectTypes) =>
+          principalId === "principal-ai-tm-1"
+            ? subjectTypes[0] === "teammate"
+              ? "tm-1"
+              : "employee-1"
+            : undefined,
+      }),
     });
     return { meetings, minutes, delegates, reads, runtime, routes };
   }
@@ -219,6 +233,68 @@ describe("phase 1 routes", () => {
     expect(confirmed.json().version).toMatchObject({ status: "confirmed" });
   });
 
+  it("keeps facilitator seat and member list in sync both ways", async () => {
+    const { meetings, minutes, routes } = setup();
+    const meeting = await joinedMeeting(meetings);
+
+    const opened = await call(
+      route(routes, "/api/collab/meeting/facilitator/open"),
+      fakeRequest("POST", "/api/collab/meeting/facilitator/open", {
+        token: "alice-token",
+        body: { meetingId: meeting.id },
+      }),
+    );
+    expect(opened.status).toBe(201);
+    const joined = meetings
+      .participants(meeting.id)
+      .find(
+        (participant) =>
+          participant.kind === "ai_teammate" &&
+          participant.refId === "meeting-facilitator" &&
+          participant.status === "active",
+      );
+    expect(joined?.autoSpeak).toBe("manual");
+
+    // 反向：从成员列表移除 Facilitator 等同于停用席位。
+    const removed = await call(
+      route(routes, "/api/collab/meeting/participant/remove"),
+      fakeRequest("POST", "/api/collab/meeting/participant/remove", {
+        token: "bob-token",
+        body: { meetingId: meeting.id, participantId: joined?.id },
+      }),
+    );
+    expect(removed.status).toBe(200);
+    expect(minutes.activeFacilitator(meeting.id)).toBeUndefined();
+
+    // 再次开启复用同一条成员记录。
+    const reopened = await call(
+      route(routes, "/api/collab/meeting/facilitator/open"),
+      fakeRequest("POST", "/api/collab/meeting/facilitator/open", {
+        token: "alice-token",
+        body: { meetingId: meeting.id },
+      }),
+    );
+    expect(reopened.status).toBe(201);
+    expect(
+      meetings.participants(meeting.id).find((item) => item.id === joined?.id)
+        ?.status,
+    ).toBe("active");
+
+    // 关闭席位 → 成员置 left。
+    const closed = await call(
+      route(routes, "/api/collab/meeting/facilitator/close"),
+      fakeRequest("POST", "/api/collab/meeting/facilitator/close", {
+        token: "alice-token",
+        body: { meetingId: meeting.id },
+      }),
+    );
+    expect(closed.status).toBe(200);
+    expect(
+      meetings.participants(meeting.id).find((item) => item.id === joined?.id)
+        ?.status,
+    ).toBe("left");
+  });
+
   it("keeps a non-owner from confirming minutes", async () => {
     const { meetings, routes, runtime } = setup();
     const meeting = await joinedMeeting(meetings);
@@ -271,13 +347,18 @@ describe("phase 1 routes", () => {
         token: "bob-token",
         body: {
           meetingId: meeting.id,
-          teammateInstanceId: "tm-1",
+          teammateInstanceId: "principal:principal-ai-tm-1",
+          employeeId: "principal:principal-ai-tm-1",
           speechMode: "mention",
           instruction: { goal: "确认切换风险", stance: "保障交付" },
         },
       }),
     );
     expect(assigned.status).toBe(201);
+    expect(assigned.json().delegate).toMatchObject({
+      teammateInstanceId: "tm-1",
+      employeeId: "employee-1",
+    });
     const delegateId = (assigned.json().delegate as { id: string }).id;
 
     const asPrincipal = await call(

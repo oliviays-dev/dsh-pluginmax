@@ -7,6 +7,36 @@ import {
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import { readJsonBody, sameOrigin, sendJson } from "@pluginmax/shared";
+import {
+  PrincipalError,
+  PrincipalService,
+  grantScopeTypeSchema,
+  principalDomainSpec,
+  principalSubjectTypeSchema,
+  type PrincipalGrant,
+  type PrincipalRecord,
+  type PrincipalTableLike,
+} from "./principal.js";
+
+export {
+  PrincipalError,
+  PrincipalService,
+  PRINCIPAL_KINDS,
+  PRINCIPAL_SOURCES,
+  PRINCIPAL_STATUSES,
+  PRINCIPAL_SUBJECT_TYPES,
+  principalDomainSpec,
+  principalIdFor,
+} from "./principal.js";
+export type {
+  PrincipalGrant,
+  PrincipalKind,
+  PrincipalRecord,
+  PrincipalSource,
+  PrincipalStatus,
+  PrincipalSubjectType,
+  SyncGrantInput,
+} from "./principal.js";
 
 export const name = "dsh-collab-identity";
 export const inject = [
@@ -159,11 +189,24 @@ interface DomainSpecLike {
   >;
 }
 
+export interface PrincipalDomainLike {
+  table(name: "principals"): PrincipalTableLike<PrincipalRecord>;
+  table(name: "principal_links"): PrincipalTableLike<{
+    readonly id: string;
+    readonly principalId: string;
+    readonly subjectType: "auth-user" | "employee" | "teammate" | "hrm";
+    readonly subjectId: string;
+    readonly createdAt: string;
+    readonly updatedAt: string;
+  }>;
+  table(name: "role_grants"): PrincipalTableLike<PrincipalGrant>;
+  close(): Promise<void>;
+}
+
 interface KvTableLike<V> {
   get(key: string): V | undefined;
   entries(): IterableIterator<[string, V]>;
   keys(): IterableIterator<string>;
-  values(): IterableIterator<V>;
   readonly size: number;
   put(key: string, value: V): Promise<void>;
   delete(key: string): Promise<boolean>;
@@ -213,6 +256,7 @@ export interface WorkspaceRegistryLike {
 export interface IdentityContext {
   effect(register: () => () => void): void;
   provide(key: "collabTeam", value: TeamService): unknown;
+  provide(key: "collabPrincipal", value: PrincipalService): unknown;
   commands: {
     register(definition: {
       name: string;
@@ -234,7 +278,9 @@ export interface IdentityContext {
     }): unknown;
   };
   webServer: { register(route: WebRouteLike): unknown };
-  storageDomain: { open(spec: DomainSpecLike): Promise<DomainLike> };
+  storageDomain: {
+    open(spec: DomainSpecLike): Promise<DomainLike | PrincipalDomainLike>;
+  };
   workspaceRegistry: WorkspaceRegistryLike;
 }
 
@@ -406,6 +452,23 @@ export class TeamService {
     return actor;
   }
 
+  private requireMemberManager(
+    actorId: string,
+    workspaceId: string,
+    allowWorkspaceOwner: boolean,
+  ): UserRecord {
+    const actor = this.requireUser(actorId);
+    if (actor.role === "admin") return actor;
+    const membership = this.tables.members
+      .get(workspaceId)
+      ?.members.find((member) => member.userId === actor.id);
+    if (allowWorkspaceOwner && membership?.role === "owner") return actor;
+    throw new IdentityError(
+      "forbidden",
+      "admin or workspace owner role is required",
+    );
+  }
+
   private async appendAudit(
     actor: UserRecord,
     action: AuditRecord["action"],
@@ -465,8 +528,8 @@ export class TeamService {
   }
 
   private adminCount(): number {
-    return [...this.tables.users.values()].filter(
-      (user) => user.role === "admin",
+    return [...this.tables.users.entries()].filter(
+      ([, user]) => user.role === "admin",
     ).length;
   }
 
@@ -547,24 +610,20 @@ export class TeamService {
       const disabling =
         (current.status ?? "active") !== "disabled" &&
         parsedChanges.status === "disabled";
+      const wouldDropAdmin =
+        current.role === "admin" &&
+        ((parsedChanges.role !== undefined && parsedChanges.role !== "admin") ||
+          disabling);
+      if (wouldDropAdmin && this.adminCount() === 1) {
+        throw new IdentityError(
+          "conflict",
+          "the last admin role cannot be changed",
+        );
+      }
       if (disabling && current.id === actor.id) {
         throw new IdentityError(
           "conflict",
           "you cannot disable your own account",
-        );
-      }
-      const wouldDropAdmin =
-        current.role === "admin" &&
-        ((parsedChanges.role !== undefined &&
-          parsedChanges.role !== "admin") ||
-          disabling);
-      if (
-        wouldDropAdmin &&
-        this.adminCount() === 1
-      ) {
-        throw new IdentityError(
-          "conflict",
-          "the last admin role cannot be changed",
         );
       }
       const updated: UserRecord = {
@@ -738,16 +797,6 @@ export class TeamService {
       .sort((left, right) => left.id.localeCompare(right.id));
   }
 
-  asAgent(agent: unknown): Principal | undefined {
-    if (typeof agent !== "object" || agent === null) return undefined;
-    const candidate = agent as { userId?: unknown; role?: unknown };
-    if (candidate.userId === undefined) return undefined;
-    const parsed = parseOrInvalid(idSchema, candidate.userId);
-    const user = this.tables.users.get(parsed);
-    if (user === undefined) return undefined;
-    return { userId: user.id, role: user.role };
-  }
-
   addMember(
     actorId: string,
     input: {
@@ -755,11 +804,16 @@ export class TeamService {
       userId: string;
       role: MemberRole;
     },
+    options: { readonly allowWorkspaceOwner?: boolean } = {},
   ): Promise<readonly PublicMember[]> {
     const parsedActor = parseOrInvalid(idSchema, actorId);
     const parsed = parseOrInvalid(memberMutationSchema, input);
     return this.enqueue(async () => {
-      const actor = this.requireAdmin(parsedActor);
+      const actor = this.requireMemberManager(
+        parsedActor,
+        parsed.workspaceId,
+        options.allowWorkspaceOwner === true,
+      );
       const user = this.requireUser(parsed.userId);
       const current = this.tables.members.get(parsed.workspaceId);
       const entry = {
@@ -798,6 +852,7 @@ export class TeamService {
   removeMember(
     actorId: string,
     input: { workspaceId: string; userId: string },
+    options: { readonly allowWorkspaceOwner?: boolean } = {},
   ): Promise<readonly PublicMember[]> {
     const parsedActor = parseOrInvalid(idSchema, actorId);
     const parsed = parseOrInvalid(
@@ -805,7 +860,11 @@ export class TeamService {
       input,
     );
     return this.enqueue(async () => {
-      const actor = this.requireAdmin(parsedActor);
+      const actor = this.requireMemberManager(
+        parsedActor,
+        parsed.workspaceId,
+        options.allowWorkspaceOwner === true,
+      );
       const current = this.tables.members.get(parsed.workspaceId);
       if (current !== undefined) {
         await this.tables.members.put(current.workspaceId, {
@@ -1046,9 +1105,37 @@ async function runHandler(
   }
 }
 
+const PLATFORM_ROLE_PERMISSIONS: Record<UserRole, readonly string[]> = {
+  admin: ["read", "write", "approve", "manage_members", "manage_roles"],
+  owner: ["read", "write", "approve", "manage_members"],
+  member: ["read", "write"],
+  guest: ["read"],
+};
+
+async function syncAccountPrincipal(
+  principals: PrincipalService | undefined,
+  user: PublicUser,
+): Promise<void> {
+  if (principals === undefined) return;
+  const principal = await principals.syncAuthUser({
+    id: user.id,
+    name: user.name,
+    status: user.status,
+  });
+  await principals.syncExclusiveGrant({
+    principalId: principal.id,
+    scopeType: "platform",
+    scopeId: "platform",
+    role: user.role,
+    permissions: PLATFORM_ROLE_PERMISSIONS[user.role],
+    grantedByPrincipalId: principal.id,
+  });
+}
+
 export function createIdentityRoutes(
   service: TeamService,
   workspaces: WorkspaceRegistryLike,
+  principals?: PrincipalService,
 ): readonly WebRouteLike[] {
   const routes: Array<{
     path: string;
@@ -1075,11 +1162,9 @@ export function createIdentityRoutes(
                 .members(workspace.id)
                 .find((member) => member.userId === principal.userId) !==
               undefined,
-            memberRole:
-              service
-                .members(workspace.id)
-                .find((member) => member.userId === principal.userId)
-                ?.memberRole,
+            memberRole: service
+              .members(workspace.id)
+              .find((member) => member.userId === principal.userId)?.memberRole,
           })),
         });
       },
@@ -1100,11 +1185,13 @@ export function createIdentityRoutes(
         const result = await service.bootstrap(
           await readBody(request, userCreateSchema),
         );
+        const user = service.getUser(result.userId);
+        if (user !== undefined) await syncAccountPrincipal(principals, user);
         sendJson(response, 201, {
           ok: true,
           token: result.token,
           expiresAt: result.expiresAt,
-          user: service.getUser(result.userId),
+          user,
         });
       },
     },
@@ -1198,6 +1285,7 @@ export function createIdentityRoutes(
             userCreateSchema.extend({ role: userRoleSchema }),
           ),
         );
+        await syncAccountPrincipal(principals, user);
         sendJson(response, 201, { ok: true, user });
       },
     },
@@ -1213,6 +1301,7 @@ export function createIdentityRoutes(
           ...(input.role === undefined ? {} : { role: input.role }),
           ...(input.status === undefined ? {} : { status: input.status }),
         });
+        await syncAccountPrincipal(principals, user);
         sendJson(response, 200, { ok: true, user });
       },
     },
@@ -1239,6 +1328,7 @@ export function createIdentityRoutes(
       },
     },
     {
+      // Legacy HTTP surface: project management uses TeamService.addMember in-process.
       path: "/api/collab/team/members/set",
       method: "PUT",
       handler: async (request, response) => {
@@ -1252,6 +1342,7 @@ export function createIdentityRoutes(
       },
     },
     {
+      // Legacy HTTP surface: project management uses TeamService.removeMember in-process.
       path: "/api/collab/team/members/remove",
       method: "POST",
       handler: async (request, response) => {
@@ -1265,6 +1356,7 @@ export function createIdentityRoutes(
       },
     },
     {
+      // Legacy HTTP surface: project management uses TeamService.leaveWorkspace in-process.
       path: "/api/collab/team/members/leave",
       method: "POST",
       handler: async (request, response) => {
@@ -1282,6 +1374,7 @@ export function createIdentityRoutes(
       },
     },
     {
+      // Legacy HTTP surface: project audit reads TeamService.audit in-process.
       path: "/api/collab/team/audit",
       method: "GET",
       handler: (request, response) => {
@@ -1324,6 +1417,155 @@ export function createIdentityRoutes(
   }));
 }
 
+export function createPrincipalRoutes(
+  service: PrincipalService,
+  team: TeamService,
+): readonly WebRouteLike[] {
+  const methods = (request: IncomingMessage, method: string): void => {
+    if (request.method !== method) {
+      throw new PrincipalError("invalid_input", "method not allowed");
+    }
+  };
+  const run = async (
+    response: ServerResponse,
+    handler: () => Promise<void> | void,
+  ): Promise<void> => {
+    try {
+      await handler();
+    } catch (cause) {
+      if (cause instanceof PrincipalError) {
+        sendJson(
+          response,
+          cause.code === "unauthorized"
+            ? 401
+            : cause.code === "forbidden"
+              ? 403
+              : cause.code === "not_found"
+                ? 404
+                : cause.code === "conflict"
+                  ? 409
+                  : 400,
+          {
+            ok: false,
+            error: { code: cause.code, message: cause.message },
+          },
+        );
+        return;
+      }
+      if (cause instanceof IdentityError) {
+        sendJson(response, errorStatus(cause.code), {
+          ok: false,
+          error: { code: cause.code, message: cause.message },
+        });
+        return;
+      }
+      sendJson(response, 500, {
+        ok: false,
+        error: { code: "internal_error", message: "principal request failed" },
+      });
+    }
+  };
+
+  return [
+    {
+      kind: "exact",
+      path: "/api/collab/principals",
+      handler: (request, response) =>
+        run(response, () => {
+          assertSameOrigin(request);
+          methods(request, "GET");
+          requireAdmin(request, team);
+          sendJson(response, 200, { ok: true, principals: service.list() });
+        }),
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/principals/resolve",
+      handler: (request, response) =>
+        run(response, () => {
+          assertSameOrigin(request);
+          methods(request, "GET");
+          requirePrincipal(request, team);
+          const params = query(request);
+          const subjectType = parseOrInvalid(
+            principalSubjectTypeSchema,
+            queryParam(params, "subjectType"),
+          );
+          const subjectId = parseOrInvalid(
+            idSchema,
+            queryParam(params, "subjectId"),
+          );
+          const principal = service.resolveSubject(subjectType, subjectId);
+          sendJson(response, 200, { ok: true, principal: principal ?? null });
+        }),
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/principals/grants",
+      handler: (request, response) =>
+        run(response, () => {
+          assertSameOrigin(request);
+          methods(request, "GET");
+          requireAdmin(request, team);
+          const principalId = queryParam(query(request), "principalId");
+          sendJson(response, 200, {
+            ok: true,
+            grants: service.grants(principalId ?? undefined),
+          });
+        }),
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/principals/grants/assign",
+      handler: (request, response) =>
+        run(response, async () => {
+          assertSameOrigin(request);
+          requireAdmin(request, team);
+          if (request.method !== "POST") {
+            throw new PrincipalError("invalid_input", "method not allowed");
+          }
+          const input = await readBody(
+            request,
+            z.object({
+              principalId: idSchema,
+              scopeType: grantScopeTypeSchema,
+              scopeId: idSchema,
+              role: z.string().trim().min(1).max(120),
+              permissions: z
+                .array(z.string().trim().min(1).max(160))
+                .max(100)
+                .optional(),
+              expiresAt: isoTimeSchema.optional(),
+              grantedByPrincipalId: idSchema.optional(),
+            }),
+          );
+          const grant = await service.assignGrant(input);
+          sendJson(response, 201, { ok: true, grant });
+        }),
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/principals/grants/revoke",
+      handler: (request, response) =>
+        run(response, async () => {
+          assertSameOrigin(request);
+          requireAdmin(request, team);
+          if (request.method !== "POST") {
+            throw new PrincipalError("invalid_input", "method not allowed");
+          }
+          const input = await readBody(
+            request,
+            z.object({ grantId: idSchema }),
+          );
+          sendJson(response, 200, {
+            ok: true,
+            grant: await service.revokeGrant(input.grantId),
+          });
+        }),
+    },
+  ];
+}
+
 function agentStatus(service: TeamService): string {
   const status = service.status();
   return status.initialized
@@ -1334,15 +1576,32 @@ function agentStatus(service: TeamService): string {
 export async function apply(
   ctx: IdentityContext,
 ): Promise<void | (() => void)> {
-  const domain = await ctx.storageDomain.open(teamDomainSpec);
+  const domain = (await ctx.storageDomain.open(
+    teamDomainSpec,
+  )) as DomainLike;
+  const principalDomain = (await ctx.storageDomain.open(
+    principalDomainSpec,
+  )) as PrincipalDomainLike;
   const service = new TeamService({
     users: domain.table("users"),
     members: domain.table("workspace_members"),
     sessions: domain.table("auth_sessions"),
     audit: domain.table("audit_log"),
   });
+  const principals = new PrincipalService({
+    principals: principalDomain.table("principals"),
+    links: principalDomain.table("principal_links"),
+    grants: principalDomain.table("role_grants"),
+  });
+  await Promise.all(
+    service.users().map((user) => syncAccountPrincipal(principals, user)),
+  );
   ctx.provide("collabTeam", service);
-  ctx.effect(() => () => void domain.close());
+  ctx.provide("collabPrincipal", principals);
+  ctx.effect(() => () => {
+    void principalDomain.close();
+    void domain.close();
+  });
 
   ctx.commands.register({
     name: "identity",
@@ -1382,10 +1641,10 @@ export async function apply(
     },
   });
 
-  const disposers = createIdentityRoutes(
-    service,
-    ctx.workspaceRegistry,
-  ).map((route) => ctx.webServer.register(route)) as Array<() => void>;
+  const disposers = [
+    ...createIdentityRoutes(service, ctx.workspaceRegistry, principals),
+    ...createPrincipalRoutes(principals, service),
+  ].map((route) => ctx.webServer.register(route)) as Array<() => void>;
   return () => {
     for (const dispose of disposers) dispose();
   };

@@ -2,6 +2,8 @@
 
 交互依据：`docs/demos/task-management-demo.html` 的 AI Teammates 模块。
 
+> 2026-10-17 方向调整：AI 伙伴的目标身份不再是数字员工，而是 AI Principal 的产品投影。当前 `employeeId`、`collab_employee` 和数字员工状态属于迁移期兼容字段；后续统一为 `principalId`，并保持 `employeeId` 兼容别名。平台不建设独立 Employee 产品域。新方案见 `docs/platform-principal-rbac-design.md`。
+
 ## 1. 设计原则
 
 1. **一份定义**。平台归属与个人归属的 AI Teammate 共用同一套定义字段，归属只决定可见范围与管理权限，不产生第二套模型。
@@ -15,20 +17,20 @@
 
 ### 2.1 `teammates`
 
-| 字段 | 说明 |
-| --- | --- |
-| `id` | `tm-<uuid>` |
-| `source` | `platform` / `personal`，即归属 |
-| `name` / `role` | 名称、专业角色 |
-| `ownerUserId` / `ownerName` | 个人归属为本人；平台归属记录创建者，展示为「平台」 |
-| `description` | 基础说明 |
-| `soul` | SOUL.md 原文 |
-| `scenarios[]` / `goals[]` | 场景行为、工作目标 |
-| `avatar` | 头像预置 id 或 `data:image/...` |
-| `state` | `draft` / `active` / `paused` / `inactive` / `archived` |
-| `version` | `v<major>.<minor>` |
-| `personaId` / `employeeId` | 可选；平台 DE 通过 `employeeId` 关联现有数字员工 |
-| `createdBy` / `createdAt` / `updatedAt` | 审计字段 |
+| 字段                                    | 说明                                                    |
+| --------------------------------------- | ------------------------------------------------------- |
+| `id`                                    | `tm-<uuid>`                                             |
+| `source`                                | `platform` / `personal`，即归属                         |
+| `name` / `role`                         | 名称、专业角色                                          |
+| `ownerUserId` / `ownerName`             | 个人归属为本人；平台归属记录创建者，展示为「平台」      |
+| `description`                           | 基础说明                                                |
+| `soul`                                  | SOUL.md 原文                                            |
+| `scenarios[]` / `goals[]`               | 场景行为、工作目标                                      |
+| `avatar`                                | 头像预置 id 或 `data:image/...`                         |
+| `state`                                 | `draft` / `active` / `paused` / `inactive` / `archived` |
+| `version`                               | `v<major>.<minor>`                                      |
+| `personaId` / `employeeId`              | 可选；平台 DE 通过 `employeeId` 关联现有数字员工        |
+| `createdBy` / `createdAt` / `updatedAt` | 审计字段                                                |
 
 ### 2.2 `events`
 
@@ -43,12 +45,12 @@
 
 ## 3. 权限
 
-| 操作 | 个人归属 | 平台归属 |
-| --- | --- | --- |
-| 查看 | 所有登录用户 | 所有登录用户 |
-| 新建 | 任意登录用户 | 仅管理员 |
-| 编辑 / 状态流转 / 归档 | 仅 owner 本人 | 仅管理员 |
-| 草稿改归属 | owner 本人；改成平台归属需要管理员 | — |
+| 操作                   | 个人归属                           | 平台归属     |
+| ---------------------- | ---------------------------------- | ------------ |
+| 查看                   | 所有登录用户                       | 所有登录用户 |
+| 新建                   | 任意登录用户                       | 仅管理员     |
+| 编辑 / 状态流转 / 归档 | 仅 owner 本人                      | 仅管理员     |
+| 草稿改归属             | owner 本人；改成平台归属需要管理员 | —            |
 
 管理员判定沿用现有身份服务：`role === "admin"`。
 
@@ -69,16 +71,16 @@ draft ──保存──> inactive ──生效──> active ──暂停──
 
 全部挂在 `/api/collab/teammates`，要求同源 + Bearer token。
 
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| GET | `/api/collab/teammates` | 定义列表 + `canManagePlatform` |
-| GET | `/api/collab/teammates/detail?teammateId=` | 定义详情 + 变更事件 |
-| GET | `/api/collab/teammates/runtime?teammateId=` | 只读聚合该 teammate 的任务 |
-| POST | `/api/collab/teammates/create` | `{ source, name?, role? }` |
-| POST | `/api/collab/teammates/update` | 定义字段；草稿可带 `source` 改归属 |
-| POST | `/api/collab/teammates/profile` | 实例资料 `{ teammateId, name, description }`；不动人设内容与版本 |
-| POST | `/api/collab/teammates/leave-workspace` | `{ teammateId, workspaceId, scope, assignmentId? }`；退出项目/项目角色，退出项目时改派未完成任务 |
-| POST | `/api/collab/teammates/state` | `{ teammateId, state }` |
+| 方法 | 路径                                        | 说明                                                                                             |
+| ---- | ------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| GET  | `/api/collab/teammates`                     | 定义列表 + `canManagePlatform`                                                                   |
+| GET  | `/api/collab/teammates/detail?teammateId=`  | 定义详情 + 变更事件                                                                              |
+| GET  | `/api/collab/teammates/runtime?teammateId=` | 只读聚合该 teammate 的任务                                                                       |
+| POST | `/api/collab/teammates/create`              | `{ source, name?, role? }`                                                                       |
+| POST | `/api/collab/teammates/update`              | 定义字段；草稿可带 `source` 改归属                                                               |
+| POST | `/api/collab/teammates/profile`             | 实例资料 `{ teammateId, name, description }`；不动人设内容与版本                                 |
+| POST | `/api/collab/teammates/leave-workspace`     | `{ teammateId, workspaceId, scope, assignmentId? }`；退出项目/项目角色，退出项目时改派未完成任务 |
+| POST | `/api/collab/teammates/state`               | `{ teammateId, state }`                                                                          |
 
 错误码沿用 `EmployeeError` 风格：`invalid_input` / `unauthorized` / `forbidden` / `not_found` / `conflict`。
 

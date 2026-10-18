@@ -95,7 +95,10 @@ function subagents(
     start: async (_name, spec) => {
       starts.push(spec);
       const failure = failures.shift();
-      const reply = failure === undefined ? (replies.shift() ?? `回复 ${starts.length}`) : undefined;
+      const reply =
+        failure === undefined
+          ? (replies.shift() ?? `回复 ${starts.length}`)
+          : undefined;
       return {
         id: `worker-run-${starts.length}`,
         result:
@@ -406,8 +409,11 @@ describe("dsh-collab-meeting", () => {
     );
     expect(peopleResponse.status).toBe(200);
     expect(
-      (peopleResponse.json() as { people: Array<{ id: string; state?: string }> })
-        .people,
+      (
+        peopleResponse.json() as {
+          people: Array<{ id: string; state?: string }>;
+        }
+      ).people,
     ).toMatchObject([
       { id: "alice", state: "active" },
       { id: "bob", state: "active" },
@@ -430,7 +436,6 @@ describe("dsh-collab-meeting", () => {
         .participants(meeting.id)
         .some((participant) => participant.refId === "outsider"),
     ).toBe(false);
-
   });
 
   it("lets authorized participants remove users and avatars", async () => {
@@ -576,9 +581,16 @@ describe("dsh-collab-meeting", () => {
       meeting.id,
       "请给出边界建议。",
     );
-    runtime.dispatch(message, service.participants(meeting.id).filter((candidate) =>
-      message.deliveries.some((delivery) => delivery.participantId === candidate.id),
-    ));
+    runtime.dispatch(
+      message,
+      service
+        .participants(meeting.id)
+        .filter((candidate) =>
+          message.deliveries.some(
+            (delivery) => delivery.participantId === candidate.id,
+          ),
+        ),
+    );
     await runtime.waitIdle();
     expect(starts).toHaveLength(1);
     expect(starts[0]?.parent.id).toMatch(/^[\da-f-]{36}$/i);
@@ -605,8 +617,8 @@ describe("dsh-collab-meeting", () => {
     expect(recovered.transcript(meeting.id)).toHaveLength(2);
     expect(
       recovered
-      .participants(meeting.id)
-      .map((participant) => participant.refId),
+        .participants(meeting.id)
+        .map((participant) => participant.refId),
     ).toContain(participant.refId);
   });
 
@@ -653,9 +665,13 @@ describe("dsh-collab-meeting", () => {
     );
     runtime.dispatch(
       message,
-      service.participants(meeting.id).filter((candidate) =>
-        message.deliveries.some((delivery) => delivery.participantId === candidate.id),
-      ),
+      service
+        .participants(meeting.id)
+        .filter((candidate) =>
+          message.deliveries.some(
+            (delivery) => delivery.participantId === candidate.id,
+          ),
+        ),
     );
     await runtime.waitIdle();
     expect(starts).toHaveLength(1);
@@ -940,6 +956,7 @@ describe("dsh-collab-meeting", () => {
         delegateId: "delegate-1",
         principalUserId: "alice",
         principalName: "Alice",
+        aiPrincipalId: "principal-ai-tm-1",
         teammateInstanceId: "tm-1",
         speechMode: "mention",
       },
@@ -948,6 +965,7 @@ describe("dsh-collab-meeting", () => {
       kind: "ai_representative",
       displayName: "Alice 的 AI 参会代表",
       principalUserId: "alice",
+      aiPrincipalId: "principal-ai-tm-1",
       autoSpeak: "mentions",
     });
 
@@ -977,6 +995,10 @@ describe("dsh-collab-meeting", () => {
       senderName: "Alice 的 AI 参会代表",
       provenance: { role: "representative", delegateId: "delegate-1" },
     });
+    expect(
+      service.transcript(meeting.id).find((message) => message.id === asked.id)
+        ?.deliveries,
+    ).toMatchObject([{ status: "delivered" }]);
   });
 
   it("archives a closed meeting and rejects archiving an active one", async () => {
@@ -1215,11 +1237,10 @@ describe("dsh-collab-meeting", () => {
     expect(left.id).not.toBe(right.id);
     expect(service.transcript(first.id).at(-1)?.content).toBe("隔离回复");
     expect(service.transcript(second.id).at(-1)?.content).toBe("隔离回复");
-    expect(starts.map((start) => start.prompt[0]?.text))
-      .toEqual([
-        expect.stringContaining("第一场问题"),
-        expect.stringContaining("第二场问题"),
-      ]);
+    expect(starts.map((start) => start.prompt[0]?.text)).toEqual([
+      expect.stringContaining("第一场问题"),
+      expect.stringContaining("第二场问题"),
+    ]);
   });
 
   it("rejects unscoped reply writes", async () => {
@@ -1251,7 +1272,12 @@ describe("dsh-collab-meeting", () => {
     const base = { meetingId: "meeting-1", updatedAt: timestamp };
     await table.put(
       "dead",
-      participantRow({ ...base, id: "dead", refId: "dispatch-1", source: "direct" }),
+      participantRow({
+        ...base,
+        id: "dead",
+        refId: "dispatch-1",
+        source: "direct",
+      }),
     );
     await table.put(
       "spawned-child",
@@ -1294,7 +1320,11 @@ describe("dsh-collab-meeting", () => {
       { kind: "user", id: "admin", globalRole: "admin" },
       { workspaceId: "main", title: "周会", agenda: "对齐产能" },
     );
-    const actor = { kind: "user" as const, id: "admin", globalRole: "admin" as const };
+    const actor = {
+      kind: "user" as const,
+      id: "admin",
+      globalRole: "admin" as const,
+    };
     await service.join(actor, meeting.id, "Admin");
     await service.post(actor, meeting.id, "替代产能锁定在 11 月底。");
 
@@ -1392,7 +1422,11 @@ describe("dsh-collab-meeting", () => {
     expect(dispatchCount).toBe(0);
 
     // 有对话但 ensureRuntime 失败：静默，不抛错、不派发。
-    const actor = { kind: "user" as const, id: "admin", globalRole: "admin" as const };
+    const actor = {
+      kind: "user" as const,
+      id: "admin",
+      globalRole: "admin" as const,
+    };
     await service.join(actor, meeting.id, "Admin");
     await service.post(actor, meeting.id, "第一条发言。");
     minutes.schedule(meeting.id);

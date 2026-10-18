@@ -26,6 +26,12 @@ window.__ModuleLoader__.load({
     const PRIORITY_DISPLAY = { P1: "P0", P2: "P1", P3: "P2" };
     const priorityLabel = (value) => PRIORITY_DISPLAY[value] ?? value;
 
+    /**
+     * 「重置会话」入口开关：前期用户还不熟悉这个语义，先在界面上隐藏。
+     * 服务端能力（/api/collab/tasks/session/reset）保留，需要时改回 true 即可。
+     */
+    const SHOW_SESSION_RESET = false;
+
     /*
      * 「仅看已加入 / 平台全量」是跨模块偏好：任务、会议、工作流、Teammate
      * 与工作台共用同一个 window store，点击跨模块跳转时沿用用户当前选择。
@@ -118,6 +124,7 @@ window.__ModuleLoader__.load({
       .pmtask-pill.cancelled{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 14%,transparent);color:var(--dsw-alias-state-error-primary,#e5534b);}
       .pmtask-pill.archived{background:color-mix(in srgb,var(--dsw-alias-label-tertiary) 18%,transparent);color:var(--dsw-alias-label-secondary);}
       .pmtask-pill.workflow{background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 12%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7);}
+      .pmtask-pill.reassign{background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#e2a737) 16%,transparent);color:var(--dsw-alias-state-warning-primary,#e2a737);}
       .pmtask-workflow-meta{display:flex;align-items:center;gap:6px;min-width:0;}
       .pmtask-workflow-node{overflow:hidden;color:var(--dsw-alias-label-tertiary);font-size:10.5px;text-overflow:ellipsis;white-space:nowrap;}
       .pmtask-workflow-action{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-top:12px;padding:10px;border:0.5px solid color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 28%,transparent);border-radius:7px;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 7%,transparent);}
@@ -148,6 +155,9 @@ window.__ModuleLoader__.load({
       .pmtask-grid-demo .pmtask-field{padding:8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);}
       .pmtask-field{display:grid;gap:4px;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.5;}
       .pmtask-field strong{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:400;line-height:1.5;}
+      .pmtask-review-config{align-content:start;}
+      .pmtask-review-config .pmtask-check{align-items:flex-start;margin:0;color:var(--dsw-alias-label-primary);font-size:12.5px;}
+      .pmtask-review-config .pmtask-check em{color:var(--dsw-alias-label-secondary);font-size:11px;}
       .pmtask-check{display:flex;align-items:flex-start;gap:7px;color:var(--dsw-alias-label-primary);font-size:12.5px;line-height:1.5;cursor:pointer;}
       .pmtask-check input[type=checkbox]{flex:none;width:14px;height:14px;margin:2px 0 0;accent-color:var(--dsw-alias-brand-primary);cursor:pointer;}
       .pmtask-check[data-disabled=true]{color:var(--dsw-alias-label-tertiary);cursor:not-allowed;}
@@ -666,8 +676,9 @@ window.__ModuleLoader__.load({
 
     function workflowReviewLabel(task) {
       if (task?.workflow?.approvalPolicy !== undefined) return "审批动作驱动";
+      if (task?.autoApproveReview === true) return "提交后自动通过";
       return task?.workflow?.reviewRequired === false
-        ? "无需人工 Review"
+        ? "无需 Review"
         : "需要人工 Review";
     }
 
@@ -701,6 +712,10 @@ window.__ModuleLoader__.load({
     }
 
     function receiverDisplay(task, directory) {
+      if (task.receiverState === "needs_reassignment") {
+        const previous = task.previousReceiver?.name;
+        return previous ? `需改派（原角色：${previous}）` : "需改派";
+      }
       if (task.receiverType === "unassigned") return "待指派";
       if (task.receiverType === "role" && task.status === "todo") {
         return `角色待认领（${task.receiverName ?? task.receiverId ?? "角色"}）`;
@@ -720,7 +735,7 @@ window.__ModuleLoader__.load({
 
     function receiverKindLabel(type) {
       return type === "agent"
-        ? "DE / 分身"
+        ? "AI伙伴 / 分身"
         : type === "role"
           ? "角色认领"
           : "人员";
@@ -728,9 +743,7 @@ window.__ModuleLoader__.load({
 
     function receiverOptionLabel(item) {
       const name = item?.name ?? "";
-      return item?.type === "agent"
-        ? `${name}${agentOwnerLabel(item)}`
-        : name;
+      return item?.type === "agent" ? `${name}${agentOwnerLabel(item)}` : name;
     }
 
     /**
@@ -741,8 +754,11 @@ window.__ModuleLoader__.load({
     function taskBelongsTo(task, currentUser, directory, scope = "any") {
       if (currentUser === null) return false;
       if (task.receiverType === "human") {
-        return task.receiverId === currentUser.id;
+        if (task.receiverId === currentUser.id) return true;
       }
+      const approverIds = task.workflow?.approverIds ?? [];
+      if (approverIds.includes(currentUser.id)) return true;
+
       if (scope === "self") return false;
       if (task.receiverType === "agent") {
         // 老任务的责任人还是员工身份 id，目录里以 teammate 实例为准，需要按 employeeId 兜底匹配。
@@ -1362,6 +1378,7 @@ window.__ModuleLoader__.load({
       const [allWorkspaces, setAllWorkspaces] = react.useState([]);
       const [workspaceFilter, setWorkspaceFilter] = react.useState("");
       const [tasks, setTasks] = react.useState([]);
+      const [reviewableTaskIds, setReviewableTaskIds] = react.useState([]);
       const [directory, setDirectory] = react.useState({
         humans: [],
         agents: [],
@@ -1396,6 +1413,13 @@ window.__ModuleLoader__.load({
       react.useEffect(() => {
         showAllWorkspacesRef.current = showAllWorkspaces;
       }, [showAllWorkspaces]);
+      /**
+       * 平台全量是管理员的数据范围视图，不应再被默认责任人过滤。
+       * 切回默认范围时恢复“我 + 我的分身”，管理员仍可手动选回任意责任人。
+       */
+      react.useEffect(() => {
+        setReceiver(showAllWorkspaces ? "all" : "me");
+      }, [showAllWorkspaces]);
       const dragId = react.useRef("");
       const returnRef = react.useRef(null);
       const suppressOpenUntil = react.useRef(0);
@@ -1417,7 +1441,7 @@ window.__ModuleLoader__.load({
       const load = react.useCallback(
         async (silent = false) => {
           if (token() === null) {
-            setError("请先在账号管理中登录。");
+            setError("请先在「账号与权限 → 登录账号」中登录。");
             setLoading(false);
             return;
           }
@@ -1459,8 +1483,7 @@ window.__ModuleLoader__.load({
                 activeWorkspaceFilter === "" ||
                 workspace.id === activeWorkspaceFilter,
             );
-            const target =
-              requested.length === 0 ? fetchOptions : requested;
+            const target = requested.length === 0 ? fetchOptions : requested;
             const results = await Promise.all(
               target.map((workspace) =>
                 request(
@@ -1503,6 +1526,11 @@ window.__ModuleLoader__.load({
               .flatMap((result) => result.tasks ?? [])
               .filter(keepInScope);
             setTasks(mergedTasks);
+            setReviewableTaskIds([
+              ...new Set(
+                results.flatMap((result) => result.reviewableTaskIds ?? []),
+              ),
+            ]);
             setDirectory(mergedDirectory);
             setError("");
             if (!silent) setLoading(false);
@@ -1523,6 +1551,36 @@ window.__ModuleLoader__.load({
 
       react.useEffect(() => {
         void load();
+      }, [load]);
+
+      react.useEffect(() => {
+        const synchronize = () => {
+          setWorkspaces([]);
+          setAllWorkspaces([]);
+          setWorkspaceFilter("");
+          setTasks([]);
+          setReviewableTaskIds([]);
+          setDirectory({ humans: [], agents: [], roles: [] });
+          setCurrentUser(null);
+          setOwnership("all");
+          setReceiver("me");
+          setPriority("");
+          setSource("");
+          setSearch("");
+          setSearchDraft("");
+          setArchivedOnly(false);
+          setSelectedId("");
+          setHighlightedId("");
+          setCreateOpen(false);
+          setAssignOpen(false);
+          setPendingAssignee(null);
+          setLoading(true);
+          setError("");
+          void load();
+        };
+        window.addEventListener("pluginmax:collab-token", synchronize);
+        return () =>
+          window.removeEventListener("pluginmax:collab-token", synchronize);
       }, [load]);
 
       react.useEffect(() => {
@@ -1558,6 +1616,13 @@ window.__ModuleLoader__.load({
           body: JSON.stringify(body),
         });
         if (result.task !== undefined) {
+          setReviewableTaskIds((current) =>
+            current.includes(result.task.id) ||
+            (result.task.createdBy !== currentUser?.id &&
+              currentUser?.role !== "admin")
+              ? current
+              : [...current, result.task.id],
+          );
           setTasks((current) => {
             const next = current.filter((task) => task.id !== result.task.id);
             return [result.task, ...next].sort((left, right) =>
@@ -1585,11 +1650,7 @@ window.__ModuleLoader__.load({
         if (receiver === "me" && !belongsToMe) return false;
         // 「我（本人）」：只看直接指派给我这个人的任务。
         if (receiver === "me-only" && !assignedToMeOnly) return false;
-        if (
-          receiver !== "me" &&
-          receiver !== "me-only" &&
-          receiver !== "all"
-        ) {
+        if (receiver !== "me" && receiver !== "me-only" && receiver !== "all") {
           const separator = receiver.indexOf(":");
           const receiverType = receiver.slice(0, separator);
           const receiverId = receiver.slice(separator + 1);
@@ -1740,14 +1801,17 @@ window.__ModuleLoader__.load({
           ? h(TaskDetail, {
               task: selected,
               workspaceTitle:
-                (allWorkspaces.find(
-                  (workspace) => workspace.id === selected.workspaceId,
-                ) ??
+                (
+                  allWorkspaces.find(
+                    (workspace) => workspace.id === selected.workspaceId,
+                  ) ??
                   workspaces.find(
                     (workspace) => workspace.id === selected.workspaceId,
-                  ))?.title ?? selected.workspaceId,
+                  )
+                )?.title ?? selected.workspaceId,
               directory,
               currentUser,
+              reviewableTaskIds,
               pendingAssignee,
               setPendingAssignee,
               assignOpen,
@@ -1856,7 +1920,9 @@ window.__ModuleLoader__.load({
     }) {
       const meetingOpen = react.useSyncExternalStore(
         (listener) =>
-          window.__pluginmaxMeeting?.subscribe(() => listener(Boolean(window.__pluginmaxMeeting.open))) ?? (() => {}),
+          window.__pluginmaxMeeting?.subscribe(() =>
+            listener(Boolean(window.__pluginmaxMeeting.open)),
+          ) ?? (() => {}),
         () => Boolean(window.__pluginmaxMeeting?.open),
       );
       return h(
@@ -1865,7 +1931,7 @@ window.__ModuleLoader__.load({
         h(
           "div",
           null,
-          h("h1", null, "任务管理"),
+          h("h1", null, "任务"),
           h(
             "div",
             { className: "pmtask-sub" },
@@ -1902,7 +1968,8 @@ window.__ModuleLoader__.load({
                     type: "button",
                     className: `pmtask-token${showAllWorkspaces ? " active" : ""}`,
                     "aria-pressed": showAllWorkspaces,
-                    title: "平台管理员全量视图：显示全部项目",
+                    title:
+                      "平台管理员全量视图：显示全部项目和任务，可继续手动筛选责任人",
                     onClick: () => {
                       if (!showAllWorkspaces) setShowAllProjects(true);
                     },
@@ -2351,17 +2418,19 @@ window.__ModuleLoader__.load({
                 isArchived(task)
                   ? h("span", { className: "pmtask-pill archived" }, "已归档")
                   : null,
-                task.receiverType === "unassigned"
-                  ? h("span", { className: "pmtask-pill" }, "待指派")
-                  : h(
-                      "span",
-                      { className: "pmtask-assignee" },
-                      h(
+                task.receiverState === "needs_reassignment"
+                  ? h("span", { className: "pmtask-pill reassign" }, "需改派")
+                  : task.receiverType === "unassigned"
+                    ? h("span", { className: "pmtask-pill" }, "待指派")
+                    : h(
                         "span",
-                        { className: "pmtask-assignee-name" },
-                        receiverDisplay(task, directory),
+                        { className: "pmtask-assignee" },
+                        h(
+                          "span",
+                          { className: "pmtask-assignee-name" },
+                          receiverDisplay(task, directory),
+                        ),
                       ),
-                    ),
                 h("span", null, task.due ? task.due.slice(5) : "不限"),
               ),
             ),
@@ -2443,6 +2512,7 @@ window.__ModuleLoader__.load({
         workspaceTitle,
         directory,
         currentUser,
+        reviewableTaskIds,
         pendingAssignee,
         setPendingAssignee,
         assignOpen,
@@ -2474,6 +2544,7 @@ window.__ModuleLoader__.load({
       ];
       const mine = taskBelongsTo(task, currentUser, directory);
       const sent = currentUser !== null && task.createdBy === currentUser.id;
+      const canReview = reviewableTaskIds.includes(task.id);
       const archived = isArchived(task);
       const readOnly = archived || task.status === "cancelled";
       const isApprovalTask = task.workflow?.approvalPolicy !== undefined;
@@ -2504,19 +2575,6 @@ window.__ModuleLoader__.load({
         requestAnimationFrame(() => {
           input?.focus();
           input?.setSelectionRange(nextCursor, nextCursor);
-        });
-      };
-      const focusComposer = () => {
-        const input = messageRef.current;
-        if (input === null) return;
-        if (message.trim() === "" && task.receiverType === "agent") {
-          setMessage(`@${receiverDisplay(task)} `);
-        }
-        input.scrollIntoView({ block: "center", behavior: "smooth" });
-        window.requestAnimationFrame(() => {
-          input.focus();
-          const end = input.value.length;
-          input.setSelectionRange(end, end);
         });
       };
       const uploadAttachment = async (file) => {
@@ -2595,7 +2653,9 @@ window.__ModuleLoader__.load({
             typeof result?.sessionId === "string" ? result.sessionId : "";
           if (sessionId === "") {
             fail(
-              new Error("Agent 还没有真正开始执行，会话尚未创建；稍后重试即可。"),
+              new Error(
+                "Agent 还没有真正开始执行，会话尚未创建；稍后重试即可。",
+              ),
             );
             return;
           }
@@ -2893,8 +2953,8 @@ window.__ModuleLoader__.load({
             : task.status === "done"
               ? `任务已完成 · 发送指令会追加要求并在同一条会话重开一轮（${receiverDisplay(task)}）`
               : task.receiverType === "agent"
-              ? `发送给 ${receiverDisplay(task)}${task.status === "progress" && taskHasActiveRun(task) ? " · Agent 执行中" : task.status === "progress" ? " · 最近一次 Agent 运行未完成" : ""}`
-              : `发送给 ${receiverDisplay(task)}`;
+                ? `发送给 ${receiverDisplay(task)}${task.status === "progress" && taskHasActiveRun(task) ? " · Agent 执行中" : task.status === "progress" ? " · 最近一次 Agent 运行未完成" : ""}`
+                : `发送给 ${receiverDisplay(task)}`;
       const history = [
         ...task.messages.map((item) => ({
           kind: "message",
@@ -2938,7 +2998,7 @@ window.__ModuleLoader__.load({
             h(
               "span",
               { className: "pmtask-crumb" },
-              "任务管理 / ",
+              "任务 / ",
               h("b", null, `${task.id} ${task.title}`),
             ),
             h(TaskFollowButton, {
@@ -3240,6 +3300,45 @@ window.__ModuleLoader__.load({
                             ),
                           )
                         : null,
+                      task.workflow !== undefined &&
+                        task.workflow.approvalPolicy === undefined
+                        ? h(
+                            "div",
+                            { className: "pmtask-field pmtask-review-config" },
+                            h(
+                              "label",
+                              { className: "pmtask-check" },
+                              h("input", {
+                                type: "checkbox",
+                                checked: task.autoApproveReview === true,
+                                disabled: readOnly || archived,
+                                onChange: (event) => {
+                                  const enabled = event.target.checked;
+                                  void mutate(
+                                    "/api/collab/tasks/review/approval",
+                                    {
+                                      taskId: task.id,
+                                      autoApproveReview: enabled,
+                                    },
+                                    enabled
+                                      ? "提交后将自动通过 Review"
+                                      : "提交后将等待人工 Review",
+                                  ).catch(fail);
+                                },
+                              }),
+                              h(
+                                "span",
+                                null,
+                                "提交后自动通过 Review",
+                                h(
+                                  "em",
+                                  null,
+                                  "适用于执行任务；审批任务必须保留明确结论。",
+                                ),
+                              ),
+                            ),
+                          )
+                        : null,
                     ),
                     archived
                       ? h(
@@ -3270,7 +3369,9 @@ window.__ModuleLoader__.load({
                               },
                               "打开工作流节点",
                             ),
-                            isApprovalTask && task.status === "review"
+                            isApprovalTask &&
+                              canReview &&
+                              task.status === "review"
                               ? h(
                                   "button",
                                   {
@@ -3282,7 +3383,9 @@ window.__ModuleLoader__.load({
                                   "通过审批",
                                 )
                               : null,
-                            isApprovalTask && task.status === "review"
+                            isApprovalTask &&
+                              canReview &&
+                              task.status === "review"
                               ? h(
                                   "button",
                                   {
@@ -3354,7 +3457,7 @@ window.__ModuleLoader__.load({
                                 "提交验收",
                               )
                             : null,
-                          mine &&
+                          canReview &&
                             (task.status === "review" ||
                               (task.workflow?.approvalPolicy !== undefined &&
                                 task.status === "progress"))
@@ -3371,7 +3474,7 @@ window.__ModuleLoader__.load({
                                 isApprovalTask ? "通过审批" : "通过",
                               )
                             : null,
-                          mine &&
+                          canReview &&
                             (task.status === "review" ||
                               (task.workflow?.approvalPolicy !== undefined &&
                                 task.status === "progress"))
@@ -3390,7 +3493,8 @@ window.__ModuleLoader__.load({
                             : null,
                           sent &&
                             !isSettledStatus(task.status) &&
-                            task.receiverType !== "unassigned"
+                            // 催办只针对「指派给人类」的任务：Agent 的推进靠指令/改派。
+                            task.receiverType === "human"
                             ? h(
                                 "button",
                                 {
@@ -3404,22 +3508,11 @@ window.__ModuleLoader__.load({
                                 "催办",
                               )
                             : null,
-                          task.receiverType === "agent"
-                            ? h(
-                                "button",
-                                {
-                                  className: "pmtask-btn secondary",
-                                  type: "button",
-                                  disabled: readOnly,
-                                  title:
-                                    lockedTip ??
-                                    "直接在下方输入框补充指令，发送给执行本任务的 Agent",
-                                  onClick: () => focusComposer(),
-                                },
-                                "人工回复",
-                              )
-                            : null,
-                          task.receiverType === "agent" && !readOnly
+                          // 「重置会话」入口先隐藏：前期用户还不熟这个语义，
+                          // 需要时把下面这个开关改回 true 即可（服务端能力保留）。
+                          SHOW_SESSION_RESET &&
+                            task.receiverType === "agent" &&
+                            !readOnly
                             ? h(
                                 "button",
                                 {
@@ -4694,10 +4787,7 @@ window.__ModuleLoader__.load({
         if (typeof sessionId !== "string" || sessionId === "") return false;
         const sessions =
           typeof ctx.get === "function" ? ctx.get("sessions") : undefined;
-        if (
-          sessions === undefined ||
-          typeof sessions.open !== "function"
-        ) {
+        if (sessions === undefined || typeof sessions.open !== "function") {
           return false;
         }
         try {

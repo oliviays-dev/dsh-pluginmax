@@ -3,13 +3,15 @@ import { z } from "zod";
 export const idPattern = /^[a-zA-Z][a-zA-Z0-9._-]*$/;
 
 export const executorSchema = z.object({
-  kind: z.enum(["system", "user", "agent", "employee"]),
+  /** role 表示「项目角色」：执行人不是某个人，而是该项目该角色当前的全部成员。 */
+  kind: z.enum(["system", "user", "agent", "employee", "role"]),
   id: z.string().trim().min(1).max(120),
   label: z.string().trim().max(120).optional(),
 });
 
 export const approverSchema = z.object({
-  kind: z.enum(["user", "agent", "employee"]),
+  /** role 表示项目角色审批：该角色当前任一成员通过即为通过（或签）。 */
+  kind: z.enum(["user", "agent", "employee", "role"]),
   id: z.string().trim().min(1).max(120),
   name: z.string().trim().min(1).max(120),
 });
@@ -124,6 +126,33 @@ export const nodeStateSchema = z.object({
   ]),
   attempts: z.number().int().positive().default(1),
   assignedTo: z.string().trim().max(160).optional(),
+  /**
+   * 人工改派：任务侧把节点任务改派给别的执行人时，节点记住这次改派。
+   * 后续投影（默认执行人、失效兜底）不得把它覆盖回去，直到节点重新进入一轮。
+   */
+  receiverOverride: z
+    .object({
+      type: z.enum(["human", "agent", "role"]),
+      id: z.string().trim().min(1).max(160),
+      name: z.string().trim().max(160).optional(),
+      at: z.string().min(1),
+    })
+    .optional(),
+  /**
+   * 执行实例失效兜底：工作流走到该节点时原 Teammate 实例已停用/不可派发，
+   * 系统把节点改派给该实例的 owner（真人）人工处理。只影响本实例，不改模版。
+   */
+  executorFallback: z
+    .object({
+      kind: z.literal("user"),
+      id: z.string().min(1).max(160),
+      label: z.string().trim().max(160).optional(),
+      reason: z.string().trim().max(500),
+      originalExecutorId: z.string().min(1).max(160),
+      originalExecutorLabel: z.string().trim().max(160).optional(),
+      at: z.string().min(1),
+    })
+    .optional(),
   note: z.string().trim().max(2_000).optional(),
   approvals: z
     .record(
@@ -182,6 +211,29 @@ export const workflowInstanceSchema = z.object({
   nodes: z.record(z.string(), nodeStateSchema),
   parentInstanceId: z.string().min(1).max(160).optional(),
   parentNodeId: z.string().min(1).max(160).optional(),
+  /**
+   * 启动时引用的项目角色快照（执行人 + 角色审批人）。
+   * 已启动实例按快照解析角色成员；项目角色后续编辑/删除不影响旧实例。
+   */
+  roleSnapshot: z
+    .record(
+      z.string(),
+      z.object({
+        roleId: z.string().min(1).max(160),
+        code: z.string().max(160).optional(),
+        name: z.string().min(1).max(160),
+        permissions: z.array(z.string().max(80)).default([]),
+        members: z
+          .array(
+            z.object({
+              kind: z.enum(["user", "agent"]),
+              id: z.string().min(1).max(160),
+            }),
+          )
+          .default([]),
+      }),
+    )
+    .default({}),
   createdBy: z.string().min(1).max(160),
   createdAt: z.string().datetime({ precision: 3 }),
   updatedAt: z.string().datetime({ precision: 3 }),
@@ -194,6 +246,7 @@ export const workflowEventSchema = z.object({
   nodeId: z.string().regex(idPattern).optional(),
   kind: z.string().min(1).max(80),
   actorId: z.string().min(1).max(160),
+  actorPrincipalId: z.string().min(1).max(180).optional(),
   actorKind: z.enum(["user", "agent", "system"]),
   actorName: z.string().min(1).max(160),
   message: z.string().max(1_000),

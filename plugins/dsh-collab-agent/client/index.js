@@ -241,7 +241,10 @@ window.__ModuleLoader__.load({
       }
 
       if (phase === "login")
-        return jsxRuntime.jsx("div", { style, children: "请先在「协作身份」登录。" });
+        return jsxRuntime.jsx("div", {
+          style,
+          children: "请先在「账号与权限 → 登录账号」登录。",
+        });
       if (phase === "loading")
         return jsxRuntime.jsx("div", { style, children: "正在加载 Agent 设置…" });
       if (phase === "error")

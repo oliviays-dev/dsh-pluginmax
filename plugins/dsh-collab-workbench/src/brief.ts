@@ -135,6 +135,10 @@ export const priorityScore = {
   priorityTask(waitingMs: number): number {
     return waitingMs > DAY_MS ? 9 : 8;
   },
+  /** 被派出方催办：别人在等我，与高优先级同档，超过一天再抬一档。 */
+  nudged(waitingMs: number): number {
+    return waitingMs > DAY_MS ? 9 : 8;
+  },
   /** 流程实例阻塞 / 审批等待。 */
   blocked(waitingMs: number): number {
     return waitingMs > DAY_MS ? 8 : 7;
@@ -396,6 +400,7 @@ const TAG_LABEL: Record<BriefItemRecord["tag"], string> = {
   conclusion: "结论",
   decision: "待决策",
   review: "待我验收",
+  nudge: "被催办",
 };
 
 export function briefTagLabel(tag: BriefItemRecord["tag"]): string {
@@ -422,6 +427,7 @@ export function briefSummary(input: {
     review: 0,
     conclusion: 0,
     progress: 0,
+    nudge: 0,
   };
   for (const item of input.items) {
     if (item.readState !== "unread") continue;
@@ -429,6 +435,7 @@ export function briefSummary(input: {
   }
   const parts = [
     ["data", "数据异常"],
+    ["nudge", "被催办"],
     ["decision", "升级关注"],
     ["review", "待我验收"],
     ["conclusion", "结论"],

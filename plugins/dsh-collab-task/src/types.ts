@@ -41,6 +41,7 @@ export const taskWorkflowRefSchema = z.object({
   instanceTitle: z.string().min(1).max(180),
   nodeName: z.string().min(1).max(180),
   approvalPolicy: z.enum(["all", "any"]).optional(),
+  approverIds: z.array(z.string().min(1).max(160)).max(50).optional(),
   nodeAttempt: z.number().int().positive().optional(),
   reviewRequired: z.boolean().optional(),
   outcome: z
@@ -58,6 +59,7 @@ export const taskEventSchema = z.object({
   id: z.string().min(1).max(160),
   at: z.string().min(1),
   actorId: z.string().min(1).max(160),
+  actorPrincipalId: z.string().min(1).max(180).optional(),
   actorName: z.string().min(1).max(200),
   kind: z.enum([
     "created",
@@ -139,7 +141,20 @@ export const taskRecordSchema = z.object({
   priority: taskPrioritySchema,
   receiverType: taskReceiverTypeSchema,
   receiverId: z.string().min(1).max(160).optional(),
+  receiverPrincipalId: z.string().min(1).max(180).optional(),
   receiverName: z.string().min(1).max(200).optional(),
+  /** 项目角色下线后，任务需要人工改派。 */
+  receiverState: z.enum(["active", "needs_reassignment"]).default("active"),
+  /** 需要改派的原因（角色下线）。 */
+  reassignmentReason: z.string().max(500).optional(),
+  /** 下线角色的历史负责人快照，供列表与详情展示。 */
+  previousReceiver: z
+    .object({
+      type: z.literal("role"),
+      id: z.string().min(1).max(160),
+      name: z.string().min(1).max(200),
+    })
+    .optional(),
   createdBy: z.string().min(1).max(160),
   createdByName: z.string().min(1).max(200),
   description: z.string().min(1).max(20000),
@@ -152,6 +167,8 @@ export const taskRecordSchema = z.object({
   sessionEpoch: z.number().int().nonnegative().default(0),
   /** Agent 完成指定产出物后，是否自动把任务推进到「待验收」。 */
   autoSubmitReview: z.boolean().default(true),
+  /** 执行任务提交后，是否自动通过 Review 并完成节点。 */
+  autoApproveReview: z.boolean().default(false),
   steps: z.array(taskStepSchema).min(1).max(30),
   agentRunIds: z.array(z.string().min(1).max(180)).default([]),
   messages: z.array(taskMessageSchema).default([]),

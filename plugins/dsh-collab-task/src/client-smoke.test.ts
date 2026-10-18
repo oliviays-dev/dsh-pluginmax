@@ -285,7 +285,8 @@ function findNode(
 
 function containsText(value: unknown, text: string): boolean {
   if (typeof value === "string") return value.includes(text);
-  if (Array.isArray(value)) return value.some((item) => containsText(item, text));
+  if (Array.isArray(value))
+    return value.some((item) => containsText(item, text));
   if (value !== null && typeof value === "object") {
     return containsText((value as TreeNode).props?.children, text);
   }
@@ -539,6 +540,39 @@ function titleNode(tree: unknown, title: string): TreeNode | undefined {
 }
 
 describe("task client", () => {
+  it("clears task data and edit state when the login token changes", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    const listenerStart = source.indexOf(
+      'window.addEventListener("pluginmax:collab-token", synchronize)',
+    );
+    const synchronizeStart = source.lastIndexOf(
+      "const synchronize =",
+      listenerStart,
+    );
+    const synchronizeEnd = source.indexOf("}, [load]);", listenerStart);
+    expect(synchronizeStart).toBeGreaterThan(-1);
+    expect(synchronizeEnd).toBeGreaterThan(synchronizeStart);
+    const synchronize = source.slice(synchronizeStart, synchronizeEnd);
+    expect(synchronize).toContain("setTasks([])");
+    expect(synchronize).toContain("setCurrentUser(null)");
+    expect(synchronize).toContain('setOwnership("all")');
+    expect(synchronize).toContain('setReceiver("me")');
+    expect(synchronize).toContain('setPriority("")');
+    expect(synchronize).toContain('setSource("")');
+    expect(synchronize).toContain('setSearch("")');
+    expect(synchronize).toContain("setCreateOpen(false)");
+    expect(synchronize).toContain("setAssignOpen(false)");
+  });
+
+  it("uses server-projected review authority instead of assignment alone", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain("reviewableTaskIds");
+    expect(source).toContain(
+      "const canReview = reviewableTaskIds.includes(task.id)",
+    );
+    expect(source).toContain("canReview &&");
+  });
+
   it("registers the task page into the global slot", () => {
     const { exports: exported } = loadClientExports();
     expect(exported.inject).toEqual(["slots"]);
@@ -563,7 +597,10 @@ describe("task client", () => {
     let tree = await settle(root, harness.runtime);
 
     // 默认「责任人=我」：只应看到指派给我的任务，即使它在我未加入的项目里。
-    expect(titleNode(tree, "我的任务"), "默认视图应包含我负责的任务").toBeDefined();
+    expect(
+      titleNode(tree, "我的任务"),
+      "默认视图应包含我负责的任务",
+    ).toBeDefined();
     expect(titleNode(tree, "别人的任务")).toBeUndefined();
     expect(titleNode(tree, "同项目别人的任务")).toBeUndefined();
     expect(
@@ -596,8 +633,14 @@ describe("task client", () => {
     (allReceiverOption?.props?.onClick as (() => void) | undefined)?.();
     tree = await settle(root, harness.runtime);
 
-    expect(titleNode(tree, "我的任务"), "未加入项目里我负责的任务仍在").toBeDefined();
-    expect(titleNode(tree, "同项目别人的任务"), "已加入项目照常展示").toBeDefined();
+    expect(
+      titleNode(tree, "我的任务"),
+      "未加入项目里我负责的任务仍在",
+    ).toBeDefined();
+    expect(
+      titleNode(tree, "同项目别人的任务"),
+      "已加入项目照常展示",
+    ).toBeDefined();
     expect(
       titleNode(tree, "别人的任务"),
       "未加入项目里别人的任务不应出现在默认范围",
@@ -606,19 +649,24 @@ describe("task client", () => {
     // 切到「平台全量」后，未加入项目里别人的任务也应出现。
     const platformButton = findNode(
       tree,
-      (node) =>
-        node.type === "button" && node.props?.children === "平台全量",
+      (node) => node.type === "button" && node.props?.children === "平台全量",
     );
     expect(platformButton, "平台全量切换应渲染").toBeDefined();
     (platformButton?.props?.onClick as (() => void) | undefined)?.();
     tree = await settle(root, harness.runtime);
 
-    expect(titleNode(tree, "别人的任务"), "平台全量应包含全部项目").toBeDefined();
+    expect(
+      titleNode(tree, "别人的任务"),
+      "平台全量应包含全部项目",
+    ).toBeDefined();
     expect(harness.scope.getSnapshot(), "切换应写回共享范围 store").toBe(true);
   });
 
   it("adopts the platform-wide scope chosen by another module", async () => {
-    const harness = loadClientExports({ fetchImpl: adminFetch, scopeAll: true });
+    const harness = loadClientExports({
+      fetchImpl: adminFetch,
+      scopeAll: true,
+    });
     const root = mountTaskPage(harness);
     const tree = await settle(root, harness.runtime);
     expect(
@@ -1015,6 +1063,108 @@ describe("task client", () => {
       "de-task-TSK-SESSION-1-pluginmax-de",
     ]);
     expect(harness.shellRoutes, "shell 应切到会话视图").toContain("session");
+  });
+
+  it("offers 催办 only for human receivers and hides 重置会话", async () => {
+    const directory = {
+      humans: [],
+      agents: [
+        {
+          id: "tm-842b0fc6-c4b3-43c2-a32f-24dd2d8d6bc5",
+          name: "Pluginmax DE",
+          kind: "agent",
+          employeeId: "pluginmax-de",
+          ownerName: "平台 Admin",
+          ownerAuthUserId: "admin",
+          source: "platform",
+          avatar: "",
+        },
+      ],
+      roles: [],
+    };
+    const renderDetail = async (task: Record<string, unknown>) => {
+      const fetchImpl = (input: string) => {
+        if (input.startsWith("/api/collab/auth/me")) {
+          return Promise.resolve(
+            payload({
+              user: { id: "admin", name: "平台 Admin", role: "admin" },
+            }),
+          );
+        }
+        if (input.startsWith("/api/collab/team/workspaces")) {
+          return Promise.resolve(
+            payload({
+              workspaces: [
+                { id: "ws-1", title: "项目一", path: "/p1", isMember: true },
+              ],
+            }),
+          );
+        }
+        if (input.startsWith("/api/collab/tasks/bootstrap")) {
+          return Promise.resolve(
+            payload({ tasks: [makeTask(task)], directory }),
+          );
+        }
+        return Promise.resolve(payload({}));
+      };
+      const harness = loadClientExports({ fetchImpl });
+      const root = mountTaskPage(harness);
+      const tree = await settle(root, harness.runtime);
+      const card = findNode(
+        tree,
+        (node) => node.props?.["data-task-id"] === task.id,
+      );
+      (card?.props?.onClick as (() => void) | undefined)?.();
+      return await settle(root, harness.runtime);
+    };
+    const button = (tree: unknown, label: string) =>
+      findNode(
+        tree,
+        (node) => node.type === "button" && node.props?.children === label,
+      );
+
+    const humanTree = await renderDetail({
+      id: "TSK-HUMAN-1",
+      workspaceId: "ws-1",
+      title: "指派给人的任务",
+      status: "todo",
+      priority: "P2",
+      receiverType: "human",
+      receiverId: "admin",
+      receiverName: "平台 Admin",
+      createdBy: "admin",
+      updatedAt: "2026-03-07T00:00:00.000Z",
+    });
+    expect(button(humanTree, "催办"), "指派给人类的任务应有催办").toBeDefined();
+    expect(button(humanTree, "重置会话"), "重置会话入口先隐藏").toBeUndefined();
+
+    const agentTree = await renderDetail({
+      id: "TSK-AGENT-1",
+      workspaceId: "ws-1",
+      title: "交给分身执行的任务",
+      status: "progress",
+      priority: "P2",
+      receiverType: "agent",
+      receiverId: "pluginmax-de",
+      receiverName: "Pluginmax DE",
+      createdBy: "admin",
+      updatedAt: "2026-03-07T00:00:00.000Z",
+    });
+    expect(
+      button(agentTree, "催办"),
+      "Agent 承接的任务不应有催办",
+    ).toBeUndefined();
+    expect(button(agentTree, "重置会话")).toBeUndefined();
+    // 「人工回复」已下线：用户直接在下方输入框录入即可，避免按钮语义误解。
+    expect(
+      button(agentTree, "人工回复"),
+      "人工回复按钮应已下线",
+    ).toBeUndefined();
+    expect(
+      findNode(agentTree, (node) => node.type === "textarea"),
+      "下方指令输入框应保留",
+    ).toBeDefined();
+    expect(button(agentTree, "发送"), "发送按钮应保留").toBeDefined();
   });
 
   it("shows the owning project and never offers to change it", async () => {

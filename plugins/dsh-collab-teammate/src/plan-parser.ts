@@ -36,7 +36,7 @@ export function compactWorkPlanTitle(text: string): string {
   if (title.length > TITLE_MAX_LENGTH) {
     title = `${title.slice(0, TITLE_MAX_LENGTH)}...`;
   }
-  return title || "新的 AI Teammate 工作计划";
+  return title || "新的 AI伙伴工作计划";
 }
 
 export function parseWorkPlanPriority(text: string): string | undefined {

@@ -44,19 +44,6 @@ window.__ModuleLoader__.load({
       border: "0.5px solid var(--dsw-alias-border-l3)",
       color: "var(--dsw-alias-label-primary)",
     };
-    const iconButtonStyle = {
-      alignItems: "center",
-      background: "transparent",
-      border: "0.5px solid var(--dsw-alias-border-l3)",
-      borderRadius: 6,
-      color: "var(--dsw-alias-label-secondary)",
-      cursor: "pointer",
-      display: "inline-flex",
-      flex: "0 0 auto",
-      height: 36,
-      justifyContent: "center",
-      width: 36,
-    };
     const panelStyle = {
       borderTop: "0.5px solid var(--dsw-alias-border-l2)",
       display: "grid",
@@ -229,62 +216,6 @@ window.__ModuleLoader__.load({
       });
     }
 
-    function workspaceLabel(workspace) {
-      const title = workspace.title?.trim();
-      const path = workspace.path?.trim();
-      if (title) return title;
-      if (path) {
-        const parts = path.split(/[\\/]/).filter(Boolean);
-        return parts.at(-1) ?? path;
-      }
-      return "未知工作区";
-    }
-
-    function InfoIcon() {
-      return jsxRuntime.jsx("svg", {
-        "aria-hidden": true,
-        fill: "none",
-        height: 16,
-        stroke: "currentColor",
-        strokeLinecap: "round",
-        strokeLinejoin: "round",
-        strokeWidth: 1.8,
-        viewBox: "0 0 24 24",
-        width: 16,
-        children: [
-          jsxRuntime.jsx("circle", { cx: 12, cy: 12, r: 9 }, "circle"),
-          jsxRuntime.jsx("path", { d: "M12 11v5" }, "stem"),
-          jsxRuntime.jsx("path", { d: "M12 8h.01" }, "dot"),
-        ],
-      });
-    }
-
-    function CopyIcon() {
-      return jsxRuntime.jsx("svg", {
-        "aria-hidden": true,
-        fill: "none",
-        height: 14,
-        stroke: "currentColor",
-        strokeLinecap: "round",
-        strokeLinejoin: "round",
-        strokeWidth: 1.8,
-        viewBox: "0 0 24 24",
-        width: 14,
-        children: [
-          jsxRuntime.jsx(
-            "rect",
-            { height: 12, rx: 2, width: 12, x: 9, y: 9 },
-            "front",
-          ),
-          jsxRuntime.jsx(
-            "path",
-            { d: "M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" },
-            "back",
-          ),
-        ],
-      });
-    }
-
     function friendlyError(cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       if (message === "invalid user or password")
@@ -302,7 +233,7 @@ window.__ModuleLoader__.load({
       return message;
     }
 
-    const IdentitySection = ({ surface = "identity" } = {}) => {
+    const IdentitySection = () => {
       const [phase, setPhase] = react.useState("loading");
       const [message, setMessage] = react.useState("");
       const [error, setError] = react.useState("");
@@ -310,11 +241,6 @@ window.__ModuleLoader__.load({
       const savingRef = react.useRef(false);
       const [me, setMe] = react.useState(null);
       const [users, setUsers] = react.useState([]);
-      const [members, setMembers] = react.useState([]);
-      const [events, setEvents] = react.useState([]);
-      const [workspaces, setWorkspaces] = react.useState([]);
-      const [workspaceId, setWorkspaceId] = react.useState(null);
-      const [workspaceInfoOpen, setWorkspaceInfoOpen] = react.useState(false);
       const [account, setAccount] = react.useState({
         userId: "",
         name: "",
@@ -329,10 +255,6 @@ window.__ModuleLoader__.load({
         userId: "",
         name: "",
         password: "",
-        role: "member",
-      });
-      const [memberForm, setMemberForm] = react.useState({
-        userId: "",
         role: "member",
       });
       /** 账号管理：行内编辑 / 停用启用 / 是否查看已停用。 */
@@ -355,36 +277,13 @@ window.__ModuleLoader__.load({
       };
 
       const loadAdmin = react.useCallback(
-        async (user = me, activeWorkspaceId = workspaceId) => {
-          if (user?.role !== "admin" || !activeWorkspaceId) {
-            if (!activeWorkspaceId) setMembers([]);
-            return;
-          }
-          const [userResult, memberResult, auditResult] = await Promise.all([
-            request("/api/collab/team/users"),
-            request(
-              `/api/collab/team/members?workspaceId=${encodeURIComponent(activeWorkspaceId)}`,
-            ),
-            request("/api/collab/team/audit?limit=100"),
-          ]);
+        async (user = me) => {
+          if (user?.role !== "admin") return;
+          const userResult = await request("/api/collab/team/users");
           setUsers(userResult.users);
-          setMembers(memberResult.members);
-          setEvents(auditResult.events);
         },
-        [me, workspaceId],
+        [me],
       );
-
-      const loadWorkspaces = async () => {
-        const result = await request("/api/collab/team/workspaces");
-        setWorkspaces(result.workspaces);
-        const selected = result.workspaces.some(
-          (workspace) => workspace.id === workspaceId,
-        )
-          ? workspaceId
-          : (result.workspaces[0]?.id ?? null);
-        setWorkspaceId(selected);
-        return selected;
-      };
 
       react.useEffect(() => {
         let disposed = false;
@@ -408,7 +307,6 @@ window.__ModuleLoader__.load({
               signal: controller.signal,
             });
             if (disposed) return;
-            await loadWorkspaces();
             setMe(current.user);
             setPhase("ready");
           } catch (cause) {
@@ -422,6 +320,10 @@ window.__ModuleLoader__.load({
         }
         load();
         const handleTokenChange = () => {
+          if (getToken() !== null) {
+            setMessage("");
+            setError("");
+          }
           if (!disposed) void load();
         };
         window.addEventListener("pluginmax:collab-token", handleTokenChange);
@@ -433,7 +335,7 @@ window.__ModuleLoader__.load({
             handleTokenChange,
           );
         };
-      }, [loadAdmin, workspaceId]);
+      }, []);
 
       react.useEffect(() => {
         if (me?.role !== "admin") return;
@@ -441,10 +343,10 @@ window.__ModuleLoader__.load({
       }, [loadAdmin, me]);
 
       react.useEffect(() => {
-        if (surface === "account" && phase === "login") {
+        if (phase === "login") {
           setLoginDialogOpen(true);
         }
-      }, [surface, phase]);
+      }, [phase]);
 
       const submitBootstrap = async (event) => {
         event.preventDefault();
@@ -460,8 +362,7 @@ window.__ModuleLoader__.load({
           setMe(result.user);
           setPhase("ready");
           notify(`已创建管理员 ${result.user.id}`);
-          const activeWorkspaceId = await loadWorkspaces();
-          await loadAdmin(result.user, activeWorkspaceId);
+          await loadAdmin(result.user);
         } catch (cause) {
           fail(cause);
         } finally {
@@ -488,8 +389,7 @@ window.__ModuleLoader__.load({
           setPhase("ready");
           setLoginDialogOpen(false);
           notify(`已登录 ${result.user.name}`);
-          const activeWorkspaceId = await loadWorkspaces();
-          await loadAdmin(result.user, activeWorkspaceId);
+          await loadAdmin(result.user);
         } catch (cause) {
           fail(cause);
         } finally {
@@ -545,8 +445,7 @@ window.__ModuleLoader__.load({
             body: JSON.stringify({ ...newUser, userId, name }),
           });
           setNewUser({ userId: "", name: "", password: "", role: "member" });
-          setMemberForm({ userId, role: "member" });
-          notify("全局账号已创建；请在下方「工作区成员」中保存为成员。");
+          notify("全局账号已创建；请到项目管理中把该账号加入对应项目。");
           await loadAdmin();
         } catch (cause) {
           fail(cause);
@@ -598,74 +497,6 @@ window.__ModuleLoader__.load({
         }
       };
 
-      const submitMember = async (event) => {
-        event.preventDefault();
-        if (noWorkspace) {
-          fail(new Error("请先在左侧工作区列表添加或打开一个工作区。"));
-          return;
-        }
-        if (savingRef.current) return;
-        savingRef.current = true;
-        setSaving(true);
-        try {
-          await request("/api/collab/team/members/set", {
-            method: "PUT",
-            body: JSON.stringify({
-              workspaceId,
-              userId: memberForm.userId,
-              role: memberForm.role,
-            }),
-          });
-          setMemberForm({ userId: "", role: "member" });
-          notify("工作区成员已保存");
-          await loadAdmin();
-        } catch (cause) {
-          fail(cause);
-        } finally {
-          savingRef.current = false;
-          setSaving(false);
-        }
-      };
-
-      const removeMember = async (userId) => {
-        if (savingRef.current) return;
-        savingRef.current = true;
-        setSaving(true);
-        try {
-          await request("/api/collab/team/members/remove", {
-            method: "POST",
-            body: JSON.stringify({ workspaceId, userId }),
-          });
-          notify("成员已移出工作区");
-          await loadAdmin();
-        } catch (cause) {
-          fail(cause);
-        } finally {
-          savingRef.current = false;
-          setSaving(false);
-        }
-      };
-
-      const leaveWorkspace = async (workspaceIdToLeave) => {
-        if (savingRef.current) return;
-        savingRef.current = true;
-        setSaving(true);
-        try {
-          await request("/api/collab/team/members/leave", {
-            method: "POST",
-            body: JSON.stringify({ workspaceId: workspaceIdToLeave }),
-          });
-          const nextWorkspaceId = await loadWorkspaces();
-          await loadAdmin(me, nextWorkspaceId);
-          notify("已退出工作区");
-        } catch (cause) {
-          fail(cause);
-        } finally {
-          savingRef.current = false;
-          setSaving(false);
-        }
-      };
-
       const logout = async () => {
         try {
           await request("/api/collab/auth/logout", { method: "POST" });
@@ -673,10 +504,6 @@ window.__ModuleLoader__.load({
           setToken(undefined);
           setMe(null);
           setUsers([]);
-          setMembers([]);
-          setEvents([]);
-          setWorkspaces([]);
-          setWorkspaceId("main");
           setPhase("login");
           notify("已退出登录");
         }
@@ -721,48 +548,11 @@ window.__ModuleLoader__.load({
         ],
       });
 
-      const activeWorkspace = workspaces.find(
-        (workspace) => workspace.id === workspaceId,
-      );
-      const workspaceNameById = new Map(
-        workspaces.map((workspace) => [
-          workspace.id,
-          workspaceLabel(workspace),
-        ]),
-      );
-      const workspaceRoleLabels = {
-        owner: "负责人",
-        member: "成员",
-        guest: "访客",
-      };
-      const workspaceRoleLabel = (role) =>
-        workspaceRoleLabels[role] ?? role ?? "未加入";
-      const myWorkspaces = workspaces
-        .filter((workspace) => workspace.isMember)
-        .sort((left, right) =>
-          workspaceLabel(left).localeCompare(
-            workspaceLabel(right),
-            "zh-Hans-CN",
-          ),
-        );
-      /** 平台管理员对全部宿主工作区可见，但"可见"不等于"已加入"；这里分开呈现。 */
-      const isPlatformAdmin = me?.role === "admin";
-      const visibleWorkspaces = (
-        isPlatformAdmin ? [...workspaces] : myWorkspaces
-      ).sort((left, right) =>
-        workspaceLabel(left).localeCompare(
-          workspaceLabel(right),
-          "zh-Hans-CN",
-        ),
-      );
-      const noWorkspace = !activeWorkspace;
       const disabledUserCount = users.filter(
         (user) => user.status === "disabled",
       ).length;
       const visibleUsers = users.filter((user) =>
-        showDisabled
-          ? user.status === "disabled"
-          : user.status !== "disabled",
+        showDisabled ? user.status === "disabled" : user.status !== "disabled",
       );
       /** 账号表格行的紧凑按钮，避免操作列换行成两行。 */
       const rowButtonStyle = {
@@ -806,29 +596,6 @@ window.__ModuleLoader__.load({
           children: jsxRuntime.jsx("p", { children: "正在加载身份..." }),
         });
       }
-      if (surface === "identity" && phase !== "ready") {
-        return jsxRuntime.jsxs("section", {
-          "data-pluginmax-identity": true,
-          style: {
-            color: "var(--dsw-alias-label-primary)",
-            display: "grid",
-            gap: 12,
-            padding: 4,
-          },
-          children: [
-            jsxRuntime.jsx("h2", {
-              style: { fontSize: 18, margin: 0 },
-              children: "协作身份",
-            }),
-            jsxRuntime.jsx("p", {
-              style: { color: "var(--dsw-alias-label-secondary)", margin: 0 },
-              children:
-                "请先在「账号管理」中登录，再管理工作区成员和审计记录。",
-            }),
-          ],
-        });
-      }
-
       return jsxRuntime.jsxs("section", {
         "data-pluginmax-identity": true,
         style: {
@@ -848,9 +615,9 @@ window.__ModuleLoader__.load({
             children: [
               jsxRuntime.jsx("h2", {
                 style: { fontSize: 18, margin: 0 },
-                children: surface === "account" ? "账号管理" : "协作身份",
+                children: "登录账号",
               }),
-              me === null || surface !== "account"
+              me === null
                 ? null
                 : jsxRuntime.jsx("button", {
                     type: "button",
@@ -859,105 +626,6 @@ window.__ModuleLoader__.load({
                     children: "退出登录",
                   }),
             ],
-          }),
-          jsxRuntime.jsx(Panel, {
-            title: "我的工作区",
-            children: jsxRuntime.jsxs("div", {
-              style: { display: "grid", gap: 8 },
-              children: [
-                isPlatformAdmin
-                  ? jsxRuntime.jsxs("p", {
-                      style: {
-                        color: "var(--dsw-alias-label-secondary)",
-                        fontSize: 13,
-                        lineHeight: 1.5,
-                        margin: 0,
-                      },
-                      children: [
-                        jsxRuntime.jsx("strong", { children: "平台管理员" }),
-                        ` · 可见全部 ${String(workspaces.length)} 个工作区（已加入 ${String(myWorkspaces.length)} 个）；未加入的工作区仅平台管理员可见。`,
-                      ],
-                    })
-                  : null,
-                visibleWorkspaces.length === 0
-                  ? jsxRuntime.jsx("p", {
-                      style: {
-                        color: "var(--dsw-alias-label-secondary)",
-                        fontSize: 13,
-                        margin: 0,
-                      },
-                      children: "暂无已加入的工作区。",
-                    })
-                  : visibleWorkspaces.map((workspace) =>
-                      jsxRuntime.jsxs(
-                        "div",
-                        {
-                          style: {
-                            alignItems: "center",
-                            border: "0.5px solid var(--dsw-alias-border-l2)",
-                            borderRadius: 6,
-                            display: "grid",
-                            gap: 8,
-                            gridTemplateColumns: "minmax(0, 1fr) auto auto",
-                            padding: "9px 10px",
-                          },
-                          children: [
-                            jsxRuntime.jsxs("div", {
-                              style: { minWidth: 0 },
-                              children: [
-                                jsxRuntime.jsx("span", {
-                                  style: {
-                                    display: "block",
-                                    font: "inherit",
-                                    fontSize: 13,
-                                    fontWeight: 400,
-                                    lineHeight: 1.4,
-                                  },
-                                  children: workspaceLabel(workspace),
-                                }),
-                                jsxRuntime.jsx("span", {
-                                  style: {
-                                    color: "var(--dsw-alias-label-secondary)",
-                                    fontSize: 12,
-                                    overflowWrap: "anywhere",
-                                  },
-                                  children: workspace.id,
-                                }),
-                              ],
-                            }),
-                            jsxRuntime.jsx("span", {
-                              style: {
-                                borderRadius: 999,
-                                padding: "2px 8px",
-                                background: "var(--dsw-alias-bg-layer-2)",
-                                fontSize: 11,
-                                whiteSpace: "nowrap",
-                              },
-                              children:
-                                isPlatformAdmin && !workspace.isMember
-                                  ? "未加入 · 管理员可见"
-                                  : `已加入 · ${workspaceRoleLabel(
-                                      workspace.memberRole,
-                                    )}`,
-                            }),
-                            workspace.isMember
-                              ? jsxRuntime.jsx("button", {
-                                  type: "button",
-                                  style: secondaryButtonStyle,
-                                  disabled: saving,
-                                  onClick: () => leaveWorkspace(workspace.id),
-                                  children: saving ? "退出中..." : "退出",
-                                })
-                              : jsxRuntime.jsx("span", {
-                                  style: { width: 0 },
-                                }),
-                          ],
-                        },
-                        workspace.id,
-                      ),
-                    ),
-              ],
-            }),
           }),
           message === ""
             ? null
@@ -977,7 +645,7 @@ window.__ModuleLoader__.load({
                 },
                 children: error,
               }),
-          surface === "account" && phase === "bootstrap"
+          phase === "bootstrap"
             ? jsxRuntime.jsxs("form", {
                 onSubmit: submitBootstrap,
                 style: formStyle,
@@ -996,7 +664,7 @@ window.__ModuleLoader__.load({
                 ],
               })
             : null,
-          surface === "account" && phase === "login"
+          phase === "login"
             ? jsxRuntime.jsxs("div", {
                 style: {
                   alignItems: "center",
@@ -1024,7 +692,7 @@ window.__ModuleLoader__.load({
                 ],
               })
             : null,
-          surface !== "account" || phase !== "ready" || me === null
+          phase !== "ready" || me === null
             ? null
             : jsxRuntime.jsxs(jsxRuntime.Fragment, {
                 children: [
@@ -1119,7 +787,7 @@ window.__ModuleLoader__.load({
                   }),
                 ],
               }),
-          surface === "account" && phase === "login" && loginDialogOpen
+          phase === "login" && loginDialogOpen
             ? jsxRuntime.jsx("div", {
                 className: "pmx-auth-layer",
                 onMouseDown: (event) => {
@@ -1174,710 +842,730 @@ window.__ModuleLoader__.load({
             ? null
             : jsxRuntime.jsxs(jsxRuntime.Fragment, {
                 children: [
-                  surface === "account"
-                    ? jsxRuntime.jsxs(Panel, {
-                        title: "账号",
-                        action: jsxRuntime.jsx("button", {
-                          type: "button",
-                          style: secondaryButtonStyle,
-                          onClick: () => loadAdmin().catch(fail),
-                          children: "刷新",
-                        }),
+                  jsxRuntime.jsxs(Panel, {
+                    title: "登录账号",
+                    action: jsxRuntime.jsx("button", {
+                      type: "button",
+                      style: secondaryButtonStyle,
+                      onClick: () => loadAdmin().catch(fail),
+                      children: "刷新",
+                    }),
+                    children: [
+                      jsxRuntime.jsxs("form", {
+                        onSubmit: submitUser,
+                        style: {
+                          ...formStyle,
+                          gridTemplateColumns:
+                            "minmax(160px, 1fr) minmax(160px, 1fr) minmax(180px, 1fr)",
+                        },
                         children: [
-                          jsxRuntime.jsxs("form", {
-                            onSubmit: submitUser,
-                            style: {
-                              ...formStyle,
-                              gridTemplateColumns:
-                                "minmax(160px, 1fr) minmax(160px, 1fr) minmax(180px, 1fr)",
-                            },
-                            children: [
-                              jsxRuntime.jsx(Field, {
-                                id: "pluginmax-new-user-id",
-                                label: "用户 ID",
-                                hint: "字母或数字开头，最长 64 位",
-                                maxLength: 64,
-                                value: newUser.userId,
-                                onChange: (event) =>
-                                  setNewUser((current) => ({
-                                    ...current,
-                                    userId: event.target.value,
-                                  })),
-                              }),
-                              jsxRuntime.jsx(Field, {
-                                id: "pluginmax-new-user-name",
-                                label: "显示名称",
-                                hint: "最长 80 个字符",
-                                maxLength: 80,
-                                value: newUser.name,
-                                onChange: (event) =>
-                                  setNewUser((current) => ({
-                                    ...current,
-                                    name: event.target.value,
-                                  })),
-                              }),
-                              jsxRuntime.jsx(Field, {
-                                id: "pluginmax-new-user-password",
-                                label: "初始密码",
-                                type: "password",
-                                hint: "至少 8 个字符，最长 256 位",
-                                maxLength: 256,
-                                value: newUser.password,
-                                onChange: (event) =>
-                                  setNewUser((current) => ({
-                                    ...current,
-                                    password: event.target.value,
-                                  })),
-                              }),
-                              jsxRuntime.jsx("label", {
-                                htmlFor: "pluginmax-new-user-role",
-                                style: {
-                                  color: "var(--dsw-alias-label-secondary)",
-                                  alignContent: "start",
-                                  display: "grid",
-                                  fontSize: 13,
-                                  gap: 5,
-                                },
-                                children: [
-                                  jsxRuntime.jsx("span", {
-                                    children: "全局角色",
-                                  }),
-                                  jsxRuntime.jsx("select", {
-                                    id: "pluginmax-new-user-role",
-                                    style: inputStyle,
-                                    value: newUser.role,
-                                    onChange: (event) =>
-                                      setNewUser((current) => ({
-                                        ...current,
-                                        role: event.target.value,
-                                      })),
-                                    children: [
-                                      "admin",
-                                      "owner",
-                                      "member",
-                                      "guest",
-                                    ].map((role) =>
-                                      jsxRuntime.jsx(
-                                        "option",
-                                        { value: role, children: role },
-                                        role,
-                                      ),
-                                    ),
-                                  }),
-                                ],
-                              }),
-                              jsxRuntime.jsx("button", {
-                                type: "submit",
-                                disabled: saving,
-                                style: {
-                                  ...buttonStyle,
-                                  gridColumn: "1 / -1",
-                                  justifySelf: "start",
-                                  opacity: saving ? 0.6 : 1,
-                                },
-                                children: saving ? "创建中..." : "创建",
-                              }),
-                            ],
+                          jsxRuntime.jsx(Field, {
+                            id: "pluginmax-new-user-id",
+                            label: "用户 ID",
+                            hint: "字母或数字开头，最长 64 位",
+                            maxLength: 64,
+                            value: newUser.userId,
+                            onChange: (event) =>
+                              setNewUser((current) => ({
+                                ...current,
+                                userId: event.target.value,
+                              })),
                           }),
-                          jsxRuntime.jsxs("div", {
+                          jsxRuntime.jsx(Field, {
+                            id: "pluginmax-new-user-name",
+                            label: "显示名称",
+                            hint: "最长 80 个字符",
+                            maxLength: 80,
+                            value: newUser.name,
+                            onChange: (event) =>
+                              setNewUser((current) => ({
+                                ...current,
+                                name: event.target.value,
+                              })),
+                          }),
+                          jsxRuntime.jsx(Field, {
+                            id: "pluginmax-new-user-password",
+                            label: "初始密码",
+                            type: "password",
+                            hint: "至少 8 个字符，最长 256 位",
+                            maxLength: 256,
+                            value: newUser.password,
+                            onChange: (event) =>
+                              setNewUser((current) => ({
+                                ...current,
+                                password: event.target.value,
+                              })),
+                          }),
+                          jsxRuntime.jsx("label", {
+                            htmlFor: "pluginmax-new-user-role",
                             style: {
-                              alignItems: "center",
-                              display: "flex",
-                              gap: 8,
-                              justifyContent: "space-between",
+                              color: "var(--dsw-alias-label-secondary)",
+                              alignContent: "start",
+                              display: "grid",
+                              fontSize: 13,
+                              gap: 5,
                             },
                             children: [
                               jsxRuntime.jsx("span", {
-                                style: {
-                                  color:
-                                    "var(--dsw-alias-label-secondary)",
-                                  fontSize: 12,
-                                },
-                                children: `共 ${String(users.length)} 个账号 · 已停用 ${String(disabledUserCount)}`,
+                                children: "全局角色",
                               }),
-                              jsxRuntime.jsx("button", {
-                                type: "button",
-                                style: buttonStyle,
-                                disabled:
-                                  disabledUserCount === 0 && !showDisabled,
-                                onClick: () =>
-                                  setShowDisabled((value) => !value),
-                                children: showDisabled
-                                  ? "返回启用账号"
-                                  : `查看已停用 ${String(disabledUserCount)}`,
-                              }),
-                            ],
-                          }),
-                          jsxRuntime.jsxs("table", {
-                            style: tableStyle,
-                            children: [
-                              jsxRuntime.jsx("thead", {
-                                children: jsxRuntime.jsx("tr", {
-                                  children: [
-                                    "用户",
-                                    "名称",
-                                    "角色",
-                                    "创建时间",
-                                    "操作",
-                                  ].map((title) =>
-                                    jsxRuntime.jsx(
-                                      "th",
-                                      { style: cellStyle, children: title },
-                                      title,
-                                    ),
-                                  ),
-                                }),
-                              }),
-                              jsxRuntime.jsx("tbody", {
-                                children: visibleUsers.map((user) => {
-                                  const editing = editUserId === user.id;
-                                  const disabled = user.status === "disabled";
-                                  const rowBusy = userBusy === user.id;
-                                  return jsxRuntime.jsxs(
-                                    "tr",
-                                    {
-                                      children: [
-                                        jsxRuntime.jsx("td", {
-                                          style: cellStyle,
-                                          children: user.id,
-                                        }),
-                                        jsxRuntime.jsx("td", {
-                                          style: cellStyle,
-                                          children: editing
-                                            ? jsxRuntime.jsx("input", {
-                                                style: {
-                                                  ...inputStyle,
-                                                  width: "150px",
-                                                },
-                                                maxLength: 80,
-                                                value: editUserForm.name,
-                                                "aria-label": "编辑显示名称",
-                                                onChange: (event) =>
-                                                  setEditUserForm((current) => ({
-                                                    ...current,
-                                                    name: event.target.value,
-                                                  })),
-                                              })
-                                            : user.name,
-                                        }),
-                                        jsxRuntime.jsx("td", {
-                                          style: cellStyle,
-                                          children: editing
-                                            ? jsxRuntime.jsx("select", {
-                                                style: {
-                                                  ...inputStyle,
-                                                  width: "110px",
-                                                },
-                                                value: editUserForm.role,
-                                                "aria-label": "编辑全局角色",
-                                                onChange: (event) =>
-                                                  setEditUserForm((current) => ({
-                                                    ...current,
-                                                    role: event.target.value,
-                                                  })),
-                                                children: [
-                                                  "admin",
-                                                  "owner",
-                                                  "member",
-                                                  "guest",
-                                                ].map((role) =>
-                                                  jsxRuntime.jsx(
-                                                    "option",
-                                                    {
-                                                      value: role,
-                                                      children: role,
-                                                    },
-                                                    role,
-                                                  ),
-                                                ),
-                                              })
-                                            : user.role,
-                                        }),
-                                        jsxRuntime.jsx("td", {
-                                          style: cellStyle,
-                                          title: user.createdAt,
-                                          children: localTime(user.createdAt),
-                                        }),
-                                        jsxRuntime.jsx("td", {
-                                          style: cellStyle,
-                                          children: jsxRuntime.jsxs("div", {
-                                            style: {
-                                              display: "flex",
-                                              flexWrap: "nowrap",
-                                              gap: 6,
-                                            },
-                                            children: editing
-                                              ? [
-                                                  jsxRuntime.jsx(
-                                                    "button",
-                                                    {
-                                                      type: "button",
-                                                      style: rowButtonStyle,
-                                                      disabled: rowBusy,
-                                                      onClick: () =>
-                                                        void saveUserAccount(
-                                                          user.id,
-                                                        ),
-                                                      children: rowBusy
-                                                        ? "保存中…"
-                                                        : "保存",
-                                                    },
-                                                    "save",
-                                                  ),
-                                                  jsxRuntime.jsx(
-                                                    "button",
-                                                    {
-                                                      type: "button",
-                                                      style: rowButtonStyle,
-                                                      disabled: rowBusy,
-                                                      onClick: () =>
-                                                        setEditUserId(""),
-                                                      children: "取消",
-                                                    },
-                                                    "cancel",
-                                                  ),
-                                                ]
-                                              : [
-                                                  jsxRuntime.jsx(
-                                                    "button",
-                                                    {
-                                                      type: "button",
-                                                      style: rowButtonStyle,
-                                                      disabled: rowBusy,
-                                                      onClick: () => {
-                                                        setEditUserId(user.id);
-                                                        setEditUserForm({
-                                                          name: user.name,
-                                                          role: user.role,
-                                                        });
-                                                      },
-                                                      children: "编辑",
-                                                    },
-                                                    "edit",
-                                                  ),
-                                                  jsxRuntime.jsx(
-                                                    "button",
-                                                    {
-                                                      type: "button",
-                                                      style: rowButtonStyle,
-                                                      disabled: rowBusy,
-                                                      onClick: () =>
-                                                        void changeUserStatus(
-                                                          user.id,
-                                                          disabled
-                                                            ? "active"
-                                                            : "disabled",
-                                                        ),
-                                                      children: disabled
-                                                        ? "启用"
-                                                        : "停用",
-                                                    },
-                                                    "status",
-                                                  ),
-                                                ],
-                                          }),
-                                        }),
-                                      ],
-                                    },
-                                    user.id,
-                                  );
-                                }),
-                              }),
-                            ],
-                          }),
-                        ],
-                      })
-                    : null,
-                  surface === "identity"
-                    ? jsxRuntime.jsxs(Panel, {
-                        title: "工作区成员",
-                        children: [
-                          jsxRuntime.jsxs("div", {
-                            style: {
-                              alignItems: "end",
-                              display: "grid",
-                              gap: 8,
-                              gridTemplateColumns: "minmax(0, 1fr) auto",
-                            },
-                            children: [
-                              jsxRuntime.jsxs("label", {
-                                htmlFor: "pluginmax-workspace-id",
-                                style: {
-                                  color: "var(--dsw-alias-label-secondary)",
-                                  display: "grid",
-                                  fontSize: 13,
-                                  gap: 5,
-                                  minWidth: 0,
-                                },
-                                children: [
-                                  jsxRuntime.jsx("span", {
-                                    children: "工作区",
-                                  }),
-                                  jsxRuntime.jsxs("select", {
-                                    id: "pluginmax-workspace-id",
-                                    style: inputStyle,
-                                    value: workspaceId ?? "",
-                                    disabled: noWorkspace,
-                                    onChange: (event) =>
-                                      setWorkspaceId(event.target.value),
-                                    children: [
-                                      workspaces.length === 0
-                                        ? jsxRuntime.jsx(
-                                            "option",
-                                            {
-                                              value: "",
-                                              children: "暂无可用工作区",
-                                            },
-                                            "empty",
-                                          )
-                                        : workspaces.map((workspace) =>
-                                            jsxRuntime.jsx(
-                                              "option",
-                                              {
-                                                value: workspace.id,
-                                                children:
-                                                  workspaceLabel(workspace),
-                                              },
-                                              workspace.id,
-                                            ),
-                                          ),
-                                    ],
-                                  }),
-                                ],
-                              }),
-                              jsxRuntime.jsx("button", {
-                                type: "button",
-                                "aria-expanded": workspaceInfoOpen,
-                                "aria-label": "工作区信息",
-                                title: noWorkspace
-                                  ? "请先在左侧添加或打开工作区"
-                                  : "工作区信息",
-                                disabled: noWorkspace,
-                                style: noWorkspace
-                                  ? {
-                                      ...iconButtonStyle,
-                                      cursor: "not-allowed",
-                                      opacity: 0.45,
-                                    }
-                                  : iconButtonStyle,
-                                onClick: () =>
-                                  setWorkspaceInfoOpen((open) => !open),
-                                children: jsxRuntime.jsx(InfoIcon, {}),
-                              }),
-                            ],
-                          }),
-                          workspaceInfoOpen
-                            ? jsxRuntime.jsxs("div", {
-                                "aria-label": "工作区详情",
-                                role: "region",
-                                style: {
-                                  alignItems: "start",
-                                  background: "var(--dsw-alias-bg-layer-2)",
-                                  border:
-                                    "0.5px solid var(--dsw-alias-border-l2)",
-                                  borderRadius: 6,
-                                  display: "grid",
-                                  gap: 8,
-                                  gridTemplateColumns: "minmax(0, 1fr) auto",
-                                  padding: 10,
-                                },
-                                children: [
-                                  jsxRuntime.jsxs("div", {
-                                    style: {
-                                      color: "var(--dsw-alias-label-secondary)",
-                                      display: "grid",
-                                      fontSize: 12,
-                                      gap: 4,
-                                      minWidth: 0,
-                                    },
-                                    children: [
-                                      noWorkspace
-                                        ? jsxRuntime.jsx("span", {
-                                            children:
-                                              "请先在左侧工作区列表添加或打开一个工作区。",
-                                          })
-                                        : jsxRuntime.jsxs(jsxRuntime.Fragment, {
-                                            children: [
-                                              jsxRuntime.jsxs("span", {
-                                                children: [
-                                                  "名称：",
-                                                  activeWorkspace?.title ||
-                                                    "未命名",
-                                                ],
-                                              }),
-                                              jsxRuntime.jsxs("span", {
-                                                style: {
-                                                  overflowWrap: "anywhere",
-                                                },
-                                                children: [
-                                                  "路径：",
-                                                  activeWorkspace?.path ||
-                                                    "未知",
-                                                ],
-                                              }),
-                                              jsxRuntime.jsx("span", {
-                                                style: {
-                                                  overflowWrap: "anywhere",
-                                                },
-                                                children: `工作区 ID：${workspaceId}`,
-                                              }),
-                                            ],
-                                          }),
-                                    ],
-                                  }),
-                                  noWorkspace
-                                    ? null
-                                    : jsxRuntime.jsx("button", {
-                                        type: "button",
-                                        style: secondaryButtonStyle,
-                                        onClick: async () => {
-                                          try {
-                                            await navigator.clipboard.writeText(
-                                              workspaceId,
-                                            );
-                                            notify("已复制工作区 ID");
-                                          } catch (cause) {
-                                            fail(cause);
-                                          }
-                                        },
-                                        children: [
-                                          jsxRuntime.jsx(CopyIcon, {}),
-                                          "复制 ID",
-                                        ],
-                                      }),
-                                ],
-                              })
-                            : null,
-                          jsxRuntime.jsxs("form", {
-                            onSubmit: submitMember,
-                            style: formStyle,
-                            children: [
-                              jsxRuntime.jsx(Field, {
-                                id: "pluginmax-member-user-id",
-                                label: "用户 ID",
-                                disabled: noWorkspace,
-                                value: memberForm.userId,
+                              jsxRuntime.jsx("select", {
+                                id: "pluginmax-new-user-role",
+                                style: inputStyle,
+                                value: newUser.role,
                                 onChange: (event) =>
-                                  setMemberForm((current) => ({
+                                  setNewUser((current) => ({
                                     ...current,
-                                    userId: event.target.value,
+                                    role: event.target.value,
                                   })),
-                              }),
-                              jsxRuntime.jsx("label", {
-                                htmlFor: "pluginmax-member-role",
-                                style: {
-                                  color: "var(--dsw-alias-label-secondary)",
-                                  display: "grid",
-                                  fontSize: 13,
-                                  gap: 5,
-                                },
                                 children: [
-                                  jsxRuntime.jsx("span", {
-                                    children: "成员角色",
-                                  }),
-                                  jsxRuntime.jsx("select", {
-                                    id: "pluginmax-member-role",
-                                    style: inputStyle,
-                                    disabled: noWorkspace,
-                                    value: memberForm.role,
-                                    onChange: (event) =>
-                                      setMemberForm((current) => ({
-                                        ...current,
-                                        role: event.target.value,
-                                      })),
-                                    children: ["owner", "member", "guest"].map(
-                                      (role) =>
-                                        jsxRuntime.jsx(
-                                          "option",
-                                          { value: role, children: role },
-                                          role,
-                                        ),
-                                    ),
-                                  }),
-                                ],
-                              }),
-                              jsxRuntime.jsx("button", {
-                                type: "submit",
-                                disabled: noWorkspace || saving,
-                                style: noWorkspace
-                                  ? {
-                                      ...buttonStyle,
-                                      cursor: "not-allowed",
-                                      justifySelf: "start",
-                                      opacity: 0.45,
-                                    }
-                                  : {
-                                      ...buttonStyle,
-                                      justifySelf: "start",
-                                      opacity: saving ? 0.6 : 1,
-                                    },
-                                children: saving ? "保存中..." : "保存成员",
-                              }),
-                            ],
-                          }),
-                          jsxRuntime.jsxs("table", {
-                            style: tableStyle,
-                            children: [
-                              jsxRuntime.jsx("thead", {
-                                children: jsxRuntime.jsx("tr", {
-                                  children: [
-                                    "用户",
-                                    "名称",
-                                    "角色",
-                                    "加入时间",
-                                    "",
-                                  ].map((title, index) =>
-                                    jsxRuntime.jsx(
-                                      "th",
-                                      { style: cellStyle, children: title },
-                                      index,
-                                    ),
-                                  ),
-                                }),
-                              }),
-                              jsxRuntime.jsx("tbody", {
-                                children: members.map((member) =>
-                                  jsxRuntime.jsxs(
-                                    "tr",
-                                    {
-                                      children: [
-                                        jsxRuntime.jsx("td", {
-                                          style: cellStyle,
-                                          children: member.userId,
-                                        }),
-                                        jsxRuntime.jsx("td", {
-                                          style: cellStyle,
-                                          children: member.name,
-                                        }),
-                                        jsxRuntime.jsx("td", {
-                                          style: cellStyle,
-                                          children: member.memberRole,
-                                        }),
-                                        jsxRuntime.jsx("td", {
-                                          style: cellStyle,
-                                          children: member.addedAt,
-                                        }),
-                                        jsxRuntime.jsx("td", {
-                                          style: cellStyle,
-                                          children: jsxRuntime.jsx("button", {
-                                            type: "button",
-                                            style: secondaryButtonStyle,
-                                            disabled: saving,
-                                            onClick: () =>
-                                              removeMember(member.userId),
-                                            children: saving
-                                              ? "处理中..."
-                                              : "移出",
-                                          }),
-                                        }),
-                                      ],
-                                    },
-                                    member.userId,
+                                  "admin",
+                                  "owner",
+                                  "member",
+                                  "guest",
+                                ].map((role) =>
+                                  jsxRuntime.jsx(
+                                    "option",
+                                    { value: role, children: role },
+                                    role,
                                   ),
                                 ),
                               }),
                             ],
+                          }),
+                          jsxRuntime.jsx("button", {
+                            type: "submit",
+                            disabled: saving,
+                            style: {
+                              ...buttonStyle,
+                              gridColumn: "1 / -1",
+                              justifySelf: "start",
+                              opacity: saving ? 0.6 : 1,
+                            },
+                            children: saving ? "创建中..." : "创建",
                           }),
                         ],
-                      })
-                    : null,
-                  surface === "identity"
-                    ? jsxRuntime.jsx(Panel, {
-                        title: "审计时间线",
-                        children: jsxRuntime.jsxs("table", {
-                          style: tableStyle,
-                          children: [
-                            jsxRuntime.jsx("thead", {
-                              children: jsxRuntime.jsx("tr", {
-                                children: [
-                                  "时间",
-                                  "操作者",
-                                  "动作",
-                                  "对象",
-                                  "工作区",
-                                ].map((title) =>
-                                  jsxRuntime.jsx(
-                                    "th",
-                                    { style: cellStyle, children: title },
-                                    title,
-                                  ),
-                                ),
-                              }),
-                            }),
-                            jsxRuntime.jsx("tbody", {
-                              children: events.map((event) =>
-                                jsxRuntime.jsxs(
-                                  "tr",
-                                  {
-                                    children: [
-                                      jsxRuntime.jsx("td", {
-                                        style: cellStyle,
-                                        title: event.at,
-                                        children: localTime(event.at),
-                                      }),
-                                      jsxRuntime.jsx("td", {
-                                        style: cellStyle,
-                                        children: event.actorId,
-                                      }),
-                                      jsxRuntime.jsx("td", {
-                                        style: cellStyle,
-                                        children: event.action,
-                                      }),
-                                      jsxRuntime.jsx("td", {
-                                        style: cellStyle,
-                                        children: event.targetId ?? "-",
-                                      }),
-                                      jsxRuntime.jsx("td", {
-                                        style: cellStyle,
-                                        children:
-                                          event.workspaceId === undefined
-                                            ? "-"
-                                            : (workspaceNameById.get(
-                                                event.workspaceId,
-                                              ) ?? event.workspaceId),
-                                      }),
-                                    ],
-                                  },
-                                  event.id,
+                      }),
+                      jsxRuntime.jsxs("div", {
+                        style: {
+                          alignItems: "center",
+                          display: "flex",
+                          gap: 8,
+                          justifyContent: "space-between",
+                        },
+                        children: [
+                          jsxRuntime.jsx("span", {
+                            style: {
+                              color: "var(--dsw-alias-label-secondary)",
+                              fontSize: 12,
+                            },
+                            children: `共 ${String(users.length)} 个账号 · 已停用 ${String(disabledUserCount)}`,
+                          }),
+                          jsxRuntime.jsx("button", {
+                            type: "button",
+                            style: buttonStyle,
+                            disabled: disabledUserCount === 0 && !showDisabled,
+                            onClick: () => setShowDisabled((value) => !value),
+                            children: showDisabled
+                              ? "返回启用账号"
+                              : `查看已停用 ${String(disabledUserCount)}`,
+                          }),
+                        ],
+                      }),
+                      jsxRuntime.jsxs("table", {
+                        style: tableStyle,
+                        children: [
+                          jsxRuntime.jsx("thead", {
+                            children: jsxRuntime.jsx("tr", {
+                              children: [
+                                "用户",
+                                "名称",
+                                "角色",
+                                "创建时间",
+                                "操作",
+                              ].map((title) =>
+                                jsxRuntime.jsx(
+                                  "th",
+                                  { style: cellStyle, children: title },
+                                  title,
                                 ),
                               ),
                             }),
-                          ],
-                        }),
-                      })
-                    : null,
+                          }),
+                          jsxRuntime.jsx("tbody", {
+                            children: visibleUsers.map((user) => {
+                              const editing = editUserId === user.id;
+                              const disabled = user.status === "disabled";
+                              const rowBusy = userBusy === user.id;
+                              return jsxRuntime.jsxs(
+                                "tr",
+                                {
+                                  children: [
+                                    jsxRuntime.jsx("td", {
+                                      style: cellStyle,
+                                      children: user.id,
+                                    }),
+                                    jsxRuntime.jsx("td", {
+                                      style: cellStyle,
+                                      children: editing
+                                        ? jsxRuntime.jsx("input", {
+                                            style: {
+                                              ...inputStyle,
+                                              width: "150px",
+                                            },
+                                            maxLength: 80,
+                                            value: editUserForm.name,
+                                            "aria-label": "编辑显示名称",
+                                            onChange: (event) =>
+                                              setEditUserForm((current) => ({
+                                                ...current,
+                                                name: event.target.value,
+                                              })),
+                                          })
+                                        : user.name,
+                                    }),
+                                    jsxRuntime.jsx("td", {
+                                      style: cellStyle,
+                                      children: editing
+                                        ? jsxRuntime.jsx("select", {
+                                            style: {
+                                              ...inputStyle,
+                                              width: "110px",
+                                            },
+                                            value: editUserForm.role,
+                                            "aria-label": "编辑全局角色",
+                                            onChange: (event) =>
+                                              setEditUserForm((current) => ({
+                                                ...current,
+                                                role: event.target.value,
+                                              })),
+                                            children: [
+                                              "admin",
+                                              "owner",
+                                              "member",
+                                              "guest",
+                                            ].map((role) =>
+                                              jsxRuntime.jsx(
+                                                "option",
+                                                {
+                                                  value: role,
+                                                  children: role,
+                                                },
+                                                role,
+                                              ),
+                                            ),
+                                          })
+                                        : user.role,
+                                    }),
+                                    jsxRuntime.jsx("td", {
+                                      style: cellStyle,
+                                      title: user.createdAt,
+                                      children: localTime(user.createdAt),
+                                    }),
+                                    jsxRuntime.jsx("td", {
+                                      style: cellStyle,
+                                      children: jsxRuntime.jsxs("div", {
+                                        style: {
+                                          display: "flex",
+                                          flexWrap: "nowrap",
+                                          gap: 6,
+                                        },
+                                        children: editing
+                                          ? [
+                                              jsxRuntime.jsx(
+                                                "button",
+                                                {
+                                                  type: "button",
+                                                  style: rowButtonStyle,
+                                                  disabled: rowBusy,
+                                                  onClick: () =>
+                                                    void saveUserAccount(
+                                                      user.id,
+                                                    ),
+                                                  children: rowBusy
+                                                    ? "保存中…"
+                                                    : "保存",
+                                                },
+                                                "save",
+                                              ),
+                                              jsxRuntime.jsx(
+                                                "button",
+                                                {
+                                                  type: "button",
+                                                  style: rowButtonStyle,
+                                                  disabled: rowBusy,
+                                                  onClick: () =>
+                                                    setEditUserId(""),
+                                                  children: "取消",
+                                                },
+                                                "cancel",
+                                              ),
+                                            ]
+                                          : [
+                                              jsxRuntime.jsx(
+                                                "button",
+                                                {
+                                                  type: "button",
+                                                  style: rowButtonStyle,
+                                                  disabled: rowBusy,
+                                                  onClick: () => {
+                                                    setEditUserId(user.id);
+                                                    setEditUserForm({
+                                                      name: user.name,
+                                                      role: user.role,
+                                                    });
+                                                  },
+                                                  children: "编辑",
+                                                },
+                                                "edit",
+                                              ),
+                                              jsxRuntime.jsx(
+                                                "button",
+                                                {
+                                                  type: "button",
+                                                  style: rowButtonStyle,
+                                                  disabled: rowBusy,
+                                                  onClick: () =>
+                                                    void changeUserStatus(
+                                                      user.id,
+                                                      disabled
+                                                        ? "active"
+                                                        : "disabled",
+                                                    ),
+                                                  children: disabled
+                                                    ? "启用"
+                                                    : "停用",
+                                                },
+                                                "status",
+                                              ),
+                                            ],
+                                      }),
+                                    }),
+                                  ],
+                                },
+                                user.id,
+                              );
+                            }),
+                          }),
+                        ],
+                      }),
+                    ],
+                  }),
                 ],
               }),
         ],
       });
     };
 
+    const ACCESS_TAB_SLOT = "pluginmax.account-access.tab";
+    const ACCESS_TAB_EVENT = "pluginmax:account-access-tab";
+
+    const tabLabel = (label) =>
+      typeof label === "function" ? label() : String(label ?? "");
+
+    const AUDIT_ACTION_LABELS = {
+      bootstrap: "初始化管理员",
+      register_user: "创建账号",
+      update_user: "更新账号",
+      login: "登录",
+      login_failed: "登录失败",
+      logout: "退出登录",
+      change_password: "修改密码",
+      member_add: "加入项目",
+      member_remove: "移出项目",
+      member_leave: "退出项目",
+    };
+
+    function AuditSection() {
+      const [events, setEvents] = react.useState([]);
+      const [query, setQuery] = react.useState("");
+      const [loading, setLoading] = react.useState(true);
+      const [error, setError] = react.useState("");
+
+      const load = async () => {
+        setLoading(true);
+        setError("");
+        try {
+          const result = await request("/api/collab/team/audit?limit=200");
+          setEvents(result.events ?? []);
+        } catch (cause) {
+          setError(cause instanceof Error ? cause.message : String(cause));
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      react.useEffect(() => {
+        void load();
+      }, []);
+
+      const normalizedQuery = query.trim().toLowerCase();
+      const visible = events.filter((event) => {
+        if (normalizedQuery === "") return true;
+        const action = AUDIT_ACTION_LABELS[event.action] ?? event.action;
+        const detail = Object.entries(event.detail ?? {})
+          .map(([key, value]) => `${key}=${value}`)
+          .join(" ");
+        return [
+          event.actorId,
+          event.targetId,
+          event.workspaceId,
+          event.action,
+          action,
+          detail,
+        ].some((value) =>
+          String(value ?? "")
+            .toLowerCase()
+            .includes(normalizedQuery),
+        );
+      });
+
+      return jsxRuntime.jsxs("section", {
+        style: { display: "grid", gap: 14 },
+        children: [
+          jsxRuntime.jsxs("div", {
+            style: {
+              alignItems: "center",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 9,
+              justifyContent: "space-between",
+            },
+            children: [
+              jsxRuntime.jsx("h2", {
+                style: { fontSize: 18, margin: 0 },
+                children: "账号与权限审计",
+              }),
+              jsxRuntime.jsx("button", {
+                type: "button",
+                style: secondaryButtonStyle,
+                disabled: loading,
+                onClick: () => void load(),
+                children: loading ? "加载中…" : "刷新",
+              }),
+            ],
+          }),
+          jsxRuntime.jsxs("label", {
+            style: { display: "grid", gap: 5, maxWidth: 420 },
+            children: [
+              jsxRuntime.jsx("span", {
+                style: {
+                  color: "var(--dsw-alias-label-secondary)",
+                  fontSize: 12,
+                },
+                children: "搜索操作人、目标账号或动作",
+              }),
+              jsxRuntime.jsx("input", {
+                style: inputStyle,
+                value: query,
+                onChange: (event) => setQuery(event.target.value),
+              }),
+            ],
+          }),
+          error !== ""
+            ? jsxRuntime.jsx("div", {
+                role: "alert",
+                style: {
+                  color: "var(--dsw-alias-state-error-primary,#e5534b)",
+                  fontSize: 12,
+                },
+                children: error,
+              })
+            : null,
+          jsxRuntime.jsxs("div", {
+            style: { overflowX: "auto" },
+            children: [
+              jsxRuntime.jsx("table", {
+                style: tableStyle,
+                children: [
+                  jsxRuntime.jsx("thead", {
+                    children: jsxRuntime.jsx("tr", {
+                      children: [
+                        "时间",
+                        "操作人",
+                        "动作",
+                        "目标账号",
+                        "影响范围",
+                        "详情",
+                      ].map((title) =>
+                        jsxRuntime.jsx(
+                          "th",
+                          { style: cellStyle, children: title },
+                          title,
+                        ),
+                      ),
+                    }),
+                  }),
+                  jsxRuntime.jsx("tbody", {
+                    children: visible.map((event) =>
+                      jsxRuntime.jsxs(
+                        "tr",
+                        {
+                          children: [
+                            jsxRuntime.jsx("td", {
+                              style: cellStyle,
+                              children: localTime(event.at),
+                            }),
+                            jsxRuntime.jsx("td", {
+                              style: cellStyle,
+                              children: `${event.actorId} · ${event.actorRole}`,
+                            }),
+                            jsxRuntime.jsx("td", {
+                              style: cellStyle,
+                              children:
+                                AUDIT_ACTION_LABELS[event.action] ??
+                                event.action,
+                            }),
+                            jsxRuntime.jsx("td", {
+                              style: cellStyle,
+                              children: event.targetId ?? "-",
+                            }),
+                            jsxRuntime.jsx("td", {
+                              style: cellStyle,
+                              children: event.workspaceId ?? "平台",
+                            }),
+                            jsxRuntime.jsx("td", {
+                              style: cellStyle,
+                              children:
+                                Object.entries(event.detail ?? {})
+                                  .map(([key, value]) => `${key}=${value}`)
+                                  .join(" · ") || "-",
+                            }),
+                          ],
+                        },
+                        event.id,
+                      ),
+                    ),
+                  }),
+                ],
+              }),
+              !loading && visible.length === 0
+                ? jsxRuntime.jsx("p", {
+                    style: {
+                      color: "var(--dsw-alias-label-secondary)",
+                      fontSize: 13,
+                    },
+                    children:
+                      events.length === 0
+                        ? "暂无审计记录。"
+                        : "没有匹配的审计记录。",
+                  })
+                : null,
+            ],
+          }),
+        ],
+      });
+    }
+
+    function AccountAccessSection({ useTabs, renderSlot }) {
+      const rows = useTabs ? useTabs((items) => items) : [];
+      const [isAdmin, setIsAdmin] = react.useState(false);
+      const [selectedId, setSelectedId] = react.useState(
+        () =>
+          window.localStorage.getItem("pluginmax.accountAccess.activeTab") ??
+          "",
+      );
+      const [visited, setVisited] = react.useState(() => new Set());
+      const tabsId = react.useId();
+      const visibleRows = isAdmin
+        ? rows
+        : rows.filter((row) => row.id === "accounts");
+      const activeId = visibleRows.some((row) => row.id === selectedId)
+        ? selectedId
+        : (visibleRows[0]?.id ?? "");
+
+      react.useEffect(() => {
+        let disposed = false;
+        const load = async () => {
+          if (getToken() === null) {
+            if (!disposed) setIsAdmin(false);
+            return;
+          }
+          try {
+            const result = await request("/api/collab/auth/me");
+            if (!disposed) setIsAdmin(result.user?.role === "admin");
+          } catch {
+            if (!disposed) setIsAdmin(false);
+          }
+        };
+        void load();
+        window.addEventListener("pluginmax:collab-token", load);
+        return () => {
+          disposed = true;
+          window.removeEventListener("pluginmax:collab-token", load);
+        };
+      }, []);
+
+      react.useEffect(() => {
+        const selectTab = (event) => {
+          const tabId = event?.detail?.tabId;
+          if (typeof tabId === "string" && tabId !== "") {
+            setSelectedId(tabId);
+          }
+        };
+        window.addEventListener(ACCESS_TAB_EVENT, selectTab);
+        return () => window.removeEventListener(ACCESS_TAB_EVENT, selectTab);
+      }, []);
+
+      react.useEffect(() => {
+        if (activeId === "") return;
+        window.localStorage.setItem(
+          "pluginmax.accountAccess.activeTab",
+          activeId,
+        );
+        setVisited((current) => {
+          if (current.has(activeId)) return current;
+          return new Set([...current, activeId]);
+        });
+      }, [activeId]);
+
+      const tabStyle = (active) => ({
+        background: active
+          ? "color-mix(in srgb, var(--dsw-alias-accent-primary,#4f8ef7) 12%, transparent)"
+          : "transparent",
+        border: 0,
+        borderBottom: active
+          ? "2px solid var(--dsw-alias-accent-primary,#4f8ef7)"
+          : "2px solid transparent",
+        borderRadius: 0,
+        color: active
+          ? "var(--dsw-alias-label-primary)"
+          : "var(--dsw-alias-label-secondary)",
+        cursor: "pointer",
+        font: "inherit",
+        fontSize: 13,
+        fontWeight: active ? 650 : 500,
+        minHeight: 36,
+        padding: "0 12px",
+        whiteSpace: "nowrap",
+      });
+
+      return jsxRuntime.jsxs("section", {
+        "data-pluginmax-account-access": true,
+        style: {
+          color: "var(--dsw-alias-label-primary)",
+          display: "grid",
+          gap: 16,
+          padding: 4,
+        },
+        children: [
+          jsxRuntime.jsx("h2", {
+            style: { fontSize: 18, margin: 0 },
+            children: "账号与权限",
+          }),
+          jsxRuntime.jsx("div", {
+            role: "tablist",
+            "aria-label": "账号与权限页签",
+            style: {
+              borderBottom: "0.5px solid var(--dsw-alias-border-l2)",
+              display: "flex",
+              gap: 2,
+              overflowX: "auto",
+            },
+            children: visibleRows.map((row) =>
+              jsxRuntime.jsx(
+                "button",
+                {
+                  type: "button",
+                  role: "tab",
+                  id: `${tabsId}-tab-${row.id}`,
+                  "aria-selected": row.id === activeId,
+                  "aria-controls": `${tabsId}-panel-${row.id}`,
+                  tabIndex: row.id === activeId ? 0 : -1,
+                  style: tabStyle(row.id === activeId),
+                  onClick: () => setSelectedId(row.id),
+                  children: tabLabel(row.label),
+                },
+                row.id,
+              ),
+            ),
+          }),
+          ...visibleRows
+            .filter((row) => row.id === activeId || visited.has(row.id))
+            .map((row) =>
+              jsxRuntime.jsx(
+                "div",
+                {
+                  role: "tabpanel",
+                  id: `${tabsId}-panel-${row.id}`,
+                  "aria-labelledby": `${tabsId}-tab-${row.id}`,
+                  hidden: row.id !== activeId,
+                  children: renderSlot(ACCESS_TAB_SLOT, {}, { only: row.id }),
+                },
+                row.id,
+              ),
+            ),
+        ],
+      });
+    }
+
     exports.inject = ["slots"];
     exports.apply = (ctx) => {
+      let tabsVersion = -1;
+      let identityTabs = [];
       ctx.slots.inject("settings.section", () =>
         ctx.slots.register(
           {
             name: "settings.section",
-            id: "pluginmax-account-management",
-            order: 79,
-            label: () => "账号管理",
-            inject: () => ({}),
+            id: "pluginmax-account-access",
+            order: 75,
+            label: () => "账号与权限",
+            children: {
+              [ACCESS_TAB_SLOT]: { kind: "list", scope: "root" },
+            },
+            inject: () => ({
+              hooks: {
+                tabs: {
+                  getSnapshot: () => {
+                    const version = ctx.slots.getVersion(ACCESS_TAB_SLOT);
+                    if (version !== tabsVersion) {
+                      tabsVersion = version;
+                      identityTabs = ctx.slots
+                        .entries(ACCESS_TAB_SLOT)
+                        .map((entry) => ({
+                          id: entry.options.id ?? "",
+                          order: entry.options.order ?? 0,
+                          label: entry.options.label,
+                        }))
+                        .sort((left, right) => left.order - right.order);
+                    }
+                    return identityTabs;
+                  },
+                  subscribe: (listener) =>
+                    ctx.slots.subscribe(ACCESS_TAB_SLOT, listener),
+                },
+              },
+            }),
           },
-          () => jsxRuntime.jsx(IdentitySection, { surface: "account" }),
+          AccountAccessSection,
         ),
       );
-      ctx.slots.inject("settings.section", () =>
+      ctx.slots.inject(ACCESS_TAB_SLOT, () =>
         ctx.slots.register(
           {
-            name: "settings.section",
-            id: "pluginmax-identity",
-            order: 80,
-            label: () => "协作身份",
-            inject: () => ({}),
+            name: ACCESS_TAB_SLOT,
+            id: "accounts",
+            order: 10,
+            label: () => "登录账号",
           },
-          () => jsxRuntime.jsx(IdentitySection, { surface: "identity" }),
+          () => jsxRuntime.jsx(IdentitySection, {}),
         ),
       );
+      ctx.slots.inject(ACCESS_TAB_SLOT, () =>
+        ctx.slots.register(
+          {
+            name: ACCESS_TAB_SLOT,
+            id: "audit",
+            order: 30,
+            label: () => "审计",
+          },
+          AuditSection,
+        ),
+      );
+      /*
+       * 「协作身份」设置页已下线；项目管理接管工作区成员维护，
+       * 身份服务仍保留给账号管理、项目成员和项目审计使用。
+       */
     };
 
     return module.exports;

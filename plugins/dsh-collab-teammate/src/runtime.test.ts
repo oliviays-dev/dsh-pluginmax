@@ -4,12 +4,13 @@ import {
   normalizeTaskProgress,
   runningTeammateIds,
 } from "./index.js";
-import type {
-  Teammate,
-  TeammateEvent,
-  TeammateTemplate,
-} from "./models.js";
+import type { Teammate, TeammateEvent, TeammateTemplate } from "./models.js";
 import { TeammateRuntime } from "./runtime.js";
+import {
+  PrincipalRuntimeService,
+  type PrincipalActionTicket,
+  type PrincipalRuntimeProfile,
+} from "./principal-runtime.js";
 import {
   TeammateService,
   TeammateTemplateService,
@@ -55,6 +56,8 @@ interface FakeEmployee {
   tags?: readonly string[];
   personaId?: string;
   displayName: string;
+  department?: string;
+  title?: string;
   managerEmployeeId: string;
 }
 
@@ -130,11 +133,161 @@ function setup() {
     externalRuntimeId?: string;
     allowedTools: readonly string[];
   }> = [];
+  const agentActors: Array<{
+    readonly id: string;
+    readonly globalRole?: string | undefined;
+    readonly workspaceRole?: string | undefined;
+    readonly workspaceId?: string | undefined;
+  }> = [];
   const agentRuns: Array<{
     id: string;
     employeeId?: string | undefined;
+    principalId?: string | undefined;
     status: string;
   }> = [];
+  const principalCompanionLinks: Array<{
+    teammateId: string;
+    employeeId: string;
+    displayName?: string | undefined;
+  }> = [];
+  const principalRecords = new Map<
+    string,
+    {
+      id: string;
+      kind: "human" | "ai";
+      status: "active" | "suspended" | "archived";
+    }
+  >();
+  const principalGrants: Array<{
+    id: string;
+    principalId: string;
+    scopeType: "platform" | "workspace" | "project";
+    scopeId: string;
+    role: string;
+    permissions: readonly string[];
+    status: "active" | "revoked" | "expired";
+  }> = [];
+  let principalRuntimeSequence = 0;
+  const principalService = {
+    get: (principalId: string) => {
+      const principal = principalRecords.get(principalId);
+      if (principal === undefined) throw new Error("principal not found");
+      return principal;
+    },
+    syncPrincipal: async (input: {
+      kind: "ai";
+      subjectType: "teammate";
+      subjectId: string;
+      displayName: string;
+    }) => {
+      const principal = {
+        id: `principal-ai-${input.subjectId}`,
+        kind: "ai" as const,
+        status: "active" as const,
+      };
+      principalRecords.set(principal.id, principal);
+      return principal;
+    },
+    syncCompanion: async (input: {
+      teammateId: string;
+      employeeId: string;
+      displayName?: string | undefined;
+    }) => {
+      principalCompanionLinks.push(input);
+    },
+    resolveSubject: (
+      subjectType: "employee" | "teammate" | "auth-user",
+      subjectId: string,
+    ) => {
+      if (subjectType === "teammate") {
+        const bound = teammates.get(subjectId).principalId;
+        const principal = {
+          id: bound ?? `principal-ai-${subjectId}`,
+          kind: "ai" as const,
+          status: principalRecords.get(bound ?? "")?.status ?? "active",
+        };
+        principalRecords.set(principal.id, principal);
+        return principal;
+      }
+      if (subjectType === "auth-user") {
+        const principal = {
+          id: `principal-human-${subjectId}`,
+          kind: "human" as const,
+          status: "active" as const,
+        };
+        principalRecords.set(principal.id, principal);
+        return principal;
+      }
+      const principal = {
+        id: `principal-ai-${subjectId}`,
+        kind: "ai" as const,
+        status: "active" as const,
+      };
+      principalRecords.set(principal.id, principal);
+      return principal;
+    },
+    syncExclusiveGrant: async (input: {
+      principalId: string;
+      scopeType: "workspace";
+      scopeId: string;
+      role: string;
+      permissions: readonly string[];
+    }) => {
+      for (const grant of principalGrants) {
+        if (
+          grant.principalId === input.principalId &&
+          grant.scopeType === input.scopeType &&
+          grant.scopeId === input.scopeId
+        ) {
+          grant.status = "revoked";
+        }
+      }
+      const grant = {
+        id: `grant-${String(principalGrants.length + 1)}`,
+        principalId: input.principalId,
+        scopeType: input.scopeType,
+        scopeId: input.scopeId,
+        role: input.role,
+        permissions: input.permissions,
+        status: "active" as const,
+      };
+      principalGrants.push(grant);
+      return grant;
+    },
+    grants: (principalId?: string) =>
+      principalGrants.filter(
+        (grant) =>
+          principalId === undefined || grant.principalId === principalId,
+      ),
+    revokeMatchingGrants: async (input: {
+      principalId: string;
+      scopeType: "workspace";
+      scopeId: string;
+      role: string;
+    }) => {
+      for (const grant of principalGrants) {
+        if (
+          grant.principalId === input.principalId &&
+          grant.scopeType === input.scopeType &&
+          grant.scopeId === input.scopeId &&
+          grant.role === input.role
+        ) {
+          grant.status = "revoked";
+        }
+      }
+    },
+  };
+  const principalRuntime = new PrincipalRuntimeService(
+    {
+      profiles: memoryTable<PrincipalRuntimeProfile>(),
+      tickets: memoryTable<PrincipalActionTicket>(),
+    },
+    () => principalService,
+    {
+      now: () => new Date("2026-01-01T00:00:00.000Z"),
+      randomId: () => `test-${String(++principalRuntimeSequence)}`,
+    },
+  );
 
   const runtime = new TeammateRuntime({
     teammates,
@@ -163,13 +316,15 @@ function setup() {
         return runtimes.filter((item) => item.employeeId === employeeId);
       },
       createDigital: async (_actor, input) => {
-        const id = `digital-${String(employees.size + 1)}`;
+        const id = input.employeeId ?? `digital-${String(employees.size + 1)}`;
         employees.set(id, {
           id,
           kind: "digital",
           status: "draft",
           tags: input.tags ?? [],
           displayName: input.displayName,
+          department: input.department ?? "",
+          title: input.title ?? "",
           managerEmployeeId: input.managerEmployeeId,
           ...(input.personaId === undefined
             ? {}
@@ -260,6 +415,8 @@ function setup() {
       },
       runtimes,
     }),
+    principals: () => principalService,
+    principalRuntime: () => principalRuntime,
     agents: () => ({
       profiles(workspaceId: string) {
         return agentProfiles
@@ -273,7 +430,8 @@ function setup() {
             allowedTools: item.allowedTools,
           }));
       },
-      createProfile: async (_actor, input) => {
+      createProfile: async (actor, input) => {
+        agentActors.push(actor);
         const record = {
           id: `agent-${String(agentProfiles.length + 1)}`,
           status: "active",
@@ -292,7 +450,8 @@ function setup() {
         agentProfiles.push(record);
         return record;
       },
-      updateProfile: async (_actor, input) => {
+      updateProfile: async (actor, input) => {
+        agentActors.push(actor);
         const profile = agentProfiles.find(
           (item) => item.id === input.profileId,
         );
@@ -330,6 +489,10 @@ function setup() {
     runtimes,
     agentProfiles,
     agentRuns,
+    principalCompanionLinks,
+    principalGrants,
+    principalRuntime,
+    agentActors,
   };
 }
 
@@ -352,6 +515,38 @@ async function activeTeammate(
 }
 
 describe("teammate runtime provisioning", () => {
+  it("creates a Principal Runtime without creating an Employee record", async () => {
+    const { teammates, runtime, employees, principalRuntime, principalGrants } =
+      setup();
+    const teammate = await activeTeammate(teammates, "platform");
+    const ensured = await runtime.ensureRuntime({
+      teammateId: teammate.id,
+      workspaceId: "workspace-1",
+      actor: admin,
+      employee: { displayName: "供应链计划员" },
+    });
+    expect(ensured.employeeId).toBeUndefined();
+    expect(ensured.principalId).toBe(`principal-ai-${teammate.id}`);
+    expect(employees.size).toBe(0);
+    expect(teammates.get(teammate.id).principalId).toBe(ensured.principalId);
+    expect(
+      principalRuntime.profile(ensured.principalId!, "workspace-1"),
+    ).toMatchObject({
+      principalId: ensured.principalId,
+      agentProfileId: ensured.profileId,
+      status: "active",
+    });
+    expect(principalGrants).toContainEqual({
+      id: "grant-1",
+      principalId: ensured.principalId,
+      scopeType: "workspace",
+      scopeId: "workspace-1",
+      role: "workspace-member",
+      permissions: ["read", "write"],
+      status: "active",
+    });
+  });
+
   it("only exposes active teammates that the actor may use", async () => {
     const { teammates, runtime } = setup();
     const platform = await activeTeammate(teammates, "platform");
@@ -448,9 +643,8 @@ describe("teammate runtime provisioning", () => {
       runtime,
       personas,
       employees,
-      roles,
-      runtimes,
       agentProfiles,
+      principalRuntime,
     } = setup();
     const platform = await activeTeammate(teammates, "platform");
     const ensured = await runtime.ensureRuntime({
@@ -458,23 +652,17 @@ describe("teammate runtime provisioning", () => {
       workspaceId: "workspace-1",
       actor: admin,
     });
-    expect(ensured.employeeId).toBe("digital-1");
+    expect(ensured.employeeId).toBeUndefined();
+    expect(ensured.principalId).toBe(`principal-ai-${platform.id}`);
     expect(ensured.profileId).toBe("agent-1");
     expect(personas.has(`persona-${platform.id}`)).toBe(true);
     expect(agentProfiles).toHaveLength(1);
     expect(agentProfiles[0]?.visibility).toBe("platform");
-    expect(employees.size).toBe(1);
-    const employee = employees.get("digital-1");
-    expect(employee?.tags).toEqual([
-      "ai-teammate",
-      expect.stringMatching(/^ai-teammate:/),
-    ]);
-    expect(employee?.tags?.every((tag) => tag.length <= 32)).toBe(true);
-    expect(roles).toEqual([
-      { employeeId: "digital-1", workspaceId: "workspace-1", role: "member" },
-    ]);
-    expect(runtimes).toHaveLength(1);
-    expect(teammates.get(platform.id).employeeId).toBe("digital-1");
+    expect(employees.size).toBe(0);
+    expect(
+      principalRuntime.profiles({ principalId: ensured.principalId! }),
+    ).toHaveLength(1);
+    expect(teammates.get(platform.id).principalId).toBe(ensured.principalId);
 
     const again = await runtime.ensureRuntime({
       teammateId: platform.id,
@@ -483,13 +671,58 @@ describe("teammate runtime provisioning", () => {
     });
     expect(again).toEqual(ensured);
     expect(agentProfiles).toHaveLength(1);
-    expect(employees.size).toBe(1);
-    expect(runtimes).toHaveLength(1);
+    expect(employees.size).toBe(0);
+    expect(
+      principalRuntime.profiles({ principalId: ensured.principalId! }),
+    ).toHaveLength(1);
+  });
+
+  it("reuses the same AI Principal when a second project needs a runtime", async () => {
+    const { teammates, runtime, employees, principalRuntime, principalGrants } =
+      setup();
+    const platform = await activeTeammate(teammates, "platform");
+    const first = await runtime.ensureRuntime({
+      teammateId: platform.id,
+      workspaceId: "workspace-1",
+      actor: admin,
+    });
+    expect(first.employeeId).toBeUndefined();
+
+    // 第二个项目：只补「授权 + Runtime Profile」，复用同一个 AI Principal。
+    const second = await runtime.ensureRuntime({
+      teammateId: platform.id,
+      workspaceId: "workspace-2",
+      actor: admin,
+    });
+    expect(second.employeeId).toBe(first.employeeId);
+    expect(second.principalId).toBe(first.principalId);
+    expect(employees.size).toBe(0);
+    expect(teammates.get(platform.id).principalId).toBe(first.principalId);
+    expect(principalGrants.map((grant) => grant.scopeId).sort()).toEqual([
+      "workspace-1",
+      "workspace-2",
+    ]);
+    const projectProfiles = principalRuntime.profiles({
+      principalId: first.principalId!,
+    });
+    expect(projectProfiles.map((item) => item.workspaceId).sort()).toEqual([
+      "workspace-1",
+      "workspace-2",
+    ]);
+    expect(projectProfiles.every((item) => item.agentProfileId !== "")).toBe(
+      true,
+    );
   });
 
   it("folds scenarios/goals into the persona SOUL and maps tools to allowedTools", async () => {
-    const { teammates, templates, runtime, personas, runtimes, agentProfiles } =
-      setup();
+    const {
+      teammates,
+      templates,
+      runtime,
+      personas,
+      principalRuntime,
+      agentProfiles,
+    } = setup();
     const template = await templates.create(admin, {
       source: "platform",
       name: "小红 QA",
@@ -517,14 +750,23 @@ describe("teammate runtime provisioning", () => {
     );
     expect(persona.soul).toContain("## 工作目标\n- 补充第一个明确目标");
 
-    // 工具：agent profile 用裸工具名，数字员工 runtime profile 用 tool: 前缀。
+    // 工具：Principal Runtime 与 Agent Profile 均保留裸工具名。
     expect(agentProfiles[0]?.allowedTools).toEqual(["read", "write"]);
-    expect(runtimes[0]?.allowedTools).toEqual(["tool:read", "tool:write"]);
+    expect(
+      principalRuntime.profile(ensured.principalId!, "workspace-1")
+        ?.allowedTools,
+    ).toEqual(["read", "write"]);
   });
 
   it("re-syncs persona and tools when the template changes", async () => {
-    const { teammates, templates, runtime, personas, runtimes, agentProfiles } =
-      setup();
+    const {
+      teammates,
+      templates,
+      runtime,
+      personas,
+      principalRuntime,
+      agentProfiles,
+    } = setup();
     const template = await templates.create(admin, {
       source: "platform",
       name: "小红 QA",
@@ -559,20 +801,40 @@ describe("teammate runtime provisioning", () => {
     };
     expect(persona.soul).toContain("## 工作场景\n- 按新场景执行");
     expect(agentProfiles[0]?.allowedTools).toEqual(["bash"]);
-    expect(runtimes[0]?.allowedTools).toEqual(["tool:bash"]);
+    expect(
+      principalRuntime.profile(again.principalId!, "workspace-1")?.allowedTools,
+    ).toEqual(["bash"]);
   });
 
-  it("uses the owner as manager for personal avatars", async () => {
-    const { teammates, runtime, employees } = setup();
+  it("records the owner when provisioning a personal AI Principal", async () => {
+    const { teammates, runtime, principalRuntime } = setup();
     const personal = await activeTeammate(teammates, "personal");
     const ensured = await runtime.ensureRuntime({
       teammateId: personal.id,
       workspaceId: "workspace-1",
       actor: olivia,
     });
-    expect(employees.get(ensured.employeeId)?.managerEmployeeId).toBe(
-      "human-olivia",
-    );
+    expect(
+      principalRuntime.profile(ensured.principalId!, "workspace-1")
+        ?.createdByUserId,
+    ).toBe("olivia");
+  });
+
+  it("uses workspace membership authority instead of the platform role", async () => {
+    const { teammates, runtime, agentActors } = setup();
+    const personal = await activeTeammate(teammates, "personal");
+    await runtime.ensureRuntime({
+      teammateId: personal.id,
+      workspaceId: "workspace-1",
+      actor: olivia,
+      workspaceRole: "owner",
+    });
+    expect(agentActors[0]).toMatchObject({
+      id: "olivia",
+      workspaceRole: "owner",
+      workspaceId: "workspace-1",
+    });
+    expect(agentActors[0]?.globalRole).toBeUndefined();
   });
 
   it("syncs an existing execution identity when the teammate channel changes", async () => {
@@ -601,11 +863,92 @@ describe("teammate runtime provisioning", () => {
       externalRuntimeId: "runtime-new",
     });
   });
+
+  it("migrates a legacy Employee runtime to the Principal path", async () => {
+    const {
+      teammates,
+      runtime,
+      employees,
+      runtimes,
+      agentProfiles,
+      principalRuntime,
+    } = setup();
+    const teammate = await activeTeammate(teammates, "platform");
+    employees.set("legacy-digital", {
+      id: "legacy-digital",
+      kind: "digital",
+      status: "active",
+      displayName: "Legacy Worker",
+      department: "",
+      title: "Worker",
+      tags: [],
+      managerEmployeeId: "human-admin",
+      personaId: "persona-legacy",
+    });
+    await teammates.bindEmployee(admin, teammate.id, "legacy-digital");
+    agentProfiles.push({
+      id: "agent-legacy-principal",
+      status: "active",
+      personaId: "persona-legacy",
+      visibility: "platform",
+      allowedTools: ["read", "write"],
+    });
+    runtimes.push({
+      id: "runtime-legacy",
+      employeeId: "legacy-digital",
+      workspaceId: "workspace-1",
+      name: "Legacy Worker",
+      status: "active",
+      createdBy: "human-admin",
+      legacyAgentProfileId: "agent-legacy-principal",
+    });
+
+    const report = await runtime.migrateEmployeeIdentities();
+    expect(report).toMatchObject({
+      scanned: 1,
+      migrated: 1,
+      failed: 0,
+    });
+    const migrated = teammates.get(teammate.id);
+    expect(migrated.employeeId).toBe("legacy-digital");
+    expect(migrated.principalId).toBe("principal-ai-legacy-digital");
+    expect(
+      principalRuntime.profile(migrated.principalId!, "workspace-1"),
+    ).toMatchObject({
+      agentProfileId: "agent-legacy-principal",
+      allowedTools: ["read", "write"],
+    });
+
+    const ensured = await runtime.ensureRuntime({
+      teammateId: teammate.id,
+      workspaceId: "workspace-1",
+      actor: admin,
+    });
+    expect(ensured).toMatchObject({
+      principalId: "principal-ai-legacy-digital",
+      profileId: "agent-legacy-principal",
+    });
+    expect(ensured.employeeId).toBeUndefined();
+    const secondWorkspace = await runtime.ensureRuntime({
+      teammateId: teammate.id,
+      workspaceId: "workspace-2",
+      actor: admin,
+    });
+    expect(secondWorkspace).toMatchObject({
+      principalId: "principal-ai-legacy-digital",
+      profileId: expect.any(String),
+    });
+    expect(secondWorkspace.employeeId).toBeUndefined();
+    expect(await runtime.migrateEmployeeIdentities()).toMatchObject({
+      scanned: 1,
+      alreadyMigrated: 1,
+    });
+  });
 });
 
 describe("teammate live instance counts", () => {
   it("counts only active identity chains and deduplicates workspaces", async () => {
-    const { teammates, runtime, employees, runtimes, agentProfiles } = setup();
+    const { teammates, runtime, principalRuntime, agentProfiles } = setup();
     const active = await activeTeammate(teammates, "platform");
     const inactiveEmployee = await activeTeammate(teammates, "platform");
     const inactiveRuntime = await activeTeammate(teammates, "platform");
@@ -632,15 +975,10 @@ describe("teammate live instance counts", () => {
       inactiveAgent: inactiveAgent.id,
       duplicated: duplicated.id,
     };
-    const employeeFor = (teammateId: string): string => {
-      const employeeId = teammates.get(teammateId).employeeId;
-      if (employeeId === undefined) throw new Error("employee not bound");
-      return employeeId;
-    };
-    const runtimeFor = (teammateId: string) => {
-      const employeeId = employeeFor(teammateId);
-      return runtimes.find((item) => item.employeeId === employeeId);
-    };
+    const runtimeFor = (teammateId: string) =>
+      principalRuntime.profiles({
+        principalId: `principal-ai-${teammateId}`,
+      })[0];
     const inactiveEmployeeRuntime = runtimeFor(teammateIds.inactiveEmployee);
     const inactiveRuntimeProfile = runtimeFor(teammateIds.inactiveRuntime);
     const duplicatedRuntime = runtimeFor(teammateIds.duplicated);
@@ -651,19 +989,35 @@ describe("teammate live instance counts", () => {
     ) {
       throw new Error("runtime profile not created");
     }
-    const inactiveEmployeeRecord = employees.get(
-      inactiveEmployeeRuntime.employeeId,
+    const inactiveAgentProfile = agentProfiles.find(
+      (profile) => profile.id === inactiveEmployeeRuntime.agentProfileId,
     );
-    if (inactiveEmployeeRecord === undefined) {
-      throw new Error("employee not created");
+    if (inactiveAgentProfile === undefined) {
+      throw new Error("agent profile not created");
     }
-    inactiveEmployeeRecord.status = "draft";
-    inactiveRuntimeProfile.status = "disabled";
-    agentProfiles[3]!.status = "disabled";
-    runtimes.push({
-      ...duplicatedRuntime,
-      id: "runtime-duplicate",
+    inactiveAgentProfile.status = "disabled";
+    await principalRuntime.setProfileStatus(
+      inactiveRuntimeProfile.id,
+      "disabled",
+    );
+    await teammates.changeState(admin, {
+      teammateId: inactiveAgent.id,
+      state: "paused",
+    });
+    agentProfiles.push({
+      id: "agent-duplicate",
+      status: "active",
+      allowedTools: [],
+      visibility: "platform",
+    });
+    await principalRuntime.ensureProfile({
+      principalId: `principal-ai-${teammateIds.duplicated}`,
       workspaceId: "workspace-duplicate-2",
+      name: "duplicate runtime",
+      agentProfileId: "agent-duplicate",
+      execution: "builtin",
+      allowedTools: [],
+      createdByUserId: "admin",
     });
 
     const counts = await runtime.liveInstanceCounts("admin");
@@ -690,21 +1044,23 @@ describe("teammate live instance counts", () => {
   });
 
   it("does not count profiles owned by another account", async () => {
-    const { teammates, runtime, runtimes } = setup();
+    const { teammates, runtime, principalRuntime } = setup();
     const teammate = await activeTeammate(teammates, "platform");
     await runtime.ensureRuntime({
       teammateId: teammate.id,
       workspaceId: "workspace-1",
       actor: admin,
     });
-    if (runtimes[0] === undefined) throw new Error("runtime not created");
-    runtimes[0].createdBy = "human-olivia";
+    const profile = principalRuntime.profiles()[0];
+    if (profile === undefined) throw new Error("runtime not created");
+    (profile as { createdByUserId: string }).createdByUserId = "human-olivia";
     const counts = await runtime.liveInstanceCounts("admin");
     expect(counts.get(teammate.id)).toEqual({ liveCount: 1, ownCount: 0 });
   });
 
   it("archives an idle instance and transfers open tasks to its owner", async () => {
-    const { teammates, runtime, runtimes, agentProfiles } = setup();
+    const { teammates, runtime, principalRuntime, agentProfiles, employees } =
+      setup();
     const teammate = await activeTeammate(teammates, "platform");
     const ensured = await runtime.ensureRuntime({
       teammateId: teammate.id,
@@ -716,7 +1072,7 @@ describe("teammate live instance counts", () => {
         id: "task-open",
         status: "progress",
         receiverType: "agent",
-        receiverId: ensured.employeeId,
+        receiverId: teammate.id,
         archivedAt: undefined,
         messages: [{ runId: "run-1", state: "succeeded" }],
       },
@@ -753,43 +1109,33 @@ describe("teammate live instance counts", () => {
     expect(assigned).toEqual(["task-open"]);
     expect(teammates.get(teammate.id).state).toBe("archived");
     expect(agentProfiles[0]?.status).toBe("disabled");
-    expect(runtimes).toHaveLength(1);
-    expect(runtimes[0]?.status).toBe("disabled");
+    expect(
+      principalRuntime.profiles({ principalId: ensured.principalId! })[0]
+        ?.status,
+    ).toBe("disabled");
+    expect(employees.size).toBe(0);
   });
 
   it("lets an instance owner leave a project and transfers open tasks", async () => {
-    const { teammates, runtime, roleAssignments } = setup();
+    const { teammates, runtime, principalGrants } = setup();
     const teammate = await activeTeammate(teammates, "personal");
-    const ensured = await runtime.ensureRuntime({
+    await runtime.ensureRuntime({
       teammateId: teammate.id,
       workspaceId: "workspace-1",
       actor: olivia,
     });
-    roleAssignments.push(
-      {
-        id: "role-1",
-        employeeId: ensured.employeeId,
-        workspaceId: "workspace-1",
-        role: "member",
-        permissions: ["read", "write"],
-        status: "active",
-      },
-      {
-        id: "role-2",
-        employeeId: ensured.employeeId,
-        workspaceId: "workspace-2",
-        role: "viewer",
-        permissions: ["read"],
-        status: "active",
-      },
-    );
+    await runtime.ensureRuntime({
+      teammateId: teammate.id,
+      workspaceId: "workspace-2",
+      actor: olivia,
+    });
     const tasks = [
       {
         id: "task-open",
         workspaceId: "workspace-1",
         status: "progress",
         receiverType: "agent",
-        receiverId: ensured.employeeId,
+        receiverId: teammate.id,
         archivedAt: undefined,
       },
       {
@@ -824,8 +1170,10 @@ describe("teammate live instance counts", () => {
     });
 
     // 只撤销目标项目的授权，其他项目不受影响。
-    expect(result.revokedAssignments).toEqual([{ id: "role-1", role: "member" }]);
-    expect(roleAssignments.map((item) => item.status)).toEqual([
+    expect(result.revokedAssignments).toEqual([
+      { id: "grant-1", role: "workspace-member" },
+    ]);
+    expect(principalGrants.map((item) => item.status)).toEqual([
       "revoked",
       "active",
     ]);
@@ -836,33 +1184,28 @@ describe("teammate live instance counts", () => {
   });
 
   it("guards project role exits by instance owner or project owner", async () => {
-    const { teammates, runtime, roleAssignments } = setup();
+    const { teammates, runtime, principalGrants } = setup();
     const teammate = await activeTeammate(teammates, "personal");
-    const ensured = await runtime.ensureRuntime({
+    await runtime.ensureRuntime({
       teammateId: teammate.id,
       workspaceId: "workspace-1",
       actor: olivia,
     });
-    roleAssignments.push(
-      {
-        id: "role-1",
-        employeeId: ensured.employeeId,
-        workspaceId: "workspace-1",
-        role: "member",
-        permissions: ["read", "write"],
-        status: "active",
-      },
-      {
-        id: "role-2",
-        employeeId: ensured.employeeId,
-        workspaceId: "workspace-1",
-        role: "viewer",
-        permissions: ["read"],
-        status: "active",
-      },
-    );
+    principalGrants.push({
+      id: "grant-2",
+      principalId: `principal-ai-${teammate.id}`,
+      scopeType: "workspace",
+      scopeId: "workspace-1",
+      role: "viewer",
+      permissions: ["read"],
+      status: "active",
+    });
 
-    const outsider = { userId: "peter", name: "Peter", role: "member" as const };
+    const outsider = {
+      userId: "peter",
+      name: "Peter",
+      role: "member" as const,
+    };
     // 既不是实例 owner 也不是项目 owner：拒绝。
     await expect(
       runtime.leaveWorkspace({
@@ -870,7 +1213,7 @@ describe("teammate live instance counts", () => {
         workspaceId: "workspace-1",
         actor: outsider,
         canManageWorkspace: false,
-        assignmentId: "role-1",
+        assignmentId: "grant-1",
         tasks: [],
         assignTask: async () => {
           throw new Error("should not reassign");
@@ -884,7 +1227,7 @@ describe("teammate live instance counts", () => {
       workspaceId: "workspace-1",
       actor: outsider,
       canManageWorkspace: true,
-      assignmentId: "role-2",
+      assignmentId: "grant-2",
       tasks: [
         {
           id: "task-open",
@@ -899,9 +1242,11 @@ describe("teammate live instance counts", () => {
         throw new Error("should not reassign");
       },
     });
-    expect(result.revokedAssignments).toEqual([{ id: "role-2", role: "viewer" }]);
+    expect(result.revokedAssignments).toEqual([
+      { id: "grant-2", role: "viewer" },
+    ]);
     expect(result.reassignedTaskIds).toEqual([]);
-    expect(roleAssignments[0]?.status).toBe("active");
+    expect(principalGrants[0]?.status).toBe("active");
 
     // 已无可退出授权时报 not_found，避免静默成功。
     await expect(
@@ -951,7 +1296,11 @@ describe("teammate live instance counts", () => {
     });
     expect(result.teammate.state).toBe("archived");
     // 非 owner 的普通成员依旧不能归档。
-    const outsider = { userId: "peter", name: "Peter", role: "member" as const };
+    const outsider = {
+      userId: "peter",
+      name: "Peter",
+      role: "member" as const,
+    };
     await teammateTable.put("tm-other", {
       ...result.teammate,
       id: "tm-other",
@@ -981,7 +1330,7 @@ describe("teammate live instance counts", () => {
     });
     agentRuns.push({
       id: "run-active",
-      employeeId: ensured.employeeId,
+      principalId: ensured.principalId,
       status: "running",
     });
 

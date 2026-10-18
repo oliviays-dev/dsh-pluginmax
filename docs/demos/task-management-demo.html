@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>任务管理 · 交互 Demo</title>
+  <title>任务 · 交互 Demo</title>
   <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
   <style>
@@ -1055,7 +1055,44 @@
     .project-permission { min-width: 0; overflow-wrap: anywhere; color: var(--muted); font-size: 10.5px; line-height: 1.4; }
     .project-permission .label { display: block; color: var(--faint); font-size: 9.5px; }
     .project-permission strong { display: block; margin-top: 1px; color: var(--text); font-size: 10.5px; font-weight: 600; }
-    .project-member-actions { display: flex; justify-content: flex-end; }
+    .project-roles { min-width: 0; }
+    .project-roles > .label { display: block; color: var(--faint); font-size: 9.5px; }
+    .project-role-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+    .project-role-chip {
+      max-width: 100%; overflow: hidden; text-overflow: ellipsis; border: 1px solid var(--line); border-radius: 4px;
+      padding: 1px 6px; color: var(--text); background: var(--surface-3); font-size: 9.5px; white-space: nowrap;
+    }
+    .project-role-chip.agent { border-color: transparent; color: var(--purple); background: var(--purple-soft); }
+    .project-role-chip.empty { border-style: dashed; color: var(--faint); background: transparent; }
+    .project-member-actions { display: flex; justify-content: flex-end; gap: 6px; }
+    .field-static {
+      display: flex; align-items: center; min-height: 36px; padding: 0 10px; border: 1px dashed var(--line);
+      border-radius: 7px; background: var(--surface-2); color: var(--muted); font-size: 11.5px;
+    }
+    #projectMemberFormSlot .settings-hint { margin: 4px 0 0; }
+    .access-list-avatar {
+      width: 30px; height: 30px; display: grid; place-items: center; border-radius: 7px;
+      color: #9fc4ff; background: rgba(79,142,247,.14); font-size: 10px; font-weight: 700;
+    }
+    .access-list-avatar.agent { color: var(--purple); background: var(--purple-soft); }
+    .access-kind-tabs { margin-bottom: 8px; }
+    .access-kind-tabs .ai-tab { padding: 5px 9px; white-space: nowrap; }
+    .template-row-list { display: grid; }
+    .template-row {
+      min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px;
+      padding: 9px 0; border-bottom: 1px solid var(--line);
+    }
+    .template-row:last-child { border-bottom: 0; }
+    .template-add-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+    .template-add-row select { flex: 1; min-width: 0; }
+    .access-role-options { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+    .access-role-option {
+      display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border: 1px solid var(--line);
+      border-radius: 6px; background: var(--surface-2); color: var(--muted); font-size: 10.5px; white-space: nowrap; cursor: pointer;
+    }
+    .access-role-option:has(input:checked) { border-color: rgba(79,142,247,.5); color: var(--text); background: var(--accent-soft); }
+    .access-role-option input { margin: 0; }
+    #accessEditMask .modal { width: min(620px, 100%); }
     .project-task-list { display: grid; gap: 8px; }
     .project-report-toolbar { justify-content: flex-end; margin-top: 0; margin-bottom: 10px; }
     .project-empty { padding: 32px; border: 1px dashed var(--line); border-radius: 7px; color: var(--muted); text-align: center; font-size: 12px; }
@@ -1886,25 +1923,26 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
             <span class="nav-label">工作台</span>
           </button>
-          <button class="nav-item active" data-global="task" type="button" aria-label="任务管理" title="任务管理">
+          <button class="nav-item" data-global="projects" type="button" aria-label="项目" title="项目">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h6l2 2h10v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6Z"/><path d="M3 10h18"/></svg>
+            <span class="nav-label">项目</span>
+          </button>
+          <button class="nav-item active" data-global="task" type="button" aria-label="任务" title="任务">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
-            <span class="nav-label">任务管理</span>
+            <span class="nav-label">任务</span>
           </button>
           <button class="nav-item" data-global="workflow" type="button" aria-label="工作流" title="工作流">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M10 6h4a2 2 0 0 1 2 2v2M14 18h-4a2 2 0 0 1-2-2v-2"/></svg>
             <span class="nav-label">工作流</span>
           </button>
-          <button class="nav-item" data-global="projects" type="button" aria-label="项目管理" title="项目管理">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h6l2 2h10v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6Z"/><path d="M3 10h18"/></svg>
-            <span class="nav-label">项目管理</span>
-          </button>
-          <button class="nav-item" data-global="teammates" type="button" aria-label="AI Teammates" title="AI Teammates">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="7" width="16" height="12" rx="2"/><path d="M9 12h.01M15 12h.01M9 16h6M12 7V3M8 3h8"/></svg>
-            <span class="nav-label">AI Teammates</span>
-          </button>
+          <!-- 用户权限管理入口暂时隐藏（模块保留，待后续启用）：<button class="nav-item" data-global="access">用户权限</button> -->
           <button class="nav-item" data-drawer="meeting" type="button" aria-label="会议" title="会议">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m22 8-6 4 6 4V8Z"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg>
             <span class="nav-label">会议</span>
+          </button>
+          <button class="nav-item" data-global="teammates" type="button" aria-label="AI伙伴" title="AI伙伴">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="7" width="16" height="12" rx="2"/><path d="M9 12h.01M15 12h.01M9 16h6M12 7V3M8 3h8"/></svg>
+            <span class="nav-label">AI伙伴</span>
           </button>
         </nav>
 
@@ -1962,12 +2000,17 @@
               <div class="profile-inline-head">
                 <div>
                   <h2>工作流模版管理</h2>
-                  <div class="profile-inline-sub">可复用工作流定义、节点编排与版本管理</div>
+                  <div class="profile-inline-sub">可复用工作流定义、节点编排与版本管理；级别区分平台级与项目级，项目模版只能引用此处已存在的模版。</div>
                   <div class="profile-inline-selected-desc" id="workflowTemplateInlineDesc"></div>
                 </div>
                 <div class="head-actions">
                   <select class="compact" id="workflowTemplateWorkspace" aria-label="按工作区筛选模版">
                     <option value="">全部工作区</option>
+                  </select>
+                  <select class="compact" id="workflowTemplateLevel" aria-label="按级别筛选模版">
+                    <option value="">全部级别</option>
+                    <option value="平台级">平台级</option>
+                    <option value="项目级">项目级</option>
                   </select>
                   <button class="ghost small" id="workflowTemplateRefresh" type="button">刷新</button>
                   <button class="primary small" id="workflowTemplateCreate" type="button">新建模版</button>
@@ -1990,14 +2033,15 @@
           <section class="view" id="projectsView" hidden>
             <div class="page-head">
               <div>
-                <h1>项目管理</h1>
-                <div class="page-sub">项目清单、成员权限、任务、工作流与项目日报</div>
+                <h1>项目</h1>
+                <div class="page-sub">项目清单、成员权限、任务、工作流、项目日报与项目模版</div>
               </div>
               <div class="head-actions">
+                <button class="ghost" id="projectTemplateManageButton" type="button" aria-pressed="false">项目模版</button>
                 <button class="primary" id="projectCreateButton" type="button" data-demo="创建新项目">新建项目</button>
               </div>
             </div>
-            <div class="ai-layout project-layout">
+            <div class="ai-layout project-layout" id="projectLayout">
               <aside class="ai-directory" aria-label="项目清单">
                 <label class="profile-search project-directory-search">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>
@@ -2008,6 +2052,33 @@
               </aside>
               <main class="ai-editor" id="projectDetail"></main>
             </div>
+            <section class="profile-inline-view" id="projectTemplateView" aria-label="项目模版维护" hidden>
+              <div class="profile-inline-head">
+                <div>
+                  <h2>项目模版维护</h2>
+                  <div class="profile-inline-sub">按项目类型预置「项目角色清单」与「工作流模版清单」；工作流模版本体统一在工作流 → 工作流模版管理处维护。</div>
+                  <div class="profile-inline-selected-desc" id="projectTemplateInlineDesc"></div>
+                </div>
+                <div class="head-actions">
+                  <div class="ai-tabs" id="projectTemplatePaneTabs" aria-label="项目模版维护范围">
+                    <button class="ai-tab active" data-project-template-pane="templates" type="button">项目模版</button>
+                    <button class="ai-tab" data-project-template-pane="roles" type="button">项目角色库</button>
+                  </div>
+                  <button class="primary small" id="projectTemplateCreate" type="button">新建模版</button>
+                  <button class="icon-btn" id="projectTemplateClose" type="button" aria-label="关闭项目模版维护">×</button>
+                </div>
+              </div>
+              <div class="profile-inline-body">
+                <div class="profile-sidebar">
+                  <label class="profile-search">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+                    <input id="projectTemplateSearch" value="" placeholder="搜索模版名称、类型或角色" autocomplete="off">
+                  </label>
+                  <aside class="profile-list" id="projectTemplateList" aria-label="项目模版列表"></aside>
+                </div>
+                <main class="profile-detail" id="projectTemplateDetail"></main>
+              </div>
+            </section>
             <div class="mask" id="projectEditMask" role="dialog" aria-modal="true" aria-labelledby="projectEditTitle">
               <div class="modal">
                 <div class="modal-head">
@@ -2017,13 +2088,59 @@
                 <div id="projectEditFormSlot"></div>
               </div>
             </div>
+            <div class="mask" id="projectMemberMask" role="dialog" aria-modal="true" aria-labelledby="projectMemberTitle">
+              <div class="modal">
+                <div class="modal-head">
+                  <h2 id="projectMemberTitle">编辑项目成员权限</h2>
+                  <button class="ghost small" type="button" data-project-member-close>关闭</button>
+                </div>
+                <div id="projectMemberFormSlot"></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="view" id="accessView" hidden>
+            <div class="page-head">
+              <div>
+                <h1>用户权限管理</h1>
+                <div class="page-sub">平台角色决定组织内身份与数据范围；项目角色决定任务指派与工作流流转，同一成员可在不同项目拥有不同项目角色。</div>
+              </div>
+              <div class="head-actions">
+                <span class="admin-badge" id="accessSummary">8 个权限主体</span>
+                <button class="primary" id="accessInviteButton" type="button" data-demo="邀请成员">邀请成员</button>
+              </div>
+            </div>
+            <div class="ai-layout project-layout">
+              <aside class="ai-directory" aria-label="用户列表">
+                <label class="profile-search project-directory-search">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>
+                  <input id="accessSearch" value="" placeholder="搜索姓名、平台角色或项目" autocomplete="off">
+                </label>
+                <div class="ai-tabs access-kind-tabs" id="accessKindTabs" aria-label="权限主体类型">
+                  <button class="ai-tab active" data-access-kind="all" type="button">全部</button>
+                  <button class="ai-tab" data-access-kind="human" type="button">人员</button>
+                  <button class="ai-tab" data-access-kind="agent" type="button">AI伙伴</button>
+                </div>
+                <div class="project-directory-list" id="accessList"></div>
+              </aside>
+              <main class="ai-editor" id="accessDetail"></main>
+            </div>
+            <div class="mask" id="accessEditMask" role="dialog" aria-modal="true" aria-labelledby="accessEditTitle">
+              <div class="modal">
+                <div class="modal-head">
+                  <h2 id="accessEditTitle">编辑用户权限</h2>
+                  <button class="ghost small" type="button" data-access-edit-close>关闭</button>
+                </div>
+                <div id="accessEditFormSlot"></div>
+              </div>
+            </div>
           </section>
 
           <section class="view" id="aiTeammatesView" hidden>
             <div class="page-head">
               <div>
-                <h1>AI Teammates</h1>
-                <div class="page-sub">所有 AI Teammate 共用同一套定义；归属决定可见范围与管理权限。</div>
+                <h1>AI伙伴</h1>
+                <div class="page-sub">所有 AI伙伴共用同一套定义；归属决定可见范围与管理权限。</div>
               </div>
               <div class="head-actions">
                 <span class="admin-badge">
@@ -2035,17 +2152,17 @@
             </div>
 
             <div class="ai-toolbar" id="aiToolbar">
-              <div class="ai-tabs" id="aiTabs" aria-label="AI Teammates 查看方式">
+              <div class="ai-tabs" id="aiTabs" aria-label="AI伙伴查看方式">
                 <button class="ai-tab active" data-ai-tab="runtime" type="button">运行态管理</button>
                 <button class="ai-tab" data-ai-tab="definition" type="button">定义态管理</button>
               </div>
               <div class="head-actions">
-                <button class="primary" id="aiCreateButton" type="button">新建 Teammate</button>
+                <button class="primary" id="aiCreateButton" type="button">新建 AI伙伴</button>
               </div>
             </div>
 
             <div class="ai-layout" id="aiLayout">
-              <aside class="ai-directory" id="aiTeammateList" aria-label="AI Teammates 列表"></aside>
+              <aside class="ai-directory" id="aiTeammateList" aria-label="AI伙伴列表"></aside>
               <main class="ai-editor" id="aiTeammateDetail"></main>
             </div>
 
@@ -2335,7 +2452,7 @@
                         </span>
                         <div class="cockpit-scope-copy">
                           <strong>一切皆插件 · 项目 Owner 视角</strong>
-                          <small>项目组 2 位 Human Employee + 我的 2 个 AI Teammate</small>
+                          <small>项目组 2 位 Human Employee + 我的 2 个 AI伙伴</small>
                         </div>
                       </div>
                       <div class="cockpit-scope" data-cockpit-scope="org" hidden>
@@ -2344,7 +2461,7 @@
                         </span>
                         <div class="cockpit-scope-copy">
                           <strong>DSH 产品研发中心 · 组织视图</strong>
-                          <small>跨 3 个项目的成员负载、项目健康度与 AI Teammate 运行态势</small>
+                          <small>跨 3 个项目的成员负载、项目健康度与 AI伙伴运行态势</small>
                         </div>
                       </div>
                       <span class="cockpit-live"><span class="cockpit-live-dot"></span>实时 · 更新于刚刚</span>
@@ -2358,7 +2475,7 @@
                     <article class="cockpit-stat">
                       <div class="cockpit-stat-label"><span>团队成员</span><span>Owner 可见</span></div>
                       <strong>4</strong>
-                      <small>2 位 Human Employee · 2 个 AI Teammate</small>
+                      <small>2 位 Human Employee · 2 个 AI伙伴</small>
                     </article>
                     <article class="cockpit-stat">
                       <div class="cockpit-stat-label"><span>进行中</span><span>今日</span></div>
@@ -2432,7 +2549,7 @@
                       <div class="cockpit-panel-head">
                         <div class="cockpit-panel-title">
                           <h3 id="cockpitLoadTitle">工作 Loading</h3>
-                          <p>人 + AI Teammate 的当前承载</p>
+                          <p>人 + AI伙伴的当前承载</p>
                         </div>
                         <span class="cockpit-panel-meta">今日</span>
                       </div>
@@ -2497,8 +2614,8 @@
                     <section class="cockpit-panel cockpit-span-6" aria-labelledby="cockpitAgentTitle">
                       <div class="cockpit-panel-head">
                         <div class="cockpit-panel-title">
-                          <h3 id="cockpitAgentTitle">AI Teammate 实时运行</h3>
-                          <p>我的 AI Teammate 当前动作、阻塞与最近更新时间</p>
+                          <h3 id="cockpitAgentTitle">AI伙伴实时运行</h3>
+                          <p>我的 AI伙伴当前动作、阻塞与最近更新时间</p>
                         </div>
                         <span class="cockpit-panel-meta">3 个实例</span>
                       </div>
@@ -2525,7 +2642,7 @@
 
                     <div class="cockpit-scope-note cockpit-span-12">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3 5 6v5c0 4.6 2.9 8.4 7 10 4.1-1.6 7-5.4 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg>
-                      <span>权限范围：项目 Owner 可见项目组全部成员 + 我的 AI Teammate；非 Owner 仅可见我的 AI Teammate。</span>
+                      <span>权限范围：项目 Owner 可见项目组全部成员 + 我的 AI伙伴；非 Owner 仅可见我的 AI伙伴。</span>
                     </div>
                   </div>
 
@@ -2541,7 +2658,7 @@
                       <small>1 个健康 · 1 个关注 · 1 个风险</small>
                     </article>
                     <article class="cockpit-stat">
-                      <div class="cockpit-stat-label"><span>AI Teammate</span><span>运行中</span></div>
+                      <div class="cockpit-stat-label"><span>AI伙伴</span><span>运行中</span></div>
                       <strong>5</strong>
                       <small>3 个运行 · 1 个等待 · 1 个待命</small>
                     </article>
@@ -2654,7 +2771,7 @@
                     <section class="cockpit-panel cockpit-span-6" aria-labelledby="cockpitFleetTitle">
                       <div class="cockpit-panel-head">
                         <div class="cockpit-panel-title">
-                          <h3 id="cockpitFleetTitle">AI Teammate 运行态势</h3>
+                          <h3 id="cockpitFleetTitle">AI伙伴运行态势</h3>
                           <p>组织内有权限查看的 Agent 实例</p>
                         </div>
                         <span class="cockpit-panel-meta">5 个实例</span>
@@ -2692,7 +2809,7 @@
 
                     <div class="cockpit-scope-note cockpit-span-12">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3 5 6v5c0 4.6 2.9 8.4 7 10 4.1-1.6 7-5.4 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg>
-                      <span>组织视图仅聚合当前用户有权限查看的项目、Human Employee 和 AI Teammate，不展示未授权人员明细。</span>
+                      <span>组织视图仅聚合当前用户有权限查看的项目、Human Employee 和 AI伙伴，不展示未授权人员明细。</span>
                     </div>
                   </div>
                 </section>
@@ -2702,7 +2819,7 @@
           <section class="view" id="taskView">
         <div class="page-head">
           <div>
-            <h1>任务管理</h1>
+            <h1>任务</h1>
           </div>
           <div class="head-actions">
             <select id="taskProjectFilter" class="compact" aria-label="按项目筛选任务">
@@ -3146,6 +3263,75 @@
       { key: "done", label: "已完成" },
     ];
     const workspaces = ["一切皆插件", "员工平台", "客户成功"];
+    // 平台角色：组织内的岗位身份，决定平台级能力与可见范围。
+    const platformRoleLibrary = [
+      "平台管理员", "产品负责人", "项目经理", "后端工程师", "前端工程师",
+      "体验设计师", "质量工程师", "采购专员", "计划专员", "财务审批",
+    ];
+    // 项目角色：项目内用于任务指派与工作流流转处理的角色字典。
+    const projectRoleLibrary = [
+      { id: "role-owner", name: "项目负责人", code: "PROJECT_OWNER", category: "管理", desc: "对项目交付结果负责，可维护成员与权限。" },
+      { id: "role-req", name: "需求决策", code: "REQUIREMENT_OWNER", category: "管理", desc: "确认需求范围与验收口径，处理需求变更。" },
+      { id: "role-dev", name: "开发实施", code: "IMPLEMENTER", category: "执行", desc: "承接开发 / 配置类任务并提交产出。" },
+      { id: "role-review", name: "代码评审", code: "CODE_REVIEWER", category: "评审", desc: "对实现质量做评审并给出结论。" },
+      { id: "role-qa", name: "质量验收", code: "ACCEPTANCE", category: "评审", desc: "编写与执行验收用例，确认交付口径。" },
+      { id: "role-research", name: "会前研究", code: "PRE_MEETING_RESEARCH", category: "支持", desc: "会议前整理背景材料与待决策项。" },
+      { id: "role-follow", name: "流程跟进", code: "PROCESS_FOLLOW_UP", category: "执行", desc: "跟进节点流转、催办与状态同步。" },
+      { id: "role-escalate", name: "催办升级", code: "ESCALATION", category: "执行", desc: "超时或阻塞时升级到责任人并留痕。" },
+      { id: "role-plan", name: "供应计划", code: "SUPPLY_PLANNER", category: "计划", desc: "维护供给计划、备料与产能平衡。" },
+      { id: "role-sourcing", name: "寻源比价", code: "SOURCING", category: "采购", desc: "组织询价、比价与供应商准入。" },
+      { id: "role-contract", name: "合同审批", code: "CONTRACT_APPROVAL", category: "审批", desc: "审批合同条款、金额与付款计划。" },
+      { id: "role-release", name: "发布执行", code: "RELEASE_EXECUTOR", category: "执行", desc: "执行发布、回滚与停机窗口操作。" },
+      { id: "role-evidence", name: "技术证据", code: "TECH_EVIDENCE", category: "支持", desc: "沉淀技术证据链与复盘材料。" },
+    ];
+    const projectRoleName = (id) => projectRoleLibrary.find((role) => role.id === id)?.name ?? id;
+    // 项目模版：不同类型的项目预置不同的项目角色清单与工作流模版清单。
+    const projectTemplates = [
+      {
+        id: "tpl-plugin-dev",
+        name: "插件 / 平台研发",
+        code: "TPL-PLUGIN",
+        type: "研发类",
+        status: "启用",
+        updatedAt: "10-14 09:20",
+        description: "适用于平台与插件研发，强调需求决策、开发实施与代码评审的闭环。",
+        roles: ["role-owner", "role-req", "role-dev", "role-review", "role-qa", "role-research"],
+        workflowTemplates: ["workflow-template-employee-node", "workflow-template-gui-from-zero"],
+      },
+      {
+        id: "tpl-employee-platform",
+        name: "员工平台建设",
+        code: "TPL-EMPLOYEE",
+        type: "内部系统类",
+        status: "启用",
+        updatedAt: "10-13 17:05",
+        description: "面向内部员工系统建设，突出体验评审、质量验收与跨端回归。",
+        roles: ["role-owner", "role-dev", "role-qa", "role-research"],
+        workflowTemplates: ["workflow-template-gui-from-zero"],
+      },
+      {
+        id: "tpl-procurement",
+        name: "供应链采购",
+        code: "TPL-PROCUREMENT",
+        type: "采购类",
+        status: "启用",
+        updatedAt: "10-11 11:32",
+        description: "覆盖寻源比价、合同审批与交付跟催，保障采购韧性与承诺兑现。",
+        roles: ["role-owner", "role-plan", "role-sourcing", "role-contract", "role-follow", "role-escalate"],
+        workflowTemplates: ["workflow-template-employee-node"],
+      },
+    ];
+    // 平台用户目录：人员与 AI伙伴的统一权限主体。
+    const directoryUsers = [
+      { id: "olivia", name: "Olivia", kind: "human", platformRole: "Owner / Admin", platformRoles: ["产品负责人", "平台管理员"], status: "在职", contact: "olivia@platform.dev", org: "平台产品部", lastActive: "刚刚", dataScope: "全部项目（管理员）" },
+      { id: "peter", name: "Peter", kind: "human", platformRole: "Member", platformRoles: ["后端工程师"], status: "在职", contact: "peter@platform.dev", org: "平台研发部", lastActive: "12 分钟前", dataScope: "所在项目" },
+      { id: "mia", name: "Mia", kind: "human", platformRole: "Member", platformRoles: ["采购专员", "财务审批"], status: "在职", contact: "mia@platform.dev", org: "供应链采购部", lastActive: "1 小时前", dataScope: "所在项目" },
+      { id: "personal-research-avatar", name: "Research Avatar", kind: "agent", platformRole: "Member", platformRoles: ["会前研究 Agent"], status: "运行中", contact: "实例 · personal-research-avatar", org: "归属 Olivia", lastActive: "5 分钟前", dataScope: "被授权项目" },
+      { id: "personal-ops-avatar", name: "Ops Avatar 02", kind: "agent", platformRole: "Member", platformRoles: ["流程跟进 Agent"], status: "运行中", contact: "实例 · personal-ops-avatar", org: "归属 Olivia", lastActive: "18 分钟前", dataScope: "被授权项目" },
+      { id: "personal-ux-avatar", name: "UX Avatar", kind: "agent", platformRole: "Member", platformRoles: ["体验评审 Agent"], status: "运行中", contact: "实例 · personal-ux-avatar", org: "归属 Olivia", lastActive: "2 小时前", dataScope: "被授权项目" },
+      { id: "platform-qa-de", name: "QA DE 02", kind: "agent", platformRole: "Readonly", platformRoles: ["质量工程 Agent"], status: "空闲", contact: "实例 · platform-qa-de", org: "平台 AI", lastActive: "昨天", dataScope: "被授权项目" },
+      { id: "platform-backend-de", name: "Backend DE 01", kind: "agent", platformRole: "Contributor", platformRoles: ["后端工程 Agent"], status: "到期", contact: "实例 · platform-backend-de", org: "归属 Peter", lastActive: "3 天前", dataScope: "被授权项目" },
+    ];
     const managedProjects = [
       {
         id: "project-pluginmax",
@@ -3157,14 +3343,14 @@
         progress: 72,
         startDate: "2026-09-12",
         targetDate: "2026-10-31",
-        description: "统一工作台、任务、工作流、会议和 AI Teammate 的协作体验，建立可追溯的项目执行闭环。",
+        description: "统一工作台、任务、工作流、会议和 AI伙伴的协作体验，建立可追溯的项目执行闭环。",
         running: "今日新增 4 项任务进展，Research Avatar 正在复核发布风险与会议决策项。",
         notes: { members: "本周新增 1 位 AI", tasks: "今日新增 4 项", workflows: "今日新增 1 个" },
         members: [
-          { id: "olivia", name: "Olivia", kind: "human", role: "Project Owner", permission: "Owner / Admin", scope: "项目、成员、任务、工作流" },
-          { id: "peter", name: "Peter", kind: "human", role: "Backend Engineer", permission: "Member", scope: "任务、工作流、文件读写" },
-          { id: "personal-research-avatar", name: "Research Avatar", kind: "agent", role: "AI Contributor · 会前研究", permission: "Member", scope: "任务、会议、文件读写" },
-          { id: "personal-ops-avatar", name: "Ops Avatar 02", kind: "agent", role: "AI Contributor · 流程跟进", permission: "Member", scope: "任务、工作流跟进" },
+          { id: "olivia", name: "Olivia", kind: "human", platformRole: "产品负责人", projectRoles: ["role-owner", "role-req"], permission: "Owner / Admin", scope: "项目、成员、任务、工作流" },
+          { id: "peter", name: "Peter", kind: "human", platformRole: "后端工程师", projectRoles: ["role-dev", "role-review"], permission: "Member", scope: "任务、工作流、文件读写" },
+          { id: "personal-research-avatar", name: "Research Avatar", kind: "agent", platformRole: "会前研究 Agent", projectRoles: ["role-research"], permission: "Member", scope: "任务、会议、文件读写" },
+          { id: "personal-ops-avatar", name: "Ops Avatar 02", kind: "agent", platformRole: "流程跟进 Agent", projectRoles: ["role-follow"], permission: "Member", scope: "任务、工作流跟进" },
         ],
         reports: [
           {
@@ -3225,11 +3411,11 @@
         running: "移动端审批布局仍有 3 个回归场景未覆盖，Peter 正在处理阻塞。",
         notes: { members: "本周新增 1 位 AI", tasks: "今日新增 3 项", workflows: "近 7 天无新增" },
         members: [
-          { id: "olivia", name: "Olivia", kind: "human", role: "Project Owner", permission: "Owner / Admin", scope: "项目、成员、任务、工作流" },
-          { id: "peter", name: "Peter", kind: "human", role: "Backend Engineer", permission: "Member", scope: "任务、工作流、文件读写" },
-          { id: "personal-ux-avatar", name: "UX Avatar", kind: "agent", role: "AI Contributor · 体验评审", permission: "Member", scope: "任务、会议、文档" },
-          { id: "personal-research-avatar", name: "Research Avatar", kind: "agent", role: "AI Contributor · 会前研究", permission: "Guest", scope: "会议、共享文件只读" },
-          { id: "platform-qa-de", name: "QA DE 02", kind: "agent", role: "平台 AI · 质量工程", permission: "Readonly", scope: "验收用例、回归风险" },
+          { id: "olivia", name: "Olivia", kind: "human", platformRole: "产品负责人", projectRoles: ["role-owner"], permission: "Owner / Admin", scope: "项目、成员、任务、工作流" },
+          { id: "peter", name: "Peter", kind: "human", platformRole: "后端工程师", projectRoles: ["role-dev"], permission: "Member", scope: "任务、工作流、文件读写" },
+          { id: "personal-ux-avatar", name: "UX Avatar", kind: "agent", platformRole: "体验评审 Agent", projectRoles: ["role-qa"], permission: "Member", scope: "任务、会议、文档" },
+          { id: "personal-research-avatar", name: "Research Avatar", kind: "agent", platformRole: "会前研究 Agent", projectRoles: ["role-research"], permission: "Member", scope: "会议、共享文件只读" },
+          { id: "platform-qa-de", name: "QA DE 02", kind: "agent", platformRole: "质量工程 Agent", projectRoles: ["role-qa"], permission: "Readonly", scope: "验收用例、回归风险" },
         ],
         reports: [
           {
@@ -3288,10 +3474,10 @@
         running: "客户迁移发布保持阻塞，Ops Avatar 02 正在等待停机窗口和责任人确认。",
         notes: { members: "本周无变化", tasks: "今日新增 2 项", workflows: "1 个阻塞" },
         members: [
-          { id: "olivia", name: "Olivia", kind: "human", role: "Project Owner", permission: "Owner / Admin", scope: "项目、成员、任务、工作流" },
-          { id: "peter", name: "Peter", kind: "human", role: "Backend Engineer", permission: "Member", scope: "任务、发布与回滚" },
-          { id: "personal-ops-avatar", name: "Ops Avatar 02", kind: "agent", role: "AI Contributor · 流程跟进", permission: "Member", scope: "工作流、催办与升级" },
-          { id: "platform-backend-de", name: "Backend DE 01", kind: "agent", role: "平台 AI · 后端工程", permission: "Contributor", scope: "发布风险与技术证据链" },
+          { id: "olivia", name: "Olivia", kind: "human", platformRole: "产品负责人", projectRoles: ["role-owner", "role-contract"], permission: "Owner / Admin", scope: "项目、成员、任务、工作流" },
+          { id: "peter", name: "Peter", kind: "human", platformRole: "后端工程师", projectRoles: ["role-release"], permission: "Member", scope: "任务、发布与回滚" },
+          { id: "personal-ops-avatar", name: "Ops Avatar 02", kind: "agent", platformRole: "流程跟进 Agent", projectRoles: ["role-follow", "role-escalate"], permission: "Member", scope: "工作流、催办与升级" },
+          { id: "platform-backend-de", name: "Backend DE 01", kind: "agent", platformRole: "后端工程 Agent", projectRoles: ["role-evidence"], permission: "Contributor", scope: "发布风险与技术证据链" },
         ],
         reports: [
           {
@@ -3502,6 +3688,7 @@
         name: "Digital Employee 节点执行",
         code: "employee-node",
         workspace: "一切皆插件",
+        level: "平台级",
         version: "v1",
         status: "enabled",
         updatedAt: "今天 11:44",
@@ -3599,6 +3786,7 @@
         name: "GUI 从零验收",
         code: "gui-from-zero",
         workspace: "员工平台",
+        level: "项目级",
         version: "v1.2",
         status: "enabled",
         updatedAt: "昨天 18:20",
@@ -3670,6 +3858,50 @@
           "## 完成条件",
           "- 关键状态均有实现说明。",
           "- 桌面与移动端均完成回归。",
+        ].join("\n"),
+      },
+      {
+        id: "workflow-template-supply-sourcing",
+        name: "供应链寻源比价",
+        code: "supply-sourcing",
+        workspace: "客户成功",
+        level: "平台级",
+        version: "v1.0",
+        status: "enabled",
+        updatedAt: "10-12 15:40",
+        description: "从需求提报到比价定标的标准采购流程，覆盖寻源、审批与交付跟催。",
+        nodes: [
+          {
+            id: "node-demand", key: "01", name: "需求提报", owner: "需求方 / member", mode: "serial", approvalLogic: "none",
+            dependsOn: "启动", description: "明确物料规格、数量、交付窗口与预算约束。",
+          },
+          {
+            id: "node-sourcing", key: "02", name: "寻源比价", owner: "寻源比价 / member", mode: "parallel", approvalLogic: "all",
+            dependsOn: "需求提报", description: "组织多家供应商询价，输出比价表与推荐方案。",
+          },
+          {
+            id: "node-contract", key: "03", name: "合同审批", owner: "合同审批 / admin", mode: "serial", approvalLogic: "all",
+            dependsOn: "寻源比价", description: "审批条款、金额与付款计划，确认后进入交付。",
+          },
+          {
+            id: "node-delivery", key: "04", name: "交付跟催", owner: "流程跟进 / 催办升级", mode: "serial", approvalLogic: "none",
+            dependsOn: "合同审批", description: "跟踪交付节点，超期自动升级到责任人。",
+          },
+        ],
+        markdown: [
+          "# 工作流：供应链寻源比价",
+          "",
+          "## 触发条件",
+          "- 需求方提交物料规格、数量、交付窗口与预算约束。",
+          "",
+          "## 执行节点",
+          "1. 组织多家供应商询价并输出比价表。",
+          "2. 完成合同条款、金额与付款计划审批。",
+          "3. 跟踪交付节点并处理超期升级。",
+          "",
+          "## 完成条件",
+          "- 定标结论与审批记录可追溯。",
+          "- 交付节点全部确认完成。",
         ].join("\n"),
       },
     ];
@@ -3976,7 +4208,7 @@
         id: "TSK-1040", title: "顶层全局入口与 Session 入口布局评审", type: "评审", status: "progress",
         priority: "P2", workspace: "一切皆插件", receiverType: "human", receiver: "olivia",
         createdBy: "Olivia", createdAt: "2026-09-22 09:32", due: "2026-09-23",
-        description: "确认工作流、工作台和任务管理在顶层的表达，以及对话、轨迹留在当前 Session 区域的信息架构。全局能力默认使用当前项目，也可以切换为全部项目。",
+        description: "确认工作流、工作台和任务在顶层的表达，以及对话、轨迹留在当前 Session 区域的信息架构。全局能力默认使用当前项目，也可以切换为全部项目。",
         acceptance: ["全局能力与 Session 内容层级清晰", "右侧会议栏独立于 Session 维护选中态", "任务筛选和详情操作不被打断"],
         links: [{ type: "工作流", label: "分身到期通知处理", id: "WF-189" }],
         events: [
@@ -4290,10 +4522,15 @@
       aiTab: "runtime", aiSelectedId: "personal-research-avatar", aiEditing: false, isAdmin: true,
       aiRuntimeTab: "current", aiWorkPlanProject: "", aiWorkReportDateFrom: workReportDateValue(-6), aiWorkReportDateTo: workReportDateValue(), aiWorkReportSearch: "", aiWorkReportGenerating: false,
       projectSelectedId: "project-pluginmax", projectTab: "members", projectSearch: "", projectEditing: false,
+      projectMemberManageOpen: false, projectMemberEditingId: "", projectMemberAddMode: false,
       projectReportDateFrom: workReportDateValue(-6), projectReportDateTo: workReportDateValue(), projectReportSearch: "",
       profileOpen: false, profileSelectedId: "profile-backend-engineer", profileEditing: false, profileSearch: "",
       workflowTemplateOpen: false, workflowTemplateSelectedId: "workflow-template-employee-node",
       workflowTemplateEditing: false, workflowTemplateSearch: "", workflowTemplateWorkspace: "", workflowTemplateValidation: null,
+      workflowTemplateLevel: "",
+      accessSelectedId: "olivia", accessKind: "all", accessSearch: "", accessEditing: false,
+      projectTemplateOpen: false, projectTemplatePane: "templates", projectTemplateSelectedId: "tpl-plugin-dev",
+      projectTemplateRoleSelectedId: "role-owner", projectTemplateTab: "basics", projectTemplateSearch: "",
       meetingBriefEdit: null, meetingDispatchOpen: false,
       meetingPickerOpen: false, meetingSearch: "", meetingListFilter: "all", meetingListSearch: "", meetingEditing: false,
     };
@@ -4394,7 +4631,7 @@
       const workspaceLabel = $("#breadcrumbWorkspace");
       const sessionLabel = $("#breadcrumbSession");
       if (!workspaceLabel || !sessionLabel) return;
-      const pageLabels = { task: "任务管理", workflow: "工作流", projects: "项目管理", teammates: "AI Teammates", workbench: "工作台", settings: "设置", meetingList: "会议列表", meeting: "会议设置" };
+      const pageLabels = { task: "任务", workflow: "工作流", projects: "项目", access: "用户权限管理", teammates: "AI伙伴", workbench: "工作台", settings: "设置", meetingList: "会议列表", meeting: "会议设置" };
       if (sessionViewActive()) {
         const session = currentSession();
         workspaceLabel.textContent = session.workspace;
@@ -4402,7 +4639,7 @@
         return;
       }
       workspaceLabel.textContent = state.workspace || "全部项目";
-      sessionLabel.textContent = pageLabels[ui.globalView] ?? "任务管理";
+      sessionLabel.textContent = pageLabels[ui.globalView] ?? "任务";
     }
 
     function renderWorkspaceNav() {
@@ -4644,8 +4881,11 @@
       }
       const searchInput = $("#workflowTemplateSearch");
       if (searchInput && searchInput.value !== ui.workflowTemplateSearch) searchInput.value = ui.workflowTemplateSearch;
+      const levelSelect = $("#workflowTemplateLevel");
+      if (levelSelect && levelSelect.value !== ui.workflowTemplateLevel) levelSelect.value = ui.workflowTemplateLevel;
       const visibleTemplates = workflowTemplates.filter((template) =>
         (!ui.workflowTemplateWorkspace || template.workspace === ui.workflowTemplateWorkspace)
+        && (!ui.workflowTemplateLevel || (template.level || "平台级") === ui.workflowTemplateLevel)
         && workflowTemplateMatchesSearch(template)
       );
       if (!visibleTemplates.some((template) => template.id === ui.workflowTemplateSelectedId)) {
@@ -4658,7 +4898,7 @@
             <span class="profile-list-dot ${status.listEnabled ? "enabled" : ""}"></span>
             <span class="profile-list-copy">
               <strong>${escapeHtml(template.name)}</strong>
-              <small>${escapeHtml(template.code)} · ${escapeHtml(template.version)} · ${status.label}</small>
+              <small>${escapeHtml(template.level || "平台级")} · ${escapeHtml(template.code)} · ${status.label}</small>
             </span>
             <span class="column-count">${escapeHtml(template.workspace)}</span>
           </button>
@@ -4687,6 +4927,12 @@
             <label class="field"><span class="label">模版标识</span><input name="code" value="${escapeHtml(template.code)}" required></label>
             <label class="field"><span class="label">工作区</span>
               <select name="workspace">${workspaces.map((name) => `<option value="${escapeHtml(name)}" ${name === template.workspace ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}</select>
+            </label>
+            <label class="field"><span class="label">模版级别</span>
+              <select name="level">
+                <option value="平台级" ${(template.level || "平台级") === "平台级" ? "selected" : ""}>平台级（全平台可复用）</option>
+                <option value="项目级" ${template.level === "项目级" ? "selected" : ""}>项目级（仅所属项目可用）</option>
+              </select>
             </label>
             <label class="field"><span class="label">状态</span>
               <select name="status">
@@ -4737,7 +4983,7 @@
         <div class="history-head">
           <div>
             <h3 style="margin:0">${escapeHtml(template.name)}</h3>
-            <div class="ai-editor-meta">${escapeHtml(template.code)} · ${escapeHtml(template.workspace)} · ${escapeHtml(template.version)} · 更新 ${escapeHtml(template.updatedAt)}</div>
+            <div class="ai-editor-meta">${escapeHtml(template.level || "平台级")} · ${escapeHtml(template.code)} · ${escapeHtml(template.workspace)} · ${escapeHtml(template.version)} · 更新 ${escapeHtml(template.updatedAt)}</div>
           </div>
           <span class="ai-state ${status.className}">${status.label}</span>
         </div>
@@ -5528,7 +5774,7 @@
           <div class="ai-editor-head">
             ${renderTeammateAvatar(teammate, "ai-avatar")}
             <div class="ai-editor-head-main">
-              <h2>${teammate.state === "draft" ? "新建 AI Teammate" : `编辑 ${teammate.name}`}</h2>
+              <h2>${teammate.state === "draft" ? "新建 AI伙伴" : `编辑 ${teammate.name}`}</h2>
               <div class="ai-editor-meta">归属：${teammate.source === "platform" ? "平台" : teammate.owner} · ${teammate.version}</div>
             </div>
           </div>
@@ -5659,7 +5905,7 @@
           </div>
         </section>
         <section class="ai-template-block">
-          <div class="history-head"><h3>个性化补充</h3><span>仅当前 Teammate，不覆盖模板</span></div>
+          <div class="history-head"><h3>个性化补充</h3><span>仅当前 AI伙伴，不覆盖模板</span></div>
           <div class="ai-template-grid">
             <section class="ai-template-panel">
               <h4>个性化 SOUL 补充</h4>
@@ -5718,7 +5964,7 @@
       title = title.replace(/[,，、]\s*优先级[:：]?\s*P[0-3]/ig, "");
       title = title.replace(/\s*优先级[:：]?\s*P[0-3]/ig, "");
       if (title.length > 42) title = `${title.slice(0, 42)}...`;
-      return title || "新的 AI Teammate 工作计划";
+      return title || "新的 AI伙伴工作计划";
     }
 
     function addPlanBaseDays(days) {
@@ -5948,6 +6194,10 @@
       return managedProjects.find((project) => project.id === ui.projectSelectedId) || managedProjects[0] || null;
     }
 
+    function renderMetricFact(label, value, note) {
+      return `<div class="project-fact"><span>${label}</span><strong>${value}</strong>${note ? `<small>${escapeHtml(note)}</small>` : ""}</div>`;
+    }
+
     function projectTasks(project) {
       return tasks
         .filter((task) => task.workspace === project.name && !task.archived)
@@ -6013,8 +6263,12 @@
       return `
         <div class="history-head runtime-tab-head">
           <h3>成员权限</h3>
-          <span class="column-count">${project.members.length} 个成员</span>
+          <div class="head-actions">
+            <span class="column-count">${project.members.length} 个成员</span>
+            <button class="ghost small" type="button" data-project-member-manage-open>管理成员</button>
+          </div>
         </div>
+        <p class="settings-hint">平台角色是成员在平台内的默认权限角色（Owner / Admin、Member、Contributor、Guest、Readonly），由平台用户管理维护；项目角色只在项目内生效，决定任务指派与工作流流转。</p>
         <div class="project-table">
           ${project.members.map((member) => `
             <article class="project-member-row">
@@ -6022,13 +6276,18 @@
                 <span class="avatar ${member.kind}">${escapeHtml(initials(member.name))}</span>
                 <div class="project-member-copy">
                   <strong>${escapeHtml(member.name)}</strong>
-                  <small>${member.kind === "agent" ? "AI Teammate" : "Human Employee"}</small>
+                  <small>${member.kind === "agent" ? "AI伙伴" : "Human Employee"}</small>
                 </div>
               </div>
-              <span class="pill ${member.kind === "agent" ? "agent" : ""}">${escapeHtml(member.role)}</span>
-              <div class="project-permission"><span class="label">角色权限</span><strong>${escapeHtml(member.permission)}</strong></div>
+              <div class="project-roles">
+                <span class="label">项目角色</span>
+                <div class="project-role-chips">
+                  ${(member.projectRoles || []).map((roleId) => `<span class="project-role-chip ${member.kind === "agent" ? "agent" : ""}">${escapeHtml(projectRoleName(roleId))}</span>`).join("") || '<span class="project-role-chip empty">未分配</span>'}
+                </div>
+              </div>
+              <div class="project-permission"><span class="label">平台角色</span><strong>${escapeHtml(member.permission)}</strong></div>
               <div class="project-permission"><span class="label">授权范围</span><strong>${escapeHtml(member.scope)}</strong></div>
-              <div class="project-member-actions"><button class="ghost small" type="button" data-demo="管理成员 ${escapeHtml(member.name)}">管理</button></div>
+              <div class="project-member-actions"><button class="ghost small" type="button" data-project-member-edit="${escapeHtml(member.id)}">管理</button></div>
             </article>
           `).join("")}
         </div>
@@ -6145,6 +6404,7 @@
     function renderProjectDetail() {
       const project = selectedProject();
       if (!project) return '<div class="empty">还没有项目。</div>';
+      if (ui.projectMemberManageOpen) return renderProjectMemberManagement(project);
       const tabs = [
         { key: "members", label: "成员权限", count: project.members.length },
         { key: "tasks", label: "任务清单", count: projectTasks(project).length },
@@ -6153,7 +6413,6 @@
       ];
       const followed = followedProjectIds.has(project.id);
       const notes = project.notes || {};
-      const fact = (label, value, note) => `<div class="project-fact"><span>${label}</span><strong>${value}</strong>${note ? `<small>${escapeHtml(note)}</small>` : ""}</div>`;
       const tabContent = ui.projectTab === "members"
         ? renderProjectMembersTab(project)
         : ui.projectTab === "tasks"
@@ -6179,9 +6438,9 @@
           </div>
         </div>
         <div class="project-progress-summary">
-          ${fact("项目成员", `${project.members.filter((member) => member.kind === "human").length} Human · ${project.members.filter((member) => member.kind === "agent").length} AI`, notes.members)}
-          ${fact("活跃任务", `${projectTasks(project).length} 项`, notes.tasks)}
-          ${fact("关联工作流", `${projectWorkflows(project).length} 个`, notes.workflows)}
+          ${renderMetricFact("项目成员", `${project.members.filter((member) => member.kind === "human").length} Human · ${project.members.filter((member) => member.kind === "agent").length} AI`, notes.members)}
+          ${renderMetricFact("活跃任务", `${projectTasks(project).length} 项`, notes.tasks)}
+          ${renderMetricFact("关联工作流", `${projectWorkflows(project).length} 个`, notes.workflows)}
         </div>
         <div class="ai-runtime-tabs project-tabs" role="tablist" aria-label="项目详情内容">
           ${tabs.map((tab) => `<button class="ai-runtime-tab ${ui.projectTab === tab.key ? "active" : ""}" type="button" role="tab" aria-selected="${ui.projectTab === tab.key}" data-project-tab="${tab.key}">${tab.label} ${tab.count}</button>`).join("")}
@@ -6194,6 +6453,23 @@
       renderProjectList();
       const detail = $("#projectDetail");
       if (detail) detail.innerHTML = renderProjectDetail();
+      const layout = $("#projectLayout");
+      if (layout) layout.hidden = ui.projectTemplateOpen;
+      const inline = $("#projectTemplateView");
+      if (inline) inline.hidden = !ui.projectTemplateOpen;
+      const manageButton = $("#projectTemplateManageButton");
+      if (manageButton) {
+        manageButton.classList.toggle("active", ui.projectTemplateOpen);
+        manageButton.setAttribute("aria-pressed", String(ui.projectTemplateOpen));
+      }
+      document.querySelectorAll("#projectTemplatePaneTabs [data-project-template-pane]").forEach((tab) => {
+        const active = tab.dataset.projectTemplatePane === ui.projectTemplatePane;
+        tab.classList.toggle("active", active);
+        tab.setAttribute("aria-selected", String(active));
+      });
+      const createButton = $("#projectTemplateCreate");
+      if (createButton) createButton.hidden = ui.projectTemplatePane === "roles";
+      if (ui.projectTemplateOpen) renderProjectTemplates();
     }
 
     function generateProjectReport(project) {
@@ -6233,6 +6509,119 @@ ${project.name} 当前处于“${project.status}”状态，项目整体进度 $
       if (detail) detail.innerHTML = renderProjectDetail();
     }
 
+    function renderProjectMemberManagement(project) {
+      return `
+        <div class="project-detail-head">
+          <div class="project-detail-main">
+            <div class="project-title-line">
+              <h2>成员权限管理</h2>
+              <span class="pill">${escapeHtml(project.name)}</span>
+            </div>
+            <div class="project-detail-meta">
+              <span>${escapeHtml(project.code)}</span><span>·</span><span>${project.members.length} 个成员 / 实例</span>
+            </div>
+            <p class="project-detail-description">在该项目内增减成员，并维护成员的项目角色、平台角色与授权范围。</p>
+          </div>
+          <div class="head-actions">
+            <button class="ghost small" type="button" data-project-member-manage-close>返回项目详情</button>
+            <button class="primary small" type="button" data-project-member-add>添加成员</button>
+          </div>
+        </div>
+        <p class="settings-hint">平台角色是平台默认权限角色；项目角色只在本项目生效，用于任务指派与工作流流转。</p>
+        <div class="project-table">
+          ${project.members.length ? project.members.map((member) => `
+            <article class="project-member-row">
+              <div class="project-member-cell">
+                <span class="avatar ${member.kind}">${escapeHtml(initials(member.name))}</span>
+                <div class="project-member-copy">
+                  <strong>${escapeHtml(member.name)}</strong>
+                  <small>${member.kind === "agent" ? "AI伙伴" : "Human Employee"}</small>
+                </div>
+              </div>
+              <div class="project-roles">
+                <span class="label">项目角色</span>
+                <div class="project-role-chips">
+                  ${(member.projectRoles || []).map((roleId) => `<span class="project-role-chip ${member.kind === "agent" ? "agent" : ""}">${escapeHtml(projectRoleName(roleId))}</span>`).join("") || '<span class="project-role-chip empty">未分配</span>'}
+                </div>
+              </div>
+              <div class="project-permission"><span class="label">平台角色</span><strong>${escapeHtml(member.permission)}</strong></div>
+              <div class="project-permission"><span class="label">授权范围</span><strong>${escapeHtml(member.scope)}</strong></div>
+              <div class="project-member-actions">
+                <button class="ghost small" type="button" data-project-member-edit="${escapeHtml(member.id)}">变更</button>
+                <button class="ghost small" type="button" data-project-member-remove="${escapeHtml(member.id)}">移除</button>
+              </div>
+            </article>
+          `).join("") : '<div class="project-empty">当前项目还没有成员，先添加一位。</div>'}
+        </div>
+      `;
+    }
+
+    function renderProjectMemberForm(project, member, mode) {
+      const candidates = directoryUsers.filter((user) => !project.members.some((item) => item.id === user.id));
+      const selectedRoles = member?.projectRoles || [];
+      const platformRole = member ? member.permission : (accessUserById(candidates[0]?.id)?.platformRole || "Member");
+      return `
+        <form class="project-edit-grid" data-project-member-form>
+          ${mode === "add"
+            ? `<label class="field"><span class="label">成员</span>
+                 <select name="userId" required ${candidates.length ? "" : "disabled"}>${candidates.length
+                   ? candidates.map((user) => `<option value="${escapeHtml(user.id)}">${escapeHtml(user.name)} · ${user.kind === "agent" ? "AI伙伴" : "人员"}</option>`).join("")
+                   : '<option value="">没有可添加的平台用户</option>'}</select>
+                 <small class="settings-hint">只能从平台已有用户中选择，不能在这里新建或修改用户信息。</small>
+               </label>`
+            : `<div class="field"><span class="label">成员</span>
+                 <div class="field-static">${escapeHtml(member.name)} · ${member.kind === "agent" ? "AI伙伴" : "Human Employee"}</div>
+               </div>`}
+          <div class="field">
+            <span class="label">平台角色</span>
+            <div class="field-static" id="memberPlatformRoleStatic">${escapeHtml(platformRole)}</div>
+            <small class="settings-hint">平台角色属于平台级用户信息，由平台用户管理维护，项目内不可修改。</small>
+          </div>
+          <div class="field wide">
+            <span class="label">项目角色（可多选）</span>
+            <div class="access-role-options">
+              ${projectRoleLibrary.map((role) => `
+                <label class="access-role-option">
+                  <input type="checkbox" name="projectRole" value="${role.id}" ${selectedRoles.includes(role.id) ? "checked" : ""}>
+                  <span>${escapeHtml(role.name)}</span>
+                </label>
+              `).join("")}
+            </div>
+          </div>
+          <label class="field wide"><span class="label">授权范围</span>
+            <input name="scope" value="${escapeHtml(member?.scope ?? "任务、工作流")}" placeholder="例如：任务、工作流、文件读写">
+          </label>
+          <div class="footer wide">
+            ${mode === "edit" ? `<button class="ghost" type="button" data-project-member-remove="${escapeHtml(member.id)}">移除成员</button>` : ""}
+            <button class="ghost" type="button" data-project-member-cancel>取消</button>
+            <button class="primary" type="submit">${mode === "add" ? "添加成员" : "保存变更"}</button>
+          </div>
+        </form>
+      `;
+    }
+
+    function openProjectMemberModal(memberId) {
+      const project = selectedProject();
+      if (!project) return;
+      const member = memberId ? project.members.find((item) => item.id === memberId) : null;
+      const mode = member ? "edit" : "add";
+      const slot = $("#projectMemberFormSlot");
+      if (slot) slot.innerHTML = renderProjectMemberForm(project, member, mode);
+      ui.projectMemberEditingId = memberId || "";
+      ui.projectMemberAddMode = mode === "add";
+      const mask = $("#projectMemberMask");
+      if (mask) mask.classList.add("open");
+    }
+
+    function closeProjectMemberModal() {
+      ui.projectMemberEditingId = "";
+      ui.projectMemberAddMode = false;
+      const mask = $("#projectMemberMask");
+      if (mask) mask.classList.remove("open");
+      const slot = $("#projectMemberFormSlot");
+      if (slot) slot.innerHTML = "";
+    }
+
     function openProjectEditModal() {
       const project = selectedProject();
       if (!project) return;
@@ -6250,6 +6639,410 @@ ${project.name} 当前处于“${project.status}”状态，项目整体进度 $
       const mask = $("#projectEditMask");
       if (mask) mask.classList.remove("open");
       const slot = $("#projectEditFormSlot");
+      if (slot) slot.innerHTML = "";
+    }
+
+    // ---------- 项目模版维护 ----------
+    function projectTemplateById(id) {
+      return projectTemplates.find((template) => template.id === id) || null;
+    }
+
+    function projectRoleById(id) {
+      return projectRoleLibrary.find((role) => role.id === id) || null;
+    }
+
+    function templatesUsingProjectRole(roleId) {
+      return projectTemplates.filter((template) => template.roles.includes(roleId));
+    }
+
+    function selectedProjectRole() {
+      return projectRoleById(ui.projectTemplateRoleSelectedId) || projectRoleLibrary[0] || null;
+    }
+
+    function renderProjectTemplateList() {
+      const searchInput = $("#projectTemplateSearch");
+      if (searchInput && searchInput.value !== ui.projectTemplateSearch) searchInput.value = ui.projectTemplateSearch;
+      const list = $("#projectTemplateList");
+      if (!list) return;
+      const desc = $("#projectTemplateInlineDesc");
+      const keyword = ui.projectTemplateSearch.trim().toLowerCase();
+      if (ui.projectTemplatePane === "roles") {
+        if (desc) desc.textContent = "项目角色用于任务指派与工作流流转处理，可被项目模版引用，也可按项目单独授予成员。";
+        const visibleRoles = projectRoleLibrary.filter((role) =>
+          !keyword || `${role.name} ${role.code} ${role.category} ${role.desc}`.toLowerCase().includes(keyword)
+        );
+        if (!visibleRoles.some((role) => role.id === ui.projectTemplateRoleSelectedId)) {
+          ui.projectTemplateRoleSelectedId = visibleRoles[0]?.id ?? "";
+        }
+        list.innerHTML = visibleRoles.length ? visibleRoles.map((role) => `
+          <button class="profile-list-item ${role.id === ui.projectTemplateRoleSelectedId ? "active" : ""}" type="button" data-project-role-id="${role.id}">
+            <span class="profile-list-dot enabled"></span>
+            <span class="profile-list-copy">
+              <strong>${escapeHtml(role.name)}</strong>
+              <small>${escapeHtml(role.code)} · ${escapeHtml(role.category)}</small>
+            </span>
+            <span class="column-count">${templatesUsingProjectRole(role.id).length} 模版</span>
+          </button>
+        `).join("") : '<div class="empty compact">没有匹配的项目角色。</div>';
+        return;
+      }
+      if (desc) desc.textContent = "";
+      const visibleTemplates = projectTemplates.filter((template) =>
+        !keyword || `${template.name} ${template.code} ${template.type} ${template.description}`.toLowerCase().includes(keyword)
+      );
+      if (!visibleTemplates.some((template) => template.id === ui.projectTemplateSelectedId)) {
+        ui.projectTemplateSelectedId = visibleTemplates[0]?.id ?? "";
+      }
+      list.innerHTML = visibleTemplates.length ? visibleTemplates.map((template) => `
+        <button class="profile-list-item ${template.id === ui.projectTemplateSelectedId ? "active" : ""}" type="button" data-project-template-id="${template.id}">
+          <span class="profile-list-dot enabled"></span>
+          <span class="profile-list-copy">
+            <strong>${escapeHtml(template.name)}</strong>
+            <small>${escapeHtml(template.code)} · ${escapeHtml(template.type)}</small>
+          </span>
+          <span class="column-count">${template.roles.length} 角色</span>
+        </button>
+      `).join("") : '<div class="empty compact">没有匹配的项目模版。</div>';
+    }
+
+    function renderTemplateBasicsTab(template) {
+      return `
+        <div class="history-head runtime-tab-head">
+          <h3>基本信息</h3>
+          <span class="column-count">更新 ${escapeHtml(template.updatedAt)}</span>
+        </div>
+        <form class="project-edit-grid" data-project-template-form>
+          <label class="field"><span class="label">模版名称</span><input name="name" value="${escapeHtml(template.name)}" required></label>
+          <label class="field"><span class="label">模版标识</span><input name="code" value="${escapeHtml(template.code)}" required></label>
+          <label class="field"><span class="label">项目类型</span><input name="type" value="${escapeHtml(template.type)}" required></label>
+          <label class="field"><span class="label">状态</span>
+            <select name="status">${["启用", "停用"].map((status) => `<option value="${status}" ${status === template.status ? "selected" : ""}>${status}</option>`).join("")}</select>
+          </label>
+          <label class="field wide"><span class="label">模版说明</span><textarea name="description">${escapeHtml(template.description)}</textarea></label>
+          <div class="footer wide"><button class="primary" type="submit">保存模版</button></div>
+        </form>
+      `;
+    }
+
+    function renderTemplateRolesTab(template) {
+      const available = projectRoleLibrary.filter((role) => !template.roles.includes(role.id));
+      return `
+        <div class="history-head runtime-tab-head">
+          <h3>预定义项目角色</h3>
+          <span class="column-count">${template.roles.length} 个角色</span>
+        </div>
+        <p class="settings-hint">新建项目选择该模版时，会把这批项目角色写入项目角色清单，用于任务指派与工作流节点认领。</p>
+        <div class="template-row-list">
+          ${template.roles.length ? template.roles.map((roleId) => {
+            const role = projectRoleById(roleId);
+            return `
+              <div class="template-row">
+                <div class="project-member-copy">
+                  <strong>${escapeHtml(role?.name ?? roleId)}</strong>
+                  <small>${escapeHtml(role?.code ?? "")} · ${escapeHtml(role?.category ?? "")} · ${escapeHtml(role?.desc ?? "")}</small>
+                </div>
+                <button class="ghost small" type="button" data-template-role-remove="${roleId}">移除</button>
+              </div>
+            `;
+          }).join("") : '<div class="project-empty">尚未预定义项目角色。</div>'}
+        </div>
+        <div class="template-add-row">
+          <select id="templateRoleAddSelect" aria-label="选择要添加的项目角色" ${available.length ? "" : "disabled"}>
+            ${available.length ? available.map((role) => `<option value="${role.id}">${escapeHtml(role.name)} · ${escapeHtml(role.category)}</option>`).join("") : '<option value="">角色库已全部引用</option>'}
+          </select>
+          <button class="ghost small" type="button" data-template-role-add ${available.length ? "" : "disabled"}>添加角色</button>
+        </div>
+      `;
+    }
+
+    function renderTemplateWorkflowsTab(template) {
+      const selected = template.workflowTemplates.map(workflowTemplateById).filter(Boolean);
+      const available = workflowTemplates.filter((item) => !template.workflowTemplates.includes(item.id));
+      return `
+        <div class="history-head runtime-tab-head">
+          <h3>预定义工作流模版</h3>
+          <span class="column-count">${selected.length} 个模版</span>
+        </div>
+        <p class="settings-hint">这里只做引用：模版本体（节点、版本、级别）统一在「工作流 → 工作流模版管理」维护，项目页只负责挑选。</p>
+        <div class="template-row-list">
+          ${selected.length ? selected.map((item) => `
+            <div class="template-row">
+              <div class="project-member-copy">
+                <strong>${escapeHtml(item.name)}</strong>
+                <small>${escapeHtml(item.version)} · ${escapeHtml(item.workspace)} · ${escapeHtml(item.description)}</small>
+              </div>
+              <span class="pill ${item.level === "项目级" ? "review" : "progress"}">${escapeHtml(item.level || "平台级")}</span>
+              <button class="ghost small" type="button" data-template-workflow-remove="${item.id}">移除</button>
+            </div>
+          `).join("") : '<div class="project-empty">尚未引用工作流模版。</div>'}
+        </div>
+        <div class="template-add-row">
+          <select id="templateWorkflowAddSelect" aria-label="选择要引用的工作流模版" ${available.length ? "" : "disabled"}>
+            ${available.length ? available.map((item) => `<option value="${item.id}">${escapeHtml(item.level || "平台级")} · ${escapeHtml(item.name)}</option>`).join("") : '<option value="">没有可引用的模版</option>'}
+          </select>
+          <button class="ghost small" type="button" data-template-workflow-add ${available.length ? "" : "disabled"}>引用模版</button>
+          <button class="ghost small" type="button" data-template-open-workflow-library>去工作流模版管理</button>
+        </div>
+      `;
+    }
+
+    function renderProjectRoleDetail() {
+      const role = selectedProjectRole();
+      if (!role) return '<div class="empty">还没有项目角色。</div>';
+      const usedByTemplates = templatesUsingProjectRole(role.id);
+      const holders = directoryUsers.filter((user) =>
+        userProjectEntries(user).some((entry) => (entry.member.projectRoles || []).includes(role.id))
+      );
+      return `
+        <div class="project-detail-head">
+          <div class="project-detail-main">
+            <div class="project-title-line">
+              <h2>${escapeHtml(role.name)}</h2>
+              <span class="pill">${escapeHtml(role.category)}</span>
+            </div>
+            <div class="project-detail-meta">
+              <span>${escapeHtml(role.code)}</span><span>·</span><span>${usedByTemplates.length} 个模版引用</span><span>·</span><span>${holders.length} 位成员持有</span>
+            </div>
+            <p class="project-detail-description">${escapeHtml(role.desc)}</p>
+          </div>
+        </div>
+        <form class="project-edit-grid" data-project-role-form>
+          <label class="field"><span class="label">角色名称</span><input name="name" value="${escapeHtml(role.name)}" required></label>
+          <label class="field"><span class="label">角色标识</span><input name="code" value="${escapeHtml(role.code)}" required></label>
+          <label class="field"><span class="label">角色分类</span>
+            <select name="category">${["管理", "执行", "评审", "审批", "计划", "采购", "支持"].map((category) => `<option value="${category}" ${category === role.category ? "selected" : ""}>${category}</option>`).join("")}</select>
+          </label>
+          <label class="field"><span class="label">使用场景</span><input value="任务指派 · 工作流流转" disabled></label>
+          <label class="field wide"><span class="label">角色说明</span><textarea name="desc">${escapeHtml(role.desc)}</textarea></label>
+          <div class="footer wide"><button class="primary" type="submit">保存角色</button></div>
+        </form>
+        <div class="section">
+          <div class="history-head"><h3>引用该角色的项目模版</h3><span class="column-count">${usedByTemplates.length}</span></div>
+          <div class="template-row-list">
+            ${usedByTemplates.length ? usedByTemplates.map((template) => `
+              <div class="template-row">
+                <div class="project-member-copy">
+                  <strong>${escapeHtml(template.name)}</strong>
+                  <small>${escapeHtml(template.code)} · ${escapeHtml(template.type)}</small>
+                </div>
+                <span class="pill">模版</span>
+              </div>
+            `).join("") : '<div class="project-empty">暂无模版引用该角色。</div>'}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderProjectTemplateDetail() {
+      const detail = $("#projectTemplateDetail");
+      if (!detail) return;
+      if (ui.projectTemplatePane === "roles") {
+        detail.innerHTML = renderProjectRoleDetail();
+        return;
+      }
+      const template = projectTemplateById(ui.projectTemplateSelectedId);
+      if (!template) {
+        detail.innerHTML = '<div class="empty">没有可展示的项目模版。</div>';
+        return;
+      }
+      const tabs = [
+        { key: "basics", label: "基本信息", count: "" },
+        { key: "roles", label: "预定义项目角色", count: template.roles.length },
+        { key: "workflows", label: "预定义工作流模版", count: template.workflowTemplates.length },
+      ];
+      const tabContent = ui.projectTemplateTab === "roles"
+        ? renderTemplateRolesTab(template)
+        : ui.projectTemplateTab === "workflows"
+          ? renderTemplateWorkflowsTab(template)
+          : renderTemplateBasicsTab(template);
+      detail.innerHTML = `
+        <div class="project-detail-head">
+          <div class="project-detail-main">
+            <div class="project-title-line">
+              <h2>${escapeHtml(template.name)}</h2>
+              <span class="pill">${escapeHtml(template.type)}</span>
+              <span class="pill ${template.status === "启用" ? "done" : ""}">${escapeHtml(template.status)}</span>
+            </div>
+            <div class="project-detail-meta"><span>${escapeHtml(template.code)}</span><span>·</span><span>更新 ${escapeHtml(template.updatedAt)}</span></div>
+            <p class="project-detail-description">${escapeHtml(template.description)}</p>
+          </div>
+          <div class="head-actions"><button class="ghost small" type="button" data-demo="复制模版">复制</button></div>
+        </div>
+        <div class="ai-runtime-tabs project-tabs" role="tablist" aria-label="项目模版内容">
+          ${tabs.map((tab) => `<button class="ai-runtime-tab ${ui.projectTemplateTab === tab.key ? "active" : ""}" type="button" role="tab" aria-selected="${ui.projectTemplateTab === tab.key}" data-project-template-tab="${tab.key}">${tab.label}${tab.count === "" ? "" : ` ${tab.count}`}</button>`).join("")}
+        </div>
+        <div class="project-tab-body">${tabContent}</div>
+      `;
+    }
+
+    function renderProjectTemplates() {
+      renderProjectTemplateList();
+      renderProjectTemplateDetail();
+    }
+
+    // ---------- 用户权限管理 ----------
+    function accessUserById(id) {
+      return directoryUsers.find((user) => user.id === id) || null;
+    }
+
+    function userProjectEntries(user) {
+      return managedProjects
+        .map((project) => {
+          const member = project.members.find((item) => item.id === user.id);
+          return member ? { project, member } : null;
+        })
+        .filter(Boolean);
+    }
+
+    function selectedAccessUser() {
+      return accessUserById(ui.accessSelectedId) || directoryUsers[0] || null;
+    }
+
+    function renderAccessList() {
+      const searchInput = $("#accessSearch");
+      if (searchInput && searchInput.value !== ui.accessSearch) searchInput.value = ui.accessSearch;
+      const summary = $("#accessSummary");
+      if (summary) summary.textContent = `${directoryUsers.length} 个权限主体`;
+      const tabs = document.querySelectorAll("#accessKindTabs [data-access-kind]");
+      tabs.forEach((tab) => {
+        const active = tab.dataset.accessKind === ui.accessKind;
+        tab.classList.toggle("active", active);
+        tab.setAttribute("aria-selected", String(active));
+      });
+      const keyword = ui.accessSearch.trim().toLowerCase();
+      const visible = directoryUsers.filter((user) => {
+        if (ui.accessKind !== "all" && user.kind !== ui.accessKind) return false;
+        if (!keyword) return true;
+        const roles = userProjectEntries(user).flatMap((entry) => (entry.member.projectRoles || []).map(projectRoleName));
+        const haystack = [user.name, user.org, user.contact, ...user.platformRoles, ...roles].join(" ").toLowerCase();
+        return haystack.includes(keyword);
+      });
+      if (!visible.some((user) => user.id === ui.accessSelectedId)) ui.accessSelectedId = visible[0]?.id ?? "";
+      const list = $("#accessList");
+      if (!list) return;
+      list.innerHTML = visible.length ? visible.map((user) => `
+        <button class="project-list-item ${user.id === ui.accessSelectedId ? "active" : ""}" type="button" data-access-select="${user.id}">
+          <span class="access-list-avatar ${user.kind}">${escapeHtml(initials(user.name))}</span>
+          <span class="project-list-copy">
+            <strong>${escapeHtml(user.name)}</strong>
+            <small>${escapeHtml(user.platformRoles[0] || "未设置平台角色")} · ${userProjectEntries(user).length} 个项目</small>
+          </span>
+          <span class="pill ${user.kind === "agent" ? "agent" : ""}">${user.kind === "agent" ? "AI" : "人员"}</span>
+        </button>
+      `).join("") : '<div class="empty compact">没有匹配的权限主体。</div>';
+    }
+
+    function renderAccessDetail() {
+      const detail = $("#accessDetail");
+      if (!detail) return;
+      const user = selectedAccessUser();
+      if (!user) {
+        detail.innerHTML = '<div class="empty">没有可展示的权限主体。</div>';
+        return;
+      }
+      const entries = userProjectEntries(user);
+      const statusTone = user.status === "到期" || user.status === "停用" ? "high" : "done";
+      detail.innerHTML = `
+        <div class="project-detail-head">
+          <div class="project-detail-main">
+            <div class="project-title-line">
+              <h2>${escapeHtml(user.name)}</h2>
+              <span class="pill ${user.kind === "agent" ? "agent" : ""}">${user.kind === "agent" ? "AI伙伴" : "Human Employee"}</span>
+              <span class="pill ${statusTone}">${escapeHtml(user.status)}</span>
+            </div>
+            <div class="project-detail-meta">
+              <span>${escapeHtml(user.contact)}</span><span>·</span><span>${escapeHtml(user.org)}</span><span>·</span><span>最近活跃 ${escapeHtml(user.lastActive)}</span>
+            </div>
+          </div>
+          <div class="head-actions">
+            ${user.kind === "agent" ? '<button class="ghost small" type="button" data-access-open-teammate>查看实例</button>' : ""}
+            <button class="ghost small" type="button" data-access-edit aria-haspopup="dialog" aria-controls="accessEditMask">编辑权限</button>
+          </div>
+        </div>
+        <div class="project-progress-summary">
+          ${renderMetricFact("平台角色", user.platformRoles.length ? user.platformRoles.map(escapeHtml).join(" · ") : "未设置")}
+          ${renderMetricFact("数据权限范围", escapeHtml(user.dataScope))}
+          ${renderMetricFact("参与项目", `${entries.length} 个`)}
+        </div>
+        <div class="section">
+          <div class="history-head runtime-tab-head">
+            <h3>项目角色</h3>
+            <span class="column-count">${entries.length} 个项目</span>
+          </div>
+          <p class="settings-hint">项目角色只在所属项目内生效，用于任务指派与工作流节点认领；同一成员在不同项目可以拥有不同项目角色。</p>
+          <div class="project-table">
+            ${entries.length ? entries.map(({ project, member }) => `
+              <article class="project-member-row">
+                <div class="project-member-cell">
+                  <div class="project-member-copy">
+                    <strong>${escapeHtml(project.name)}</strong>
+                    <small>${escapeHtml(project.code)} · ${escapeHtml(project.status)}</small>
+                  </div>
+                </div>
+                <div class="project-roles">
+                  <span class="label">项目角色</span>
+                  <div class="project-role-chips">
+                    ${(member.projectRoles || []).map((roleId) => `<span class="project-role-chip ${user.kind === "agent" ? "agent" : ""}">${escapeHtml(projectRoleName(roleId))}</span>`).join("") || '<span class="project-role-chip empty">未分配</span>'}
+                  </div>
+                </div>
+                <div class="project-permission"><span class="label">项目内权限</span><strong>${escapeHtml(member.permission)}</strong></div>
+                <div class="project-permission"><span class="label">授权范围</span><strong>${escapeHtml(member.scope)}</strong></div>
+                <div class="project-member-actions"><button class="ghost small" type="button" data-access-open-project="${project.id}">管理</button></div>
+              </article>
+            `).join("") : '<div class="project-empty">该权限主体尚未加入任何项目。</div>'}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderAccess() {
+      renderAccessList();
+      renderAccessDetail();
+    }
+
+    function renderAccessEditForm(user) {
+      const statusOptions = user.kind === "agent" ? ["运行中", "空闲", "到期", "停用"] : ["在职", "停用"];
+      const scopeOptions = ["全部项目（管理员）", "所在项目", "被授权项目", "仅个人工作台"];
+      return `
+        <form class="project-edit-grid" data-access-edit-form>
+          <div class="field wide">
+            <span class="label">平台角色（可多选）</span>
+            <div class="access-role-options">
+              ${platformRoleLibrary.map((role) => `
+                <label class="access-role-option">
+                  <input type="checkbox" name="platformRole" value="${escapeHtml(role)}" ${user.platformRoles.includes(role) ? "checked" : ""}>
+                  <span>${escapeHtml(role)}</span>
+                </label>
+              `).join("")}
+            </div>
+          </div>
+          <label class="field"><span class="label">状态</span>
+            <select name="status">${statusOptions.map((status) => `<option value="${status}" ${status === user.status ? "selected" : ""}>${status}</option>`).join("")}</select>
+          </label>
+          <label class="field"><span class="label">数据权限范围</span>
+            <select name="dataScope">${scopeOptions.map((scope) => `<option value="${scope}" ${scope === user.dataScope ? "selected" : ""}>${scope}</option>`).join("")}</select>
+          </label>
+          <p class="settings-hint wide">项目角色不在这里维护：项目角色按项目授予，请在「项目 → 成员权限」中按项目调整，或通过项目模版批量预置。</p>
+          <div class="footer wide"><button class="ghost" type="button" data-access-edit-cancel>取消</button><button class="primary" type="submit">保存权限</button></div>
+        </form>
+      `;
+    }
+
+    function openAccessEditModal() {
+      const user = selectedAccessUser();
+      if (!user) return;
+      const slot = $("#accessEditFormSlot");
+      if (slot) slot.innerHTML = renderAccessEditForm(user);
+      ui.accessEditing = true;
+      const mask = $("#accessEditMask");
+      if (mask) mask.classList.add("open");
+    }
+
+    function closeAccessEditModal() {
+      ui.accessEditing = false;
+      const mask = $("#accessEditMask");
+      if (mask) mask.classList.remove("open");
+      const slot = $("#accessEditFormSlot");
       if (slot) slot.innerHTML = "";
     }
 
@@ -6438,7 +7231,7 @@ ${project.name} 当前处于“${project.status}”状态，项目整体进度 $
           </div>
         </div>
         ${teammate.state === "paused" ? '<div class="ai-notice"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 9v6M14 9v6"/><circle cx="12" cy="12" r="9"/></svg><span>该分身已暂停，当前不会接收新任务或继续自动跟进。</span></div>' : ""}
-        <div class="ai-runtime-tabs" role="tablist" aria-label="AI Teammate 运行态内容">
+        <div class="ai-runtime-tabs" role="tablist" aria-label="AI伙伴运行态内容">
           ${[
             { key: "current", label: "当前工作" },
             { key: "plan", label: "工作计划" },
@@ -6492,7 +7285,7 @@ ${project.name} 当前处于“${project.status}”状态，项目整体进度 $
       document.querySelectorAll("[data-ai-tab]").forEach((item) => item.classList.toggle("active", !profileMode && item.dataset.aiTab === ui.aiTab));
       $("#aiTeammateDetail").innerHTML = teammate
         ? (ui.aiTab === "runtime" ? renderAiRuntime(teammate) : renderAiDefinition(teammate))
-        : '<div class="empty">还没有 AI Teammate。</div>';
+        : '<div class="empty">还没有 AI伙伴。</div>';
       if (ui.profileOpen) renderProfileDrawer();
     }
 
@@ -7023,6 +7816,8 @@ ${project.name} 当前处于“${project.status}”状态，项目整体进度 $
       $("#workflowView").hidden = ui.globalView !== "workflow";
       $("#projectsView").hidden = ui.globalView !== "projects";
       if (ui.globalView !== "projects" && ui.projectEditing) closeProjectEditModal();
+      $("#accessView").hidden = ui.globalView !== "access";
+      if (ui.globalView !== "access" && ui.accessEditing) closeAccessEditModal();
       $("#aiTeammatesView").hidden = ui.globalView !== "teammates";
       $("#workbenchView").hidden = ui.globalView !== "workbench";
       $("#taskView").hidden = ui.globalView !== "task";
@@ -7040,6 +7835,7 @@ ${project.name} 当前处于“${project.status}”状态，项目整体进度 $
       renderTop();
       if (ui.globalView === "workflow") renderWorkflow();
       if (ui.globalView === "projects") renderProjects();
+      if (ui.globalView === "access") renderAccess();
       if (ui.globalView === "teammates") renderAiTeammates();
       if (ui.globalView === "workbench") renderWorkbench();
       if (ui.globalView === "meetingList") renderMeetingList();
@@ -7249,12 +8045,11 @@ ${project.name} 当前处于“${project.status}”状态，项目整体进度 $
         if (task.status === "review") actions.push(actionButton("通过", "approve"));
         if (task.status === "review") actions.push(actionButton("退回", "reject"));
         if (sentByMe && task.status !== "done" && task.receiverType !== "unassigned") actions.push(actionButton("催办", "nudge"));
-        if (task.receiverType === "agent" && task.status === "progress") actions.push(actionButton("人工回复", "manual-reply"));
       }
 
       $("#detailTop").innerHTML = `
         <button class="ghost small back-btn" data-action="back-to-board" type="button">${returnLabel}</button>
-        <div class="crumb">任务管理 / <b>${task.id} ${task.title}</b></div>
+        <div class="crumb">任务 / <b>${task.id} ${task.title}</b></div>
         <button class="follow-btn ${followedTaskIds.has(task.id) ? "active" : ""}" data-action="toggle-follow" type="button" aria-pressed="${followedTaskIds.has(task.id)}">${followedTaskIds.has(task.id) ? "已关注" : "关注"}</button>
         <span class="pill ${task.status}">${statusLabel[task.status]}</span>
       `;
@@ -7755,7 +8550,7 @@ ${project.name} 当前处于“${project.status}”状态，项目整体进度 $
       selectedTasks.forEach((task) => {
         task.receiverType = "agent";
         task.receiver = teammate.directoryId;
-        task.events.push({ time: "现在", text: `<b>Olivia</b> 从 AI Teammates 将任务安排给 <b>${teammate.name}</b>` });
+        task.events.push({ time: "现在", text: `<b>Olivia</b> 从 AI伙伴将任务安排给 <b>${teammate.name}</b>` });
         if (!teammate.taskIds.includes(task.id)) teammate.taskIds.unshift(task.id);
         teammate.activity.unshift(`现在 接收任务 ${task.id}`);
       });
@@ -7806,19 +8601,159 @@ ${project.name} 当前处于“${project.status}”状态，项目整体进度 $
         closeProjectEditModal();
         return;
       }
+      if (event.target.id === "projectMemberMask" || event.target.closest("[data-project-member-close]")) {
+        closeProjectMemberModal();
+        return;
+      }
+      if (event.target.closest("[data-project-member-manage-open]")) {
+        ui.projectMemberManageOpen = true;
+        renderProjectDetailOnly();
+        return;
+      }
+      if (event.target.closest("[data-project-member-manage-close]")) {
+        ui.projectMemberManageOpen = false;
+        closeProjectMemberModal();
+        renderProjectDetailOnly();
+        return;
+      }
+      if (event.target.closest("[data-project-member-add]")) {
+        openProjectMemberModal(null);
+        return;
+      }
+      const memberEditButton = event.target.closest("[data-project-member-edit]");
+      if (memberEditButton) {
+        openProjectMemberModal(memberEditButton.dataset.projectMemberEdit);
+        return;
+      }
+      if (event.target.closest("[data-project-member-cancel]")) {
+        closeProjectMemberModal();
+        return;
+      }
+      const memberRemoveButton = event.target.closest("[data-project-member-remove]");
+      if (memberRemoveButton) {
+        const project = selectedProject();
+        const memberId = memberRemoveButton.dataset.projectMemberRemove;
+        const member = project?.members.find((item) => item.id === memberId);
+        if (project && member) {
+          project.members = project.members.filter((item) => item.id !== memberId);
+          closeProjectMemberModal();
+          renderProjectDetailOnly();
+          toast(`已将 ${member.name} 移出 ${project.name}`);
+        }
+        return;
+      }
+      if (event.target.closest("#projectTemplateManageButton")) {
+        ui.projectTemplateOpen = !ui.projectTemplateOpen;
+        renderProjects();
+        return;
+      }
+      if (event.target.closest("#projectTemplateClose")) {
+        ui.projectTemplateOpen = false;
+        renderProjects();
+        return;
+      }
+      const templatePane = event.target.closest("[data-project-template-pane]");
+      if (templatePane) {
+        ui.projectTemplatePane = templatePane.dataset.projectTemplatePane;
+        renderProjects();
+        return;
+      }
+      const templateItem = event.target.closest("[data-project-template-id]");
+      if (templateItem) {
+        ui.projectTemplateSelectedId = templateItem.dataset.projectTemplateId;
+        ui.projectTemplateTab = "basics";
+        renderProjectTemplateList();
+        renderProjectTemplateDetail();
+        return;
+      }
+      const templateTab = event.target.closest("[data-project-template-tab]");
+      if (templateTab) {
+        ui.projectTemplateTab = templateTab.dataset.projectTemplateTab;
+        renderProjectTemplateDetail();
+        return;
+      }
+      const roleItem = event.target.closest("[data-project-role-id]");
+      if (roleItem) {
+        ui.projectTemplateRoleSelectedId = roleItem.dataset.projectRoleId;
+        renderProjectTemplateList();
+        renderProjectTemplateDetail();
+        return;
+      }
+      if (event.target.closest("#projectTemplateCreate")) {
+        const id = `tpl-custom-${Date.now()}`;
+        projectTemplates.unshift({
+          id, name: "未命名项目模版", code: "TPL-NEW", type: "通用类", status: "启用", updatedAt: "刚刚",
+          description: "待补充模版说明。", roles: [], workflowTemplates: [],
+        });
+        ui.projectTemplateSelectedId = id;
+        ui.projectTemplateTab = "basics";
+        renderProjectTemplates();
+        toast("已新建项目模版");
+        return;
+      }
+      if (event.target.closest("[data-template-role-add]")) {
+        const template = projectTemplateById(ui.projectTemplateSelectedId);
+        const select = $("#templateRoleAddSelect");
+        if (template && select?.value && !template.roles.includes(select.value)) {
+          template.roles.push(select.value);
+          renderProjectTemplates();
+          toast("已添加项目角色");
+        }
+        return;
+      }
+      const roleRemove = event.target.closest("[data-template-role-remove]");
+      if (roleRemove) {
+        const template = projectTemplateById(ui.projectTemplateSelectedId);
+        if (template) {
+          template.roles = template.roles.filter((id) => id !== roleRemove.dataset.templateRoleRemove);
+          renderProjectTemplates();
+          toast("已移除项目角色");
+        }
+        return;
+      }
+      if (event.target.closest("[data-template-workflow-add]")) {
+        const template = projectTemplateById(ui.projectTemplateSelectedId);
+        const select = $("#templateWorkflowAddSelect");
+        if (template && select?.value && !template.workflowTemplates.includes(select.value)) {
+          template.workflowTemplates.push(select.value);
+          renderProjectTemplates();
+          toast("已引用工作流模版");
+        }
+        return;
+      }
+      const workflowRemove = event.target.closest("[data-template-workflow-remove]");
+      if (workflowRemove) {
+        const template = projectTemplateById(ui.projectTemplateSelectedId);
+        if (template) {
+          template.workflowTemplates = template.workflowTemplates.filter((id) => id !== workflowRemove.dataset.templateWorkflowRemove);
+          renderProjectTemplates();
+          toast("已移除工作流模版");
+        }
+        return;
+      }
+      if (event.target.closest("[data-template-open-workflow-library]")) {
+        ui.globalView = "workflow";
+        ui.workflowTemplateOpen = true;
+        render();
+        return;
+      }
       const projectButton = event.target.closest("[data-project-select]");
       if (projectButton) {
         ui.projectSelectedId = projectButton.dataset.projectSelect;
         ui.projectTab = "members";
         ui.projectEditing = false;
+        ui.projectMemberManageOpen = false;
         closeProjectEditModal();
+        closeProjectMemberModal();
         renderProjects();
         return;
       }
       const projectTab = event.target.closest("[data-project-tab]");
       if (projectTab) {
         ui.projectTab = projectTab.dataset.projectTab;
+        ui.projectMemberManageOpen = false;
         closeProjectEditModal();
+        closeProjectMemberModal();
         renderProjectDetailOnly();
         return;
       }
@@ -7878,6 +8813,13 @@ ${project.name} 当前处于“${project.status}”状态，项目整体进度 $
       }
     });
     $("#projectsView").addEventListener("change", (event) => {
+      const memberUserSelect = event.target.closest('[data-project-member-form] select[name="userId"]');
+      if (memberUserSelect) {
+        const user = accessUserById(memberUserSelect.value);
+        const target = $("#memberPlatformRoleStatic");
+        if (target) target.textContent = user?.platformRole || "Member";
+        return;
+      }
       const dateFrom = event.target.closest("[data-project-report-date-from]");
       if (dateFrom) {
         ui.projectReportDateFrom = dateFrom.value;
@@ -7891,6 +8833,69 @@ ${project.name} 当前处于“${project.status}”状态，项目整体进度 $
       }
     });
     $("#projectsView").addEventListener("submit", (event) => {
+      const memberForm = event.target.closest("[data-project-member-form]");
+      if (memberForm) {
+        event.preventDefault();
+        const project = selectedProject();
+        if (!project) return;
+        const memberData = new FormData(memberForm);
+        const roles = memberData.getAll("projectRole").map((value) => String(value));
+        const scope = String(memberData.get("scope") || "").trim() || "任务、工作流";
+        if (ui.projectMemberAddMode) {
+          const userId = String(memberData.get("userId") || "");
+          const user = accessUserById(userId);
+          if (!user) {
+            closeProjectMemberModal();
+            return;
+          }
+          project.members.push({ id: user.id, name: user.name, kind: user.kind, permission: user.platformRole || "Member", projectRoles: roles, scope });
+          closeProjectMemberModal();
+          renderProjectDetailOnly();
+          toast(`已添加 ${user.name}`);
+          return;
+        }
+        const member = project.members.find((item) => item.id === ui.projectMemberEditingId);
+        if (!member) {
+          closeProjectMemberModal();
+          return;
+        }
+        member.projectRoles = roles;
+        member.scope = scope;
+        closeProjectMemberModal();
+        renderProjectDetailOnly();
+        toast(`已更新 ${member.name} 的权限`);
+        return;
+      }
+      const templateForm = event.target.closest("[data-project-template-form]");
+      if (templateForm) {
+        event.preventDefault();
+        const template = projectTemplateById(ui.projectTemplateSelectedId);
+        if (!template) return;
+        const templateData = new FormData(templateForm);
+        template.name = String(templateData.get("name") || template.name).trim();
+        template.code = String(templateData.get("code") || template.code).trim();
+        template.type = String(templateData.get("type") || template.type).trim();
+        template.status = String(templateData.get("status") || template.status);
+        template.description = String(templateData.get("description") || "").trim();
+        template.updatedAt = "刚刚";
+        renderProjectTemplates();
+        toast(`已保存项目模版 ${template.name}`);
+        return;
+      }
+      const roleForm = event.target.closest("[data-project-role-form]");
+      if (roleForm) {
+        event.preventDefault();
+        const role = selectedProjectRole();
+        if (!role) return;
+        const roleData = new FormData(roleForm);
+        role.name = String(roleData.get("name") || role.name).trim();
+        role.code = String(roleData.get("code") || role.code).trim();
+        role.category = String(roleData.get("category") || role.category);
+        role.desc = String(roleData.get("desc") || role.desc).trim();
+        renderProjectTemplates();
+        toast(`已保存项目角色 ${role.name}`);
+        return;
+      }
       const form = event.target.closest("[data-project-edit-form]");
       if (!form) return;
       event.preventDefault();
@@ -7909,6 +8914,10 @@ ${project.name} 当前处于“${project.status}”状态，项目整体进度 $
       toast(`已保存 ${project.name} 的基础信息`);
     });
     $("#projectsView").addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && $("#projectMemberMask.open")) {
+        closeProjectMemberModal();
+        return;
+      }
       if (event.key === "Escape" && ui.projectEditing) {
         closeProjectEditModal();
         return;
@@ -7919,6 +8928,69 @@ ${project.name} 当前处于“${project.status}”状态，项目整体进度 $
       event.preventDefault();
       if (item.dataset.projectOpenTask) openWorkbenchTask(item.dataset.projectOpenTask);
       else if (item.dataset.projectOpenWorkflow) openWorkbenchWorkflow(item.dataset.projectOpenWorkflow);
+    });
+    $("#accessView").addEventListener("click", (event) => {
+      if (event.target.id === "accessEditMask" || event.target.closest("[data-access-edit-close]")) {
+        closeAccessEditModal();
+        return;
+      }
+      const kindTab = event.target.closest("[data-access-kind]");
+      if (kindTab) {
+        ui.accessKind = kindTab.dataset.accessKind;
+        renderAccess();
+        return;
+      }
+      const userButton = event.target.closest("[data-access-select]");
+      if (userButton) {
+        ui.accessSelectedId = userButton.dataset.accessSelect;
+        renderAccess();
+        return;
+      }
+      if (event.target.closest("[data-access-edit-cancel]")) {
+        closeAccessEditModal();
+        return;
+      }
+      if (event.target.closest("[data-access-edit]")) {
+        openAccessEditModal();
+        return;
+      }
+      const projectButton = event.target.closest("[data-access-open-project]");
+      if (projectButton) {
+        ui.globalView = "projects";
+        ui.projectSelectedId = projectButton.dataset.accessOpenProject;
+        ui.projectTab = "members";
+        ui.projectTemplateOpen = false;
+        render();
+        return;
+      }
+      if (event.target.closest("[data-access-open-teammate]")) {
+        ui.globalView = "teammates";
+        ui.aiSelectedId = ui.accessSelectedId;
+        ui.aiTab = "runtime";
+        render();
+      }
+    });
+    $("#accessView").addEventListener("input", (event) => {
+      if (event.target.id !== "accessSearch") return;
+      ui.accessSearch = event.target.value;
+      renderAccess();
+    });
+    $("#accessView").addEventListener("submit", (event) => {
+      const form = event.target.closest("[data-access-edit-form]");
+      if (!form) return;
+      event.preventDefault();
+      const user = selectedAccessUser();
+      if (!user) return;
+      const data = new FormData(form);
+      user.platformRoles = data.getAll("platformRole").map((value) => String(value));
+      user.status = String(data.get("status") || user.status);
+      user.dataScope = String(data.get("dataScope") || user.dataScope);
+      closeAccessEditModal();
+      renderAccess();
+      toast(`已保存 ${user.name} 的权限`);
+    });
+    $("#accessView").addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && ui.accessEditing) closeAccessEditModal();
     });
     $("#workbenchView").addEventListener("click", (event) => {
       const modeButton = event.target.closest("[data-workbench-mode]");
@@ -8500,6 +9572,10 @@ ${project.name} 当前处于“${project.status}”状态，项目整体进度 $
       ui.workflowTemplateWorkspace = event.target.value;
       renderWorkflowTemplateManager();
     });
+    $("#workflowTemplateLevel").addEventListener("change", (event) => {
+      ui.workflowTemplateLevel = event.target.value;
+      renderWorkflowTemplateManager();
+    });
     $("#workflowTemplateRefresh").addEventListener("click", () => {
       renderWorkflowTemplateManager();
       toast("工作流模版已刷新");
@@ -8511,6 +9587,7 @@ ${project.name} 当前处于“${project.status}”状态，项目整体进度 $
         name: "未命名工作流模版",
         code: "custom-workflow",
         workspace: ui.workflowTemplateWorkspace || workspaces[0] || "",
+        level: ui.workflowTemplateLevel || "平台级",
         version: "v0.1",
         status: "disabled",
         updatedAt: "刚刚",
@@ -8645,6 +9722,7 @@ ${project.name} 当前处于“${project.status}”状态，项目整体进度 $
       template.name = String(data.get("name") ?? "").trim() || "未命名工作流模版";
       template.code = String(data.get("code") ?? "").trim() || "custom-workflow";
       template.workspace = String(data.get("workspace") ?? "");
+      template.level = String(data.get("level") ?? "平台级");
       template.status = String(data.get("status") ?? "disabled");
       template.description = String(data.get("description") ?? "").trim();
       template.nodes = readWorkflowNodesFromForm(form);
@@ -8892,11 +9970,6 @@ ${project.name} 当前处于“${project.status}”状态，项目整体进度 $
         renderDetail();
         return;
       }
-      if (action === "manual-reply") {
-        $("#instructionInput").focus();
-        toast("已切换为人工回复");
-        return;
-      }
       if (action === "claim") {
         task.receiverType = "human";
         task.receiver = "olivia";
@@ -9110,7 +10183,7 @@ ${project.name} 当前处于“${project.status}”状态，项目整体进度 $
         id,
         source: "personal",
         directoryId: "",
-        name: "未命名 AI Teammate",
+        name: "未命名 AI伙伴",
         avatar: avatarPresets[aiTeammates.length % avatarPresets.length].id,
         role: "待定义",
         owner: me,
@@ -9226,8 +10299,8 @@ ${project.name} 当前处于“${project.status}”状态，项目整体进度 $
           <ul class="ai-rule-list">${[...profile.scenarios, ...profile.goals].map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
         </section>
         <section class="profile-detail-section">
-          <div class="profile-preview-title">使用中的 Teammate · ${using.length}</div>
-          <div class="head-actions">${using.map((teammate) => `<span class="brief-chip">${escapeHtml(teammate.name)}</span>`).join("") || '<span class="settings-hint">暂无 Teammate 使用</span>'}</div>
+          <div class="profile-preview-title">使用中的 AI伙伴 · ${using.length}</div>
+          <div class="head-actions">${using.map((teammate) => `<span class="brief-chip">${escapeHtml(teammate.name)}</span>`).join("") || '<span class="settings-hint">暂无 AI伙伴使用</span>'}</div>
         </section>
       `;
     }
@@ -9260,7 +10333,7 @@ ${project.name} 当前处于“${project.status}”状态，项目整体进度 $
     function deleteProfileTemplate(profile) {
       const usage = profileUsageCount(profile.id);
       if (usage) {
-        toast(`仍有 ${usage} 个 Teammate 使用该模板，不能删除`);
+        toast(`仍有 ${usage} 个 AI伙伴使用该模板，不能删除`);
         return;
       }
       if (!window.confirm(`确认删除 Profile「${profile.name}」？`)) return;
@@ -9505,7 +10578,7 @@ ${project.name} 当前处于“${project.status}”状态，项目整体进度 $
         const teammate = aiTeammates.find((item) => item.id === ui.aiSelectedId);
         if (!teammate) return;
         if (teammate.state !== "active") {
-          toast("Teammate 已暂停，不能接收新的工作计划");
+          toast("AI伙伴已暂停，不能接收新的工作计划");
           return;
         }
         const data = new FormData(planForm);
@@ -9567,7 +10640,7 @@ ${project.name} 当前处于“${project.status}”状态，项目整体进度 $
       const ownerKind = teammate.state === "draft" ? String(data.get("ownerKind") ?? "personal") : teammate.source;
       const nextSource = ownerKind === "platform" ? "platform" : "personal";
       if (nextSource === "platform" && !window.confirm("这是平台归属定义。保存后将影响全平台该 DE 的所有实例行为。确认继续？")) return;
-      teammate.name = String(data.get("name") ?? "").trim() || "未命名 AI Teammate";
+      teammate.name = String(data.get("name") ?? "").trim() || "未命名 AI伙伴";
       teammate.avatar = String(data.get("avatarValue") || teammate.avatar || avatarPresets[0].id);
       teammate.role = String(data.get("role") ?? "").trim() || "待定义";
       teammate.profileId = String(data.get("profileId") ?? teammate.profileId ?? "");

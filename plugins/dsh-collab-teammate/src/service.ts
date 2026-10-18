@@ -169,10 +169,10 @@ const STATE_ORDER: Record<TeammateState, number> = {
   archived: 4,
 };
 
-const DEFAULT_NAME = "未命名 AI Teammate";
+const DEFAULT_NAME = "未命名 AI伙伴";
 const DEFAULT_ROLE = "待定义";
 const DEFAULT_SOUL =
-  "定义这名 AI Teammate 是谁、如何判断、遇到什么情况需要升级给本人。";
+  "定义这名 AI伙伴是谁、如何判断、遇到什么情况需要升级给本人。";
 
 function randomId(): string {
   return `tm-${randomUUID()}`;
@@ -232,7 +232,7 @@ export class TeammateTemplateService {
   private require(templateId: string): TeammateTemplate {
     const template = this.options.tables.templates.get(templateId);
     if (template === undefined) {
-      throw new TeammateError("not_found", "AI Teammate 模版不存在");
+      throw new TeammateError("not_found", "AI伙伴模版不存在");
     }
     return template;
   }
@@ -511,7 +511,7 @@ export class TeammateService {
   private requireTeammate(teammateId: string): Teammate {
     const teammate = this.options.tables.teammates.get(teammateId);
     if (teammate === undefined) {
-      throw new TeammateError("not_found", "AI Teammate 不存在");
+      throw new TeammateError("not_found", "AI伙伴不存在");
     }
     return teammate;
   }
@@ -566,7 +566,7 @@ export class TeammateService {
     if (conflict !== undefined) {
       throw new TeammateError(
         "conflict",
-        `同一 Agent 模版下已存在未归档 Teammate「${conflict.name}」，不能重名`,
+        `同一 Agent 模版下已存在未归档 AI伙伴「${conflict.name}」，不能重名`,
       );
     }
   }
@@ -819,7 +819,7 @@ export class TeammateService {
       const existing = this.options.tables.teammates.get(input.id);
       if (existing !== undefined) return existing;
       if (this.templates === undefined) {
-        throw new TeammateError("conflict", "AI Teammate 模版服务不可用");
+        throw new TeammateError("conflict", "AI伙伴模版服务不可用");
       }
       const template = await this.templates.findOrCreate(
         { userId: "system", name: "系统", role: "admin" },
@@ -862,23 +862,23 @@ export class TeammateService {
   create(actor: TeammateActor, input: CreateTeammateInput): Promise<Teammate> {
     return this.enqueue(async () => {
       if (actor.role === "guest") {
-        throw new TeammateError("forbidden", "访客不能创建 AI Teammate");
+        throw new TeammateError("forbidden", "访客不能创建 AI伙伴");
       }
       const templates = this.templates;
       if (templates === undefined) {
-        throw new TeammateError("conflict", "AI Teammate 模版服务不可用");
+        throw new TeammateError("conflict", "AI伙伴模版服务不可用");
       }
       let template: TeammateTemplate | undefined;
       if (input.templateId !== undefined) {
         template = templates.get(input.templateId);
         if (template === undefined) {
-          throw new TeammateError("not_found", "AI Teammate 模版不存在");
+          throw new TeammateError("not_found", "AI伙伴模版不存在");
         }
       } else if (input.profileTemplateId !== undefined) {
         // 历史 Profile 资产在启动迁移后已是平台 AI Teammate 模版，这里只按 id 引用。
         template = templates.get(input.profileTemplateId);
         if (template === undefined) {
-          throw new TeammateError("not_found", "AI Teammate 模版不存在");
+          throw new TeammateError("not_found", "AI伙伴模版不存在");
         }
       } else {
         const source = input.source ?? "personal";
@@ -890,7 +890,7 @@ export class TeammateService {
         });
       }
       if (template.state === "archived") {
-        throw new TeammateError("invalid_input", "归档的模版不能创建新 Teammate");
+        throw new TeammateError("invalid_input", "归档的模版不能创建新 AI伙伴");
       }
       if (
         template.source === "personal" &&
@@ -899,7 +899,7 @@ export class TeammateService {
       ) {
         throw new TeammateError(
           "forbidden",
-          "个人模版只有归属人可以用于创建 Teammate",
+          "个人模版只有归属人可以用于创建 AI伙伴",
         );
       }
       const timestamp = this.timestamp();
@@ -928,7 +928,7 @@ export class TeammateService {
         teammate,
         actor,
         "created",
-        `基于${template.source === "platform" ? "平台" : "个人"}模版「${template.name}」创建了 Teammate`,
+        `基于${template.source === "platform" ? "平台" : "个人"}模版「${template.name}」创建了 AI伙伴`,
       );
       return teammate;
     });
@@ -940,7 +940,7 @@ export class TeammateService {
   ): Promise<Teammate> {
     const template = this.templates?.get(input.templateId);
     if (template === undefined) {
-      throw new TeammateError("not_found", "AI Teammate 模版不存在");
+      throw new TeammateError("not_found", "AI伙伴模版不存在");
     }
     if (template.state === "archived") {
       throw new TeammateError("invalid_input", "归档的模版不可用");
@@ -957,7 +957,7 @@ export class TeammateService {
       if (!canManageInstance(current, actor)) {
         throw new TeammateError(
           "forbidden",
-          "只有 Teammate owner 或平台管理员可以切换模版",
+          "只有 AI伙伴负责人或平台管理员可以切换模版",
         );
       }
       const next = teammateSchema.parse({
@@ -970,7 +970,7 @@ export class TeammateService {
         next,
         actor,
         "updated",
-        `将 Teammate 切换到模版「${template.name}」`,
+        `将 AI伙伴切换到模版「${template.name}」`,
       );
       return next;
     });
@@ -991,7 +991,7 @@ export class TeammateService {
         if (template === undefined) {
           this.assertCanManageDefinition(current, actor);
           if (this.templates === undefined) {
-            throw new TeammateError("conflict", "AI Teammate 模版服务不可用");
+            throw new TeammateError("conflict", "AI伙伴模版服务不可用");
           }
           template = await this.templates.findOrCreate(actor, {
             source: input.source ?? current.source,
@@ -1017,7 +1017,7 @@ export class TeammateService {
             );
           }
           if (this.templates === undefined) {
-            throw new TeammateError("conflict", "AI Teammate 模版服务不可用");
+            throw new TeammateError("conflict", "AI伙伴模版服务不可用");
           }
           template = await this.templates.update(actor, {
             templateId: template.id,
@@ -1034,7 +1034,7 @@ export class TeammateService {
       if (!canManageInstance(current, actor)) {
         throw new TeammateError(
           "forbidden",
-          "只有 Teammate owner 或平台管理员可以维护 Teammate 资料",
+          "只有 AI伙伴负责人或平台管理员可以维护 AI伙伴资料",
         );
       }
       const teammate = teammateSchema.parse({
@@ -1056,10 +1056,10 @@ export class TeammateService {
         actor,
         "updated",
         wasDraft
-          ? "保存 Teammate 资料并发布"
+          ? "保存 AI伙伴资料并发布"
           : definitionTouched
-            ? "更新了 Teammate 资料和模版定义"
-            : "更新了 Teammate 资料",
+            ? "更新了 AI伙伴资料和模版定义"
+            : "更新了 AI伙伴资料",
       );
       return teammate;
     });
@@ -1079,12 +1079,12 @@ export class TeammateService {
       if (!canManageInstance(current, actor)) {
         throw new TeammateError(
           "forbidden",
-          "只有 Teammate owner 或平台管理员可以维护 Teammate 资料",
+          "只有 AI伙伴负责人或平台管理员可以维护 AI伙伴资料",
         );
       }
       const name = input.name.trim();
       if (name === "") {
-        throw new TeammateError("invalid_input", "Teammate 名称不能为空");
+        throw new TeammateError("invalid_input", "AI伙伴名称不能为空");
       }
       const description = input.description.trim();
       if (name === current.name && description === current.description) {
@@ -1105,8 +1105,8 @@ export class TeammateService {
         actor,
         "updated",
         name === current.name
-          ? "更新了 Teammate 描述"
-          : `将 Teammate 名称改为「${name}」`,
+          ? "更新了 AI伙伴描述"
+          : `将 AI伙伴名称改为「${name}」`,
       );
       return teammate;
     });
@@ -1125,7 +1125,7 @@ export class TeammateService {
       if (!canManageInstance(current, actor)) {
         throw new TeammateError(
           "forbidden",
-          "只有 Teammate owner 或平台管理员可以归档 Teammate",
+          "只有 AI伙伴负责人或平台管理员可以归档 AI伙伴",
         );
       }
       if (current.state === "archived") return current;
@@ -1135,7 +1135,7 @@ export class TeammateService {
         updatedAt: this.timestamp(),
       });
       await this.options.tables.teammates.put(teammate.id, teammate);
-      await this.record(teammate, actor, "archived", "归档了该 Teammate");
+      await this.record(teammate, actor, "archived", "归档了该 AI伙伴");
       return teammate;
     });
   }
@@ -1149,11 +1149,11 @@ export class TeammateService {
       if (!canManageInstance(current, actor)) {
         throw new TeammateError(
           "forbidden",
-          "只有 Teammate owner 或平台管理员可以变更 Teammate 状态",
+          "只有 AI伙伴负责人或平台管理员可以变更 AI伙伴状态",
         );
       }
       if (input.state === current.state) {
-        throw new TeammateError("conflict", "Teammate 已处于该状态");
+        throw new TeammateError("conflict", "AI伙伴已处于该状态");
       }
       if (!STATUS_TRANSITIONS[current.state].includes(input.state)) {
         throw new TeammateError(
@@ -1172,8 +1172,38 @@ export class TeammateService {
         actor,
         input.state === "archived" ? "archived" : "state",
         current.state === "archived" && input.state === "inactive"
-          ? "复原了该 Teammate"
+          ? "复原了该 AI伙伴"
           : `将实例设为「${STATE_LABELS[input.state]}」`,
+      );
+      return teammate;
+    });
+  }
+
+  bindPrincipal(
+    actor: TeammateActor,
+    teammateId: string,
+    principalId: string,
+  ): Promise<Teammate> {
+    return this.enqueue(async () => {
+      const current = this.requireTeammate(teammateId);
+      if (!canManageInstance(current, actor)) {
+        throw new TeammateError(
+          "forbidden",
+          "只有 AI伙伴负责人或平台管理员可以绑定 Principal",
+        );
+      }
+      if (current.principalId === principalId) return current;
+      const teammate = teammateSchema.parse({
+        ...current,
+        principalId,
+        updatedAt: this.timestamp(),
+      });
+      await this.options.tables.teammates.put(teammate.id, teammate);
+      await this.record(
+        teammate,
+        actor,
+        "updated",
+        `绑定 Principal 执行身份 ${current.name}（${principalId}）`,
       );
       return teammate;
     });
@@ -1190,7 +1220,7 @@ export class TeammateService {
       if (!canManageInstance(current, actor)) {
         throw new TeammateError(
           "forbidden",
-          "只有 Teammate owner 或平台管理员可以绑定执行身份",
+          "只有 AI伙伴负责人或平台管理员可以绑定执行身份",
         );
       }
       if (current.employeeId === employeeId) return current;
@@ -1233,7 +1263,7 @@ export class TeammateService {
       if (existing !== undefined) return existing;
       const name = this.deduplicatedImportName(input.name, input.personaId);
       if (this.templates === undefined) {
-        throw new TeammateError("conflict", "AI Teammate 模版服务不可用");
+        throw new TeammateError("conflict", "AI伙伴模版服务不可用");
       }
       const template = await this.templates.findOrCreate(
         { userId: "system", name: "系统", role: "admin" },
@@ -1278,7 +1308,7 @@ export class TeammateService {
         teammate,
         { userId: "system", name: "系统", role: "admin" },
         "created",
-        `从员工平台的数字员工 ${input.employeeId} 同步为平台归属定义`,
+        `从员工平台身份 ${input.employeeId} 同步为平台归属 AI伙伴`,
       );
       return teammate;
     });
@@ -1485,7 +1515,7 @@ export async function migrateTeammateTemplates(
         actorUserId: actor.userId,
         actorName: actor.name,
         kind: "updated",
-        message: "系统补齐了该 Teammate 的 Agent 模版引用",
+        message: "系统补齐了该 AI伙伴的 Agent 模版引用",
       });
       await options.events.put(event.id, event);
     }

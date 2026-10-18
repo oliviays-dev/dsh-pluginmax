@@ -1,5 +1,7 @@
 # 三层员工体系技术设计
 
+> 2026-10-17 方向调整：本文的 Employee 领域目标已暂停。平台目标模型改为 Principal + Account/Credential + AI Companion + Role Grant。现有 Employee 服务只用于兼容任务、工作流、会议、运行票据和历史审计，不再新增员工平台能力。新方案见 `docs/platform-principal-rbac-design.md`。
+
 ## 1. 目标
 
 本文定义 Pluginmax 的统一员工身份与委托执行模型，覆盖：
@@ -46,14 +48,14 @@ plugins/dsh-collab-employee/
 
 职责边界：
 
-| 插件 | 职责 |
-| --- | --- |
-| `dsh-collab-identity` | 真人认证、登录、旧用户和工作区成员兼容 |
+| 插件                  | 职责                                                   |
+| --------------------- | ------------------------------------------------------ |
+| `dsh-collab-identity` | 真人认证、登录、旧用户和工作区成员兼容                 |
 | `dsh-collab-employee` | 员工目录、员工生命周期、Delegation、Employee Principal |
-| `dsh-collab-roles` | Persona、工作区类型、席位；不再充当员工目录 |
-| `dsh-collab-meeting` | 会议、参与者、消息、Avatar 会话和报告 |
-| `dsh-collab-workflow` | 流程定义、实例、节点、审批和交付物门禁 |
-| `dsh-collab-agent` | Runtime Profile 兼容层、Task Worker runtime、Run 记录 |
+| `dsh-collab-roles`    | Persona、工作区类型、席位；不再充当员工目录            |
+| `dsh-collab-meeting`  | 会议、参与者、消息、Avatar 会话和报告                  |
+| `dsh-collab-workflow` | 流程定义、实例、节点、审批和交付物门禁                 |
+| `dsh-collab-agent`    | Runtime Profile 兼容层、Task Worker runtime、Run 记录  |
 
 ## 3. Principal 模型
 
@@ -62,10 +64,7 @@ plugins/dsh-collab-employee/
 ```ts
 export type EmployeeKind = "human" | "digital";
 
-export type PrincipalSource =
-  | "direct"
-  | "delegation"
-  | "runtime";
+export type PrincipalSource = "direct" | "delegation" | "runtime";
 
 export interface EmployeePrincipal {
   employeeId: string;
@@ -198,27 +197,31 @@ export const delegationSchema = z.object({
   watchItems: z.array(z.string().max(500)).max(50).default([]),
   materialScopes: z.array(z.string()).max(100).default([]),
   allowedActions: z
-    .array(z.enum([
-      "read_meeting",
-      "read_materials",
-      "speak",
-      "ask_question",
-      "record_risk",
-      "draft_summary",
-      "suggest_approval",
-      "submit_deliverable",
-      "approve",
-    ]))
+    .array(
+      z.enum([
+        "read_meeting",
+        "read_materials",
+        "speak",
+        "ask_question",
+        "record_risk",
+        "draft_summary",
+        "suggest_approval",
+        "submit_deliverable",
+        "approve",
+      ]),
+    )
     .default([]),
   deniedActions: z
-    .array(z.enum([
-      "read_materials",
-      "speak",
-      "ask_question",
-      "suggest_approval",
-      "submit_deliverable",
-      "approve",
-    ]))
+    .array(
+      z.enum([
+        "read_materials",
+        "speak",
+        "ask_question",
+        "suggest_approval",
+        "submit_deliverable",
+        "approve",
+      ]),
+    )
     .default([]),
   approvalPolicy: z.enum(["none", "suggest-only", "auto-within-rules"]),
   autoSpeak: z.enum(["all", "mentions", "manual"]),
@@ -287,11 +290,11 @@ export const delegationReportSchema = z.object({
 
 ### 5.1 权限来源
 
-| 主体 | 权限来源 |
-| --- | --- |
-| Human Employee | 登录身份 + 工作区角色 + 显式授权 |
+| 主体             | 权限来源                                        |
+| ---------------- | ----------------------------------------------- |
+| Human Employee   | 登录身份 + 工作区角色 + 显式授权                |
 | Digital Employee | 员工岗位授权 + 工作区角色 + Runtime Tool Policy |
-| Human Avatar | 主人有效权限 + Delegation Allow - Deny |
+| Human Avatar     | 主人有效权限 + Delegation Allow - Deny          |
 
 ### 5.2 Action Ticket
 
@@ -506,11 +509,11 @@ node ready
 
 审批者类型：
 
-| 类型 | 默认能力 |
-| --- | --- |
-| Human Employee | 可通过、否决、转交、加签 |
+| 类型             | 默认能力                               |
+| ---------------- | -------------------------------------- |
+| Human Employee   | 可通过、否决、转交、加签               |
 | Digital Employee | 可在规则内通过或否决，必须记录规则依据 |
-| Human Avatar | 默认只能建议，不能最终审批 |
+| Human Avatar     | 默认只能建议，不能最终审批             |
 
 管理员可以在工作流定义中显式允许 Digital Employee 审批，但系统仍要记录：
 
@@ -595,21 +598,21 @@ Avatar 不能直接持有 Bearer token，也不能直接调用普通浏览器 AP
 
 ### 员工
 
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| `GET` | `/api/collab/employee` | 查询员工目录 |
-| `GET` | `/api/collab/employee/me` | 查询当前登录账号映射的员工 |
-| `POST` | `/api/collab/employee/digital` | 创建 Digital Employee |
-| `GET` | `/api/collab/employee/detail` | 查看员工详情 |
-| `POST` | `/api/collab/employee/update` | 更新资料 |
-| `POST` | `/api/collab/employee/status` | 启用、暂停、归档 |
-| `GET` | `/api/collab/employee/roles` | 查询授权 |
-| `POST` | `/api/collab/employee/roles/assign` | 授权 |
-| `POST` | `/api/collab/employee/roles/revoke` | 回收授权 |
-| `GET` | `/api/collab/employee/runtime` | 查询 Runtime Profile |
-| `POST` | `/api/collab/employee/runtime/upsert` | 创建或更新 Runtime Profile |
-| `POST` | `/api/collab/employee/ticket` | 签发 Digital Employee Runtime Ticket |
-| `GET` | `/api/collab/employee/audit` | 查询员工审计 |
+| 方法   | 路径                                  | 说明                                 |
+| ------ | ------------------------------------- | ------------------------------------ |
+| `GET`  | `/api/collab/employee`                | 查询员工目录                         |
+| `GET`  | `/api/collab/employee/me`             | 查询当前登录账号映射的员工           |
+| `POST` | `/api/collab/employee/digital`        | 创建 Digital Employee                |
+| `GET`  | `/api/collab/employee/detail`         | 查看员工详情                         |
+| `POST` | `/api/collab/employee/update`         | 更新资料                             |
+| `POST` | `/api/collab/employee/status`         | 启用、暂停、归档                     |
+| `GET`  | `/api/collab/employee/roles`          | 查询授权                             |
+| `POST` | `/api/collab/employee/roles/assign`   | 授权                                 |
+| `POST` | `/api/collab/employee/roles/revoke`   | 回收授权                             |
+| `GET`  | `/api/collab/employee/runtime`        | 查询 Runtime Profile                 |
+| `POST` | `/api/collab/employee/runtime/upsert` | 创建或更新 Runtime Profile           |
+| `POST` | `/api/collab/employee/ticket`         | 签发 Digital Employee Runtime Ticket |
+| `GET`  | `/api/collab/employee/audit`          | 查询员工审计                         |
 
 安全规则：
 
@@ -620,27 +623,27 @@ Avatar 不能直接持有 Bearer token，也不能直接调用普通浏览器 AP
 
 ### Delegation
 
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| `GET` | `/api/collab/delegation` | 查询委托列表 |
-| `POST` | `/api/collab/delegation/create` | 创建 Human Avatar 委托 |
-| `GET` | `/api/collab/delegation/detail` | 查看委托详情 |
-| `POST` | `/api/collab/delegation/extend` | 延长有效期 |
-| `POST` | `/api/collab/delegation/status` | 统一处理暂停、恢复、召回和完成 |
-| `POST` | `/api/collab/delegation/ticket` | 签发委托上下文 Ticket |
-| `GET` | `/api/collab/delegation/report` | 查询报告 |
-| `POST` | `/api/collab/delegation/report/retry` | 重试报告 |
+| 方法   | 路径                                  | 说明                           |
+| ------ | ------------------------------------- | ------------------------------ |
+| `GET`  | `/api/collab/delegation`              | 查询委托列表                   |
+| `POST` | `/api/collab/delegation/create`       | 创建 Human Avatar 委托         |
+| `GET`  | `/api/collab/delegation/detail`       | 查看委托详情                   |
+| `POST` | `/api/collab/delegation/extend`       | 延长有效期                     |
+| `POST` | `/api/collab/delegation/status`       | 统一处理暂停、恢复、召回和完成 |
+| `POST` | `/api/collab/delegation/ticket`       | 签发委托上下文 Ticket          |
+| `GET`  | `/api/collab/delegation/report`       | 查询报告                       |
+| `POST` | `/api/collab/delegation/report/retry` | 重试报告                       |
 
 ### Runtime
 
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| `GET` | `/api/collab/employee/runtime` | 查询 Runtime Profile |
+| 方法   | 路径                                  | 说明                 |
+| ------ | ------------------------------------- | -------------------- |
+| `GET`  | `/api/collab/employee/runtime`        | 查询 Runtime Profile |
 | `POST` | `/api/collab/employee/runtime/upsert` | 保存 Runtime Profile |
-| `GET` | `/api/collab/employee/runs` | 查询运行记录 |
-| `POST` | `/api/collab/employee/runs/dispatch` | 派发任务 |
-| `POST` | `/api/collab/employee/runs/cancel` | 取消运行 |
-| `POST` | `/api/collab/employee/runs/retry` | 重试运行 |
+| `GET`  | `/api/collab/employee/runs`           | 查询运行记录         |
+| `POST` | `/api/collab/employee/runs/dispatch`  | 派发任务             |
+| `POST` | `/api/collab/employee/runs/cancel`    | 取消运行             |
+| `POST` | `/api/collab/employee/runs/retry`     | 重试运行             |
 
 ## 11. UI 设计
 
@@ -817,6 +820,7 @@ export const employeeDomainSpec = {
 7. 报告失败可重试。
 
 ### 工作流测试
+
 1. `employee:<id>` 正确解析；
 2. `agent:<id>` 兼容解析；
 3. disabled employee 不派发；
@@ -836,16 +840,16 @@ export const employeeDomainSpec = {
 
 ## 15. 实施顺序
 
-| 阶段 | 技术交付 | 主要验收 |
-| --- | --- | --- |
-| E0 | 现有 Phase X 收尾 | 输出契约、重试、check、commit |
-| E1 | Employee 目录和 ID 映射 | 真人账号映射、目录可见 |
-| E2 | Digital Employee 生命周期 | 创建、启停、归档、审计 |
-| E3 | Principal + Action Ticket | 权限计算和越权拒绝 |
-| E4 | Human Avatar / Delegation | 结构化委托、报告、召回 |
-| E5 | Workflow 收敛 | 员工执行者、旧语法兼容、审批 |
-| E6 | 治理中心 | 审计、预算、异常、权限矩阵 |
-| E7 | Workstation | 面板组合和权限一致 |
+| 阶段 | 技术交付                  | 主要验收                      |
+| ---- | ------------------------- | ----------------------------- |
+| E0   | 现有 Phase X 收尾         | 输出契约、重试、check、commit |
+| E1   | Employee 目录和 ID 映射   | 真人账号映射、目录可见        |
+| E2   | Digital Employee 生命周期 | 创建、启停、归档、审计        |
+| E3   | Principal + Action Ticket | 权限计算和越权拒绝            |
+| E4   | Human Avatar / Delegation | 结构化委托、报告、召回        |
+| E5   | Workflow 收敛             | 员工执行者、旧语法兼容、审批  |
+| E6   | 治理中心                  | 审计、预算、异常、权限矩阵    |
+| E7   | Workstation               | 面板组合和权限一致            |
 
 ## 16. 验收总标准
 

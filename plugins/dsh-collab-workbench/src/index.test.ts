@@ -611,6 +611,108 @@ describe("WorkbenchService", () => {
     expect(service.metricsModule(principal).data?.selected).toEqual(selected);
   });
 
+  it("brings a nudged task into the receiver's brief", async () => {
+    const tasks = [
+      {
+        id: "TSK-NUDGE",
+        workspaceId: "ws-1",
+        title: "等我这周给出报价",
+        type: "任务",
+        status: "todo" as const,
+        priority: "P3" as const,
+        receiverType: "human" as const,
+        receiverId: "olivia",
+        receiverName: "Olivia",
+        description: "",
+        acceptance: ["a"],
+        agentRunIds: [],
+        createdAt: nowIso,
+        updatedAt: "2026-10-09T01:30:00.000Z",
+        // 派出方刚催过：这条任务要出现在「被催办的人」的简报里。
+        events: [
+          {
+            id: "event-nudge",
+            at: "2026-10-09T01:30:00.000Z",
+            actorId: "admin",
+            actorName: "平台Admin",
+            kind: "nudge",
+            message: "平台Admin 发送了催办提醒",
+          },
+        ],
+      },
+    ];
+    const service = serviceWith({
+      tasks: () => ({
+        list: () => tasks,
+        get: (taskId: string) => {
+          const task = tasks.find((item) => item.id === taskId);
+          if (task === undefined) throw new Error("not found");
+          return task;
+        },
+      }),
+    });
+    const module = await service.briefModule(principal, { tzOffsetMinutes });
+    const item = (module.data?.views.unread ?? []).find(
+      (candidate) => candidate.itemId === "B:task:TSK-NUDGE",
+    );
+    expect(item, "被催办的任务应出现在被催办人的简报里").toBeDefined();
+    expect(item?.reason ?? "").toContain("催办");
+    expect(item?.escalateReason ?? "").toContain("催办");
+    // 标签要一眼看出是催办，而不是笼统的「待决策」。
+    expect(item?.tag).toBe("nudge");
+    expect(item?.section).toBe("escalation");
+  });
+
+  it("keeps the 待决策 tag when an overdue task was also nudged", async () => {
+    const tasks = [
+      {
+        id: "TSK-NUDGE-OVERDUE",
+        workspaceId: "ws-1",
+        title: "已经逾期的报价",
+        type: "任务",
+        status: "todo" as const,
+        priority: "P2" as const,
+        receiverType: "human" as const,
+        receiverId: "olivia",
+        receiverName: "Olivia",
+        description: "",
+        acceptance: ["a"],
+        agentRunIds: [],
+        due: "2026-10-01",
+        createdAt: nowIso,
+        updatedAt: "2026-10-09T01:30:00.000Z",
+        events: [
+          {
+            id: "event-nudge",
+            at: "2026-10-09T01:30:00.000Z",
+            actorId: "admin",
+            actorName: "平台Admin",
+            kind: "nudge",
+            message: "平台Admin 发送了催办提醒",
+          },
+        ],
+      },
+    ];
+    const service = serviceWith({
+      tasks: () => ({
+        list: () => tasks,
+        get: (taskId: string) => {
+          const task = tasks.find((item) => item.id === taskId);
+          if (task === undefined) throw new Error("not found");
+          return task;
+        },
+      }),
+    });
+    const module = await service.briefModule(principal, { tzOffsetMinutes });
+    const item = (module.data?.views.unread ?? []).find(
+      (candidate) => candidate.itemId === "B:task:TSK-NUDGE-OVERDUE",
+    );
+    expect(item).toBeDefined();
+    // 逾期规则先命中：标签仍是「待决策」，只有纯催办才换「被催办」。
+    expect(item?.tag).toBe("decision");
+    expect(item?.escalateReason ?? "").toContain("已逾期");
+  });
+
   it("merges a night conclusion when a reviewed deliverable came from an authorized run", async () => {
     const runs = [
       {

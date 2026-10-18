@@ -1,6 +1,10 @@
 # 企业员工平台 GUI 测试方案（E0-E7）
 
+> 2026-10-17 方向调整：员工平台已暂停建设。本文仅保留迁移期兼容与历史回归价值。目标产品不再提供企业员工目录，平台设置收敛为账号与权限；AI 由 AI 伙伴管理，未来 HRM 通过 Principal 映射接入。新方案见 `docs/platform-principal-rbac-design.md`。
+
 本文是三层员工体系的独立 GUI 回归方案，不覆盖既有阶段性测试文档。它覆盖 E0-E7 已交付能力和当前明确预留的能力：
+
+> Phase 1 入口更新：平台设置只保留「身份与权限」一级入口，企业员工是默认页签；账号、角色和审计分别作为子页签。旧的独立「数字员工 / 分身委托 / 治理中心」设置视图已隐藏，相关能力通过企业员工详情、AI 伙伴、会议或审计入口验证。
 
 1. E0：过渡 Task Worker 输出契约、交付物门禁和修复重试；
 2. E1：Human Employee 目录映射和稳定 Employee ID；
@@ -87,11 +91,11 @@ cd /Users/oliviayang/Codex/一切皆插件/dsh-pluginmax
 
 Pluginmax 登录 token 保存在同一浏览器 Profile 的 `localStorage` 中。多账号测试不能只靠同一 Profile 的多个普通标签页。
 
-| Profile | 账号 | 全局角色 | 工作区角色 | 用途 |
-| --- | --- | --- | --- | --- |
-| Profile A | `flow-owner` | admin | owner | 管理员、创建数字员工、发起工作流、治理验证 |
-| Profile B | `workflow-member` | member | member | 普通成员、审批人、责任人、执行确认 |
-| Profile C | `workflow-viewer` | guest | guest | 只读和权限边界验证 |
+| Profile   | 账号              | 全局角色 | 工作区角色 | 用途                                       |
+| --------- | ----------------- | -------- | ---------- | ------------------------------------------ |
+| Profile A | `flow-owner`      | admin    | owner      | 管理员、创建数字员工、发起工作流、治理验证 |
+| Profile B | `workflow-member` | member   | member     | 普通成员、审批人、责任人、执行确认         |
+| Profile C | `workflow-viewer` | guest    | guest      | 只读和权限边界验证                         |
 
 Chrome 建立独立 Profile 的操作：
 
@@ -117,7 +121,7 @@ Safari 可改用三个不同浏览器 Profile/隔离窗口方案；若无法隔�
    ```
 
 4. 等待该工作区在左侧列表和中间工作区上下文中加载完成，确认不是「暂无可用工作区」。
-5. 打开 Settings >「协作身份」。
+5. 打开 Settings >「身份与权限」>「登录账号」。
 6. 如果出现首次初始化表单，填写：
    1. 用户 ID：`flow-owner`
    2. 显示名称：`Workflow Owner`
@@ -136,7 +140,7 @@ Safari 可改用三个不同浏览器 Profile/隔离窗口方案；若无法隔�
 1. Profile A 当前身份显示为 `Workflow Owner`。
 2. 用户列表包含三个账号。
 3. 工作区成员列表包含 owner、member、guest 三类账号。
-4. Settings >「员工」>「目录」自动出现 `Workflow Owner`，主体类型为「真人员工」，状态为「启用」。
+4. Settings >「身份与权限」>「企业员工」>「目录」自动出现 `Workflow Owner`，主体类型为「真人员工」，状态为「启用」。
 5. 添加工作区前，「工作区成员」不显示可复制的 `main` 假详情；添加后才能复制真实工作区 ID。
 6. 浏览器 Console 没有未捕获异常。
 
@@ -177,7 +181,7 @@ Safari 可改用三个不同浏览器 Profile/隔离窗口方案；若无法隔�
 #### F1.2 普通成员边界
 
 1. Profile B 登录 `workflow-member`。
-2. 打开 Settings >「员工」。
+2. 打开 Settings >「身份与权限」>「企业员工」。
 3. 检查「数字员工」「治理中心」，并打开设置左侧的「审计」入口。
 
 预计输出：
@@ -189,7 +193,7 @@ Safari 可改用三个不同浏览器 Profile/隔离窗口方案；若无法隔�
 #### F1.3 访客边界
 
 1. Profile C 登录 `workflow-viewer`。
-2. 打开 Settings >「员工」。
+2. 打开 Settings >「身份与权限」>「企业员工」。
 3. 打开中间主操作区「工作台」。
 
 预计输出：
@@ -202,7 +206,7 @@ Safari 可改用三个不同浏览器 Profile/隔离窗口方案；若无法隔�
 
 #### F2.1 自动映射
 
-1. Profile A 打开 Settings >「员工」>「目录」。
+1. Profile A 打开 Settings >「身份与权限」>「企业员工」>「目录」。
 2. 找到 `Workflow Owner`。
 3. 点击「详情」。
 4. 记录 Employee ID。
@@ -253,13 +257,13 @@ Digital Employee 的 Runtime Profile 必须映射到一个 Task Worker Profile �
 
 #### F3.2 创建数字员工草稿
 
-1. Profile A 打开 Settings >「员工」>「数字员工」。
+1. Profile A 打开 Settings >「身份与权限」>「企业员工」>「数字员工」。
 2. 在「创建数字员工」填写：
    1. Employee ID：`backend-01`
    2. 姓名：`Backend Engineer 01`
    3. 岗位：`Backend Engineer`
    4. 部门：`Platform Engineering`
-   5. Persona ID：从下拉框选择已存在的 `backend-soul`；如果下拉框为空，点击「新增 Persona」在 Settings >「角色」创建，回到本页后点击「刷新 Persona」。
+   5. Persona ID：从下拉框选择已存在的 `backend-soul`；如果下拉框为空，点击「新增 Persona」在 Settings >「身份与权限」>「角色」创建，回到本页后点击「刷新 Persona」。
    6. 负责人：`Workflow Owner`
    7. 邮箱：`backend-01@example.com`
    8. 标签：`backend,workflow`
@@ -272,9 +276,9 @@ Digital Employee 的 Runtime Profile 必须映射到一个 Task Worker Profile �
 2. 目录出现 `Backend Engineer 01`，状态「草稿」。
 3. 页面说明 Persona 只约束行为，不授予权限。
 4. 该员工没有登录密码字段。
-5. 没有任何 Persona 时，「创建草稿」不可用，并提示先在 Settings >「角色」创建。
+5. 没有任何 Persona 时，「创建草稿」不可用，并提示先在 Settings >「身份与权限」>「角色」创建。
 
-`backend-soul` Persona 创建资料（Settings >「角色」>「人设」）：
+`backend-soul` Persona 创建资料（Settings >「身份与权限」>「角色」>「人设」）：
 
 - 标识：`backend-soul`
 - 名称：`Backend Engineer Soul`
@@ -302,7 +306,7 @@ Digital Employee 的 Runtime Profile 必须映射到一个 Task Worker Profile �
 
 #### F3.3 Persona 引用与软依赖
 
-1. 打开 Settings >「角色」确认 `backend-soul` 存在。
+1. 打开 Settings >「身份与权限」>「角色」确认 `backend-soul` 存在。
 2. 打开 `Backend Engineer 01` 详情，确认 Persona 显示为 `backend-soul`。
 3. 在编辑表单中打开 Persona ID 下拉框，确认只能选择现有 Persona；若历史数据引用了不存在的 Persona，该项显示「未找到 / 待配置」且不会被静默改掉。
 4. 保存资料后刷新详情，确认 Persona 引用保持不变。
@@ -351,7 +355,7 @@ Digital Employee 的 Runtime Profile 必须映射到一个 Task Worker Profile �
 
 步骤：
 
-1. Profile A 打开 Settings >「员工」>「数字员工」，按「所需材料」创建 `archive-01` 草稿，回到目录点击「启用」。
+1. Profile A 打开 Settings >「身份与权限」>「企业员工」>「数字员工」，按「所需材料」创建 `archive-01` 草稿，回到目录点击「启用」。
 2. 打开 `archive-01` 详情，按最小授权数据和 Runtime Profile 数据分别完成「新增工作区授权」和「新增 Runtime Profile」。
 3. 归档前先准备引用它的流程：打开 Settings >「工作流」，把 `docs/fixtures/workflow/employee-node.md` 内容复制到临时文件，把 `executor: employee:backend-01` 改为 `executor: employee:archive-01`，使用不同的 key 和 version 导入成功。
 4. 回到目录，点击 `archive-01` 的「归档」。
@@ -430,7 +434,7 @@ Digital Employee 的 Runtime Profile 必须映射到一个 Task Worker Profile �
 
 步骤：
 
-1. Profile A 打开 Settings >「员工」>「数字员工」，按「所需材料」创建 `no-runtime-01` 草稿，回到目录点击「启用」。
+1. Profile A 打开 Settings >「身份与权限」>「企业员工」>「数字员工」，按「所需材料」创建 `no-runtime-01` 草稿，回到目录点击「启用」。
 2. 打开 `no-runtime-01` 详情，仅完成「新增工作区授权」；不创建 Runtime Profile。
 3. 打开 Settings >「工作流」，在「导入 Markdown 模板」选择 `docs/fixtures/workflow/no-runtime-node.md`，点击「校验」，再尝试「保存新版本」。
 4. 观察校验与导入结果。
@@ -481,7 +485,7 @@ Digital Employee 的 Runtime Profile 必须映射到一个 Task Worker Profile �
 
 步骤：
 
-1. Profile A 打开 Settings >「员工」>「目录」。
+1. Profile A 打开 Settings >「身份与权限」>「企业员工」>「目录」。
 2. 找到 `Backend Engineer 01`，点击「详情」。
 3. 展开「新增 Runtime Profile」，创建一个专用 deny Profile：
    1. 配置名：`backend-deny-write-runtime`
@@ -502,11 +506,11 @@ Digital Employee 的 Runtime Profile 必须映射到一个 Task Worker Profile �
    4. 若没有可复用实例：点击「模板管理」，把 `docs/fixtures/workflow/employee-node-manual.md` 的全部内容粘贴到「导入 Markdown 模板」，依次点击「校验」和「保存新版本」；关闭模板管理后，回到「工作流」页签。
    5. 在顶部「选择流程模板」中选择 `Digital Employee 手动派发 v1`，在实例标题框输入 `F4.5 deny runtime`，点击「启动」。
    6. 在实例列表搜索 `F4.5 deny runtime`，点击标题卡片展开；确认实例下「开发」节点执行者为 `数字员工 · backend-01`，状态为「就绪」。
-7. 单独确认 `backend-01` 已启用：Profile A 打开 Settings >「员工」>「目录」，找到 `Backend Engineer 01`；如果状态不是「启用」，点击「启用」。返回「工作流」页签并刷新。
+7. 单独确认 `backend-01` 已启用：Profile A 打开 Settings >「身份与权限」>「企业员工」>「目录」，找到 `Backend Engineer 01`；如果状态不是「启用」，点击「启用」。返回「工作流」页签并刷新。
 8. 在展开的开发节点中，由节点责任人 Profile B 或 Profile A 点击「派发」。
 9. 等待 Agent 运行结束。若 Agent 因输出格式重试失败，先修复模板输入或重新派发，直到出现一次成功运行；不要把输出格式失败误判为本用例结果。
 10. 观察开发节点状态、交付物、Agent 运行记录和节点事件。
-11. 验证恢复路径时，回到 Settings >「员工」>「数字员工 / 真人员工」，进入 `Backend Engineer 01` 详情。
+11. 验证恢复路径时，回到 Settings >「身份与权限」>「企业员工」>「数字员工 / 真人员工」，进入 `Backend Engineer 01` 详情。
 12. 展开「新增 Runtime Profile」，创建一个恢复用 active Profile：
     1. 配置名：`backend-allow-write-runtime`
     2. 工作区：同一个 `<WS_ID>`
@@ -519,7 +523,7 @@ Digital Employee 的 Runtime Profile 必须映射到一个 Task Worker Profile �
     9. 映射 Task Worker Profile：`backend-agent`
 13. 点击「保存 Runtime」，等待表单收起并显示成功提示；确认 `backend-allow-write-runtime` 为启用，`backend-deny-write-runtime` 已自动停用。
 14. 回到主操作区「工作流」页签，刷新后在 `F4.5 deny runtime` 实例的开发节点运行记录中点击「重试」。
-15. 打开 Settings >「员工」>「治理中心」和 Settings >「审计」，按 `backend-01`、`write` 或失败 / 拒绝过滤。
+15. 打开 Settings >「身份与权限」>「企业员工」>「治理中心」和 Settings >「审计」，按 `backend-01`、`write` 或失败 / 拒绝过滤。
 
 预计输出：
 
@@ -551,12 +555,12 @@ Digital Employee 的 Runtime Profile 必须映射到一个 Task Worker Profile �
 
 1. 参与者列表出现分身，显示为主人名下的分身，并带「AI 分身」标识。
 2. 分身发言有 AI 标识，与真人消息可区分。
-3. Settings >「员工」>「分身委托」自动新增一条 active 委托。
+3. Settings >「身份与权限」>「企业员工」>「分身委托」自动新增一条 active 委托。
 4. 委托详情显示主人、上下文、目标、授权 / 禁止、发言 / 审批策略和到期时间。
 
 #### F5.2 分身不进入员工目录
 
-1. 打开 Settings >「员工」>「目录」。
+1. 打开 Settings >「身份与权限」>「企业员工」>「目录」。
 2. 搜索分身显示名。
 3. 打开「数字员工」tab。
 4. 回到「分身委托」。
@@ -605,7 +609,7 @@ Digital Employee 的 Runtime Profile 必须映射到一个 Task Worker Profile �
 
 1. 使用 F5.1 的会议。
 2. 让分身退出会议，或关闭会议。
-3. 打开 Settings >「员工」>「分身委托」。
+3. 打开 Settings >「身份与权限」>「企业员工」>「分身委托」。
 4. 展开对应委托的分身报告。
 5. 打开「治理中心」>「分身报告中心」。
 6. 打开中间主操作区「工作台」>「分身报告」。
@@ -856,7 +860,7 @@ Digital Employee 的 Runtime Profile 必须映射到一个 Task Worker Profile �
 #### F9.1 治理指标
 
 1. Profile A 执行完 F3-F7 的一组操作。
-2. 打开 Settings >「员工」>「治理中心」。
+2. 打开 Settings >「身份与权限」>「企业员工」>「治理中心」。
 3. 检查指标：员工、授权记录、运行票据、分身委托。
 4. 选择全部工作区和全部员工。
 
@@ -1083,7 +1087,7 @@ Digital Employee 的 Runtime Profile 必须映射到一个 Task Worker Profile �
 
 #### F11.1 桌面 / 窄屏 / 移动
 
-1. 在 1280px 宽度检查 Settings >「员工」、工作流和工作台。
+1. 在 1280px 宽度检查 Settings >「身份与权限」>「企业员工」、工作流和工作台。
 2. 缩小到 900px。
 3. 缩小到 390px。
 4. 打开目录、Runtime 表单、工作流启动表单、工作台六面板。
@@ -1152,7 +1156,7 @@ Digital Employee 的 Runtime Profile 必须映射到一个 Task Worker Profile �
 
 步骤：
 
-1. Profile A 打开 Settings >「员工」>「数字员工」。
+1. Profile A 打开 Settings >「身份与权限」>「企业员工」>「数字员工」。
 2. 创建 `backend-01 / Backend Engineer 01 / Backend Engineer / Platform Engineering`，Persona ID 可用有效值或软依赖测试值，负责人为 `Workflow Owner`。
 3. 点击「创建草稿」。
 4. 打开详情，确认无密码登录。
@@ -1191,7 +1195,7 @@ Digital Employee 的 Runtime Profile 必须映射到一个 Task Worker Profile �
 5. 发送群发消息：`请关注交付物门禁和审批边界。`
 6. @该分身发送：`请记录你的观点和风险。`
 7. 等待分身按策略响应。
-8. Profile A 打开 Settings >「员工」>「分身委托」。
+8. Profile A 打开 Settings >「身份与权限」>「企业员工」>「分身委托」。
 9. 检查委托目标、授权 / 禁止、发言 / 审批策略。
 10. 点击「暂停」，回会议确认不再响应。
 11. 恢复委托。
@@ -1285,7 +1289,7 @@ Digital Employee 的 Runtime Profile 必须映射到一个 Task Worker Profile �
 步骤：
 
 1. 完成至少一次 Digital Employee 派发、一次 Human Avatar 会议、一次拒绝操作。
-2. Profile A 打开 Settings >「员工」>「治理中心」。
+2. Profile A 打开 Settings >「身份与权限」>「企业员工」>「治理中心」。
 3. 按工作区 `<WS_ID>` 过滤。
 4. 按员工 `backend-01` 过滤，记录活动。
 5. 按员工 `restricted-01` 过滤，记录拒绝。
@@ -1309,18 +1313,18 @@ Digital Employee 的 Runtime Profile 必须映射到一个 Task Worker Profile �
 
 以下文件位于 `docs/fixtures/workflow/`：
 
-| 文件 | 用途 |
-| --- | --- |
-| `agent-node.md` | 旧 `agent:<profileId>` 自动派发和交付物门禁 |
-| `agent-manual.md` | 手动派发 Task Worker |
-| `agent-node-timeout.md` | 超时 / 失败 / 人工兜底 |
-| `employee-node.md` | `employee:<employeeId>` 正式数字员工执行 |
-| `employee-node-manual.md` | 数字员工手动派发和生命周期拒绝边界 |
-| `product-delivery-v2.md` | 常规业务流程回归 |
-| `controlled-loop.md` | 循环 break 逻辑 |
-| `invalid-cycle.md` | 死循环必须被拒绝 |
-| `parent-child.md` | 父子流程 |
-| `sub-process.md` | 子流程 |
+| 文件                      | 用途                                        |
+| ------------------------- | ------------------------------------------- |
+| `agent-node.md`           | 旧 `agent:<profileId>` 自动派发和交付物门禁 |
+| `agent-manual.md`         | 手动派发 Task Worker                        |
+| `agent-node-timeout.md`   | 超时 / 失败 / 人工兜底                      |
+| `employee-node.md`        | `employee:<employeeId>` 正式数字员工执行    |
+| `employee-node-manual.md` | 数字员工手动派发和生命周期拒绝边界          |
+| `product-delivery-v2.md`  | 常规业务流程回归                            |
+| `controlled-loop.md`      | 循环 break 逻辑                             |
+| `invalid-cycle.md`        | 死循环必须被拒绝                            |
+| `parent-child.md`         | 父子流程                                    |
+| `sub-process.md`          | 子流程                                      |
 
 导入失败用例可复制后修改，不要直接改 fixtures：
 
@@ -1331,27 +1335,27 @@ Digital Employee 的 Runtime Profile 必须映射到一个 Task Worker Profile �
 
 ### 5.2 员工与授权数据
 
-| 对象 | 最小数据 |
-| --- | --- |
-| Task Worker Profile | `backend-agent` / `后端开发 Agent` / `task-worker` |
-| Digital Employee | `backend-01` / `Backend Engineer 01` / `Backend Engineer` / `Platform Engineering` |
-| 授权 | `<WS_ID>` / `member` / `read, write` |
-| Runtime | `backend-runtime` / `spawn` / `50` 轮 / `30` 分钟 / 映射 `backend-agent` |
-| Deny Runtime | `backend-deny-write-runtime` / `spawn` / allowed `write` / denied `write` / 映射 `backend-agent` |
-| 受限员工 | `restricted-01`，无授权或仅 `viewer / read` |
-| 归档员工 | `archive-01`，用于派发拒绝 |
+| 对象                | 最小数据                                                                                         |
+| ------------------- | ------------------------------------------------------------------------------------------------ |
+| Task Worker Profile | `backend-agent` / `后端开发 Agent` / `task-worker`                                               |
+| Digital Employee    | `backend-01` / `Backend Engineer 01` / `Backend Engineer` / `Platform Engineering`               |
+| 授权                | `<WS_ID>` / `member` / `read, write`                                                             |
+| Runtime             | `backend-runtime` / `spawn` / `50` 轮 / `30` 分钟 / 映射 `backend-agent`                         |
+| Deny Runtime        | `backend-deny-write-runtime` / `spawn` / allowed `write` / denied `write` / 映射 `backend-agent` |
+| 受限员工            | `restricted-01`，无授权或仅 `viewer / read`                                                      |
+| 归档员工            | `archive-01`，用于派发拒绝                                                                       |
 
 ### 5.3 分身委托数据
 
-| 字段 | 建议值 |
-| --- | --- |
-| 显示名 | `Workflow Owner 的评审分身` |
-| 上下文 | J2 会议 ID |
-| 目标 | `跟踪回归风险并输出客观报告` |
-| 允许 | 阅读会议、阅读资料、草拟报告、提问 / 记录风险 |
-| 禁止 | 最终审批、代表主人同意结论 |
+| 字段     | 建议值                                           |
+| -------- | ------------------------------------------------ |
+| 显示名   | `Workflow Owner 的评审分身`                      |
+| 上下文   | J2 会议 ID                                       |
+| 目标     | `跟踪回归风险并输出客观报告`                     |
+| 允许     | 阅读会议、阅读资料、草拟报告、提问 / 记录风险    |
+| 禁止     | 最终审批、代表主人同意结论                       |
 | 审批策略 | `suggest-only` 或当前实现的 never / 建议型等价值 |
-| 到期 | 测试结束后 15-30 分钟 |
+| 到期     | 测试结束后 15-30 分钟                            |
 
 ### 5.4 交付物文本
 

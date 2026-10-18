@@ -190,6 +190,8 @@ ${SCOPE_BUTTON_STYLES}
 .pmwb-tag.decision{color:var(--dsw-alias-accent-primary,#4f8ef7);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 14%,transparent);}
       /* 「待我验收」沿用任务管理页待验收的琥珀色，语义与右侧「前往验收」按钮一致。 */
       .pmwb-tag.review{color:var(--dsw-alias-state-warning-primary,#d29922);background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d29922) 16%,transparent);}
+      /* 「被催办」：有人等我交付，用警示色区分于普通「待决策」。 */
+      .pmwb-tag.nudge{color:var(--dsw-alias-state-error-primary,#e5534b);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 14%,transparent);}
 .pmwb-brief-actions{display:grid;gap:6px;width:84px;justify-items:stretch;}
 .pmwb-brief-actions .pmwb-btn{width:100%;justify-content:center;}
 .pmwb-decision{margin-top:7px;padding:8px 10px;border-left:2px solid var(--dsw-alias-accent-primary,#4f8ef7);border-radius:0 6px 6px 0;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 9%,transparent);font-size:11.5px;line-height:1.6;color:var(--dsw-alias-label-secondary);}
@@ -294,11 +296,17 @@ ${SCOPE_BUTTON_STYLES}
         payload = null;
       }
       if (!response.ok) {
-        const message =
-          payload?.error?.message ??
-          (response.status === 401
-            ? "请先登录协作账号"
-            : `HTTP ${response.status}`);
+        const rawMessage = payload?.error?.message;
+        const unauthorized =
+          response.status === 401 &&
+          (rawMessage === "invalid or expired token" ||
+            rawMessage === "bearer token is required");
+        const message = unauthorized
+          ? "登录状态已失效，请重新登录。"
+          : (rawMessage ??
+            (response.status === 401
+              ? "请先登录协作账号"
+              : `HTTP ${response.status}`));
         const error = new Error(message);
         error.status = response.status;
         throw error;
@@ -348,6 +356,7 @@ ${SCOPE_BUTTON_STYLES}
           conclusion: "结论",
           decision: "待决策",
           review: "待我验收",
+          nudge: "被催办",
         }[tag] ?? tag
       );
     }
@@ -1151,7 +1160,9 @@ ${SCOPE_BUTTON_STYLES}
             index += 1;
           }
           index += 1;
-          blocks.push(h("pre", { key: `code-${blocks.length}` }, code.join("\n")));
+          blocks.push(
+            h("pre", { key: `code-${blocks.length}` }, code.join("\n")),
+          );
           continue;
         }
         const heading = line.match(/^(#{1,6})\s+(.*)$/);
@@ -1314,7 +1325,13 @@ ${SCOPE_BUTTON_STYLES}
             ...paragraph.flatMap((part, partIndex) =>
               partIndex === 0
                 ? briefInlineNodes(part, `p-${blocks.length}`)
-                : [" ", ...briefInlineNodes(part, `p-${blocks.length}-${partIndex}`)],
+                : [
+                    " ",
+                    ...briefInlineNodes(
+                      part,
+                      `p-${blocks.length}-${partIndex}`,
+                    ),
+                  ],
             ),
           ),
         );
@@ -1482,8 +1499,8 @@ ${SCOPE_BUTTON_STYLES}
           {
             className: "pmwb-avatar-ring",
             role: "img",
-            title: `${name}（AI Teammate）`,
-            "aria-label": `${name}（AI Teammate）`,
+            title: `${name}（AI伙伴）`,
+            "aria-label": `${name}（AI伙伴）`,
           },
           h("span", { className: "pmwb-avatar agent" }, label),
         );
@@ -1606,10 +1623,9 @@ ${SCOPE_BUTTON_STYLES}
             h("span", { className: "pmwb-owner-name" }, item.receiverName),
           )
         : null;
-      const focusStatusText = [
-        item.statusLabel,
-        item.currentNodeLabel,
-      ].filter(Boolean).join(" · ");
+      const focusStatusText = [item.statusLabel, item.currentNodeLabel]
+        .filter(Boolean)
+        .join(" · ");
       const focusStatusTone = recordStatusClass(item.status);
       return h(
         "article",
@@ -1781,11 +1797,7 @@ ${SCOPE_BUTTON_STYLES}
                 className: `pmwb-item-sub${item.summaryText ? "" : " placeholder"}`,
               },
               item.minutesPending
-                ? h(
-                    "span",
-                    { className: "pmwb-minutes-badge" },
-                    "待确认",
-                  )
+                ? h("span", { className: "pmwb-minutes-badge" }, "待确认")
                 : item.minutesSource === "confirmed"
                   ? h(
                       "span",
@@ -2402,6 +2414,12 @@ ${SCOPE_BUTTON_STYLES}
       }, []);
 
       react.useEffect(() => {
+        const synchronizeFollows = () => {
+          followStore.loaded = false;
+          void followStore
+            .ensure()
+            .then(() => refreshModule("focus", { silent: true }));
+        };
         const onTokenChange = () => {
           followStore.loaded = false;
           followStore.commit(new Map());
@@ -2411,9 +2429,14 @@ ${SCOPE_BUTTON_STYLES}
           const message = event?.detail?.message;
           if (typeof message === "string" && message !== "") showToast(message);
         };
+        window.addEventListener("pluginmax:follow-change", synchronizeFollows);
         window.addEventListener("pluginmax:collab-token", onTokenChange);
         window.addEventListener("pluginmax:workbench-toast", onToast);
         return () => {
+          window.removeEventListener(
+            "pluginmax:follow-change",
+            synchronizeFollows,
+          );
           window.removeEventListener("pluginmax:collab-token", onTokenChange);
           window.removeEventListener("pluginmax:workbench-toast", onToast);
         };
@@ -3210,7 +3233,11 @@ ${SCOPE_BUTTON_STYLES}
                 h(
                   "ol",
                   { className: "pmwb-rule-list" },
-                  h("li", null, "只汇总所选时间窗口内与你相关的任务、工作流和 Agent 运行。"),
+                  h(
+                    "li",
+                    null,
+                    "只汇总所选时间窗口内与你相关的任务、工作流和 Agent 运行。",
+                  ),
                   h("li", null, "默认从上次离开时间开始，最多回看 24 小时。"),
                   h(
                     "li",
@@ -3498,203 +3525,14 @@ ${SCOPE_BUTTON_STYLES}
       );
     }
 
-    const PROJECT_STYLES = `
-.pmprj{display:grid;gap:12px;color:var(--dsw-alias-label-primary);}
-.pmprj *{box-sizing:border-box;}
-${SCOPE_BUTTON_STYLES}
-.pmprj-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}
-.pmprj-head h1{margin:0;font-size:19px;line-height:1.3;}
-.pmprj-head p{margin:4px 0 0;color:var(--dsw-alias-label-secondary);font-size:12px;}
-.pmprj-list{display:grid;gap:8px;}
-.pmprj-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
-.pmprj-row.followed{border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 42%,transparent);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 6%,var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base)));}
-.pmprj-main{min-width:0;display:grid;gap:6px;}
-.pmprj-name{font-size:14px;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.pmprj-meta{display:flex;gap:6px;flex-wrap:wrap;color:var(--dsw-alias-label-secondary);font-size:11px;}
-.pmprj-pill{border-radius:999px;padding:2px 8px;background:var(--dsw-alias-bg-layer-2);}
-.pmprj-actions{display:flex;align-items:center;gap:7px;}
-.pmprj-empty{padding:34px 16px;border:0.5px dashed var(--dsw-alias-border-l3);border-radius:8px;color:var(--dsw-alias-label-tertiary);font-size:12.5px;text-align:center;}
-`;
-
-    function ProjectsPage() {
-      const [phase, setPhase] = react.useState("loading");
-      const [items, setItems] = react.useState([]);
-      const [error, setError] = react.useState("");
-      /** 方案 B：项目页与工作台卡片共用"全量项目"开关。 */
-      const [currentRole, setCurrentRole] = react.useState(null);
-      const scopeAll = react.useSyncExternalStore(
-        scopeStore.subscribe.bind(scopeStore),
-        scopeStore.getSnapshot.bind(scopeStore),
-        scopeStore.getSnapshot.bind(scopeStore),
-      );
-      const snapshot = react.useSyncExternalStore(
-        followStore.subscribe.bind(followStore),
-        followStore.getSnapshot.bind(followStore),
-        followStore.getSnapshot.bind(followStore),
-      );
-      const load = react.useCallback(async () => {
-        try {
-          const result = await request(
-            `/api/collab/workbench/projects${scopeStore.leading()}`,
-          );
-          setItems(Array.isArray(result?.projects) ? result.projects : []);
-          setError("");
-          setPhase("ready");
-        } catch (cause) {
-          setError(cause?.message ?? "项目加载失败");
-          setPhase("error");
-        }
-      }, []);
-      react.useEffect(() => {
-        void followStore.ensure();
-        void load();
-      }, [load]);
-      react.useEffect(() => {
-        let disposed = false;
-        void request("/api/collab/auth/me")
-          .then((result) => {
-            if (!disposed) setCurrentRole(result?.user?.role ?? null);
-          })
-          .catch(() => undefined);
-        return () => {
-          disposed = true;
-        };
-      }, []);
-      const scopeFirst = react.useRef(true);
-      react.useEffect(() => {
-        if (scopeFirst.current) {
-          scopeFirst.current = false;
-          return;
-        }
-        void load();
-      }, [scopeAll, load]);
-      const followedCount = items.filter((item) =>
-        snapshot.items.has(`project:${item.id}`),
-      ).length;
-      return h(
-        "section",
-        { className: "pmprj" },
-        h("style", null, PROJECT_STYLES),
-        h(
-          "header",
-          { className: "pmprj-head" },
-          h(
-            "div",
-            null,
-            h("h1", null, "项目"),
-            h(
-              "p",
-              null,
-              phase === "ready"
-                ? `共 ${items.length} 个项目 · 已关注 ${followedCount} 个`
-                : "关注项目后，项目下的工作流、任务与会议都会进入工作台聚合视图。",
-            ),
-          ),
-          h(
-            "div",
-            { className: "pmprj-actions" },
-            currentRole === "admin"
-              ? h(
-                  "div",
-                  {
-                    className: "pmwb-scope-seg",
-                    role: "group",
-                    "aria-label": "项目范围",
-                  },
-                  h(
-                    "button",
-                    {
-                      type: "button",
-                      className: scopeAll ? "" : "active",
-                      "aria-pressed": !scopeAll,
-                      title: "只看我已加入的项目（默认视图）",
-                      onClick: () => scopeStore.set(false),
-                    },
-                    "仅看已加入",
-                  ),
-                  h(
-                    "button",
-                    {
-                      type: "button",
-                      className: scopeAll ? "active" : "",
-                      "aria-pressed": scopeAll,
-                      title: "平台管理员全量视图：显示全部项目",
-                      onClick: () => scopeStore.set(true),
-                    },
-                    "平台全量",
-                  ),
-                )
-              : null,
-            h(
-              "button",
-              {
-                type: "button",
-                className: "pmwb-iconbtn",
-                "aria-label": "刷新项目列表",
-                title: "刷新",
-                onClick: () => void load(),
-              },
-              ICONS.refresh,
-            ),
-          ),
-        ),
-        phase === "loading"
-          ? h("div", { className: "pmprj-empty" }, "正在加载项目…")
-          : null,
-        phase === "error"
-          ? h("div", { className: "pmprj-empty" }, error)
-          : null,
-        phase === "ready" && items.length === 0
-          ? h("div", { className: "pmprj-empty" }, "暂无可访问的项目。")
-          : null,
-        phase === "ready" && items.length > 0
-          ? h(
-              "div",
-              { className: "pmprj-list" },
-              ...items.map((item) => {
-                const followed = snapshot.items.has(`project:${item.id}`);
-                return h(
-                  "article",
-                  {
-                    key: item.id,
-                    className: `pmprj-row${followed ? " followed" : ""}`,
-                  },
-                  h(
-                    "div",
-                    { className: "pmprj-main" },
-                    h("div", { className: "pmprj-name" }, item.name),
-                    h(
-                      "div",
-                      { className: "pmprj-meta" },
-                      h(
-                        "span",
-                        { className: "pmprj-pill" },
-                        `工作流 ${item.workflowCount}`,
-                      ),
-                      h(
-                        "span",
-                        { className: "pmprj-pill" },
-                        `任务 ${item.taskCount}`,
-                      ),
-                      h(
-                        "span",
-                        { className: "pmprj-pill" },
-                        `会议 ${item.meetingCount}`,
-                      ),
-                    ),
-                  ),
-                  h(FollowButton, { type: "project", id: item.id }),
-                );
-              }),
-            )
-          : null,
-      );
-    }
-
+    /*
+     * 「项目管理」全局路由由 dsh-collab-project 承接（含项目清单、成员权限、
+     * 任务/工作流/日报与项目模版）。工作台只保留项目聚合数据接口
+     * /api/collab/workbench/projects 与项目关注按钮，不再注册同名页面。
+     */
     function WorkbenchGlobalPage(props) {
       const useShellRoute = props?.useShellRoute;
       const route = useShellRoute?.((state) => state.route);
-      if (route === "projects") return h(ProjectsPage, {});
       if (route !== "workbench") return null;
       return h(WorkbenchPage, {});
     }

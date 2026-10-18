@@ -88,6 +88,7 @@ const assignmentSchema = z.object({
   participantKind: z.enum(["human", "agent"]),
   assigneeKind: z.enum(["user", "agent"]),
   assigneeId: idSchema,
+  principalId: z.string().trim().min(1).max(180).optional(),
   sessionId: idSchema.optional(),
   personaId: idSchema.optional(),
   permissions: permissionSchema,
@@ -112,6 +113,32 @@ export type WorkspaceType = z.infer<typeof workspaceTypeSchema>;
 export type WorkspaceRoleConfig = z.infer<typeof workspaceConfigSchema>;
 export type Assignment = z.infer<typeof assignmentSchema>;
 export type RoleActor = z.infer<typeof actorSchema>;
+
+interface PrincipalRecordLike {
+  readonly id: string;
+  readonly status: "active" | "suspended" | "archived";
+}
+
+interface PrincipalServiceLike {
+  resolveSubject(
+    subjectType: "auth-user" | "employee" | "teammate",
+    subjectId: string,
+  ): PrincipalRecordLike | undefined;
+  syncGrant(input: {
+    readonly principalId: string;
+    readonly scopeType: "project";
+    readonly scopeId: string;
+    readonly role: string;
+    readonly permissions: readonly string[];
+    readonly grantedByPrincipalId?: string;
+  }): Promise<unknown>;
+  revokeMatchingGrants(input: {
+    readonly principalId: string;
+    readonly scopeType: "project";
+    readonly scopeId: string;
+    readonly role: string;
+  }): Promise<unknown>;
+}
 
 /**
  * 平台默认 facilitator 席位：会议开箱即有一个「会议 Facilitator」agent 席位。
@@ -379,8 +406,23 @@ function isManager(actor: RoleActor): boolean {
   );
 }
 
-function assignmentKey(workspaceId: string, seatId: string): string {
-  return `${workspaceId}:${seatId}`;
+/**
+ * 角色成员表主键。
+ *
+ * 历史版本里「席位」同时只能有一名占用者，主键是 `workspaceId:seatId`；现在项目角色
+ * 是多人集合（可选执行人），主键带上 assignee，历史数据在 apply 时迁移。
+ */
+function assignmentKey(
+  workspaceId: string,
+  seatId: string,
+  assigneeKind: "user" | "agent",
+  assigneeId: string,
+): string {
+  return `${workspaceId}:${seatId}:${assigneeKind}:${assigneeId}`;
+}
+
+function isLegacyAssignmentKey(key: string): boolean {
+  return key.split(":").length === 2;
 }
 
 export class AssignmentService {
@@ -389,10 +431,75 @@ export class AssignmentService {
       readonly workspaces: KvTableLike<WorkspaceRoleConfig>;
       readonly assignments: KvTableLike<Assignment>;
     },
-    private readonly options: { readonly now: () => Date } = {
+    private readonly options: {
+      readonly now: () => Date;
+      readonly principals?: () => PrincipalServiceLike | undefined;
+    } = {
       now: () => new Date(),
     },
   ) {}
+
+  private principalService(): PrincipalServiceLike | undefined {
+    return this.options.principals?.();
+  }
+
+  private principalForAssignment(
+    assigneeKind: "user" | "agent",
+    assigneeId: string,
+  ): PrincipalRecordLike | undefined {
+    const principals = this.principalService();
+    if (principals === undefined) return undefined;
+    const principal =
+      assigneeKind === "user"
+        ? principals.resolveSubject("auth-user", assigneeId)
+        : (principals.resolveSubject("teammate", assigneeId) ??
+          principals.resolveSubject("employee", assigneeId));
+    if (principal?.status === "archived") {
+      throw new RolesError(
+        "conflict",
+        "archived principals cannot receive project roles",
+      );
+    }
+    return principal;
+  }
+
+  private principalForActor(actor: RoleActor): PrincipalRecordLike | undefined {
+    if (actor.kind !== "user") return undefined;
+    return this.principalService()?.resolveSubject("auth-user", actor.id);
+  }
+
+  private async syncPrincipalGrant(
+    assignment: Assignment,
+    actor?: RoleActor,
+  ): Promise<void> {
+    const principals = this.principalService();
+    if (principals === undefined || assignment.principalId === undefined) {
+      return;
+    }
+    const grantor =
+      actor === undefined ? undefined : this.principalForActor(actor);
+    await principals.syncGrant({
+      principalId: assignment.principalId,
+      scopeType: "project",
+      scopeId: assignment.workspaceId,
+      role: assignment.seatId,
+      permissions: assignment.permissions,
+      ...(grantor === undefined ? {} : { grantedByPrincipalId: grantor.id }),
+    });
+  }
+
+  private async revokePrincipalGrant(assignment: Assignment): Promise<void> {
+    const principals = this.principalService();
+    if (principals === undefined || assignment.principalId === undefined) {
+      return;
+    }
+    await principals.revokeMatchingGrants({
+      principalId: assignment.principalId,
+      scopeType: "project",
+      scopeId: assignment.workspaceId,
+      role: assignment.seatId,
+    });
+  }
 
   config(workspaceId: string): WorkspaceRoleConfig {
     const config = this.tables.workspaces.get(safeId(workspaceId));
@@ -429,8 +536,10 @@ export class AssignmentService {
     for (const key of this.tables.assignments.keys()) {
       const assignment = this.tables.assignments.get(key);
       if (assignment?.workspaceId !== workspaceId) continue;
-      if (!seatIds.has(assignment.seatId))
+      if (!seatIds.has(assignment.seatId)) {
+        await this.revokePrincipalGrant(assignment);
         await this.tables.assignments.delete(key);
+      }
     }
     return config;
   }
@@ -439,7 +548,79 @@ export class AssignmentService {
     this.config(workspaceId);
     return tableValues(this.tables.assignments)
       .filter((assignment) => assignment.workspaceId === workspaceId)
-      .sort((left, right) => left.seatId.localeCompare(right.seatId));
+      .sort(
+        (left, right) =>
+          left.seatId.localeCompare(right.seatId) ||
+          left.assigneeId.localeCompare(right.assigneeId),
+      );
+  }
+
+  /** 某个项目角色当前的可选执行人（含真人成员与 teammate 实例）。 */
+  members(workspaceId: string, seatId: string): Assignment[] {
+    return this.seats(workspaceId).filter(
+      (assignment) =>
+        assignment.seatId === seatId && assignment.status !== "released",
+    );
+  }
+
+  /**
+   * 把历史「单占用席位」记录迁移成成员记录：主键补上 assignee，占用状态原样保留。
+   * 迁移幂等，可以在每次启动时安全执行。
+   */
+  async migrateLegacyAssignments(): Promise<number> {
+    let migrated = 0;
+    // 先取快照再改写：迁移过程中会删除旧主键、写入新主键。
+    const keys: string[] = [];
+    for (const key of this.tables.assignments.keys()) keys.push(key);
+    for (const key of keys) {
+      if (!isLegacyAssignmentKey(key)) continue;
+      const assignment = this.tables.assignments.get(key);
+      if (assignment === undefined) continue;
+      const next = assignmentKey(
+        assignment.workspaceId,
+        assignment.seatId,
+        assignment.assigneeKind,
+        assignment.assigneeId,
+      );
+      await this.tables.assignments.put(next, assignment);
+      await this.tables.assignments.delete(key);
+      migrated += 1;
+    }
+    return migrated;
+  }
+
+  /**
+   * 兼容历史项目角色：为已有指派补 `principalId`，并把有效席位镜像到
+   * `role_grants`。Principal 服务未就绪时由后续读取或下一次写入补齐。
+   */
+  async hydratePrincipalAssignments(): Promise<number> {
+    let hydrated = 0;
+    for (const [key, assignment] of this.tables.assignments.entries()) {
+      let principal: PrincipalRecordLike | undefined;
+      try {
+        principal = this.principalForAssignment(
+          assignment.assigneeKind,
+          assignment.assigneeId,
+        );
+      } catch {
+        continue;
+      }
+      if (principal === undefined) continue;
+      const next =
+        assignment.principalId === principal.id
+          ? assignment
+          : {
+              ...assignment,
+              principalId: principal.id,
+              updatedAt: nowIso(this.options.now),
+            };
+      if (next !== assignment) {
+        await this.tables.assignments.put(key, next);
+        hydrated += 1;
+      }
+      if (next.status !== "released") await this.syncPrincipalGrant(next);
+    }
+    return hydrated;
   }
 
   async claim(
@@ -461,18 +642,32 @@ export class AssignmentService {
         "participant kind does not match seat",
       );
     }
-    const key = assignmentKey(workspaceId, seatId);
+    // 角色是成员集合：认领即把自己登记为该角色的一个可选执行人，
+    // 重复认领幂等，别的成员认领不会把先到的人挤掉。
+    const assigneeKind = actor.kind === "user" ? "user" : "agent";
+    const principal = this.principalForAssignment(assigneeKind, actor.id);
+    const key = assignmentKey(workspaceId, seatId, assigneeKind, actor.id);
     const existing = this.tables.assignments.get(key);
     if (existing !== undefined && existing.status !== "released") {
-      const same =
-        existing.assigneeKind === (actor.kind === "user" ? "user" : "agent") &&
-        existing.assigneeId === actor.id &&
-        (actor.kind === "agent"
-          ? existing.sessionId === (actor.sessionId ?? actor.id)
-          : existing.sessionId === undefined);
-      if (!same)
-        throw new RolesError("conflict", "role seat is already occupied");
-      return existing;
+      const hydrated =
+        principal === undefined || existing.principalId === principal.id
+          ? existing
+          : { ...existing, principalId: principal.id };
+      if (hydrated !== existing) {
+        await this.tables.assignments.put(key, hydrated);
+      }
+      await this.syncPrincipalGrant(hydrated, actor);
+      if (actor.kind !== "agent") return hydrated;
+      const sessionId = actor.sessionId ?? actor.id;
+      if (hydrated.sessionId === sessionId) return hydrated;
+      const refreshed: Assignment = {
+        ...hydrated,
+        sessionId,
+        updatedAt: nowIso(this.options.now),
+      };
+      await this.tables.assignments.put(key, refreshed);
+      await this.syncPrincipalGrant(refreshed, actor);
+      return refreshed;
     }
     const leader = this.seats(workspaceId).every(
       (assignment) => assignment.status === "released" || !assignment.leader,
@@ -484,8 +679,9 @@ export class AssignmentService {
       seatId,
       seatLabel: seat.label,
       participantKind: actor.kind === "user" ? "human" : "agent",
-      assigneeKind: actor.kind === "user" ? "user" : "agent",
+      assigneeKind,
       assigneeId: actor.id,
+      ...(principal === undefined ? {} : { principalId: principal.id }),
       ...(actor.kind === "agent"
         ? { sessionId: actor.sessionId ?? actor.id }
         : {}),
@@ -498,6 +694,7 @@ export class AssignmentService {
       updatedAt: timestamp,
     };
     await this.tables.assignments.put(key, assignment);
+    await this.syncPrincipalGrant(assignment, actor);
     return assignment;
   }
 
@@ -515,6 +712,10 @@ export class AssignmentService {
       throw new RolesError("forbidden", "workspace owner role is required");
     }
     const config = this.config(input.workspaceId);
+    const principal = this.principalForAssignment(
+      input.assigneeKind,
+      input.assigneeId,
+    );
     const seat = config.seats.find(
       (candidate) => candidate.id === input.seatId,
     );
@@ -530,10 +731,24 @@ export class AssignmentService {
         "participant kind does not match seat",
       );
     }
-    const key = assignmentKey(input.workspaceId, input.seatId);
+    const key = assignmentKey(
+      input.workspaceId,
+      input.seatId,
+      input.assigneeKind,
+      input.assigneeId,
+    );
     const existing = this.tables.assignments.get(key);
     if (existing !== undefined && existing.status !== "released") {
-      throw new RolesError("conflict", "role seat is already occupied");
+      // 同一成员重复指派幂等，其余成员不受影响。
+      const hydrated =
+        principal === undefined || existing.principalId === principal.id
+          ? existing
+          : { ...existing, principalId: principal.id };
+      if (hydrated !== existing) {
+        await this.tables.assignments.put(key, hydrated);
+      }
+      await this.syncPrincipalGrant(hydrated, actor);
+      return hydrated;
     }
     const timestamp = nowIso(this.options.now);
     const leader = this.seats(input.workspaceId).every(
@@ -547,6 +762,7 @@ export class AssignmentService {
       participantKind: input.assigneeKind === "user" ? "human" : "agent",
       assigneeKind: input.assigneeKind,
       assigneeId: input.assigneeId,
+      ...(principal === undefined ? {} : { principalId: principal.id }),
       personaId: input.personaId ?? seat.personaId,
       permissions: seat.permissions,
       leader,
@@ -554,6 +770,7 @@ export class AssignmentService {
       updatedAt: timestamp,
     };
     await this.tables.assignments.put(key, assignment);
+    await this.syncPrincipalGrant(assignment, actor);
     return assignment;
   }
 
@@ -561,16 +778,24 @@ export class AssignmentService {
     actor: RoleActor,
     workspaceId: string,
     seatId: string,
+    target?: {
+      readonly assigneeKind: "user" | "agent";
+      readonly assigneeId: string;
+    },
   ): Promise<Assignment> {
     this.config(workspaceId);
-    const key = assignmentKey(workspaceId, seatId);
+    const assigneeKind =
+      target?.assigneeKind ?? (actor.kind === "user" ? "user" : "agent");
+    const assigneeId = target?.assigneeId ?? actor.id;
+    const key = assignmentKey(workspaceId, seatId, assigneeKind, assigneeId);
     const assignment = this.tables.assignments.get(key);
     if (assignment === undefined || assignment.status === "released") {
       throw new RolesError("not_found", "active role seat not found");
     }
     const own =
-      assignment.assigneeKind === (actor.kind === "user" ? "user" : "agent") &&
-      assignment.assigneeId === actor.id;
+      assignment.assigneeKind === assigneeKind &&
+      assignment.assigneeId === assigneeId &&
+      actor.kind === assigneeKind;
     if (!own && !isManager(actor)) {
       throw new RolesError(
         "forbidden",
@@ -583,6 +808,7 @@ export class AssignmentService {
       updatedAt: nowIso(this.options.now),
     };
     await this.tables.assignments.put(key, released);
+    await this.revokePrincipalGrant(released);
     return released;
   }
 }
@@ -627,6 +853,15 @@ interface TeamServiceLike {
   members(workspaceId: string): Array<{ userId: string; memberRole: string }>;
 }
 
+interface ProjectRoleStateLike {
+  readonly rolesInitialized: boolean;
+  readonly projectRoles: readonly unknown[];
+}
+
+interface ProjectServiceLike {
+  project(workspaceId: string): ProjectRoleStateLike | undefined;
+}
+
 export interface RolesContext {
   effect(register: () => () => void): void;
   provide(key: "collabPersonas", value: PersonaService): unknown;
@@ -654,6 +889,7 @@ export interface RolesContext {
   };
   webServer: { register(route: WebRouteLike): unknown };
   storageDomain: { open(spec: DomainSpecLike): Promise<AssignmentDomainLike> };
+  get(key: string): unknown;
   collabTeam?: TeamServiceLike;
   inject(
     keys: readonly ["collabTeam"],
@@ -661,15 +897,6 @@ export interface RolesContext {
       child: RolesContext & { readonly collabTeam: TeamServiceLike },
     ) => void,
   ): { dispose(): void };
-}
-
-function agentActor(sessionId: string | undefined): RoleActor {
-  return {
-    kind: "agent",
-    id: sessionId ?? "agent",
-    ...(sessionId === undefined ? {} : { sessionId }),
-    workspaceRole: "member",
-  };
 }
 
 function browserActor(
@@ -748,6 +975,7 @@ export function createRolesRoutes(
   types: WorkspaceTypeService,
   assignments: AssignmentService,
   team: TeamServiceLike,
+  projects?: () => ProjectServiceLike | undefined,
 ): WebRouteLike[] {
   const routes = [
     {
@@ -829,6 +1057,26 @@ export function createRolesRoutes(
         const actor = browserActor(team, request, body.workspaceId, {
           requireWorkspaceMember: true,
         });
+        const project = projects?.()?.project(body.workspaceId);
+        let existingSeats: readonly RoleSeat[] = [];
+        try {
+          existingSeats = assignments.config(body.workspaceId).seats;
+        } catch {
+          existingSeats = [];
+        }
+        const customSeats = existingSeats.filter(
+          (seat) => seat.id !== FACILITATOR_SEAT_ID,
+        );
+        if (
+          (project !== undefined &&
+            (project.rolesInitialized || project.projectRoles.length > 0)) ||
+          customSeats.length > 0
+        ) {
+          throw new RolesError(
+            "conflict",
+            "该项目已有项目角色，工作区类型只能用于初始化；请到「项目设置 → 项目角色」调整。",
+          );
+        }
         sendJson(response, 201, {
           ok: true,
           config: await assignments.materialize(
@@ -926,15 +1174,39 @@ export function createRolesRoutes(
       path: "/api/collab/roles/seats/release",
       handler: async (request: IncomingMessage, response: ServerResponse) => {
         const body = parseOrInvalid(
-          z.object({ workspaceId: idSchema, seatId: idSchema }),
+          z.object({
+            workspaceId: idSchema,
+            seatId: idSchema,
+            assigneeKind: z.enum(["user", "agent"]).optional(),
+            assigneeId: idSchema.optional(),
+          }),
           await readJsonBody(request),
         );
         const actor = browserActor(team, request, body.workspaceId, {
           requireWorkspaceMember: true,
         });
+        if (
+          (body.assigneeKind === undefined) !==
+          (body.assigneeId === undefined)
+        ) {
+          throw new RolesError(
+            "invalid_input",
+            "assigneeKind and assigneeId must be provided together",
+          );
+        }
         sendJson(response, 200, {
           ok: true,
-          seat: await assignments.release(actor, body.workspaceId, body.seatId),
+          seat: await assignments.release(
+            actor,
+            body.workspaceId,
+            body.seatId,
+            body.assigneeKind === undefined || body.assigneeId === undefined
+              ? undefined
+              : {
+                  assigneeKind: body.assigneeKind,
+                  assigneeId: body.assigneeId,
+                },
+          ),
         });
       },
     },
@@ -979,10 +1251,19 @@ export async function apply(ctx: RolesContext): Promise<void | (() => void)> {
   const types = new WorkspaceTypeService(
     join(home, "pluginmax", "workspace-types"),
   );
-  const assignments = new AssignmentService({
-    workspaces: domain.table("workspaces"),
-    assignments: domain.table("assignments"),
-  });
+  const assignments = new AssignmentService(
+    {
+      workspaces: domain.table("workspaces"),
+      assignments: domain.table("assignments"),
+    },
+    {
+      now: () => new Date(),
+      principals: () =>
+        ctx.get("collabPrincipal") as PrincipalServiceLike | undefined,
+    },
+  );
+  // 项目角色从「单占用席位」升级成「成员集合」：旧主键记录在启动时补齐 assignee。
+  await assignments.migrateLegacyAssignments();
   await ensureFacilitatorSeats(domain.table("workspaces"));
   ctx.provide("collabPersonas", personas);
   ctx.provide("collabWorkspaceType", types);
@@ -990,15 +1271,13 @@ export async function apply(ctx: RolesContext): Promise<void | (() => void)> {
   ctx.effect(() => () => void domain.close());
   ctx.commands.register({
     name: "assignment",
-    description: "manage DSH Pluginmax role seats",
+    description: "inspect DSH Pluginmax role seats",
     input: {
-      hint: "list <workspace> | claim <workspace> <seat> [persona] | release <workspace> <seat>",
+      hint: "list <workspace>",
       attachments: false,
     },
     handler: (invocation) => {
-      const [operation, workspaceId, seatId, personaId] = invocation.rawInput
-        .trim()
-        .split(/\s+/);
+      const [operation, workspaceId] = invocation.rawInput.trim().split(/\s+/);
       try {
         if (operation === "list" && workspaceId !== undefined) {
           const seats = assignments.seats(workspaceId);
@@ -1013,39 +1292,6 @@ export async function apply(ctx: RolesContext): Promise<void | (() => void)> {
                 .join("\n") || "no occupied seats",
           };
         }
-        if (
-          operation === "claim" &&
-          workspaceId !== undefined &&
-          seatId !== undefined
-        ) {
-          const promise = assignments.claim(
-            agentActor("agent-command"),
-            workspaceId,
-            seatId,
-            personaId,
-          );
-          void promise.catch(() => undefined);
-          return {
-            kind: "success",
-            text: `claim accepted: ${workspaceId}/${seatId}`,
-          };
-        }
-        if (
-          operation === "release" &&
-          workspaceId !== undefined &&
-          seatId !== undefined
-        ) {
-          const promise = assignments.release(
-            agentActor("agent-command"),
-            workspaceId,
-            seatId,
-          );
-          void promise.catch(() => undefined);
-          return {
-            kind: "success",
-            text: `release accepted: ${workspaceId}/${seatId}`,
-          };
-        }
       } catch (cause) {
         return {
           kind: "error",
@@ -1054,21 +1300,19 @@ export async function apply(ctx: RolesContext): Promise<void | (() => void)> {
       }
       return {
         kind: "error",
-        text: "usage: /assignment list <workspace> | claim <workspace> <seat> [persona] | release <workspace> <seat>",
+        text: "usage: /assignment list <workspace>",
       };
     },
   });
   ctx.tools.register({
     name: "collab_roles",
-    description: "Inspect materialized role seats or claim an available seat.",
+    description: "Inspect materialized role seats.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        operation: { type: "string", enum: ["list", "claim"] },
+        operation: { type: "string", enum: ["list"] },
         workspaceId: { type: "string" },
-        seatId: { type: "string" },
-        personaId: { type: "string" },
       },
       required: ["operation", "workspaceId"],
     },
@@ -1077,38 +1321,26 @@ export async function apply(ctx: RolesContext): Promise<void | (() => void)> {
       exec.signal.throwIfAborted();
       const parsed = parseOrInvalid(
         z.object({
-          operation: z.enum(["list", "claim"]),
+          operation: z.enum(["list"]),
           workspaceId: idSchema,
-          seatId: idSchema.optional(),
-          personaId: idSchema.optional(),
         }),
         args,
       );
-      if (parsed.operation === "list") {
-        return assignments
-          .seats(parsed.workspaceId)
-          .map((seat) => `${seat.seatId}\t${seat.status}\t${seat.assigneeId}`)
-          .join("\n");
-      }
-      if (parsed.seatId === undefined) {
-        throw new RolesError("invalid_input", "seatId is required for claim");
-      }
-      const seat = await assignments.claim(
-        agentActor("collab-roles-tool"),
-        parsed.workspaceId,
-        parsed.seatId,
-        parsed.personaId,
-      );
-      return `${seat.seatLabel} claimed by ${seat.assigneeId}${seat.leader ? " as leader" : ""}`;
+      return assignments
+        .seats(parsed.workspaceId)
+        .map((seat) => `${seat.seatId}\t${seat.status}\t${seat.assigneeId}`)
+        .join("\n");
     },
   });
   let routeDisposers: Array<() => void> = [];
   const identityFiber = ctx.inject(["collabTeam"], (child) => {
+    void assignments.hydratePrincipalAssignments().catch(() => undefined);
     routeDisposers = createRolesRoutes(
       personas,
       types,
       assignments,
       child.collabTeam,
+      () => child.get("collabProjects") as ProjectServiceLike | undefined,
     ).map((route) => child.webServer.register(route)) as Array<() => void>;
   });
   return () => {
