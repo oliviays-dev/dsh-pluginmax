@@ -2285,12 +2285,13 @@ export class WorkflowService {
               };
         // 改派回节点原本的 Agent / Teammate 时，先前的「执行实例失效，已转交
         // owner 人工处理」已经不成立：解除兜底，让节点重新可以派发。
-        const releasesFallback =
-          state.executorFallback !== undefined &&
+        const requestsAgentExecution =
           receiverOverride !== undefined &&
           receiverOverride.type === "agent" &&
           ["ready", "blocked"].includes(state.status) &&
           this.receiverOverrideMatchesExecutor(node, receiverOverride.id);
+        const releasesFallback =
+          state.executorFallback !== undefined && requestsAgentExecution;
         await this.putInstance({
           ...instance,
           nodes: {
@@ -2305,7 +2306,12 @@ export class WorkflowService {
                     status: "ready" as const,
                     note: undefined,
                   }
-                : {}),
+                : state.status === "blocked" && requestsAgentExecution
+                  ? {
+                      status: "ready" as const,
+                      note: undefined,
+                    }
+                  : {}),
             },
           },
         });
@@ -2313,6 +2319,47 @@ export class WorkflowService {
     } finally {
       this.syncingWorkflowInitiatedTask = false;
     }
+  }
+
+  /**
+   * 任务改派落库后再启动工作流自己的 Agent run。任务先保存，调度器才能
+   * 从最新责任人生成正确的节点标题，也不会再落到一条普通任务会话。
+   */
+  async handleTaskAssignedAfterPersist(
+    task: {
+      readonly id: string;
+      readonly workflow?:
+        { readonly instanceId: string; readonly nodeId: string } | undefined;
+    },
+    actor: WorkflowActor,
+  ): Promise<void> {
+    if (task.workflow === undefined) return;
+    await this.enqueue(async () => {
+      const instance = this.instance(task.workflow!.instanceId);
+      if (instance === undefined) return;
+      const state = instance.nodes[task.workflow!.nodeId];
+      if (state === undefined || !state.taskIds.includes(task.id)) return;
+      if (
+        state.receiverOverride?.type !== "agent" ||
+        state.executorFallback !== undefined ||
+        state.status !== "ready"
+      ) {
+        return;
+      }
+      const definition = this.tables.definitions.get(instance.definitionId);
+      const node = definition?.graph.nodes.find(
+        (item) => item.id === task.workflow!.nodeId,
+      );
+      if (
+        node === undefined ||
+        node.type !== "task" ||
+        node.trigger !== "auto-on-ready" ||
+        !this.receiverOverrideMatchesExecutor(node, state.receiverOverride.id)
+      ) {
+        return;
+      }
+      await this.autoDispatchAgentNodes(actor, instance);
+    });
   }
 
   /** 改派目标是否就是节点模版里的 Agent / Teammate 执行人（实例 id 与员工身份 id 双向匹配）。 */
@@ -6556,6 +6603,16 @@ export async function apply(
           role?: WorkflowActor["globalRole"];
         },
       ) => service.handleTaskAssigned(task, taskWorkflowActor(actor)),
+      assigned: (
+        task: Parameters<WorkflowService["handleTaskAssignedAfterPersist"]>[0],
+        actor: {
+          id: string;
+          name: string;
+          kind: "human" | "agent" | "system";
+          role?: WorkflowActor["globalRole"];
+        },
+      ) =>
+        service.handleTaskAssignedAfterPersist(task, taskWorkflowActor(actor)),
       decide: (
         task: Parameters<WorkflowService["handleTaskDecision"]>[0],
         actor: {

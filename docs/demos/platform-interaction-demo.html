@@ -164,6 +164,7 @@ svg{display:block}
 .account-role{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary);font-size:var(--fs-micro)}
 .settings-btn{width:36px;height:36px;flex:none;display:grid;place-items:center;padding:0;border:0.5px solid var(--dsw-alias-border-l3);border-radius:var(--radius-card);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary)}
 .settings-btn:hover{color:var(--dsw-alias-label-primary)}
+.settings-btn.active{color:var(--dsw-alias-accent-primary);border-color:color-mix(in srgb,var(--dsw-alias-accent-primary) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-accent-primary) 10%,var(--dsw-alias-bg-layer-2))}
 .settings-btn svg{width:15px;height:15px}
 
 #app.rail-closed .brand-copy,
@@ -205,6 +206,8 @@ svg{display:block}
 .btn.icon{width:28px;height:28px;padding:0;flex:none;border:0.5px solid var(--dsw-alias-border-l3);background:transparent;color:var(--dsw-alias-label-secondary)}
 .btn.icon:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);filter:none}
 .btn.icon svg{width:14px;height:14px}
+.btn.icon.meeting-page-action{width:32px;height:32px}
+.btn.icon.meeting-page-action.active{color:var(--dsw-alias-accent-primary);border-color:color-mix(in srgb,var(--dsw-alias-accent-primary) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-accent-primary) 10%,transparent)}
 .follow-btn{color:var(--dsw-alias-label-secondary)}
 .follow-btn.active{color:var(--dsw-alias-accent-primary);border-color:color-mix(in srgb,var(--dsw-alias-accent-primary) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-accent-primary) 10%,transparent)}
 .follow-btn svg{width:14px;height:14px}
@@ -593,11 +596,80 @@ svg{display:block}
 /* ============================================================
    Meeting rail
    ============================================================ */
-.rail{display:none;min-width:0;min-height:0;flex-direction:column;border-left:1px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-layer-1)}
+.rail{position:relative;display:none;min-width:0;min-height:0;flex-direction:column;border-left:1px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-layer-1)}
 #app.meeting-open .rail{display:flex}
 .rail-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-bottom:1px solid var(--dsw-alias-border-l2)}
 .rail-head h2{margin:0;font-size:var(--fs-title)}
+.rail-title{display:flex;align-items:center;gap:4px;min-width:0}
+.rail-title h2{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.meeting-switch-btn{width:26px;height:26px;flex:none;display:grid;place-items:center;padding:0;border:0;border-radius:var(--radius-control);background:transparent;color:var(--dsw-alias-label-secondary)}
+.meeting-switch-btn:hover,.meeting-switch-btn[aria-expanded="true"]{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
+.meeting-switch-btn svg{width:14px;height:14px}
+.meeting-switcher{position:absolute;top:62px;left:14px;right:14px;z-index:20;padding:10px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:var(--radius-panel);background:var(--dsw-alias-bg-layer-1);box-shadow:var(--shadow-1)}
+.meeting-switcher-search{width:100%}
+.meeting-switch-list{display:grid;gap:4px;max-height:min(220px,calc(100vh - 150px));overflow:auto;margin-top:8px}
+.meeting-switch-item{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;padding:7px 8px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:var(--radius-control);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);text-align:left}
+.meeting-switch-item:hover{border-color:var(--dsw-alias-border-l4);background:var(--dsw-alias-bg-layer-3)}
+.meeting-switch-item.active{border-color:color-mix(in srgb,var(--dsw-alias-accent-primary) 55%,transparent);background:color-mix(in srgb,var(--dsw-alias-accent-primary) 10%,var(--dsw-alias-bg-layer-2))}
+.meeting-switch-copy{display:grid;gap:1px;min-width:0}
+.meeting-switch-copy strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-secondary);font-weight:600}
+.meeting-switch-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary);font-size:var(--fs-micro)}
+.meeting-switch-footer{display:flex;justify-content:flex-end;margin-top:8px}
 .rail-body{flex:1;min-height:0;overflow:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.meeting-chat{display:flex;flex-direction:column;gap:8px;min-height:0}
+.meeting-history{display:flex;flex-direction:column;gap:10px;max-height:calc(100vh - 250px);overflow:auto;padding:4px 1px 8px}
+.meeting-message{display:flex;align-items:flex-start;gap:8px;max-width:100%}
+.meeting-message.self{flex-direction:row-reverse}
+.meeting-message-body{display:grid;gap:3px;min-width:0;max-width:84%}
+.meeting-message-meta{display:flex;align-items:center;gap:6px;color:var(--dsw-alias-label-tertiary);font-size:var(--fs-micro)}
+.meeting-message-meta strong{color:var(--dsw-alias-label-secondary);font-size:var(--fs-micro);font-weight:600}
+.meeting-message.self .meeting-message-meta{justify-content:flex-end}
+.meeting-bubble{padding:8px 10px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:3px var(--radius-panel) var(--radius-panel) var(--radius-panel);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:var(--fs-secondary);line-height:1.55;overflow-wrap:anywhere}
+.meeting-message.self .meeting-bubble{border-color:color-mix(in srgb,var(--dsw-alias-accent-primary) 35%,transparent);border-radius:var(--radius-panel) 3px var(--radius-panel) var(--radius-panel);background:color-mix(in srgb,var(--dsw-alias-accent-primary) 12%,var(--dsw-alias-bg-layer-2))}
+.meeting-bubble mark{padding:0 2px;border-radius:3px;background:color-mix(in srgb,var(--dsw-alias-accent-primary) 16%,transparent);color:var(--dsw-alias-accent-primary)}
+.meeting-system-message{padding:5px 0;color:var(--dsw-alias-label-tertiary);font-size:var(--fs-micro);text-align:center}
+.meeting-composer{position:relative;padding:8px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:var(--radius-control);background:var(--dsw-alias-bg-layer-2)}
+.meeting-composer:focus-within{border-color:color-mix(in srgb,var(--dsw-alias-accent-primary) 50%,transparent);box-shadow:var(--focus-ring)}
+.meeting-composer textarea{width:100%;min-height:54px;max-height:120px;padding:2px;border:0;outline:0;resize:vertical;background:transparent;font-size:var(--fs-secondary);line-height:1.55}
+.meeting-composer-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:5px}
+.meeting-composer-hint{color:var(--dsw-alias-label-tertiary);font-size:var(--fs-micro)}
+.meeting-at-btn{width:28px;height:28px;padding:0;border:0.5px solid var(--dsw-alias-border-l3);border-radius:var(--radius-control);background:transparent;color:var(--dsw-alias-label-secondary);font-size:var(--fs-secondary);font-weight:700}
+.meeting-at-btn:hover,.meeting-at-btn[aria-expanded="true"]{color:var(--dsw-alias-accent-primary);border-color:color-mix(in srgb,var(--dsw-alias-accent-primary) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-accent-primary) 10%,transparent)}
+.meeting-send-btn{width:28px;height:28px;padding:0}
+.meeting-send-btn svg{width:14px;height:14px}
+.meeting-mention-menu{position:absolute;left:8px;right:8px;bottom:46px;z-index:20;display:grid;max-height:190px;overflow:auto;padding:4px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:var(--radius-control);background:var(--dsw-alias-bg-layer-1);box-shadow:var(--shadow-1)}
+.meeting-mention-option{display:flex;align-items:center;gap:8px;width:100%;padding:6px 7px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-primary);text-align:left}
+.meeting-mention-option:hover{background:var(--dsw-alias-bg-layer-2)}
+.meeting-mention-copy{min-width:0}
+.meeting-mention-copy strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-secondary)}
+.meeting-mention-copy small{display:block;color:var(--dsw-alias-label-tertiary);font-size:var(--fs-micro)}
+.meeting-composer-readonly{padding:12px;border:0.5px dashed var(--dsw-alias-border-l3);border-radius:var(--radius-control);color:var(--dsw-alias-label-secondary);font-size:var(--fs-caption);text-align:center}
+.meeting-settings-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.meeting-settings-form.compact{grid-template-columns:1fr}
+.meeting-settings-form .wide{grid-column:1 / -1}
+.meeting-settings-actions{grid-column:1 / -1;display:flex;justify-content:flex-end;gap:8px;margin-top:2px}
+.meeting-workspace{display:grid;grid-template-columns:minmax(270px,320px) minmax(0,1fr) minmax(230px,280px);gap:12px;align-items:stretch;min-width:0}
+.meeting-workspace.rail-open{grid-template-columns:minmax(250px,300px) minmax(0,1fr)}
+.meeting-workspace>.directory,.meeting-workspace>.detail,.meeting-context{min-width:0}
+.meeting-context{display:flex;flex-direction:column;gap:10px;padding:12px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:var(--radius-panel);background:var(--dsw-alias-bg-layer-1)}
+.meeting-context-facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.meeting-context-facts .fact{background:var(--dsw-alias-bg-layer-2)}
+.meeting-context-actions{display:flex;gap:6px;flex-wrap:wrap}
+.meeting-context-people{display:grid;gap:5px}
+.meeting-page .directory{gap:8px}
+.meeting-directory-toolbar{display:grid;grid-template-columns:120px minmax(0,1fr) 32px;align-items:center;gap:6px}
+.meeting-directory-toolbar .select{min-width:0}
+.meeting-directory-toolbar .btn.icon{width:32px;height:32px}
+.meeting-page .directory .seg{width:100%}
+.meeting-page .directory .seg button{flex:1}
+.meeting-page .detail{min-height:calc(100vh - 140px);padding:12px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:var(--radius-panel);background:var(--dsw-alias-bg-layer-1)}
+.meeting-page .detail>.seg{width:100%}
+.meeting-page .detail>.seg button{flex:1}
+.meeting-center-content{display:flex;flex:1;min-width:0;min-height:0}
+.meeting-center-content>.section{flex:1;min-width:0}
+.meeting-center-content>.section>.empty{width:100%;min-height:320px;display:grid;place-items:center}
+.meeting-page .meeting-chat{flex:1;min-height:0}
+.meeting-page .meeting-history{flex:1;min-height:360px;max-height:none}
 
 /* ============================================================
    Teammate
@@ -627,6 +699,8 @@ svg{display:block}
 @media(max-width:1100px){
   .kpis,.cockpit-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
   .cockpit-grid{grid-template-columns:1fr}
+  .meeting-workspace,.meeting-workspace.rail-open{grid-template-columns:minmax(240px,280px) minmax(0,1fr)}
+  .meeting-context{display:none}
   .wf-instance-head,.wf-instance-row{grid-template-columns:minmax(200px,1.5fr) 88px minmax(140px,1fr) 110px 52px}
   .wf-col-started{display:none}
 }
@@ -641,6 +715,8 @@ svg{display:block}
   .sidebar-foot{display:grid;justify-items:center;margin-top:auto;padding-top:0;border-top:0}
   .account{width:42px;justify-content:center;padding:0}
   .split{grid-template-columns:1fr}
+  .meeting-workspace,.meeting-workspace.rail-open{grid-template-columns:1fr}
+  .meeting-context{display:none}
   .board{grid-auto-flow:row;grid-auto-columns:auto;grid-template-columns:1fr;min-height:0}
   .facts,.kpis,.cockpit-kpis{grid-template-columns:1fr}
   .wf-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -1034,9 +1110,41 @@ const wfTemplateById = (id) => WF_TEMPLATES.find((t) => t.id === id) || WF_TEMPL
 const MEETINGS = [
   { id: "MTG-114", title: "发布风险同步", projectId: "p-plugin", time: "今天 10:00 - 10:40", status: "已结束", participants: ["olivia", "peter", "research", "ops"], summary: "确认发布前需要锁定停机窗口责任人；Research Avatar 汇总了 2 个会前决策点。", minutes: "## 会议结论\n\n1. 停机窗口责任人在今日 16:00 前确认。\n2. 发布风险清单由 Research Avatar 维护。\n3. 未确认前不进入发布窗口。\n\n## 待办\n\n- Peter 补充回滚脚本责任人字段。\n- Olivia 确认最终发布时间。" },
   { id: "MTG-118", title: "员工平台周会", projectId: "p-employee", time: "今天 11:00 - 12:00", status: "进行中", participants: ["olivia", "peter", "ux", "qa"], summary: "同步移动端回归进度与本周验收计划。", minutes: "" },
-  { id: "MTG-121", title: "客户迁移发布评审", projectId: "p-customer", time: "今天 16:30 - 17:00", status: "未开始", participants: ["olivia", "mia", "peter", "ops"], summary: "评审客户迁移发布窗口、回滚方案与合同承诺。", minutes: "" }
+  { id: "MTG-121", title: "客户迁移发布评审", projectId: "p-customer", time: "今天 16:30 - 17:00", status: "未开始", participants: ["olivia", "mia", "peter", "ops"], summary: "评审客户迁移发布窗口、回滚方案与合同承诺。", minutes: "" },
+  { id: "MTG-126", title: "供应商合同预审", projectId: "p-customer", time: "今天 14:00 - 14:40", status: "进行中", participants: ["mia", "peter", "ops"], summary: "预审供应商合同条款、付款计划与交付责任。", minutes: "" }
 ];
-const meetingById = (id) => MEETINGS.find((m) => m.id === id) || MEETINGS[0];
+const MEETING_MESSAGES = {
+  "MTG-114": [
+    { id: "MM-114-1", senderId: "research", at: "10:02", text: "会前资料已整理：当前有两个待决策点，分别是停机窗口和发布责任人。", mentions: [] },
+    { id: "MM-114-2", senderId: "olivia", at: "10:05", text: "@Peter 请在今天 16:00 前确认停机窗口和客户 IT 联系人。", mentions: ["peter"] },
+    { id: "MM-114-3", senderId: "peter", at: "10:08", text: "已联系客户 IT，窗口初稿是 10-18 20:00，等对方最终确认。", mentions: [] },
+    { id: "MM-114-4", senderId: "ops", at: "10:12", text: "我先把责任人确认加入跟进清单，超时会升级到项目周会。", mentions: [] }
+  ],
+  "MTG-118": [
+    { id: "MM-118-1", senderId: "ux", at: "11:02", text: "移动端审批布局已完成第一轮验收，剩余两个空态需要复核。", mentions: [] },
+    { id: "MM-118-2", senderId: "qa", at: "11:05", text: "@Peter 回归环境已经就绪，请确认今天的构建版本。", mentions: ["peter"] },
+    { id: "MM-118-3", senderId: "peter", at: "11:08", text: "构建版本已更新到 build-1018.3，可以直接开始回归。", mentions: [] }
+  ],
+  "MTG-121": [],
+  "MTG-126": [
+    { id: "MM-126-1", senderId: "mia", at: "14:03", text: "付款计划建议调整为 40% / 40% / 20%，与交付里程碑绑定。", mentions: [] },
+    { id: "MM-126-2", senderId: "ops", at: "14:06", text: "@Peter 请补充质量保证期与违约责任的条款意见。", mentions: ["peter"] }
+  ]
+};
+MEETINGS.forEach((meeting) => { meeting.messages = MEETING_MESSAGES[meeting.id] || []; });
+const meetingById = (id) => {
+  const meeting = MEETINGS.find((m) => m.id === id) || MEETINGS[0];
+  if (!meeting.messages) meeting.messages = [];
+  return meeting;
+};
+const meetingInScope = (meeting) => state.meetingScope === "all" || meeting.participants.includes("olivia");
+const scopedMeetings = () => MEETINGS.filter(meetingInScope);
+const meetingContextId = (context) => context === "rail" ? state.railMeetingSelected : state.meetingSelected;
+const meetingForContext = (context) => meetingById(meetingContextId(context));
+const setMeetingTabForContext = (context, tab) => {
+  if (context === "rail") state.railMeetingTab = tab;
+  else state.meetingTab = tab;
+};
 
 const TEAMMATES = [
   { id: "research", name: "Research Avatar", profile: "研究分析基础模板", owner: "Olivia", status: "运行中", version: "v1.4", desc: "负责会前研究、风险线索合并与决策项整理。", soul: "只处理已授权的项目材料。遇到来源不明或结论冲突时，明确标注待确认。", tools: ["docs", "meeting", "search", "task"], scopes: ["项目角色：会前研究", "工作区：一切皆插件、员工平台"] },
@@ -1152,9 +1260,22 @@ const state = {
   wfTemplateOpen: false,
   wfTemplateSelected: "wt-employee",
   wfTemplateLevel: "",
-  meetingSelected: "MTG-114",
-  meetingTab: "summary",
+  meetingSelected: "MTG-118",
+  meetingTab: "conversation",
   meetingFilter: "all",
+  meetingSearch: "",
+  meetingScope: "joined",
+  meetingDraft: "",
+  meetingMentionOpen: false,
+  meetingMentionQuery: "",
+  railMeetingSelected: "MTG-118",
+  railMeetingTab: "conversation",
+  railMeetingDraft: "",
+  railMeetingMentionOpen: false,
+  railMeetingMentionQuery: "",
+  meetingActionContext: "center",
+  meetingPickerOpen: false,
+  meetingPickerQuery: "",
   teammateId: "research",
   teammateSearch: "",
   teammateTab: "current",
@@ -1267,6 +1388,7 @@ const icon = {
   settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.55 1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 8.9a1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 8.9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 8.9c.24.6.83 1 1.51 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1Z"/></svg>',
   search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>',
   refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>',
+  send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>',
   star: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z"/></svg>',
   starFilled: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z"/></svg>',
   copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
@@ -1290,7 +1412,8 @@ function copyButton(text, label) {
 
 /* 统一组件：所有页面共用同一套结构，避免模块各写一套 */
 function pageHead(title, sub, actions) {
-  return `<div class="page-head"><div><h1>${esc(title)}</h1>${sub ? `<div class="page-sub">${sub}</div>` : ""}</div><div class="head-actions">${actions || ""}</div></div>`;
+  const meetingAction = `<button class="btn icon meeting-page-action ${state.meetingOpen ? "active" : ""}" type="button" data-act="meeting-rail-toggle" aria-label="${state.meetingOpen ? "关闭会议侧栏" : "打开会议侧栏"}" aria-pressed="${state.meetingOpen}" title="${state.meetingOpen ? "关闭会议侧栏" : "打开会议侧栏"}">${icon.meeting}</button>`;
+  return `<div class="page-head"><div><h1>${esc(title)}</h1>${sub ? `<div class="page-sub">${sub}</div>` : ""}</div><div class="head-actions">${actions || ""}${meetingAction}</div></div>`;
 }
 function sectionHead(title, options) {
   const opts = options || {};
@@ -1366,28 +1489,52 @@ function renderSidebar() {
 
 function renderMeetingRail() {
   if (!state.meetingOpen) return "";
-  const meeting = meetingById(state.meetingSelected);
-  const tabs = [["summary", "概要"], ["people", "参与人"], ["minutes", "纪要"]];
+  const scopedMeetingOptions = scopedMeetings();
+  const meeting = scopedMeetingOptions.find((item) => item.id === state.railMeetingSelected)
+    || scopedMeetingOptions.find((item) => item.status === "进行中")
+    || scopedMeetingOptions[0]
+    || MEETINGS[0];
+  state.railMeetingSelected = meeting.id;
+  const tabs = [["conversation", "对话"], ["summary", "概要"], ["minutes", "纪要"], ["settings", "设置"]];
+  const meetingStatusOrder = { "进行中": 0, "已结束": 1, "未开始": 2 };
+  const switchMeetings = scopedMeetingOptions
+    .filter((item) => !state.meetingPickerQuery || `${item.title} ${projectName(item.projectId)} ${item.id}`.toLowerCase().includes(state.meetingPickerQuery.toLowerCase()))
+    .sort((a, b) => (meetingStatusOrder[a.status] ?? 9) - (meetingStatusOrder[b.status] ?? 9));
   return `
   <aside class="rail" aria-label="会议侧栏">
     <div class="rail-head">
       <div>
-        <h2>${esc(meeting.title)}</h2>
+        <div class="rail-title">
+          <h2>${esc(meeting.title)}</h2>
+          <button class="meeting-switch-btn" type="button" data-act="meeting-picker-toggle" aria-label="搜索或切换会议" title="搜索 / 切换会议" aria-expanded="${state.meetingPickerOpen}">${icon.search}</button>
+        </div>
         <div class="meta">${esc(meeting.time)} · ${esc(meeting.status)}</div>
       </div>
-      <div class="head-actions"><button class="btn icon" data-act="meeting-settings-open" aria-label="会议设置" title="会议设置">${icon.settings}</button><button class="btn icon" data-act="meeting-close" aria-label="关闭会议侧栏" title="关闭会议侧栏">${icon.close}</button></div>
+      <div class="head-actions"><button class="btn icon" data-act="meeting-settings-tab" data-context="rail" aria-label="会议设置" title="会议设置">${icon.settings}</button><button class="btn icon" data-act="meeting-close" aria-label="关闭会议侧栏" title="关闭会议侧栏">${icon.close}</button></div>
     </div>
+    ${state.meetingPickerOpen ? `<div class="meeting-switcher">
+      <label class="search meeting-switcher-search">${icon.search}<input id="meetingSwitcherSearch" value="${esc(state.meetingPickerQuery)}" placeholder="搜索会议名称" aria-label="搜索会议"></label>
+      <div class="meeting-switch-list">
+        ${switchMeetings.length ? switchMeetings.map((item) => `<button class="meeting-switch-item ${item.id === meeting.id ? "active" : ""}" type="button" data-act="meeting-switch-select" data-id="${item.id}">
+          <span class="meeting-switch-copy"><strong>${esc(item.title)}</strong><small>${esc(item.id)} · ${esc(projectName(item.projectId))}</small></span>
+          <span class="pill ${item.status === "进行中" ? "progress" : item.status === "已结束" ? "done" : "muted"}">${esc(item.status)}</span>
+        </button>`).join("") : '<div class="empty" style="padding:14px">无匹配会议</div>'}
+      </div>
+      <div class="meeting-switch-footer"><button class="btn secondary small" type="button" data-act="meeting-center-open">会议中心 ${scopedMeetingOptions.length}</button></div>
+    </div>` : ""}
     <div class="rail-body">
       <div class="seg" role="tablist" aria-label="会议侧栏页签">
-        ${tabs.map(([key, label]) => `<button class="${state.meetingTab === key ? "active" : ""}" role="tab" aria-selected="${state.meetingTab === key}" data-act="meeting-tab" data-tab="${key}">${label}</button>`).join("")}
+        ${tabs.map(([key, label]) => `<button class="${state.railMeetingTab === key ? "active" : ""}" role="tab" aria-selected="${state.railMeetingTab === key}" data-act="meeting-tab" data-tab="${key}" data-context="rail">${label}</button>`).join("")}
       </div>
-      ${state.meetingTab === "summary" ? renderMeetingSummary(meeting) : ""}
-      ${state.meetingTab === "people" ? renderMeetingPeople(meeting) : ""}
-      ${state.meetingTab === "minutes" ? renderMeetingMinutes(meeting) : ""}
+      ${state.railMeetingTab === "conversation" ? renderMeetingConversation(meeting, "rail") : ""}
+      ${state.railMeetingTab === "summary" ? renderMeetingSummary(meeting, "rail") : ""}
+      ${state.railMeetingTab === "minutes" ? renderMeetingMinutes(meeting, "rail") : ""}
+      ${state.railMeetingTab === "settings" ? renderMeetingSettings(meeting, "rail") : ""}
     </div>
   </aside>`;
 }
-function renderMeetingSummary(meeting) {
+function renderMeetingSummary(meeting, context) {
+  const panelContext = context || "rail";
   return `
     <div class="section">
       <div class="section-head"><h3>会议概要</h3><span class="pill ${meeting.status === "进行中" ? "progress" : meeting.status === "已结束" ? "done" : "muted"}">${esc(meeting.status)}</span></div>
@@ -1396,19 +1543,97 @@ function renderMeetingSummary(meeting) {
         <div><span class="label">所属项目</span><span class="value">${esc(projectName(meeting.projectId))}</span></div>
         <div><span class="label">参与人</span><span class="value">${meeting.participants.length} 位</span></div>
       </div>
+      <button class="btn secondary small" data-act="meeting-tab" data-tab="conversation" data-context="${panelContext}">查看会议对话</button>
       <button class="btn secondary small" data-act="meeting-brief">生成会议简报</button>
       <button class="btn small" data-act="meeting-dispatch">派遣 AI 伙伴</button>
-    </div>`;
+    </div>
+    ${renderMeetingPeople(meeting, panelContext)}`;
 }
-function renderMeetingPeople(meeting) {
-  return `<div class="section">${sectionHead("参与人", { count: meeting.participants.length + " 位", actions: '<button class="btn secondary small" data-act="meeting-people-open">添加参与人</button>' })}
+
+function renderMeetingMessageText(text, mentionIds) {
+  let html = esc(text);
+  mentionIds.map(userById).sort((a, b) => b.name.length - a.name.length).forEach((user) => {
+    const token = `@${esc(user.name)}`;
+    html = html.split(token).join(`<mark>${token}</mark>`);
+  });
+  return html;
+}
+
+function renderMeetingConversation(meeting, context) {
+  const composerContext = context || "rail";
+  const isRail = composerContext === "rail";
+  const draft = isRail ? state.railMeetingDraft : state.meetingDraft;
+  const mentionOpen = isRail ? state.railMeetingMentionOpen : state.meetingMentionOpen;
+  const mentionQuery = isRail ? state.railMeetingMentionQuery : state.meetingMentionQuery;
+  const isJoined = meeting.participants.includes("olivia");
+  const canSend = meeting.status === "进行中" && isJoined;
+  const readonlyText = !isJoined
+    ? "你尚未加入该会议，暂不可发送消息"
+    : meeting.status === "已结束"
+      ? "会议已结束，对话记录只读"
+      : "会议尚未开始，暂不可发送消息";
+  const mentionCandidates = meeting.participants
+    .map(userById)
+    .filter((user) => user.id !== "olivia")
+    .filter((user) => !mentionQuery || `${user.name} ${user.title}`.toLowerCase().includes(mentionQuery.toLowerCase()));
+  return `<div class="meeting-chat">
+    <div class="meeting-history" id="meetingHistory-${composerContext}" role="log" aria-label="会议对话历史">
+      ${meeting.messages.length ? meeting.messages.map((message) => {
+        const sender = userById(message.senderId);
+        const self = sender.id === "olivia";
+        return `<article class="meeting-message ${self ? "self" : ""}">
+          ${avatar(sender, 24)}
+          <div class="meeting-message-body">
+            <div class="meeting-message-meta"><strong>${self ? "我" : esc(sender.name)}</strong>${sender.kind === "agent" ? '<span class="pill agent">AI</span>' : ""}<time>${esc(message.at)}</time></div>
+            <div class="meeting-bubble">${renderMeetingMessageText(message.text, message.mentions || [])}</div>
+          </div>
+        </article>`;
+      }).join("") : emptyState("会议尚未开始，当前没有对话记录。")}
+    </div>
+    ${canSend ? `<div class="meeting-composer" data-composer-context="${composerContext}">
+      ${mentionOpen ? `<div class="meeting-mention-menu" role="listbox" aria-label="选择要提及的参与人">
+        ${mentionCandidates.length ? mentionCandidates.map((user) => `<button class="meeting-mention-option" type="button" role="option" data-act="meeting-mention-select" data-id="${user.id}">${avatar(user, 24)}<span class="meeting-mention-copy"><strong>${esc(user.name)}</strong><small>${esc(user.title)}</small></span></button>`).join("") : '<div class="meeting-composer-readonly">没有匹配的参与人</div>'}
+      </div>` : ""}
+      <textarea id="meetingComposer-${composerContext}" data-act="meeting-composer" placeholder="输入消息，使用 @ 提及参与人">${esc(draft)}</textarea>
+      <div class="meeting-composer-toolbar">
+        <button class="meeting-at-btn" type="button" data-act="meeting-at-toggle" aria-expanded="${mentionOpen}" aria-label="提及会议参与人" title="提及会议参与人">@</button>
+        <button class="btn meeting-send-btn" type="button" data-act="meeting-send" aria-label="发送消息" title="发送消息" ${draft.trim() ? "" : "disabled"}>${icon.send}</button>
+      </div>
+    </div>` : `<div class="meeting-composer-readonly">${readonlyText}</div>`}
+  </div>`;
+}
+
+function scrollMeetingHistoryToBottom() {
+  $$(".meeting-history").forEach((history) => {
+    history.scrollTop = history.scrollHeight;
+  });
+}
+
+function renderMeetingPeople(meeting, context) {
+  const panelContext = context || "rail";
+  return `<div class="section">${sectionHead("参会人员", { count: meeting.participants.length + " 位", actions: `<button class="btn secondary small" data-act="meeting-people-open" data-context="${panelContext}">添加参与人</button>` })}
     <div class="list">${meeting.participants.map((id) => {
       const u = userById(id);
-      return `<div class="list-item">${avatar(u, 24)}<div class="list-copy"><strong>${esc(u.name)} ${u.kind === "agent" ? '<span class="pill agent">AI</span>' : ""}</strong><small>${esc(u.title)}</small></div><button class="btn secondary small" data-act="meeting-person-remove" data-id="${u.id}">移除</button></div>`;
+      return `<div class="list-item">${avatar(u, 24)}<div class="list-copy"><strong>${esc(u.name)} ${u.kind === "agent" ? '<span class="pill agent">AI</span>' : ""}</strong><small>${esc(u.title)}</small></div><button class="btn secondary small" data-act="meeting-person-remove" data-id="${u.id}" data-context="${panelContext}">移除</button></div>`;
     }).join("")}</div></div>`;
 }
-function renderMeetingMinutes(meeting) {
-  return `<div class="section"><div class="section-head"><h3>会议纪要</h3><button class="btn secondary small" data-act="meeting-generate">${meeting.minutes ? "更新纪要" : "生成纪要"}</button></div>
+
+function renderMeetingSettings(meeting, context) {
+  const settingsContext = context || "rail";
+  return `<div class="section">
+    ${sectionHead("会议设置", { count: meeting.status })}
+    <div class="meeting-settings-form ${settingsContext === "rail" ? "compact" : ""}">
+      <label class="field"><span class="label">会议主题</span><input class="input" id="meetingSettingsTitle-${settingsContext}" value="${esc(meeting.title)}"></label>
+      <label class="field"><span class="label">时间</span><input class="input" id="meetingSettingsTime-${settingsContext}" value="${esc(meeting.time)}"></label>
+      <label class="field wide"><span class="label">会议概要</span><textarea class="textarea" id="meetingSettingsSummary-${settingsContext}">${esc(meeting.summary)}</textarea></label>
+      <div class="meeting-settings-actions"><button class="btn small" type="button" data-act="meeting-settings-save" data-context="${settingsContext}">保存设置</button></div>
+    </div>
+  </div>`;
+}
+
+function renderMeetingMinutes(meeting, context) {
+  const panelContext = context || "rail";
+  return `<div class="section"><div class="section-head"><h3>会议纪要</h3><button class="btn secondary small" data-act="meeting-generate" data-context="${panelContext}">${meeting.minutes ? "更新纪要" : "生成纪要"}</button></div>
     ${meeting.minutes ? `<div class="report-card"><div class="report-head"><h3>${esc(meeting.title)} · 纪要</h3><small>刚刚生成</small></div><div class="markdown">${renderMarkdown(meeting.minutes)}</div></div>` : emptyState("尚未生成纪要多。可基于本场会议内容生成结构化纪要。")}</div>`;
 }
 
@@ -2337,20 +2562,92 @@ function renderNestedChildren(node, numbers) {
 
 /* ---------------- meetings ---------------- */
 function renderMeetings() {
-  const visible = MEETINGS.filter((meeting) => state.meetingFilter === "all"
+  const scoped = scopedMeetings();
+  const visible = scoped.filter((meeting) => state.meetingFilter === "all"
     || (state.meetingFilter === "ongoing" && meeting.status === "进行中")
-    || (state.meetingFilter === "completed" && meeting.status === "已结束"));
+    || (state.meetingFilter === "completed" && meeting.status === "已结束"))
+    .filter((meeting) => !state.meetingSearch || `${meeting.title} ${meeting.id} ${projectName(meeting.projectId)} ${meeting.summary}`.toLowerCase().includes(state.meetingSearch.toLowerCase()));
+  const selected = scoped.find((meeting) => meeting.id === state.meetingSelected) || visible[0] || scoped[0] || MEETINGS[0];
+  const directory = `
+    <div class="meeting-directory-toolbar">
+      <select class="select compact" data-act="meeting-status-filter" aria-label="按会议状态筛选">
+        <option value="all" ${state.meetingFilter === "all" ? "selected" : ""}>全部状态</option>
+        <option value="ongoing" ${state.meetingFilter === "ongoing" ? "selected" : ""}>进行中</option>
+        <option value="completed" ${state.meetingFilter === "completed" ? "selected" : ""}>已结束</option>
+      </select>
+      <label class="search">${icon.search}<input id="meetingSearch" value="${esc(state.meetingSearch)}" placeholder="搜索会议" aria-label="搜索会议"></label>
+      <button class="btn secondary icon" type="button" data-act="meeting-search-apply" aria-label="搜索会议" title="搜索会议">${icon.search}</button>
+    </div>
+    <div class="directory-title"><span>全部会议</span><span>${visible.length}</span></div>
+    <div class="list">${visible.map((meeting) => `<article class="todo-item ${meeting.id === selected.id ? "active" : ""}" data-act="meeting-center-select" data-id="${meeting.id}" role="button" tabindex="0" style="${meeting.id === selected.id ? "border-color:color-mix(in srgb,var(--dsw-alias-accent-primary) 55%,transparent);background:color-mix(in srgb,var(--dsw-alias-accent-primary) 10%,transparent)" : ""}">
+      <div class="todo-main">
+        <div class="todo-title"><span class="id">${esc(meeting.id)}</span><strong>${esc(meeting.title)}</strong></div>
+        <div class="todo-meta"><span class="pill ${meeting.status === "进行中" ? "progress" : meeting.status === "已结束" ? "done" : "muted"}">${esc(meeting.status)}</span><span>${esc(meeting.time)}</span></div>
+        <div class="hint" style="margin-top:4px">${esc(projectName(meeting.projectId))} · ${meeting.participants.length} 位参与人</div>
+      </div>
+      <div class="todo-trail"><span class="meta">${meeting.messages.length} 条</span></div>
+    </article>`).join("") || emptyState("没有匹配的会议。")}</div>`;
+  const detail = renderMeetingCenterDetail(selected);
   return `
-  <section class="page">
-    ${pageHead("会议", "", `<button class="btn secondary" data-act="meeting-rail-toggle">${state.meetingOpen ? "关闭侧栏" : "打开侧栏"}</button><button class="btn" data-act="create" data-entity="meeting">新建会议</button>`)}
-    <div class="toolbar"><div class="seg" role="tablist" aria-label="会议状态筛选"><button class="${state.meetingFilter === "all" ? "active" : ""}" role="tab" aria-selected="${state.meetingFilter === "all"}" data-act="meeting-filter" data-filter="all">全部</button><button class="${state.meetingFilter === "ongoing" ? "active" : ""}" role="tab" aria-selected="${state.meetingFilter === "ongoing"}" data-act="meeting-filter" data-filter="ongoing">进行中</button><button class="${state.meetingFilter === "completed" ? "active" : ""}" role="tab" aria-selected="${state.meetingFilter === "completed"}" data-act="meeting-filter" data-filter="completed">已结束</button></div><span class="spacer"></span><span class="meta">${visible.length} 场会议</span></div>
-    <div class="list">
-      ${visible.map((m) => `<article class="todo-item ${m.id === state.meetingSelected ? "active" : ""}" data-act="meeting-select" data-id="${m.id}" style="${m.id === state.meetingSelected ? "border-color:color-mix(in srgb,var(--dsw-alias-accent-primary) 55%,transparent);background:color-mix(in srgb,var(--dsw-alias-accent-primary) 10%,transparent)" : ""}" role="button" tabindex="0">
-        <div class="todo-main"><div class="todo-title"><span class="id">${esc(m.id)}</span><strong>${esc(m.title)}</strong><span class="pill ${m.status === "进行中" ? "progress" : m.status === "已结束" ? "done" : "muted"}">${esc(m.status)}</span></div><div class="todo-meta"><span>${esc(m.time)}</span><span>·</span><span>${esc(projectName(m.projectId))}</span><span>·</span><span>${m.participants.length} 位参与人</span></div><div class="hint" style="margin-top:5px">${esc(m.summary)}</div></div>
-        <div class="todo-trail"><button class="btn secondary small">详情</button></div>
-      </article>`).join("") || emptyState("没有匹配的会议。")}
+  <section class="page meeting-page">
+    ${pageHead("会议", "", `<div class="seg" role="tablist" aria-label="会议数据范围">
+      <button class="${state.meetingScope === "joined" ? "active" : ""}" role="tab" aria-selected="${state.meetingScope === "joined"}" data-act="meeting-scope" data-scope="joined">仅看已加入</button>
+      <button class="${state.meetingScope === "all" ? "active" : ""}" role="tab" aria-selected="${state.meetingScope === "all"}" data-act="meeting-scope" data-scope="all">平台全量</button>
+    </div><button class="btn" data-act="create" data-entity="meeting">新建会议</button>`)}
+    <div class="meeting-workspace ${state.meetingOpen ? "rail-open" : ""}">
+      <aside class="directory">${directory}</aside>
+      <main class="detail">${detail}</main>
+      ${state.meetingOpen ? "" : renderMeetingContextPanel(selected)}
     </div>
   </section>`;
+}
+
+function renderMeetingContextPanel(meeting) {
+  const aiCount = meeting.participants.map(userById).filter((user) => user.kind === "agent").length;
+  return `<aside class="meeting-context" aria-label="会议上下文">
+    <div class="section">
+      ${sectionHead("会议概要", { count: meeting.status })}
+      <p class="hint">${esc(meeting.summary)}</p>
+      <div class="meeting-context-facts">
+        <div class="fact"><span>所属项目</span><strong>${esc(projectName(meeting.projectId))}</strong></div>
+        <div class="fact"><span>参会人数</span><strong>${meeting.participants.length} 位</strong></div>
+        <div class="fact"><span>AI 伙伴</span><strong>${aiCount} 位</strong></div>
+        <div class="fact"><span>对话消息</span><strong>${meeting.messages.length} 条</strong></div>
+      </div>
+      <div class="meeting-context-actions">
+        <button class="btn secondary small" type="button" data-act="meeting-brief">生成简报</button>
+        <button class="btn secondary small" type="button" data-act="meeting-dispatch">派遣 AI</button>
+        <button class="btn secondary small" type="button" data-act="meeting-people-open" data-context="center">邀请成员</button>
+      </div>
+    </div>
+    <div class="section">
+      ${sectionHead("参会人员", { count: `${meeting.participants.length} 位` })}
+      <div class="meeting-context-people">
+        ${meeting.participants.map((id) => {
+          const user = userById(id);
+          return `<div class="list-item">${avatar(user, 24)}<div class="list-copy"><strong>${esc(user.name)} ${user.kind === "agent" ? '<span class="pill agent">AI</span>' : ""}</strong><small>${esc(user.title)}</small></div></div>`;
+        }).join("")}
+      </div>
+    </div>
+  </aside>`;
+}
+
+function renderMeetingCenterDetail(meeting) {
+  const tabs = [["conversation", "对话"], ["minutes", "纪要"], ["settings", "设置"]];
+  const activeTab = tabs.some(([key]) => key === state.meetingTab) ? state.meetingTab : "conversation";
+  const content = activeTab === "minutes"
+    ? renderMeetingMinutes(meeting, "center")
+    : activeTab === "settings"
+      ? renderMeetingSettings(meeting, "center")
+      : renderMeetingConversation(meeting, "center");
+  return `${detailHead(meeting.title, {
+    pills: `<span class="pill ${meeting.status === "进行中" ? "progress" : meeting.status === "已结束" ? "done" : "muted"}">${esc(meeting.status)}</span>`,
+    meta: `${esc(meeting.time)} · ${esc(projectName(meeting.projectId))} · ${meeting.participants.length} 位参与人`
+  })}
+  <div class="seg" role="tablist" aria-label="会议工作区页签">
+    ${tabs.map(([key, label]) => `<button class="${activeTab === key ? "active" : ""}" role="tab" aria-selected="${activeTab === key}" data-act="meeting-tab" data-tab="${key}" data-context="center">${label}</button>`).join("")}
+  </div>
+  <div class="meeting-center-content">${content}</div>`;
 }
 
 /* ---------------- teammates ---------------- */
@@ -2674,14 +2971,14 @@ function renderMetricSettingsModal() {
     <div class="modal-foot"><button class="btn secondary small" data-act="modal-close">取消</button><button class="btn small" data-act="metric-settings-save">保存</button></div>`;
 }
 function renderMeetingPeopleModal() {
-  const meeting = meetingById(state.meetingSelected);
+  const meeting = meetingForContext(state.meetingActionContext || "center");
   const candidates = USERS.filter((user) => !meeting.participants.includes(user.id));
   return `<p class="hint">选择要加入「${esc(meeting.title)}」的参与人。</p>
     <div class="checkboxes">${candidates.map((user) => `<label class="checkbox"><input type="checkbox" name="meetingPerson" value="${user.id}">${esc(user.name)} · ${user.kind === "agent" ? "AI 伙伴" : "真人员工"}</label>`).join("") || emptyState("所有成员都已在会议中。")}</div>
     <div class="modal-foot"><button class="btn secondary small" data-act="modal-close">取消</button><button class="btn small" data-act="meeting-people-add">添加参与人</button></div>`;
 }
 function renderMeetingSettingsModal() {
-  const meeting = meetingById(state.meetingSelected);
+  const meeting = meetingForContext(state.meetingActionContext || "center");
   return `<div class="form-grid">
     <label class="field"><span class="label">会议主题</span><input class="input" id="meetingSettingsTitle" value="${esc(meeting.title)}"></label>
     <label class="field"><span class="label">时间</span><input class="input" id="meetingSettingsTime" value="${esc(meeting.time)}"></label>
@@ -2898,12 +3195,22 @@ document.addEventListener("click", (event) => {
   const act = el.dataset.act;
   switch (act) {
     case "nav":
+      if (el.dataset.view === "meetings") {
+        state.view = "meetings";
+        state.meetingOpen = false;
+        state.meetingTab = "conversation";
+        state.meetingPickerOpen = false;
+        state.meetingPickerQuery = "";
+        renderApp();
+        requestAnimationFrame(scrollMeetingHistoryToBottom);
+        break;
+      }
       state.view = el.dataset.view;
       state.projectManage = false;
       state.projectTemplateOpen = false;
       state.wfDeliveryNodeId = "";
       state.wfDeliveryAnchor = null;
-      if (state.view !== "meetings") state.meetingOpen = false;
+      state.meetingOpen = false;
       renderApp();
       break;
     case "ws-project":
@@ -3346,7 +3653,7 @@ document.addEventListener("click", (event) => {
     case "wf-node-expand-all": state.workflowNodeId = "none"; renderApp(); break;
     case "wf-output-action": toast(`${el.dataset.kind === "file" || el.dataset.kind === "document" ? "已下载" : "已复制"}：${el.dataset.name}`); break;
     case "wf-open-task": state.taskSelected = el.dataset.id; renderDrawer(); break;
-    case "wf-open-meeting": state.meetingSelected = el.dataset.id; state.meetingOpen = true; renderApp(); break;
+    case "wf-open-meeting": state.meetingSelected = el.dataset.id; state.meetingOpen = true; state.meetingTab = "conversation"; state.meetingDraft = ""; state.meetingMentionOpen = false; state.meetingMentionQuery = ""; state.meetingPickerOpen = false; state.meetingPickerQuery = ""; renderApp(); requestAnimationFrame(scrollMeetingHistoryToBottom); break;
     case "wf-deliverable-open": toast("已打开交付物（演示）"); break;
     case "wf-template-open": openModal("wf-template"); break;
     case "wft-select": state.wfTemplateSelected = el.dataset.id; renderModal(); break;
@@ -3407,35 +3714,185 @@ document.addEventListener("click", (event) => {
 
     case "meeting-open":
     case "meeting-select":
-      state.view = "meetings";
-      state.meetingSelected = el.dataset.id;
+      state.railMeetingSelected = el.dataset.id;
       state.meetingOpen = true;
+      state.railMeetingTab = "conversation";
+      state.railMeetingDraft = "";
+      state.railMeetingMentionOpen = false;
+      state.railMeetingMentionQuery = "";
+      state.meetingPickerOpen = false;
+      state.meetingPickerQuery = "";
+      renderApp();
+      requestAnimationFrame(scrollMeetingHistoryToBottom);
+      break;
+    case "meeting-center-select":
+      state.meetingSelected = el.dataset.id;
+      state.meetingTab = "conversation";
+      state.meetingDraft = "";
+      state.meetingMentionOpen = false;
+      state.meetingMentionQuery = "";
+      renderApp();
+      requestAnimationFrame(scrollMeetingHistoryToBottom);
+      break;
+    case "meeting-center-open":
+      state.view = "meetings";
+      state.meetingOpen = false;
+      state.meetingTab = "conversation";
+      state.meetingPickerOpen = false;
+      state.meetingPickerQuery = "";
+      renderApp();
+      requestAnimationFrame(scrollMeetingHistoryToBottom);
+      break;
+    case "meeting-rail-toggle": state.meetingOpen = !state.meetingOpen; state.railMeetingMentionOpen = false; state.railMeetingMentionQuery = ""; state.meetingPickerOpen = false; state.meetingPickerQuery = ""; renderApp(); if (state.railMeetingTab === "conversation") requestAnimationFrame(scrollMeetingHistoryToBottom); break;
+    case "meeting-filter": state.meetingFilter = el.dataset.filter; renderApp(); break;
+    case "meeting-search-apply": renderApp(); break;
+    case "meeting-scope": {
+      state.meetingScope = el.dataset.scope;
+      const options = scopedMeetings();
+      if (!options.some((meeting) => meeting.id === state.meetingSelected)) {
+        state.meetingSelected = (options.find((meeting) => meeting.status === "进行中") || options[0] || MEETINGS[0]).id;
+      }
+      if (!options.some((meeting) => meeting.id === state.railMeetingSelected)) {
+        state.railMeetingSelected = (options.find((meeting) => meeting.status === "进行中") || options[0] || MEETINGS[0]).id;
+        state.railMeetingTab = "conversation";
+      }
+      state.meetingTab = "conversation";
+      renderApp();
+      requestAnimationFrame(scrollMeetingHistoryToBottom);
+      break;
+    }
+    case "meeting-close": state.meetingOpen = false; state.meetingPickerOpen = false; state.meetingPickerQuery = ""; renderApp(); break;
+    case "meeting-picker-toggle":
+      state.meetingPickerOpen = !state.meetingPickerOpen;
+      if (!state.meetingPickerOpen) state.meetingPickerQuery = "";
+      renderApp(state.meetingPickerOpen ? "meetingSwitcherSearch" : "");
+      break;
+    case "meeting-switch-select":
+      state.railMeetingSelected = el.dataset.id;
+      state.meetingPickerOpen = false;
+      state.meetingPickerQuery = "";
+      state.railMeetingTab = "conversation";
+      state.railMeetingDraft = "";
+      state.railMeetingMentionOpen = false;
+      state.railMeetingMentionQuery = "";
+      renderApp();
+      requestAnimationFrame(scrollMeetingHistoryToBottom);
+      break;
+    case "meeting-settings-tab":
+      var settingsTabContext = el.dataset.context || "center";
+      setMeetingTabForContext(settingsTabContext, "settings");
+      if (settingsTabContext === "rail") {
+        state.railMeetingMentionOpen = false;
+        state.railMeetingMentionQuery = "";
+      } else {
+        state.meetingMentionOpen = false;
+        state.meetingMentionQuery = "";
+      }
+      state.meetingPickerOpen = false;
+      state.meetingPickerQuery = "";
       renderApp();
       break;
-    case "meeting-rail-toggle": state.meetingOpen = !state.meetingOpen; renderApp(); break;
-    case "meeting-filter": state.meetingFilter = el.dataset.filter; renderApp(); break;
-    case "meeting-close": state.meetingOpen = false; renderApp(); break;
-    case "meeting-tab": state.meetingTab = el.dataset.tab; renderApp(); break;
+    case "meeting-tab":
+      var tabContext = el.dataset.context || "center";
+      setMeetingTabForContext(tabContext, el.dataset.tab);
+      if (tabContext === "rail") {
+        state.railMeetingMentionOpen = false;
+        state.railMeetingMentionQuery = "";
+      } else {
+        state.meetingMentionOpen = false;
+        state.meetingMentionQuery = "";
+      }
+      state.meetingPickerOpen = false;
+      state.meetingPickerQuery = "";
+      renderApp();
+      if (el.dataset.tab === "conversation") requestAnimationFrame(scrollMeetingHistoryToBottom);
+      break;
+    case "meeting-at-toggle":
+      var meetingComposerContext = el.closest(".meeting-composer")?.dataset.composerContext || "rail";
+      if (meetingComposerContext === "rail") {
+        state.railMeetingMentionOpen = !state.railMeetingMentionOpen;
+        state.railMeetingMentionQuery = "";
+      } else {
+        state.meetingMentionOpen = !state.meetingMentionOpen;
+        state.meetingMentionQuery = "";
+      }
+      renderApp(`meetingComposer-${meetingComposerContext}`);
+      break;
+    case "meeting-mention-select": {
+      var mentionComposerContext = el.closest(".meeting-composer")?.dataset.composerContext || "rail";
+      const user = userById(el.dataset.id);
+      const draft = mentionComposerContext === "rail" ? state.railMeetingDraft : state.meetingDraft;
+      const lastAt = draft.lastIndexOf("@");
+      const prefix = lastAt >= 0 ? draft.slice(0, lastAt) : `${draft}${draft && !draft.endsWith(" ") ? " " : ""}`;
+      if (mentionComposerContext === "rail") {
+        state.railMeetingDraft = `${prefix}@${user.name} `;
+        state.railMeetingMentionOpen = false;
+        state.railMeetingMentionQuery = "";
+      } else {
+        state.meetingDraft = `${prefix}@${user.name} `;
+        state.meetingMentionOpen = false;
+        state.meetingMentionQuery = "";
+      }
+      renderApp(`meetingComposer-${mentionComposerContext}`);
+      const composer = $(`#meetingComposer-${mentionComposerContext}`);
+      if (composer) {
+        composer.focus();
+        composer.setSelectionRange(composer.value.length, composer.value.length);
+      }
+      break;
+    }
+    case "meeting-send": {
+      var sendComposerContext = el.closest(".meeting-composer")?.dataset.composerContext || "rail";
+      const meeting = meetingForContext(sendComposerContext);
+      const draft = (sendComposerContext === "rail" ? state.railMeetingDraft : state.meetingDraft).trim();
+      if (!draft) { toast("请输入会议消息", "error"); break; }
+      const mentionIds = meeting.participants.map(userById).filter((user) => draft.includes(`@${user.name}`)).map((user) => user.id);
+      meeting.messages.push({ id: `MM-${Date.now()}`, senderId: "olivia", at: "刚刚", text: draft, mentions: mentionIds });
+      const mentionedAgent = mentionIds.map(userById).find((user) => user.kind === "agent");
+      if (mentionedAgent) {
+        meeting.messages.push({ id: `MM-${Date.now() + 1}`, senderId: mentionedAgent.id, at: "刚刚", text: `收到，我会围绕当前会议内容整理后回复。`, mentions: [] });
+      }
+      if (sendComposerContext === "rail") {
+        state.railMeetingDraft = "";
+        state.railMeetingMentionOpen = false;
+        state.railMeetingMentionQuery = "";
+      } else {
+        state.meetingDraft = "";
+        state.meetingMentionOpen = false;
+        state.meetingMentionQuery = "";
+      }
+      renderApp();
+      requestAnimationFrame(scrollMeetingHistoryToBottom);
+      toast(mentionedAgent ? `消息已发送，并已通知 ${mentionedAgent.name}` : "消息已发送");
+      break;
+    }
     case "meeting-generate": {
-      const m = meetingById(state.meetingSelected);
+      const m = meetingForContext(el.dataset.context || "center");
       m.minutes = `## ${m.title} · 会议结论\n\n1. 当前风险与责任人已同步。\n2. 需要在本周内确认的事项已记录。\n\n## 待办\n\n- 责任人在今日 16:00 前反馈。\n- 下一次检查点安排在本周五。`;
       renderApp(); toast("已生成会议纪要");
       break;
     }
     case "meeting-brief": toast("已生成会议简报"); break;
     case "meeting-dispatch": toast("已派遣 Research Avatar 进入会议"); break;
-    case "meeting-people-open": openModal("meeting-people"); break;
-    case "meeting-settings-open": openModal("meeting-settings"); break;
+    case "meeting-people-open":
+      state.meetingActionContext = el.dataset.context || "center";
+      openModal("meeting-people");
+      break;
+    case "meeting-settings-open": state.meetingTab = "settings"; renderApp(); break;
     case "meeting-settings-save": {
-      const meeting = meetingById(state.meetingSelected);
-      meeting.title = ($("#meetingSettingsTitle")?.value || "").trim() || meeting.title;
-      meeting.time = ($("#meetingSettingsTime")?.value || "").trim() || meeting.time;
-      meeting.summary = ($("#meetingSettingsSummary")?.value || "").trim() || meeting.summary;
-      closeModal(); renderApp(); toast("已保存会议设置");
+      const settingsContext = el.dataset.context || "rail";
+      const meeting = meetingForContext(settingsContext);
+      meeting.title = ($(`#meetingSettingsTitle-${settingsContext}`)?.value || "").trim() || meeting.title;
+      meeting.time = ($(`#meetingSettingsTime-${settingsContext}`)?.value || "").trim() || meeting.time;
+      meeting.summary = ($(`#meetingSettingsSummary-${settingsContext}`)?.value || "").trim() || meeting.summary;
+      const wasModal = Boolean(state.modal);
+      if (wasModal) closeModal();
+      renderApp();
+      toast("已保存会议设置");
       break;
     }
     case "meeting-people-add": {
-      const meeting = meetingById(state.meetingSelected);
+      const meeting = meetingForContext(state.meetingActionContext || "center");
       const ids = $$('input[name="meetingPerson"]:checked').map((input) => input.value);
       if (ids.length === 0) { toast("请选择要添加的参与人", "error"); break; }
       meeting.participants = [...new Set([...meeting.participants, ...ids])];
@@ -3443,7 +3900,7 @@ document.addEventListener("click", (event) => {
       break;
     }
     case "meeting-person-remove": {
-      const meeting = meetingById(state.meetingSelected);
+      const meeting = meetingForContext(el.dataset.context || "center");
       meeting.participants = meeting.participants.filter((id) => id !== el.dataset.id);
       renderApp(); toast("已移除参与人");
       break;
@@ -3492,7 +3949,13 @@ document.addEventListener("click", (event) => {
         PROJECTS.push({ id, name, code: "PRJ-" + String(PROJECTS.length + 1).padStart(3, "0"), workspaceId: "ws-" + id, path: "/Users/oliviayang/Codex/一切皆插件/" + id, owner: "Olivia", status: "进行中", health: "健康", progress: 0, start: today, target: dateOffset(60), desc: "新建项目，待补充项目说明。", roles: rolesFromLibrary(["r-owner", "r-req", "r-dev", "r-review", "r-qa", "r-research"]), workflowTemplates: ["wt-employee", "wt-gui"], members: [{ userId: "olivia", workspaceRole: "负责人", projectRoles: ["r-owner"], scope: "项目、成员、任务、工作流" }], reports: [] });
         state.projectId = id; state.view = "projects";
       } else if (entity === "meeting") {
-        MEETINGS.push({ id: "MTG-" + (130 + MEETINGS.length), title: name, projectId: $("#createProject")?.value || "p-plugin", time: "今天 18:00 - 18:30", status: "未开始", participants: ["olivia"], summary: "新建会议，待补充议题。", minutes: "" });
+        const id = "MTG-" + (130 + MEETINGS.length);
+        MEETINGS.push({ id, title: name, projectId: $("#createProject")?.value || "p-plugin", time: "今天 18:00 - 18:30", status: "未开始", participants: ["olivia"], summary: "新建会议，待补充议题。", minutes: "", messages: [] });
+        state.meetingSelected = id;
+        state.meetingTab = "conversation";
+        state.meetingFilter = "all";
+        state.meetingSearch = "";
+        state.view = "meetings";
       } else {
         TEAMMATES.push({ id: "tm-" + Date.now(), name, profile: "研究分析基础模板", owner: "Olivia", status: "待命", version: "v1.0", desc: "新建 AI 伙伴，待补充职责描述。", soul: "只处理已授权的工作。", tools: ["docs", "task"], scopes: ["工作区：一切皆插件"] });
       }
@@ -3536,6 +3999,22 @@ document.addEventListener("input", (event) => {
   else if (el.id === "planDraft") { state.planDraft = el.value; }
   else if (el.id === "ptSearch") { state.projectTemplateSearch = el.value; renderApp("ptSearch"); }
   else if (el.id === "tmSearch") { state.teammateSearch = el.value; renderApp("tmSearch"); }
+  else if (el.id === "meetingSearch") { state.meetingSearch = el.value; renderApp("meetingSearch"); }
+  else if (el.id === "meetingSwitcherSearch") { state.meetingPickerQuery = el.value; renderApp("meetingSwitcherSearch"); }
+  else if (el.id.startsWith("meetingComposer")) {
+    const composerContext = el.closest(".meeting-composer")?.dataset.composerContext || "rail";
+    const mentionMatch = el.value.match(/@([^@\s]*)$/);
+    if (composerContext === "rail") {
+      state.railMeetingDraft = el.value;
+      state.railMeetingMentionOpen = Boolean(mentionMatch);
+      state.railMeetingMentionQuery = mentionMatch ? mentionMatch[1] : "";
+    } else {
+      state.meetingDraft = el.value;
+      state.meetingMentionOpen = Boolean(mentionMatch);
+      state.meetingMentionQuery = mentionMatch ? mentionMatch[1] : "";
+    }
+    renderApp(el.id);
+  }
   else if (el.dataset.act === "font-size") {
     state.fontSize = Number(el.value);
     applyPreferences();
@@ -3556,6 +4035,7 @@ document.addEventListener("change", (event) => {
   else if (act === "task-source") { state.taskSource = el.value; renderApp(); }
   else if (act === "wf-project") { state.wfProject = el.value; renderApp(); }
   else if (act === "wf-status") { state.wfStatus = el.value; renderApp(); }
+  else if (act === "meeting-status-filter") { state.meetingFilter = el.value; renderApp(); }
   else if (act === "project-report-from") { state.projectReportFrom = el.value; renderApp(); }
   else if (act === "project-report-to") { state.projectReportTo = el.value; renderApp(); }
   else if (act === "report-from") { state.reportFrom = el.value; renderApp(); }
@@ -3568,6 +4048,24 @@ document.addEventListener("change", (event) => {
 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
+    if (state.meetingPickerOpen) {
+      state.meetingPickerOpen = false;
+      state.meetingPickerQuery = "";
+      renderApp();
+      return;
+    }
+    if (state.meetingMentionOpen || state.railMeetingMentionOpen) {
+      var escapeComposerContext = document.activeElement?.closest(".meeting-composer")?.dataset.composerContext || "rail";
+      if (escapeComposerContext === "rail") {
+        state.railMeetingMentionOpen = false;
+        state.railMeetingMentionQuery = "";
+      } else {
+        state.meetingMentionOpen = false;
+        state.meetingMentionQuery = "";
+      }
+      renderApp(`meetingComposer-${escapeComposerContext}`);
+      return;
+    }
     if (state.wfDeliveryNodeId) {
       closeWorkflowDeliveryPopover();
       renderApp();

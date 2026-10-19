@@ -132,9 +132,15 @@ describe("dsh-collab-task service", () => {
     expect(claimed.receiverId).toBe("olivia");
     expect(claimed.status).toBe("progress");
 
+    await tasks.toggleStep(olivia, {
+      taskId: created.id,
+      stepId: created.steps[0]!.id,
+      done: true,
+    });
     const review = await tasks.submit(olivia, created.id);
     expect(review.status).toBe("review");
     expect(review.progress).toBeGreaterThanOrEqual(86);
+    expect(review.steps.map((step) => step.done)).toEqual([true, false]);
 
     const commented = await tasks.addComment(olivia, {
       taskId: created.id,
@@ -152,6 +158,62 @@ describe("dsh-collab-task service", () => {
     const done = await tasks.approve(olivia, created.id);
     expect(done.status).toBe("done");
     expect(done.progress).toBe(100);
+  });
+
+  it("refuses review submission without a completed acceptance item", async () => {
+    const tasks = service();
+    const created = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Acceptance check",
+      priority: "P2",
+      status: "progress",
+      receiverType: "human",
+      receiverId: "olivia",
+      receiverName: "Olivia",
+      description: "Do not submit an empty acceptance state.",
+      acceptance: ["Scope checked", "Risk recorded"],
+    });
+
+    await expect(tasks.submit(olivia, created.id)).rejects.toMatchObject({
+      code: "conflict",
+      message: "提交验收前至少需要完成一项验收标准",
+    });
+    const unchanged = tasks.get(created.id);
+    expect(unchanged.status).toBe("progress");
+    expect(unchanged.steps.map((step) => step.done)).toEqual([false, false]);
+  });
+
+  it("requires all acceptance items before a no-review task can close", async () => {
+    const tasks = service();
+    const created = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "No review acceptance",
+      priority: "P2",
+      status: "progress",
+      receiverType: "human",
+      receiverId: "olivia",
+      receiverName: "Olivia",
+      description: "All acceptance items gate direct completion.",
+      acceptance: ["Scope checked", "Risk recorded"],
+      autoSubmitReview: false,
+    });
+    await tasks.toggleStep(olivia, {
+      taskId: created.id,
+      stepId: created.steps[0]!.id,
+      done: true,
+    });
+    await expect(tasks.submit(olivia, created.id)).rejects.toMatchObject({
+      code: "conflict",
+      message: "标记任务完成前需勾选全部验收标准",
+    });
+    await tasks.toggleStep(olivia, {
+      taskId: created.id,
+      stepId: created.steps[1]!.id,
+      done: true,
+    });
+    const completed = await tasks.submit(olivia, created.id);
+    expect(completed.status).toBe("done");
+    expect(completed.progress).toBe(100);
   });
 
   it("rejects invalid create input", async () => {
@@ -1668,6 +1730,71 @@ describe("teammate task assignment", () => {
       contextId: task.id,
     });
   });
+
+  it("leaves workflow Agent dispatch to the workflow bridge after reassignment", async () => {
+    const { tasks, route, dispatched } = contextHarness();
+    const assigned: Array<{
+      receiverType: string;
+      receiverId?: string | undefined;
+    }> = [];
+    tasks.bindWorkflowActions({
+      assign: async () => undefined,
+      assigned: async (task) => {
+        assigned.push({
+          receiverType: task.receiverType,
+          receiverId: task.receiverId,
+        });
+      },
+      decide: async () => undefined,
+      submit: async () => undefined,
+    });
+    const task = await tasks.create(
+      { id: "admin", name: "Admin", kind: "human", role: "admin" },
+      {
+        workspaceId: "workspace-1",
+        title: "工作流测试设计",
+        priority: "P2",
+        receiverType: "human",
+        receiverId: "admin",
+        receiverName: "Admin",
+        description: "由工作流节点驱动",
+        acceptance: ["完成测试设计"],
+        workflow: {
+          instanceId: "wf-1",
+          nodeId: "test-design",
+          instanceTitle: "交付流程",
+          nodeName: "测试文档设计",
+          nodeAttempt: 1,
+          reviewRequired: true,
+        },
+      },
+    );
+
+    const response = fakeResponse();
+    await route("/api/collab/tasks/assign").handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/assign",
+        body: {
+          taskId: task.id,
+          receiverType: "agent",
+          receiverId: "tm-1",
+          receiverName: "测小白",
+        },
+      }),
+      response.response,
+    );
+
+    expect(response.read().status).toBe(200);
+    expect(tasks.get(task.id)).toMatchObject({
+      receiverType: "agent",
+      receiverId: "tm-1",
+      receiverName: "测小白",
+    });
+    expect(assigned).toEqual([{ receiverType: "agent", receiverId: "tm-1" }]);
+    // 关键回归：工作流任务不能再生成 instanceId=taskId 的普通任务 run。
+    expect(dispatched).toHaveLength(0);
+  });
 });
 
 describe("project role tasks", () => {
@@ -1791,6 +1918,21 @@ describe("project role tasks", () => {
       bob.response,
     );
     expect(bob.read().status).toBe(403);
+
+    const start = routes.find(
+      (route) => route.path === "/api/collab/tasks/action",
+    );
+    const prematureStart = fakeResponse();
+    await start?.handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/action",
+        body: { taskId: created.id, action: "start" },
+      }),
+      prematureStart.response,
+    );
+    expect(prematureStart.read().status).toBe(409);
+    expect(tasks.get(created.id).status).toBe("todo");
 
     const alice = fakeResponse();
     await claim?.handler(
@@ -2490,6 +2632,7 @@ describe("task cross-agent mention", () => {
     const result = await postMessage(harness, {
       taskId: task.id,
       content: "@柯真 01 测试 @陆行01 开发 你们看下这个PRD是否可以进入开发",
+      deliveryTarget: "collaborators",
       mentions: [
         { kind: "agent", id: "tm-qa", name: "柯真 01 测试" },
         { kind: "agent", id: "tm-dev", name: "陆行01 开发" },
@@ -2529,6 +2672,42 @@ describe("task cross-agent mention", () => {
     expect(route("/api/collab/tasks/message")).toBeDefined();
   });
 
+  it("keeps a completed task done when only collaborator agents are mentioned", async () => {
+    const harness = contextHarness();
+    const { tasks, dispatched } = harness;
+    const task = await createAssignedTask(harness);
+    const admin = { id: "admin", name: "Admin", kind: "human" as const };
+    await tasks.start(admin, task.id);
+    await tasks.approve(admin, task.id);
+    expect(tasks.get(task.id).status).toBe("done");
+    dispatched.length = 0;
+
+    const result = await postMessage(harness, {
+      taskId: task.id,
+      content: "@柯真 01 测试 @陆行01 开发 你们看下这个PRD是否可以进入开发",
+      deliveryTarget: "collaborators",
+      mentions: [
+        { kind: "agent", id: "tm-qa", name: "柯真 01 测试" },
+        { kind: "agent", id: "tm-dev", name: "陆行01 开发" },
+      ],
+    });
+
+    expect(result.status).toBe(200);
+    expect(result.body?.dispatched).toBe(false);
+    expect((result.body?.task as { status?: string } | undefined)?.status).toBe(
+      "done",
+    );
+    expect(tasks.get(task.id).status).toBe("done");
+    expect(dispatched).toHaveLength(2);
+    expect(
+      tasks
+        .get(task.id)
+        .events.filter((event) => event.kind === "message")
+        .slice(-2)
+        .map((event) => event.message),
+    ).toEqual(["柯真 01 测试 开始协作执行", "陆行01 开发 开始协作执行"]);
+  });
+
   it("still runs the assignee when the message also mentions it", async () => {
     const harness = contextHarness();
     const { dispatched } = harness;
@@ -2538,6 +2717,7 @@ describe("task cross-agent mention", () => {
     const result = await postMessage(harness, {
       taskId: task.id,
       content: "@测小白 你先给出结论，@柯真 01 测试 也一起看下",
+      deliveryTarget: "broadcast",
       mentions: [
         { kind: "agent", id: "tm-1", name: "测小白" },
         { kind: "agent", id: "tm-qa", name: "柯真 01 测试" },
@@ -2550,6 +2730,34 @@ describe("task cross-agent mention", () => {
     ]);
     expect(dispatched[1]?.payload.context.taskReceiverId).toBe("tm-1");
     expect(dispatched[1]?.payload.context.triggerMessageId).not.toBe("");
+  });
+
+  it("honors an explicit receiver target instead of inferring from mentions", async () => {
+    const harness = contextHarness();
+    const { tasks, dispatched } = harness;
+    const task = await createAssignedTask(harness);
+    const admin = { id: "admin", name: "Admin", kind: "human" as const };
+    await tasks.start(admin, task.id);
+    await tasks.approve(admin, task.id);
+    dispatched.length = 0;
+
+    const result = await postMessage(harness, {
+      taskId: task.id,
+      content: "@柯真 01 测试 请协作，同时责任人继续处理",
+      deliveryTarget: "receiver",
+      mentions: [{ kind: "agent", id: "tm-qa", name: "柯真 01 测试" }],
+    });
+
+    expect(result.status).toBe(200);
+    expect(result.body?.dispatched).toBeUndefined();
+    expect(dispatched.map((item) => item.payload.context.taskRunRole)).toEqual([
+      "owner",
+    ]);
+    expect(tasks.get(task.id).status).toBe("progress");
+    expect(
+      tasks.get(task.id).messages.find((message) => message.kind === "human")
+        ?.deliveryTarget,
+    ).toBe("receiver");
   });
 
   it("keeps the task lifecycle untouched when a mentioned agent reports back", async () => {

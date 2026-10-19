@@ -10,7 +10,16 @@ window.__ModuleLoader__.load({
     /* ── constants ── */
 
     const TOKEN_KEY = "pluginmax.collab.token";
-    const PANEL_WIDTH = 380;
+    const PANEL_WIDTH = 410;
+    const SYSTEM_DEFAULT_WORKSPACE_ID = "system.default";
+    const SYSTEM_DEFAULT_WORKSPACE = {
+      id: SYSTEM_DEFAULT_WORKSPACE_ID,
+      title: "默认项目",
+      path: "",
+      isMember: true,
+      memberRole: "member",
+      ownerId: "system",
+    };
 
     /* ── module-level store (open/close shared by toggle + panel) ── */
 
@@ -320,8 +329,6 @@ window.__ModuleLoader__.load({
         ...paths.map((d, index) => h("path", { key: index, d })),
       );
 
-    const backArrowIcon = () => svgIcon(["M19 12H5", "m12 19-7-7 7-7"]);
-
     /** 会议切换操作位：只用放大镜图标，不加矩形边线。 */
     const searchIcon = (size = 14) =>
       h(
@@ -341,25 +348,7 @@ window.__ModuleLoader__.load({
         h("path", { d: "m21 21-4.3-4.3" }),
       );
 
-    const gearIcon = () =>
-      h(
-        "svg",
-        {
-          viewBox: "0 0 24 24",
-          width: 15,
-          height: 15,
-          fill: "none",
-          stroke: "currentColor",
-          strokeWidth: 1.7,
-          strokeLinecap: "round",
-          strokeLinejoin: "round",
-          "aria-hidden": true,
-        },
-        h("circle", { cx: 12, cy: 12, r: 3 }),
-        h("path", {
-          d: "M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.33.4.6.73.75H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z",
-        }),
-      );
+    const closeIcon = () => svgIcon(["M18 6 6 18", "m6 6 12 12"], 14);
 
     const clipIcon = () =>
       svgIcon(
@@ -406,6 +395,29 @@ window.__ModuleLoader__.load({
         }),
         h("rect", { x: 2, y: 6, width: 14, height: 12, rx: 2 }),
       );
+
+    const sendIcon = () =>
+      svgIcon(["m22 2-7 20-4-9-9-4Z", "M22 2 11 13"], 13);
+
+    const downloadIcon = () =>
+      svgIcon(["M12 3v12", "m7 10 5 5 5-5", "M5 21h14"], 12);
+
+    const downloadMinutesMarkdown = (meeting, version) => {
+      const content = String(version?.content ?? "");
+      if (content.trim() === "") return;
+      const safeTitle = String(meeting?.title ?? "会议")
+        .replace(/[\\/:*?"<>|]/g, "_")
+        .trim();
+      const filename = `${safeTitle || "会议"}-会议纪要-v${version.version}.md`;
+      const url = URL.createObjectURL(
+        new Blob([content], { type: "text/markdown;charset=utf-8" }),
+      );
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    };
 
     /** 姓名缩写：与任务管理页同一套规则（按空格分词，取前两段首字母）。 */
     const initials = (value) =>
@@ -685,6 +697,26 @@ window.__ModuleLoader__.load({
       );
     };
 
+    const participantAvatarNode = (participant, teammates) => {
+      if (participant.kind === "human") {
+        return h(
+          "span",
+          { style: initialsAvatarStyle },
+          initials(participant.displayName),
+        );
+      }
+      const teammate = (teammates ?? []).find(
+        (item) =>
+          item.id === participant.teammateInstanceId ||
+          item.id === participant.refId,
+      );
+      return h(
+        "span",
+        { style: teammateRingStyle(teammate?.source === "platform") },
+        avatarArt(teammate?.avatar),
+      );
+    };
+
     const panelStyles = {
       root: {
         alignItems: "stretch",
@@ -703,6 +735,7 @@ window.__ModuleLoader__.load({
         flexDirection: "column",
         overflow: "hidden",
         pointerEvents: "auto",
+        position: "relative",
         width: `min(${PANEL_WIDTH}px, 100%)`,
       },
       head: {
@@ -710,6 +743,7 @@ window.__ModuleLoader__.load({
         borderBottom: "0.5px solid var(--dsw-alias-border-l2)",
         display: "flex",
         flexShrink: 0,
+        flexWrap: "wrap",
         gap: 8,
         padding: "12px 14px 10px",
       },
@@ -732,12 +766,16 @@ window.__ModuleLoader__.load({
         padding: "5px 7px",
       },
       btn: {
+        alignItems: "center",
         background: "transparent",
         border: "0.5px solid var(--dsw-alias-border-l2)",
         borderRadius: 6,
         color: "inherit",
         cursor: "pointer",
+        display: "inline-flex",
         fontSize: 12,
+        gap: 4,
+        justifyContent: "center",
         padding: "5px 9px",
       },
       list: {
@@ -748,17 +786,24 @@ window.__ModuleLoader__.load({
         padding: 8,
       },
       item: {
-        background: "transparent",
-        border: "none",
-        borderRadius: 6,
+        background: "var(--dsw-alias-bg-layer-1)",
+        border: "0.5px solid var(--dsw-alias-border-l2)",
+        borderRadius: 7,
         color: "inherit",
         cursor: "pointer",
         display: "block",
-        padding: "8px 10px",
+        padding: "9px 10px",
         textAlign: "left",
         width: "100%",
       },
-      itemActive: { background: "var(--dsw-alias-bg-layer-2)" },
+      itemActive: {
+        background:
+          "color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 10%,var(--dsw-alias-bg-layer-1))",
+        borderColor:
+          "color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 55%,transparent)",
+        boxShadow:
+          "inset 2px 0 0 var(--dsw-alias-accent-primary,#4f8ef7)",
+      },
       meta: { color: "var(--dsw-alias-label-secondary)", fontSize: 11 },
       chat: {
         display: "flex",
@@ -776,14 +821,29 @@ window.__ModuleLoader__.load({
         padding: 10,
       },
       bubble: {
-        background: "var(--dsw-alias-bg-layer-1)",
-        borderRadius: 8,
+        background: "var(--dsw-alias-bg-layer-2)",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: "3px 8px 8px 8px",
         fontSize: 13,
-        lineHeight: 1.6,
-        maxWidth: "86%",
-        padding: "6px 9px",
+        lineHeight: 1.55,
+        maxWidth: "100%",
+        padding: "7px 10px",
         whiteSpace: "pre-wrap",
         wordBreak: "break-word",
+      },
+      bubbleMine: {
+        background:
+          "color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 12%,var(--dsw-alias-bg-layer-2))",
+        borderColor:
+          "color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 35%,transparent)",
+        borderRadius: "8px 3px 8px 8px",
+      },
+      systemMessage: {
+        color: "var(--dsw-alias-label-tertiary)",
+        fontSize: 10,
+        padding: "5px 0",
+        textAlign: "center",
+        width: "100%",
       },
       form: {
         borderTop: "0.5px solid var(--dsw-alias-border-l2)",
@@ -966,6 +1026,19 @@ window.__ModuleLoader__.load({
         placeItems: "center",
         width: 22,
       },
+      sendBtn: {
+        alignItems: "center",
+        background: "var(--dsw-alias-accent-primary,#4f8ef7)",
+        border: "none",
+        borderRadius: 6,
+        color: "#fff",
+        cursor: "pointer",
+        display: "grid",
+        flexShrink: 0,
+        height: 26,
+        placeItems: "center",
+        width: 26,
+      },
       iconBtn: {
         alignItems: "center",
         background: "transparent",
@@ -980,12 +1053,19 @@ window.__ModuleLoader__.load({
         width: 26,
       },
       dropdown: {
+        background: "var(--dsw-alias-bg-layer-1)",
         borderBottom: "0.5px solid var(--dsw-alias-border-l2)",
+        boxShadow: "0 12px 28px rgba(0,0,0,0.18)",
         display: "flex",
         flexDirection: "column",
         flexShrink: 0,
         gap: 6,
-        padding: "8px 10px",
+        left: 14,
+        padding: 10,
+        position: "absolute",
+        right: 14,
+        top: 62,
+        zIndex: 20,
       },
       dropdownList: {
         display: "flex",
@@ -1009,7 +1089,93 @@ window.__ModuleLoader__.load({
         textAlign: "left",
       },
       dropdownItemActive: {
+        background:
+          "color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 10%,var(--dsw-alias-bg-layer-2))",
+        border:
+          "0.5px solid color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 55%,transparent)",
+      },
+      dropdownItemIdle: {
+        border: "0.5px solid var(--dsw-alias-border-l3)",
         background: "var(--dsw-alias-bg-layer-2)",
+      },
+      switchCopy: {
+        display: "grid",
+        gap: 1,
+        minWidth: 0,
+        textAlign: "left",
+      },
+      switchName: {
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+      },
+      switchMeta: {
+        color: "var(--dsw-alias-label-tertiary)",
+        fontSize: 10,
+      },
+      dropdownFooter: {
+        display: "flex",
+        justifyContent: "flex-end",
+        marginTop: 2,
+      },
+      textLink: {
+        color: "var(--dsw-alias-label-secondary)",
+        cursor: "pointer",
+        fontSize: 11,
+        textDecoration: "underline",
+        textDecorationColor:
+          "color-mix(in srgb,var(--dsw-alias-label-secondary) 45%,transparent)",
+        textUnderlineOffset: 3,
+      },
+      tabs: {
+        background: "var(--dsw-alias-bg-layer-1)",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: 7,
+        display: "flex",
+        flexShrink: 0,
+        gap: 2,
+        margin: "10px 10px 8px",
+        padding: 3,
+      },
+      tab: {
+        background: "transparent",
+        border: "none",
+        borderRadius: 5,
+        color: "var(--dsw-alias-label-secondary)",
+        cursor: "pointer",
+        flex: 1,
+        fontSize: 11,
+        padding: "5px 6px",
+      },
+      tabActive: {
+        background: "#4f8ef7",
+        color: "#fff",
+        fontWeight: 600,
+      },
+      panelSection: {
+        display: "flex",
+        flex: 1,
+        flexDirection: "column",
+        gap: 10,
+        minHeight: 0,
+        overflowY: "auto",
+        padding: 10,
+      },
+      summarySectionHead: {
+        alignItems: "center",
+        display: "flex",
+        gap: 8,
+        justifyContent: "space-between",
+      },
+      minutesBody: {
+        background: "var(--dsw-alias-bg-layer-1)",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: 7,
+        flex: 1,
+        fontSize: 12,
+        minHeight: 0,
+        overflowY: "auto",
+        padding: 10,
       },
       settings: {
         display: "flex",
@@ -1025,7 +1191,47 @@ window.__ModuleLoader__.load({
         display: "flex",
         flexShrink: 0,
         gap: 6,
-        padding: "6px 8px 0",
+      },
+      mentionMenu: {
+        background: "var(--dsw-alias-bg-layer-1)",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: 6,
+        bottom: "100%",
+        boxShadow: "0 12px 28px rgba(0,0,0,0.18)",
+        display: "flex",
+        flexDirection: "column",
+        left: 10,
+        maxHeight: 200,
+        overflowY: "auto",
+        padding: 4,
+        position: "absolute",
+        right: 10,
+        zIndex: 20,
+      },
+      mentionItem: {
+        alignItems: "center",
+        background: "transparent",
+        border: "none",
+        borderRadius: 5,
+        color: "inherit",
+        cursor: "pointer",
+        display: "flex",
+        fontSize: 12,
+        gap: 8,
+        padding: "6px 7px",
+        textAlign: "left",
+        width: "100%",
+      },
+      mentionCopy: { display: "grid", gap: 1, minWidth: 0, textAlign: "left" },
+      mentionName: {
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+      },
+      mentionMeta: {
+        color: "var(--dsw-alias-label-tertiary)",
+        fontSize: 10,
+        lineHeight: 1.35,
       },
       groupTitle: {
         color: "var(--dsw-alias-label-secondary)",
@@ -1048,7 +1254,7 @@ window.__ModuleLoader__.load({
       const [notice, setNotice] = react.useState("");
       const [busy, setBusy] = react.useState("");
       const [refreshKey, setRefreshKey] = react.useState(0);
-      const [view, setView] = react.useState("chat");
+      const [panelTab, setPanelTab] = react.useState("conversation");
       // 状态反馈条 3 秒后自动消失。
       react.useEffect(() => {
         if (notice === "" && error === "") return undefined;
@@ -1059,17 +1265,18 @@ window.__ModuleLoader__.load({
         return () => window.clearTimeout(timer);
       }, [notice, error]);
       const [pickerOpen, setPickerOpen] = react.useState(false);
+      const [pickerShowAll, setPickerShowAll] = react.useState(false);
       const [people, setPeople] = react.useState([]);
       const [inviteOpen, setInviteOpen] = react.useState(false);
       const [inviteQuery, setInviteQuery] = react.useState("");
       const [inviteSelected, setInviteSelected] = react.useState([]);
+      const [minutesOverwriteOpen, setMinutesOverwriteOpen] =
+        react.useState(false);
       const [titleDraft, setTitleDraft] = react.useState("");
       const [mentionOpen, setMentionOpen] = react.useState(false);
       const [mentionIds, setMentionIds] = react.useState([]);
       const [mentionQuery, setMentionQuery] = react.useState("");
       const messagesRef = react.useRef(null);
-      // 会话区默认贴底；用户主动上翻看历史时不强行拉回底部。
-      const pinnedRef = react.useRef(true);
       const fileRef = react.useRef(null);
       const composerInputRef = react.useRef(null);
       const mentionAnchorRef = react.useRef(null);
@@ -1099,9 +1306,14 @@ window.__ModuleLoader__.load({
             setAccountName(me.user?.name ?? "");
             setTeammates(team.teammates ?? []);
             // 抽屉顶部的会议选择器跨项目：把当前用户已加入项目的会议合并。
-            const joined = (ws.workspaces ?? []).filter(
-              (workspace) => workspace.isMember === true,
-            );
+            const joined = [
+              ...(ws.workspaces ?? []).filter(
+                (workspace) =>
+                  workspace.isMember === true &&
+                  workspace.id !== SYSTEM_DEFAULT_WORKSPACE_ID,
+              ),
+              SYSTEM_DEFAULT_WORKSPACE,
+            ];
             const lists = await Promise.all(
               joined.map((workspace) =>
                 request(
@@ -1162,7 +1374,7 @@ window.__ModuleLoader__.load({
       }, [open, meetingId, refreshKey]);
 
       react.useEffect(() => {
-        if ((view !== "settings" && !inviteOpen) || meetingId === "")
+        if ((panelTab !== "settings" && !inviteOpen) || meetingId === "")
           return undefined;
         let disposed = false;
         request(
@@ -1175,20 +1387,20 @@ window.__ModuleLoader__.load({
         return () => {
           disposed = true;
         };
-      }, [view, inviteOpen, meetingId]);
+      }, [panelTab, inviteOpen, meetingId]);
 
       // 切换会议时回到常规会话视图并收起下拉。
       react.useEffect(() => {
-        setView("chat");
+        setPanelTab("conversation");
         setPickerOpen(false);
         setInviteOpen(false);
       }, [meetingId]);
 
       // 会议名称默认处于可编辑态：进入设置视图或标题变化时同步草稿。
       react.useEffect(() => {
-        if (view !== "settings") return;
+        if (panelTab !== "settings") return;
         setTitleDraft(detail?.meeting?.title ?? "");
-      }, [view, detail?.meeting?.title]);
+      }, [panelTab, detail?.meeting?.title]);
 
       react.useEffect(() => {
         if (!open || meetingId === "") return undefined;
@@ -1206,13 +1418,8 @@ window.__ModuleLoader__.load({
       }, [open, meetingId, minutes]);
 
       react.useEffect(() => {
-        // 切会议时重置贴底状态。
-        pinnedRef.current = true;
-      }, [meetingId]);
-
-      react.useEffect(() => {
-        // 默认贴底；用户上翻看历史时（pinned=false）不强行拉回。
-        if (pinnedRef.current && messagesRef.current)
+        // 任意新消息（系统 / 人类 / AI）到达后，始终跟随到最新位置。
+        if (messagesRef.current)
           messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
       }, [detail]);
 
@@ -1228,6 +1435,13 @@ window.__ModuleLoader__.load({
           participant.refId === actorId,
       );
       const participants = detail?.participants ?? [];
+      const panelAiCount = participants.filter(
+        (participant) =>
+          participant.status === "active" && participant.kind !== "human",
+      ).length;
+      const panelMinutesVersion = [...(minutes?.versions ?? [])]
+        .reverse()
+        .find((version) => String(version.content ?? "").trim() !== "");
       const panelMentionOptions = participants.filter(
         (participant) =>
           participant.status === "active" &&
@@ -1298,7 +1512,42 @@ window.__ModuleLoader__.load({
       // 两者共用一张列表，保证「成员里有它 = facilitator 已启用」。
       // 平台 Facilitator 实例只以「席位」形态出现，历史遗留的
       // `participant/ai` 记录不再重复展示，避免同一 AI 出现两行。
+      const humanMemberRows = participants
+        .filter(
+          (participant) =>
+            participant.status === "active" &&
+            participant.kind === "human",
+        )
+        .map((participant) => ({
+          id: participant.id,
+          label: participant.displayName,
+          kind: "human",
+          teammateId: participant.refId,
+          facilitator: false,
+          active: true,
+          participantId: participant.id,
+        }));
+      const aiMemberRows = participants
+        .filter(
+          (participant) =>
+            participant.status === "active" &&
+            participant.kind !== "human" &&
+            !(
+              participant.kind === "ai_teammate" &&
+              participant.refId === "meeting-facilitator"
+            ),
+        )
+        .map((participant) => ({
+          id: participant.id,
+          label: participant.displayName,
+          kind: "ai",
+          teammateId: participant.teammateInstanceId ?? participant.refId,
+          facilitator: false,
+          active: true,
+          participantId: participant.id,
+        }));
       const memberRows = [
+        ...humanMemberRows,
         ...(facilitator === undefined
           ? []
           : [
@@ -1312,31 +1561,26 @@ window.__ModuleLoader__.load({
                 active: true,
               },
             ]),
-        ...participants
-          .filter(
-            (participant) =>
-              !(
-                participant.kind === "ai_teammate" &&
-                participant.refId === "meeting-facilitator"
-              ),
-          )
-          .map((participant) => ({
-            id: participant.id,
-            label: participant.displayName,
-            kind: participant.kind === "human" ? "human" : "ai",
-            teammateId: participant.refId,
-            facilitator: false,
-            active: participant.status === "active",
-            participantId: participant.id,
-          })),
+        ...aiMemberRows,
       ];
       const keyword = query.trim().toLowerCase();
-      const matched = meetings.filter(
+      const matchedAll = meetings.filter(
         (item) =>
           keyword === "" ||
           `${item.title} ${item.id}`.toLowerCase().includes(keyword),
       );
+      const matched = pickerShowAll
+        ? matchedAll
+        : matchedAll.filter((item) => item.status === "active");
       const myTeammates = teammates.filter((item) => item.state !== "archived");
+      const activeTeammateIds = new Set(
+        participants
+          .filter((participant) => participant.status === "active")
+          .map(
+            (participant) =>
+              participant.teammateInstanceId ?? participant.refId,
+          ),
+      );
       // 邀请对象不分人类/AI：一起列在一个可搜索的清单里。
       const inviteKeyword = inviteQuery.trim().toLowerCase();
       const inviteCandidates = [
@@ -1355,7 +1599,8 @@ window.__ModuleLoader__.load({
           // 平台「会议 Facilitator」实例就是会议里的 Facilitator 席位：
           // facilitator 已启用 ⇔ 它已在会议中，两者是同一件事。
           inMeeting:
-            facilitator !== undefined && item.id === "meeting-facilitator",
+            activeTeammateIds.has(item.id) ||
+            (facilitator !== undefined && item.id === "meeting-facilitator"),
         })),
       ].filter(
         (candidate) =>
@@ -1364,8 +1609,12 @@ window.__ModuleLoader__.load({
       );
       const post = (path, body) =>
         request(path, { method: "POST", body: JSON.stringify(body) });
-      const run = async (action) => {
-        setBusy("run");
+      const run = async (labelOrAction, maybeAction) => {
+        const label =
+          typeof labelOrAction === "string" ? labelOrAction : "run";
+        const action =
+          typeof maybeAction === "function" ? maybeAction : labelOrAction;
+        setBusy(label);
         setError("");
         setNotice("");
         try {
@@ -1403,6 +1652,16 @@ window.__ModuleLoader__.load({
           await post("/api/collab/meeting/update", { meetingId, title: next });
           setNotice("会议名称已更新");
         });
+      };
+      const removePanelMember = async (row) => {
+        await run(() =>
+          row.facilitator
+            ? post("/api/collab/meeting/facilitator/close", { meetingId })
+            : post("/api/collab/meeting/participant/remove", {
+                meetingId,
+                participantId: row.participantId,
+              }),
+        );
       };
       const confirmInvite = async () => {
         const humans = inviteSelected
@@ -1446,56 +1705,55 @@ window.__ModuleLoader__.load({
         "div",
         { style: panelStyles.root },
         h("div", { style: panelStyles.panel }, [
-          // 第一行只有会议标题：标题自身是下拉框，右侧一个设置图标（= 会议设置）。
-          // 会议设置视图下这一行不展示，设置页自己的第一行是「← 会议设置」。
-          view === "chat"
-            ? h("div", { style: panelStyles.head }, [
+          h("div", { style: panelStyles.head }, [
+            h("div", { style: { flex: 1, minWidth: 0 } }, [
+              h("div", { style: panelStyles.titleWrap }, [
+                h("span", {
+                  style: panelStyles.titleText,
+                  title: meeting ? meeting.title : "选择会议",
+                  children: meeting ? meeting.title : "请选择会议",
+                }),
                 h(
-                  "div",
-                  { style: panelStyles.titleWrap },
-                  h("span", {
-                    style: panelStyles.titleText,
-                    title: meeting ? meeting.title : "选择会议",
-                    children: meeting ? meeting.title : "请选择会议",
-                  }),
-                  // 顺序：会议名称 → 下拉操作位（放大镜，无边框）→ AI 标识。
-                  h(
-                    "button",
-                    {
-                      type: "button",
-                      style: panelStyles.iconGhost,
-                      "aria-label": "选择会议",
-                      title: "搜索 / 切换会议",
-                      onClick: () => {
-                        setPickerOpen((value) => !value);
-                        setRefreshKey((key) => key + 1);
-                      },
+                  "button",
+                  {
+                    type: "button",
+                    style: panelStyles.iconGhost,
+                    "aria-label": "选择会议",
+                    title: "搜索 / 切换会议",
+                    "aria-expanded": pickerOpen,
+                    onClick: () => {
+                      setPickerOpen((value) => {
+                        if (!value) setPickerShowAll(false);
+                        return !value;
+                      });
+                      setRefreshKey((key) => key + 1);
                     },
-                    searchIcon(),
-                  ),
-                  meeting && facilitator
-                    ? h("span", { style: panelStyles.aiBadge, children: "AI" })
-                    : null,
+                  },
+                  searchIcon(),
                 ),
-                meeting
-                  ? h(
-                      "button",
-                      {
-                        type: "button",
-                        style: panelStyles.iconBtn,
-                        title: "会议设置",
-                        "aria-label": "会议设置",
-                        onClick: () => {
-                          setInviteOpen(false);
-                          setNotice("");
-                          setView("settings");
-                        },
-                      },
-                      gearIcon(),
-                    )
+                meeting && facilitator
+                  ? h("span", { style: panelStyles.aiBadge, children: "AI" })
                   : null,
-              ])
-            : null,
+              ]),
+              meeting
+                ? h("div", {
+                    style: panelStyles.meta,
+                    children: `${meetingTimeLabel(meeting)} · ${meetingStatusLabel(meeting.status)} · ${participants.filter((participant) => participant.status === "active").length} 人 · ${panelAiCount} 个 AI`,
+                  })
+                : null,
+            ]),
+            h(
+              "button",
+              {
+                type: "button",
+                style: panelStyles.iconBtn,
+                title: "关闭会议侧栏",
+                "aria-label": "关闭会议侧栏",
+                onClick: () => store.close(),
+              },
+              closeIcon(),
+            ),
+          ]),
           error
             ? h("div", { style: panelStyles.error, children: error })
             : null,
@@ -1503,7 +1761,7 @@ window.__ModuleLoader__.load({
             ? h("div", { style: panelStyles.notice, children: notice })
             : null,
           // 点击标题下拉：搜索 + 动态加载的会议列表（跨项目）。
-          view === "chat" && pickerOpen
+          pickerOpen
             ? h(
                 "div",
                 { style: panelStyles.dropdown },
@@ -1533,6 +1791,7 @@ window.__ModuleLoader__.load({
                             style: Object.assign(
                               {},
                               panelStyles.dropdownItem,
+                              panelStyles.dropdownItemIdle,
                               item.id === meetingId
                                 ? panelStyles.dropdownItemActive
                                 : {},
@@ -1540,44 +1799,78 @@ window.__ModuleLoader__.load({
                             onClick: () => {
                               setMeetingId(item.id);
                               setPickerOpen(false);
+                              setPickerShowAll(false);
                             },
                           },
-                          h("span", { children: item.title }),
+                          h("span", { style: panelStyles.switchCopy }, [
+                            h("span", {
+                              style: panelStyles.switchName,
+                              children: item.title,
+                            }),
+                            h("span", {
+                              style: panelStyles.switchMeta,
+                              children: `${meetingStatusLabel(item.status)} · ${timeShort(item.updatedAt)}`,
+                            }),
+                          ]),
                           h("span", {
-                            style: panelStyles.meta,
+                            style: panelStyles.chip,
                             children:
-                              item.status === "archived"
-                                ? "已归档"
-                                : item.status === "closed"
-                                  ? "已结束"
-                                  : "进行中",
+                              item.status === "active"
+                                ? "进行中"
+                                : meetingStatusLabel(item.status),
                           }),
                         ),
                       )),
                 ),
-              )
-            : null,
-          view === "settings" && meeting
-            ? h("div", { style: panelStyles.settings }, [
                 h(
                   "div",
-                  { style: { alignItems: "center", display: "flex", gap: 6 } },
-                  h(
-                    "button",
-                    {
-                      type: "button",
-                      style: panelStyles.iconBtn,
-                      title: "返回会议",
-                      "aria-label": "返回会议",
-                      onClick: () => setView("chat"),
+                  { style: panelStyles.dropdownFooter },
+                  h("a", {
+                    href: "#",
+                    style: panelStyles.textLink,
+                    onClick: (event) => {
+                      event.preventDefault();
+                      setPickerShowAll((value) => !value);
                     },
-                    backArrowIcon(),
-                  ),
-                  h("span", {
-                    style: { fontSize: 13, fontWeight: 600 },
-                    children: "会议设置",
+                    children: pickerShowAll ? "仅看进行中" : "查看全部",
                   }),
                 ),
+              )
+            : null,
+          meeting
+            ? h(
+                "div",
+                {
+                  role: "tablist",
+                  "aria-label": "会议侧栏页签",
+                  style: panelStyles.tabs,
+                },
+                ...[
+                  ["conversation", "对话"],
+                  ["minutes", "纪要"],
+                  ["settings", "设置"],
+                ].map(([key, label]) =>
+                  h("button", {
+                    key,
+                    type: "button",
+                    role: "tab",
+                    style: Object.assign(
+                      {},
+                      panelStyles.tab,
+                      panelTab === key ? panelStyles.tabActive : {},
+                    ),
+                    "aria-selected": panelTab === key,
+                    onClick: () => {
+                      setPanelTab(key);
+                      setPickerOpen(false);
+                    },
+                    children: label,
+                  }),
+                ),
+              )
+            : null,
+          panelTab === "settings" && meeting
+            ? h("div", { style: panelStyles.settings }, [
                 // 会议名称默认就是可编辑态，不需要先点一下才能改。
                 h("div", { style: panelStyles.block }, [
                   h("div", {
@@ -1629,33 +1922,53 @@ window.__ModuleLoader__.load({
                     children: "AI 会议 Facilitator",
                   }),
                   h(
-                    "div",
+                    "label",
                     {
-                      style: { alignItems: "center", display: "flex", gap: 8 },
+                      style: {
+                        alignItems: "center",
+                        background: "var(--dsw-alias-bg-layer-1)",
+                        border: "0.5px solid var(--dsw-alias-border-l3)",
+                        borderRadius: 6,
+                        cursor:
+                          meeting.status === "archived" || busy !== ""
+                            ? "not-allowed"
+                            : "pointer",
+                        display: "flex",
+                        gap: 8,
+                        opacity:
+                          meeting.status === "archived" || busy !== ""
+                            ? 0.55
+                            : 1,
+                        padding: "8px 9px",
+                      },
                     },
+                    h("input", {
+                      type: "checkbox",
+                      checked: facilitator !== undefined,
+                      disabled: meeting.status === "archived" || busy !== "",
+                      onChange: (event) =>
+                        void run(() =>
+                          event.target.checked
+                            ? post("/api/collab/meeting/facilitator/open", {
+                                meetingId,
+                              })
+                            : post("/api/collab/meeting/facilitator/close", {
+                                meetingId,
+                              }),
+                        ),
+                    }),
+                    h("span", {
+                      style: {
+                        flex: 1,
+                        fontSize: 12,
+                        fontWeight: 500,
+                      },
+                      children: "启用 AI 会议 Facilitator",
+                    }),
                     h("span", {
                       style: panelStyles.meta,
                       children: facilitator ? "已启用" : "未启用",
                     }),
-                    meeting.status !== "archived"
-                      ? h("button", {
-                          type: "button",
-                          style: panelStyles.btn,
-                          disabled: busy !== "",
-                          onClick: () =>
-                            void run(() =>
-                              facilitator
-                                ? post(
-                                    "/api/collab/meeting/facilitator/close",
-                                    { meetingId },
-                                  )
-                                : post("/api/collab/meeting/facilitator/open", {
-                                    meetingId,
-                                  }),
-                            ),
-                          children: facilitator ? "停用" : "启用",
-                        })
-                      : null,
                   ),
                 ]),
                 h("div", { style: panelStyles.divider }),
@@ -1672,7 +1985,13 @@ window.__ModuleLoader__.load({
                     h("span", { style: { flex: 1 } }),
                     h("button", {
                       type: "button",
-                      style: panelStyles.btn,
+                      style: Object.assign(
+                        {},
+                        panelStyles.btnPrimary,
+                        busy !== ""
+                          ? { cursor: "not-allowed", opacity: 0.55 }
+                          : {},
+                      ),
                       disabled: busy !== "",
                       onClick: () => {
                         setInviteQuery("");
@@ -1685,7 +2004,11 @@ window.__ModuleLoader__.load({
                   ...memberRows.map((row) => {
                     const teammate =
                       row.kind === "ai"
-                        ? teammates.find((item) => item.id === row.teammateId)
+                        ? teammates.find(
+                            (item) =>
+                              item.id === row.teammateId ||
+                              item.name === row.label,
+                          )
                         : undefined;
                     return h(
                       "div",
@@ -1720,24 +2043,7 @@ window.__ModuleLoader__.load({
                             type: "button",
                             style: panelStyles.btn,
                             disabled: busy !== "",
-                            onClick: () =>
-                              void run(() =>
-                                row.facilitator
-                                  ? // 从成员里移除 Facilitator = 停用该 AI 实例
-                                    post(
-                                      "/api/collab/meeting/facilitator/close",
-                                      {
-                                        meetingId,
-                                      },
-                                    )
-                                  : post(
-                                      "/api/collab/meeting/participant/remove",
-                                      {
-                                        meetingId,
-                                        participantId: row.participantId,
-                                      },
-                                    ),
-                              ),
+                            onClick: () => void removePanelMember(row),
                             children: "移除",
                           })
                         : h("span", {
@@ -1750,23 +2056,93 @@ window.__ModuleLoader__.load({
               ])
             : !meeting
               ? h("div", { style: panelStyles.meta, children: "请选择会议" })
+              : panelTab === "minutes"
+                  ? h("div", { style: panelStyles.panelSection }, [
+                      h("div", { style: panelStyles.summarySectionHead }, [
+                        h("div", {
+                          style: { fontSize: 13, fontWeight: 600 },
+                          children: "会议纪要",
+                        }),
+                        h(
+                          "div",
+                          { style: { display: "flex", gap: 6 } },
+                          panelMinutesVersion === undefined
+                            ? null
+                            : h("button", {
+                                type: "button",
+                                style: panelStyles.btn,
+                                title: "下载 Markdown",
+                                "aria-label": "下载会议纪要 Markdown",
+                                onClick: () =>
+                                  downloadMinutesMarkdown(
+                                    meeting,
+                                    panelMinutesVersion,
+                                  ),
+                                children: [
+                                  downloadIcon(),
+                                  h("span", { children: "下载" }),
+                                ],
+                              }),
+                          meeting.status !== "archived" &&
+                          facilitator !== undefined
+                            ? h("button", {
+                                type: "button",
+                                style: panelStyles.btn,
+                                disabled: busy !== "" || !joined,
+                                onClick: () => {
+                                  if (panelMinutesVersion !== undefined) {
+                                    setMinutesOverwriteOpen(true);
+                                    return;
+                                  }
+                                  void run("minutes", () =>
+                                    post(
+                                      "/api/collab/meeting/minutes/trigger",
+                                      { meetingId },
+                                    ),
+                                  );
+                                },
+                                children:
+                                  busy === "minutes"
+                                    ? "生成中…"
+                                    : "更新纪要",
+                              })
+                            : null,
+                        ),
+                      ]),
+                      panelMinutesVersion === undefined
+                        ? h("div", {
+                            style: panelStyles.meta,
+                            children: "暂无会议纪要",
+                          })
+                        : h(
+                            "div",
+                            { style: panelStyles.minutesBody },
+                            renderChatMarkdown(panelMinutesVersion.content),
+                          ),
+                      panelMinutesVersion === undefined
+                        ? null
+                        : h("div", {
+                            style: panelStyles.meta,
+                            children: `更新于：${timeFull(
+                              panelMinutesVersion.updatedAt ??
+                                panelMinutesVersion.createdAt,
+                            )}`,
+                          }),
+                    ])
               : h("div", { style: panelStyles.chat }, [
                   h(
                     "div",
                     {
                       ref: messagesRef,
                       style: panelStyles.stream,
-                      onScroll: () => {
-                        const node = messagesRef.current;
-                        if (node === null) return;
-                        pinnedRef.current =
-                          node.scrollHeight -
-                            node.scrollTop -
-                            node.clientHeight <
-                          80;
-                      },
                     },
                     ...transcript.map((message) => {
+                      if (message.senderKind === "system")
+                        return h("div", {
+                          key: message.id,
+                          style: panelStyles.systemMessage,
+                          children: displayContent(message.content),
+                        });
                       const mine =
                         message.senderKind === "human" &&
                         message.senderId === actorId;
@@ -1798,7 +2174,7 @@ window.__ModuleLoader__.load({
                               display: "flex",
                               flexDirection: "column",
                               gap: 2,
-                              maxWidth: "82%",
+                              maxWidth: "calc(100% - 34px)",
                               minWidth: 0,
                             },
                           },
@@ -1808,7 +2184,13 @@ window.__ModuleLoader__.load({
                           }),
                           h(
                             "div",
-                            { style: panelStyles.bubble },
+                            {
+                              style: Object.assign(
+                                {},
+                                panelStyles.bubble,
+                                mine ? panelStyles.bubbleMine : {},
+                              ),
+                            },
                             h(
                               "div",
                               null,
@@ -1833,9 +2215,13 @@ window.__ModuleLoader__.load({
                           "form",
                           {
                             style: {
-                              borderTop:
-                                "0.5px solid var(--dsw-alias-border-l2)",
+                              background:
+                                "var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-layer-1))",
+                              border:
+                                "0.5px solid var(--dsw-alias-border-l3)",
+                              borderRadius: 6,
                               flexShrink: 0,
+                              margin: "0 8px 8px",
                               padding: 8,
                               position: "relative",
                             },
@@ -1905,11 +2291,27 @@ window.__ModuleLoader__.load({
                                           onClick: () =>
                                             pickPanelMention(participant),
                                         },
-                                        `${participant.displayName}${
-                                          participant.kind === "human"
-                                            ? ""
-                                            : "（AI）"
-                                        }`,
+                                        participantAvatarNode(
+                                          participant,
+                                          teammates,
+                                        ),
+                                        h(
+                                          "span",
+                                          { style: panelStyles.mentionCopy },
+                                          h("span", {
+                                            style: panelStyles.mentionName,
+                                            children: participant.displayName,
+                                          }),
+                                          h("span", {
+                                            style: panelStyles.mentionMeta,
+                                            children:
+                                              participant.kind === "human"
+                                                ? "会议成员"
+                                                : participant.ownerName
+                                                  ? `${participant.ownerName} 的 AI`
+                                                  : "AI 成员",
+                                          }),
+                                        ),
                                       ),
                                     ),
                                   )
@@ -1926,11 +2328,21 @@ window.__ModuleLoader__.load({
                           h(
                             "div",
                             {
-                              style: { display: "flex", gap: 6, marginTop: 6 },
+                              style: {
+                                alignItems: "flex-end",
+                                display: "flex",
+                                gap: 6,
+                                marginTop: 6,
+                              },
                             },
                             h("textarea", {
                               ref: composerInputRef,
-                              style: panelStyles.textarea,
+                              style: Object.assign({}, panelStyles.textarea, {
+                                background: "transparent",
+                                border: "none",
+                                minHeight: 64,
+                                padding: 2,
+                              }),
                               value: content,
                               placeholder: "输入消息，@ 成员…",
                               onChange: (event) =>
@@ -1938,9 +2350,16 @@ window.__ModuleLoader__.load({
                             }),
                             h("button", {
                               type: "submit",
-                              style: panelStyles.btn,
-                              disabled: busy !== "",
-                              children: "发送",
+                              style: Object.assign({}, panelStyles.sendBtn, {
+                                opacity:
+                                  busy !== "" || content.trim() === ""
+                                    ? 0.45
+                                    : 1,
+                              }),
+                              title: "发送消息",
+                              "aria-label": "发送消息",
+                              disabled: busy !== "" || content.trim() === "",
+                              children: sendIcon(),
                             }),
                           ),
                         )
@@ -1965,6 +2384,45 @@ window.__ModuleLoader__.load({
                         )
                     : null,
                 ]),
+          minutesOverwriteOpen && meeting
+            ? h(
+                "div",
+                { style: panelStyles.dialogOverlay },
+                h("div", { style: panelStyles.dialog }, [
+                  h("div", {
+                    style: panelStyles.dialogTitle,
+                    children: "重新生成会议纪要？",
+                  }),
+                  h("div", {
+                    style: panelStyles.meta,
+                    children:
+                      "当前会议纪要已有内容，重新生成会覆盖原有内容。",
+                  }),
+                  h("div", { style: panelStyles.dialogActions }, [
+                    h("button", {
+                      type: "button",
+                      style: panelStyles.btn,
+                      onClick: () => setMinutesOverwriteOpen(false),
+                      children: "取消",
+                    }),
+                    h("button", {
+                      type: "button",
+                      style: panelStyles.btnPrimary,
+                      disabled: busy !== "",
+                      onClick: () => {
+                        setMinutesOverwriteOpen(false);
+                        void run("minutes", () =>
+                          post("/api/collab/meeting/minutes/trigger", {
+                            meetingId,
+                          }),
+                        );
+                      },
+                      children: "覆盖生成",
+                    }),
+                  ]),
+                ]),
+              )
+            : null,
           inviteOpen && meeting
             ? h(
                 "div",
@@ -2185,21 +2643,52 @@ window.__ModuleLoader__.load({
     const PS = {
       root: {
         background: "var(--dsw-alias-bg-base)",
+        boxSizing: "border-box",
         color: "var(--dsw-alias-label-primary)",
         display: "flex",
         flexDirection: "column",
         gap: 12,
-        height: "100%",
+        height: "calc(100vh - 18px)",
         // 壳层页面高度是 auto（只设了 min-height），`height:100%` 解析不到，
         // 于是整页随消息一起被撑高、输入框被推走。用视口上限把高度兜住，
         // 中间沟通列改为内部滚动，输入框自然吸底。
-        maxHeight: "calc(100vh - 46px)",
+        maxHeight: "calc(100vh - 18px)",
         minHeight: 0,
         padding: 16,
       },
-      top: { alignItems: "center", display: "flex", flexShrink: 0, gap: 10 },
+      top: {
+        alignItems: "center",
+        display: "flex",
+        flexShrink: 0,
+        flexWrap: "wrap",
+        gap: 8,
+      },
+      topActions: {
+        alignItems: "center",
+        display: "flex",
+        flex: 1,
+        flexWrap: "wrap",
+        gap: 8,
+        justifyContent: "flex-end",
+        minWidth: 0,
+      },
+      topFilters: {
+        alignItems: "center",
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 6,
+        justifyContent: "flex-end",
+        minWidth: 0,
+      },
       // 与 AI Teammates 页标题对齐（.pmtm-head h1: 19px / line-height 1.3）。
-      title: { fontSize: 19, fontWeight: 600, lineHeight: 1.3, margin: 0 },
+      title: {
+        flexShrink: 0,
+        fontSize: 19,
+        fontWeight: 600,
+        lineHeight: 1.3,
+        margin: 0,
+        whiteSpace: "nowrap",
+      },
       select: {
         background: "var(--dsw-alias-bg-layer-1)",
         border: "0.5px solid var(--dsw-alias-border-l2)",
@@ -2218,6 +2707,7 @@ window.__ModuleLoader__.load({
         color: "var(--dsw-alias-label-primary-foreground, #fff)",
         cursor: "pointer",
         display: "inline-flex",
+        flexShrink: 0,
         fontSize: 12.5,
         fontWeight: 600,
         gap: 6,
@@ -2255,10 +2745,26 @@ window.__ModuleLoader__.load({
         display: "flex",
         flexDirection: "column",
         flexShrink: 0,
+        gap: 0,
+        overflow: "hidden",
+        width: 270,
+      },
+      listHeader: {
+        borderBottom: "0.5px solid var(--dsw-alias-border-l2)",
+        display: "flex",
+        flexDirection: "column",
+        flexShrink: 0,
+        gap: 6,
+        padding: 8,
+      },
+      listItems: {
+        display: "flex",
+        flex: 1,
+        flexDirection: "column",
         gap: 4,
+        minHeight: 0,
         overflowY: "auto",
         padding: 8,
-        width: 250,
       },
       item: {
         background: "transparent",
@@ -2279,6 +2785,7 @@ window.__ModuleLoader__.load({
         display: "flex",
         flex: 1,
         flexDirection: "column",
+        minHeight: 0,
         minWidth: 0,
         overflow: "hidden",
       },
@@ -2287,6 +2794,7 @@ window.__ModuleLoader__.load({
         borderBottom: "0.5px solid var(--dsw-alias-border-l2)",
         display: "flex",
         flexShrink: 0,
+        flexWrap: "wrap",
         gap: 8,
         padding: "10px 12px",
       },
@@ -2295,76 +2803,127 @@ window.__ModuleLoader__.load({
         flex: 1,
         flexDirection: "column",
         gap: 10,
+        minHeight: 0,
         overflowY: "auto",
         padding: 12,
       },
       bubble: {
-        background: "var(--dsw-alias-bg-layer-1)",
-        borderRadius: 8,
+        background: "var(--dsw-alias-bg-layer-2)",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: "3px 8px 8px 8px",
         fontSize: 13,
-        lineHeight: 1.6,
-        maxWidth: "82%",
+        lineHeight: 1.55,
+        maxWidth: "100%",
         padding: "7px 10px",
         whiteSpace: "pre-wrap",
         wordBreak: "break-word",
       },
+      bubbleMine: {
+        background:
+          "color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 12%,var(--dsw-alias-bg-layer-2))",
+        borderColor:
+          "color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 35%,transparent)",
+        borderRadius: "8px 3px 8px 8px",
+      },
+      systemMessage: {
+        color: "var(--dsw-alias-label-tertiary)",
+        fontSize: 10,
+        padding: "5px 0",
+        textAlign: "center",
+        width: "100%",
+      },
       inputRow: {
-        borderTop: "0.5px solid var(--dsw-alias-border-l2)",
+        background:
+          "var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-layer-1))",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: 7,
         display: "flex",
         flexDirection: "column",
         flexShrink: 0,
         gap: 6,
-        padding: 10,
+        margin: "0 10px 10px",
+        padding: 8,
       },
       // 输入框上方的附件 / @ 操作位：小图标、浅背景、无边框（与右侧栏一致）。
       composerTools: { alignItems: "center", display: "flex", gap: 6 },
       composerBtn: {
         alignItems: "center",
-        background: "var(--dsw-alias-bg-layer-2)",
-        border: "none",
+        background: "transparent",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
         borderRadius: 6,
         color: "var(--dsw-alias-label-secondary)",
         cursor: "pointer",
         display: "grid",
         flexShrink: 0,
-        height: 22,
+        height: 26,
         placeItems: "center",
-        width: 22,
+        width: 26,
+      },
+      sendBtn: {
+        alignItems: "center",
+        background: "var(--dsw-alias-accent-primary,#4f8ef7)",
+        border: "none",
+        borderRadius: 6,
+        color: "#fff",
+        cursor: "pointer",
+        display: "grid",
+        flexShrink: 0,
+        height: 28,
+        placeItems: "center",
+        width: 28,
       },
       composerRow: { alignItems: "flex-end", display: "flex", gap: 8 },
       mentionMenu: {
         background: "var(--dsw-alias-bg-layer-1)",
-        border: "0.5px solid var(--dsw-alias-border-l2)",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
         borderRadius: 6,
         bottom: "100%",
-        boxShadow: "0 6px 20px rgba(0,0,0,0.18)",
+        boxShadow: "0 12px 28px rgba(0,0,0,0.18)",
         display: "flex",
         flexDirection: "column",
         left: 10,
         maxHeight: 200,
         overflowY: "auto",
+        padding: 4,
         position: "absolute",
-        zIndex: 5,
+        right: 10,
+        zIndex: 20,
       },
       mentionItem: {
+        alignItems: "center",
         background: "transparent",
         border: "none",
+        borderRadius: 5,
         color: "inherit",
         cursor: "pointer",
+        display: "flex",
         fontSize: 12,
-        padding: "6px 10px",
+        gap: 8,
+        padding: "6px 7px",
         textAlign: "left",
+        width: "100%",
+      },
+      mentionCopy: { display: "grid", gap: 1, minWidth: 0, textAlign: "left" },
+      mentionName: {
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+      },
+      mentionMeta: {
+        color: "var(--dsw-alias-label-tertiary)",
+        fontSize: 10,
+        lineHeight: 1.35,
       },
       textarea: {
-        background: "var(--dsw-alias-bg-layer-1)",
-        border: "0.5px solid var(--dsw-alias-border-l2)",
-        borderRadius: 6,
+        background: "transparent",
+        border: "none",
+        borderRadius: 0,
         color: "inherit",
         flex: 1,
         fontFamily: "inherit",
         fontSize: 13,
-        minHeight: 38,
-        padding: "8px 10px",
+        minHeight: 72,
+        padding: 2,
         resize: "vertical",
       },
       side: {
@@ -2377,22 +2936,82 @@ window.__ModuleLoader__.load({
         width: 300,
       },
       tabs: {
-        borderBottom: "0.5px solid var(--dsw-alias-border-l2)",
+        background: "var(--dsw-alias-bg-layer-1)",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: 7,
         display: "flex",
         flexShrink: 0,
+        gap: 2,
+        margin: 8,
+        padding: 3,
       },
       tab: {
         background: "transparent",
         border: "none",
+        borderRadius: 5,
         color: "inherit",
         cursor: "pointer",
         flex: 1,
-        fontSize: 13,
-        padding: "9px 0",
+        fontSize: 12,
+        padding: "5px 8px",
       },
       tabActive: {
-        boxShadow: "inset 0 -2px 0 var(--dsw-alias-accent-fill, #2f6feb)",
+        background: "#4f8ef7",
+        color: "#fff",
         fontWeight: 600,
+      },
+      centerTabs: {
+        background: "var(--dsw-alias-bg-layer-1)",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: 7,
+        display: "inline-flex",
+        flexShrink: 0,
+        gap: 2,
+        padding: 3,
+      },
+      centerTab: {
+        background: "transparent",
+        border: "none",
+        borderRadius: 5,
+        color: "var(--dsw-alias-label-secondary)",
+        cursor: "pointer",
+        flex: 1,
+        fontSize: 12,
+        minWidth: 68,
+        padding: "6px 8px",
+        whiteSpace: "nowrap",
+      },
+      centerSettings: {
+        display: "flex",
+        flex: 1,
+        flexDirection: "column",
+        gap: 10,
+        minHeight: 0,
+        overflowY: "auto",
+        padding: 12,
+      },
+      centerMembers: { display: "grid", gap: 6 },
+      centerMember: {
+        alignItems: "center",
+        background: "var(--dsw-alias-bg-layer-1)",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: 6,
+        display: "flex",
+        gap: 8,
+        padding: "7px 9px",
+      },
+      centerMemberCopy: {
+        display: "grid",
+        flex: 1,
+        gap: 1,
+        minWidth: 0,
+      },
+      centerMemberName: {
+        fontSize: 12,
+        fontWeight: 600,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
       },
       sideBody: {
         display: "flex",
@@ -2403,6 +3022,67 @@ window.__ModuleLoader__.load({
         padding: 12,
       },
       group: { display: "flex", flexDirection: "column", gap: 4 },
+      summaryCard: {
+        background: "var(--dsw-alias-bg-layer-1)",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: 7,
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+        padding: 10,
+      },
+      summaryHead: {
+        alignItems: "center",
+        display: "flex",
+        gap: 8,
+        justifyContent: "space-between",
+      },
+      summaryFacts: {
+        display: "grid",
+        gap: 6,
+        gridTemplateColumns: "repeat(2,minmax(0,1fr))",
+      },
+      summaryFact: {
+        background: "var(--dsw-alias-bg-layer-2)",
+        borderRadius: 6,
+        display: "grid",
+        gap: 1,
+        minWidth: 0,
+        padding: "7px 8px",
+      },
+      summaryLabel: {
+        color: "var(--dsw-alias-label-tertiary)",
+        fontSize: 10,
+      },
+      summaryValue: {
+        fontSize: 12,
+        fontWeight: 600,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+      },
+      summaryActions: {
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 6,
+      },
+      statusPill: {
+        background:
+          "color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 14%,transparent)",
+        borderRadius: 999,
+        color: "var(--dsw-alias-accent-primary,#4f8ef7)",
+        fontSize: 10,
+        padding: "1px 7px",
+      },
+      briefSection: {
+        background: "var(--dsw-alias-bg-layer-2)",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: 7,
+        display: "grid",
+        gap: 4,
+        padding: "8px 10px",
+      },
+      briefSectionTitle: { fontSize: 12, fontWeight: 600 },
       groupTitle: {
         color: "var(--dsw-alias-label-secondary)",
         fontSize: 11,
@@ -2456,6 +3136,32 @@ window.__ModuleLoader__.load({
         fontFamily: "inherit",
         fontSize: 13,
         padding: "7px 9px",
+      },
+      filterSegment: {
+        alignItems: "center",
+        background: "var(--dsw-alias-bg-layer-1)",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: 7,
+        display: "inline-flex",
+        flexShrink: 0,
+        gap: 2,
+        padding: 2,
+      },
+      filterBtn: {
+        background: "transparent",
+        border: "none",
+        borderRadius: 5,
+        color: "var(--dsw-alias-label-secondary)",
+        cursor: "pointer",
+        fontSize: 11,
+        height: 28,
+        padding: "0 9px",
+        whiteSpace: "nowrap",
+      },
+      filterBtnActive: {
+        background: "#4f8ef7",
+        color: "#fff",
+        fontWeight: 600,
       },
       // Fixed toast: never participates in layout, so showing/hiding a notice
       // cannot reflow the page under a pointer mid-click.
@@ -2778,6 +3484,46 @@ window.__ModuleLoader__.load({
         : null;
     };
 
+    const meetingStatusLabel = (status) =>
+      status === "archived"
+        ? "已归档"
+        : status === "closed"
+          ? "已结束"
+          : status === "draft"
+            ? "未开始"
+            : "进行中";
+
+    const meetingTimeLabel = (meeting) => {
+      if (meeting?.createdAt === undefined) return "";
+      const start = new Date(meeting.createdAt);
+      if (Number.isNaN(start.getTime())) return "";
+      const now = new Date();
+      const sameDay =
+        start.getFullYear() === now.getFullYear() &&
+        start.getMonth() === now.getMonth() &&
+        start.getDate() === now.getDate();
+      const pad = (value) => String(value).padStart(2, "0");
+      const clock = (value) => `${pad(value.getHours())}:${pad(value.getMinutes())}`;
+      const startText = sameDay
+        ? `今天 ${clock(start)}`
+        : `${pad(start.getMonth() + 1)}-${pad(start.getDate())} ${clock(start)}`;
+      const end =
+        meeting.closedAt === undefined ? null : new Date(meeting.closedAt);
+      if (end !== null && !Number.isNaN(end.getTime())) {
+        const sameEndDay =
+          start.getFullYear() === end.getFullYear() &&
+          start.getMonth() === end.getMonth() &&
+          start.getDate() === end.getDate();
+        return `${startText} - ${sameEndDay ? clock(end) : `${pad(end.getMonth() + 1)}-${pad(end.getDate())} ${clock(end)}`}`;
+      }
+      return `${startText} 开始`;
+    };
+
+    const meetingMatchesStatus = (meeting, filter) =>
+      filter === "all" ||
+      (filter === "ongoing" && meeting.status === "active") ||
+      (filter === "completed" && meeting.status === "closed");
+
     const errText = (cause) =>
       cause instanceof Error ? cause.message : String(cause);
 
@@ -2800,9 +3546,6 @@ window.__ModuleLoader__.load({
 
     function MeetingsPage(props) {
       const route = props.useShellRoute?.((state) => state.route);
-      // 右侧栏打开时，中间区域不再并排渲染「成员 / 纪要」窄栏：
-      // 三栏挤在剩余宽度里会把沟通列压到几十像素。
-      const sidePanelOpen = usePanelOpen();
       const [workspaces, setWorkspaces] = react.useState([]);
       // 顶部项目下拉默认「全部」：它是筛选器，不再等同于「当前项目」。
       const [workspaceFilter, setWorkspaceFilter] = react.useState("all");
@@ -2833,18 +3576,17 @@ window.__ModuleLoader__.load({
       const [tasks, setTasks] = react.useState([]);
       const [teammates, setTeammates] = react.useState([]);
       const [tab, setTab] = react.useState("members");
+      const [centerTab, setCenterTab] = react.useState("conversation");
       const [content, setContent] = react.useState("");
       const fileRef = react.useRef(null);
       const composerInputRef = react.useRef(null);
       const mentionAnchorRef = react.useRef(null);
-      // 沟通区默认贴底：切换会议强制贴底；有新消息时，只要用户还在底部附近
-      // 就继续跟随（回看历史时不打扰）。
       const streamRef = react.useRef(null);
-      const streamPinnedRef = react.useRef(true);
-      const streamMeetingRef = react.useRef("");
       const [search, setSearch] = react.useState("");
       // 与 AI Teammates 一致：已归档的会议不混在正常列表里，用「已归档 N」切换。
       const [showArchived, setShowArchived] = react.useState(false);
+      const [meetingFilter, setMeetingFilter] = react.useState("all");
+      const [briefOpen, setBriefOpen] = react.useState(false);
       const [mentionIds, setMentionIds] = react.useState(() => new Set());
       const [mentionOpen, setMentionOpen] = react.useState(false);
       const [mentionQuery, setMentionQuery] = react.useState("");
@@ -2877,6 +3619,8 @@ window.__ModuleLoader__.load({
         focusPoints: "",
       });
       const [minutesDraft, setMinutesDraft] = react.useState("");
+      const [centerTitleDraft, setCenterTitleDraft] = react.useState("");
+      const [centerAgendaDraft, setCenterAgendaDraft] = react.useState("");
       const [editingMinutes, setEditingMinutes] = react.useState(false);
       const [closeOpen, setCloseOpen] = react.useState(false);
       const [closeSummary, setCloseSummary] = react.useState("");
@@ -2937,7 +3681,12 @@ window.__ModuleLoader__.load({
               request("/api/collab/teammates").catch(() => ({ teammates: [] })),
             ]);
             if (disposed) return;
-            const list = workspaceResult.workspaces ?? [];
+            const list = [
+              ...(workspaceResult.workspaces ?? []).filter(
+                (workspace) => workspace.id !== SYSTEM_DEFAULT_WORKSPACE_ID,
+              ),
+              SYSTEM_DEFAULT_WORKSPACE,
+            ];
             const admin = me.user?.role === "admin";
             setIsPlatformAdmin(admin);
             setAllWorkspaces(list);
@@ -3081,6 +3830,16 @@ window.__ModuleLoader__.load({
         };
       }, [route, meetingId, refreshKey]);
 
+      react.useEffect(() => {
+        setCenterTab("conversation");
+      }, [meetingId]);
+
+      react.useEffect(() => {
+        if (route !== "meetings") return;
+        setCenterTitleDraft(detail?.meeting?.title ?? "");
+        setCenterAgendaDraft(detail?.meeting?.agenda ?? "");
+      }, [route, meetingId, detail?.meeting?.title, detail?.meeting?.agenda]);
+
       // 纪要生成是异步的：只要还有生成中的版本，就轮询刷新，
       // 否则界面会一直停在「generating」，看不到待确认或生效状态。
       react.useEffect(() => {
@@ -3142,6 +3901,33 @@ window.__ModuleLoader__.load({
       const post = (path, body) =>
         request(path, { method: "POST", body: JSON.stringify(body) });
 
+      // 默认选中当前筛选下第一场会议；筛选或搜索变化后若当前会议不再可见，
+      // 也自动落到第一条结果，避免中间会话区停留在无选择状态。
+      react.useEffect(() => {
+        if (route !== "meetings") return;
+        if (meetings.length === 0) return;
+        const keyword = search.trim().toLowerCase();
+        const candidates = meetings.filter(
+          (item) =>
+            (showArchived
+              ? item.status === "archived"
+              : item.status !== "archived" &&
+                meetingMatchesStatus(item, meetingFilter)) &&
+            (keyword === "" ||
+              item.title.toLowerCase().includes(keyword)),
+        );
+        if (!candidates.some((item) => item.id === meetingId)) {
+          setMeetingId(candidates[0]?.id ?? "");
+        }
+      }, [
+        route,
+        meetings,
+        meetingId,
+        search,
+        showArchived,
+        meetingFilter,
+      ]);
+
       if (route !== "meetings") return null;
 
       // 已归档的会议单独成组：默认列表只显示未归档的，由「已归档 N」入口切换。
@@ -3151,7 +3937,11 @@ window.__ModuleLoader__.load({
       const visibleMeetings = (
         showArchived
           ? archivedMeetings
-          : meetings.filter((item) => item.status !== "archived")
+          : meetings.filter(
+              (item) =>
+                item.status !== "archived" &&
+                meetingMatchesStatus(item, meetingFilter),
+            )
       ).filter(
         (item) =>
           search.trim() === "" ||
@@ -3170,7 +3960,11 @@ window.__ModuleLoader__.load({
       // 已在会议中的参会方在清单里保持勾选（禁用），提交时只处理新增的那些。
       const inMeetingAgentIds = new Set(
         (detail?.participants ?? [])
-          .filter((participant) => participant.kind !== "human")
+          .filter(
+            (participant) =>
+              participant.kind !== "human" &&
+              participant.status === "active",
+          )
           .map(
             (participant) =>
               participant.teammateInstanceId ?? participant.refId,
@@ -3192,15 +3986,12 @@ window.__ModuleLoader__.load({
       ];
       const participants = detail?.participants ?? [];
       const transcript = detail?.transcript ?? [];
-      // 新消息到达（或刚切会议）后把沟通区贴到底部。
+      // 任意新消息（系统 / 人类 / AI）到达后，始终跟随到最新位置。
       react.useEffect(() => {
         const node = streamRef.current;
         if (node === null) return;
-        const switched = streamMeetingRef.current !== meetingId;
-        streamMeetingRef.current = meetingId;
-        if (switched) streamPinnedRef.current = true;
-        if (streamPinnedRef.current) node.scrollTop = node.scrollHeight;
-      }, [meetingId, transcript.length]);
+        node.scrollTop = node.scrollHeight;
+      }, [meetingId, transcript.length, centerTab]);
       const meeting = detail?.meeting;
       const actorId = detail?.actorId ?? "";
       const joined = participants.some(
@@ -3228,6 +4019,7 @@ window.__ModuleLoader__.load({
         ...(facilitatorSeat === undefined ? [] : [facilitatorSeat]),
         ...participants.filter(
           (participant) =>
+            participant.status === "active" &&
             !(
               participant.kind === "ai_teammate" &&
               participant.refId === "meeting-facilitator"
@@ -3252,6 +4044,30 @@ window.__ModuleLoader__.load({
         .reverse()
         .find((version) => String(version.content ?? "").trim() !== "");
       const canEditMinutes = canConfirm && meeting?.status !== "archived";
+      const activeHumans = participants.filter(
+        (participant) =>
+          participant.status === "active" && participant.kind === "human",
+      );
+      const activeAi = participants.filter(
+        (participant) =>
+          participant.status === "active" && participant.kind !== "human",
+      );
+      const projectName =
+        meeting === undefined
+          ? ""
+          : (workspaceNameById.get(meeting.workspaceId) ?? meeting.workspaceId);
+      const compactText = (value, limit = 260) => {
+        const text = String(displayContent(value) ?? "").replace(/\s+/g, " ");
+        return text.length > limit ? `${text.slice(0, limit)}…` : text;
+      };
+      const recentBriefMessages = transcript.slice(-3).map((message) => ({
+        id: message.id,
+        sender:
+          message.senderKind === "system"
+            ? "系统"
+            : message.senderName || message.senderId,
+        content: compactText(message.content, 180),
+      }));
 
       const banner = error
         ? h("div", {
@@ -3310,7 +4126,10 @@ window.__ModuleLoader__.load({
             children: `已委托 · ${delegate.speechMode}`,
           });
         }),
-        memberGroup("AI 成员", bucket.ai, (participant) =>
+        memberGroup("会议 Facilitator", bucket.service, () =>
+          h("span", { style: PS.tag, children: "会议服务" }),
+        ),
+        memberGroup("AI 伙伴", bucket.ai, (participant) =>
           h("span", {
             style: PS.tag,
             children: participant.principalName
@@ -3318,9 +4137,95 @@ window.__ModuleLoader__.load({
               : "AI",
           }),
         ),
-        memberGroup("服务成员", bucket.service, () =>
-          h("span", { style: PS.tag, children: "会议服务" }),
-        ),
+      );
+
+      const summaryTab = h(
+        "div",
+        { style: PS.sideBody },
+        meeting
+          ? h("div", { style: PS.summaryCard }, [
+              h("div", { style: PS.summaryHead }, [
+                h("div", {
+                  style: { fontSize: 13, fontWeight: 600 },
+                  children: "会议概要",
+                }),
+                h("span", {
+                  style: PS.statusPill,
+                  children: meetingStatusLabel(meeting.status),
+                }),
+              ]),
+              h("div", {
+                style: Object.assign({}, PS.meta, { lineHeight: 1.65 }),
+                children:
+                  meeting.agenda?.trim() ||
+                  meeting.summary?.trim() ||
+                  "暂无会议议程或概要",
+              }),
+              h(
+                "div",
+                { style: PS.summaryFacts },
+                h("div", { style: PS.summaryFact }, [
+                  h("span", { style: PS.summaryLabel, children: "关联项目" }),
+                  h("span", {
+                    style: PS.summaryValue,
+                    title: projectName,
+                    children: projectName || "未分组",
+                  }),
+                ]),
+                h("div", { style: PS.summaryFact }, [
+                  h("span", { style: PS.summaryLabel, children: "在会人数" }),
+                  h("span", {
+                    style: PS.summaryValue,
+                    children: `${activeHumans.length} 位人类`,
+                  }),
+                ]),
+                h("div", { style: PS.summaryFact }, [
+                  h("span", { style: PS.summaryLabel, children: "AI 成员" }),
+                  h("span", {
+                    style: PS.summaryValue,
+                    children: `${activeAi.length} 位`,
+                  }),
+                ]),
+                h("div", { style: PS.summaryFact }, [
+                  h("span", { style: PS.summaryLabel, children: "会议纪要" }),
+                  h("span", {
+                    style: PS.summaryValue,
+                    children:
+                      displayVersion === undefined
+                        ? "暂无"
+                        : `v${displayVersion.version}`,
+                  }),
+                ]),
+              ),
+              h("div", { style: PS.summaryActions }, [
+                h("button", {
+                  type: "button",
+                  style: PS.ghostBtn,
+                  disabled: busy !== "",
+                  onClick: () => setBriefOpen(true),
+                  children: "生成会议简报",
+                }),
+                joined
+                  ? h("button", {
+                      type: "button",
+                      style: PS.ghostBtn,
+                      disabled: busy !== "",
+                      onClick: () => setInviteOpen(true),
+                      children: "邀请成员",
+                    })
+                  : null,
+                joined
+                  ? h("button", {
+                      type: "button",
+                      style: PS.ghostBtn,
+                      disabled: busy !== "",
+                      onClick: () => setDelegateOpen(true),
+                      children: "指派 AI 参会",
+                    })
+                  : null,
+              ]),
+            ])
+          : h("div", { style: PS.meta, children: "请选择会议" }),
       );
 
       // 更新纪要：放在「会议纪要 vN」标题行右上角。
@@ -3346,8 +4251,11 @@ window.__ModuleLoader__.load({
 
       const minutesTab = h(
         "div",
-        // 纪要框撑满侧栏剩余高度：容器不滚动，滚动交给正文区。
-        { style: Object.assign({}, PS.sideBody, { overflowY: "hidden" }) },
+        {
+          key: "center-minutes",
+          // 纪要框撑满侧栏剩余高度：容器不滚动，滚动交给正文区。
+          style: Object.assign({}, PS.sideBody, { overflowY: "hidden" }),
+        },
         meeting?.status === "archived"
           ? h("div", {
               style: PS.meta,
@@ -3386,6 +4294,23 @@ window.__ModuleLoader__.load({
                     h("div", {
                       style: Object.assign({}, PS.groupTitle, { flex: 1 }),
                       children: `会议纪要 v${displayVersion.version}`,
+                    }),
+                    h("button", {
+                      type: "button",
+                      key: "minutes-download",
+                      style: Object.assign({}, PS.ghostBtn, {
+                        alignItems: "center",
+                        display: "inline-flex",
+                        gap: 4,
+                      }),
+                      title: "下载 Markdown",
+                      "aria-label": "下载会议纪要 Markdown",
+                      onClick: () =>
+                        downloadMinutesMarkdown(meeting, displayVersion),
+                      children: [
+                        downloadIcon(),
+                        h("span", { children: "下载" }),
+                      ],
                     }),
                     ...(canEditMinutes && minutes?.facilitator
                       ? editingMinutes
@@ -3519,18 +4444,19 @@ window.__ModuleLoader__.load({
       const stream = h(
         "div",
         {
+          key: "center-conversation",
           ref: streamRef,
           style: PS.stream,
-          onScroll: () => {
-            const node = streamRef.current;
-            if (node === null) return;
-            streamPinnedRef.current =
-              node.scrollHeight - node.scrollTop - node.clientHeight < 80;
-          },
         },
         // 与右侧栏会话保持同一套排版：头像 + 名称/时间 + 气泡，
         // 自己的消息头像与内容一起靠右，名称显示「我」。
         ...transcript.map((message) => {
+          if (message.senderKind === "system")
+            return h("div", {
+              key: message.id,
+              style: PS.systemMessage,
+              children: displayContent(message.content),
+            });
           const mine =
             message.senderKind === "human" && message.senderId === actorId;
           const label =
@@ -3561,7 +4487,7 @@ window.__ModuleLoader__.load({
                   display: "flex",
                   flexDirection: "column",
                   gap: 2,
-                  maxWidth: "82%",
+                  maxWidth: "calc(100% - 34px)",
                   minWidth: 0,
                 },
               },
@@ -3571,7 +4497,14 @@ window.__ModuleLoader__.load({
               }),
               h(
                 "div",
-                { style: Object.assign({}, PS.bubble, { maxWidth: "100%" }) },
+                {
+                  style: Object.assign(
+                    {},
+                    PS.bubble,
+                    mine ? PS.bubbleMine : {},
+                    { maxWidth: "100%" },
+                  ),
+                },
                 h(
                   "div",
                   null,
@@ -3722,96 +4655,445 @@ window.__ModuleLoader__.load({
         );
       }
 
+      const saveCenterSettings = async () => {
+        if (meeting === undefined) return;
+        const title = centerTitleDraft.trim();
+        if (title === "") return;
+        await run("meeting-settings", async () => {
+          await post("/api/collab/meeting/update", {
+            meetingId,
+            title,
+            agenda: centerAgendaDraft,
+          });
+          setNotice("会议设置已更新");
+        });
+      };
+
+      const removeCenterMember = async (participant) => {
+        await run("member", () =>
+          participant.kind === "facilitator" ||
+          participant.refId === "meeting-facilitator"
+            ? post("/api/collab/meeting/facilitator/close", { meetingId })
+            : post("/api/collab/meeting/participant/remove", {
+                meetingId,
+                participantId: participant.id,
+              }),
+        );
+      };
+
+      const centerTabBar = meeting
+        ? h(
+            "div",
+            {
+              role: "tablist",
+              "aria-label": "会议工作区页签",
+              style: PS.centerTabs,
+            },
+            ...[
+              ["conversation", "对话"],
+              ["minutes", "纪要"],
+              ["settings", "设置"],
+            ].map(([key, label]) =>
+              h("button", {
+                key,
+                type: "button",
+                role: "tab",
+                style: Object.assign(
+                  {},
+                  PS.centerTab,
+                  centerTab === key ? PS.tabActive : {},
+                ),
+                "aria-selected": centerTab === key,
+                onClick: () => setCenterTab(key),
+                children: label,
+              }),
+            ),
+          )
+        : null;
+
+      const centerMemberRows = [
+        ...bucket.human,
+        ...bucket.service,
+        ...bucket.ai,
+      ];
+
+      const centerSettings = meeting
+        ? h("div", { key: "center-settings", style: PS.centerSettings }, [
+            h(
+              "div",
+              { style: PS.summaryFacts },
+              h("div", { style: PS.summaryFact }, [
+                h("span", { style: PS.summaryLabel, children: "关联项目" }),
+                h("span", {
+                  style: PS.summaryValue,
+                  children: projectName || "未分组",
+                }),
+              ]),
+              h("div", { style: PS.summaryFact }, [
+                h("span", { style: PS.summaryLabel, children: "会议状态" }),
+                h("span", {
+                  style: PS.summaryValue,
+                  children: meetingStatusLabel(meeting.status),
+                }),
+              ]),
+            ),
+            h("div", { style: PS.group }, [
+              h("div", { style: PS.groupTitle, children: "会议名称" }),
+              h("input", {
+                style: PS.input,
+                value: centerTitleDraft,
+                placeholder: "会议名称",
+                "aria-label": "中心会议名称",
+                disabled: meeting.status === "archived",
+                onChange: (event) =>
+                  setCenterTitleDraft(event.target.value),
+              }),
+            ]),
+            h("div", { style: PS.group }, [
+              h("div", { style: PS.groupTitle, children: "会议议程" }),
+              h("textarea", {
+                style: Object.assign({}, PS.textarea, { minHeight: 120 }),
+                value: centerAgendaDraft,
+                placeholder: "暂无议程，可在此补充",
+                disabled: meeting.status === "archived",
+                onChange: (event) =>
+                  setCenterAgendaDraft(event.target.value),
+              }),
+            ]),
+            h("div", { style: PS.group }, [
+              h("div", { style: PS.groupTitle, children: "AI 会议 Facilitator" }),
+              h(
+                "label",
+                {
+                  style: {
+                    alignItems: "center",
+                    background: "var(--dsw-alias-bg-layer-1)",
+                    border: "0.5px solid var(--dsw-alias-border-l3)",
+                    borderRadius: 6,
+                    cursor:
+                      meeting.status === "archived" || busy !== ""
+                        ? "not-allowed"
+                        : "pointer",
+                    display: "flex",
+                    gap: 8,
+                    opacity:
+                      meeting.status === "archived" || busy !== ""
+                        ? 0.55
+                        : 1,
+                    padding: "8px 9px",
+                  },
+                },
+                h("input", {
+                  type: "checkbox",
+                  checked: activeFacilitator !== undefined,
+                  disabled: meeting.status === "archived" || busy !== "",
+                  onChange: (event) =>
+                    void run("facilitator", () =>
+                      event.target.checked
+                        ? post("/api/collab/meeting/facilitator/open", {
+                            meetingId,
+                          })
+                        : post("/api/collab/meeting/facilitator/close", {
+                            meetingId,
+                          }),
+                    ),
+                }),
+                h("span", {
+                  style: { flex: 1, fontSize: 12 },
+                  children: "启用 AI 会议 Facilitator",
+                }),
+                h("span", {
+                  style: PS.meta,
+                  children:
+                    activeFacilitator === undefined ? "未启用" : "已启用",
+                }),
+              ),
+            ]),
+            h("div", { style: PS.group }, [
+              h(
+                "div",
+                {
+                  style: {
+                    alignItems: "center",
+                    display: "flex",
+                    gap: 8,
+                  },
+                },
+                h("div", {
+                  style: Object.assign({}, PS.groupTitle, { flex: 1 }),
+                  children: `会议成员（${centerMemberRows.length}）`,
+                }),
+                joined && meeting.status === "active"
+                  ? h("button", {
+                      type: "button",
+                      style: PS.ghostBtn,
+                      disabled: busy !== "",
+                      onClick: () => setInviteOpen(true),
+                      children: "邀请成员",
+                    })
+                  : null,
+              ),
+              h(
+                "div",
+                { style: PS.centerMembers },
+                ...centerMemberRows.map((participant) => {
+                  const teammate =
+                    participant.kind === "human"
+                      ? undefined
+                      : teammates.find(
+                          (item) =>
+                            item.id ===
+                              (participant.teammateInstanceId ??
+                                participant.refId) ||
+                            item.name === participant.displayName,
+                        );
+                  const ai =
+                    participant.kind !== "human";
+                  return h(
+                    "div",
+                    {
+                      key: participant.id,
+                      style: PS.centerMember,
+                    },
+                    ai
+                      ? h(
+                          "span",
+                          {
+                            style: teammateRingStyle(
+                              teammate?.source === "platform",
+                            ),
+                          },
+                          avatarArt(teammate?.avatar),
+                        )
+                      : h(
+                          "span",
+                          { style: initialsAvatarStyle },
+                          initials(participant.displayName),
+                        ),
+                    h("div", { style: PS.centerMemberCopy }, [
+                      h("div", {
+                        style: {
+                          alignItems: "center",
+                          display: "flex",
+                          gap: 6,
+                          minWidth: 0,
+                        },
+                      }, [
+                        h("span", {
+                          style: PS.centerMemberName,
+                          children: participant.displayName,
+                        }),
+                        ai
+                          ? h("span", {
+                              style: PS.tag,
+                              children:
+                                participant.kind === "facilitator"
+                                  ? "会议服务"
+                                  : "AI",
+                            })
+                          : null,
+                      ]),
+                      h("span", {
+                        style: PS.meta,
+                        children:
+                          participant.kind === "human"
+                            ? "会议成员"
+                            : participant.kind === "facilitator"
+                              ? "会议服务"
+                              : participant.principalName
+                                ? `代表 ${participant.principalName}`
+                                : "AI 伙伴",
+                      }),
+                    ]),
+                    h("button", {
+                      type: "button",
+                      style: PS.ghostBtn,
+                      disabled: busy !== "",
+                      onClick: () => void removeCenterMember(participant),
+                      children: "移除",
+                    }),
+                  );
+                }),
+              ),
+            ]),
+            h("div", { style: PS.group }, [
+              h("div", { style: PS.groupTitle, children: "会议操作" }),
+              h(
+                "div",
+                { style: { display: "flex", flexWrap: "wrap", gap: 8 } },
+                joined && meeting.status === "active"
+                  ? h("button", {
+                      type: "button",
+                      style: PS.ghostBtn,
+                      disabled: busy !== "",
+                      onClick: () => setDelegateOpen(true),
+                      children: "指派 AI 参会",
+                    })
+                  : null,
+                joined && meeting.status === "active"
+                  ? h("button", {
+                      type: "button",
+                      style: PS.ghostBtn,
+                      disabled: busy !== "",
+                      onClick: () => {
+                        setCloseOpen(true);
+                        setCloseSummary("");
+                      },
+                      children: "关闭会议",
+                    })
+                  : null,
+                meeting.status === "closed"
+                  ? h("button", {
+                      type: "button",
+                      style: PS.ghostBtn,
+                      disabled: busy !== "",
+                      onClick: () =>
+                        run("archive", () =>
+                          post("/api/collab/meeting/archive", { meetingId }),
+                        ),
+                      children: "归档会议",
+                    })
+                  : null,
+              ),
+            ]),
+            meeting.status === "archived"
+              ? h("div", {
+                  style: PS.meta,
+                  children: "已归档会议不可编辑。",
+                })
+              : h(
+                  "div",
+                  { style: { display: "flex", justifyContent: "flex-end" } },
+                  h("button", {
+                    type: "button",
+                    style: PS.primaryBtn,
+                    disabled:
+                      busy !== "" ||
+                      centerTitleDraft.trim() === "" ||
+                      (centerTitleDraft.trim() === meeting.title &&
+                        centerAgendaDraft === (meeting.agenda ?? "")),
+                    onClick: () => void saveCenterSettings(),
+                    children:
+                      busy === "meeting-settings" ? "保存中…" : "保存设置",
+                  }),
+                ),
+          ])
+        : null;
+
       const chat = meeting
         ? h("div", { style: PS.chat }, [
             h("div", { style: PS.chatHead }, [
               h("div", { style: { flex: 1, minWidth: 0 } }, [
-                h("div", {
-                  style: { fontSize: 14, fontWeight: 600 },
-                  children: meeting.title,
-                }),
+                h(
+                  "div",
+                  {
+                    style: {
+                      alignItems: "center",
+                      display: "flex",
+                      gap: 8,
+                      minWidth: 0,
+                    },
+                  },
+                  h("div", {
+                    style: {
+                      fontSize: 15,
+                      fontWeight: 600,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    },
+                    children: meeting.title,
+                  }),
+                  h("span", {
+                    style: Object.assign({}, PS.statusPill, {
+                      flexShrink: 0,
+                    }),
+                    children: meetingStatusLabel(meeting.status),
+                  }),
+                ),
                 h("div", {
                   style: PS.meta,
-                  children: `${meeting.status === "archived" ? "已归档" : meeting.status === "closed" ? "已结束" : "进行中"} · ${participants.filter((participant) => participant.status === "active").length} 人 · ${bucket.ai.length} 个 AI`,
+                  children: `${meetingTimeLabel(meeting)} · ${projectName || "未分组"} · ${participants.filter((participant) => participant.status === "active").length} 人 · ${bucket.ai.length} 个 AI`,
                 }),
               ]),
-              joined
-                ? h("button", {
-                    type: "button",
-                    style: PS.ghostBtn,
-                    disabled: busy !== "",
-                    onClick: () => setInviteOpen(true),
-                    children: "邀请成员",
-                  })
-                : null,
-              joined
-                ? h("button", {
-                    type: "button",
-                    style: PS.ghostBtn,
-                    disabled: busy !== "",
-                    onClick: () => setDelegateOpen(true),
-                    children: "指派 AI 参会",
-                  })
-                : null,
-              !joined
-                ? h("button", {
-                    type: "button",
-                    style: PS.primaryBtn,
-                    disabled: busy !== "",
-                    onClick: () =>
-                      run("join", () =>
-                        post("/api/collab/meeting/join", {
-                          meetingId,
-                          displayName:
-                            accountName || `用户-${actorId.slice(0, 6)}`,
-                        }),
-                      ),
-                    children: "加入会议",
-                  })
-                : null,
-              joined && meeting.status === "active"
-                ? h("button", {
-                    type: "button",
-                    style: PS.ghostBtn,
-                    disabled: busy !== "",
-                    onClick: () => {
-                      setCloseOpen(true);
-                      setCloseSummary("");
-                    },
-                    children: "关闭会议",
-                  })
-                : null,
-              meeting.status === "closed"
-                ? h("button", {
-                    type: "button",
-                    style: PS.ghostBtn,
-                    disabled: busy !== "",
-                    onClick: () =>
-                      run("archive", () =>
-                        post("/api/collab/meeting/archive", { meetingId }),
-                      ),
-                    children: "归档会议",
-                  })
-                : null,
+              h(
+                "div",
+                {
+                  style: {
+                    alignItems: "center",
+                    display: "flex",
+                    flexShrink: 0,
+                    gap: 8,
+                  },
+                },
+                !joined
+                  ? h("button", {
+                      type: "button",
+                      style: PS.primaryBtn,
+                      disabled: busy !== "",
+                      onClick: () =>
+                        run("join", () =>
+                          post("/api/collab/meeting/join", {
+                            meetingId,
+                            displayName:
+                              accountName || `用户-${actorId.slice(0, 6)}`,
+                          }),
+                        ),
+                      children: "加入会议",
+                    })
+                  : null,
+                centerTabBar,
+              ),
             ]),
-            stream,
-            meeting.status === "active" && joined
+            centerTab === "conversation"
+              ? stream
+              : centerTab === "minutes"
+                ? minutesTab
+                : centerSettings,
+            centerTab === "conversation" &&
+            meeting.status === "active" &&
+            joined
               ? h("div", { style: { flexShrink: 0, position: "relative" } }, [
-                  mentionOpen && mentionOptions.length > 0
+                  mentionOpen
                     ? h(
                         "div",
                         { style: PS.mentionMenu },
-                        ...mentionOptions.map((participant) =>
-                          h("button", {
-                            type: "button",
-                            key: participant.id,
-                            style: PS.mentionItem,
-                            onClick: () => pickMention(participant),
-                            children: `${participant.displayName}${
-                              participant.kind === "human" ? "" : "（AI）"
-                            }`,
-                          }),
-                        ),
+                        ...(mentionOptions.length > 0
+                          ? mentionOptions.map((participant) =>
+                              h("button", {
+                                type: "button",
+                                key: participant.id,
+                                style: PS.mentionItem,
+                                onClick: () => pickMention(participant),
+                                children: [
+                                  participantAvatarNode(participant, teammates),
+                                  h(
+                                    "span",
+                                    { style: PS.mentionCopy },
+                                    h("span", {
+                                      style: PS.mentionName,
+                                      children: participant.displayName,
+                                    }),
+                                    h("span", {
+                                      style: PS.mentionMeta,
+                                      children:
+                                        participant.kind === "human"
+                                          ? "会议成员"
+                                          : participant.ownerName
+                                            ? `${participant.ownerName} 的 AI`
+                                            : "AI 成员",
+                                    }),
+                                  ),
+                                ],
+                              }),
+                            )
+                          : [
+                              h("div", {
+                                key: "empty",
+                                style: PS.mentionItem,
+                                children: "没有匹配成员",
+                              }),
+                            ]),
                       )
                     : null,
                   h(
@@ -3884,9 +5166,14 @@ window.__ModuleLoader__.load({
                       }),
                       h("button", {
                         type: "submit",
-                        style: PS.primaryBtn,
-                        disabled: busy !== "",
-                        children: "发送",
+                        style: Object.assign({}, PS.sendBtn, {
+                          opacity:
+                            busy !== "" || content.trim() === "" ? 0.45 : 1,
+                        }),
+                        title: "发送消息",
+                        "aria-label": "发送消息",
+                        disabled: busy !== "" || content.trim() === "",
+                        children: sendIcon(),
                       }),
                     ]),
                   ),
@@ -3911,6 +5198,17 @@ window.__ModuleLoader__.load({
             style: Object.assign(
               {},
               PS.tab,
+              tab === "summary" ? PS.tabActive : {},
+            ),
+            onMouseDown: () => setTab("summary"),
+            onClick: () => setTab("summary"),
+            children: "概要",
+          }),
+          h("button", {
+            type: "button",
+            style: Object.assign(
+              {},
+              PS.tab,
               tab === "members" ? PS.tabActive : {},
             ),
             onMouseDown: () => setTab("members"),
@@ -3929,7 +5227,11 @@ window.__ModuleLoader__.load({
             children: "纪要",
           }),
         ]),
-        tab === "members" ? membersTab : minutesTab,
+        tab === "summary"
+          ? summaryTab
+          : tab === "members"
+            ? membersTab
+            : minutesTab,
       ]);
 
       /** 方案 B：在"只看已加入项目"与"全量（管理员）"之间切换。 */
@@ -3939,85 +5241,32 @@ window.__ModuleLoader__.load({
         setWorkspaceFilter("all");
       };
 
-      return h("div", { style: PS.root }, [
-        h("div", { style: PS.top }, [
-          h("h1", { style: PS.title, children: "会议" }),
-          // 项目下拉与搜索框一起右对齐，紧贴「新建会议」左侧。
-          h("div", { style: { flex: 1 } }),
-          isPlatformAdmin
-            ? h(
-                "div",
-                {
-                  role: "group",
-                  "aria-label": "项目范围",
-                  style: {
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 2,
-                    padding: 2,
-                    border: "0.5px solid var(--dsw-alias-border-l2)",
-                    borderRadius: 8,
-                    background:
-                      "var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base))",
-                  },
-                },
-                h(
-                  "button",
-                  {
-                    type: "button",
-                    style: Object.assign({}, PS.select, {
-                      cursor: "pointer",
-                      // 与 AI Teammates 的 scope token 对齐：高 26 / 字号 11。
-                      height: 26,
-                      padding: "0 9px",
-                      fontSize: 11,
-                      border: "none",
-                      background: showAllWorkspaces
-                        ? "transparent"
-                        : "color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 14%,transparent)",
-                      color: showAllWorkspaces
-                        ? "var(--dsw-alias-label-secondary)"
-                        : "var(--dsw-alias-accent-primary,#4f8ef7)",
-                    }),
-                    "aria-pressed": !showAllWorkspaces,
-                    title: "只看我已加入的项目（默认视图）",
-                    onClick: () => {
-                      if (showAllWorkspaces) setShowAllProjects(false);
-                    },
-                  },
-                  "仅看已加入",
-                ),
-                h(
-                  "button",
-                  {
-                    type: "button",
-                    style: Object.assign({}, PS.select, {
-                      cursor: "pointer",
-                      height: 26,
-                      padding: "0 9px",
-                      fontSize: 11,
-                      border: "none",
-                      background: showAllWorkspaces
-                        ? "color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 14%,transparent)"
-                        : "transparent",
-                      color: showAllWorkspaces
-                        ? "var(--dsw-alias-accent-primary,#4f8ef7)"
-                        : "var(--dsw-alias-label-secondary)",
-                    }),
-                    "aria-pressed": showAllWorkspaces,
-                    title: "平台管理员全量视图：显示全部项目",
-                    onClick: () => {
-                      if (!showAllWorkspaces) setShowAllProjects(true);
-                    },
-                  },
-                  "平台全量",
-                ),
-              )
-            : null,
+      const meetingListHeader = h("div", { style: PS.listHeader }, [
+        h(
+          "div",
+          {
+            style: {
+              alignItems: "center",
+              display: "flex",
+              justifyContent: "space-between",
+            },
+          },
+          h("span", { style: PS.groupTitle, children: "筛选 / 搜索" }),
+          h("span", { style: PS.meta, children: `${visibleMeetings.length} 场` }),
+        ),
+        h(
+          "div",
+          {
+            style: {
+              display: "grid",
+              gap: 6,
+              gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)",
+            },
+          },
           h(
             "select",
             {
-              style: PS.select,
+              style: Object.assign({}, PS.select, { width: "100%" }),
               value: workspaceFilter,
               "aria-label": "项目筛选",
               title: "项目筛选",
@@ -4026,7 +5275,7 @@ window.__ModuleLoader__.load({
                 setMeetingId("");
               },
             },
-            h("option", { value: "all", children: "全部" }),
+            h("option", { value: "all", children: "全部项目" }),
             ...visibleWorkspaces.map((workspace) =>
               h("option", {
                 key: workspace.id,
@@ -4035,13 +5284,73 @@ window.__ModuleLoader__.load({
               }),
             ),
           ),
-          h("input", {
-            style: Object.assign({}, PS.select, { width: 260 }),
-            value: search,
-            placeholder: "搜索会议标题",
-            "aria-label": "搜索会议标题",
-            onChange: (event) => setSearch(event.target.value),
-          }),
+          h(
+            "select",
+            {
+              style: Object.assign({}, PS.select, { width: "100%" }),
+              value: meetingFilter,
+              "aria-label": "会议状态筛选",
+              title: "会议状态筛选",
+              onChange: (event) => setMeetingFilter(event.target.value),
+            },
+            h("option", { value: "all", children: "全部状态" }),
+            h("option", { value: "ongoing", children: "进行中" }),
+            h("option", { value: "completed", children: "已结束" }),
+          ),
+        ),
+        h("input", {
+          style: Object.assign({}, PS.select, { width: "100%" }),
+          value: search,
+          placeholder: "搜索会议标题",
+          "aria-label": "搜索会议标题",
+          onChange: (event) => setSearch(event.target.value),
+        }),
+      ]);
+
+      const meetingFilters = isPlatformAdmin
+        ? h("div", { style: PS.topFilters }, [
+            h(
+              "div",
+              {
+                role: "group",
+                "aria-label": "项目范围",
+                style: PS.filterSegment,
+              },
+              h("button", {
+                type: "button",
+                style: Object.assign(
+                  {},
+                  PS.filterBtn,
+                  showAllWorkspaces ? {} : PS.filterBtnActive,
+                ),
+                "aria-pressed": !showAllWorkspaces,
+                onClick: () => {
+                  if (showAllWorkspaces) setShowAllProjects(false);
+                },
+                children: "仅看已加入",
+              }),
+              h("button", {
+                type: "button",
+                style: Object.assign(
+                  {},
+                  PS.filterBtn,
+                  showAllWorkspaces ? PS.filterBtnActive : {},
+                ),
+                "aria-pressed": showAllWorkspaces,
+                onClick: () => {
+                  if (!showAllWorkspaces) setShowAllProjects(true);
+                },
+                children: "平台全量",
+              }),
+            ),
+          ])
+        : null;
+
+      return h("div", { style: PS.root }, [
+        h("div", { style: PS.top }, [
+          h("h1", { style: PS.title, children: "会议" }),
+          h("div", { style: PS.topActions }, [
+          meetingFilters,
           h("button", {
             type: "button",
             style: PS.primaryBtn,
@@ -4055,9 +5364,11 @@ window.__ModuleLoader__.load({
                 type: "button",
                 style: Object.assign({}, PS.select, {
                   cursor: "pointer",
+                  flexShrink: 0,
                   height: 34,
                   padding: "0 12px",
                   fontSize: 12.5,
+                  whiteSpace: "nowrap",
                   ...(showArchived
                     ? {
                         background:
@@ -4089,6 +5400,7 @@ window.__ModuleLoader__.load({
             },
             videoIcon(),
           ),
+          ]),
         ]),
         banner,
         closeOpen
@@ -4195,44 +5507,136 @@ window.__ModuleLoader__.load({
           h(
             "div",
             { style: PS.list },
-            ...visibleMeetings.map((item) =>
-              h(
-                "button",
-                {
-                  type: "button",
-                  key: item.id,
-                  style: Object.assign(
-                    {},
-                    PS.item,
-                    item.id === meetingId ? PS.itemActive : {},
-                  ),
-                  onMouseDown: () => setMeetingId(item.id),
-                  onClick: () => setMeetingId(item.id),
-                },
-                h("div", {
-                  style: { fontSize: 13, fontWeight: 500 },
-                  children: item.title,
-                }),
-                h("div", {
-                  style: PS.meta,
-                  children: [
-                    workspaceFilter === "all"
-                      ? workspaceNameById.get(item.workspaceId)
-                      : undefined,
-                    `${item.status === "archived" ? "已归档" : item.status === "closed" ? "已结束" : "进行中"} · ${timeShort(item.updatedAt)}`,
-                  ]
-                    .filter(Boolean)
-                    .join(" · "),
-                }),
+            meetingListHeader,
+            h(
+              "div",
+              { style: PS.listItems },
+              ...visibleMeetings.map((item) =>
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    key: item.id,
+                    style: Object.assign(
+                      {},
+                      PS.item,
+                      item.id === meetingId ? PS.itemActive : {},
+                    ),
+                    onMouseDown: () => setMeetingId(item.id),
+                    onClick: () => setMeetingId(item.id),
+                  },
+                  h("div", {
+                    style: { fontSize: 13, fontWeight: 500 },
+                    children: item.title,
+                  }),
+                  h("div", {
+                    style: PS.meta,
+                    children: [
+                      workspaceFilter === "all"
+                        ? workspaceNameById.get(item.workspaceId)
+                        : undefined,
+                      `${meetingStatusLabel(item.status)} · ${timeShort(item.updatedAt)}`,
+                    ]
+                      .filter(Boolean)
+                      .join(" · "),
+                  }),
+                ),
               ),
+              visibleMeetings.length === 0
+                ? h("div", { style: PS.meta, children: "暂无会议" })
+                : null,
             ),
-            visibleMeetings.length === 0
-              ? h("div", { style: PS.meta, children: "暂无会议" })
-              : null,
           ),
           chat,
-          sidePanelOpen ? null : side,
         ]),
+        briefOpen && meeting
+          ? h(
+              "div",
+              { style: PS.overlay },
+              h("div", { style: PS.modal }, [
+                h("div", { style: PS.summaryHead }, [
+                  h("div", { style: PS.title, children: "会议简报" }),
+                  h("span", {
+                    style: PS.statusPill,
+                    children: meetingStatusLabel(meeting.status),
+                  }),
+                ]),
+                h("div", { style: PS.briefSection }, [
+                  h("div", {
+                    style: PS.briefSectionTitle,
+                    children: "会议信息",
+                  }),
+                  h("div", {
+                    style: PS.meta,
+                    children: `${meeting.title} · ${projectName || "未分组"} · ${activeHumans.length} 位人类 · ${activeAi.length} 位 AI`,
+                  }),
+                ]),
+                h("div", { style: PS.briefSection }, [
+                  h("div", {
+                    style: PS.briefSectionTitle,
+                    children: "会议概要",
+                  }),
+                  h("div", {
+                    style: PS.meta,
+                    children:
+                      meeting.agenda?.trim() ||
+                      meeting.summary?.trim() ||
+                      "暂无会议议程或概要",
+                  }),
+                ]),
+                h("div", { style: PS.briefSection }, [
+                  h("div", {
+                    style: PS.briefSectionTitle,
+                    children: "最近沟通",
+                  }),
+                  recentBriefMessages.length === 0
+                    ? h("div", { style: PS.meta, children: "暂无沟通记录" })
+                    : h(
+                        "div",
+                        { style: { display: "grid", gap: 5 } },
+                        ...recentBriefMessages.map((message) =>
+                          h("div", {
+                            key: message.id,
+                            style: PS.meta,
+                            children: `${message.sender}：${message.content}`,
+                          }),
+                        ),
+                      ),
+                ]),
+                h("div", { style: PS.briefSection }, [
+                  h("div", {
+                    style: PS.briefSectionTitle,
+                    children: "会议纪要",
+                  }),
+                  h("div", {
+                    style: PS.meta,
+                    children:
+                      displayVersion === undefined
+                        ? "暂无会议纪要"
+                        : `会议纪要 v${displayVersion.version} 已生成，更新于 ${timeFull(
+                            displayVersion.updatedAt ?? displayVersion.createdAt,
+                          )}`,
+                  }),
+                ]),
+                h(
+                  "div",
+                  {
+                    style: {
+                      display: "flex",
+                      gap: 8,
+                      justifyContent: "flex-end",
+                    },
+                  },
+                  h("button", {
+                    type: "button",
+                    style: PS.primaryBtn,
+                    onClick: () => setBriefOpen(false),
+                    children: "关闭",
+                  }),
+                ),
+              ]),
+            )
+          : null,
         createOpen
           ? h(
               "div",
@@ -4260,13 +5664,13 @@ window.__ModuleLoader__.load({
                 [
                   h("div", { style: PS.title, children: "新建会议" }),
                   h("label", { style: PS.field }, [
-                    h("span", { children: "项目" }),
+                    h("span", { children: "关联项目" }),
                     h(
                       "select",
                       {
                         style: PS.input,
                         value: createWorkspaceId,
-                        "aria-label": "新建会议所属项目",
+                        "aria-label": "新建会议关联项目",
                         onChange: (event) =>
                           setCreateWorkspaceId(event.target.value),
                       },
@@ -4274,7 +5678,10 @@ window.__ModuleLoader__.load({
                         h("option", {
                           key: workspace.id,
                           value: workspace.id,
-                          children: workspaceLabel(workspace),
+                          children:
+                            workspace.id === SYSTEM_DEFAULT_WORKSPACE_ID
+                              ? "默认项目（system，不关联项目）"
+                              : workspaceLabel(workspace),
                         }),
                       ),
                     ),

@@ -73,4 +73,45 @@ describe("workflow client state setters", () => {
     expect(synchronize).toContain('setOpenId("")');
     expect(synchronize).toContain('setBusy("")');
   });
+
+  it("keeps overview node selection and delivery as sibling controls", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    const start = source.indexOf("function WorkflowFlowOverview(");
+    const end = source.indexOf("function Feedback(", start);
+    const overview = source.slice(start, end);
+
+    expect(overview).toContain('className: "pmwf-overview-select"');
+    expect(overview).toContain('className: "pmwf-overview-delivery"');
+    expect(overview).not.toContain('role: "button"');
+  });
+
+  it("reserves a mobile header row for the workflow breadcrumb controls", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+
+    expect(source).toContain("pmwf-crumb-root");
+    expect(source).toContain(
+      ".pmwf-detail-head{display:grid;grid-template-columns:minmax(0,1fr) auto",
+    );
+    expect(source).toContain(".pmwf-detail-title{grid-column:1/-1");
+  });
+
+  it("does not show the redundant template-preview badge in subflow cards", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    const start = source.indexOf("const subflowTemplatePreview =");
+    const end = source.indexOf("const currentOwnerIds =", start);
+    const subflow = source.slice(start, end);
+
+    expect(subflow).not.toContain('children: "模板预览"');
+    expect(subflow).toContain('" 个节点"');
+  });
+
+  it("uses the instance project for Agent run actions from the all-projects view", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    const start = source.indexOf("? AgentRunPanel({");
+    const end = source.indexOf(": null", start);
+    const panel = source.slice(start, end);
+
+    expect(panel).toContain("instance.workspaceId");
+    expect(panel).not.toContain("effectiveWorkspaceId");
+  });
 });

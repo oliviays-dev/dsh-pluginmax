@@ -77,4 +77,21 @@ describe("workbench client styles", () => {
     ]);
     expect(workbenchActive).toEqual(taskActive);
   });
+
+  it("lays out meeting minutes below the status row across the full module width", () => {
+    const workbenchClient = readClient(WORKBENCH_CLIENT_PATH);
+    expect(workbenchClient).toContain(
+      '.pmwb-item.meeting{grid-template-areas:"name actions" "meta time" "sub sub" "owner owner";}',
+    );
+
+    const statusIndex = workbenchClient.indexOf(
+      'className: "pmwb-item-meta pmwb-meeting-status"',
+    );
+    const summaryIndex = workbenchClient.indexOf(
+      "className: `pmwb-item-sub${item.summaryText",
+      statusIndex,
+    );
+    expect(statusIndex).toBeGreaterThan(-1);
+    expect(summaryIndex).toBeGreaterThan(statusIndex);
+  });
 });

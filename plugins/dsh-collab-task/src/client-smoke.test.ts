@@ -573,6 +573,127 @@ describe("task client", () => {
     expect(source).toContain("canReview &&");
   });
 
+  it("only says a completed task reopens when the message addresses its receiver", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain(
+      'const reopensTask =\n            task.status === "done" && deliveryTarget !== "collaborators"',
+    );
+    expect(source).toContain(
+      '? "receiver"\n              : addressesReceiver && mentionsCollaborator',
+    );
+    expect(source).toContain("deliveryTarget,\n            },");
+    expect(source).toContain("协作消息已发送，任务状态保持不变");
+  });
+
+  it("renders acceptance criteria as checkable items in task detail", async () => {
+    const stepCalls: Array<{ path: string; body: unknown }> = [];
+    const task = makeTask({
+      id: "TSK-ACCEPTANCE-1",
+      workspaceId: "ws-1",
+      title: "验收项交互",
+      status: "progress",
+      priority: "P1",
+      receiverType: "human",
+      receiverId: "admin",
+      receiverName: "平台 Admin",
+      createdBy: "admin",
+      updatedAt: "2026-03-07T00:00:00.000Z",
+      steps: [
+        { id: "step-scope", label: "完成范围核对", done: false },
+        { id: "step-risk", label: "记录风险", done: true },
+      ],
+    });
+    const fetchImpl = (
+      input: string,
+      init?: unknown,
+    ): Promise<{
+      ok: boolean;
+      status?: number;
+      json: () => Promise<unknown>;
+    }> => {
+      if (input.startsWith("/api/collab/auth/me")) {
+        return Promise.resolve(
+          payload({ user: { id: "admin", name: "平台 Admin", role: "admin" } }),
+        );
+      }
+      if (input.startsWith("/api/collab/team/workspaces")) {
+        return Promise.resolve(
+          payload({
+            workspaces: [
+              { id: "ws-1", title: "项目一", path: "/p1", isMember: true },
+            ],
+          }),
+        );
+      }
+      if (input.startsWith("/api/collab/tasks/bootstrap")) {
+        return Promise.resolve(
+          payload({
+            tasks: [task],
+            directory: { humans: [], agents: [], roles: [] },
+          }),
+        );
+      }
+      if (input.startsWith("/api/collab/tasks/step")) {
+        stepCalls.push({
+          path: input,
+          body: JSON.parse(String((init as { body?: unknown })?.body ?? "{}")),
+        });
+        return Promise.resolve(
+          payload({
+            task: {
+              ...task,
+              steps: [
+                { id: "step-scope", label: "完成范围核对", done: true },
+                { id: "step-risk", label: "记录风险", done: true },
+              ],
+            },
+          }),
+        );
+      }
+      return Promise.resolve(payload({}));
+    };
+
+    const harness = loadClientExports({ fetchImpl });
+    const root = mountTaskPage(harness);
+    let tree = await settle(root, harness.runtime);
+    const card = findNode(
+      tree,
+      (node) => node.props?.["data-task-id"] === "TSK-ACCEPTANCE-1",
+    );
+    (card?.props?.onClick as (() => void) | undefined)?.();
+    tree = await settle(root, harness.runtime);
+
+    const acceptance = findNode(
+      tree,
+      (node) => node.props?.className === "pmtask-acceptance",
+    );
+    expect(acceptance, "任务详情应展示验收标准").toBeDefined();
+    expect(containsText(acceptance?.props?.children, "完成范围核对")).toBe(
+      true,
+    );
+    expect(containsText(acceptance?.props?.children, "记录风险")).toBe(true);
+
+    const firstStep = findNode(
+      acceptance,
+      (node) =>
+        node.type === "input" &&
+        node.props?.type === "checkbox" &&
+        node.props?.checked === false,
+    );
+    (firstStep?.props?.onChange as ((event: unknown) => void) | undefined)?.({
+      target: { checked: true },
+    });
+    await settle(root, harness.runtime);
+
+    expect(stepCalls).toHaveLength(1);
+    expect(stepCalls[0]?.path).toBe("/api/collab/tasks/step");
+    expect(stepCalls[0]?.body).toEqual({
+      taskId: "TSK-ACCEPTANCE-1",
+      stepId: "step-scope",
+      done: true,
+    });
+  });
+
   it("registers the task page into the global slot", () => {
     const { exports: exported } = loadClientExports();
     expect(exported.inject).toEqual(["slots"]);
@@ -1065,6 +1186,174 @@ describe("task client", () => {
     expect(harness.shellRoutes, "shell 应切到会话视图").toContain("session");
   });
 
+  it("keeps the execution session reachable after handoff to the owner", async () => {
+    const opened: string[] = [];
+    const fetchImpl = (input: string) => {
+      if (input.startsWith("/api/collab/auth/me")) {
+        return Promise.resolve(
+          payload({ user: { id: "admin", name: "平台 Admin", role: "admin" } }),
+        );
+      }
+      if (input.startsWith("/api/collab/team/workspaces")) {
+        return Promise.resolve(
+          payload({
+            workspaces: [
+              { id: "ws-1", title: "项目一", path: "/p1", isMember: true },
+            ],
+          }),
+        );
+      }
+      if (input.startsWith("/api/collab/tasks/bootstrap")) {
+        return Promise.resolve(
+          payload({
+            tasks: [
+              makeTask({
+                id: "TSK-SESSION-HANDOFF",
+                workspaceId: "ws-1",
+                title: "Agent 完成后交回 owner",
+                status: "review",
+                priority: "P2",
+                receiverType: "human",
+                receiverId: "admin",
+                receiverName: "平台 Admin",
+                createdBy: "admin",
+                agentRunIds: ["run-handoff"],
+                updatedAt: "2026-03-05T00:00:00.000Z",
+              }),
+            ],
+            directory: { humans: [], agents: [], roles: [] },
+          }),
+        );
+      }
+      if (input.startsWith("/api/collab/tasks/session")) {
+        return Promise.resolve(
+          payload({ sessionId: "de-task-TSK-SESSION-HANDOFF-agent" }),
+        );
+      }
+      return Promise.resolve(payload({}));
+    };
+    const harness = loadClientExports({
+      fetchImpl,
+      sessions: { open: (sessionId) => opened.push(sessionId) },
+    });
+    const root = mountTaskPage(harness);
+    let tree = await settle(root, harness.runtime);
+    const card = findNode(
+      tree,
+      (node) => node.props?.["data-task-id"] === "TSK-SESSION-HANDOFF",
+    );
+    (card?.props?.onClick as (() => void) | undefined)?.();
+    tree = await settle(root, harness.runtime);
+
+    const openButton = findNode(
+      tree,
+      (node) => node.type === "button" && node.props?.children === "打开会话",
+    );
+    expect(
+      openButton,
+      "任务交回 owner 后仍应能打开产生过的 Agent 会话",
+    ).toBeDefined();
+    (openButton?.props?.onClick as (() => void) | undefined)?.();
+    await settle(root, harness.runtime);
+    expect(opened).toEqual(["de-task-TSK-SESSION-HANDOFF-agent"]);
+  });
+
+  it("requires claiming a role task before showing the start action", async () => {
+    const claimedPaths: string[] = [];
+    const fetchImpl = (input: string) => {
+      if (input.startsWith("/api/collab/auth/me")) {
+        return Promise.resolve(
+          payload({
+            user: { id: "member", name: "平台 Member", role: "member" },
+          }),
+        );
+      }
+      if (input.startsWith("/api/collab/team/workspaces")) {
+        return Promise.resolve(
+          payload({
+            workspaces: [
+              { id: "ws-1", title: "项目一", path: "/p1", isMember: true },
+            ],
+          }),
+        );
+      }
+      if (input.startsWith("/api/collab/tasks/bootstrap")) {
+        return Promise.resolve(
+          payload({
+            tasks: [
+              makeTask({
+                id: "TSK-ROLE-1",
+                workspaceId: "ws-1",
+                title: "角色待认领任务",
+                status: "todo",
+                priority: "P1",
+                receiverType: "role",
+                receiverId: "builder",
+                receiverName: "Builder",
+                createdBy: "admin",
+                updatedAt: "2026-03-07T00:00:00.000Z",
+              }),
+            ],
+            directory: {
+              humans: [],
+              agents: [],
+              roles: [
+                {
+                  id: "builder",
+                  name: "Builder",
+                  assignedUserIds: ["member"],
+                },
+              ],
+            },
+          }),
+        );
+      }
+      if (input.startsWith("/api/collab/tasks/claim")) {
+        claimedPaths.push(input);
+        return Promise.resolve(
+          payload({
+            task: makeTask({
+              id: "TSK-ROLE-1",
+              workspaceId: "ws-1",
+              title: "角色待认领任务",
+              status: "progress",
+              priority: "P1",
+              receiverType: "human",
+              receiverId: "member",
+              receiverName: "平台 Member",
+              createdBy: "admin",
+              updatedAt: "2026-03-07T00:01:00.000Z",
+            }),
+          }),
+        );
+      }
+      return Promise.resolve(payload({}));
+    };
+    const harness = loadClientExports({ fetchImpl });
+    const root = mountTaskPage(harness);
+    let tree = await settle(root, harness.runtime);
+    const card = findNode(
+      tree,
+      (node) => node.props?.["data-task-id"] === "TSK-ROLE-1",
+    );
+    (card?.props?.onClick as (() => void) | undefined)?.();
+    tree = await settle(root, harness.runtime);
+
+    const button = (label: string) =>
+      findNode(
+        tree,
+        (node) => node.type === "button" && node.props?.children === label,
+      );
+    expect(button("认领"), "角色成员应能认领任务").toBeDefined();
+    expect(
+      button("开始"),
+      "角色任务认领前不应提供绕过认领的开始入口",
+    ).toBeUndefined();
+    (button("认领")?.props?.onClick as (() => void) | undefined)?.();
+    await settle(root, harness.runtime);
+    expect(claimedPaths).toEqual(["/api/collab/tasks/claim"]);
+  });
+
   it("offers 催办 only for human receivers and hides 重置会话", async () => {
     const directory = {
       humans: [],
@@ -1165,6 +1454,98 @@ describe("task client", () => {
       "下方指令输入框应保留",
     ).toBeDefined();
     expect(button(agentTree, "发送"), "发送按钮应保留").toBeDefined();
+  });
+
+  it("folds cancelled tasks into the done column and drops the cancelled column", async () => {
+    const fetchImpl = (input: string) => {
+      if (input.startsWith("/api/collab/auth/me")) {
+        return Promise.resolve(
+          payload({ user: { id: "admin", name: "平台 Admin", role: "admin" } }),
+        );
+      }
+      if (input.startsWith("/api/collab/team/workspaces")) {
+        return Promise.resolve(
+          payload({
+            workspaces: [
+              { id: "ws-1", title: "项目一", path: "/p1", isMember: true },
+            ],
+          }),
+        );
+      }
+      if (input.startsWith("/api/collab/tasks/bootstrap")) {
+        return Promise.resolve(
+          payload({
+            tasks: [
+              makeTask({
+                id: "TSK-DONE-1",
+                workspaceId: "ws-1",
+                title: "已完成的任务",
+                status: "done",
+                priority: "P2",
+                receiverType: "human",
+                receiverId: "admin",
+                receiverName: "平台 Admin",
+                createdBy: "admin",
+                updatedAt: "2026-03-08T00:00:00.000Z",
+              }),
+              makeTask({
+                id: "TSK-CANCELLED-1",
+                workspaceId: "ws-1",
+                title: "已取消的任务",
+                status: "cancelled",
+                priority: "P2",
+                receiverType: "human",
+                receiverId: "admin",
+                receiverName: "平台 Admin",
+                createdBy: "admin",
+                updatedAt: "2026-03-07T00:00:00.000Z",
+              }),
+            ],
+            directory: { humans: [], agents: [], roles: [] },
+          }),
+        );
+      }
+      return Promise.resolve(payload({}));
+    };
+    const harness = loadClientExports({ fetchImpl });
+    const root = mountTaskPage(harness);
+    const tree = await settle(root, harness.runtime);
+
+    const doneColumn = findNode(
+      tree,
+      (node) =>
+        node.type === "section" &&
+        String(node.props?.className ?? "").includes("pmtask-column") &&
+        containsText(node.props?.children, "已完成") &&
+        containsText(node.props?.children, "已完成的任务") &&
+        containsText(node.props?.children, "已取消的任务"),
+    );
+    expect(doneColumn, "已取消的历史任务应并入「已完成」列").toBeDefined();
+    expect(
+      findNode(
+        tree,
+        (node) => node.type === "strong" && node.props?.children === "已取消",
+      ),
+      "不应再有「已取消」状态列",
+    ).toBeUndefined();
+    expect(
+      findNode(
+        tree,
+        (node) =>
+          node.type === "span" &&
+          node.props?.className === "pmtask-pill cancelled",
+      ),
+      "已取消任务卡片应有标记",
+    ).toBeDefined();
+  });
+
+  it("uses container queries so a narrowed pane keeps the board usable", () => {
+    // 会议侧边栏展开时视口仍然很宽，但任务区变窄：必须按容器宽度响应，
+    // 否则五列会被挤成一条、最后一列还会被裁掉。
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain("container-type:inline-size");
+    expect(source).toContain("@container (max-width:1000px)");
+    expect(source).toContain("grid-auto-columns:260px");
   });
 
   it("shows the owning project and never offers to change it", async () => {

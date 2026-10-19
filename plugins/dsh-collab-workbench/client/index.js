@@ -117,7 +117,7 @@ ${SCOPE_BUTTON_STYLES}
 .pmwb-item.pmwb-item-focus{grid-template-areas:"name actions" "id time" "note note" "owner owner";}
 .pmwb-item:hover{border-color:var(--dsw-alias-border-l4,var(--dsw-alias-border-l3));}
 .pmwb-item.read{opacity:.7;}
-.pmwb-item.meeting{grid-template-areas:"name actions" "sub time" "owner owner";}
+.pmwb-item.meeting{grid-template-areas:"name actions" "meta time" "sub sub" "owner owner";}
 .pmwb-item-title{display:flex;align-items:baseline;gap:7px;min-width:0;flex-wrap:wrap;}
 .pmwb-item-title .id{flex:none;color:var(--dsw-alias-label-tertiary);font-size:11px;}
 .pmwb-item-title strong{min-width:0;font-size:12.5px;line-height:1.45;}
@@ -1794,7 +1794,7 @@ ${SCOPE_BUTTON_STYLES}
             h(
               "div",
               {
-                className: `pmwb-item-sub${item.summaryText ? "" : " placeholder"}`,
+                className: "pmwb-item-meta pmwb-meeting-status",
               },
               item.minutesPending
                 ? h("span", { className: "pmwb-minutes-badge" }, "待确认")
@@ -1805,6 +1805,12 @@ ${SCOPE_BUTTON_STYLES}
                       "已确认纪要",
                     )
                   : null,
+            ),
+            h(
+              "div",
+              {
+                className: `pmwb-item-sub${item.summaryText ? "" : " placeholder"}`,
+              },
               item.summaryText || "暂无对话记录",
             ),
             h(

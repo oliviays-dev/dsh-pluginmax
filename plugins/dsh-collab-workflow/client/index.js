@@ -94,7 +94,9 @@ window.__ModuleLoader__.load({
 .pmwf-overview-stage.branch .pmwf-overview-stage-title{color:var(--dsw-alias-accent-primary,#4f8ef7)}
 .pmwf-overview-stage-title{color:var(--dsw-alias-label-secondary);font-size:10px;font-weight:600;line-height:1.3;white-space:nowrap}
 .pmwf-overview-lane{display:flex;min-width:0}
-.pmwf-overview-node{flex:1 1 auto;display:grid;gap:4px;min-width:124px;max-width:170px;padding:7px 8px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:5px;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;font:inherit}
+.pmwf-overview-node{flex:1 1 auto;display:grid;gap:4px;min-width:124px;max-width:170px;padding:7px 8px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:5px;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-primary);text-align:left;font:inherit}
+.pmwf-overview-select{display:grid;gap:4px;min-width:0;padding:0;border:0;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}
+.pmwf-overview-select:focus-visible,.pmwf-overview-delivery:focus-visible{outline:2px solid var(--dsw-alias-accent-primary,#4f8ef7);outline-offset:2px;border-radius:3px}
 .pmwf-overview-node:hover{border-color:var(--dsw-alias-border-l4,var(--dsw-alias-border-l3))}
 .pmwf-overview-node.approval{border-radius:10px}
 .pmwf-overview-node.decision{clip-path:polygon(5% 0,100% 0,95% 100%,0 100%)}
@@ -293,7 +295,8 @@ window.__ModuleLoader__.load({
 .pmwf-detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin:0 0 12px;padding-bottom:10px;border-bottom:1px solid var(--dsw-alias-border-l2)}
 .pmwf-detail-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
 .pmwf-detail-title strong{font-size:15px;line-height:1.35}
-.pmwf-crumb{display:inline-flex;align-items:center;gap:4px;min-width:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.5}
+.pmwf-crumb{display:inline-flex;align-items:center;gap:4px;min-width:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.5;white-space:nowrap;overflow:hidden}
+.pmwf-crumb-root{flex:none}
 .pmwf-crumb b{min-width:0;color:var(--dsw-alias-label-primary);font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pmwf-detail-sub{color:var(--dsw-alias-label-tertiary);font-size:11.5px}
 .pmwf-detail-meta{display:flex;flex-wrap:wrap;gap:6px 14px;margin:0 0 12px;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.5}
@@ -314,6 +317,7 @@ window.__ModuleLoader__.load({
 .pmwf-node-index{flex:none;display:inline-grid;place-items:center;min-width:22px;height:20px;padding:0 5px;border-radius:5px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary);font-size:10px;font-weight:700;line-height:1}
 .pmwf-type-tag{flex:none;padding:1px 6px;border-radius:4px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:1.7}
 .pmwf-type-tag.join{background:color-mix(in srgb,var(--dsw-alias-label-secondary) 10%,transparent);color:var(--dsw-alias-label-secondary)}
+.pmwf-type-tag.branch-condition{max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 9%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7)}
 .pmwf-node-head-fields{display:flex;align-items:center;gap:6px 16px;flex-wrap:wrap;min-width:0;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.5}
 .pmwf-node-head-fields>span{white-space:nowrap}
 .pmwf-node-head-fields b{color:var(--dsw-alias-label-primary);font-weight:600}
@@ -342,6 +346,7 @@ window.__ModuleLoader__.load({
 .pmwf-subflow-preview{margin-top:9px;border-style:dashed}
 .pmwf-subflow-preview>.pmwf-nodes{margin-top:8px}
 .pmwf-nested-summary{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:8px;align-items:center}
+.pmwf-subflow-preview>.pmwf-nested-summary{grid-template-columns:auto minmax(0,1fr) auto}
 .pmwf-nested-summary span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:11px}
 .pmwf-form{display:grid;gap:7px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--dsw-alias-border-l3)}
 .pmwf-deliverables{display:grid;gap:8px;margin-top:9px;padding-top:9px;border-top:1px dashed var(--dsw-alias-border-l3)}
@@ -405,7 +410,7 @@ window.__ModuleLoader__.load({
 @media(max-width:900px){.pmwf-toolbar{flex-wrap:wrap}.pmwf-project-filter,.pmwf-status-multi,.pmwf-owner-filter{flex:1 1 calc(33.333% - 6px);width:auto}.pmwf-search{flex-basis:100%}.pmwf-search-submit{flex:1 1 100%;margin-left:0;}}
 @media(max-width:760px){.pmwf-template-layout,.pmwf-template-inline-body{grid-template-columns:1fr}.pmwf-template-sidebar{border-right:0;border-bottom:1px solid var(--dsw-alias-border-l2)}}
 @media(max-width:760px){.pmwf-summary{grid-template-columns:auto minmax(0,1fr) auto;align-items:start}.pmwf-name{grid-column:2;grid-row:1}.pmwf-row-meta{grid-column:2 / 4;grid-row:2;display:grid;gap:2px;justify-items:start;text-align:left}.pmwf-status-note{grid-column:3;grid-row:1;width:auto;max-width:140px}.pmwf-node-facts{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:560px){.pmwf-heading{flex-direction:column;gap:8px}.pmwf-name span{white-space:normal}.pmwf-select{width:100%}}
+@media(max-width:560px){.pmwf-heading{flex-direction:column;gap:8px}.pmwf-name span{white-space:normal}.pmwf-select{width:100%}.pmwf-detail-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:6px 10px}.pmwf-detail-title{grid-column:1/-1;flex-wrap:nowrap;gap:6px}.pmwf-crumb{flex:1 1 auto}.pmwf-detail-head>.pmwf-time{grid-column:2;grid-row:2;justify-self:end;max-width:none}.pmwf-detail-meta-right{margin-left:0;justify-content:flex-start}}
 @media(max-width:960px){.pmwf-list{grid-template-columns:1fr}.pmwf-placeholder{grid-column:1;grid-row:auto !important}.pmwf-detail{grid-column:1;grid-row:auto !important}.pmwf-detail-inner{position:static;max-height:none;overflow:visible}}
 @container (max-width:780px){.pmwf-list{grid-template-columns:1fr}.pmwf-placeholder{grid-column:1;grid-row:auto !important}.pmwf-detail{grid-column:1;grid-row:auto !important}.pmwf-detail-inner{position:static;max-height:none;overflow:visible}}
 `;
@@ -2173,7 +2178,10 @@ window.__ModuleLoader__.load({
         {
           label: "已完成",
           value: completed,
-          note: total > 0 ? `${Math.round((completed / total) * 100)}% 完成率` : "暂无实例",
+          note:
+            total > 0
+              ? `${Math.round((completed / total) * 100)}% 完成率`
+              : "暂无实例",
           tone: completed > 0 ? "up" : "",
         },
       ];
@@ -2282,8 +2290,7 @@ window.__ModuleLoader__.load({
         const current = state?.deliverables?.[requirement.key];
         const matches = (submissions ?? []).filter(
           (item) =>
-            item.nodeId === node.id &&
-            item.requirementKey === requirement.key,
+            item.nodeId === node.id && item.requirementKey === requirement.key,
         );
         const latest =
           matches.find((item) => item.id === current?.latestSubmissionId) ??
@@ -2420,14 +2427,42 @@ window.__ModuleLoader__.load({
       }
       const entries = [];
       const byId = new Map();
-      const branchLabelOf = (edge) => {
+      const negateCondition = (expression) => {
+        const trimmed = expression.trim();
+        const match = /^(.+?)\s*(>=|<=|==|!=|>|<)\s*(.+)$/.exec(trimmed);
+        if (match === null) return `不满足 ${trimmed}`;
+        const opposites = {
+          ">=": "<",
+          "<=": ">",
+          "==": "!=",
+          "!=": "==",
+          ">": "<=",
+          "<": ">=",
+        };
+        return `${match[1].trim()} ${opposites[match[2]]} ${match[3].trim()}`;
+      };
+      const branchLabelOf = (edge, allEdges = []) => {
         if ((edge?.label ?? "").trim() !== "") return edge.label.trim();
         if ((edge?.condition ?? "").trim() !== "") {
-          return `条件：${edge.condition.trim()}`;
+          return edge.condition.trim();
         }
-        if (edge?.default === true) return "默认分支";
-        if (edge?.result === "approved") return "通过";
-        if (edge?.result === "rejected") return "退回";
+        if (edge?.default === true) {
+          // 默认分支没有显式条件：用其他分支条件的反面表达进入条件。
+          const others = allEdges.filter(
+            (item) => item !== edge && (item.condition ?? "").trim() !== "",
+          );
+          if (others.length === 1) {
+            return negateCondition(others[0].condition);
+          }
+          if (others.length > 1) {
+            return `其他情况（${others
+              .map((item) => `不满足 ${item.condition.trim()}`)
+              .join(" 且 ")}）`;
+          }
+          return "其他情况";
+        }
+        if (edge?.result === "approved") return "审批通过";
+        if (edge?.result === "rejected") return "审批退回";
         return "";
       };
       const push = (node, localCode, mode, branchLabel = "") => {
@@ -2478,7 +2513,12 @@ window.__ModuleLoader__.load({
           const edge = incoming.find((item) => item.to === node.id);
           if (isBranch) {
             const letter = String.fromCharCode(97 + laneIndex);
-            push(node, `${stageNo}${letter}`, "branch", branchLabelOf(edge));
+            push(
+              node,
+              `${stageNo}${letter}`,
+              "branch",
+              branchLabelOf(edge, incoming),
+            );
           } else {
             push(node, `${stageNo}-${laneIndex + 1}`, "parallel");
           }
@@ -2519,60 +2559,58 @@ window.__ModuleLoader__.load({
         const subflowCount = subflowDefinition?.graph?.nodes?.length ?? 0;
         const due = workflowNodeDue(node, state);
         const dueLabel = formatDueLabel(due);
-        const delivery = workflowDeliverableSummary(
-          node,
-          state,
-          submissions,
-        );
+        const delivery = workflowDeliverableSummary(node, state, submissions);
         const executor =
           state?.assignedTo ?? node.executor.label ?? node.executor.id;
+        const statusLabel = workflowNodeStatusText(node, state);
+        const selectNode = () => {
+          onSelectNode?.(node.id);
+          const target = document.getElementById(`pmwf-node-${node.id}`);
+          target?.scrollIntoView({ behavior: "smooth", block: "center" });
+        };
         return jsxRuntime.jsxs(
           "div",
           {
             className: `pmwf-overview-node ${node.type} ${nodeClass(state)}`,
-            role: "button",
-            tabIndex: 0,
-            title: `${node.name} · ${workflowNodeStatusText(node, state)}`,
-            onClick: () => {
-              onSelectNode?.(node.id);
-              const target = document.getElementById(`pmwf-node-${node.id}`);
-              target?.scrollIntoView({ behavior: "smooth", block: "center" });
-            },
-            onKeyDown: (event) => {
-              if (event.key !== "Enter" && event.key !== " ") return;
-              event.preventDefault();
-              event.currentTarget.click();
-            },
+            title: `${node.name} · ${statusLabel}`,
             children: [
-              jsxRuntime.jsxs("div", {
-                className: "pmwf-overview-node-title",
+              jsxRuntime.jsxs("button", {
+                type: "button",
+                className: "pmwf-overview-select",
+                "aria-label": `${node.name} · ${statusLabel}`,
+                onClick: selectNode,
                 children: [
-                  jsxRuntime.jsx("span", {
-                    className: "pmwf-overview-node-index",
-                    children: info?.code ?? "?",
+                  jsxRuntime.jsxs("div", {
+                    className: "pmwf-overview-node-title",
+                    children: [
+                      jsxRuntime.jsx("span", {
+                        className: "pmwf-overview-node-index",
+                        children: info?.code ?? "?",
+                      }),
+                      jsxRuntime.jsx("strong", { children: node.name }),
+                    ],
                   }),
-                  jsxRuntime.jsx("strong", { children: node.name }),
+                  jsxRuntime.jsx("small", {
+                    className: "pmwf-overview-node-meta",
+                    children: `${executor}${dueLabel ? ` · ${dueLabel}` : ""}`,
+                  }),
+                  info?.branch && info.branchLabel
+                    ? jsxRuntime.jsx("small", {
+                        className: "pmwf-overview-branch-label",
+                        children: `进入条件：${info.branchLabel}`,
+                      })
+                    : null,
+                  info?.subflow
+                    ? jsxRuntime.jsx("small", {
+                        className: "pmwf-overview-subflow",
+                        children:
+                          subflowCount > 0
+                            ? `子流程 · ${subflowCount} 个节点`
+                            : "子流程 · 模板未找到",
+                      })
+                    : null,
                 ],
               }),
-              jsxRuntime.jsx("small", {
-                className: "pmwf-overview-node-meta",
-                children: `${executor}${dueLabel ? ` · ${dueLabel}` : ""}`,
-              }),
-              info?.branch && info.branchLabel
-                ? jsxRuntime.jsx("small", {
-                    className: "pmwf-overview-branch-label",
-                    children: info.branchLabel,
-                  })
-                : null,
-              info?.subflow
-                ? jsxRuntime.jsx("small", {
-                    className: "pmwf-overview-subflow",
-                    children:
-                      subflowCount > 0
-                        ? `子流程 · ${subflowCount} 个节点`
-                        : "子流程 · 模板未找到",
-                  })
-                : null,
               jsxRuntime.jsxs("div", {
                 className: "pmwf-overview-node-foot",
                 children: [
@@ -2593,7 +2631,7 @@ window.__ModuleLoader__.load({
                     : null,
                   jsxRuntime.jsx("span", {
                     className: `pmwf-overview-state ${nodeClass(state)}`,
-                    children: workflowNodeStatusText(node, state),
+                    children: statusLabel,
                   }),
                 ],
               }),
@@ -2669,9 +2707,7 @@ window.__ModuleLoader__.load({
               const stageEntries = stage.map((node) =>
                 presentation.byId.get(node.id),
               );
-              const branchStage = stageEntries.some(
-                (entry) => entry?.branch,
-              );
+              const branchStage = stageEntries.some((entry) => entry?.branch);
               const parallelStage = stage.length > 1 && !branchStage;
               parts.push(
                 jsxRuntime.jsxs(
@@ -2716,11 +2752,7 @@ window.__ModuleLoader__.load({
                     children: edge.label ?? edge.condition ?? "循环",
                   }),
                   jsxRuntime.jsxs("small", {
-                    children: [
-                      nodeName(edge.from),
-                      " → ",
-                      nodeName(edge.to),
-                    ],
+                    children: [nodeName(edge.from), " → ", nodeName(edge.to)],
                   }),
                 ],
               },
@@ -4491,10 +4523,6 @@ window.__ModuleLoader__.load({
                     " 个节点",
                   ],
                 }),
-                jsxRuntime.jsx("span", {
-                  className: "pmwf-pill waiting",
-                  children: "模板预览",
-                }),
               ],
             }),
             jsxRuntime.jsx("div", {
@@ -4600,8 +4628,7 @@ window.__ModuleLoader__.load({
       /** 详情页模式：选中某条实例后整页切到详情，列表与筛选暂时隐藏。 */
       // 只有当前数据范围内仍存在这条实例时才进入详情模式；否则切范围后会只剩空白页。
       const detailMode =
-        openId !== "" &&
-        instances.some((item) => item.id === openId);
+        openId !== "" && instances.some((item) => item.id === openId);
 
       if (phase === "login") {
         return jsxRuntime.jsx("div", {
@@ -4841,6 +4868,7 @@ window.__ModuleLoader__.load({
                                 children: [
                                   jsxRuntime.jsx("input", {
                                     type: "checkbox",
+                                    "aria-label": statusText(value),
                                     checked: statusFilters.has(value),
                                     onChange: () => toggleStatusFilter(value),
                                   }),
@@ -5339,8 +5367,7 @@ window.__ModuleLoader__.load({
                         const currentDue = currentNode
                           ? workflowNodeDue(currentNode, currentState)
                           : undefined;
-                        const currentDueLabel =
-                          formatDueLabel(currentDue);
+                        const currentDueLabel = formatDueLabel(currentDue);
                         return jsxRuntime.jsxs(
                           "article",
                           {
@@ -5474,7 +5501,11 @@ window.__ModuleLoader__.load({
                                                 className: "pmwf-crumb",
                                                 title: `工作流 / ${instance.title}`,
                                                 children: [
-                                                  "工作流 / ",
+                                                  jsxRuntime.jsx("span", {
+                                                    className:
+                                                      "pmwf-crumb-root",
+                                                    children: "工作流 / ",
+                                                  }),
                                                   jsxRuntime.jsx("b", {
                                                     children: instance.title,
                                                   }),
@@ -5510,8 +5541,7 @@ window.__ModuleLoader__.load({
                                             ],
                                           }),
                                           jsxRuntime.jsxs("span", {
-                                            className:
-                                              "pmwf-detail-meta-right",
+                                            className: "pmwf-detail-meta-right",
                                             children: [
                                               jsxRuntime.jsxs("span", {
                                                 children: [
@@ -5547,8 +5577,7 @@ window.__ModuleLoader__.load({
                                                 WorkflowFlowOverview,
                                                 {
                                                   definition,
-                                                  states:
-                                                    detail.instance.nodes,
+                                                  states: detail.instance.nodes,
                                                   submissions:
                                                     detail.submissions ?? [],
                                                   onTemplateOpen: () =>
@@ -5680,7 +5709,9 @@ window.__ModuleLoader__.load({
                                                             toggleNodeExpanded(
                                                               node.id,
                                                             ),
-                                                          onKeyDown: (event) => {
+                                                          onKeyDown: (
+                                                            event,
+                                                          ) => {
                                                             if (
                                                               event.key !==
                                                                 "Enter" &&
@@ -5720,60 +5751,63 @@ window.__ModuleLoader__.load({
                                                                   jsxRuntime.jsxs(
                                                                     "span",
                                                                     {
-                                                                      children: [
-                                                                        "负责人：",
-                                                                        jsxRuntime.jsx(
-                                                                          "b",
-                                                                          {
-                                                                            children:
-                                                                              node
-                                                                                .responsible
-                                                                                ?.label ??
-                                                                              node
-                                                                                .responsible
-                                                                                ?.id ??
-                                                                              executorLabel(
-                                                                                node,
-                                                                              ),
-                                                                          },
-                                                                        ),
-                                                                      ],
+                                                                      children:
+                                                                        [
+                                                                          "负责人：",
+                                                                          jsxRuntime.jsx(
+                                                                            "b",
+                                                                            {
+                                                                              children:
+                                                                                node
+                                                                                  .responsible
+                                                                                  ?.label ??
+                                                                                node
+                                                                                  .responsible
+                                                                                  ?.id ??
+                                                                                executorLabel(
+                                                                                  node,
+                                                                                ),
+                                                                            },
+                                                                          ),
+                                                                        ],
                                                                     },
                                                                   ),
                                                                   jsxRuntime.jsxs(
                                                                     "span",
                                                                     {
-                                                                      children: [
-                                                                        "执行时间：",
-                                                                        jsxRuntime.jsx(
-                                                                          "b",
-                                                                          {
-                                                                            children:
-                                                                              workflowNodeExecutionTime(
-                                                                                node,
-                                                                                state,
-                                                                              ),
-                                                                          },
-                                                                        ),
-                                                                      ],
+                                                                      children:
+                                                                        [
+                                                                          "执行时间：",
+                                                                          jsxRuntime.jsx(
+                                                                            "b",
+                                                                            {
+                                                                              children:
+                                                                                workflowNodeExecutionTime(
+                                                                                  node,
+                                                                                  state,
+                                                                                ),
+                                                                            },
+                                                                          ),
+                                                                        ],
                                                                     },
                                                                   ),
                                                                   jsxRuntime.jsxs(
                                                                     "span",
                                                                     {
-                                                                      children: [
-                                                                        "交付物：",
-                                                                        jsxRuntime.jsx(
-                                                                          "b",
-                                                                          {
-                                                                            children:
-                                                                              headlineDelivery.total >
-                                                                              0
-                                                                                ? `${headlineDelivery.done}/${headlineDelivery.total}`
-                                                                                : "—",
-                                                                          },
-                                                                        ),
-                                                                      ],
+                                                                      children:
+                                                                        [
+                                                                          "交付物：",
+                                                                          jsxRuntime.jsx(
+                                                                            "b",
+                                                                            {
+                                                                              children:
+                                                                                headlineDelivery.total >
+                                                                                0
+                                                                                  ? `${headlineDelivery.done}/${headlineDelivery.total}`
+                                                                                  : "—",
+                                                                            },
+                                                                          ),
+                                                                        ],
                                                                     },
                                                                   ),
                                                                 ],
@@ -5805,6 +5839,18 @@ window.__ModuleLoader__.load({
                                                                       ),
                                                               },
                                                             ),
+                                                            info?.branch &&
+                                                            info.branchLabel
+                                                              ? jsxRuntime.jsx(
+                                                                  "span",
+                                                                  {
+                                                                    className:
+                                                                      "pmwf-type-tag branch-condition",
+                                                                    title: `进入条件：${info.branchLabel}`,
+                                                                    children: `进入条件：${info.branchLabel}`,
+                                                                  },
+                                                                )
+                                                              : null,
                                                             jsxRuntime.jsx(
                                                               "span",
                                                               {
@@ -5940,8 +5986,8 @@ window.__ModuleLoader__.load({
                                                                     "strong",
                                                                     {
                                                                       children:
-                                                                        state?.completedAt ??
-                                                                        state?.enteredAt
+                                                                        (state?.completedAt ??
+                                                                        state?.enteredAt)
                                                                           ? timeShort(
                                                                               state.completedAt ??
                                                                                 state.enteredAt,
@@ -6096,7 +6142,7 @@ window.__ModuleLoader__.load({
                                                                   busy,
                                                                   act,
                                                                   workspaceId:
-                                                                    effectiveWorkspaceId,
+                                                                    instance.workspaceId,
                                                                   instanceId:
                                                                     instance.id,
                                                                   actor:
@@ -6755,58 +6801,54 @@ window.__ModuleLoader__.load({
                     window.innerWidth - width - 12,
                   ),
                 );
-                return jsxRuntime.jsxs(
-                  "div",
-                  {
-                    className: "pmwf-delivery-popover",
-                    role: "dialog",
-                    "aria-label": `${node.name} 交付物清单`,
-                    style: {
-                      left,
-                      top: Math.max(
-                        12,
-                        Math.min(deliveryPopover.top, window.innerHeight - 320),
-                      ),
-                    },
-                    children: [
-                      jsxRuntime.jsx("h4", {
-                        children: `${node.name} · 交付物 ${summary.done}/${summary.total}`,
-                      }),
-                      jsxRuntime.jsx("ul", {
-                        children: summary.rows.map((row) =>
-                          jsxRuntime.jsxs(
-                            "li",
-                            {
-                              children: [
-                                jsxRuntime.jsx("span", {
-                                  children: row.title,
-                                }),
-                                jsxRuntime.jsxs("span", {
-                                  className: row.status,
-                                  children: [
-                                    row.done
-                                      ? row.value
-                                      : row.status === "rejected"
-                                        ? "已退回"
-                                        : "待提交",
-                                    row.done && row.submittedAt
-                                      ? jsxRuntime.jsx("small", {
-                                          className:
-                                            "pmwf-delivery-time",
-                                          children: ` · ${workflowDateTime(row.submittedAt)}`,
-                                        })
-                                      : null,
-                                  ],
-                                }),
-                              ],
-                            },
-                            row.key,
-                          ),
-                        ),
-                      }),
-                    ],
+                return jsxRuntime.jsxs("div", {
+                  className: "pmwf-delivery-popover",
+                  role: "dialog",
+                  "aria-label": `${node.name} 交付物清单`,
+                  style: {
+                    left,
+                    top: Math.max(
+                      12,
+                      Math.min(deliveryPopover.top, window.innerHeight - 320),
+                    ),
                   },
-                );
+                  children: [
+                    jsxRuntime.jsx("h4", {
+                      children: `${node.name} · 交付物 ${summary.done}/${summary.total}`,
+                    }),
+                    jsxRuntime.jsx("ul", {
+                      children: summary.rows.map((row) =>
+                        jsxRuntime.jsxs(
+                          "li",
+                          {
+                            children: [
+                              jsxRuntime.jsx("span", {
+                                children: row.title,
+                              }),
+                              jsxRuntime.jsxs("span", {
+                                className: row.status,
+                                children: [
+                                  row.done
+                                    ? row.value
+                                    : row.status === "rejected"
+                                      ? "已退回"
+                                      : "待提交",
+                                  row.done && row.submittedAt
+                                    ? jsxRuntime.jsx("small", {
+                                        className: "pmwf-delivery-time",
+                                        children: ` · ${workflowDateTime(row.submittedAt)}`,
+                                      })
+                                    : null,
+                                ],
+                              }),
+                            ],
+                          },
+                          row.key,
+                        ),
+                      ),
+                    }),
+                  ],
+                });
               })(),
         ],
       });

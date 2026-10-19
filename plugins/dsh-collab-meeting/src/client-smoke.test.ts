@@ -497,14 +497,14 @@ describe("meeting client", () => {
     // 平台管理员对全部项目都有建会权限，未加入项目时按钮也必须可用。
     expect(createButton?.props?.disabled).toBe(false);
 
-    // 打开弹窗后，项目下拉应列出全部项目（而不只是“已加入”的项目）。
+    // 打开弹窗后，关联项目下拉应列出全部项目与平台默认项目。
     (createButton?.props?.onClick as (() => void) | undefined)?.();
     tree = renderTree(root, runtime);
     runtime.runEffects();
 
     const projectSelect = findNode(
       tree,
-      (node) => node.props?.["aria-label"] === "新建会议所属项目",
+      (node) => node.props?.["aria-label"] === "新建会议关联项目",
     );
     expect(projectSelect, "新建会议弹窗应有项目下拉").toBeDefined();
     const projectChildren = projectSelect?.props?.children;
@@ -514,6 +514,7 @@ describe("meeting client", () => {
     expect(options.map((option) => option.props?.children)).toEqual([
       "项目一",
       "项目二",
+      "默认项目（system，不关联项目）",
     ]);
   });
 
@@ -849,6 +850,13 @@ describe("meeting client", () => {
     (meetingItem?.props?.onMouseDown as (() => void) | undefined)?.();
     (meetingItem?.props?.onClick as (() => void) | undefined)?.();
     tree = await settle();
+    const settingsTab = findNode(
+      tree,
+      (node) => node.type === "button" && node.props?.children === "设置",
+    );
+    expect(settingsTab, "中心会议区应有设置页签").toBeDefined();
+    (settingsTab?.props?.onClick as (() => void) | undefined)?.();
+    tree = await settle();
     const inviteButton = findNode(
       tree,
       (node) => node.type === "button" && node.props?.children === "邀请成员",
@@ -1025,9 +1033,15 @@ describe("meeting client", () => {
       }
       return next;
     };
-    const openInvite = async (tree: unknown) => {
+    const openInvite = async (currentTree: unknown) => {
+      const settings = findNode(
+        currentTree,
+        (node) => node.type === "button" && node.props?.children === "设置",
+      );
+      (settings?.props?.onClick as (() => void) | undefined)?.();
+      currentTree = await settle();
       const button = findNode(
-        tree,
+        currentTree,
         (node) => node.type === "button" && node.props?.children === "邀请成员",
       );
       (button?.props?.onClick as (() => void) | undefined)?.();
@@ -1051,9 +1065,9 @@ describe("meeting client", () => {
     expect(
       findNode(
         tree,
-        (node) => node.type === "button" && node.props?.children === "邀请成员",
+        (node) => node.type === "button" && node.props?.children === "设置",
       ),
-      `会议详情应加载出邀请成员按钮（当前文本：${texts.join(" | ")}）`,
+      `会议详情应加载出设置页签（当前文本：${texts.join(" | ")}）`,
     ).toBeDefined();
     await openInvite(tree);
     tree = await settle();

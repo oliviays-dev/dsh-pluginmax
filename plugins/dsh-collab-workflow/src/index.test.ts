@@ -2240,6 +2240,59 @@ describe("workflow agent nodes", () => {
     });
   });
 
+  it("starts the workflow Agent run after a task reassignment is persisted", async () => {
+    const { agent, service, tasks } = await agentHarness();
+    const definition = await importedFixture(service, "agent-node.md");
+    const instance = await service.startInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "改派后启动工作流运行",
+    });
+    const taskId = instance.nodes.development?.taskIds[0]!;
+    const initialRun = agent.runs(instance.id, "development")[0]!;
+
+    agent.settle(initialRun.id, {
+      status: "failed",
+      error: "首次执行失败",
+    });
+    await service.handleAgentSettle(agent.run(initialRun.id)!);
+    expect(service.instance(instance.id)?.nodes.development?.status).toBe(
+      "blocked",
+    );
+
+    await service.handleTaskAssigned(
+      {
+        id: taskId,
+        workspaceId: "main",
+        receiverType: "agent",
+        receiverId: "backend-agent",
+        receiverName: "Backend Agent",
+        workflow: { instanceId: instance.id, nodeId: "development" },
+      },
+      owner,
+    );
+    Object.assign(tasks.records.get(taskId)!, {
+      receiverType: "agent",
+      receiverId: "backend-agent",
+      receiverName: "Backend Agent",
+    });
+    await service.handleTaskAssignedAfterPersist(
+      tasks.records.get(taskId)!,
+      owner,
+    );
+
+    expect(agent.dispatchInputs).toHaveLength(2);
+    expect(agent.dispatchInputs[1]).toMatchObject({
+      source: "workflow",
+      instanceId: instance.id,
+      nodeId: "development",
+      trigger: "auto-on-ready",
+    });
+    expect(service.instance(instance.id)?.nodes.development?.status).toBe(
+      "running",
+    );
+  });
+
   it("direct-completes a no-review Agent node without a task module", async () => {
     const { agent, service } = await agentHarness(true, false);
     const sourceMd = (

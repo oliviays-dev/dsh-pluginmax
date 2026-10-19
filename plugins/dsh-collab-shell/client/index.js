@@ -273,6 +273,38 @@ window.__ModuleLoader__.load({
       .pmx-shell[data-left-closed] .pmx-toggle{position:absolute;opacity:0;pointer-events:none;}
 
       @media (max-width:600px){
+        /* 手机上全局页优先保证主内容可用：左侧自动收成图标栏。 */
+        .pmx-shell[data-global-route]:not([data-meeting-open]){
+          grid-template-columns:72px minmax(0,1fr) 0 0 !important;
+        }
+        .pmx-shell[data-global-route]:not([data-meeting-open]) .pmx-brand,
+        .pmx-shell[data-global-route]:not([data-meeting-open]) .pmx-nav span,
+        .pmx-shell[data-global-route]:not([data-meeting-open]) .pmx-workspaces,
+        .pmx-shell[data-global-route]:not([data-meeting-open]) .pmx-account-main{
+          display:none;
+        }
+        .pmx-shell[data-global-route]:not([data-meeting-open]) .pmx-sidebar{
+          padding:12px 15px;
+        }
+        .pmx-shell[data-global-route]:not([data-meeting-open]) .pmx-nav{
+          justify-items:center;margin-top:14px;
+        }
+        .pmx-shell[data-global-route]:not([data-meeting-open]) .pmx-nav button{
+          width:42px;height:42px;justify-content:center;padding:0;gap:0;
+        }
+        .pmx-shell[data-global-route]:not([data-meeting-open]) .pmx-sidebar-foot{
+          display:grid;justify-items:center;gap:6px;margin-top:auto;
+          padding-top:0;border-top:0;
+        }
+        .pmx-shell[data-global-route]:not([data-meeting-open]) .pmx-account{
+          width:42px;flex:none;display:grid;place-items:center;padding:0;
+        }
+        .pmx-shell[data-global-route]:not([data-meeting-open]) .pmx-account-wrap{
+          width:42px;flex:none;
+        }
+        .pmx-shell[data-global-route]:not([data-meeting-open]) .pmx-toggle{
+          position:absolute;opacity:0;pointer-events:none;
+        }
         div[role="presentation"] > div[role="dialog"]:has(> nav){
           width:calc(100vw - 16px) !important;height:calc(100vh - 16px) !important;
           max-width:none !important;max-height:none !important;margin:8px !important;
@@ -1310,28 +1342,27 @@ window.__ModuleLoader__.load({
 
     exports.inject = ["slots", "theme"];
     exports.apply = (ctx) => {
-      ctx.effect(
-        () =>
-          ctx.slots.register(
-            {
-              name: "root",
-              priority: -20,
-              children: {
-                conversation: { kind: "single", scope: "session-maybe" },
-                details: { kind: "single", scope: "session" },
-                "shell.overlay": { kind: "list", scope: "root" },
-                "sidebar.workspaces": { kind: "single", scope: "root" },
-                "sidebar.settings": { kind: "single", scope: "root" },
-                "pluginmax.global": {
-                  kind: "list",
-                  scope: "root",
-                  inject: { hooks: { shellRoute: routeSource } },
-                },
-              },
+      // SlotRegistry owns registration cleanup through the current fiber effect.
+      // Register synchronously so the synchronous root render cannot race ahead
+      // of the shell and throw a boot-order SlotAssemblyError.
+      ctx.slots.register(
+        {
+          name: "root",
+          priority: -20,
+          children: {
+            conversation: { kind: "single", scope: "session-maybe" },
+            details: { kind: "single", scope: "session" },
+            "shell.overlay": { kind: "list", scope: "root" },
+            "sidebar.workspaces": { kind: "single", scope: "root" },
+            "sidebar.settings": { kind: "single", scope: "root" },
+            "pluginmax.global": {
+              kind: "list",
+              scope: "root",
+              inject: { hooks: { shellRoute: routeSource } },
             },
-            Shell,
-          ),
-        "pluginmax-shell: root registration",
+          },
+        },
+        Shell,
       );
 
       ctx.effect(() => {

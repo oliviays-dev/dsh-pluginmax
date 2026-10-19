@@ -6,11 +6,13 @@ import {
   FacilitatorMinutesService,
   inject,
   MEETING_MINUTES_NODE_ID,
+  MEETING_FACILITATOR_TEAMMATE_ID,
   meetingDomainSpec,
   MeetingService,
   MeetingRuntime,
   migrateMeetingOwnership,
   reapRestartedDispatchParticipants,
+  SYSTEM_DEFAULT_WORKSPACE_ID,
   type Meeting,
   type MeetingContext,
   type MeetingDomainLike,
@@ -225,6 +227,62 @@ describe("dsh-collab-meeting", () => {
     });
   });
 
+  it("creates and lists meetings in the system default project without membership", async () => {
+    const team = {
+      resolveToken: (token: string) =>
+        token === "alice-token"
+          ? { userId: "alice", role: "member" }
+          : undefined,
+      members: () => [],
+      users: () => [
+        {
+          id: "alice",
+          name: "Alice",
+          role: "member",
+          status: "active",
+        },
+      ],
+    };
+    const routes = createMeetingRoutes(service, team);
+    const response = await call(
+      findRoute(routes, "/api/collab/meetings"),
+      fakeRequest("POST", "/api/collab/meetings", {
+        token: "alice-token",
+        origin: "http://127.0.0.1:33117",
+        body: {
+          title: "无项目会议",
+          displayName: "Alice",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    const meeting = (response.json() as { meeting: Meeting }).meeting;
+    expect(meeting.workspaceId).toBe(SYSTEM_DEFAULT_WORKSPACE_ID);
+    expect(service.participants(meeting.id)[0]).toMatchObject({
+      refId: "alice",
+      status: "active",
+    });
+
+    const list = await call(
+      findRoute(routes, "/api/collab/meetings"),
+      fakeRequest(
+        "GET",
+        `/api/collab/meetings?workspaceId=${SYSTEM_DEFAULT_WORKSPACE_ID}`,
+        {
+          token: "alice-token",
+          origin: "http://127.0.0.1:33117",
+        },
+      ),
+    );
+    expect(list.status).toBe(200);
+    expect(
+      (list.json() as { meetings: Meeting[] }).meetings.map(
+        (item) => item.id,
+      ),
+    ).toContain(meeting.id);
+  });
+
   it("reuses the AI participant when an agent joins the same meeting twice", async () => {
     const meeting = await service.create(
       { kind: "user", id: "admin", globalRole: "admin" },
@@ -253,6 +311,33 @@ describe("dsh-collab-meeting", () => {
         .filter((participant) => participant.kind !== "human")
         .map((participant) => participant.displayName),
     ).toEqual(["江问01 产品"]);
+  });
+
+  it("announces Facilitator joining again after it was removed", async () => {
+    const actor = { kind: "user" as const, id: "admin", globalRole: "admin" as const };
+    const meeting = await service.create(actor, {
+      workspaceId: "main",
+      title: "Facilitator 重入",
+    });
+    await service.join(actor, meeting.id, "Admin");
+    const first = await service.addAiTeammate(actor, {
+      meetingId: meeting.id,
+      teammateInstanceId: MEETING_FACILITATOR_TEAMMATE_ID,
+      displayName: "会议 Facilitator",
+      speechMode: "observe",
+    });
+    await service.removeParticipant(actor, meeting.id, first.id);
+    const second = await service.addAiTeammate(actor, {
+      meetingId: meeting.id,
+      teammateInstanceId: MEETING_FACILITATOR_TEAMMATE_ID,
+      displayName: "会议 Facilitator",
+      speechMode: "observe",
+    });
+
+    expect(second.id).toBe(first.id);
+    expect(service.transcript(meeting.id).at(-1)?.content).toBe(
+      "会议 Facilitator 已加入会议。",
+    );
   });
 
   it("declares services and the meeting storage domain", () => {

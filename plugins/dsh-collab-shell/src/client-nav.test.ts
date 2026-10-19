@@ -45,4 +45,24 @@ describe("shell client navigation", () => {
     );
     expect(source).toContain("flex-direction:column !important");
   });
+
+  it("collapses the desktop rail so global task pages stay usable on phones", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain(
+      ".pmx-shell[data-global-route]:not([data-meeting-open])",
+    );
+    expect(source).toContain(
+      "grid-template-columns:72px minmax(0,1fr) 0 0 !important",
+    );
+  });
+
+  it("registers the root frame synchronously to avoid boot-order races", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    const applyStart = source.indexOf("exports.apply = (ctx) =>");
+    const registerStart = source.indexOf("ctx.slots.register(", applyStart);
+    const registerEnd = source.indexOf("ctx.effect(() =>", registerStart);
+    const registration = source.slice(registerStart, registerEnd);
+    expect(registration).toContain('name: "root"');
+    expect(registration).not.toContain("ctx.effect(");
+  });
 });

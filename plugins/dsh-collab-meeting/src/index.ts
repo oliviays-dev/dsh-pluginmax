@@ -54,6 +54,9 @@ export const inject = [
   "agentDefaultModel",
 ];
 
+export const SYSTEM_DEFAULT_WORKSPACE_ID = "system.default";
+export const SYSTEM_DEFAULT_PROJECT_TITLE = "默认项目";
+
 const titleSchema = z.string().trim().min(1).max(160);
 const textSchema = z.string().trim().max(20_000);
 
@@ -1722,7 +1725,8 @@ export class MeetingService {
       leader: false,
       status: "active",
       source: "direct",
-      joinedAt: existing?.joinedAt ?? timestamp,
+      joinedAt:
+        existing?.status === "active" ? existing.joinedAt : timestamp,
       leftAt: undefined,
       updatedAt: timestamp,
     });
@@ -2549,12 +2553,14 @@ export class MeetingService {
       updatedAt: timestamp,
     });
     await this.tables.participants.put(participant.id, participant);
-    if (existing === undefined && parsed.announce !== false)
+    if (
+      parsed.announce !== false &&
+      (existing === undefined || existing.status !== "active")
+    )
       await this.appendSystemMessage(
         meeting.id,
-        // Facilitator 是会议服务席位，文案按「几点进入会议」表达。
         parsed.teammateInstanceId === MEETING_FACILITATOR_TEAMMATE_ID
-          ? `会议Facilitator 已于 ${meetingClock(timestamp)} 进入会议`
+          ? "会议 Facilitator 已加入会议。"
           : `${parsed.displayName} 已作为 AI 成员加入会议。`,
       );
     return participant;
@@ -2678,7 +2684,7 @@ export class FacilitatorMinutesService {
   ): { userId: string; name: string; role: "owner" } | undefined {
     const team = this.deps.team?.();
     if (team === undefined) return undefined;
-    const members = team.members(meeting.workspaceId);
+    const members = workspaceMembers(team, meeting.workspaceId);
     const candidate =
       members.find(
         (member) =>
@@ -2857,6 +2863,12 @@ export interface WebRouteLike {
 
 interface TeamServiceLike {
   resolveToken(token: string): { userId: string; role: string } | undefined;
+  users?(): Array<{
+    id: string;
+    name: string;
+    role: string;
+    status: string;
+  }>;
   members(workspaceId: string): Array<{
     userId: string;
     memberRole: string;
@@ -2998,6 +3010,21 @@ interface PrincipalServiceLike {
   ): string | undefined;
 }
 
+function workspaceMembers(
+  team: TeamServiceLike,
+  workspaceId: string,
+): Array<{ userId: string; memberRole: string; name?: string }> {
+  if (workspaceId !== SYSTEM_DEFAULT_WORKSPACE_ID)
+    return team.members(workspaceId);
+  return (team.users?.() ?? [])
+    .filter((user) => user.status === "active")
+    .map((user) => ({
+      userId: user.id,
+      memberRole: user.role === "admin" ? "owner" : "member",
+      name: user.name,
+    }));
+}
+
 function browserActor(
   team: TeamServiceLike,
   request: IncomingMessage,
@@ -3019,8 +3046,7 @@ function browserActor(
   const principal = team.resolveToken(token);
   if (principal === undefined)
     throw new MeetingError("unauthorized", "invalid bearer token");
-  const member = team
-    .members(workspaceId)
+  const member = workspaceMembers(team, workspaceId)
     .find((candidate) => candidate.userId === principal.userId);
   if (member === undefined && principal.role !== "admin")
     throw new MeetingError("forbidden", "workspace member role is required");
@@ -3142,8 +3168,7 @@ export function createMeetingRoutes(
   };
   const memberNames = (workspaceId: string) =>
     new Map(
-      team
-        .members(workspaceId)
+      workspaceMembers(team, workspaceId)
         .map((member) => [member.userId, member.name ?? member.userId]),
     );
   const activeHumanCaller = (
@@ -3268,7 +3293,7 @@ export function createMeetingRoutes(
       handler: async (request: IncomingMessage, response: ServerResponse) => {
         const body = parseOrInvalid(
           z.object({
-            workspaceId: idSchema,
+            workspaceId: idSchema.optional(),
             title: titleSchema,
             agenda: textSchema.optional(),
             displayName: displayNameSchema.optional(),
@@ -3276,8 +3301,12 @@ export function createMeetingRoutes(
           }),
           await readBody(request),
         );
-        const actor = browserActor(team, request, body.workspaceId);
-        const meeting = await meetings.create(actor, body);
+        const workspaceId = body.workspaceId ?? SYSTEM_DEFAULT_WORKSPACE_ID;
+        const actor = browserActor(team, request, workspaceId);
+        const meeting = await meetings.create(actor, {
+          ...body,
+          workspaceId,
+        });
         const participant = await meetings.join(
           actor,
           meeting.id,
@@ -3420,7 +3449,7 @@ export function createMeetingRoutes(
             .filter((participant) => participant.kind === "human")
             .map((participant) => [participant.refId, participant]),
         );
-        const people = team.members(meeting.workspaceId).map((member) => {
+        const people = workspaceMembers(team, meeting.workspaceId).map((member) => {
           const current = currentByUser.get(member.userId);
           return {
             id: member.userId,
@@ -3454,8 +3483,7 @@ export function createMeetingRoutes(
         const meeting = meetings.get(body.meetingId);
         const actor = browserActor(team, request, meeting.workspaceId);
         const members = new Map(
-          team
-            .members(meeting.workspaceId)
+          workspaceMembers(team, meeting.workspaceId)
             .map((member) => [member.userId, member]),
         );
         const targets = new Set(body.people.map((person) => person.targetId));

@@ -16,6 +16,18 @@ export const taskReceiverTypeSchema = z.enum([
   "role",
 ]);
 export const taskActorKindSchema = z.enum(["human", "agent", "system"]);
+/**
+ * 消息投递意图由客户端显式声明：
+ * - receiver：只派发任务责任人，mentions 仅作为记录；
+ * - collaborators：只派发被 @ 的协作方，不触发责任人；
+ * - broadcast：责任人与被 @ 的协作方都派发。
+ */
+export const taskDeliveryTargetSchema = z.enum([
+  "receiver",
+  "collaborators",
+  "broadcast",
+]);
+export type TaskDeliveryTarget = z.infer<typeof taskDeliveryTargetSchema>;
 
 /**
  * @ 提及的结构化记录：光有正文里的 `@名字` 文本没法可靠定位到人/实例
@@ -97,6 +109,7 @@ export const taskMessageSchema = z.object({
   content: z.string().min(1).max(20000),
   attachments: z.array(taskAttachmentSchema).default([]),
   mentions: z.array(taskMentionSchema).default([]),
+  deliveryTarget: taskDeliveryTargetSchema.optional(),
   runId: z.string().min(1).max(180).optional(),
   state: z
     .enum([

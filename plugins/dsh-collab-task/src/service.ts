@@ -9,6 +9,8 @@ import {
   taskMentionSchema,
   taskStepSchema,
   taskStatusSchema,
+  taskDeliveryTargetSchema,
+  type TaskDeliveryTarget,
   type TaskRecord,
   type TaskStatus,
   taskWorkflowRefSchema,
@@ -101,6 +103,7 @@ export class TaskError extends Error {
 
 export interface WorkflowTaskActionHandler {
   assign(task: TaskRecord, actor: TaskActor): Promise<void> | void;
+  assigned?(task: TaskRecord, actor: TaskActor): Promise<void> | void;
   decide(
     task: TaskRecord,
     actor: TaskActor,
@@ -177,6 +180,7 @@ const messageInputSchema = z.object({
   taskId: z.string().min(1).max(160),
   content: z.string().min(1).max(20000),
   mentions: z.array(taskMentionSchema).max(20).default([]),
+  deliveryTarget: taskDeliveryTargetSchema.optional(),
   attachments: z
     .array(
       z.object({
@@ -188,6 +192,24 @@ const messageInputSchema = z.object({
     )
     .default([]),
 });
+
+/**
+ * 新客户端显式传 deliveryTarget；旧客户端未传时按历史 @ 语义降级推断。
+ * 一旦显式传值，服务端不再从 mentions 猜测责任人是否应被触发。
+ */
+export function resolveTaskDeliveryTarget(
+  task: Pick<TaskRecord, "receiverId">,
+  mentions: readonly { readonly id: string }[],
+  requested?: TaskDeliveryTarget | undefined,
+): TaskDeliveryTarget {
+  if (requested !== undefined) return requested;
+  if (mentions.length === 0) return "receiver";
+  const mentionsReceiver =
+    task.receiverId !== undefined &&
+    mentions.some((mention) => mention.id === task.receiverId);
+  if (!mentionsReceiver) return "collaborators";
+  return mentions.length === 1 ? "receiver" : "broadcast";
+}
 
 const sessionResetInputSchema = z.object({
   taskId: z.string().min(1).max(160),
@@ -792,9 +814,7 @@ export class TaskService {
     const receiverLabel =
       receiverRef.receiverType === "unassigned"
         ? "待指派"
-        : parsed.receiverName?.trim() ||
-          receiverRef.receiverId ||
-          "未知责任人";
+        : parsed.receiverName?.trim() || receiverRef.receiverId || "未知责任人";
     const { reassignmentReason: _previousReason, ...base } = task;
     const updated = await this.put(
       this.event(
@@ -821,6 +841,9 @@ export class TaskService {
           : `${actor.name} 调整责任人为 ${receiverLabel}`,
       ),
     );
+    if (task.workflow !== undefined) {
+      await this.workflowActions?.assigned?.(updated, actor);
+    }
     return updated;
   }
 
@@ -864,6 +887,9 @@ export class TaskService {
     const task = requireOpen(this.require(taskIdValue));
     if (task.workflow !== undefined) {
       throw new TaskError("conflict", "工作流任务状态由工作流同步");
+    }
+    if (task.receiverType === "role") {
+      throw new TaskError("conflict", "角色任务必须先由当前角色成员认领");
     }
     return this.setStatus(actor, task, "progress", "开始处理");
   }
@@ -984,8 +1010,7 @@ export class TaskService {
             receiver.receiverType === "unassigned"
               ? undefined
               : input.receiverName,
-          status:
-            receiver.receiverType === "unassigned" ? "todo" : task.status,
+          status: receiver.receiverType === "unassigned" ? "todo" : task.status,
           updatedAt: this.now(),
         },
         actor,
@@ -1342,24 +1367,25 @@ export class TaskService {
     task: TaskRecord,
   ): Promise<TaskRecord> {
     if (!task.autoSubmitReview) {
+      if (!task.steps.every((step) => step.done)) {
+        throw new TaskError("conflict", "标记任务完成前需勾选全部验收标准");
+      }
       return this.setStatus(
         actor,
         {
           ...task,
-          steps: task.steps.map((step) => ({ ...step, done: true })),
           progress: 100,
         },
         "done",
         "节点完成（无需 Review）",
       );
     }
-    const updatedSteps = task.steps.map((step, index) =>
-      index === 0 ? { ...step, done: true } : step,
-    );
+    if (!task.steps.some((step) => step.done)) {
+      throw new TaskError("conflict", "提交验收前至少需要完成一项验收标准");
+    }
     const progressed = {
       ...task,
-      steps: updatedSteps,
-      progress: Math.max(86, progressForSteps(updatedSteps)),
+      progress: Math.max(86, progressForSteps(task.steps)),
     };
     return this.setStatus(actor, progressed, "review", "提交验收");
   }
@@ -1416,7 +1442,6 @@ export class TaskService {
 
   async addMessage(actor: TaskActor, input: unknown): Promise<TaskRecord> {
     const parsed = parse(messageInputSchema, input);
-    // 已完成的任务收到新指令 = 追加要求，重开一轮后交给执行人。
     const task = requireContinuable(
       this.requireActive(this.require(parsed.taskId)),
     );
@@ -1426,6 +1451,11 @@ export class TaskService {
         "工作流任务执行请进入工作流节点；任务详情仅保留协作评论",
       );
     }
+    const deliveryTarget = resolveTaskDeliveryTarget(
+      task,
+      parsed.mentions,
+      parsed.deliveryTarget,
+    );
     const message = taskMessageSchema.parse({
       id: randomUUID(),
       at: this.now(),
@@ -1435,15 +1465,17 @@ export class TaskService {
       content: parsed.content,
       attachments: parsed.attachments,
       mentions: parsed.mentions,
+      deliveryTarget,
     });
-    const status =
-      task.status === "done"
-        ? actor.kind === "agent"
-          ? "progress"
-          : "todo"
-        : actor.kind === "agent" && task.status === "todo"
-          ? "progress"
-          : task.status;
+    const reopened =
+      task.status === "done" && deliveryTarget !== "collaborators";
+    const status = reopened
+      ? actor.kind === "agent"
+        ? "progress"
+        : "todo"
+      : actor.kind === "agent" && task.status === "todo"
+        ? "progress"
+        : task.status;
     const updated = this.event(
       {
         ...task,
@@ -1453,9 +1485,11 @@ export class TaskService {
       },
       actor,
       "message",
-      task.status === "done"
+      reopened
         ? `${actor.name} 追加要求，任务重新开启`
-        : `${actor.name} 添加了执行消息`,
+        : task.status === "done"
+          ? `${actor.name} 添加了协作消息`
+          : `${actor.name} 添加了执行消息`,
     );
     return this.put(updated);
   }
@@ -1533,6 +1567,16 @@ export class TaskService {
     if (options?.role !== undefined) {
       // 协作方 / FYI 轮次只把反馈写回任务历史：不推进状态、不碰验收、
       // 不因为别人家的产出把任务推进到待验收。
+      const progressMessage =
+        run.status === "succeeded"
+          ? `${authorName} 反馈了协作意见`
+          : run.status === "waiting_input"
+            ? `${authorName} 协作执行需要补充信息`
+            : ["failed", "timeout", "cancelled", "interrupted"].includes(
+                  run.status,
+                )
+              ? `${authorName} 协作执行未完成`
+              : `${authorName} 开始协作执行`;
       const collaborated = this.event(
         {
           ...task,
@@ -1544,9 +1588,7 @@ export class TaskService {
         },
         actor,
         "message",
-        run.status === "succeeded"
-          ? `${authorName} 反馈了协作意见`
-          : `${authorName} 协作执行未完成`,
+        progressMessage,
       );
       return this.put(collaborated);
     }

@@ -1806,6 +1806,11 @@ export function createTaskRoutes(
           before.receiverId !== task.receiverId;
         // 已完成任务被指派 = 追加要求并重开一轮，即使人没换也要重新跑。
         const reopened = before.status === "done" && task.status !== "done";
+        // 工作流任务由节点执行链路派发；任务层只负责人选和投影，不能再
+        // 创建一条 instanceId=taskId 的普通任务会话。
+        if (task.workflow !== undefined) {
+          return { task };
+        }
         if (task.receiverType !== "agent" || task.receiverId === undefined) {
           return { task };
         }
@@ -1904,17 +1909,22 @@ export function createTaskRoutes(
         const saved = await service.addMessage(currentActor, body);
         const last = saved.messages.at(-1);
         if (last === undefined) return { task: saved };
+        const deliveryTarget = last.deliveryTarget ?? "receiver";
         // 被 @ 的其它 Agent：各自在自己的会话里回一轮，产出写回任务历史。
-        const mentionedAgents = [
-          ...new Map(
-            last.mentions
-              .filter(
-                (mention) =>
-                  mention.kind === "agent" && mention.id !== saved.receiverId,
-              )
-              .map((mention) => [mention.id, mention]),
-          ).values(),
-        ];
+        const mentionedAgents =
+          deliveryTarget === "receiver"
+            ? []
+            : [
+                ...new Map(
+                  last.mentions
+                    .filter(
+                      (mention) =>
+                        mention.kind === "agent" &&
+                        mention.id !== saved.receiverId,
+                    )
+                    .map((mention) => [mention.id, mention]),
+                ).values(),
+              ];
         let task = saved;
         for (const mention of mentionedAgents) {
           task = await dispatchMention(task, currentActor, mention, {
@@ -1927,13 +1937,7 @@ export function createTaskRoutes(
         }
         // 一条消息如果 @ 的是别人、且没 @ 任务责任人，就不是在要求责任人执行：
         // 只把信息同步进它的上下文，不要唤起它跑一轮。
-        const addressedToReceiver =
-          last.mentions.length === 0 ||
-          last.mentions.some(
-            (mention) =>
-              mention.kind === "agent" && mention.id === saved.receiverId,
-          );
-        if (!addressedToReceiver) {
+        if (deliveryTarget === "collaborators") {
           return { task, dispatched: false };
         }
         // 指令输入框发出的消息默认就是给执行人的指令，直接触发，不需要 @。

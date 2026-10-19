@@ -60,7 +60,8 @@ window.__ModuleLoader__.load({
 
     const styles = `
       /* 页面内边距由 shell 的 .pmx-page 提供，这里不再叠加，保持与工作台一致的内容宽度。 */
-      .pmtask{min-height:100%;display:flex;flex-direction:column;color:var(--dsw-alias-label-primary);}
+      /* 会议侧边栏展开时任务区会变窄：用容器查询按「可用宽度」而不是视口宽度响应。 */
+      .pmtask{min-height:100%;display:flex;flex-direction:column;color:var(--dsw-alias-label-primary);container-type:inline-size;}
       .pmtask *{box-sizing:border-box;}
       .pmtask-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:14px;}
       .pmtask-head h1{margin:0;font-size:19px;line-height:1.3;}
@@ -91,7 +92,7 @@ window.__ModuleLoader__.load({
       .pmtask-scope-seg{display:inline-flex;align-items:center;gap:2px;padding:2px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
       .pmtask-scope-seg .pmtask-token{height:24px;padding:0 8px;background:transparent;}
       .pmtask-scope-seg .pmtask-token:not(.active):hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
-      .pmtask-board{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:12px;align-items:stretch;flex:1;min-height:max(420px,calc(100vh - 255px));}
+      .pmtask-board{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:12px;align-items:stretch;flex:1;min-height:max(420px,calc(100vh - 255px));overflow-x:auto;}
       .pmtask-column{min-width:0;min-height:100%;display:flex;flex-direction:column;border:0.5px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
       .pmtask-column.drop-ready{border-color:var(--dsw-alias-accent-primary,#4f8ef7);box-shadow:0 0 0 1px var(--dsw-alias-accent-primary,#4f8ef7);}
       .pmtask-column-head{display:grid;grid-template-columns:8px minmax(0,1fr) auto auto;align-items:center;gap:7px;padding:10px 10px 8px;border-bottom:0.5px solid var(--dsw-alias-border-l2);}
@@ -168,8 +169,17 @@ window.__ModuleLoader__.load({
       .pmtask-edit-title-row{display:grid;grid-template-columns:minmax(0,1fr) 110px;gap:9px;align-items:end;}
       .pmtask-edit-grow,.pmtask-edit-priority{min-width:0;}
       .pmtask-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;}
+      .pmtask-acceptance{display:grid;gap:8px;padding:12px 14px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2);}
+      .pmtask-acceptance-head{display:flex;align-items:center;justify-content:space-between;gap:12px;color:var(--dsw-alias-label-secondary);font-size:11.5px;}
+      .pmtask-acceptance-head strong{color:var(--dsw-alias-label-primary);font-size:12.5px;}
+      .pmtask-acceptance-head span{white-space:nowrap;font-variant-numeric:tabular-nums;}
       .pmtask-steps{display:grid;gap:6px;}
-      .pmtask-step{display:flex;align-items:flex-start;gap:8px;font-size:12px;}
+      .pmtask-step{display:flex;align-items:flex-start;gap:8px;border-radius:6px;padding:6px 7px;color:var(--dsw-alias-label-primary);font-size:12px;cursor:pointer;}
+      .pmtask-step:hover{background:var(--dsw-alias-bg-layer-1);}
+      .pmtask-step input{margin:2px 0 0;accent-color:var(--dsw-alias-accent-primary,#4f8ef7);}
+      .pmtask-step.done{color:var(--dsw-alias-label-secondary);text-decoration:line-through;}
+      .pmtask-step.disabled{cursor:default;opacity:.72;}
+      .pmtask-step.disabled:hover{background:transparent;}
       .pmtask-messages{max-height:360px;overflow:auto;display:grid;gap:8px;padding:2px;}
       .pmtask-message{border:0.5px solid var(--dsw-alias-border-l2);border-radius:7px;padding:8px;background:var(--dsw-alias-bg-layer-2);}
       .pmtask-message.agent{border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 42%,transparent);}
@@ -356,6 +366,8 @@ window.__ModuleLoader__.load({
       @media(max-width:1100px){.pmtask-board{grid-auto-columns:260px;overflow-x:auto;}}
       @media(max-width:900px){.pmtask-detail-layout{grid-template-columns:1fr}.pmtask-detail-main{border-right:0;border-bottom:0.5px solid var(--dsw-alias-border-l2);}.pmtask-detail-top .pmtask-crumb{flex-basis:100%;order:3}.pmtask-grid-demo{grid-template-columns:repeat(2,minmax(0,1fr));}}
       @media(max-width:700px){.pmtask-head{flex-direction:column}.pmtask-modal-grid{grid-template-columns:1fr}.pmtask-board{grid-auto-columns:240px}}
+      @container (max-width:1000px){.pmtask-board{grid-auto-columns:260px;}}
+      @container (max-width:700px){.pmtask-board{grid-auto-columns:240px;}}
     `;
 
     function token() {
@@ -2250,23 +2262,26 @@ window.__ModuleLoader__.load({
         h(
           "div",
           { className: "pmtask-board" },
-          ...(tasks.some((task) => task.status === "cancelled")
-            ? STATUSES
-            : STATUSES.filter((status) => status.key !== "cancelled")
-          ).map((status) =>
-            h(TaskColumn, {
-              key: status.key,
-              status,
-              readOnly: status.key === "cancelled",
-              tasks: tasks.filter((task) => task.status === status.key),
-              onOpen,
-              onCreate,
-              onDrop,
-              dragId,
-              onDragStart,
-              highlightedId,
-              directory,
-            }),
+          ...STATUSES.filter((status) => status.key !== "cancelled").map(
+            (status) =>
+              h(TaskColumn, {
+                key: status.key,
+                status,
+                readOnly: false,
+                // 已取消不再单独成列：作为「已完成」里的历史记录展示，卡片上仍有「已取消」标记。
+                tasks: tasks.filter((task) =>
+                  status.key === "done"
+                    ? task.status === "done" || task.status === "cancelled"
+                    : task.status === status.key,
+                ),
+                onOpen,
+                onCreate,
+                onDrop,
+                dragId,
+                onDragStart,
+                highlightedId,
+                directory,
+              }),
           ),
         ),
       );
@@ -2417,6 +2432,10 @@ window.__ModuleLoader__.load({
                 ),
                 isArchived(task)
                   ? h("span", { className: "pmtask-pill archived" }, "已归档")
+                  : null,
+                // 已取消并到「已完成」列后，卡片上仍要能一眼区分出来。
+                task.status === "cancelled"
+                  ? h("span", { className: "pmtask-pill cancelled" }, "已取消")
                   : null,
                 task.receiverState === "needs_reassignment"
                   ? h("span", { className: "pmtask-pill reassign" }, "需改派")
@@ -2608,12 +2627,6 @@ window.__ModuleLoader__.load({
           for (const file of attachments) {
             uploaded.push(await uploadAttachment(file));
           }
-          const sentNotice =
-            task.status === "done"
-              ? "已追加要求并重新开启，指令已发送"
-              : task.receiverType === "agent"
-                ? "执行指令已发送"
-                : `已发送给 ${receiverDisplay(task)}`;
           // 只提交正文里还留着的 @：用户删掉名字后不该再定向分发。
           const mentions = pickedMentions
             .filter((item) => content.includes(`@${item.name}`))
@@ -2622,6 +2635,31 @@ window.__ModuleLoader__.load({
               id: item.id,
               name: item.name,
             }));
+          const addressesReceiver =
+            mentions.length === 0 ||
+            (task.receiverId !== undefined &&
+              mentions.some((mention) => mention.id === task.receiverId));
+          const mentionsCollaborator =
+            task.receiverId !== undefined &&
+            mentions.some((mention) => mention.id !== task.receiverId);
+          const deliveryTarget =
+            mentions.length === 0
+              ? "receiver"
+              : addressesReceiver && mentionsCollaborator
+                ? "broadcast"
+                : addressesReceiver
+                  ? "receiver"
+                  : "collaborators";
+          const reopensTask =
+            task.status === "done" && deliveryTarget !== "collaborators";
+          const sentNotice =
+            task.status === "done"
+              ? reopensTask
+                ? "已追加要求并重新开启，指令已发送"
+                : "协作消息已发送，任务状态保持不变"
+              : task.receiverType === "agent"
+                ? "执行指令已发送"
+                : `已发送给 ${receiverDisplay(task)}`;
           await mutate(
             "/api/collab/tasks/message",
             {
@@ -2629,6 +2667,7 @@ window.__ModuleLoader__.load({
               content,
               attachments: uploaded,
               mentions,
+              deliveryTarget,
             },
             sentNotice,
           );
@@ -2739,9 +2778,15 @@ window.__ModuleLoader__.load({
       }, [executionText]);
       const action = async (name, label, extra = {}) => {
         try {
+          const endpoint =
+            name === "claim"
+              ? "/api/collab/tasks/claim"
+              : "/api/collab/tasks/action";
           await mutate(
-            "/api/collab/tasks/action",
-            { taskId: task.id, action: name, ...extra },
+            endpoint,
+            name === "claim"
+              ? { taskId: task.id }
+              : { taskId: task.id, action: name, ...extra },
             label,
           );
         } catch (cause) {
@@ -3340,6 +3385,55 @@ window.__ModuleLoader__.load({
                           )
                         : null,
                     ),
+                    task.steps.length > 0
+                      ? h(
+                          "div",
+                          { className: "pmtask-acceptance" },
+                          h(
+                            "div",
+                            { className: "pmtask-acceptance-head" },
+                            h("strong", null, "验收标准"),
+                            h(
+                              "span",
+                              null,
+                              `${task.steps.filter((step) => step.done).length} / ${task.steps.length} 已完成`,
+                            ),
+                          ),
+                          h(
+                            "div",
+                            { className: "pmtask-steps" },
+                            ...task.steps.map((step) => {
+                              const locked =
+                                readOnly || task.workflow !== undefined;
+                              return h(
+                                "label",
+                                {
+                                  className: `pmtask-step${step.done ? " done" : ""}${locked ? " disabled" : ""}`,
+                                  key: step.id,
+                                },
+                                h("input", {
+                                  type: "checkbox",
+                                  checked: step.done,
+                                  disabled: locked,
+                                  onChange: (event) => {
+                                    const done = event.target.checked;
+                                    void mutate(
+                                      "/api/collab/tasks/step",
+                                      {
+                                        taskId: task.id,
+                                        stepId: step.id,
+                                        done,
+                                      },
+                                      done ? "验收项已勾选" : "验收项已取消",
+                                    ).catch(fail);
+                                  },
+                                }),
+                                h("span", null, step.label),
+                              );
+                            }),
+                          ),
+                        )
+                      : null,
                     archived
                       ? h(
                           "p",
@@ -3427,7 +3521,9 @@ window.__ModuleLoader__.load({
                                 "认领",
                               )
                             : null,
-                          mine && task.status === "todo"
+                          mine &&
+                            task.receiverType !== "role" &&
+                            task.status === "todo"
                             ? h(
                                 "button",
                                 {
@@ -3525,7 +3621,8 @@ window.__ModuleLoader__.load({
                                 "重置会话",
                               )
                             : null,
-                          task.receiverType === "agent"
+                          task.receiverType === "agent" ||
+                            task.agentRunIds.length > 0
                             ? h(
                                 "button",
                                 {
