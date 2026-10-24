@@ -587,6 +587,29 @@ window.__ModuleLoader__.load({
       .pmproj-toolbar{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;}
       .pmproj-history-search{width:min(360px,100%);}
       .pmproj-toolbar input[type="date"],.pmproj-toolbar input[type="search"]{height:30px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:0 8px;min-width:0;}
+      .pmproj-output-toolbar{display:flex;align-items:center;gap:7px;flex-wrap:wrap;}
+      .pmproj-output-search{display:flex;align-items:center;gap:6px;flex:1 1 260px;min-width:180px;height:30px;padding:0 8px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-base);}
+      .pmproj-output-search svg{width:13px;height:13px;flex:none;color:var(--dsw-alias-label-secondary);}
+      .pmproj-output-search input{flex:1;min-width:0;border:0;outline:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;}
+      .pmproj-output-toolbar input[type="date"],.pmproj-output-toolbar select{height:30px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:11.5px;padding:0 7px;min-width:0;}
+      .pmproj-output-range{display:flex;align-items:center;gap:5px;color:var(--dsw-alias-label-secondary);font-size:11px;}
+      .pmproj-output-timeline{display:grid;gap:12px;}
+      .pmproj-output-day{display:grid;grid-template-columns:96px minmax(0,1fr);gap:10px;align-items:start;}
+      .pmproj-output-date{position:sticky;top:8px;padding-top:4px;color:var(--dsw-alias-label-secondary);font-size:11px;font-weight:600;line-height:1.4;}
+      .pmproj-output-date small{display:block;margin-top:2px;color:var(--dsw-alias-label-tertiary);font-size:10px;font-weight:400;}
+      .pmproj-output-list{display:grid;gap:7px;min-width:0;}
+      .pmproj-output-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:10px 11px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:7px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
+      .pmproj-output-item:hover{border-color:var(--dsw-alias-border-l4);background:var(--dsw-alias-bg-layer-2);}
+      .pmproj-output-main{min-width:0;}
+      .pmproj-output-title{display:flex;align-items:center;gap:7px;min-width:0;flex-wrap:wrap;}
+      .pmproj-output-title strong{min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:12.5px;white-space:nowrap;}
+      .pmproj-output-meta,.pmproj-output-links{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:5px;color:var(--dsw-alias-label-secondary);font-size:10.5px;}
+      .pmproj-output-source{padding:0;border:0;background:transparent;color:var(--dsw-alias-accent-primary,#4f8ef7);font:inherit;font-size:10.5px;cursor:pointer;text-align:left;}
+      .pmproj-output-source:hover{text-decoration:underline;}
+      .pmproj-output-node{padding:1px 7px;border:0.5px solid color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 35%,transparent);border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 8%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7);font:inherit;font-size:10px;cursor:pointer;}
+      .pmproj-output-actions{display:flex;align-items:flex-start;gap:6px;}
+      .pmproj-output-download{display:inline-flex;align-items:center;gap:5px;}
+      .pmproj-output-empty{padding:28px;border:0.5px dashed var(--dsw-alias-border-l3);border-radius:7px;color:var(--dsw-alias-label-secondary);text-align:center;font-size:12px;}
       .pmproj-report{display:flex;flex-direction:column;gap:8px;padding:12px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:7px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
       .pmproj-report-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;}
       .pmproj-report-head h3{margin:0;font-size:13px;}
@@ -650,6 +673,9 @@ window.__ModuleLoader__.load({
         .pmproj-facts{grid-template-columns:1fr;}
         .pmproj-form-grid{grid-template-columns:1fr;}
         .pmproj-history-detail{grid-template-columns:1fr;}
+        .pmproj-output-day{grid-template-columns:1fr;}
+        .pmproj-output-date{position:static;display:flex;align-items:center;gap:7px;}
+        .pmproj-output-date small{display:inline;margin:0;}
       }
       @media (max-width:640px){
         .pmproj-role-editor .pmproj-role-row{grid-template-columns:minmax(0,1fr);}
@@ -708,6 +734,25 @@ window.__ModuleLoader__.load({
         }),
       );
 
+    const DownloadIcon = () =>
+      h(
+        "svg",
+        {
+          viewBox: "0 0 24 24",
+          width: 13,
+          height: 13,
+          fill: "none",
+          stroke: "currentColor",
+          strokeWidth: 2,
+          strokeLinecap: "round",
+          strokeLinejoin: "round",
+          "aria-hidden": "true",
+        },
+        h("path", { d: "M12 3v12", key: "line" }),
+        h("path", { d: "m7 10 5 5 5-5", key: "arrow" }),
+        h("path", { d: "M5 21h14", key: "base" }),
+      );
+
     function Pill({ tone, children }) {
       return h(
         "span",
@@ -737,15 +782,95 @@ window.__ModuleLoader__.load({
     }
 
     /** 工作流详情：复用工作流模块的 collab-navigate 约定。 */
-    function openWorkflow(instanceId, workspaceId) {
+    function openWorkflow(instanceId, workspaceId, nodeId) {
       if (typeof window.__pluginmaxShell?.setRoute === "function") {
         window.__pluginmaxShell.setRoute("workflow");
       }
       window.dispatchEvent(
         new CustomEvent("pluginmax:collab-navigate", {
-          detail: { plugin: "workflow", instanceId, workspaceId },
+          detail: { plugin: "workflow", instanceId, workspaceId, nodeId },
         }),
       );
+    }
+
+    const OUTPUT_TYPE_LABELS = {
+      pdf: "PDF",
+      word: "Word",
+      spreadsheet: "表格",
+      presentation: "演示文稿",
+      markdown: "Markdown",
+      text: "文本",
+      image: "图片",
+      archive: "压缩包",
+      other: "其他",
+    };
+
+    function outputDay(value) {
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "";
+      const pad = (number) => String(number).padStart(2, "0");
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+        date.getDate(),
+      )}`;
+    }
+
+    function outputMatches(item, keyword, type, fromDate, toDate) {
+      const day = outputDay(item.updatedAt);
+      if (type !== "all" && item.documentType !== type) return false;
+      if (fromDate !== "" && day < fromDate) return false;
+      if (toDate !== "" && day > toDate) return false;
+      const needle = String(keyword ?? "")
+        .trim()
+        .toLowerCase();
+      if (needle === "") return true;
+      return [
+        item.name,
+        item.workflowNodeName,
+        item.workflowInstanceTitle,
+        item.sourceName,
+      ]
+        .filter((value) => value !== undefined)
+        .join(" ")
+        .toLowerCase()
+        .includes(needle);
+    }
+
+    function groupOutputsByDay(items) {
+      const groups = [];
+      for (const item of [...items].sort(
+        (left, right) =>
+          right.updatedAt.localeCompare(left.updatedAt) ||
+          left.name.localeCompare(right.name),
+      )) {
+        const day = outputDay(item.updatedAt) || "日期未知";
+        let group = groups.at(-1);
+        if (group === undefined || group.date !== day) {
+          group = { date: day, items: [] };
+          groups.push(group);
+        }
+        group.items.push(item);
+      }
+      return groups;
+    }
+
+    function formatFileSize(value) {
+      const size = Number(value);
+      if (!Number.isFinite(size) || size < 0) return "—";
+      if (size < 1_024) return `${size} B`;
+      if (size < 1_024 * 1_024) return `${(size / 1_024).toFixed(1)} KB`;
+      return `${(size / (1_024 * 1_024)).toFixed(1)} MB`;
+    }
+
+    function outputLoadErrorMessage(cause) {
+      if (
+        typeof cause === "object" &&
+        cause !== null &&
+        "status" in cause &&
+        cause.status === 404
+      ) {
+        return "产出物服务未加载，请重启当前服务后重试。";
+      }
+      return cause instanceof Error ? cause.message : String(cause);
     }
 
     function ProjectGlobalPage(props) {
@@ -809,6 +934,14 @@ window.__ModuleLoader__.load({
       const [historyLoading, setHistoryLoading] = react.useState(false);
       const [historySearch, setHistorySearch] = react.useState("");
       const [historyCategory, setHistoryCategory] = react.useState("all");
+      const [outputs, setOutputs] = react.useState([]);
+      const [outputsFor, setOutputsFor] = react.useState("");
+      const [outputsLoading, setOutputsLoading] = react.useState(false);
+      const [outputsError, setOutputsError] = react.useState("");
+      const [outputSearch, setOutputSearch] = react.useState("");
+      const [outputType, setOutputType] = react.useState("all");
+      const [outputFrom, setOutputFrom] = react.useState("");
+      const [outputTo, setOutputTo] = react.useState("");
 
       const fail = (cause) => {
         const message = cause instanceof Error ? cause.message : String(cause);
@@ -903,6 +1036,14 @@ window.__ModuleLoader__.load({
           setDraftGuard(null);
           setReports([]);
           setHistory([]);
+          setOutputs([]);
+          setOutputsFor("");
+          setOutputsLoading(false);
+          setOutputsError("");
+          setOutputSearch("");
+          setOutputType("all");
+          setOutputFrom("");
+          setOutputTo("");
           void loadProjects();
           void loadFollows();
         };
@@ -969,6 +1110,55 @@ window.__ModuleLoader__.load({
         }
       }, []);
 
+      const loadOutputs = react.useCallback(async (workspaceId) => {
+        if (workspaceId === "") return;
+        try {
+          setOutputsLoading(true);
+          setOutputsError("");
+          const result = await request(
+            `/api/collab/projects/outputs?workspaceId=${encodeURIComponent(
+              workspaceId,
+            )}`,
+          );
+          setOutputs(result.outputs ?? []);
+          setOutputsFor(workspaceId);
+        } catch (cause) {
+          setOutputsError(outputLoadErrorMessage(cause));
+        } finally {
+          setOutputsLoading(false);
+        }
+      }, []);
+
+      const downloadOutput = async (item) => {
+        try {
+          const current = token();
+          const response = await fetch(item.downloadUrl, {
+            headers:
+              current === null ? {} : { authorization: `Bearer ${current}` },
+            cache: "no-store",
+          });
+          if (!response.ok) {
+            const body = await response.json().catch(() => null);
+            throw new Error(
+              body?.error?.message ?? `下载失败（HTTP ${response.status}）`,
+            );
+          }
+          const blob = await response.blob();
+          const objectUrl = URL.createObjectURL(blob);
+          const anchor = document.createElement("a");
+          anchor.href = objectUrl;
+          anchor.download = item.name;
+          document.body.appendChild(anchor);
+          anchor.click();
+          anchor.remove();
+          URL.revokeObjectURL(objectUrl);
+        } catch (cause) {
+          setOutputsError(
+            cause instanceof Error ? cause.message : String(cause),
+          );
+        }
+      };
+
       react.useEffect(() => {
         if (tab !== "reports") return;
         void loadReports(selectedId);
@@ -978,6 +1168,25 @@ window.__ModuleLoader__.load({
         if (tab !== "history") return;
         void loadHistory(selectedId);
       }, [tab, selectedId, loadHistory]);
+
+      react.useEffect(() => {
+        setTab("members");
+        setMemberManageMode(false);
+        setOutputs([]);
+        setOutputsFor("");
+        setOutputsLoading(false);
+        setOutputsError("");
+        setOutputSearch("");
+        setOutputType("all");
+        setOutputFrom("");
+        setOutputTo("");
+      }, [selectedId]);
+
+      react.useEffect(() => {
+        if (selectedId === "") return;
+        if (outputsFor === selectedId) return;
+        void loadOutputs(selectedId);
+      }, [selectedId, outputsFor, loadOutputs]);
 
       const loadTemplates = react.useCallback(async () => {
         try {
@@ -2806,6 +3015,258 @@ window.__ModuleLoader__.load({
         );
       };
 
+      const renderOutputsTab = () => {
+        if (detail === null || selectedProject === null) return null;
+        const visible = outputs.filter((item) =>
+          outputMatches(item, outputSearch, outputType, outputFrom, outputTo),
+        );
+        const groups = groupOutputsByDay(visible);
+        const loading =
+          outputsLoading ||
+          (outputsFor !== selectedProject.workspaceId && outputsError === "");
+        return h(
+          "div",
+          { className: "pmproj-panel pmproj-outputs" },
+          h(
+            "div",
+            { className: "pmproj-panel-head" },
+            h(
+              "div",
+              { className: "pmproj-panel-title" },
+              h("h3", null, "产出物"),
+              h(
+                "span",
+                { className: "pmproj-count" },
+                outputsFor === selectedProject.workspaceId
+                  ? `${visible.length} / ${outputs.length} 项`
+                  : "加载中",
+              ),
+            ),
+            h(
+              "button",
+              {
+                className: "pmproj-btn secondary small",
+                type: "button",
+                disabled: loading,
+                onClick: () => void loadOutputs(selectedProject.workspaceId),
+              },
+              "刷新",
+            ),
+          ),
+          h(
+            "div",
+            { className: "pmproj-output-toolbar" },
+            h(
+              "label",
+              { className: "pmproj-output-search" },
+              SearchIcon(),
+              h("input", {
+                value: outputSearch,
+                placeholder: "搜索文档名称、工作流、节点或任务名称",
+                "aria-label": "搜索产出物",
+                onChange: (event) => setOutputSearch(event.target.value),
+              }),
+            ),
+            h(
+              "div",
+              { className: "pmproj-output-range" },
+              h("span", null, "时间"),
+              h("input", {
+                type: "date",
+                value: outputFrom,
+                "aria-label": "产出物开始日期",
+                onChange: (event) => setOutputFrom(event.target.value),
+              }),
+              h("span", null, "至"),
+              h("input", {
+                type: "date",
+                value: outputTo,
+                "aria-label": "产出物结束日期",
+                onChange: (event) => setOutputTo(event.target.value),
+              }),
+            ),
+            h(
+              "select",
+              {
+                value: outputType,
+                "aria-label": "按文档类型筛选产出物",
+                onChange: (event) => setOutputType(event.target.value),
+              },
+              h("option", { value: "all" }, "全部文档类型"),
+              Object.entries(OUTPUT_TYPE_LABELS).map(([value, label]) =>
+                h("option", { key: value, value }, label),
+              ),
+            ),
+            outputSearch !== "" ||
+              outputType !== "all" ||
+              outputFrom !== "" ||
+              outputTo !== ""
+              ? h(
+                  "button",
+                  {
+                    className: "pmproj-btn subtle",
+                    type: "button",
+                    onClick: () => {
+                      setOutputSearch("");
+                      setOutputType("all");
+                      setOutputFrom("");
+                      setOutputTo("");
+                    },
+                  },
+                  "清除筛选",
+                )
+              : null,
+          ),
+          outputsError !== ""
+            ? h(
+                "div",
+                { className: "pmproj-output-empty", role: "alert" },
+                outputsError,
+              )
+            : loading
+              ? h("div", { className: "pmproj-loading" }, "正在加载产出物…")
+              : groups.length === 0
+                ? h(
+                    "div",
+                    { className: "pmproj-output-empty" },
+                    outputs.length === 0
+                      ? "当前项目还没有产出物。"
+                      : "没有匹配的产出物。",
+                  )
+                : h(
+                    "div",
+                    { className: "pmproj-output-timeline" },
+                    groups.map((group) =>
+                      h(
+                        "section",
+                        {
+                          className: "pmproj-output-day",
+                          key: group.date,
+                        },
+                        h(
+                          "div",
+                          { className: "pmproj-output-date" },
+                          group.date,
+                          h("small", null, `${group.items.length} 项`),
+                        ),
+                        h(
+                          "div",
+                          { className: "pmproj-output-list" },
+                          group.items.map((item) =>
+                            h(
+                              "article",
+                              {
+                                className: "pmproj-output-item",
+                                key: item.id,
+                              },
+                              h(
+                                "div",
+                                { className: "pmproj-output-main" },
+                                h(
+                                  "div",
+                                  { className: "pmproj-output-title" },
+                                  h("strong", { title: item.name }, item.name),
+                                  h(
+                                    Pill,
+                                    null,
+                                    OUTPUT_TYPE_LABELS[item.documentType] ??
+                                      "其他",
+                                  ),
+                                ),
+                                h(
+                                  "div",
+                                  { className: "pmproj-output-meta" },
+                                  h("span", null, item.authorName || "未知"),
+                                  h("span", null, "·"),
+                                  h("span", null, formatFileSize(item.size)),
+                                  h("span", null, "·"),
+                                  h(
+                                    "span",
+                                    null,
+                                    item.updatedAt
+                                      .slice(0, 16)
+                                      .replace("T", " "),
+                                  ),
+                                ),
+                                h(
+                                  "div",
+                                  { className: "pmproj-output-links" },
+                                  h(
+                                    "button",
+                                    {
+                                      className: "pmproj-output-source",
+                                      type: "button",
+                                      title:
+                                        item.sourceKind === "task"
+                                          ? "打开任务"
+                                          : "打开工作流",
+                                      onClick: () => {
+                                        if (
+                                          item.sourceKind === "task" &&
+                                          item.taskId !== undefined
+                                        ) {
+                                          openTask(
+                                            item.taskId,
+                                            selectedProject.workspaceId,
+                                          );
+                                          return;
+                                        }
+                                        if (
+                                          item.workflowInstanceId !== undefined
+                                        ) {
+                                          openWorkflow(
+                                            item.workflowInstanceId,
+                                            selectedProject.workspaceId,
+                                          );
+                                        }
+                                      },
+                                    },
+                                    `${item.sourceKind === "task" ? "任务" : "工作流"} · ${item.sourceName}`,
+                                  ),
+                                  item.workflowNodeName === undefined ||
+                                    item.workflowInstanceId === undefined
+                                    ? null
+                                    : h(
+                                        "button",
+                                        {
+                                          className: "pmproj-output-node",
+                                          type: "button",
+                                          title: "打开对应工作流节点",
+                                          onClick: () =>
+                                            openWorkflow(
+                                              item.workflowInstanceId,
+                                              selectedProject.workspaceId,
+                                              item.workflowNodeId,
+                                            ),
+                                        },
+                                        `节点 · ${item.workflowNodeName}`,
+                                      ),
+                                ),
+                              ),
+                              h(
+                                "div",
+                                { className: "pmproj-output-actions" },
+                                h(
+                                  "button",
+                                  {
+                                    className:
+                                      "pmproj-btn secondary small pmproj-output-download",
+                                    type: "button",
+                                    onClick: () => void downloadOutput(item),
+                                  },
+                                  DownloadIcon(),
+                                  "下载",
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+        );
+      };
+
       const renderReportsTab = () => {
         const keywords = reportSearch
           .trim()
@@ -3106,6 +3567,14 @@ window.__ModuleLoader__.load({
             label: "工作流",
             count: (detail?.workflows ?? []).length,
           },
+          {
+            key: "outputs",
+            label: "产出物",
+            count:
+              outputsFor === selectedProject.workspaceId
+                ? outputs.length
+                : undefined,
+          },
           { key: "reports", label: "项目日报", count: reports.length },
           ...(canManage
             ? [{ key: "history", label: "历史记录", count: history.length }]
@@ -3116,11 +3585,13 @@ window.__ModuleLoader__.load({
             ? renderTasksTab()
             : tab === "workflows"
               ? renderWorkflowsTab()
-              : tab === "reports"
-                ? renderReportsTab()
-                : tab === "history"
-                  ? renderHistoryTab()
-                  : renderMembersTab();
+              : tab === "outputs"
+                ? renderOutputsTab()
+                : tab === "reports"
+                  ? renderReportsTab()
+                  : tab === "history"
+                    ? renderHistoryTab()
+                    : renderMembersTab();
         const followedNow = followed.has(selectedProject.workspaceId);
         return h(
           Fragment,
@@ -3240,7 +3711,9 @@ window.__ModuleLoader__.load({
                     if (item.key !== "members") setMemberManageMode(false);
                   },
                 },
-                `${item.label} ${item.count}`,
+                item.count === undefined
+                  ? item.label
+                  : `${item.label} ${item.count}`,
               ),
             ),
           ),
@@ -5460,6 +5933,10 @@ window.__ModuleLoader__.load({
       auditMatches,
       projectMatches,
       sortProjectTasks,
+      outputMatches,
+      groupOutputsByDay,
+      formatFileSize,
+      outputLoadErrorMessage,
       parseReportBlocks,
       roleCodeKey,
       roleFieldsDiffer,

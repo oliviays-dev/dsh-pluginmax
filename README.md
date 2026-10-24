@@ -14,6 +14,15 @@ The current milestone is Phase 4C: Principal-first runtime migration. It adds:
 - `principal-runtime` Agent Runs while retaining legacy Employee runs for history
 - read-only Employee compatibility APIs, data export, and consistency reporting from Phase 4A
 
+The context platform foundation adds:
+
+- `dsh-collab-memory`: temporal project claims/current truth, project-scoped agent
+  episodes, handoffs, review items and idempotent ingestion jobs
+- `dsh-collab-context`: isolated scene sessions, chat channels, immutable context
+  packs, receipts, adapters and identity snapshots
+- meeting-module AI 1:1 conversations as private `chat` scenes with dedicated
+  `de-chat-*` sessions instead of meeting tasks or minutes
+
 Phase 3 delivered canonical `principal:<id>` references, with `employee:` / teammate / account aliases during migration, and mirrored all platform, workspace, and project grants to Principal.
 
 Phase X introduced `dsh-collab-agent`, which provides:

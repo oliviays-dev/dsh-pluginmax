@@ -11,6 +11,16 @@ interface ClientExports {
       refId: string;
       workspaceId?: string;
     }): void;
+    itemReadSignature(item: {
+      id: string;
+      kind?: string;
+      updatedAt?: string;
+    }): string;
+    filterUnreadItems<T>(
+      items: readonly T[],
+      view: "unread" | "all",
+      isRead: (item: T) => boolean,
+    ): readonly T[];
   };
 }
 
@@ -154,5 +164,45 @@ describe("workbench client navigation", () => {
     expect(source).toContain('"pluginmax:follow-change"');
     expect(source).toContain("followStore.loaded = false");
     expect(source).toContain('refreshModule("focus", { silent: true })');
+  });
+
+  it("shows only unread cards by default and treats updated items as unread", () => {
+    const harness = createHarness();
+    loadClient(harness);
+    const first = { id: "TSK-1", kind: "task", updatedAt: "v1" };
+    const second = { id: "TSK-2", kind: "task", updatedAt: "v1" };
+    const read = new Set([harness.exports.__test?.itemReadSignature(first)]);
+
+    const unread = harness.exports.__test?.filterUnreadItems(
+      [first, second],
+      "unread",
+      (item) => read.has(harness.exports.__test?.itemReadSignature(item)),
+    );
+    const all = harness.exports.__test?.filterUnreadItems(
+      [first, second],
+      "all",
+      () => true,
+    );
+
+    expect(unread).toEqual([second]);
+    expect(all).toEqual([first, second]);
+    expect(
+      harness.exports.__test?.itemReadSignature({
+        ...first,
+        updatedAt: "v2",
+      }),
+    ).not.toBe(harness.exports.__test?.itemReadSignature(first));
+  });
+
+  it("keeps text read actions and persists before navigating away", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).not.toContain("ICONS.check");
+    expect(source).toContain('"标为已读"');
+    expect(source).toContain("readStateRef.current = next");
+    expect(source).toContain(
+      "window.localStorage.setItem(READ_STATE_KEY, JSON.stringify(next))",
+    );
+    expect(source).toContain("ctx.markItemRead(moduleId, item)");
+    expect(source).toContain('ctx.markItemRead("meeting-minutes", item)');
   });
 });

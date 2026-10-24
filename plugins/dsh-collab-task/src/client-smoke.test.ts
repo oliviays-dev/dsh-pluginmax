@@ -283,6 +283,25 @@ function findNode(
   return undefined;
 }
 
+function findNodes(
+  root: unknown,
+  predicate: (node: TreeNode) => boolean,
+): TreeNode[] {
+  const matches: TreeNode[] = [];
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      for (const child of value) visit(child);
+      return;
+    }
+    if (value === null || typeof value !== "object") return;
+    const candidate = value as TreeNode;
+    if (predicate(candidate)) matches.push(candidate);
+    visit(candidate.props?.children);
+  };
+  visit(root);
+  return matches;
+}
+
 function containsText(value: unknown, text: string): boolean {
   if (typeof value === "string") return value.includes(text);
   if (Array.isArray(value))
@@ -585,6 +604,900 @@ describe("task client", () => {
     expect(source).toContain("协作消息已发送，任务状态保持不变");
   });
 
+  it("renders mixed built-in/external runtimes, human reassignment and round instructions", async () => {
+    const primaryExecution = {
+      provider: "custom",
+      model: "deepseek-flash",
+      runtime: "Codex CLI",
+      runtimeVersion: "0.163.0-alpha.10.2",
+      authMode: "api-key",
+      sandbox: "read-only / network restricted",
+    };
+    const collaboratorExecution = {
+      provider: "workbuddy",
+      model: "hunyuan-code",
+      runtime: "WorkBuddy CLI",
+      runtimeVersion: "2.161.0",
+      authMode: "cli-login",
+      sandbox: "accept-edits",
+    };
+    const secondaryExternalExecution = {
+      provider: "workbuddy",
+      model: "hy4-reasoning",
+      runtime: "CodeBuddy CLI · hy4 标准",
+      runtimeVersion: "3.0.1",
+      authMode: "cli-login",
+      sandbox: "workspace-write",
+    };
+    const task = makeTask({
+      id: "TSK-RUN-META-1",
+      workspaceId: "ws-1",
+      title: "运行信息展示",
+      status: "progress",
+      priority: "P1",
+      receiverType: "human",
+      receiverId: "admin",
+      receiverName: "Admin",
+      createdBy: "admin",
+      updatedAt: "2026-10-23T03:00:00.000Z",
+      agentRunIds: ["run-meta-1", "run-meta-2", "run-meta-3"],
+      messages: [
+        {
+          id: "ask-meta-1",
+          at: "2026-10-23T02:59:00.000Z",
+          authorId: "admin",
+          authorName: "Admin",
+          kind: "human",
+          content: "先使用内置运行时梳理初稿。",
+          attachments: [],
+          mentions: [],
+        },
+        {
+          id: "run-meta-1",
+          at: "2026-10-23T03:00:00.000Z",
+          authorId: "tm-1",
+          authorName: "Codex 调研架构师",
+          kind: "agent",
+          content: "调研已完成。",
+          attachments: [],
+          mentions: [],
+          runId: "run-meta-1",
+          runRole: "owner",
+          state: "succeeded",
+          execution: primaryExecution,
+        },
+        {
+          id: "ask-meta-2",
+          at: "2026-10-23T03:00:30.000Z",
+          authorId: "admin",
+          authorName: "Admin",
+          kind: "human",
+          content: "改派给 WorkBuddy 复核供应链风险。",
+          attachments: [],
+          mentions: [],
+        },
+        {
+          id: "run-meta-2",
+          at: "2026-10-23T03:01:00.000Z",
+          authorId: "tm-2",
+          authorName: "WorkBuddy 风险官",
+          kind: "agent",
+          content: "风险意见已补充。",
+          attachments: [],
+          mentions: [],
+          runId: "run-meta-2",
+          runRole: "assist",
+          state: "succeeded",
+          execution: collaboratorExecution,
+        },
+        {
+          id: "run-meta-3",
+          at: "2026-10-23T03:02:00.000Z",
+          authorId: "tm-3",
+          authorName: "CodeBuddy 总结员",
+          kind: "agent",
+          content: "最终结论已汇总。",
+          attachments: [],
+          mentions: [],
+          runId: "run-meta-3",
+          runRole: "owner",
+          state: "succeeded",
+          execution: secondaryExternalExecution,
+        },
+      ],
+      events: [
+        {
+          id: "assignment-human-1",
+          at: "2026-10-23T03:00:15.000Z",
+          actorId: "admin",
+          actorName: "Admin",
+          kind: "assignment",
+          message: "Admin 调整责任人为 人类审核员甲",
+        },
+        {
+          id: "assignment-human-2",
+          at: "2026-10-23T03:01:15.000Z",
+          actorId: "admin",
+          actorName: "Admin",
+          kind: "assignment",
+          message: "Admin 调整责任人为 人类审核员乙",
+        },
+        {
+          id: "assignment-agent-3",
+          at: "2026-10-23T03:01:50.000Z",
+          actorId: "admin",
+          actorName: "Admin",
+          kind: "assignment",
+          message: "Admin 调整责任人为 CodeBuddy 总结员",
+        },
+      ],
+    });
+    const fetchImpl = (input: string) => {
+      if (input.startsWith("/api/collab/auth/me")) {
+        return Promise.resolve(
+          payload({ user: { id: "admin", name: "Admin", role: "admin" } }),
+        );
+      }
+      if (input.startsWith("/api/collab/team/workspaces")) {
+        return Promise.resolve(
+          payload({
+            workspaces: [
+              { id: "ws-1", title: "项目一", path: "/p1", isMember: true },
+            ],
+          }),
+        );
+      }
+      if (input.startsWith("/api/collab/tasks/bootstrap")) {
+        return Promise.resolve(
+          payload({
+            tasks: [task],
+            directory: {
+              humans: [],
+              agents: [
+                {
+                  id: "tm-1",
+                  name: "Codex 调研架构师",
+                  source: "platform",
+                },
+              ],
+              roles: [],
+            },
+          }),
+        );
+      }
+      if (input.startsWith("/api/collab/agent/runs?")) {
+        return Promise.resolve(
+          payload({
+            runs: [
+              {
+                id: "run-meta-1",
+                status: "succeeded",
+                createdAt: "2026-10-23T03:00:00.000Z",
+                execution: primaryExecution,
+                payload: {
+                  profileName: "Codex 调研架构师",
+                  context: {
+                    taskRunRole: "owner",
+                    triggerMessageId: "ask-meta-1",
+                  },
+                },
+              },
+              {
+                id: "run-meta-2",
+                status: "succeeded",
+                createdAt: "2026-10-23T03:01:00.000Z",
+                execution: collaboratorExecution,
+                payload: {
+                  profileName: "WorkBuddy 风险官",
+                  context: {
+                    taskRunRole: "owner",
+                    triggerMessageId: "ask-meta-2",
+                  },
+                },
+              },
+              {
+                id: "run-meta-3",
+                status: "succeeded",
+                createdAt: "2026-10-23T03:02:00.000Z",
+                execution: secondaryExternalExecution,
+                payload: {
+                  profileName: "CodeBuddy 总结员",
+                  context: {
+                    taskRunRole: "owner",
+                  },
+                },
+              },
+            ],
+          }),
+        );
+      }
+      if (input.startsWith("/api/collab/agent/runs/detail")) {
+        const runId = new URL(`http://x${input}`).searchParams.get("runId");
+        const executions = new Map([
+          ["run-meta-1", primaryExecution],
+          ["run-meta-2", collaboratorExecution],
+          ["run-meta-3", secondaryExternalExecution],
+        ]);
+        const selected = {
+          id: runId ?? "run-meta-3",
+          status: "succeeded",
+          execution: executions.get(runId ?? "") ?? secondaryExternalExecution,
+        };
+        return Promise.resolve(
+          payload({
+            run: selected,
+            progress: null,
+          }),
+        );
+      }
+      if (input.startsWith("/api/collab/tasks/documents")) {
+        return Promise.resolve(
+          payload({
+            workspaceReady: true,
+            documents: [
+              {
+                id: "doc-meta-1",
+                runId: "run-meta-1",
+                kind: "produced",
+                name: "primary.md",
+                relativePath: "outputs/run-meta-1/primary.md",
+                size: 10,
+                mimeType: "text/markdown",
+                updatedBy: "Codex 调研架构师",
+                updatedAt: "2026-10-23T03:00:00.000Z",
+                available: true,
+              },
+              {
+                id: "doc-meta-2",
+                runId: "run-meta-2",
+                kind: "produced",
+                name: "collaborator.md",
+                relativePath: "outputs/run-meta-2/collaborator.md",
+                size: 10,
+                mimeType: "text/markdown",
+                updatedBy: "WorkBuddy 风险官",
+                updatedAt: "2026-10-23T03:01:00.000Z",
+                available: true,
+              },
+              {
+                id: "doc-meta-3",
+                runId: "run-meta-3",
+                kind: "produced",
+                name: "summary.md",
+                relativePath: "outputs/run-meta-3/summary.md",
+                size: 10,
+                mimeType: "text/markdown",
+                updatedBy: "CodeBuddy 总结员",
+                updatedAt: "2026-10-23T03:02:00.000Z",
+                available: true,
+              },
+            ],
+          }),
+        );
+      }
+      return Promise.resolve(payload({}));
+    };
+
+    const harness = loadClientExports({ fetchImpl });
+    const root = mountTaskPage(harness);
+    let tree = await settle(root, harness.runtime);
+    const card = findNode(
+      tree,
+      (node) => node.props?.["data-task-id"] === "TSK-RUN-META-1",
+    );
+    (card?.props?.onClick as (() => void) | undefined)?.();
+    tree = await settle(root, harness.runtime);
+
+    const meta = findNode(
+      tree,
+      (node) => node.props?.className === "pmtask-run-meta",
+    );
+    expect(meta, "Agent 回复下应展示结构化运行信息").toBeDefined();
+    expect(containsText(meta?.props?.children, "deepseek-flash")).toBe(true);
+    expect(containsText(meta?.props?.children, "api-key")).toBe(true);
+    expect(
+      containsText(meta?.props?.children, "read-only / network restricted"),
+    ).toBe(true);
+
+    const executionRecord = findNode(
+      tree,
+      (node) =>
+        node.props?.className === "pmtask-side-section pmtask-execution-record",
+    );
+    expect(executionRecord, "轮次与二级内容应统一收在执行记录中").toBeDefined();
+    expect(containsText(executionRecord?.props?.children, "AI执行记录")).toBe(
+      true,
+    );
+    expect(
+      findNode(
+        executionRecord,
+        (node) => node.type === "h4" && node.props?.children === "AI伙伴",
+      ),
+      "执行记录内不再重复展示 AI伙伴区块",
+    ).toBeUndefined();
+    expect(containsText(executionRecord?.props?.children, "产出物")).toBe(true);
+    expect(containsText(executionRecord?.props?.children, "执行过程")).toBe(
+      true,
+    );
+    expect(containsText(executionRecord?.props?.children, "运行信息")).toBe(
+      true,
+    );
+
+    const executionRuns = findNode(
+      executionRecord,
+      (node) => node.props?.className === "pmtask-execution-runs",
+    );
+    expect(executionRuns, "轮次选择应位于执行记录顶部").toBeDefined();
+
+    const roundTrigger = findNode(
+      executionRuns,
+      (node) =>
+        node.type === "button" &&
+        node.props?.className === "pmtask-execution-round-trigger",
+    );
+    expect(roundTrigger, "轮次应通过紧凑下拉框切换").toBeDefined();
+    expect(roundTrigger?.props?.["aria-expanded"]).toBe(false);
+    const collapsedRoundLabel = findNode(
+      roundTrigger,
+      (node) =>
+        typeof node.props?.children === "string" &&
+        /^第 \d+ 轮 · .+ · .+$/.test(node.props.children),
+    )?.props?.children;
+    expect(collapsedRoundLabel, "收起态只展示轮次、伙伴和状态").toMatch(
+      /^第 \d+ 轮 · .+ · .+$/,
+    );
+    const collapsedRoundTime = findNode(
+      roundTrigger,
+      (node) =>
+        node.type === "time" &&
+        node.props?.className === "pmtask-execution-round-trigger-time",
+    );
+    expect(
+      collapsedRoundTime?.props?.dateTime,
+      "收起态右侧应展示当前轮的指令发送时间",
+    ).toBe("2026-10-23T03:02:00.000Z");
+    expect(
+      containsText(
+        roundTrigger?.props?.children,
+        "调整责任人为 CodeBuddy 总结员",
+      ),
+      "收起态只展示轮次、伙伴和状态，不拼接指令",
+    ).toBe(false);
+    const selectedRoundInstruction = findNode(
+      executionRuns,
+      (node) =>
+        typeof node.props?.className === "string" &&
+        node.props.className.includes("pmtask-selected-round-instruction"),
+    );
+    expect(
+      selectedRoundInstruction,
+      "下拉框收起时应在触发器下方展示当前轮指令卡",
+    ).toBeDefined();
+    expect(
+      containsText(
+        selectedRoundInstruction?.props?.children,
+        "调整责任人为 CodeBuddy 总结员",
+      ),
+    ).toBe(true);
+    const selectedInstructionToggle = findNode(
+      selectedRoundInstruction,
+      (node) =>
+        node.type === "button" &&
+        node.props?.className === "pmtask-round-instruction-toggle",
+    );
+    expect(
+      containsText(selectedInstructionToggle?.props?.children, "展开完整指令"),
+    ).toBe(true);
+    (
+      selectedInstructionToggle?.props?.onClick as
+        | ((event: { stopPropagation: () => void }) => void)
+        | undefined
+    )?.({
+      stopPropagation: () => undefined,
+    });
+    tree = await settle(root, harness.runtime);
+    let refreshedExecutionRuns = findNode(
+      tree,
+      (node) => node.props?.className === "pmtask-execution-runs",
+    );
+    expect(
+      findNode(
+        refreshedExecutionRuns,
+        (node) =>
+          typeof node.props?.className === "string" &&
+          node.props.className.includes("pmtask-selected-round-instruction") &&
+          node.props.className.includes("expanded"),
+      ),
+      "固定指令卡应复用三行指令的展开交互",
+    ).toBeDefined();
+
+    const refreshedRoundTrigger = findNode(
+      refreshedExecutionRuns,
+      (node) =>
+        node.type === "button" &&
+        node.props?.className === "pmtask-execution-round-trigger",
+    );
+    (refreshedRoundTrigger?.props?.onClick as (() => void) | undefined)?.();
+    tree = await settle(root, harness.runtime);
+    let refreshedExecutionRecord = findNode(
+      tree,
+      (node) =>
+        node.props?.className === "pmtask-side-section pmtask-execution-record",
+    );
+    refreshedExecutionRuns = findNode(
+      refreshedExecutionRecord,
+      (node) => node.props?.className === "pmtask-execution-runs",
+    );
+    expect(
+      findNode(
+        refreshedExecutionRuns,
+        (node) =>
+          typeof node.props?.className === "string" &&
+          node.props.className.includes("pmtask-selected-round-instruction"),
+      ),
+      "展开下拉框后应隐藏固定指令卡，避免与各轮指令重复",
+    ).toBeUndefined();
+    const openMenu = findNode(
+      refreshedExecutionRecord,
+      (node) => node.props?.className === "pmtask-execution-round-menu",
+    );
+    expect(openMenu, "展开后应展示全部轮次及指令").toBeDefined();
+    const orderedRoundOptions = findNodes(
+      openMenu,
+      (node) =>
+        typeof node.props?.className === "string" &&
+        node.props.className
+          .split(/\s+/)
+          .includes("pmtask-execution-round-option"),
+    );
+    expect(
+      orderedRoundOptions.map((option) =>
+        ["第 3 轮", "第 2 轮", "第 1 轮"].find((label) =>
+          containsText(option.props?.children, label),
+        ),
+      ),
+      "轮次卡片应按最新在前排列",
+    ).toEqual(["第 3 轮", "第 2 轮", "第 1 轮"]);
+    expect(
+      orderedRoundOptions.map(
+        (option) =>
+          findNode(
+            option,
+            (node) =>
+              node.type === "time" &&
+              node.props?.className === "pmtask-execution-round-option-time",
+          )?.props?.dateTime,
+      ),
+      "卡片右侧应展示 Agent Run 实际创建/投递时间",
+    ).toEqual([
+      "2026-10-23T03:02:00.000Z",
+      "2026-10-23T03:01:00.000Z",
+      "2026-10-23T03:00:00.000Z",
+    ]);
+    expect(
+      containsText(openMenu?.props?.children, "先使用内置运行时梳理初稿"),
+    ).toBe(true);
+    expect(
+      containsText(
+        openMenu?.props?.children,
+        "改派给 WorkBuddy 复核供应链风险",
+      ),
+    ).toBe(true);
+    expect(
+      containsText(openMenu?.props?.children, "调整责任人为 CodeBuddy 总结员"),
+    ).toBe(true);
+    const builtinOption = findNode(
+      openMenu,
+      (node) =>
+        node.props?.className === "pmtask-execution-round-option" &&
+        containsText(node.props?.children, "第 1 轮"),
+    );
+    const builtinInstruction = findNode(
+      builtinOption,
+      (node) => node.props?.className === "pmtask-round-instruction",
+    );
+    expect(builtinInstruction?.props?.className).not.toContain("expanded");
+    expect(readFileSync(CLIENT_PATH, "utf8")).toContain("max-height:4.5em;");
+    const expandInstruction = findNode(
+      builtinInstruction,
+      (node) =>
+        node.type === "button" &&
+        node.props?.className === "pmtask-round-instruction-toggle",
+    );
+    expect(
+      containsText(expandInstruction?.props?.children, "展开完整指令"),
+    ).toBe(true);
+    let instructionClickStopped = false;
+    (
+      expandInstruction?.props?.onClick as
+        | ((event: { stopPropagation: () => void }) => void)
+        | undefined
+    )?.({
+      stopPropagation: () => {
+        instructionClickStopped = true;
+      },
+    });
+    expect(
+      instructionClickStopped,
+      "展开指令不应冒泡触发整卡选中并收起菜单",
+    ).toBe(true);
+    tree = await settle(root, harness.runtime);
+    refreshedExecutionRecord = findNode(
+      tree,
+      (node) =>
+        node.props?.className === "pmtask-side-section pmtask-execution-record",
+    );
+    const refreshedOpenMenu = findNode(
+      refreshedExecutionRecord,
+      (node) => node.props?.className === "pmtask-execution-round-menu",
+    );
+    const refreshedBuiltinOption = findNode(
+      refreshedOpenMenu,
+      (node) =>
+        node.props?.className === "pmtask-execution-round-option" &&
+        containsText(node.props?.children, "第 1 轮"),
+    );
+    const expandedBuiltinInstruction = findNode(
+      refreshedBuiltinOption,
+      (node) => node.props?.className === "pmtask-round-instruction expanded",
+    );
+    expect(expandedBuiltinInstruction?.props?.className).toContain("expanded");
+    expect(
+      containsText(
+        expandedBuiltinInstruction?.props?.children,
+        "先使用内置运行时梳理初稿",
+      ),
+    ).toBe(true);
+    const initialSummary = findNode(
+      tree,
+      (node) => node.props?.className === "pmtask-run-summary",
+    );
+    expect(initialSummary, "默认应展示最新一轮运行信息").toBeDefined();
+    expect(containsText(initialSummary?.props?.children, "workbuddy")).toBe(
+      true,
+    );
+    expect(containsText(initialSummary?.props?.children, "hy4-reasoning")).toBe(
+      true,
+    );
+    expect(containsText(initialSummary?.props?.children, "CodeBuddy CLI")).toBe(
+      true,
+    );
+    expect(
+      containsText(initialSummary?.props?.children, "workspace-write"),
+    ).toBe(true);
+    expect(
+      findNode(
+        executionRecord,
+        (node) => node.props?.className === "pmtask-participant-list",
+      ),
+    ).toBeUndefined();
+    const initialDocuments = findNode(
+      executionRecord,
+      (node) => node.props?.className === "pmtask-doc-list",
+    );
+    expect(containsText(initialDocuments?.props?.children, "summary.md")).toBe(
+      true,
+    );
+    expect(
+      containsText(initialDocuments?.props?.children, "collaborator.md"),
+    ).toBe(false);
+    expect(containsText(tree, "调整责任人为 人类审核员甲")).toBe(true);
+    expect(containsText(tree, "调整责任人为 人类审核员乙")).toBe(true);
+
+    const externalOption = findNode(
+      refreshedExecutionRecord,
+      (node) =>
+        node.props?.className === "pmtask-execution-round-option" &&
+        containsText(node.props?.children, "第 2 轮"),
+    );
+    expect(externalOption, "应能定位整张轮次卡片").toBeDefined();
+    (externalOption?.props?.onClick as (() => void) | undefined)?.();
+    tree = await settle(root, harness.runtime);
+    refreshedExecutionRecord = findNode(
+      tree,
+      (node) =>
+        node.props?.className === "pmtask-side-section pmtask-execution-record",
+    );
+    const externalSummary = findNode(
+      refreshedExecutionRecord,
+      (node) => node.props?.className === "pmtask-run-summary",
+    );
+    expect(containsText(externalSummary?.props?.children, "hunyuan-code")).toBe(
+      true,
+    );
+    expect(
+      containsText(externalSummary?.props?.children, "WorkBuddy CLI"),
+    ).toBe(true);
+    expect(containsText(externalSummary?.props?.children, "cli-login")).toBe(
+      true,
+    );
+    expect(containsText(externalSummary?.props?.children, "accept-edits")).toBe(
+      true,
+    );
+    expect(
+      findNode(
+        refreshedExecutionRecord,
+        (node) => node.props?.className === "pmtask-execution-round-menu",
+      ),
+      "选择轮次后下拉框应收起，不再展示指令详情",
+    ).toBeUndefined();
+    const externalTrigger = findNode(
+      refreshedExecutionRecord,
+      (node) =>
+        node.type === "button" &&
+        node.props?.className === "pmtask-execution-round-trigger",
+    );
+    expect(
+      containsText(
+        externalTrigger?.props?.children,
+        "第 2 轮 · WorkBuddy 风险官 · 已完成",
+      ),
+    ).toBe(true);
+    expect(
+      findNode(
+        externalTrigger,
+        (node) =>
+          node.type === "time" &&
+          node.props?.className === "pmtask-execution-round-trigger-time",
+      )?.props?.dateTime,
+      "切换轮次后收起态时间应同步更新",
+    ).toBe("2026-10-23T03:01:00.000Z");
+    expect(
+      containsText(
+        externalTrigger?.props?.children,
+        "改派给 WorkBuddy 复核供应链风险",
+      ),
+    ).toBe(false);
+    const externalSelectedInstruction = findNode(
+      refreshedExecutionRecord,
+      (node) =>
+        typeof node.props?.className === "string" &&
+        node.props.className.includes("pmtask-selected-round-instruction"),
+    );
+    expect(
+      containsText(
+        externalSelectedInstruction?.props?.children,
+        "改派给 WorkBuddy 复核供应链风险",
+      ),
+      "切换轮次后固定指令卡应同步为新轮次指令",
+    ).toBe(true);
+    const externalDocuments = findNode(
+      refreshedExecutionRecord,
+      (node) => node.props?.className === "pmtask-doc-list",
+    );
+    expect(
+      containsText(externalDocuments?.props?.children, "collaborator.md"),
+    ).toBe(true);
+    expect(containsText(externalDocuments?.props?.children, "summary.md")).toBe(
+      false,
+    );
+
+    (externalTrigger?.props?.onClick as (() => void) | undefined)?.();
+    tree = await settle(root, harness.runtime);
+    refreshedExecutionRecord = findNode(
+      tree,
+      (node) =>
+        node.props?.className === "pmtask-side-section pmtask-execution-record",
+    );
+    const reopenedMenu = findNode(
+      refreshedExecutionRecord,
+      (node) => node.props?.className === "pmtask-execution-round-menu",
+    );
+    const openRun1Button = findNode(
+      reopenedMenu,
+      (node) =>
+        node.type === "button" && node.props?.["data-run-id"] === "run-meta-1",
+    );
+    (
+      openRun1Button?.props?.onClick as
+        | ((event: { stopPropagation: () => void }) => void)
+        | undefined
+    )?.({
+      stopPropagation: () => undefined,
+    });
+    tree = await settle(root, harness.runtime);
+    refreshedExecutionRecord = findNode(
+      tree,
+      (node) =>
+        node.props?.className === "pmtask-side-section pmtask-execution-record",
+    );
+    const selectedSummary = findNode(
+      refreshedExecutionRecord,
+      (node) => node.props?.className === "pmtask-run-summary",
+    );
+    expect(
+      containsText(selectedSummary?.props?.children, "deepseek-flash"),
+    ).toBe(true);
+    expect(containsText(selectedSummary?.props?.children, "Codex CLI")).toBe(
+      true,
+    );
+    expect(containsText(selectedSummary?.props?.children, "api-key")).toBe(
+      true,
+    );
+    expect(
+      containsText(
+        selectedSummary?.props?.children,
+        "read-only / network restricted",
+      ),
+    ).toBe(true);
+
+    expect(
+      findNode(
+        refreshedExecutionRecord,
+        (node) => node.props?.className === "pmtask-participant-list",
+      ),
+    ).toBeUndefined();
+    const refreshedDocuments = findNode(
+      refreshedExecutionRecord,
+      (node) => node.props?.className === "pmtask-doc-list",
+    );
+    expect(
+      containsText(refreshedDocuments?.props?.children, "primary.md"),
+    ).toBe(true);
+    expect(
+      containsText(refreshedDocuments?.props?.children, "collaborator.md"),
+    ).toBe(false);
+    const builtinTrigger = findNode(
+      refreshedExecutionRecord,
+      (node) =>
+        node.type === "button" &&
+        node.props?.className === "pmtask-execution-round-trigger",
+    );
+    expect(
+      containsText(
+        builtinTrigger?.props?.children,
+        "第 1 轮 · Codex 调研架构师 · 已完成",
+      ),
+    ).toBe(true);
+    expect(
+      containsText(builtinTrigger?.props?.children, "先使用内置运行时梳理初稿"),
+    ).toBe(false);
+    expect(
+      findNode(
+        refreshedExecutionRecord,
+        (node) => node.props?.className === "pmtask-execution-round-menu",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("distinguishes loading from missing legacy run metadata", async () => {
+    const task = makeTask({
+      id: "TSK-RUN-META-MISSING-1",
+      workspaceId: "ws-1",
+      title: "历史运行信息缺失",
+      status: "progress",
+      priority: "P1",
+      receiverType: "human",
+      receiverId: "admin",
+      receiverName: "平台 Admin",
+      createdBy: "admin",
+      updatedAt: "2026-03-07T00:00:00.000Z",
+      agentRunIds: ["run-meta-missing-1"],
+      messages: [
+        {
+          id: "run-meta-missing-1",
+          at: "2026-03-07T00:01:00.000Z",
+          authorId: "tm-legacy",
+          authorName: "历史 AI伙伴",
+          kind: "agent",
+          content: "历史执行结果",
+          attachments: [],
+          mentions: [],
+          runId: "run-meta-missing-1",
+          state: "succeeded",
+        },
+      ],
+    });
+    let resolveDetail:
+      | ((response: {
+          ok: boolean;
+          status?: number;
+          json: () => Promise<unknown>;
+        }) => void)
+      | undefined;
+    const fetchImpl = (
+      input: string,
+    ): Promise<{
+      ok: boolean;
+      status?: number;
+      json: () => Promise<unknown>;
+    }> => {
+      if (input.startsWith("/api/collab/auth/me")) {
+        return Promise.resolve(
+          payload({ user: { id: "admin", name: "平台 Admin", role: "admin" } }),
+        );
+      }
+      if (input.startsWith("/api/collab/team/workspaces")) {
+        return Promise.resolve(
+          payload({
+            workspaces: [
+              { id: "ws-1", title: "项目一", path: "/p1", isMember: true },
+            ],
+          }),
+        );
+      }
+      if (input.startsWith("/api/collab/tasks/bootstrap")) {
+        return Promise.resolve(
+          payload({
+            tasks: [task],
+            directory: { humans: [], agents: [], roles: [] },
+          }),
+        );
+      }
+      if (input.startsWith("/api/collab/agent/runs?")) {
+        return Promise.resolve(
+          payload({
+            runs: [
+              {
+                id: "run-meta-missing-1",
+                status: "succeeded",
+                createdAt: "2026-03-07T00:01:00.000Z",
+                payload: { profileName: "历史 AI伙伴" },
+              },
+            ],
+          }),
+        );
+      }
+      if (input.startsWith("/api/collab/agent/runs/detail")) {
+        return new Promise((resolve) => {
+          resolveDetail = resolve;
+        });
+      }
+      if (input.startsWith("/api/collab/tasks/documents")) {
+        return Promise.resolve(
+          payload({ workspaceReady: true, documents: [] }),
+        );
+      }
+      return Promise.resolve(payload({}));
+    };
+
+    const harness = loadClientExports({ fetchImpl });
+    const root = mountTaskPage(harness);
+    let tree = await settle(root, harness.runtime);
+    const card = findNode(
+      tree,
+      (node) => node.props?.["data-task-id"] === "TSK-RUN-META-MISSING-1",
+    );
+    (card?.props?.onClick as (() => void) | undefined)?.();
+    tree = await settle(root, harness.runtime);
+
+    expect(
+      findNode(
+        tree,
+        (node) =>
+          node.props?.className === "pmtask-run-summary-empty" &&
+          containsText(node.props?.children, "正在读取运行信息"),
+      ),
+      "Run 详情返回前应显示加载状态",
+    ).toBeDefined();
+
+    resolveDetail?.(
+      payload({
+        run: {
+          id: "run-meta-missing-1",
+          status: "succeeded",
+          createdAt: "2026-03-07T00:01:00.000Z",
+        },
+        progress: null,
+      }),
+    );
+    tree = await settle(root, harness.runtime);
+    const unavailable = findNode(
+      tree,
+      (node) => node.props?.className === "pmtask-run-summary-unavailable",
+    );
+    expect(
+      containsText(unavailable?.props?.children, "该轮未记录运行元数据"),
+    ).toBe(true);
+    expect(
+      containsText(
+        unavailable?.props?.children,
+        "关联的 Agent Run 不存在，或该轮执行早于运行信息采集",
+      ),
+    ).toBe(true);
+    expect(containsText(tree, "暂无运行信息")).toBe(false);
+  });
+
   it("renders acceptance criteria as checkable items in task detail", async () => {
     const stepCalls: Array<{ path: string; body: unknown }> = [];
     const task = makeTask({
@@ -692,6 +1605,131 @@ describe("task client", () => {
       stepId: "step-scope",
       done: true,
     });
+  });
+
+  it("requires a rejection note before submitting a return", async () => {
+    const actionCalls: Array<{ path: string; body: unknown }> = [];
+    const task = makeTask({
+      id: "TSK-REJECT-1",
+      workspaceId: "ws-1",
+      title: "退回必须填写说明",
+      status: "review",
+      priority: "P1",
+      receiverType: "human",
+      receiverId: "admin",
+      receiverName: "平台 Admin",
+      createdBy: "admin",
+      updatedAt: "2026-03-07T00:00:00.000Z",
+    });
+    const fetchImpl = (
+      input: string,
+      init?: unknown,
+    ): Promise<{
+      ok: boolean;
+      status?: number;
+      json: () => Promise<unknown>;
+    }> => {
+      if (input.startsWith("/api/collab/auth/me")) {
+        return Promise.resolve(
+          payload({ user: { id: "admin", name: "平台 Admin", role: "admin" } }),
+        );
+      }
+      if (input.startsWith("/api/collab/team/workspaces")) {
+        return Promise.resolve(
+          payload({
+            workspaces: [
+              { id: "ws-1", title: "项目一", path: "/p1", isMember: true },
+            ],
+          }),
+        );
+      }
+      if (input.startsWith("/api/collab/tasks/bootstrap")) {
+        return Promise.resolve(
+          payload({
+            tasks: [task],
+            reviewableTaskIds: ["TSK-REJECT-1"],
+            directory: { humans: [], agents: [], roles: [] },
+          }),
+        );
+      }
+      if (input.startsWith("/api/collab/tasks/action")) {
+        actionCalls.push({
+          path: input,
+          body: JSON.parse(String((init as { body?: unknown })?.body ?? "{}")),
+        });
+        return Promise.resolve(
+          payload({ task: { ...task, status: "progress" } }),
+        );
+      }
+      return Promise.resolve(payload({}));
+    };
+
+    const harness = loadClientExports({ fetchImpl });
+    const root = mountTaskPage(harness);
+    let tree = await settle(root, harness.runtime);
+    const card = findNode(
+      tree,
+      (node) => node.props?.["data-task-id"] === "TSK-REJECT-1",
+    );
+    (card?.props?.onClick as (() => void) | undefined)?.();
+    tree = await settle(root, harness.runtime);
+    const rejectButton = findNode(
+      tree,
+      (node) => node.type === "button" && node.props?.children === "退回",
+    );
+    (rejectButton?.props?.onClick as (() => void) | undefined)?.();
+    tree = await settle(root, harness.runtime);
+
+    const dialog = findNode(
+      tree,
+      (node) =>
+        node.type === "form" &&
+        node.props?.role === "dialog" &&
+        node.props?.["aria-label"] === "退回任务",
+    );
+    expect(dialog, "点击退回应打开说明输入框").toBeDefined();
+    const noteInput = findNode(
+      dialog,
+      (node) =>
+        node.type === "textarea" && node.props?.["aria-label"] === "退回说明",
+    );
+    expect(noteInput).toBeDefined();
+    const confirmButton = () =>
+      findNode(
+        tree,
+        (node) => node.type === "button" && node.props?.children === "确认退回",
+      );
+    expect(confirmButton()?.props?.disabled).toBe(true);
+
+    (noteInput?.props?.onChange as ((event: unknown) => void) | undefined)?.({
+      target: { value: "缺少风险项，请补充影响范围" },
+    });
+    tree = await settle(root, harness.runtime);
+    expect(confirmButton()?.props?.disabled).toBe(false);
+    const updatedDialog = findNode(
+      tree,
+      (node) =>
+        node.type === "form" &&
+        node.props?.role === "dialog" &&
+        node.props?.["aria-label"] === "退回任务",
+    );
+    (
+      updatedDialog?.props?.onSubmit as
+        | ((event: { preventDefault: () => void }) => void)
+        | undefined
+    )?.({ preventDefault: () => undefined });
+    await settle(root, harness.runtime);
+
+    expect(actionCalls).toEqual([
+      {
+        path: "/api/collab/tasks/action",
+        body: {
+          taskId: "TSK-REJECT-1",
+          action: "reject",
+          note: "缺少风险项，请补充影响范围",
+        },
+      },
+    ]);
   });
 
   it("registers the task page into the global slot", () => {
@@ -1354,7 +2392,7 @@ describe("task client", () => {
     expect(claimedPaths).toEqual(["/api/collab/tasks/claim"]);
   });
 
-  it("offers 催办 only for human receivers and hides 重置会话", async () => {
+  it("explains comment semantics while scoping 催办 and session actions", async () => {
     const directory = {
       humans: [],
       agents: [
@@ -1411,6 +2449,13 @@ describe("task client", () => {
         tree,
         (node) => node.type === "button" && node.props?.children === label,
       );
+    const commentPlaceholder = (tree: unknown) =>
+      findNode(
+        tree,
+        (node) =>
+          node.type === "input" &&
+          String(node.props?.placeholder ?? "").startsWith("普通讨论"),
+      )?.props?.placeholder;
 
     const humanTree = await renderDetail({
       id: "TSK-HUMAN-1",
@@ -1426,6 +2471,9 @@ describe("task client", () => {
     });
     expect(button(humanTree, "催办"), "指派给人类的任务应有催办").toBeDefined();
     expect(button(humanTree, "重置会话"), "重置会话入口先隐藏").toBeUndefined();
+    expect(commentPlaceholder(humanTree)).toBe(
+      "普通讨论不进入 Agent 上下文；关键共识会在下次真实执行时作为背景增量同步",
+    );
 
     const agentTree = await renderDetail({
       id: "TSK-AGENT-1",
@@ -1438,6 +2486,17 @@ describe("task client", () => {
       receiverName: "Pluginmax DE",
       createdBy: "admin",
       updatedAt: "2026-03-07T00:00:00.000Z",
+      comments: [
+        {
+          id: "comment-1",
+          at: "2026-03-07T00:00:00.000Z",
+          authorId: "admin",
+          authorName: "平台 Admin",
+          kind: "human",
+          content: "先记录一条讨论",
+          replies: [],
+        },
+      ],
     });
     expect(
       button(agentTree, "催办"),
@@ -1454,6 +2513,233 @@ describe("task client", () => {
       "下方指令输入框应保留",
     ).toBeDefined();
     expect(button(agentTree, "发送"), "发送按钮应保留").toBeDefined();
+    expect(commentPlaceholder(agentTree)).toBe(
+      "普通讨论不进入执行上下文；关键共识下次执行时增量同步；@ 当前执行人可发起讨论反馈",
+    );
+    expect(
+      findNode(
+        agentTree,
+        (node) =>
+          node.type === "input" &&
+          node.props?.placeholder === "回复 平台 Admin（仅讨论，不触发执行）",
+      ),
+      "评论回复只记录讨论，不应暗示会触发执行",
+    ).toBeDefined();
+
+    const workflowTree = await renderDetail({
+      id: "TSK-WORKFLOW-1",
+      workspaceId: "ws-1",
+      title: "工作流任务",
+      status: "review",
+      priority: "P2",
+      receiverType: "human",
+      receiverId: "admin",
+      receiverName: "平台 Admin",
+      createdBy: "admin",
+      updatedAt: "2026-03-07T00:00:00.000Z",
+      workflow: {
+        instanceId: "wf-1",
+        nodeId: "node-1",
+        instanceTitle: "发布流程",
+        nodeName: "人工发布",
+      },
+    });
+    expect(commentPlaceholder(workflowTree)).toBe(
+      "普通讨论不触发执行；关键共识会在后续真实执行时作为背景增量同步",
+    );
+  });
+
+  it("records a key consensus tag without triggering task execution", async () => {
+    const commentCalls: Array<{ path: string; body: unknown }> = [];
+    const task = makeTask({
+      id: "TSK-CONSENSUS-1",
+      workspaceId: "ws-1",
+      title: "关键共识录入",
+      status: "progress",
+      priority: "P2",
+      receiverType: "human",
+      receiverId: "admin",
+      receiverName: "平台 Admin",
+      createdBy: "admin",
+      updatedAt: "2026-03-07T00:00:00.000Z",
+    });
+    const fetchImpl = (
+      input: string,
+      init?: unknown,
+    ): Promise<{
+      ok: boolean;
+      status?: number;
+      json: () => Promise<unknown>;
+    }> => {
+      if (input.startsWith("/api/collab/auth/me")) {
+        return Promise.resolve(
+          payload({ user: { id: "admin", name: "平台 Admin", role: "admin" } }),
+        );
+      }
+      if (input.startsWith("/api/collab/team/workspaces")) {
+        return Promise.resolve(
+          payload({
+            workspaces: [
+              { id: "ws-1", title: "项目一", path: "/p1", isMember: true },
+            ],
+          }),
+        );
+      }
+      if (input.startsWith("/api/collab/tasks/bootstrap")) {
+        return Promise.resolve(
+          payload({
+            tasks: [task],
+            directory: { humans: [], agents: [], roles: [] },
+          }),
+        );
+      }
+      if (input.startsWith("/api/collab/tasks/comment")) {
+        const body = JSON.parse(
+          String((init as { body?: unknown })?.body ?? "{}"),
+        ) as { content: string; isKeyConsensus: boolean };
+        commentCalls.push({ path: input, body });
+        return Promise.resolve(
+          payload({
+            task: {
+              ...task,
+              comments: [
+                {
+                  id: "comment-consensus-1",
+                  at: "2026-03-07T00:01:00.000Z",
+                  authorId: "admin",
+                  authorName: "平台 Admin",
+                  kind: "human",
+                  content: body.content,
+                  isKeyConsensus: body.isKeyConsensus,
+                  replies: [],
+                },
+              ],
+              updatedAt: "2026-03-07T00:01:00.000Z",
+            },
+          }),
+        );
+      }
+      return Promise.resolve(payload({}));
+    };
+
+    const harness = loadClientExports({ fetchImpl });
+    const root = mountTaskPage(harness);
+    let tree = await settle(root, harness.runtime);
+    const card = findNode(
+      tree,
+      (node) => node.props?.["data-task-id"] === "TSK-CONSENSUS-1",
+    );
+    (card?.props?.onClick as (() => void) | undefined)?.();
+    tree = await settle(root, harness.runtime);
+
+    expect(
+      containsText(tree, "将在下次向 Agent 发送执行反馈时作为背景增量同步"),
+      "评论区应说明关键共识的增量同步时机",
+    ).toBe(true);
+    const consensusCheckbox = findNode(
+      tree,
+      (node) =>
+        node.type === "input" &&
+        node.props?.["aria-label"] === "标记为关键共识",
+    );
+    expect(consensusCheckbox).toBeDefined();
+    const consensusCopy = findNode(
+      tree,
+      (node) => node.props?.className === "pmtask-comment-consensus-copy",
+    );
+    expect(
+      findNode(
+        consensusCopy,
+        (node) =>
+          node.type === "em" &&
+          String(node.props?.children ?? "").startsWith("仅标记已经确认"),
+      ),
+      "关键共识说明应与标题在同一行布局容器中",
+    ).toBeDefined();
+    expect(
+      readFileSync(CLIENT_PATH, "utf8"),
+      "同一行说明使用可换行的 flex 布局",
+    ).toContain(".pmtask-comment-consensus>span{display:flex;");
+    expect(
+      readFileSync(CLIENT_PATH, "utf8"),
+      "说明占据标题后的剩余宽度并在本行内折行",
+    ).toContain("flex:1 1 140px;");
+    (
+      consensusCheckbox?.props?.onChange as
+        | ((event: unknown) => void)
+        | undefined
+    )?.({
+      target: { checked: true },
+    });
+    tree = await settle(root, harness.runtime);
+
+    const commentInput = findNode(
+      tree,
+      (node) =>
+        node.type === "input" &&
+        String(node.props?.placeholder ?? "").startsWith("普通讨论"),
+    );
+    (commentInput?.props?.onChange as ((event: unknown) => void) | undefined)?.(
+      {
+        target: { value: "正文控制在 1000 字以内。" },
+      },
+    );
+    tree = await settle(root, harness.runtime);
+
+    const form = findNode(
+      tree,
+      (node) =>
+        node.type === "form" &&
+        String(node.props?.className ?? "").includes("pmtask-comment-form"),
+    );
+    expect(
+      findNodes(
+        form,
+        (node) =>
+          (node.type === "input" &&
+            String(node.props?.placeholder ?? "").startsWith("普通讨论")) ||
+          node.props?.className === "pmtask-check pmtask-comment-consensus",
+      ).map((node) =>
+        node.type === "input" ? "comment-input" : "key-consensus",
+      ),
+      "评论输入应在关键共识选项之前",
+    ).toEqual(["comment-input", "key-consensus"]);
+    (
+      form?.props?.onSubmit as
+        | ((event: { preventDefault: () => void }) => void)
+        | undefined
+    )?.({ preventDefault: () => undefined });
+    tree = await settle(root, harness.runtime);
+
+    expect(commentCalls).toEqual([
+      {
+        path: "/api/collab/tasks/comment",
+        body: {
+          taskId: "TSK-CONSENSUS-1",
+          content: "正文控制在 1000 字以内。",
+          isKeyConsensus: true,
+        },
+      },
+    ]);
+    expect(
+      findNode(
+        tree,
+        (node) =>
+          node.type === "span" &&
+          node.props?.className === "pmtask-pill consensus" &&
+          node.props?.children === "关键共识",
+      ),
+      "关键共识评论应显示标签",
+    ).toBeDefined();
+    expect(
+      findNode(
+        tree,
+        (node) =>
+          node.type === "input" &&
+          node.props?.["aria-label"] === "标记为关键共识",
+      )?.props?.checked,
+      "提交后应重置关键共识复选框",
+    ).toBe(false);
   });
 
   it("folds cancelled tasks into the done column and drops the cancelled column", async () => {
@@ -1537,6 +2823,122 @@ describe("task client", () => {
       ),
       "已取消任务卡片应有标记",
     ).toBeDefined();
+  });
+
+  it("allows cancelled workflow tasks to be archived while keeping other actions locked", async () => {
+    const actionCalls: Array<{ path: string; body: unknown }> = [];
+    const task = makeTask({
+      id: "TSK-CANCELLED-WORKFLOW-1",
+      workspaceId: "ws-1",
+      title: "工作流取消的任务",
+      status: "cancelled",
+      priority: "P2",
+      receiverType: "human",
+      receiverId: "admin",
+      receiverName: "平台 Admin",
+      createdBy: "admin",
+      updatedAt: "2026-03-07T00:00:00.000Z",
+      workflow: {
+        instanceId: "wf-1",
+        nodeId: "node-1",
+        instanceTitle: "发布流程",
+        nodeName: "人工发布",
+        outcome: "cancelled",
+      },
+    });
+    const fetchImpl = (
+      input: string,
+      init?: unknown,
+    ): Promise<{
+      ok: boolean;
+      status?: number;
+      json: () => Promise<unknown>;
+    }> => {
+      if (input.startsWith("/api/collab/auth/me")) {
+        return Promise.resolve(
+          payload({ user: { id: "admin", name: "平台 Admin", role: "admin" } }),
+        );
+      }
+      if (input.startsWith("/api/collab/team/workspaces")) {
+        return Promise.resolve(
+          payload({
+            workspaces: [
+              { id: "ws-1", title: "项目一", path: "/p1", isMember: true },
+            ],
+          }),
+        );
+      }
+      if (input.startsWith("/api/collab/tasks/bootstrap")) {
+        return Promise.resolve(
+          payload({
+            tasks: [task],
+            directory: { humans: [], agents: [], roles: [] },
+          }),
+        );
+      }
+      if (input.startsWith("/api/collab/tasks/action")) {
+        actionCalls.push({
+          path: input,
+          body: JSON.parse(String((init as { body?: unknown })?.body ?? "{}")),
+        });
+        return Promise.resolve(
+          payload({
+            task: {
+              ...task,
+              archivedAt: "2026-03-07T01:00:00.000Z",
+              updatedAt: "2026-03-07T01:00:00.000Z",
+            },
+          }),
+        );
+      }
+      return Promise.resolve(payload({}));
+    };
+
+    const harness = loadClientExports({ fetchImpl });
+    const root = mountTaskPage(harness);
+    let tree = await settle(root, harness.runtime);
+    const card = findNode(
+      tree,
+      (node) => node.props?.["data-task-id"] === "TSK-CANCELLED-WORKFLOW-1",
+    );
+    (card?.props?.onClick as (() => void) | undefined)?.();
+    tree = await settle(root, harness.runtime);
+
+    const archiveButton = findNode(
+      tree,
+      (node) => node.type === "button" && node.props?.children === "归档",
+    );
+    expect(archiveButton, "已取消的工作流任务应提供归档入口").toBeDefined();
+    expect(archiveButton?.props?.disabled).not.toBe(true);
+    expect(
+      findNode(
+        tree,
+        (node) =>
+          node.type === "input" &&
+          node.props?.placeholder === "任务已取消，评论已锁定",
+      )?.props?.disabled,
+      "取消态仍应锁定评论等其他写操作",
+    ).toBe(true);
+
+    (archiveButton?.props?.onClick as (() => void) | undefined)?.();
+    tree = await settle(root, harness.runtime);
+    const confirmButton = findNode(
+      tree,
+      (node) => node.type === "button" && node.props?.children === "确认归档",
+    );
+    expect(confirmButton, "归档前应要求确认").toBeDefined();
+    (confirmButton?.props?.onClick as (() => void) | undefined)?.();
+    await settle(root, harness.runtime);
+
+    expect(actionCalls).toEqual([
+      {
+        path: "/api/collab/tasks/action",
+        body: {
+          taskId: "TSK-CANCELLED-WORKFLOW-1",
+          action: "archive",
+        },
+      },
+    ]);
   });
 
   it("uses container queries so a narrowed pane keeps the board usable", () => {

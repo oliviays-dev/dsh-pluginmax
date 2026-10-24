@@ -9,6 +9,7 @@ window.__ModuleLoader__.load({
 
     const TOKEN_KEY = "pluginmax.collab.token";
     const LAYOUT_KEY = "dsh-workbench-layouts-v1";
+    const READ_STATE_KEY = "dsh-workbench-read-state-v1";
     const TZ_OFFSET = -new Date().getTimezoneOffset();
     const GRID_GAP = 14;
     const MIN_HEIGHT = 190;
@@ -38,6 +39,28 @@ window.__ModuleLoader__.load({
       "supplier",
     ];
     const MODULE_ORDER = FACTORY_ORDER;
+    const READ_MODULES = new Set(["todo", "focus", "meeting-minutes"]);
+
+    function itemReadSignature(item) {
+      return `${item?.kind ?? "item"}:${item?.id ?? ""}:${item?.updatedAt ?? ""}`;
+    }
+
+    function filterUnreadItems(items, view, isRead) {
+      return view === "unread" ? items.filter((item) => !isRead(item)) : items;
+    }
+
+    function readReadStates() {
+      try {
+        const raw = JSON.parse(
+          window.localStorage.getItem(READ_STATE_KEY) ?? "{}",
+        );
+        return raw !== null && typeof raw === "object" && !Array.isArray(raw)
+          ? raw
+          : {};
+      } catch {
+        return {};
+      }
+    }
 
     /*
      * 方案 B 的项目范围开关：两段式，选中段 = 当前实际视图。
@@ -64,7 +87,7 @@ ${SCOPE_BUTTON_STYLES}
 .pmwb-iconbtn:hover:not(:disabled){color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);}
 .pmwb-iconbtn:disabled{opacity:.5;cursor:not-allowed;}
 .pmwb-iconbtn svg{width:14px;height:14px;}
-.pmwb-iconbtn.active{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));border-color:var(--dsw-alias-border-l4,var(--dsw-alias-border-l3));}
+.pmwb-iconbtn.active{color:var(--dsw-alias-accent-primary,#4f8ef7);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 12%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 50%,transparent);}
 .pmwb-iconbtn.spinning svg{animation:pmwb-spin .9s linear infinite;}
 @keyframes pmwb-spin{to{transform:rotate(360deg);}}
 .pmwb-canvas{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:14px;align-items:start;}
@@ -79,7 +102,7 @@ ${SCOPE_BUTTON_STYLES}
 .pmwb-count{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary);font-size:11px;font-weight:500;line-height:1.2;}
 .pmwb-count.badge{padding:1px 6px;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 14%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7);font-weight:650;}
 .pmwb-card[data-module="brief"] .pmwb-title h2{flex:0 1 auto;}
-.pmwb-card[data-module="brief"] .pmwb-title > .pmwb-seg{flex:none;margin-left:2px;}
+.pmwb-title > .pmwb-seg{flex:none;margin-left:2px;}
 .pmwb-actions{display:flex;align-items:center;gap:6px;margin-left:auto;flex:0 1 auto;min-width:0;flex-wrap:nowrap;justify-content:flex-end;}
 .pmwb-pill{flex:none;padding:1px 7px;border-radius:999px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.6;white-space:nowrap;}
 .pmwb-pill.high{color:var(--dsw-alias-state-error-primary,#e5534b);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 14%,transparent);}
@@ -117,6 +140,7 @@ ${SCOPE_BUTTON_STYLES}
 .pmwb-item.pmwb-item-focus{grid-template-areas:"name actions" "id time" "note note" "owner owner";}
 .pmwb-item:hover{border-color:var(--dsw-alias-border-l4,var(--dsw-alias-border-l3));}
 .pmwb-item.read{opacity:.7;}
+.pmwb-item.read:hover{opacity:.86;}
 .pmwb-item.meeting{grid-template-areas:"name actions" "meta time" "sub sub" "owner owner";}
 .pmwb-item-title{display:flex;align-items:baseline;gap:7px;min-width:0;flex-wrap:wrap;}
 .pmwb-item-title .id{flex:none;color:var(--dsw-alias-label-tertiary);font-size:11px;}
@@ -160,6 +184,8 @@ ${SCOPE_BUTTON_STYLES}
 .pmwb-item-meta .ws{color:var(--dsw-alias-label-tertiary);}
 .pmwb-item-trailing{grid-area:actions;display:flex;align-items:center;gap:6px;justify-self:end;flex-wrap:wrap;justify-content:flex-end;}
 .pmwb-item-time{grid-area:time;justify-self:end;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:1.4;white-space:nowrap;}
+.pmwb-read-state{display:inline-flex;align-items:center;padding:1px 7px;border-radius:999px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-tertiary);font-size:10.5px;line-height:1.8;white-space:nowrap;}
+.pmwb-read-action{height:26px;padding:2px 8px;font-size:10.5px;color:var(--dsw-alias-label-secondary);}
 .pmwb-brief{border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 40%,var(--dsw-alias-border-l2));}
 .pmwb-brief-points{display:grid;gap:8px;margin:11px 0 0;padding:0;list-style:none;}
 /* 只作用于简报条目本身：结论里渲染出的 Markdown 列表 li 不能被三列栅格命中。 */
@@ -1591,6 +1617,12 @@ ${SCOPE_BUTTON_STYLES}
      */
     function renderOwnerRow(item, ctx, variant) {
       const isFocus = variant === "focus";
+      const moduleId = isFocus ? "focus" : "todo";
+      const read = ctx.isItemRead(moduleId, item);
+      const openItem = () => {
+        ctx.markItemRead(moduleId, item);
+        ctx.openLink(item.deepLink);
+      };
       const coverage =
         isFocus === true && Array.isArray(item.coveredBy)
           ? item.coveredBy.find(
@@ -1631,15 +1663,15 @@ ${SCOPE_BUTTON_STYLES}
         "article",
         {
           key: item.id,
-          className: `pmwb-item${isFocus ? " pmwb-item-focus" : ""}`,
+          className: `pmwb-item${isFocus ? " pmwb-item-focus" : ""}${read ? " read" : ""}`,
           role: "button",
           tabIndex: 0,
           "aria-label": `打开 ${item.title}`,
-          onClick: () => ctx.openLink(item.deepLink),
+          onClick: openItem,
           onKeyDown: (event) => {
             if (event.key === "Enter" || event.key === " ") {
               event.preventDefault();
-              ctx.openLink(item.deepLink);
+              openItem();
             }
           },
         },
@@ -1708,11 +1740,25 @@ ${SCOPE_BUTTON_STYLES}
               className: "pmwb-btn",
               onClick: (event) => {
                 event.stopPropagation();
-                ctx.openLink(item.deepLink);
+                openItem();
               },
             },
             "详情",
           ),
+          read
+            ? h("span", { className: "pmwb-read-state" }, "已读")
+            : h(
+                "button",
+                {
+                  type: "button",
+                  className: "pmwb-btn pmwb-read-action",
+                  onClick: (event) => {
+                    event.stopPropagation();
+                    ctx.markItemRead(moduleId, item);
+                  },
+                },
+                "标为已读",
+              ),
           isFocus
             ? h(FollowButton, {
                 // 关注类型直接用条目自身 kind（task / workflow / meeting），
@@ -1731,12 +1777,19 @@ ${SCOPE_BUTTON_STYLES}
     }
 
     function renderTodoBody(modulePayload, ctx) {
-      const items = modulePayload.data?.items ?? [];
+      const view = ctx.moduleView("todo");
+      const items = filterUnreadItems(
+        modulePayload.data?.items ?? [],
+        view,
+        (item) => ctx.isItemRead("todo", item),
+      );
       if (items.length === 0) {
         return h(
           "div",
           { className: "pmwb-empty" },
-          "没有待处理或待验收的任务。",
+          view === "unread"
+            ? "没有未读待办事项。"
+            : "没有待处理或待验收的任务。",
         );
       }
       return h(
@@ -1748,14 +1801,22 @@ ${SCOPE_BUTTON_STYLES}
 
     function renderFocusBody(modulePayload, ctx) {
       // coveredBy 记录这条为什么算已关注：直接关注，或工作流 / 项目覆盖。
-      const items = (modulePayload.data?.items ?? []).filter((item) =>
+      const view = ctx.moduleView("focus");
+      const eligible = (modulePayload.data?.items ?? []).filter((item) =>
         focusItemFollowed(item, ctx.isFollowed),
+      );
+      const items = filterUnreadItems(
+        eligible,
+        view,
+        (item) => ctx.isItemRead("focus", item),
       );
       if (items.length === 0) {
         return h(
           "div",
           { className: "pmwb-empty" },
-          "还没有关注的任务、工作流、会议或项目。",
+          view === "unread"
+            ? "没有未读重点关注。"
+            : "还没有关注的任务、工作流、会议或项目。",
         );
       }
       return h(
@@ -1766,27 +1827,41 @@ ${SCOPE_BUTTON_STYLES}
     }
 
     function renderMeetingBody(modulePayload, ctx) {
-      const items = modulePayload.data?.items ?? [];
+      const view = ctx.moduleView("meeting-minutes");
+      const items = filterUnreadItems(
+        modulePayload.data?.items ?? [],
+        view,
+        (item) => ctx.isItemRead("meeting-minutes", item),
+      );
       if (items.length === 0) {
-        return h("div", { className: "pmwb-empty" }, "暂无会议纪要。");
+        return h(
+          "div",
+          { className: "pmwb-empty" },
+          view === "unread" ? "暂无未读会议纪要。" : "暂无会议纪要。",
+        );
       }
       return h(
         "div",
         { className: "pmwb-stack" },
-        ...items.map((item) =>
-          h(
+        ...items.map((item) => {
+          const read = ctx.isItemRead("meeting-minutes", item);
+          const openItem = () => {
+            ctx.markItemRead("meeting-minutes", item);
+            ctx.openLink(item.deepLink);
+          };
+          return h(
             "article",
             {
               key: item.id,
-              className: "pmwb-item meeting",
+              className: `pmwb-item meeting${read ? " read" : ""}`,
               role: "button",
               tabIndex: 0,
               "aria-label": `打开会议 ${item.title}`,
-              onClick: () => ctx.openLink(item.deepLink),
+              onClick: openItem,
               onKeyDown: (event) => {
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
-                  ctx.openLink(item.deepLink);
+                  openItem();
                 }
               },
             },
@@ -1823,11 +1898,25 @@ ${SCOPE_BUTTON_STYLES}
                   className: "pmwb-btn",
                   onClick: (event) => {
                     event.stopPropagation();
-                    ctx.openLink(item.deepLink);
+                    openItem();
                   },
                 },
                 "详情",
               ),
+              read
+                ? h("span", { className: "pmwb-read-state" }, "已读")
+                : h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "pmwb-btn pmwb-read-action",
+                      onClick: (event) => {
+                        event.stopPropagation();
+                        ctx.markItemRead("meeting-minutes", item);
+                      },
+                    },
+                    "标为已读",
+                  ),
               h(FollowButton, { type: "meeting", id: item.id, compact: true }),
             ),
             h(
@@ -1843,8 +1932,8 @@ ${SCOPE_BUTTON_STYLES}
               { className: "pmwb-item-time" },
               formatTime(item.updatedAt),
             ),
-          ),
-        ),
+          );
+        }),
       );
     }
 
@@ -2173,6 +2262,14 @@ ${SCOPE_BUTTON_STYLES}
       const [preview, setPreview] = react.useState(null);
       /** 方案 B：平台管理员的"全量项目"开关；其他角色不渲染入口。 */
       const [currentRole, setCurrentRole] = react.useState(null);
+      const [currentUserId, setCurrentUserId] = react.useState("");
+      const [readState, setReadState] = react.useState(readReadStates);
+      const [moduleViews, setModuleViews] = react.useState({
+        todo: "unread",
+        focus: "unread",
+        "meeting-minutes": "unread",
+      });
+      const readStateRef = react.useRef(readState);
       const scopeAll = react.useSyncExternalStore(
         scopeStore.subscribe.bind(scopeStore),
         scopeStore.getSnapshot.bind(scopeStore),
@@ -2206,12 +2303,58 @@ ${SCOPE_BUTTON_STYLES}
       react.useEffect(() => {
         dragVisualRef.current = dragVisual;
       }, [dragVisual]);
+      react.useEffect(() => {
+        readStateRef.current = readState;
+      }, [readState]);
 
       const showToast = react.useCallback((message) => {
         setToast(message);
         window.clearTimeout(toastTimer.current);
         toastTimer.current = window.setTimeout(() => setToast(""), 2600);
       }, []);
+
+      const isItemRead = react.useCallback(
+        (moduleId, item) => {
+          if (currentUserId === "") return false;
+          const signature = itemReadSignature(item);
+          return Boolean(readState[currentUserId]?.[moduleId]?.[signature]);
+        },
+        [currentUserId, readState],
+      );
+
+      const markItemRead = react.useCallback(
+        (moduleId, item) => {
+          if (currentUserId === "") return;
+          const signature = itemReadSignature(item);
+          if (readStateRef.current[currentUserId]?.[moduleId]?.[signature]) {
+            return;
+          }
+          const next = {
+            ...readStateRef.current,
+            [currentUserId]: {
+              ...readStateRef.current[currentUserId],
+              [moduleId]: {
+                ...readStateRef.current[currentUserId]?.[moduleId],
+                [signature]: true,
+              },
+            },
+          };
+          readStateRef.current = next;
+          setReadState(next);
+          try {
+            window.localStorage.setItem(READ_STATE_KEY, JSON.stringify(next));
+          } catch {
+            // 存储不可用时仍保留当前会话状态。
+          }
+          showToast("已标记为已读");
+        },
+        [currentUserId, showToast],
+      );
+
+      const moduleView = (moduleId) => moduleViews[moduleId] ?? "unread";
+      const setModuleView = (moduleId, view) => {
+        setModuleViews((prev) => ({ ...prev, [moduleId]: view }));
+      };
 
       const loadSummary = react.useCallback(async (options = {}) => {
         if (!options.silent) setLoading(true);
@@ -2220,6 +2363,9 @@ ${SCOPE_BUTTON_STYLES}
             `/api/collab/workbench/summary?tzOffset=${TZ_OFFSET}${scopeStore.query()}`,
           );
           setModules(result.modules ?? {});
+          if (typeof result.userId === "string" && result.userId !== "") {
+            setCurrentUserId(result.userId);
+          }
           const nextStates = {};
           for (const id of MODULE_ORDER) {
             const payload = result.modules?.[id];
@@ -2278,13 +2424,20 @@ ${SCOPE_BUTTON_STYLES}
 
       react.useEffect(() => {
         let disposed = false;
-        void request("/api/collab/auth/me")
-          .then((result) => {
-            if (!disposed) setCurrentRole(result?.user?.role ?? null);
-          })
-          .catch(() => undefined);
+        const loadCurrentUser = () => {
+          void request("/api/collab/auth/me")
+            .then((result) => {
+              if (disposed) return;
+              setCurrentRole(result?.user?.role ?? null);
+              setCurrentUserId(result?.user?.id ?? "");
+            })
+            .catch(() => undefined);
+        };
+        loadCurrentUser();
+        window.addEventListener("pluginmax:collab-token", loadCurrentUser);
         return () => {
           disposed = true;
+          window.removeEventListener("pluginmax:collab-token", loadCurrentUser);
         };
       }, []);
 
@@ -2455,6 +2608,15 @@ ${SCOPE_BUTTON_STYLES}
           // 布局是 UI 偏好，本地存储不可用时仅保留运行时状态。
         }
       }, [layoutState]);
+
+      react.useEffect(() => {
+        if (currentUserId === "") return;
+        try {
+          window.localStorage.setItem(READ_STATE_KEY, JSON.stringify(readState));
+        } catch {
+          // 已读状态是本地 UI 偏好，存储不可用时仅保留当前会话状态。
+        }
+      }, [currentUserId, readState]);
 
       react.useEffect(() => {
         const stage = stageElement();
@@ -2864,14 +3026,28 @@ ${SCOPE_BUTTON_STYLES}
         toggleBriefText,
         openLink,
         isFollowed: (type, id) => followSnapshot.items.has(`${type}:${id}`),
+        moduleView,
+        isItemRead,
+        markItemRead,
       };
 
-      const visibleFocusCount = (modules.focus?.data?.items ?? []).filter(
-        (item) =>
+      const eligibleItemsFor = (moduleId) => {
+        const items = modules[moduleId]?.data?.items ?? [];
+        if (moduleId !== "focus") return items;
+        return items.filter((item) =>
           focusItemFollowed(item, (type, id) =>
             followSnapshot.items.has(`${type}:${id}`),
           ),
-      ).length;
+        );
+      };
+
+      const readCountsFor = (moduleId) => {
+        const items = eligibleItemsFor(moduleId);
+        return {
+          all: items.length,
+          unread: items.filter((item) => !isItemRead(moduleId, item)).length,
+        };
+      };
 
       const briefData = modules.brief?.data;
       const briefUnreadCount =
@@ -2895,7 +3071,10 @@ ${SCOPE_BUTTON_STYLES}
           { className: "pmwb-pill" },
           `更新 ${formatTime(payload?.updatedAt ?? "")}`,
         );
-        // 简报的规则说明与未读/全部切换跟随标题，其余操作仍然靠右对齐。
+        // 简报与三组可读卡片都使用标题旁的未读/全部切换。
+        const readTracked = READ_MODULES.has(id);
+        const readCounts = readTracked ? readCountsFor(id) : null;
+        const readView = readTracked ? moduleView(id) : "all";
         const titleActions =
           id === "brief"
             ? h(
@@ -2941,7 +3120,36 @@ ${SCOPE_BUTTON_STYLES}
                   ),
                 ),
               )
-            : null;
+            : readTracked
+              ? h(
+                  "div",
+                  {
+                    className: "pmwb-seg",
+                    role: "group",
+                    "aria-label": `${MODULE_META[id].title}视图`,
+                  },
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: readView === "unread" ? "active" : undefined,
+                      "aria-pressed": readView === "unread",
+                      onClick: () => setModuleView(id, "unread"),
+                    },
+                    `未读 ${readCounts?.unread ?? 0}`,
+                  ),
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: readView === "all" ? "active" : undefined,
+                      "aria-pressed": readView === "all",
+                      onClick: () => setModuleView(id, "all"),
+                    },
+                    `全部 ${readCounts?.all ?? 0}`,
+                  ),
+                )
+              : null;
         const extraActions =
           id === "brief"
             ? h(
@@ -3001,10 +3209,7 @@ ${SCOPE_BUTTON_STYLES}
             key: id,
             id,
             title: MODULE_META[id].title,
-            count:
-              id === "focus"
-                ? `${visibleFocusCount} 项`
-                : moduleCount(id, payload, briefView),
+            count: readTracked ? "" : moduleCount(id, payload, briefView),
             countBadge: false,
             titleActions,
             meta: id === "brief" ? null : meta,
@@ -3511,8 +3716,8 @@ ${SCOPE_BUTTON_STYLES}
               {
                 type: "button",
                 className: `pmwb-iconbtn${meetingOpen ? " active" : ""}`,
-                "aria-label": "展开会议侧栏",
-                title: "展开会议侧栏",
+                "aria-label": meetingOpen ? "收起会议侧栏" : "展开会议侧栏",
+                title: meetingOpen ? "收起会议侧栏" : "展开会议侧栏",
                 "aria-pressed": meetingOpen,
                 onClick: toggleMeetingPanel,
               },
@@ -3543,7 +3748,7 @@ ${SCOPE_BUTTON_STYLES}
       return h(WorkbenchPage, {});
     }
 
-    exports.__test = { navigateTo };
+    exports.__test = { navigateTo, itemReadSignature, filterUnreadItems };
     exports.inject = ["slots"];
     exports.apply = (ctx) => {
       ctx.slots.inject("pluginmax.global", () =>

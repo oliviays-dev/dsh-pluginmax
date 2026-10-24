@@ -114,4 +114,18 @@ describe("workflow client state setters", () => {
     expect(panel).toContain("instance.workspaceId");
     expect(panel).not.toContain("effectiveWorkspaceId");
   });
+
+  it("returns to the workflow list when the workflow menu is selected again", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    const start = source.indexOf("const returnToRoot =");
+    expect(start).toBeGreaterThan(-1);
+    const end = source.indexOf("], []);", start);
+    const listener = source.slice(start, end);
+
+    expect(listener).toContain('event?.detail?.route !== "workflow"');
+    expect(listener).toContain('setOpenId("")');
+    expect(listener).toContain("setDetail(null)");
+    expect(listener).toContain("setTemplateMode(false)");
+    expect(listener).toContain("setStartOpen(false)");
+  });
 });

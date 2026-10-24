@@ -69,7 +69,7 @@ window.__ModuleLoader__.load({
       .pmtask-head-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
       .pmtask-meeting-toggle{width:32px;height:32px;flex:none;display:grid;place-items:center;padding:0;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-secondary);cursor:pointer;}
       .pmtask-meeting-toggle:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);}
-      .pmtask-meeting-toggle.active{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));border-color:var(--dsw-alias-border-l4,var(--dsw-alias-border-l3));}
+      .pmtask-meeting-toggle.active{color:var(--dsw-alias-accent-primary,#4f8ef7);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 12%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 50%,transparent);}
       .pmtask-meeting-toggle svg{width:15px;height:15px;}
       .pmtask-iconbtn{width:28px;height:28px;flex:none;display:grid;place-items:center;padding:0;border:1px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-secondary);cursor:pointer;}
       .pmtask-iconbtn:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);}
@@ -126,6 +126,7 @@ window.__ModuleLoader__.load({
       .pmtask-pill.archived{background:color-mix(in srgb,var(--dsw-alias-label-tertiary) 18%,transparent);color:var(--dsw-alias-label-secondary);}
       .pmtask-pill.workflow{background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 12%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7);}
       .pmtask-pill.reassign{background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#e2a737) 16%,transparent);color:var(--dsw-alias-state-warning-primary,#e2a737);}
+      .pmtask-pill.consensus{background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#34d47e) 14%,transparent);color:var(--dsw-alias-state-success-primary,#34d47e);}
       .pmtask-workflow-meta{display:flex;align-items:center;gap:6px;min-width:0;}
       .pmtask-workflow-node{overflow:hidden;color:var(--dsw-alias-label-tertiary);font-size:10.5px;text-overflow:ellipsis;white-space:nowrap;}
       .pmtask-workflow-action{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-top:12px;padding:10px;border:0.5px solid color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 28%,transparent);border-radius:7px;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 7%,transparent);}
@@ -186,6 +187,10 @@ window.__ModuleLoader__.load({
       .pmtask-message.streaming{border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 65%,transparent);}
       .pmtask-message-head{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--dsw-alias-label-secondary);}
       .pmtask-message-head strong{font-size:12.5px;font-weight:700;}
+      .pmtask-run-role{flex:none;border-radius:4px;padding:1px 5px;font-size:9px;font-weight:650;line-height:1.4;}
+      .pmtask-run-role.owner{background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 14%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7);}
+      .pmtask-run-role.assist{background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#e2a737) 14%,transparent);color:var(--dsw-alias-state-warning-primary,#e2a737);}
+      .pmtask-run-role.fyi{background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary);}
       .pmtask-message-body{font-size:12.5px;line-height:1.55;white-space:pre-wrap;}
       .pmtask-stream-caret{display:inline-block;width:6px;height:13px;margin-left:4px;vertical-align:-2px;background:var(--dsw-alias-accent-primary,#4f8ef7);animation:pmtask-blink 1s steps(1) infinite;}
       @keyframes pmtask-blink{50%{opacity:0;}}
@@ -257,7 +262,7 @@ window.__ModuleLoader__.load({
       .pmtask-detail-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,36%);min-height:520px;}
       .pmtask-detail-main{min-width:0;display:block;padding:16px;border-right:1px solid var(--dsw-alias-border-l2);}
       .pmtask-detail-side{min-width:0;display:flex;flex-direction:column;gap:0;padding:0 18px 18px;background:transparent;}
-      .pmtask-side-section{margin-top:18px;padding:14px 0 0;border-top:1px solid var(--dsw-alias-border-l2);}
+      .pmtask-side-section{min-width:0;max-width:100%;margin-top:18px;padding:14px 0 0;border-top:1px solid var(--dsw-alias-border-l2);}
       .pmtask-side-section h3{margin:0 0 8px;font-size:13px;}
       .pmtask-assign-select{position:relative;flex:none;}
       .pmtask-assign-select .pmtask-assign-trigger{min-width:190px;max-width:270px;justify-content:space-between;}
@@ -302,6 +307,18 @@ window.__ModuleLoader__.load({
       .pmtask-event-copy{min-width:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.5;padding-top:5px;overflow-wrap:anywhere;}
       .pmtask-event-copy time{display:block;color:var(--dsw-alias-label-tertiary);font-size:10px;margin-top:2px;}
       .pmtask-bubble{margin-top:4px;padding:10px 11px;border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-primary);font-size:13px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;}
+      .pmtask-run-meta{display:flex;flex-wrap:wrap;gap:5px 12px;margin-top:6px;padding:7px 9px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:10.5px;line-height:1.45;}
+      .pmtask-run-meta-item{display:inline-flex;align-items:baseline;gap:4px;min-width:0;max-width:100%;}
+      .pmtask-run-meta-item strong{flex:none;color:var(--dsw-alias-label-tertiary);font-size:9.5px;font-weight:650;letter-spacing:0;text-transform:uppercase;}
+      .pmtask-run-meta-item span{min-width:0;overflow-wrap:anywhere;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;}
+      .pmtask-run-summary{display:grid;overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);}
+      .pmtask-run-summary-row{display:grid;grid-template-columns:72px minmax(0,1fr);gap:8px;padding:7px 9px;border-bottom:0.5px solid var(--dsw-alias-border-l2);font-size:11px;line-height:1.5;}
+      .pmtask-run-summary-row:last-child{border-bottom:0;}
+      .pmtask-run-summary-row span{color:var(--dsw-alias-label-tertiary);}
+      .pmtask-run-summary-row strong{min-width:0;color:var(--dsw-alias-label-primary);font-weight:500;overflow-wrap:anywhere;}
+      .pmtask-run-summary-empty{padding:12px;border:1px dashed var(--dsw-alias-border-l2);border-radius:6px;color:var(--dsw-alias-label-secondary);font-size:11.5px;text-align:center;}
+      .pmtask-run-summary-unavailable{display:grid;gap:6px;padding:12px;border:1px dashed var(--dsw-alias-border-l2);border-radius:6px;color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1.55;}
+      .pmtask-run-summary-unavailable strong{color:var(--dsw-alias-label-primary);font-size:11.5px;}
       .pmtask-markdown{display:grid;gap:7px;min-width:0;overflow-wrap:anywhere;}
       .pmtask-md-heading{margin:0;font-weight:700;line-height:1.35;color:var(--dsw-alias-label-primary);}
       .pmtask-md-paragraph{margin:0;white-space:pre-wrap;}
@@ -322,6 +339,10 @@ window.__ModuleLoader__.load({
       .pmtask-history-comment{padding:9px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
       .pmtask-reply-list{display:grid;gap:7px;margin-top:8px;padding-left:10px;border-left:2px solid var(--dsw-alias-border-l2);}
       .pmtask-reply-form,.pmtask-comment-form{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:stretch;gap:6px;margin-top:8px;}
+      .pmtask-comment-guide{grid-column:1/-1;margin:0 0 1px;color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1.55;}
+      .pmtask-comment-consensus{grid-column:1/-1;align-items:flex-start;padding:8px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
+      .pmtask-comment-consensus>span{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;}
+      .pmtask-comment-consensus em{display:inline;min-width:0;flex:1 1 140px;margin:0;}
       .pmtask-reply-form .pmtask-input,.pmtask-comment-form .pmtask-input{height:auto;padding:7px 9px;border-width:1px;line-height:1.5;}
       .pmtask-reply-form .pmtask-input{min-height:28px;font-size:11.5px;}
       .pmtask-comment-form{gap:7px;margin-top:9px;}
@@ -349,6 +370,34 @@ window.__ModuleLoader__.load({
       .pmtask-doc-meta{margin-top:3px;overflow:hidden;color:var(--dsw-alias-label-tertiary);font-size:10.5px;text-overflow:ellipsis;white-space:nowrap;}
       .pmtask-doc-kind{flex:none;border-radius:4px;padding:1px 5px;background:color-mix(in srgb,var(--dsw-alias-label-tertiary) 18%,transparent);color:var(--dsw-alias-label-secondary);font-size:9.5px;font-weight:600;}
       .pmtask-doc-empty{padding:12px;border:1px dashed var(--dsw-alias-border-l2);border-radius:6px;color:var(--dsw-alias-label-secondary);font-size:11.5px;text-align:center;}
+      .pmtask-execution-record{min-width:0;max-width:100%;overflow:hidden;}
+      .pmtask-execution-runs{min-width:0;max-width:100%;display:grid;gap:6px;margin-bottom:8px;}
+      .pmtask-execution-runs-label{color:var(--dsw-alias-label-tertiary);font-size:10px;}
+      .pmtask-execution-round-picker{min-width:0;max-width:100%;display:grid;gap:6px;}
+      .pmtask-execution-round-trigger{width:100%;max-width:100%;min-width:0;min-height:34px;display:flex;align-items:center;justify-content:space-between;gap:8px;overflow:hidden;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;padding:0 9px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;text-align:left;cursor:pointer;}
+      .pmtask-execution-round-trigger:hover{border-color:var(--dsw-alias-border-l4,var(--dsw-alias-border-l3));}
+      .pmtask-execution-round-trigger span:first-child{min-width:0;max-width:100%;flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+      .pmtask-execution-round-trigger-time{flex:none;color:var(--dsw-alias-label-tertiary);font-size:10px;font-weight:400;font-variant-numeric:tabular-nums;white-space:nowrap;}
+      .pmtask-round-caret{width:7px;height:7px;flex:none;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg) translateY(-2px);}
+      .pmtask-execution-round-trigger[aria-expanded="true"] .pmtask-round-caret{transform:rotate(225deg) translate(-2px,-2px);}
+      .pmtask-execution-round-menu{width:100%;max-width:100%;min-width:0;display:grid;gap:7px;max-height:430px;overflow-x:hidden;overflow-y:auto;padding:2px;border-top:1px solid var(--dsw-alias-border-l2);}
+      .pmtask-execution-round-option{width:100%;max-width:100%;min-width:0;display:grid;gap:7px;overflow:hidden;padding:9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);cursor:pointer;}
+      .pmtask-execution-round-option.selected{border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 55%,transparent);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 8%,var(--dsw-alias-bg-layer-2));}
+      .pmtask-execution-round-option-head{width:100%;max-width:100%;min-width:0;display:flex;align-items:flex-start;justify-content:space-between;gap:8px;overflow-wrap:anywhere;border:0;padding:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:11px;font-weight:650;line-height:1.45;text-align:left;white-space:normal;cursor:pointer;}
+      .pmtask-execution-round-option-head:hover{color:var(--dsw-alias-accent-primary,#4f8ef7);}
+      .pmtask-execution-round-option-title{min-width:0;overflow-wrap:anywhere;}
+      .pmtask-execution-round-option-status{white-space:nowrap;}
+      .pmtask-execution-round-option-time{flex:none;color:var(--dsw-alias-label-tertiary);font-size:10px;font-weight:400;font-variant-numeric:tabular-nums;white-space:nowrap;}
+      .pmtask-round-instruction{width:100%;max-width:100%;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:4px;overflow:hidden;padding:8px 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
+      .pmtask-round-instruction-label{color:var(--dsw-alias-label-tertiary);font-size:10px;font-weight:500;}
+      .pmtask-round-instruction-text{display:block;width:100%;min-width:0;max-width:100%;max-height:4.5em;flex:none;overflow:hidden;overflow-wrap:anywhere;word-break:break-word;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.5;white-space:pre-wrap;}
+      .pmtask-round-instruction.expanded .pmtask-round-instruction-text{max-height:none;overflow:visible;}
+      .pmtask-round-instruction-toggle{justify-self:start;border:0;padding:0;background:transparent;color:var(--dsw-alias-accent-primary,#4f8ef7);font:inherit;font-size:10px;cursor:pointer;}
+      .pmtask-execution-blocks{display:grid;gap:14px;margin-top:12px;}
+      .pmtask-execution-block{display:grid;gap:8px;padding-top:13px;border-top:1px solid var(--dsw-alias-border-l2);}
+      .pmtask-execution-block:first-child{padding-top:0;border-top:0;}
+      .pmtask-execution-block h4{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0;color:var(--dsw-alias-label-primary);font-size:12px;font-weight:700;}
+      .pmtask-execution-block h4 span{min-width:0;overflow:hidden;color:var(--dsw-alias-label-tertiary);font-size:10px;font-weight:400;text-overflow:ellipsis;white-space:nowrap;}
       .pmtask-comment-list>.pmtask-empty,.pmtask-history>.pmtask-empty{padding:36px;border:1px dashed var(--dsw-alias-border-l2);border-radius:8px;color:var(--dsw-alias-label-secondary);text-align:center;font-size:13px;}
       .pmtask-detail-section>.pmtask-empty{padding:28px 10px;}
       .pmtask-mask{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:20px;background:rgba(0,0,0,.24);backdrop-filter:blur(2px);}
@@ -359,6 +408,7 @@ window.__ModuleLoader__.load({
       .pmtask-modal.pmtask-confirm{width:min(440px,calc(100vw - 40px));gap:10px;}
       .pmtask-modal.pmtask-confirm h2{margin:0;font-size:15px;font-weight:700;}
       .pmtask-confirm-text{margin:0;color:var(--dsw-alias-label-secondary);font-size:12.5px;line-height:1.65;overflow-wrap:anywhere;}
+      .pmtask-reject-note{min-height:112px;resize:vertical;line-height:1.6;}
       .pmtask-confirm-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;}
       .pmtask-confirm-actions .pmtask-btn{height:32px;padding:0 12px;font-size:12px;}
       .pmtask-btn.danger-solid{background:var(--dsw-alias-state-error-primary,#e5534b);color:#fff;}
@@ -660,26 +710,114 @@ window.__ModuleLoader__.load({
       return STATUS_LABEL[status] ?? status;
     }
 
+    function executionMetaLabel(value) {
+      const text = typeof value === "string" ? value.trim() : "";
+      return text === "" || text === "unknown" ? "未采集" : text;
+    }
+
+    function RunExecutionMeta({ execution }) {
+      if (execution === undefined || execution === null) return null;
+      return h(
+        "div",
+        { className: "pmtask-run-meta", "aria-label": "运行信息" },
+        ...[
+          ["Provider", execution.provider],
+          ["模型", execution.model],
+          ["Runtime", execution.runtime],
+          ["版本", execution.runtimeVersion],
+          ["认证", execution.authMode],
+          ["沙箱", execution.sandbox],
+        ].map(([label, value]) =>
+          h(
+            "span",
+            { className: "pmtask-run-meta-item", key: label },
+            h("strong", null, label),
+            h("span", null, executionMetaLabel(value)),
+          ),
+        ),
+      );
+    }
+
+    function RunExecutionSummary({ execution, state }) {
+      if (execution === undefined || execution === null) {
+        if (state === "loading" || state === "idle") {
+          return h(
+            "div",
+            {
+              className: "pmtask-run-summary-empty",
+              role: "status",
+            },
+            "正在读取运行信息…",
+          );
+        }
+        return h(
+          "div",
+          {
+            className: "pmtask-run-summary-unavailable",
+            role: "status",
+          },
+          h("strong", null, "该轮未记录运行元数据"),
+          h(
+            "span",
+            null,
+            "关联的 Agent Run 不存在，或该轮执行早于运行信息采集。任务结果和执行过程仍可查看。",
+          ),
+        );
+      }
+      return h(
+        "div",
+        { className: "pmtask-run-summary", "aria-label": "任务运行信息" },
+        ...[
+          ["Provider", execution.provider],
+          ["模型", execution.model],
+          ["Runtime", execution.runtime],
+          ["版本", execution.runtimeVersion],
+          ["认证", execution.authMode],
+          ["沙箱", execution.sandbox],
+        ].map(([label, value]) =>
+          h(
+            "div",
+            { className: "pmtask-run-summary-row", key: label },
+            h("span", null, label),
+            h("strong", null, executionMetaLabel(value)),
+          ),
+        ),
+      );
+    }
+
     function isSettledStatus(status) {
       return status === "done" || status === "cancelled";
     }
 
     const RUNNING_MESSAGE_STATES = ["queued", "running", "waiting_input"];
+    const RUN_STATUS_LABEL = {
+      queued: "排队中",
+      running: "执行中",
+      waiting_input: "待补充",
+      succeeded: "已完成",
+      failed: "失败",
+      timeout: "超时",
+      cancelled: "已取消",
+      interrupted: "已中断",
+    };
 
-    function latestRunState(task) {
-      const messages = task?.messages ?? [];
-      for (let index = messages.length - 1; index >= 0; index -= 1) {
-        const message = messages[index];
-        if (message?.runId !== undefined && message.state !== undefined) {
-          return message.state;
-        }
-      }
-      return undefined;
+    function runStatusLabel(status) {
+      return RUN_STATUS_LABEL[status] ?? status ?? "未知";
+    }
+
+    function runRoleLabel(role) {
+      if (role === "owner") return "主执行";
+      if (role === "assist") return "协作";
+      if (role === "fyi") return "FYI";
+      return "参与";
     }
 
     function taskHasActiveRun(task) {
-      // 只看最近一次 run 的状态：历史里旧的 running 消息不代表现在还在跑。
-      return RUNNING_MESSAGE_STATES.includes(latestRunState(task));
+      return (task?.messages ?? []).some(
+        (message) =>
+          message?.runId !== undefined &&
+          RUNNING_MESSAGE_STATES.includes(message.state),
+      );
     }
 
     function workflowSourceLabel() {
@@ -1306,6 +1444,36 @@ window.__ModuleLoader__.load({
         );
       }
       return h("div", { className: "pmtask-markdown" }, ...blocks);
+    }
+
+    function ExecutionRoundInstruction({
+      instruction,
+      expanded,
+      onToggle,
+      extraClassName = "",
+    }) {
+      return h(
+        "div",
+        {
+          className: `pmtask-round-instruction${expanded ? " expanded" : ""}${extraClassName === "" ? "" : ` ${extraClassName}`}`,
+          title: instruction,
+        },
+        h("span", { className: "pmtask-round-instruction-label" }, "本轮指令"),
+        h("span", { className: "pmtask-round-instruction-text" }, instruction),
+        h(
+          "button",
+          {
+            className: "pmtask-round-instruction-toggle",
+            type: "button",
+            "aria-expanded": expanded,
+            onClick: (event) => {
+              event.stopPropagation();
+              onToggle();
+            },
+          },
+          expanded ? "收起指令" : "展开完整指令",
+        ),
+      );
     }
 
     function MentionMenu({ directory, query, onPick }) {
@@ -2045,9 +2213,9 @@ window.__ModuleLoader__.load({
             {
               className: `pmtask-meeting-toggle${meetingOpen ? " active" : ""}`,
               type: "button",
-              "aria-label": "展开会议侧边栏",
+              "aria-label": meetingOpen ? "收起会议侧边栏" : "展开会议侧边栏",
               "aria-pressed": meetingOpen,
-              title: "展开会议侧边栏",
+              title: meetingOpen ? "收起会议侧边栏" : "展开会议侧边栏",
               onClick: () => window.__pluginmaxMeeting?.toggle(),
             },
             h(
@@ -2525,6 +2693,78 @@ window.__ModuleLoader__.load({
       );
     }
 
+    function RejectDialog({ title, onConfirm, onCancel }) {
+      const [note, setNote] = react.useState("");
+      react.useEffect(() => {
+        const onKeyDown = (event) => {
+          if (event.key === "Escape") onCancel();
+        };
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+      }, [onCancel]);
+      return h(
+        "div",
+        {
+          className: "pmtask-mask",
+          onMouseDown: (event) => {
+            if (event.target === event.currentTarget) onCancel();
+          },
+        },
+        h(
+          "form",
+          {
+            className: "pmtask-modal pmtask-confirm",
+            role: "dialog",
+            "aria-modal": "true",
+            "aria-label": title,
+            onSubmit: (event) => {
+              event.preventDefault();
+              const value = note.trim();
+              if (value !== "") onConfirm(value);
+            },
+          },
+          h("div", { className: "pmtask-modal-head" }, h("h2", null, title)),
+          h(
+            "p",
+            { className: "pmtask-confirm-text" },
+            "请填写退回原因和需要补充的内容。说明为必填项，提交后会保留在任务执行历史中。",
+          ),
+          h("textarea", {
+            className: "pmtask-area pmtask-reject-note",
+            value: note,
+            required: true,
+            autoFocus: true,
+            maxLength: 8000,
+            placeholder: "例如：缺少风险项，请补充风险及应对措施",
+            "aria-label": "退回说明",
+            onChange: (event) => setNote(event.target.value),
+          }),
+          h(
+            "div",
+            { className: "pmtask-confirm-actions" },
+            h(
+              "button",
+              {
+                className: "pmtask-btn secondary",
+                type: "button",
+                onClick: onCancel,
+              },
+              "取消",
+            ),
+            h(
+              "button",
+              {
+                className: "pmtask-btn danger-solid",
+                type: "submit",
+                disabled: note.trim() === "",
+              },
+              "确认退回",
+            ),
+          ),
+        ),
+      );
+    }
+
     function TaskDetail(props) {
       const {
         task,
@@ -2549,9 +2789,18 @@ window.__ModuleLoader__.load({
       /** 从 @ 菜单里选中的目标（带 id），发送时作为结构化提及提交。 */
       const [pickedMentions, setPickedMentions] = react.useState([]);
       const [comment, setComment] = react.useState("");
+      const [commentIsConsensus, setCommentIsConsensus] = react.useState(false);
       const [replyDrafts, setReplyDrafts] = react.useState({});
       const [executionLive, setExecutionLive] = react.useState(null);
+      const [executionDetailState, setExecutionDetailState] =
+        react.useState("idle");
+      const [taskRuns, setTaskRuns] = react.useState([]);
+      const [selectedRunId, setSelectedRunId] = react.useState("");
+      const [roundMenuOpen, setRoundMenuOpen] = react.useState(false);
+      const [expandedRoundInstructionIds, setExpandedRoundInstructionIds] =
+        react.useState([]);
       const [confirmArchive, setConfirmArchive] = react.useState(false);
+      const [rejectOpen, setRejectOpen] = react.useState(false);
       const [documents, setDocuments] = react.useState([]);
       const [documentsReady, setDocumentsReady] = react.useState(true);
       const messageRef = react.useRef(null);
@@ -2709,21 +2958,69 @@ window.__ModuleLoader__.load({
           fail(cause);
         }
       };
-      const latestRunId = task.agentRunIds.at(-1);
+      const runListKey = task.agentRunIds.join("|");
       react.useEffect(() => {
-        if (latestRunId === undefined) {
-          setExecutionLive(null);
+        if (task.agentRunIds.length === 0) {
+          setTaskRuns([]);
           return undefined;
         }
+        let disposed = false;
+        const loadRuns = async () => {
+          try {
+            const instanceId = task.workflow?.instanceId ?? task.id;
+            const result = await request(
+              `/api/collab/agent/runs?workspaceId=${encodeURIComponent(task.workspaceId)}&instanceId=${encodeURIComponent(instanceId)}`,
+            );
+            if (disposed) return;
+            const allowed = new Set(task.agentRunIds);
+            const runs = (result?.runs ?? []).filter((run) =>
+              allowed.has(run.id),
+            );
+            runs.sort((left, right) =>
+              String(left.createdAt ?? left.startedAt ?? "").localeCompare(
+                String(right.createdAt ?? right.startedAt ?? ""),
+              ),
+            );
+            setTaskRuns(runs);
+          } catch {
+            // Task history still provides a fallback participant list.
+          }
+        };
+        void loadRuns();
+        const timer = window.setInterval(() => void loadRuns(), 2_000);
+        return () => {
+          disposed = true;
+          window.clearInterval(timer);
+        };
+      }, [runListKey, task.id, task.workspaceId, task.workflow?.instanceId]);
+      react.useEffect(() => {
+        setSelectedRunId(task.agentRunIds.at(-1) ?? "");
+      }, [task.id, runListKey]);
+      react.useEffect(() => {
+        setRoundMenuOpen(false);
+        setExpandedRoundInstructionIds([]);
+      }, [task.id]);
+      react.useEffect(() => {
+        if (selectedRunId === "") {
+          setExecutionLive(null);
+          setExecutionDetailState("idle");
+          return undefined;
+        }
+        setExecutionLive(null);
+        setExecutionDetailState("loading");
         let disposed = false;
         const loadExecution = async () => {
           try {
             const result = await request(
-              `/api/collab/agent/runs/detail?workspaceId=${encodeURIComponent(task.workspaceId)}&runId=${encodeURIComponent(latestRunId)}`,
+              `/api/collab/agent/runs/detail?workspaceId=${encodeURIComponent(task.workspaceId)}&runId=${encodeURIComponent(selectedRunId)}`,
             );
-            if (!disposed) setExecutionLive(result);
+            if (!disposed) {
+              setExecutionLive(result);
+              setExecutionDetailState("ready");
+            }
           } catch {
-            // The task history remains authoritative if live detail is unavailable.
+            // The task history and run list remain authoritative if live detail is unavailable.
+            if (!disposed) setExecutionDetailState("error");
           }
         };
         void loadExecution();
@@ -2732,17 +3029,158 @@ window.__ModuleLoader__.load({
           disposed = true;
           window.clearInterval(timer);
         };
-      }, [latestRunId, task.workspaceId]);
-      const latestAgentMessage = [...task.messages]
-        .reverse()
-        .find((item) => item.kind === "agent");
+      }, [selectedRunId, task.workspaceId]);
+      const messageByRunId = new Map(
+        task.messages
+          .filter((item) => item.runId !== undefined)
+          .map((item) => [item.runId, item]),
+      );
+      const messageById = new Map(task.messages.map((item) => [item.id, item]));
+      const runById = new Map(taskRuns.map((run) => [run.id, run]));
+      const participantMap = new Map();
+      for (const runId of task.agentRunIds) {
+        const run = runById.get(runId);
+        const runMessage = messageByRunId.get(runId);
+        if (run === undefined && runMessage === undefined) continue;
+        const context = run?.payload?.context ?? {};
+        const participantId =
+          runMessage?.authorId ??
+          context.taskReceiverId ??
+          run?.principalId ??
+          runId;
+        const participantName =
+          runMessage?.authorName ??
+          context.employeeName ??
+          run?.payload?.profileName ??
+          "AI伙伴";
+        const existing = participantMap.get(participantId) ?? {
+          id: participantId,
+          name: participantName,
+          runs: [],
+        };
+        existing.runs.push({
+          id: runId,
+          run,
+          message: runMessage,
+          status: run?.status ?? runMessage?.state ?? "succeeded",
+          role:
+            runMessage?.runRole ??
+            context.taskRunRole ??
+            (runMessage === undefined ? "owner" : "owner"),
+          at:
+            run?.endedAt ??
+            run?.startedAt ??
+            run?.createdAt ??
+            runMessage?.at ??
+            "",
+        });
+        participantMap.set(participantId, existing);
+      }
+      const participants = [...participantMap.values()].map((participant) => {
+        participant.runs.sort((left, right) =>
+          String(left.at).localeCompare(String(right.at)),
+        );
+        return {
+          ...participant,
+          latest: participant.runs.at(-1),
+          active: participant.runs.some((run) =>
+            RUNNING_MESSAGE_STATES.includes(run.status),
+          ),
+        };
+      });
+      const executionRunOptions = participants
+        .flatMap((participant) =>
+          participant.runs.map((run) => {
+            const triggerMessageId =
+              run.run?.payload?.context?.triggerMessageId;
+            const triggerMessage =
+              typeof triggerMessageId === "string"
+                ? messageById.get(triggerMessageId)
+                : undefined;
+            const runStartedAt = Date.parse(
+              run.run?.startedAt ?? run.run?.createdAt ?? run.at,
+            );
+            const assignmentEvent = [...task.events].reverse().find((event) => {
+              const eventAt = Date.parse(event.at);
+              return (
+                Number.isFinite(runStartedAt) &&
+                Number.isFinite(eventAt) &&
+                eventAt <= runStartedAt + 60_000 &&
+                runStartedAt - eventAt <= 10 * 60_000 &&
+                event.message.includes("调整责任人为")
+              );
+            });
+            const instruction =
+              triggerMessage?.content?.trim() ||
+              assignmentEvent?.message ||
+              task.description.trim();
+            // Run 创建即 agent.dispatch 投递时刻，优先用它表示指令真正发送给 Agent 的时间。
+            const instructionAt =
+              run.run?.createdAt ?? run.run?.startedAt ?? run.at;
+            return {
+              ...run,
+              participantName: participant.name,
+              instruction,
+              instructionAt,
+            };
+          }),
+        )
+        .sort((left, right) => String(left.at).localeCompare(String(right.at)))
+        .map((run, index) => ({ ...run, roundNumber: index + 1 }))
+        .reverse();
+      const selectedRun =
+        selectedRunId === "" ? undefined : runById.get(selectedRunId);
+      const selectedRunOption = executionRunOptions.find(
+        (run) => run.id === selectedRunId,
+      );
+      const toggleRoundInstruction = (runId) => {
+        setExpandedRoundInstructionIds((current) =>
+          current.includes(runId)
+            ? current.filter((id) => id !== runId)
+            : [...current, runId],
+        );
+      };
+      const selectedRunMessage =
+        selectedRunId === "" ? undefined : messageByRunId.get(selectedRunId);
+      const selectedParticipant = participants.find((participant) =>
+        participant.runs.some((run) => run.id === selectedRunId),
+      );
+      const selectedExecution =
+        executionLive?.run?.execution ??
+        selectedRun?.execution ??
+        selectedRunMessage?.execution;
+      const executionSummaryState =
+        selectedExecution !== undefined && selectedExecution !== null
+          ? "ready"
+          : selectedRunId === ""
+            ? "idle"
+            : executionDetailState === "ready" ||
+                executionDetailState === "error"
+              ? "unavailable"
+              : "loading";
       const executionText =
         executionLive?.progress?.text?.trim() ||
-        latestAgentMessage?.content ||
-        "等待 DE 执行输出…";
+        selectedRunMessage?.content ||
+        selectedRun?.output?.summary ||
+        "暂无执行输出";
       const executionStatus =
-        executionLive?.run?.status ?? latestAgentMessage?.state ?? "idle";
+        executionLive?.run?.status ??
+        selectedRun?.status ??
+        selectedRunMessage?.state ??
+        "idle";
       const executionRunning = RUNNING_MESSAGE_STATES.includes(executionStatus);
+      const selectedRunDocuments = documents.filter(
+        (document) => document.runId === selectedRunId,
+      );
+      const latestRunId = task.agentRunIds.at(-1);
+      const taskLevelDocuments = documents.filter(
+        (document) =>
+          document.runId === undefined && selectedRunId === latestRunId,
+      );
+      const visibleRunDocuments = [
+        ...selectedRunDocuments,
+        ...taskLevelDocuments,
+      ];
       const documentSignature = `${task.id}:${task.messages.length}:${executionStatus}`;
       react.useEffect(() => {
         let disposed = false;
@@ -2816,7 +3254,7 @@ window.__ModuleLoader__.load({
       const lockedTip = archived
         ? "任务已归档，复原后可操作"
         : task.status === "cancelled"
-          ? "任务已取消，仅保留记录"
+          ? "任务已取消，仅可查看历史或归档"
           : undefined;
       const archiveTask = async () => {
         try {
@@ -2934,7 +3372,7 @@ window.__ModuleLoader__.load({
       };
       const workflowActionCopy = (() => {
         if (task.status === "cancelled") {
-          return "工作流节点已取消；此任务保留执行记录，不可继续操作。";
+          return "工作流节点已取消；此任务保留执行记录，其他操作已锁定，可从任务管理归档。";
         }
         if (isApprovalTask) {
           return task.status === "review"
@@ -2992,7 +3430,7 @@ window.__ModuleLoader__.load({
       const composerHint = archived
         ? "任务已归档 · 复原后可继续发送指令"
         : task.status === "cancelled"
-          ? "任务已取消 · 历史记录保留为只读"
+          ? "任务已取消 · 仅可查看历史或归档"
           : task.receiverType === "unassigned"
             ? "暂无责任人 · 任务待指派"
             : task.status === "done"
@@ -3000,6 +3438,20 @@ window.__ModuleLoader__.load({
               : task.receiverType === "agent"
                 ? `发送给 ${receiverDisplay(task)}${task.status === "progress" && taskHasActiveRun(task) ? " · Agent 执行中" : task.status === "progress" ? " · 最近一次 Agent 运行未完成" : ""}`
                 : `发送给 ${receiverDisplay(task)}`;
+      const commentPlaceholder = archived
+        ? "任务已归档，复原后可评论"
+        : task.status === "cancelled"
+          ? "任务已取消，评论已锁定"
+          : task.workflow !== undefined
+            ? "普通讨论不触发执行；关键共识会在后续真实执行时作为背景增量同步"
+            : task.receiverType === "agent"
+              ? "普通讨论不进入执行上下文；关键共识下次执行时增量同步；@ 当前执行人可发起讨论反馈"
+              : "普通讨论不进入 Agent 上下文；关键共识会在下次真实执行时作为背景增量同步";
+      react.useEffect(() => {
+        setComment("");
+        setCommentIsConsensus(false);
+        setReplyDrafts({});
+      }, [task.id]);
       const history = [
         ...task.messages.map((item) => ({
           kind: "message",
@@ -3440,7 +3892,13 @@ window.__ModuleLoader__.load({
                           { className: "pmtask-locked-hint" },
                           "任务已归档：内容、状态、回复与执行指令均已锁定，点「复原」后可继续操作。",
                         )
-                      : null,
+                      : task.status === "cancelled"
+                        ? h(
+                            "p",
+                            { className: "pmtask-locked-hint" },
+                            "任务已取消：内容、状态、回复与执行指令均已锁定；如需从看板收起，可执行「归档」。",
+                          )
+                        : null,
                     task.workflow !== undefined
                       ? h(
                           "div",
@@ -3485,10 +3943,20 @@ window.__ModuleLoader__.load({
                                   {
                                     className: "pmtask-btn secondary",
                                     type: "button",
-                                    onClick: () =>
-                                      void action("reject", "审批已退回"),
+                                    onClick: () => setRejectOpen(true),
                                   },
                                   "退回审批",
+                                )
+                              : null,
+                            !archived && task.status === "cancelled"
+                              ? h(
+                                  "button",
+                                  {
+                                    className: "pmtask-btn secondary",
+                                    type: "button",
+                                    onClick: () => setConfirmArchive(true),
+                                  },
+                                  "归档",
                                 )
                               : null,
                             archived
@@ -3581,8 +4049,7 @@ window.__ModuleLoader__.load({
                                   type: "button",
                                   disabled: readOnly,
                                   title: lockedTip,
-                                  onClick: () =>
-                                    void action("reject", "已退回"),
+                                  onClick: () => setRejectOpen(true),
                                 },
                                 isApprovalTask ? "退回审批" : "退回",
                               )
@@ -3750,7 +4217,7 @@ window.__ModuleLoader__.load({
                       placeholder: archived
                         ? "任务已归档，复原后可继续发送指令"
                         : task.status === "cancelled"
-                          ? "任务已取消，历史记录为只读"
+                          ? "任务已取消，仅可查看历史或归档"
                           : "输入 / 补充给执行 Agent 的指令，或反馈任务进展。可 @ 人员、DE 和分身",
                       onChange: (event) => {
                         const value = event.target.value;
@@ -3858,7 +4325,7 @@ window.__ModuleLoader__.load({
                   h(
                     "span",
                     null,
-                    `${task.messages.length} 条交互记录 · 执行人 ${receiverDisplay(task, directory)}`,
+                    `${task.messages.length} 条交互记录 · 当前负责人 ${receiverDisplay(task, directory)}`,
                   ),
                 ),
                 h(
@@ -3880,6 +4347,16 @@ window.__ModuleLoader__.load({
                               "div",
                               { className: "pmtask-message-head" },
                               h("strong", null, entry.item.authorName),
+                              entry.item.kind === "agent" &&
+                                entry.item.runRole !== undefined
+                                ? h(
+                                    "span",
+                                    {
+                                      className: `pmtask-run-role ${entry.item.runRole}`,
+                                    },
+                                    runRoleLabel(entry.item.runRole),
+                                  )
+                                : null,
                               h(
                                 "span",
                                 null,
@@ -3915,6 +4392,9 @@ window.__ModuleLoader__.load({
                                   ),
                                 )
                               : null,
+                            h(RunExecutionMeta, {
+                              execution: entry.item.execution,
+                            }),
                           ),
                         )
                       : h(
@@ -3938,7 +4418,7 @@ window.__ModuleLoader__.load({
                     ? h(
                         "div",
                         { className: "pmtask-empty" },
-                        "执行人还没有回复记录。",
+                        "任务还没有回复记录。",
                       )
                     : null,
                 ),
@@ -3959,6 +4439,13 @@ window.__ModuleLoader__.load({
                         { className: "pmtask-message-head" },
                         h("strong", null, item.authorName),
                         h("span", null, localTime(item.at)),
+                        item.isKeyConsensus
+                          ? h(
+                              "span",
+                              { className: "pmtask-pill consensus" },
+                              "关键共识",
+                            )
+                          : null,
                       ),
                       h("div", { className: "pmtask-bubble" }, item.content),
                       item.replies.length > 0
@@ -4016,7 +4503,7 @@ window.__ModuleLoader__.load({
                           className: "pmtask-input",
                           value: replyDrafts[item.id] ?? "",
                           disabled: readOnly,
-                          placeholder: `回复 ${item.authorName}`,
+                          placeholder: `回复 ${item.authorName}（仅讨论，不触发执行）`,
                           onChange: (event) =>
                             setReplyDrafts((current) => ({
                               ...current,
@@ -4053,24 +4540,30 @@ window.__ModuleLoader__.load({
                       try {
                         await mutate(
                           "/api/collab/tasks/comment",
-                          { taskId: task.id, content },
+                          {
+                            taskId: task.id,
+                            content,
+                            isKeyConsensus: commentIsConsensus,
+                          },
                           "评论已添加",
                         );
                         setComment("");
+                        setCommentIsConsensus(false);
                       } catch (cause) {
                         fail(cause);
                       }
                     },
                   },
+                  h(
+                    "p",
+                    { className: "pmtask-comment-guide" },
+                    "评论用于协作讨论，不会立即触发任务执行。勾选「关键共识」后，将在下次向 Agent 发送执行反馈时作为背景增量同步；普通评论和回复不会进入执行上下文。",
+                  ),
                   h("input", {
                     className: "pmtask-input",
                     value: comment,
                     disabled: readOnly,
-                    placeholder: archived
-                      ? "任务已归档，复原后可评论"
-                      : task.status === "cancelled"
-                        ? "任务已取消，评论已锁定"
-                        : "写下评论，或回复协作成员（评论只有 @ 执行人才会触发执行）",
+                    placeholder: commentPlaceholder,
                     onChange: (event) => setComment(event.target.value),
                   }),
                   h(
@@ -4081,6 +4574,31 @@ window.__ModuleLoader__.load({
                       disabled: readOnly || comment.trim() === "",
                     },
                     "评论",
+                  ),
+                  h(
+                    "label",
+                    {
+                      className: "pmtask-check pmtask-comment-consensus",
+                      "data-disabled": readOnly,
+                    },
+                    h("input", {
+                      type: "checkbox",
+                      checked: commentIsConsensus,
+                      disabled: readOnly,
+                      "aria-label": "标记为关键共识",
+                      onChange: (event) =>
+                        setCommentIsConsensus(event.target.checked),
+                    }),
+                    h(
+                      "span",
+                      { className: "pmtask-comment-consensus-copy" },
+                      h("span", null, "关键共识"),
+                      h(
+                        "em",
+                        null,
+                        "仅标记已经确认的决策、约束或结论，不标记个人提议。",
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -4153,6 +4671,312 @@ window.__ModuleLoader__.load({
               ),
               h(
                 "div",
+                {
+                  className: "pmtask-side-section pmtask-execution-record",
+                },
+                h(
+                  "div",
+                  { className: "pmtask-live-head" },
+                  executionRunning
+                    ? h("span", {
+                        className: "pmtask-spinner",
+                        role: "status",
+                        "aria-label": "正在执行",
+                      })
+                    : h("span", { className: "pmtask-live-dot" }),
+                  h("h3", null, "AI执行记录"),
+                  h(
+                    "span",
+                    { className: "pmtask-side-empty" },
+                    executionRunOptions.length === 0
+                      ? "暂无"
+                      : `${executionRunOptions.length} 轮`,
+                  ),
+                ),
+                executionRunOptions.length === 0
+                  ? h("div", { className: "pmtask-side-empty" }, "暂无执行记录")
+                  : [
+                      h(
+                        "div",
+                        {
+                          className: "pmtask-execution-runs",
+                        },
+                        h(
+                          "span",
+                          { className: "pmtask-execution-runs-label" },
+                          "轮次",
+                        ),
+                        h(
+                          "div",
+                          {
+                            className: "pmtask-execution-round-picker",
+                          },
+                          h(
+                            "button",
+                            {
+                              className: "pmtask-execution-round-trigger",
+                              type: "button",
+                              "aria-expanded": roundMenuOpen,
+                              "aria-controls": `pmtask-round-menu-${task.id}`,
+                              onClick: () =>
+                                setRoundMenuOpen((current) => !current),
+                              onKeyDown: (event) => {
+                                if (event.key === "Escape") {
+                                  setRoundMenuOpen(false);
+                                }
+                              },
+                            },
+                            h(
+                              "span",
+                              null,
+                              `第 ${selectedRunOption?.roundNumber ?? 1} 轮 · ${selectedRunOption?.participantName ?? "AI伙伴"} · ${runStatusLabel(executionStatus)}`,
+                            ),
+                            selectedRunOption === undefined
+                              ? null
+                              : h(
+                                  "time",
+                                  {
+                                    className:
+                                      "pmtask-execution-round-trigger-time",
+                                    dateTime: selectedRunOption.instructionAt,
+                                    title: "指令发送时间",
+                                  },
+                                  localTime(selectedRunOption.instructionAt),
+                                ),
+                            h("span", {
+                              className: "pmtask-round-caret",
+                              "aria-hidden": "true",
+                            }),
+                          ),
+                          roundMenuOpen
+                            ? h(
+                                "div",
+                                {
+                                  id: `pmtask-round-menu-${task.id}`,
+                                  className: "pmtask-execution-round-menu",
+                                  role: "group",
+                                  "aria-label": "轮次与指令",
+                                },
+                                ...executionRunOptions.map((run) => {
+                                  const selected = run.id === selectedRunId;
+                                  const instructionExpanded =
+                                    expandedRoundInstructionIds.includes(
+                                      run.id,
+                                    );
+                                  const selectRun = () => {
+                                    setSelectedRunId(run.id);
+                                    setRoundMenuOpen(false);
+                                  };
+                                  return h(
+                                    "div",
+                                    {
+                                      className: `pmtask-execution-round-option${selected ? " selected" : ""}`,
+                                      key: run.id,
+                                      onClick: selectRun,
+                                    },
+                                    h(
+                                      "button",
+                                      {
+                                        className:
+                                          "pmtask-execution-round-option-head",
+                                        type: "button",
+                                        "data-run-id": run.id,
+                                        "aria-pressed": selected,
+                                        onClick: (event) => {
+                                          event.stopPropagation();
+                                          selectRun();
+                                        },
+                                      },
+                                      h(
+                                        "span",
+                                        {
+                                          className:
+                                            "pmtask-execution-round-option-title",
+                                        },
+                                        `第 ${run.roundNumber} 轮 · ${run.participantName}`,
+                                        h(
+                                          "span",
+                                          {
+                                            className:
+                                              "pmtask-execution-round-option-status",
+                                          },
+                                          ` · ${runStatusLabel(run.status)}`,
+                                        ),
+                                      ),
+                                      h(
+                                        "time",
+                                        {
+                                          className:
+                                            "pmtask-execution-round-option-time",
+                                          dateTime: run.instructionAt,
+                                          title: "指令发送时间",
+                                        },
+                                        localTime(run.instructionAt),
+                                      ),
+                                    ),
+                                    h(ExecutionRoundInstruction, {
+                                      instruction: run.instruction,
+                                      expanded: instructionExpanded,
+                                      onToggle: () =>
+                                        toggleRoundInstruction(run.id),
+                                    }),
+                                  );
+                                }),
+                              )
+                            : null,
+                          !roundMenuOpen && selectedRunOption !== undefined
+                            ? h(ExecutionRoundInstruction, {
+                                instruction: selectedRunOption.instruction,
+                                expanded: expandedRoundInstructionIds.includes(
+                                  selectedRunOption.id,
+                                ),
+                                onToggle: () =>
+                                  toggleRoundInstruction(selectedRunOption.id),
+                                extraClassName:
+                                  "pmtask-selected-round-instruction",
+                              })
+                            : null,
+                        ),
+                      ),
+                      h(
+                        "div",
+                        { className: "pmtask-execution-blocks" },
+                        h(
+                          "section",
+                          { className: "pmtask-execution-block" },
+                          h(
+                            "h4",
+                            null,
+                            "产出物",
+                            h(
+                              "span",
+                              null,
+                              visibleRunDocuments.length === 0
+                                ? ""
+                                : `${visibleRunDocuments.length}`,
+                            ),
+                          ),
+                          visibleRunDocuments.length === 0
+                            ? h(
+                                "div",
+                                { className: "pmtask-doc-empty" },
+                                documentsReady
+                                  ? "本轮暂无产出物"
+                                  : "任务工作区不可用",
+                              )
+                            : h(
+                                "div",
+                                { className: "pmtask-doc-list" },
+                                ...visibleRunDocuments.map((document) =>
+                                  h(
+                                    "div",
+                                    {
+                                      className: "pmtask-doc",
+                                      key: document.id,
+                                    },
+                                    h(
+                                      "div",
+                                      { className: "pmtask-doc-info" },
+                                      h(
+                                        "button",
+                                        {
+                                          className: "pmtask-doc-name",
+                                          type: "button",
+                                          disabled: !document.available,
+                                          title: document.available
+                                            ? `下载 ${document.name}`
+                                            : "该附件未存储到工作区",
+                                          onClick: () =>
+                                            void downloadDocument(document),
+                                        },
+                                        h(
+                                          "span",
+                                          { className: "pmtask-doc-kind" },
+                                          document.kind === "uploaded"
+                                            ? "上传"
+                                            : "产出",
+                                        ),
+                                        h("span", null, document.name),
+                                      ),
+                                      h(
+                                        "div",
+                                        { className: "pmtask-doc-meta" },
+                                        `${document.updatedBy} · ${localTime(document.updatedAt)}`,
+                                      ),
+                                    ),
+                                    document.available
+                                      ? h(
+                                          "button",
+                                          {
+                                            className: "pmtask-tool-btn",
+                                            type: "button",
+                                            title: "在本地文件夹中显示",
+                                            "aria-label": "在本地文件夹中显示",
+                                            onClick: () =>
+                                              void revealDocument(document),
+                                          },
+                                          h(
+                                            "svg",
+                                            {
+                                              viewBox: "0 0 24 24",
+                                              fill: "none",
+                                              stroke: "currentColor",
+                                              strokeWidth: 2,
+                                              strokeLinecap: "round",
+                                              strokeLinejoin: "round",
+                                              "aria-hidden": "true",
+                                            },
+                                            h("path", {
+                                              d: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z",
+                                            }),
+                                          ),
+                                        )
+                                      : null,
+                                  ),
+                                ),
+                              ),
+                        ),
+                        h(
+                          "section",
+                          { className: "pmtask-execution-block" },
+                          h(
+                            "h4",
+                            null,
+                            "执行过程",
+                            h("span", null, runStatusLabel(executionStatus)),
+                          ),
+                          h(
+                            "div",
+                            {
+                              className: "pmtask-live-output",
+                              ref: liveOutputRef,
+                            },
+                            h(MarkdownText, { text: executionText }),
+                          ),
+                        ),
+                        h(
+                          "section",
+                          { className: "pmtask-execution-block" },
+                          h(
+                            "h4",
+                            null,
+                            "运行信息",
+                            h(
+                              "span",
+                              null,
+                              selectedParticipant?.name ?? "AI伙伴",
+                            ),
+                          ),
+                          h(RunExecutionSummary, {
+                            execution: selectedExecution,
+                            state: executionSummaryState,
+                          }),
+                        ),
+                      ),
+                    ],
+              ),
+              h(
+                "div",
                 { className: "pmtask-side-section" },
                 h("h3", null, "任务动态"),
                 h(
@@ -4170,125 +4994,6 @@ window.__ModuleLoader__.load({
                       ),
                     ),
                 ),
-                task.receiverType === "agent"
-                  ? h(
-                      "div",
-                      { className: "pmtask-side-section" },
-                      h(
-                        "div",
-                        { className: "pmtask-live-head" },
-                        executionRunning
-                          ? h("span", {
-                              className: "pmtask-spinner",
-                              role: "status",
-                              "aria-label": "正在执行",
-                            })
-                          : h("span", { className: "pmtask-live-dot" }),
-                        h("h3", null, "DE 执行过程"),
-                        h(
-                          "span",
-                          { className: "pmtask-side-empty" },
-                          executionStatus,
-                        ),
-                      ),
-                      h(
-                        "div",
-                        { className: "pmtask-live-output", ref: liveOutputRef },
-                        h(MarkdownText, { text: executionText }),
-                      ),
-                    )
-                  : null,
-                h(
-                  "div",
-                  { className: "pmtask-side-section" },
-                  h(
-                    "div",
-                    { className: "pmtask-live-head" },
-                    h("span", { className: "pmtask-live-dot" }),
-                    h("h3", null, "产出文档"),
-                    h(
-                      "span",
-                      { className: "pmtask-side-empty" },
-                      documents.length === 0
-                        ? ""
-                        : `${documents.length} 个文件`,
-                    ),
-                  ),
-                  documents.length === 0
-                    ? h(
-                        "div",
-                        { className: "pmtask-doc-empty" },
-                        documentsReady ? "暂无产出文档" : "任务工作区不可用",
-                      )
-                    : h(
-                        "div",
-                        { className: "pmtask-doc-list" },
-                        ...documents.map((document) =>
-                          h(
-                            "div",
-                            { className: "pmtask-doc", key: document.id },
-                            h(
-                              "div",
-                              { className: "pmtask-doc-info" },
-                              h(
-                                "button",
-                                {
-                                  className: "pmtask-doc-name",
-                                  type: "button",
-                                  disabled: !document.available,
-                                  title: document.available
-                                    ? `下载 ${document.name}`
-                                    : "该附件未存储到工作区",
-                                  onClick: () =>
-                                    void downloadDocument(document),
-                                },
-                                h(
-                                  "span",
-                                  { className: "pmtask-doc-kind" },
-                                  document.kind === "uploaded"
-                                    ? "上传"
-                                    : "产出",
-                                ),
-                                h("span", null, document.name),
-                              ),
-                              h(
-                                "div",
-                                { className: "pmtask-doc-meta" },
-                                `${document.updatedBy} · ${localTime(document.updatedAt)}`,
-                              ),
-                            ),
-                            document.available
-                              ? h(
-                                  "button",
-                                  {
-                                    className: "pmtask-tool-btn",
-                                    type: "button",
-                                    title: "在本地文件夹中显示",
-                                    "aria-label": "在本地文件夹中显示",
-                                    onClick: () =>
-                                      void revealDocument(document),
-                                  },
-                                  h(
-                                    "svg",
-                                    {
-                                      viewBox: "0 0 24 24",
-                                      fill: "none",
-                                      stroke: "currentColor",
-                                      strokeWidth: 2,
-                                      strokeLinecap: "round",
-                                      strokeLinejoin: "round",
-                                      "aria-hidden": "true",
-                                    },
-                                    h("path", {
-                                      d: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z",
-                                    }),
-                                  ),
-                                )
-                              : null,
-                          ),
-                        ),
-                      ),
-                ),
               ),
             ),
           ),
@@ -4302,6 +5007,20 @@ window.__ModuleLoader__.load({
                 onConfirm: () => {
                   setConfirmArchive(false);
                   void archiveTask();
+                },
+              })
+            : null,
+          rejectOpen
+            ? h(RejectDialog, {
+                title: isApprovalTask ? "退回审批" : "退回任务",
+                onCancel: () => setRejectOpen(false),
+                onConfirm: (note) => {
+                  setRejectOpen(false);
+                  void action(
+                    "reject",
+                    isApprovalTask ? "审批已退回" : "已退回",
+                    { note },
+                  );
                 },
               })
             : null,

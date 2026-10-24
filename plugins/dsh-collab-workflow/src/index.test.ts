@@ -1900,17 +1900,54 @@ describe("workflow service", () => {
 });
 
 describe("workflow agent nodes", () => {
-  async function agentHarness(hasProfile = true, withTasks = true) {
+  async function agentHarness(
+    hasProfile = true,
+    withTasks = true,
+    withContext = false,
+  ) {
     const current = tables();
     const agent = new FakeAgentService(hasProfile);
     const tasks = new FakeTaskBridge();
+    const contextPrepared: Array<Record<string, unknown>> = [];
+    const receipts: Array<Record<string, unknown>> = [];
+    const context = {
+      registerAdapter: () => () => undefined,
+      prepare: async (input: Record<string, unknown>) => {
+        contextPrepared.push(input);
+        return {
+          id: "pack-workflow-1",
+          sessionBindingId: "workflow-node:instance:development:g0",
+          rendered: {
+            systemText: "system",
+            userText: "workflow context",
+            flattenedPrompt: "system\n\nworkflow context",
+          },
+        };
+      },
+      session: () => ({
+        sessionId: "de-flow-instance-development",
+        generation: 0,
+      }),
+      recordRuntime: async (input: Record<string, unknown>) => {
+        receipts.push(input);
+      },
+    };
     const service = new WorkflowService(current, {
       now: () => new Date(timestamp),
       team,
       ...(withTasks ? { tasks: () => tasks } : {}),
       agent: () => agent,
+      ...(withContext ? { context: () => context } : {}),
     });
-    return { agent, current, tasks, service };
+    return {
+      agent,
+      context,
+      contextPrepared,
+      current,
+      receipts,
+      tasks,
+      service,
+    };
   }
 
   async function employeeHarness(
@@ -2035,6 +2072,42 @@ describe("workflow agent nodes", () => {
       note: `agent-run:${run.id}`,
     });
     expect(settled.status).toBe("running");
+  });
+
+  it("dispatches Agent nodes through a canonical ContextPack and receipt", async () => {
+    const { agent, contextPrepared, receipts, service } = await agentHarness(
+      true,
+      true,
+      true,
+    );
+    const definition = await importedFixture(service, "agent-node.md");
+    const instance = await service.startInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "Context Pack 工作流",
+    });
+    expect(agent.dispatchInputs[0]).toMatchObject({
+      profileId: "backend-agent",
+      contextPackId: "pack-workflow-1",
+      sessionBindingId: "workflow-node:instance:development:g0",
+      sessionId: "de-flow-instance-development",
+      payload: {
+        context: {
+          instruction: "system\n\nworkflow context",
+          contextPackId: "pack-workflow-1",
+        },
+      },
+    });
+    expect(contextPrepared[0]).toMatchObject({
+      scene: "workflow-node",
+      objectId: `${instance.id}:development`,
+      workspaceId: "main",
+      agentProfileId: "backend-agent",
+    });
+    expect(receipts[0]).toMatchObject({
+      contextPackId: "pack-workflow-1",
+      runtime: { kind: "builtin" },
+    });
   });
 
   it("direct-completes a no-review Agent node and closes its task projection", async () => {
@@ -3624,7 +3697,13 @@ describe("workflow apply", () => {
         _keys: readonly string[],
         callback: (value: unknown) => void,
       ) => {
-        callback({ collabTeam: team() });
+        callback({
+          collabTeam: team(),
+          collabContext: {
+            registerAdapter: () => () => undefined,
+          },
+          effect: (operation: () => () => void) => operation()(),
+        });
       },
       get: () => team(),
     };

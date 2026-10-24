@@ -81,6 +81,33 @@ interface ClientExports {
         createdAt: string;
       }[],
     ): readonly { id: string; priority: string; createdAt: string }[];
+    outputMatches(
+      item: {
+        name: string;
+        documentType: string;
+        updatedAt: string;
+        workflowNodeName?: string;
+        workflowInstanceTitle?: string;
+        sourceName: string;
+        authorName: string;
+      },
+      keyword: string,
+      type: string,
+      fromDate: string,
+      toDate: string,
+    ): boolean;
+    groupOutputsByDay(
+      items: readonly {
+        id: string;
+        name: string;
+        updatedAt: string;
+      }[],
+    ): readonly {
+      date: string;
+      items: readonly { id: string; name: string; updatedAt: string }[];
+    }[];
+    formatFileSize(value: number): string;
+    outputLoadErrorMessage(cause: unknown): string;
     parseReportBlocks(content: string): readonly {
       type: string;
       text?: string;
@@ -374,6 +401,55 @@ describe("project management client", () => {
       { id: "c", priority: "P1", createdAt: "2026-10-03T00:00:00.000Z" },
     ]);
     expect(sorted?.map((task) => task.id)).toEqual(["c", "a", "b"]);
+  });
+
+  it("filters and groups project outputs by search, type and date", () => {
+    const { exports: client } = loadClientExports();
+    const helpers = client.__test;
+    const item = {
+      name: "设计评审报告.md",
+      documentType: "markdown",
+      updatedAt: "2026-10-17T12:00:00.000Z",
+      workflowNodeName: "设计评审",
+      workflowInstanceTitle: "发布流程",
+      sourceName: "完善发布方案",
+      authorName: "Research Avatar",
+    };
+    expect(helpers?.outputMatches(item, "设计评审", "all", "", "")).toBe(true);
+    expect(helpers?.outputMatches(item, "发布流程", "all", "", "")).toBe(true);
+    expect(helpers?.outputMatches(item, "完善发布方案", "all", "", "")).toBe(
+      true,
+    );
+    expect(helpers?.outputMatches(item, "Research Avatar", "all", "", "")).toBe(
+      false,
+    );
+    expect(
+      helpers?.outputMatches(item, "", "markdown", "2026-10-17", "2026-10-17"),
+    ).toBe(true);
+    expect(
+      helpers?.outputMatches(item, "", "pdf", "2026-10-17", "2026-10-17"),
+    ).toBe(false);
+
+    const groups = helpers?.groupOutputsByDay([
+      { ...item, id: "a", updatedAt: "2026-10-17T08:00:00.000Z" },
+      { ...item, id: "b", updatedAt: "2026-10-17T12:00:00.000Z" },
+      { ...item, id: "c", updatedAt: "2026-10-16T12:00:00.000Z" },
+    ]);
+    expect(groups?.map((group) => group.date)).toEqual([
+      "2026-10-17",
+      "2026-10-16",
+    ]);
+    expect(groups?.[0]?.items.map((output) => output.id)).toEqual(["b", "a"]);
+    expect(helpers?.formatFileSize(900)).toBe("900 B");
+    expect(helpers?.formatFileSize(1_536)).toBe("1.5 KB");
+    expect(
+      helpers?.outputLoadErrorMessage(
+        Object.assign(new Error("HTTP 404"), { status: 404 }),
+      ),
+    ).toBe("产出物服务未加载，请重启当前服务后重试。");
+    expect(helpers?.outputLoadErrorMessage(new Error("网络异常"))).toBe(
+      "网络异常",
+    );
   });
 
   it("parses report markdown into headings, lists and paragraphs", () => {

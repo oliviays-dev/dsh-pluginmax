@@ -62,7 +62,7 @@ window.__ModuleLoader__.load({
 .pmwf-heading-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .pmwf-meeting-toggle{width:32px;height:32px;flex:none;display:grid;place-items:center;padding:0;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-secondary);cursor:pointer}
 .pmwf-meeting-toggle:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2)}
-.pmwf-meeting-toggle.active{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));border-color:var(--dsw-alias-border-l4,var(--dsw-alias-border-l3))}
+.pmwf-meeting-toggle.active{color:var(--dsw-alias-accent-primary,#4f8ef7);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 12%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 50%,transparent)}
 .pmwf-meeting-toggle svg{width:15px;height:15px}
 .pmwf-filter{flex:none;border:0.5px solid color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 34%,transparent);border-radius:999px;padding:4px 8px;color:var(--dsw-alias-accent-primary,#4f8ef7);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 10%,transparent);font-size:11px;white-space:nowrap}
 .pmwf-inline-feedback{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-state-success-primary,#1f8f53);font-size:11.5px}
@@ -3843,6 +3843,26 @@ window.__ModuleLoader__.load({
           window.removeEventListener("pluginmax:collab-token", synchronize);
       }, []);
 
+      react.useEffect(() => {
+        const returnToRoot = (event) => {
+          if (event?.detail?.route !== "workflow") return;
+          setOpenId("");
+          setDetail(null);
+          setNestedDetails({});
+          setExpandedNodeIds(new Set());
+          setDeliveryPopover(null);
+          setTemplateMode(false);
+          setTemplatePreview(null);
+          setStartOpen(false);
+          setStartError("");
+          setGateForm(null);
+          window.scrollTo({ top: 0, behavior: "auto" });
+        };
+        window.addEventListener("pluginmax:route-select", returnToRoot);
+        return () =>
+          window.removeEventListener("pluginmax:route-select", returnToRoot);
+      }, []);
+
       const load = react.useCallback(
         async (silent = true) => {
           const generation = ++loadGeneration.current;
@@ -4135,7 +4155,16 @@ window.__ModuleLoader__.load({
         if (instanceId) {
           setStatusFilters(new Set());
           setQuery("");
-          void expand(instanceId);
+          const requestedNodeId = String(viewRequest.nodeId ?? "");
+          void expand(instanceId).then(() => {
+            if (requestedNodeId !== "") {
+              setExpandedNodeIds((current) => {
+                const next = new Set(current);
+                next.add(requestedNodeId);
+                return next;
+              });
+            }
+          });
         }
         completeViewRequest?.();
       }, [completeViewRequest, effectiveWorkspaceId, expand, viewRequest]);
@@ -7454,9 +7483,9 @@ window.__ModuleLoader__.load({
       return jsxRuntime.jsx("button", {
         type: "button",
         className: `pmwf-meeting-toggle${meetingOpen ? " active" : ""}`,
-        "aria-label": "展开会议侧边栏",
+        "aria-label": meetingOpen ? "收起会议侧边栏" : "展开会议侧边栏",
         "aria-pressed": meetingOpen,
-        title: "展开会议侧边栏",
+        title: meetingOpen ? "收起会议侧边栏" : "展开会议侧边栏",
         onClick: () => window.__pluginmaxMeeting?.toggle(),
         children: jsxRuntime.jsxs("svg", {
           viewBox: "0 0 24 24",
@@ -7492,6 +7521,7 @@ window.__ModuleLoader__.load({
             view: "pluginmax-workflow",
             focus: target.instanceId,
             workspaceId: target.workspaceId,
+            nodeId: target.nodeId,
           });
         };
         window.addEventListener("pluginmax:collab-navigate", navigate);

@@ -44,6 +44,7 @@ window.__ModuleLoader__.load({
       inactive: "已失效",
       archived: "已归档",
     };
+    const ROLE_PLACEHOLDER = "角色待定";
     /** 任务优先级平移：存储 P1–P3，产品口径显示 P0–P2。 */
     const PRIORITY_DISPLAY = { P1: "P0", P2: "P1", P3: "P2" };
     const priorityLabel = (value) => PRIORITY_DISPLAY[value] ?? value;
@@ -247,7 +248,7 @@ window.__ModuleLoader__.load({
       .pmtm-head-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
       .pmtm-meeting-toggle{width:32px;height:32px;flex:none;display:grid;place-items:center;padding:0;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-secondary);cursor:pointer;}
       .pmtm-meeting-toggle:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);}
-      .pmtm-meeting-toggle.active{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));border-color:var(--dsw-alias-border-l4,var(--dsw-alias-border-l3));}
+      .pmtm-meeting-toggle.active{color:var(--dsw-alias-accent-primary,#4f8ef7);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 12%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 50%,transparent);}
       .pmtm-meeting-toggle svg{width:15px;height:15px;}
       /* 数据范围：两段式，高亮段 = 当前实际视图。 */
       .pmtm-scope-seg{display:inline-flex;align-items:center;gap:2px;padding:2px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
@@ -337,6 +338,7 @@ window.__ModuleLoader__.load({
       .pmtm-editor-head h2{margin:0;font-size:18px;line-height:1.3;overflow-wrap:anywhere;}
       .pmtm-editor-main{flex:1 1 220px;min-width:0;}
       .pmtm-meta{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:5px;color:var(--dsw-alias-label-tertiary);font-size:10.5px;}
+      .pmtm-meta.secondary{margin-top:4px;}
       .pmtm-title-row{display:flex;align-items:center;gap:6px;min-width:0;}
       .pmtm-title-row h2{min-width:0;}
       .pmtm-icon-btn{flex:none;display:inline-grid;place-items:center;width:22px;height:22px;padding:0;border:0.5px solid transparent;border-radius:5px;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer;}
@@ -347,8 +349,9 @@ window.__ModuleLoader__.load({
       .pmtm-instance-desc.placeholder{color:var(--dsw-alias-label-tertiary);}
       .pmtm-instance-desc-input{min-height:62px;margin-top:8px;font-size:12px;line-height:1.6;}
       .pmtm-instance-edit-actions{display:flex;gap:7px;margin-top:8px;}
-      .pmtm-instance-exec{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:8px;}
-      .pmtm-instance-exec .pmtm-field{gap:4px;}
+      .pmtm-instance-exec{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:10px;margin-top:8px;}
+      .pmtm-instance-exec .pmtm-field{align-self:start;align-content:start;gap:4px;}
+      .pmtm-instance-exec .pmtm-select{height:34px;min-height:34px;}
       .pmtm-state{display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border-radius:4px;font-size:10px;}
       .pmtm-state.active{color:#34d47e;background:rgba(52,212,126,.13);}
       .pmtm-state.paused{color:#e8a33d;background:rgba(232,163,61,.14);}
@@ -465,8 +468,9 @@ window.__ModuleLoader__.load({
       .pmtm-check{width:18px;height:18px;display:grid;place-items:center;border:1px solid var(--dsw-alias-border-l3);border-radius:4px;color:transparent;font-size:11px;}
       .pmtm-assign-item.selected .pmtm-check{border-color:${ACCENT};background:${ACCENT};color:#fff;}
       .pmtm-profile-manager{flex:1 1 auto;min-width:0;margin-top:12px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);}
-      .pmtm-profile-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:14px 16px;border-bottom:0.5px solid var(--dsw-alias-border-l2);}
+      .pmtm-profile-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px 16px;padding:14px 16px;border-bottom:0.5px solid var(--dsw-alias-border-l2);}
       .pmtm-profile-head h2{margin:0;font-size:16px;}
+      .pmtm-profile-head-actions{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px;margin-left:auto;}
       .pmtm-profile-sub{margin-top:4px;color:var(--dsw-alias-label-tertiary);font-size:10.5px;}
       .pmtm-profile-desc{margin-top:5px;max-width:760px;color:var(--dsw-alias-label-secondary);font-size:10.5px;line-height:1.5;}
       .pmtm-profile-state{display:inline-flex;align-items:center;height:26px;padding:0 9px;border-radius:999px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:10.5px;}
@@ -605,6 +609,7 @@ window.__ModuleLoader__.load({
         .pmtm-profile-item.runtime .pmtm-actions{justify-content:flex-start;}
         .pmtm-grid,.pmtm-grid.three,.pmtm-grid.two-one{grid-template-columns:1fr;}
         .pmtm-grid .wide{grid-column:auto;}
+        .pmtm-instance-exec{grid-template-columns:1fr;}
         .pmtm-toolbar{flex-direction:column;align-items:flex-start;}
         .pmtm-toolbar-note{max-width:none;text-align:left;}
         .pmtm-presets{grid-template-columns:repeat(3,minmax(0,1fr));}
@@ -616,6 +621,7 @@ window.__ModuleLoader__.load({
         .pmtm-profile-columns,.pmtm-profile-grid{grid-template-columns:1fr;}
         .pmtm-grid,.pmtm-grid.three,.pmtm-grid.two-one{grid-template-columns:1fr;}
         .pmtm-grid .wide{grid-column:auto;}
+        .pmtm-instance-exec{grid-template-columns:1fr;}
         .pmtm-toolbar{flex-direction:column;align-items:flex-start;}
         .pmtm-toolbar-note{max-width:none;text-align:left;}
         .pmtm-presets{grid-template-columns:repeat(3,minmax(0,1fr));}
@@ -1823,9 +1829,9 @@ window.__ModuleLoader__.load({
         {
           className: `pmtm-meeting-toggle${meetingOpen ? " active" : ""}`,
           type: "button",
-          "aria-label": "展开会议侧边栏",
+          "aria-label": meetingOpen ? "收起会议侧边栏" : "展开会议侧边栏",
           "aria-pressed": meetingOpen,
-          title: "展开会议侧边栏",
+          title: meetingOpen ? "收起会议侧边栏" : "展开会议侧边栏",
           onClick: () => window.__pluginmaxMeeting?.toggle(),
         },
         h(
@@ -1848,7 +1854,6 @@ window.__ModuleLoader__.load({
     function AiTeammatesPage() {
       const [teammates, setTeammates] = react.useState([]);
       const [canManagePlatform, setCanManagePlatform] = react.useState(false);
-      const [section, setSection] = react.useState("teammate");
       const [teammateTemplates, setTeammateTemplates] = react.useState([]);
       const [definitionTemplateId, setDefinitionTemplateId] =
         react.useState("");
@@ -1860,6 +1865,7 @@ window.__ModuleLoader__.load({
       const [workspaces, setWorkspaces] = react.useState([]);
       const [externalEditing, setExternalEditing] = react.useState(false);
       const [externalForm, setExternalForm] = react.useState(null);
+      const [externalSelectedId, setExternalSelectedId] = react.useState("");
       const [externalBusy, setExternalBusy] = react.useState(false);
       /** 外部 Agent 归档视图开关：默认列表隐藏归档项，与 AI伙伴模版一致。 */
       const [externalArchivedOnly, setExternalArchivedOnly] =
@@ -1908,6 +1914,8 @@ window.__ModuleLoader__.load({
       const [assignProject, setAssignProject] = react.useState("");
       const [assignSelected, setAssignSelected] = react.useState([]);
       const [assignBusy, setAssignBusy] = react.useState(false);
+      const [assignCreateOpen, setAssignCreateOpen] = react.useState(false);
+      const [assignCreateForm, setAssignCreateForm] = react.useState(null);
       const [expandedProgressIds, setExpandedProgressIds] = react.useState([]);
       const [expandedRunIds, setExpandedRunIds] = react.useState([]);
       const [selectedId, setSelectedId] = react.useState("");
@@ -2532,6 +2540,18 @@ window.__ModuleLoader__.load({
         setNotice("");
       };
 
+      const openDefinitionForTeammate = (teammate) => {
+        setDefinitionTemplateId(
+          teammate?.templateId ?? teammateTemplates[0]?.id ?? "",
+        );
+        setTab("definition");
+        setEditing(false);
+        setForm(null);
+        setInstanceEditing(false);
+        setError("");
+        setNotice("");
+      };
+
       /*
        * 定义态：只创建模版本身（草稿状态），随后直接进入模版编辑。
        * 这里不再连带创建实例——实例一律由运行态的「新建实例」显式创建，
@@ -2569,8 +2589,8 @@ window.__ModuleLoader__.load({
           });
           succeed(
             source === "platform"
-              ? "已创建平台模版草稿，保存后生效；需要 AI伙伴时请在运行态「新建 AI伙伴」。"
-              : "已创建个人模版草稿，保存后生效；需要 AI伙伴时请在运行态「新建 AI伙伴」。",
+              ? "已创建平台模版草稿，保存后生效；需要 AI伙伴时请在「AI伙伴管理」里新建。"
+              : "已创建个人模版草稿，保存后生效；需要 AI伙伴时请在「AI伙伴管理」里新建。",
           );
         } catch (cause) {
           fail(cause);
@@ -2597,7 +2617,7 @@ window.__ModuleLoader__.load({
       };
 
       const emptyExternalForm = () => ({
-        name: "Codex 本机",
+        name: "Codex CLI 本机",
         provider: "codex",
         protocol: "codex-jsonl",
         command: "codex",
@@ -2640,9 +2660,9 @@ window.__ModuleLoader__.load({
                         current.name === "" ||
                         current.name.startsWith("外部 Agent")
                           ? provider === "codex"
-                            ? "Codex 本机"
+                            ? "Codex CLI 本机"
                             : provider === "workbuddy"
-                              ? "WorkBuddy CLI"
+                              ? "CodeBuddy CLI 本机"
                               : "自定义 Agent 命令"
                           : current.name,
                       command:
@@ -2698,11 +2718,17 @@ window.__ModuleLoader__.load({
                 });
           setExternalEditing(false);
           setExternalForm(null);
-          await loadExternalRuntimes(externalWorkspaceId);
+          await Promise.all([
+            loadExternalRuntimes(externalWorkspaceId),
+            loadList(),
+          ]);
+          const pausedCount = result.pausedTeammateIds?.length ?? 0;
           succeed(
             externalForm.runtimeId === undefined
               ? `已注册外部 Agent：${result.runtime.name}`
-              : `已更新外部 Agent：${result.runtime.name}`,
+              : pausedCount > 0
+                ? `已更新外部 Agent：${result.runtime.name}，${pausedCount} 个绑定的 AI伙伴已暂停`
+                : `已更新外部 Agent：${result.runtime.name}`,
           );
         } catch (cause) {
           fail(cause);
@@ -2714,19 +2740,26 @@ window.__ModuleLoader__.load({
       const changeExternalState = async (runtime, status) => {
         try {
           setExternalBusy(true);
-          await request("/api/collab/agent/external-runtimes/update", {
+          const result = await request(
+            "/api/collab/agent/external-runtimes/update",
+            {
             method: "POST",
             body: {
               workspaceId: externalWorkspaceId,
               runtimeId: runtime.id,
               status,
             },
-          });
-          await loadExternalRuntimes(externalWorkspaceId);
+            },
+          );
+          await Promise.all([
+            loadExternalRuntimes(externalWorkspaceId),
+            loadList(),
+          ]);
+          const pausedCount = result.pausedTeammateIds?.length ?? 0;
           succeed(
             status === "active"
               ? `外部 Agent「${runtime.name}」已启用。`
-              : `外部 Agent「${runtime.name}」已停用，绑定它的 AI伙伴在下一次派发时会失败。`,
+              : `外部 Agent「${runtime.name}」已停用${pausedCount > 0 ? `，${pausedCount} 个绑定的 AI伙伴已暂停` : ""}。`,
           );
         } catch (cause) {
           fail(cause);
@@ -2749,16 +2782,22 @@ window.__ModuleLoader__.load({
         if (runtime === null) return;
         try {
           setExternalBusy(true);
-          await request("/api/collab/agent/external-runtimes/archive", {
+          const result = await request(
+            "/api/collab/agent/external-runtimes/archive",
+            {
             method: "POST",
             body: { workspaceId: externalWorkspaceId, runtimeId: runtime.id },
-          });
+            },
+          );
           setExternalArchiveTarget(null);
-          await loadExternalRuntimes(externalWorkspaceId);
-          const bindings = externalRuntimeBindingCount(runtime);
+          await Promise.all([
+            loadExternalRuntimes(externalWorkspaceId),
+            loadList(),
+          ]);
+          const pausedCount = result.pausedTeammateIds?.length ?? 0;
           succeed(
-            bindings > 0
-              ? `外部 Agent「${runtime.name}」已归档，${bindings} 个 AI伙伴需要改绑或切回内置执行。`
+            pausedCount > 0
+              ? `外部 Agent「${runtime.name}」已归档，${pausedCount} 个绑定的 AI伙伴已暂停。`
               : `外部 Agent「${runtime.name}」已归档。`,
           );
         } catch (cause) {
@@ -2771,13 +2810,20 @@ window.__ModuleLoader__.load({
       const restoreExternalRuntime = async (runtime) => {
         try {
           setExternalBusy(true);
-          await request("/api/collab/agent/external-runtimes/restore", {
+          const result = await request(
+            "/api/collab/agent/external-runtimes/restore",
+            {
             method: "POST",
             body: { workspaceId: externalWorkspaceId, runtimeId: runtime.id },
-          });
-          await loadExternalRuntimes(externalWorkspaceId);
+            },
+          );
+          await Promise.all([
+            loadExternalRuntimes(externalWorkspaceId),
+            loadList(),
+          ]);
+          const pausedCount = result.pausedTeammateIds?.length ?? 0;
           succeed(
-            `外部 Agent「${runtime.name}」已复原为停用，确认无误后再启用。`,
+            `外部 Agent「${runtime.name}」已复原为停用${pausedCount > 0 ? `，${pausedCount} 个绑定的 AI伙伴已暂停` : ""}，确认无误后再启用。`,
           );
         } catch (cause) {
           fail(cause);
@@ -3213,6 +3259,8 @@ window.__ModuleLoader__.load({
         setAssignPriority("");
         setAssignProject("");
         setAssignSelected([]);
+        setAssignCreateOpen(false);
+        setAssignCreateForm(null);
         setAssignOpen(true);
         try {
           const workspaceResult = await request("/api/collab/team/workspaces");
@@ -3264,6 +3312,74 @@ window.__ModuleLoader__.load({
           await loadDetail(selected.id);
           if (tab === "runtime") await loadRuntime(selected.id);
           succeed(`已将 ${count} 个任务安排给 ${selected.name}，执行已开始。`);
+        } catch (cause) {
+          fail(cause);
+        } finally {
+          setAssignBusy(false);
+        }
+      };
+
+      /** 在「安排任务」弹窗内直接录入一条新任务，负责人固定为当前 AI伙伴。 */
+      const openAssignCreate = () => {
+        const accessible = workspaces.filter(
+          (workspace) =>
+            workspace.isMember === true || canManagePlatform === true,
+        );
+        setAssignCreateForm({
+          workspaceId:
+            accessible[0]?.id ??
+            assignTasks[0]?.workspaceId ??
+            workspaces[0]?.id ??
+            "",
+          title: "",
+          type: "任务",
+          priority: "P2",
+          status: "todo",
+          description: "",
+          acceptance: "",
+          due: "",
+        });
+        setAssignCreateOpen(true);
+      };
+
+      const createAssignedTask = async () => {
+        if (selected === null || assignCreateForm === null) return;
+        const title = assignCreateForm.title.trim();
+        if (title === "" || assignCreateForm.workspaceId === "") return;
+        const acceptance = assignCreateForm.acceptance
+          .split("\n")
+          .map((item) => item.trim())
+          .filter(Boolean);
+        try {
+          setAssignBusy(true);
+          const result = await request("/api/collab/tasks/create", {
+            method: "POST",
+            body: {
+              workspaceId: assignCreateForm.workspaceId,
+              title,
+              type: assignCreateForm.type,
+              priority: assignCreateForm.priority,
+              status: assignCreateForm.status,
+              receiverType: "agent",
+              receiverId: selected.id,
+              receiverName: selected.name,
+              description: assignCreateForm.description.trim(),
+              acceptance:
+                acceptance.length === 0 ? ["按描述完成并自查"] : acceptance,
+              due: assignCreateForm.due,
+              autoSubmitReview: true,
+            },
+          });
+          setAssignOpen(false);
+          setAssignCreateOpen(false);
+          setAssignCreateForm(null);
+          setAssignSelected([]);
+          await loadList(selected.id);
+          await loadDetail(selected.id);
+          if (tab === "runtime") await loadRuntime(selected.id);
+          succeed(
+            `任务「${result.task?.title ?? title}」已创建并派发给 ${selected.name}。`,
+          );
         } catch (cause) {
           fail(cause);
         } finally {
@@ -3610,8 +3726,8 @@ window.__ModuleLoader__.load({
                         "small",
                         null,
                         tab === "definition"
-                          ? `${item.role || "待定义"} · ${String(instanceIds.length)} 个 AI伙伴`
-                          : `${item.role || "待定义"} · ${item.ownerName}`,
+                          ? `${item.role || ROLE_PLACEHOLDER} · ${String(instanceIds.length)} 个 AI伙伴`
+                          : `${item.role || ROLE_PLACEHOLDER} · ${item.ownerName}`,
                       ),
                       h(
                         "span",
@@ -4798,7 +4914,16 @@ window.__ModuleLoader__.load({
                     { className: `pmtm-state ${teammate.state}` },
                     STATE_LABEL[teammate.state] ?? teammate.state,
                   ),
-                  h("span", null, teammate.role || "待定义"),
+                  h("span", null, teammate.role || ROLE_PLACEHOLDER),
+                  h(
+                    "span",
+                    null,
+                    `最近同步于 ${timeShort(teammate.updatedAt)}`,
+                  ),
+                ),
+                h(
+                  "div",
+                  { className: "pmtm-meta secondary" },
                   h(
                     "span",
                     {
@@ -4809,11 +4934,6 @@ window.__ModuleLoader__.load({
                           : undefined,
                     },
                     executionPill.text,
-                  ),
-                  h(
-                    "span",
-                    null,
-                    `最近同步于 ${timeShort(teammate.updatedAt)}`,
                   ),
                   h(
                     "span",
@@ -4970,7 +5090,7 @@ window.__ModuleLoader__.load({
                 {
                   type: "button",
                   className: "pmtm-btn secondary small",
-                  onClick: () => setTab("definition"),
+                  onClick: () => openDefinitionForTeammate(teammate),
                 },
                 "人设定义",
               ),
@@ -5575,7 +5695,6 @@ window.__ModuleLoader__.load({
 
       const renderExternalManager = () => {
         const runtimeGroups = splitExternalRuntimes(externalRuntimes);
-        const archivedRuntimeCount = runtimeGroups.archived.length;
         const visibleExternalRuntimes = externalArchivedOnly
           ? runtimeGroups.archived
           : runtimeGroups.defaultView;
@@ -5649,61 +5768,99 @@ window.__ModuleLoader__.load({
                   ),
                 ),
               );
-        return h(
-          "div",
+        const selectedExternalRuntime =
+          visibleExternalRuntimes.find(
+            (runtime) => runtime.id === externalSelectedId,
+          ) ??
+          visibleExternalRuntimes[0] ??
+          null;
+        const externalDirectory = h(
+          "aside",
           {
-            className: "pmtm-panel pmtm-profile-manager",
-            "aria-label": "外部 Agent 运行时管理",
+            className: "pmtm-panel pmtm-directory",
+            "aria-label": "运行时列表",
           },
           h(
-            "div",
-            { className: "pmtm-profile-head" },
-            h("h2", null, "外部 Agent 运行时"),
+            "section",
+            { className: "pmtm-group" },
             h(
               "div",
-              { style: { marginLeft: "auto", display: "flex", gap: 8 } },
+              { className: "pmtm-group-title" },
               h(
-                "button",
-                {
-                  type: "button",
-                  className: `pmtm-token${externalArchivedOnly ? " active" : ""}`,
-                  "aria-pressed": externalArchivedOnly,
-                  title: "在运行时列表与已归档运行时之间切换",
-                  disabled: externalEditing,
-                  onClick: () => setExternalArchivedOnly((current) => !current),
-                },
-                externalArchivedOnly
-                  ? "返回运行列表"
-                  : `已归档 ${archivedRuntimeCount}`,
-              ),
-              canManageExternal
-                ? h(
-                    "button",
-                    {
-                      type: "button",
-                      className: "pmtm-btn small",
-                      disabled: externalBusy || externalWorkspaceId === "",
-                      onClick: startExternalCreate,
-                    },
-                    "注册运行时",
-                  )
-                : null,
-              h(
-                "button",
-                {
-                  type: "button",
-                  className: "pmtm-btn secondary small",
-                  onClick: () => {
-                    setSection("teammate");
-                    setExternalEditing(false);
-                    setExternalForm(null);
-                  },
-                },
-                "关闭",
+                "span",
+                { className: "pmtm-group-label" },
+                externalArchivedOnly ? "已归档运行时" : "全部运行时",
+                h(
+                  "span",
+                  { className: "pmtm-group-count" },
+                  String(visibleExternalRuntimes.length),
+                ),
               ),
             ),
+            visibleExternalRuntimes.length === 0
+              ? h(
+                  "div",
+                  {
+                    className: "pmtm-empty",
+                    style: { padding: "14px", fontSize: 11.5 },
+                  },
+                  externalArchivedOnly
+                    ? "还没有已归档的运行时。"
+                    : "还没有外部 Agent 运行时。",
+                )
+              : visibleExternalRuntimes.map((runtime) =>
+                  h(
+                    "button",
+                    {
+                      key: runtime.id,
+                      type: "button",
+                      className: `pmtm-item${
+                        runtime.id === selectedExternalRuntime?.id
+                          ? " active"
+                          : ""
+                      }`,
+                      onClick: () => {
+                        setExternalSelectedId(runtime.id);
+                        setExternalEditing(false);
+                        setExternalForm(null);
+                      },
+                    },
+                    h(
+                      "span",
+                      {
+                        className: "pmtm-item-copy",
+                        // 运行时列表没有头像列，文本跨满整行避免被 32px 首列挤断。
+                        style: { gridColumn: "1 / -1" },
+                      },
+                      h("strong", null, runtime.name),
+                      h(
+                        "small",
+                        null,
+                        `${externalRuntimeProviderLabel(runtime.provider)} · ${externalRuntimeProtocolLabel(runtime.protocol)}`,
+                      ),
+                      h(
+                        "span",
+                        {
+                          className: `pmtm-state-text ${externalRuntimeStatusTone(runtime.status)}`,
+                        },
+                        externalRuntimeStatusLabel(runtime.status),
+                      ),
+                    ),
+                  ),
+                ),
           ),
-          externalWorkspaceId === ""
+        );
+        return h(
+          "div",
+          { className: "pmtm-layout" },
+          externalDirectory,
+          h(
+            "section",
+            {
+              className: "pmtm-panel pmtm-editor",
+              "aria-label": "运行时设置详情",
+            },
+            externalWorkspaceId === ""
             ? h(
                 "div",
                 { className: "pmtm-profile-empty tall" },
@@ -5727,16 +5884,22 @@ window.__ModuleLoader__.load({
                   h(
                     "label",
                     { className: "pmtm-field" },
-                    h("span", { className: "label" }, "显示名称"),
+                      h("span", { className: "label" }, "运行时名称"),
                     h("input", {
                       className: "pmtm-input",
                       value: externalForm.name,
+                        placeholder: "例如：Codex CLI 本机",
                       onChange: (event) =>
                         setExternalForm({
                           ...externalForm,
                           name: event.target.value,
                         }),
                     }),
+                      h(
+                        "span",
+                        { className: "pmtm-inline-sub" },
+                        "Runtime 只描述执行通道、模型或固定能力；Agent 角色、职责和 SOUL 请在定义态配置。",
+                      ),
                   ),
                   h(
                     "label",
@@ -5791,7 +5954,11 @@ window.__ModuleLoader__.load({
                   h(
                     "label",
                     { className: "pmtm-field" },
-                    h("span", { className: "label" }, "固定参数（每行一个）"),
+                      h(
+                        "span",
+                        { className: "label" },
+                        "固定参数（每个 argv token 单独一行）",
+                      ),
                     h("textarea", {
                       className: "pmtm-area",
                       value: externalForm.args,
@@ -5801,6 +5968,11 @@ window.__ModuleLoader__.load({
                           args: event.target.value,
                         }),
                     }),
+                      h(
+                        "span",
+                        { className: "pmtm-inline-sub" },
+                        "选项和值必须分开，例如 --model 与模型名各占一行；不要把整段命令粘贴成一行。",
+                      ),
                   ),
                   h(
                     "label",
@@ -5861,7 +6033,12 @@ window.__ModuleLoader__.load({
                 : h(
                     "div",
                     { className: "pmtm-profile-list" },
-                    visibleExternalRuntimes.map((runtime) =>
+                    visibleExternalRuntimes
+                      .filter(
+                        (runtime) =>
+                          runtime.id === selectedExternalRuntime?.id,
+                      )
+                      .map((runtime) =>
                       h(
                         "div",
                         {
@@ -5984,6 +6161,7 @@ window.__ModuleLoader__.load({
                       ),
                     ),
                   ),
+          ),
           externalArchiveDialog,
         );
       };
@@ -6189,7 +6367,7 @@ window.__ModuleLoader__.load({
                     null,
                     `归属：${selectedTemplate.source === "platform" ? "平台" : "个人"}`,
                   ),
-                  h("span", null, selectedTemplate.role || "待定义"),
+                  h("span", null, selectedTemplate.role || ROLE_PLACEHOLDER),
                   h(
                     "span",
                     null,
@@ -6340,7 +6518,7 @@ window.__ModuleLoader__.load({
                     STATE_LABEL[teammate.state] ?? teammate.state,
                   ),
                   h("span", null, `创建人：${teammate.ownerName}`),
-                  h("span", null, teammate.role || "待定义"),
+                  h("span", null, teammate.role || ROLE_PLACEHOLDER),
                   h("span", null, teammate.version),
                 ),
               ),
@@ -6733,7 +6911,7 @@ window.__ModuleLoader__.load({
           disabled: busy || creatableTemplates.length === 0,
           title:
             creatableTemplates.length === 0
-              ? "还没有可用模版，请先到定义态管理创建模版"
+              ? "还没有可用模版，请先到「智能体定义」创建模版"
               : "基于已有模版创建一个新的 AI伙伴",
           onClick: openCreateInstance,
         },
@@ -6779,11 +6957,47 @@ window.__ModuleLoader__.load({
             ),
           ];
 
+      const externalRuntimeGroups = splitExternalRuntimes(externalRuntimes);
+      const externalToolbarActions = h(
+        "div",
+        { className: "pmtm-toolbar-actions" },
+        h(
+          "button",
+          {
+            type: "button",
+            className: `pmtm-token${externalArchivedOnly ? " active" : ""}`,
+            "aria-pressed": externalArchivedOnly,
+            title: "在运行时列表与已归档运行时之间切换",
+            disabled: externalEditing,
+            onClick: () => setExternalArchivedOnly((current) => !current),
+          },
+          externalArchivedOnly
+            ? "返回运行列表"
+            : `已归档 ${externalRuntimeGroups.archived.length}`,
+        ),
+        canManageExternal
+          ? h(
+              "button",
+              {
+                type: "button",
+                className: "pmtm-btn small",
+                disabled: externalBusy || externalWorkspaceId === "",
+                onClick: startExternalCreate,
+              },
+              "注册运行时",
+            )
+          : null,
+      );
+
       const createActions = h(
         "div",
         { className: "pmtm-toolbar-actions" },
-        tab === "runtime" ? createInstanceAction : templateCreateActions,
-        archivedToggle,
+        tab === "runtime"
+          ? createInstanceAction
+          : tab === "definition"
+            ? templateCreateActions
+            : externalToolbarActions,
+        tab === "external" ? null : archivedToggle,
       );
 
       return h(
@@ -6797,16 +7011,33 @@ window.__ModuleLoader__.load({
           h(
             "div",
             { className: "pmtm-head-actions" },
-            /* 数据范围开关替代原来的「平台管理员」徽标；外部 Agent 页不适用。 */
-            section === "teammate" ? scopeToggle : null,
+            /* 数据范围开关替代原来的「平台管理员」徽标；运行时设置页不适用。 */
+            tab !== "external" ? scopeToggle : null,
+            h(MeetingPanelToggle),
+          ),
+        ),
+        h(
+          "div",
+          { className: "pmtm-toolbar" },
+          h(
+            "div",
+            {
+              className: "pmtm-tabs",
+              role: "tablist",
+              "aria-label": "AI伙伴查看方式",
+            },
             h(
               "button",
               {
                 type: "button",
                 role: "tab",
-                className: `pmtm-tab${section === "teammate" ? " active" : ""}`,
-                "aria-selected": section === "teammate",
-                onClick: () => setSection("teammate"),
+                className: `pmtm-tab${tab === "runtime" ? " active" : ""}`,
+                "aria-selected": tab === "runtime",
+                onClick: () => {
+                  setTab("runtime");
+                  setEditing(false);
+                  setForm(null);
+                },
               },
               "AI伙伴管理",
             ),
@@ -6815,72 +7046,40 @@ window.__ModuleLoader__.load({
               {
                 type: "button",
                 role: "tab",
-                className: `pmtm-tab${section === "external" ? " active" : ""}`,
-                "aria-selected": section === "external",
+                className: `pmtm-tab${tab === "definition" ? " active" : ""}`,
+                "aria-selected": tab === "definition",
                 onClick: () => {
-                  setSection("external");
-                  if (externalWorkspaceId !== "")
-                    void loadExternalRuntimes(externalWorkspaceId);
+                  openDefinitionForTeammate(selected);
                 },
               },
-              "外部 Agent 管理",
+              "智能体定义",
             ),
-            h(MeetingPanelToggle),
-          ),
-        ),
-        section === "teammate"
-          ? h(
-              "div",
-              { className: "pmtm-toolbar" },
-              h(
-                "div",
-                {
-                  className: "pmtm-tabs",
-                  role: "tablist",
-                  "aria-label": "AI伙伴查看方式",
+            h(
+              "button",
+              {
+                type: "button",
+                role: "tab",
+                className: `pmtm-tab${tab === "external" ? " active" : ""}`,
+                "aria-selected": tab === "external",
+                onClick: () => {
+                  setTab("external");
+                  setEditing(false);
+                  setForm(null);
+                  if (externalWorkspaceId !== "") {
+                    void loadExternalRuntimes(externalWorkspaceId);
+                  }
                 },
-                h(
-                  "button",
-                  {
-                    type: "button",
-                    role: "tab",
-                    className: `pmtm-tab${tab === "runtime" ? " active" : ""}`,
-                    "aria-selected": tab === "runtime",
-                    onClick: () => {
-                      setTab("runtime");
-                      setEditing(false);
-                      setForm(null);
-                    },
-                  },
-                  "运行态管理",
-                ),
-                h(
-                  "button",
-                  {
-                    type: "button",
-                    role: "tab",
-                    className: `pmtm-tab${tab === "definition" ? " active" : ""}`,
-                    "aria-selected": tab === "definition",
-                    onClick: () => {
-                      setDefinitionTemplateId(
-                        selected?.templateId ?? teammateTemplates[0]?.id ?? "",
-                      );
-                      setTab("definition");
-                      setEditing(false);
-                      setForm(null);
-                    },
-                  },
-                  "定义态管理",
-                ),
-              ),
-              createActions,
-            )
-          : null,
+              },
+              "运行时设置",
+            ),
+          ),
+          createActions,
+        ),
         error !== "" ? h("div", { className: "pmtm-error" }, error) : null,
         notice !== ""
           ? h("div", { className: "pmtm-notice-bar" }, notice)
           : null,
-        section === "external"
+        tab === "external"
           ? renderExternalManager()
           : h(
               "div",
@@ -6949,7 +7148,7 @@ window.__ModuleLoader__.load({
                   h(
                     "div",
                     { style: { color: "var(--dsw-alias-label-secondary)" } },
-                    "AI伙伴基于已有模版创建，并绑定一个可参与的项目；模版本身的增删改请在「定义态管理」里操作。",
+                    "AI伙伴基于已有模版创建，并绑定一个可参与的项目；模版本身的增删改请在「智能体定义」里操作。",
                   ),
                   h(
                     "label",
@@ -7054,8 +7253,11 @@ window.__ModuleLoader__.load({
               {
                 className: "pmtm-mask",
                 onClick: (event) => {
-                  if (event.target === event.currentTarget)
+                  if (event.target === event.currentTarget) {
                     setAssignOpen(false);
+                    setAssignCreateOpen(false);
+                    setAssignCreateForm(null);
+                  }
                 },
               },
               h(
@@ -7069,22 +7271,28 @@ window.__ModuleLoader__.load({
                 h(
                   "div",
                   { className: "pmtm-dialog-head" },
-                  h("h2", null, `选择任务安排给 ${selected?.name ?? ""}`),
+                  h(
+                    "h2",
+                    null,
+                    assignCreateOpen
+                      ? `新建任务并安排给 ${selected?.name ?? ""}`
+                      : `选择任务安排给 ${selected?.name ?? ""}`,
+                  ),
                   h(
                     "button",
                     {
                       type: "button",
                       className: "pmtm-btn small",
                       onClick: () => {
-                        setAssignOpen(false);
-                        window.dispatchEvent(
-                          new CustomEvent("pluginmax:navigate", {
-                            detail: { route: "task" },
-                          }),
-                        );
+                        if (assignCreateOpen) {
+                          setAssignCreateOpen(false);
+                          setAssignCreateForm(null);
+                        } else {
+                          openAssignCreate();
+                        }
                       },
                     },
-                    "新建任务",
+                    assignCreateOpen ? "返回任务列表" : "新建任务",
                   ),
                   h(
                     "button",
@@ -7092,7 +7300,11 @@ window.__ModuleLoader__.load({
                       type: "button",
                       className: "pmtm-btn secondary small",
                       "aria-label": "关闭",
-                      onClick: () => setAssignOpen(false),
+                      onClick: () => {
+                        setAssignOpen(false);
+                        setAssignCreateOpen(false);
+                        setAssignCreateForm(null);
+                      },
                     },
                     "×",
                   ),
@@ -7100,7 +7312,237 @@ window.__ModuleLoader__.load({
                 h(
                   "div",
                   { className: "pmtm-dialog-body" },
-                  h(
+                  assignCreateOpen && assignCreateForm !== null
+                    ? h(
+                        "div",
+                        {
+                          style: {
+                            display: "grid",
+                            gridTemplateColumns: "1fr 1fr",
+                            gap: 12,
+                          },
+                        },
+                        h(
+                          "label",
+                          {
+                            className: "pmtm-field",
+                            style: { gridColumn: "1 / -1" },
+                          },
+                          h("span", { className: "label" }, "标题"),
+                          h("input", {
+                            className: "pmtm-input",
+                            value: assignCreateForm.title,
+                            required: true,
+                            "aria-label": "新任务标题",
+                            onChange: (event) =>
+                              setAssignCreateForm((current) =>
+                                current === null
+                                  ? current
+                                  : { ...current, title: event.target.value },
+                              ),
+                          }),
+                        ),
+                        h(
+                          "label",
+                          { className: "pmtm-field" },
+                          h("span", { className: "label" }, "类型"),
+                          h(
+                            "select",
+                            {
+                              className: "pmtm-select",
+                              "aria-label": "新任务类型",
+                              value: assignCreateForm.type,
+                              onChange: (event) =>
+                                setAssignCreateForm((current) =>
+                                  current === null
+                                    ? current
+                                    : {
+                                        ...current,
+                                        type: event.target.value,
+                                      },
+                                ),
+                            },
+                            h("option", { value: "任务" }, "任务"),
+                            h("option", { value: "缺陷" }, "缺陷"),
+                            h("option", { value: "评审" }, "评审"),
+                          ),
+                        ),
+                        h(
+                          "label",
+                          { className: "pmtm-field" },
+                          h("span", { className: "label" }, "项目（必填）"),
+                          h(
+                            "select",
+                            {
+                              className: "pmtm-select",
+                              "aria-label": "新任务项目",
+                              value: assignCreateForm.workspaceId,
+                              required: true,
+                              onChange: (event) =>
+                                setAssignCreateForm((current) =>
+                                  current === null
+                                    ? current
+                                    : {
+                                        ...current,
+                                        workspaceId: event.target.value,
+                                      },
+                                ),
+                            },
+                            h(
+                              "option",
+                              { value: "" },
+                              workspaces.length === 0
+                                ? "暂无可用项目"
+                                : "请选择项目",
+                            ),
+                            ...workspaces
+                              .filter(
+                                (workspace) =>
+                                  workspace.isMember === true ||
+                                  canManagePlatform === true,
+                              )
+                              .map((workspace) =>
+                                h(
+                                  "option",
+                                  {
+                                    key: workspace.id,
+                                    value: workspace.id,
+                                  },
+                                  workspace.title ?? workspace.id,
+                                ),
+                              ),
+                          ),
+                        ),
+                        h(
+                          "label",
+                          { className: "pmtm-field" },
+                          h("span", { className: "label" }, "优先级"),
+                          h(
+                            "select",
+                            {
+                              className: "pmtm-select",
+                              "aria-label": "新任务优先级",
+                              value: assignCreateForm.priority,
+                              onChange: (event) =>
+                                setAssignCreateForm((current) =>
+                                  current === null
+                                    ? current
+                                    : {
+                                        ...current,
+                                        priority: event.target.value,
+                                      },
+                                ),
+                            },
+                            h("option", { value: "P1" }, "P0"),
+                            h("option", { value: "P2" }, "P1"),
+                            h("option", { value: "P3" }, "P2"),
+                          ),
+                        ),
+                        h(
+                          "label",
+                          { className: "pmtm-field" },
+                          h("span", { className: "label" }, "初始状态"),
+                          h(
+                            "select",
+                            {
+                              className: "pmtm-select",
+                              "aria-label": "新任务初始状态",
+                              value: assignCreateForm.status,
+                              onChange: (event) =>
+                                setAssignCreateForm((current) =>
+                                  current === null
+                                    ? current
+                                    : {
+                                        ...current,
+                                        status: event.target.value,
+                                      },
+                                ),
+                            },
+                            h("option", { value: "todo" }, "待处理"),
+                            h("option", { value: "progress" }, "进行中"),
+                          ),
+                        ),
+                        h(
+                          "label",
+                          { className: "pmtm-field" },
+                          h("span", { className: "label" }, "负责人"),
+                          h("input", {
+                            className: "pmtm-input",
+                            value: selected?.name ?? "",
+                            disabled: true,
+                            "aria-label": "新任务负责人",
+                          }),
+                        ),
+                        h(
+                          "label",
+                          { className: "pmtm-field" },
+                          h("span", { className: "label" }, "到期时间"),
+                          h("input", {
+                            type: "date",
+                            className: "pmtm-input",
+                            value: assignCreateForm.due,
+                            "aria-label": "新任务到期时间",
+                            onChange: (event) =>
+                              setAssignCreateForm((current) =>
+                                current === null
+                                  ? current
+                                  : { ...current, due: event.target.value },
+                              ),
+                          }),
+                        ),
+                        h(
+                          "label",
+                          {
+                            className: "pmtm-field",
+                            style: { gridColumn: "1 / -1" },
+                          },
+                          h("span", { className: "label" }, "描述"),
+                          h("textarea", {
+                            className: "pmtm-area",
+                            value: assignCreateForm.description,
+                            "aria-label": "新任务描述",
+                            onChange: (event) =>
+                              setAssignCreateForm((current) =>
+                                current === null
+                                  ? current
+                                  : {
+                                      ...current,
+                                      description: event.target.value,
+                                    },
+                              ),
+                          }),
+                        ),
+                        h(
+                          "label",
+                          {
+                            className: "pmtm-field",
+                            style: { gridColumn: "1 / -1" },
+                          },
+                          h(
+                            "span",
+                            { className: "label" },
+                            "验收标准（每行一条）",
+                          ),
+                          h("textarea", {
+                            className: "pmtm-area",
+                            value: assignCreateForm.acceptance,
+                            "aria-label": "新任务验收标准",
+                            onChange: (event) =>
+                              setAssignCreateForm((current) =>
+                                current === null
+                                  ? current
+                                  : {
+                                      ...current,
+                                      acceptance: event.target.value,
+                                    },
+                              ),
+                          }),
+                        ),
+                      )
+                    : null,
+                  assignCreateOpen
+                    ? null
+                    : h(
                     "div",
                     { className: "pmtm-search-row" },
                     h("input", {
@@ -7118,7 +7560,9 @@ window.__ModuleLoader__.load({
                       "⌕",
                     ),
                   ),
-                  h(
+                  assignCreateOpen
+                    ? null
+                    : h(
                     "div",
                     { className: "pmtm-filter-row" },
                     h(
@@ -7170,7 +7614,9 @@ window.__ModuleLoader__.load({
                       `${String(assignCandidates.length)} 个可选任务`,
                     ),
                   ),
-                  h(
+                  assignCreateOpen
+                    ? null
+                    : h(
                     "div",
                     { className: "pmtm-assign-list" },
                     assignCandidates.length === 0
@@ -7238,28 +7684,75 @@ window.__ModuleLoader__.load({
                 h(
                   "div",
                   { className: "pmtm-dialog-foot" },
-                  h(
-                    "span",
-                    {
-                      style: {
-                        color: "var(--dsw-alias-label-secondary)",
-                        fontSize: 12,
-                      },
-                    },
-                    assignSelected.length === 0
-                      ? "未选择任务"
-                      : `已选择 ${String(assignSelected.length)} 个任务`,
-                  ),
-                  h(
-                    "button",
-                    {
-                      type: "button",
-                      className: "pmtm-btn small",
-                      disabled: assignSelected.length === 0 || assignBusy,
-                      onClick: () => void confirmAssign(),
-                    },
-                    assignBusy ? "指派中…" : "确认指派",
-                  ),
+                  assignCreateOpen
+                    ? h(
+                        react.Fragment,
+                        null,
+                        h(
+                          "span",
+                          {
+                            style: {
+                              color: "var(--dsw-alias-label-secondary)",
+                              fontSize: 12,
+                            },
+                          },
+                          `负责人：${selected?.name ?? ""}`,
+                        ),
+                        h(
+                          "button",
+                          {
+                            type: "button",
+                            className: "pmtm-btn secondary small",
+                            disabled: assignBusy,
+                            onClick: () => {
+                              setAssignCreateOpen(false);
+                              setAssignCreateForm(null);
+                            },
+                          },
+                          "取消",
+                        ),
+                        h(
+                          "button",
+                          {
+                            type: "button",
+                            className: "pmtm-btn small",
+                            disabled:
+                              assignBusy ||
+                              assignCreateForm === null ||
+                              assignCreateForm.title.trim() === "" ||
+                              assignCreateForm.workspaceId === "",
+                            onClick: () => void createAssignedTask(),
+                          },
+                          assignBusy ? "创建中…" : "创建并派发",
+                        ),
+                      )
+                    : h(
+                        react.Fragment,
+                        null,
+                        h(
+                          "span",
+                          {
+                            style: {
+                              color: "var(--dsw-alias-label-secondary)",
+                              fontSize: 12,
+                            },
+                          },
+                          assignSelected.length === 0
+                            ? "未选择任务"
+                            : `已选择 ${String(assignSelected.length)} 个任务`,
+                        ),
+                        h(
+                          "button",
+                          {
+                            type: "button",
+                            className: "pmtm-btn small",
+                            disabled:
+                              assignSelected.length === 0 || assignBusy,
+                            onClick: () => void confirmAssign(),
+                          },
+                          assignBusy ? "指派中…" : "确认指派",
+                        ),
+                      ),
                 ),
               ),
             )

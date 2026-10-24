@@ -17,6 +17,12 @@
       "path": "plugins/dsh-collab-roles"
     },
     {
+      "path": "plugins/dsh-collab-memory"
+    },
+    {
+      "path": "plugins/dsh-collab-context"
+    },
+    {
       "path": "plugins/dsh-collab-meeting"
     },
     {

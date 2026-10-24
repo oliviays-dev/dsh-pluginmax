@@ -25,3 +25,7 @@ Task messages carry an explicit `deliveryTarget`:
 Older clients that omit the field are resolved with the previous mention-based
 fallback. The submit endpoint validates acceptance steps before changing task
 state; it never auto-checks the first step on the user's behalf.
+
+Rejecting a task also requires a non-empty rejection note. The note is stored in
+task history with `deliveryTarget: receiver`, so the next executor sees the
+reason without relying on a separate comment.

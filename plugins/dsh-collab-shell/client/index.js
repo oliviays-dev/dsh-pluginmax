@@ -497,7 +497,7 @@ window.__ModuleLoader__.load({
       { key: "projects", label: "项目", icon: icons.project },
       { key: "task", label: "任务", icon: icons.task },
       { key: "workflow", label: "工作流", icon: icons.workflow },
-      { key: "meetings", label: "会议", icon: icons.meeting },
+      { key: "meetings", label: "沟通", icon: icons.meeting },
       { key: "teammates", label: "AI伙伴", icon: icons.teammate },
     ];
 

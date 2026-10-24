@@ -236,6 +236,10 @@ interface HarnessOptions {
   readonly extraWorkspace?: boolean;
   /** 追加一个引用 role-owner 的已启用工作流模版，用于覆盖角色下线阻塞。 */
   readonly roleWorkflow?: boolean;
+  /** 为项目产出物聚合测试提供任务文档和工作流提交。 */
+  readonly outputs?: boolean;
+  /** 追加一个与 TSK-1 产出同名、同大小、同日期但来源不同的任务。 */
+  readonly outputCollision?: boolean;
 }
 
 function createHarness(options: HarnessOptions = {}) {
@@ -400,6 +404,12 @@ function createHarness(options: HarnessOptions = {}) {
       createdAt: "2026-10-16T01:00:00.000Z",
       updatedAt: "2026-10-16T01:30:00.000Z",
       workspaceId: "ws-1",
+      workflow: {
+        instanceId: "wf-1",
+        instanceTitle: "GUI 回归",
+        nodeId: "design",
+        nodeName: "设计",
+      },
     },
     {
       id: "TSK-0",
@@ -412,10 +422,27 @@ function createHarness(options: HarnessOptions = {}) {
       updatedAt: "2026-09-02T00:00:00.000Z",
       workspaceId: "ws-1",
     },
+    ...(options.outputCollision === true
+      ? [
+          {
+            id: "TSK-2",
+            title: "补全运营视角",
+            status: "progress",
+            priority: "P1",
+            receiverType: "human" as const,
+            receiverName: "Mia",
+            due: "2026-10-10",
+            createdAt: "2026-10-16T01:00:00.000Z",
+            updatedAt: "2026-10-16T01:30:00.000Z",
+            workspaceId: "ws-1",
+          },
+        ]
+      : []),
   ];
   const workflows = [
     {
       id: "wf-1",
+      definitionId: "definition-1",
       definitionKey: "gui-from-zero",
       definitionVersion: 1,
       title: "GUI 回归",
@@ -424,6 +451,105 @@ function createHarness(options: HarnessOptions = {}) {
       workspaceId: "ws-1",
     },
   ];
+  const taskDocuments =
+    options.outputs === true
+      ? {
+          async list(taskId: string) {
+            return taskId === "TSK-1" ||
+              (options.outputCollision === true && taskId === "TSK-2")
+              ? {
+                  workspaceReady: true,
+                  documents: [
+                    {
+                      id: "produced:deliverables/design.md",
+                      kind: "produced" as const,
+                      name: "design.md",
+                      relativePath: "deliverables/design.md",
+                      size: 2_048,
+                      mimeType: "text/markdown; charset=utf-8",
+                      updatedBy: "Research Avatar",
+                      updatedAt: "2026-10-16T01:10:00.000Z",
+                      available: true,
+                    },
+                    {
+                      id: "uploaded:input.pdf",
+                      kind: "uploaded" as const,
+                      name: "input.pdf",
+                      relativePath: "input.pdf",
+                      size: 1_024,
+                      mimeType: "application/pdf",
+                      updatedBy: "Peter",
+                      updatedAt: "2026-10-15T01:10:00.000Z",
+                      available: true,
+                    },
+                  ],
+                }
+              : { workspaceReady: true, documents: [] };
+          },
+        }
+      : undefined;
+  const submissions =
+    options.outputs === true
+      ? [
+          {
+            id: "submission-old",
+            instanceId: "wf-1",
+            nodeId: "review",
+            requirementKey: "review-report",
+            requirementTitle: "评审报告",
+            type: "file" as const,
+            artifacts: [
+              {
+                id: "artifact-old",
+                fileName: "review-old.pdf",
+                mimeType: "application/pdf",
+                size: 2_000,
+              },
+            ],
+            submittedByName: "Olivia",
+            submittedAt: "2026-10-15T07:00:00.000Z",
+            status: "submitted" as const,
+          },
+          {
+            id: "submission-new",
+            instanceId: "wf-1",
+            nodeId: "review",
+            requirementKey: "review-report",
+            requirementTitle: "评审报告",
+            type: "file" as const,
+            artifacts: [
+              {
+                id: "artifact-new",
+                fileName: "review-final.pdf",
+                mimeType: "application/pdf",
+                size: 3_000,
+              },
+            ],
+            submittedByName: "Olivia",
+            submittedAt: "2026-10-16T02:00:00.000Z",
+            status: "submitted" as const,
+          },
+          {
+            id: "submission-rejected",
+            instanceId: "wf-1",
+            nodeId: "review",
+            requirementKey: "review-report",
+            requirementTitle: "评审报告",
+            type: "file" as const,
+            artifacts: [
+              {
+                id: "artifact-rejected",
+                fileName: "review-rejected.pdf",
+                mimeType: "application/pdf",
+                size: 1_000,
+              },
+            ],
+            submittedByName: "Olivia",
+            submittedAt: "2026-10-16T03:00:00.000Z",
+            status: "rejected" as const,
+          },
+        ]
+      : [];
   const teammates = {
     assignable: () => [
       {
@@ -534,9 +660,12 @@ function createHarness(options: HarnessOptions = {}) {
         return 0;
       },
     }),
+    taskDocuments: () => taskDocuments,
     workflows: () => ({
       instances: (workspaceId: string) =>
         workspaceId === "ws-2" ? [] : workflows,
+      submissions: (instanceId: string) =>
+        instanceId === "wf-1" ? submissions : [],
       sharedDefinitions: () => [
         {
           id: "definition-1",
@@ -546,6 +675,22 @@ function createHarness(options: HarnessOptions = {}) {
           description: "",
           status: "active",
           workspaceId: "ws-1",
+          graph: {
+            nodes: [
+              {
+                id: "design",
+                name: "设计",
+                executor: { kind: "user", id: "olivia" },
+                approvers: [],
+              },
+              {
+                id: "review",
+                name: "评审",
+                executor: { kind: "user", id: "olivia" },
+                approvers: [],
+              },
+            ],
+          },
         },
         ...(options.roleWorkflow === true
           ? [
@@ -736,6 +881,72 @@ describe("project routes", () => {
       }),
     );
     expect(missing.status).toBe(404);
+  });
+
+  it("aggregates current task outputs and latest workflow file deliverables", async () => {
+    const harness = createHarness({ outputs: true });
+    const route = findRoute(harness.routes, "/api/collab/projects/outputs");
+    const response = await call(
+      route,
+      fakeRequest("GET", "/api/collab/projects/outputs?workspaceId=ws-1", {
+        token: "owner-token",
+      }),
+    );
+    expect(response.status).toBe(200);
+    const body = response.json();
+    expect(body.outputs.map((output: { name: string }) => output.name)).toEqual(
+      ["review-final.pdf", "design.md"],
+    );
+    expect(body.outputs[0]).toMatchObject({
+      sourceKind: "workflow",
+      sourceName: "GUI 回归",
+      workflowNodeName: "评审",
+      documentType: "pdf",
+      submissionId: "submission-new",
+      artifactId: "artifact-new",
+    });
+    expect(body.outputs[1]).toMatchObject({
+      sourceKind: "task",
+      sourceName: "补全项目视角",
+      workflowNodeName: "设计",
+      documentType: "markdown",
+      taskId: "TSK-1",
+    });
+    expect(
+      body.outputs.some(
+        (output: { name: string }) =>
+          output.name === "input.pdf" ||
+          output.name === "review-old.pdf" ||
+          output.name === "review-rejected.pdf",
+      ),
+    ).toBe(false);
+    expect(body.outputs[0].downloadUrl).toContain(
+      "/api/collab/workflow/deliverables/download",
+    );
+    expect(body.outputs[1].downloadUrl).toContain(
+      "/api/collab/tasks/document/content",
+    );
+  });
+
+  it("does not deduplicate identical task files from different tasks", async () => {
+    const harness = createHarness({ outputs: true, outputCollision: true });
+    const route = findRoute(harness.routes, "/api/collab/projects/outputs");
+    const response = await call(
+      route,
+      fakeRequest("GET", "/api/collab/projects/outputs?workspaceId=ws-1", {
+        token: "owner-token",
+      }),
+    );
+    expect(response.status).toBe(200);
+    const designOutputs = response
+      .json()
+      .outputs.filter(
+        (output: { name: string }) => output.name === "design.md",
+      );
+    expect(designOutputs).toHaveLength(2);
+    expect(
+      designOutputs.map((output: { sourceName: string }) => output.sourceName),
+    ).toEqual(["补全项目视角", "补全运营视角"]);
   });
 
   it("degrades gracefully when a workspace has no materialized project roles", async () => {

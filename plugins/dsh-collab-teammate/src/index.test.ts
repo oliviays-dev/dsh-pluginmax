@@ -20,6 +20,8 @@ import type {
 import {
   calculateInstanceLastUsedAt,
   calculateTeammateActivity,
+  isInstanceOwnedPersona,
+  taskIdsExecutedByPersona,
 } from "./index.js";
 
 function memoryTable<V>(): KvTableLike<V> {
@@ -1023,6 +1025,45 @@ describe("dsh-collab-teammate service", () => {
     ).rejects.toMatchObject({ code: "forbidden" });
   });
 
+  it("pauses active teammates when their bound external runtime becomes unavailable", async () => {
+    const teammates = service();
+    const affected = await teammates.create(admin, {
+      source: "platform",
+      name: "Runtime A Agent",
+      execution: "external",
+      externalRuntimeId: "runtime-a",
+    });
+    const unaffected = await teammates.create(admin, {
+      source: "platform",
+      name: "Runtime B Agent",
+      execution: "external",
+      externalRuntimeId: "runtime-b",
+    });
+
+    const paused = await teammates.pauseForExternalRuntime({
+      runtimeId: "runtime-a",
+      runtimeName: "Codex CLI 本机",
+      runtimeStatus: "disabled",
+      actor: admin,
+    });
+
+    expect(paused.map((item) => item.id)).toEqual([affected.id]);
+    expect(teammates.get(affected.id).state).toBe("paused");
+    expect(teammates.get(unaffected.id).state).toBe("active");
+    expect(teammates.events(affected.id)[0]?.message).toContain(
+      "外部 Agent 运行时「Codex CLI 本机」已停用，自动暂停该 AI伙伴",
+    );
+
+    await expect(
+      teammates.pauseForExternalRuntime({
+        runtimeId: "runtime-a",
+        runtimeName: "Codex CLI 本机",
+        runtimeStatus: "archived",
+        actor: admin,
+      }),
+    ).resolves.toEqual([]);
+  });
+
   it("lets active users create instances from platform templates without gaining template edit rights", async () => {
     const templates = templateService();
     const platformTemplate = await templates.create(admin, {
@@ -1146,6 +1187,27 @@ describe("dsh-collab-teammate service", () => {
     expect(nextVersion("v1.8")).toBe("v1.9");
     expect(nextVersion("v3.4")).toBe("v3.5");
     expect(nextVersion("unknown")).toBe("v1.0");
+  });
+});
+
+describe("teammate runtime task visibility", () => {
+  it("collects tasks executed by a teammate persona even when the receiver is human", () => {
+    const ids = taskIdsExecutedByPersona(
+      [
+        { instanceId: "TSK-1", personaId: "persona-tm-1" },
+        { instanceId: "TSK-2", personaId: "persona-other" },
+        { instanceId: "TSK-3" },
+      ],
+      "persona-tm-1",
+    );
+    expect([...ids]).toEqual(["TSK-1"]);
+  });
+
+  it("only trusts instance-owned personas for task attribution", () => {
+    expect(isInstanceOwnedPersona("tm-1", "persona-tm-1")).toBe(true);
+    // 平台模版共享 persona：多个实例共用，不能据此把历史任务算给新实例。
+    expect(isInstanceOwnedPersona("tm-1", "architect")).toBe(false);
+    expect(isInstanceOwnedPersona("tm-1", undefined)).toBe(false);
   });
 });
 

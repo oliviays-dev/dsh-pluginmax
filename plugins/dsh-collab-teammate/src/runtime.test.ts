@@ -1058,6 +1058,39 @@ describe("teammate live instance counts", () => {
     expect(counts.get(teammate.id)).toEqual({ liveCount: 1, ownCount: 0 });
   });
 
+  it("reports a teammate unavailable when its workspace Agent Profile is disabled", async () => {
+    const { teammates, runtime, agentProfiles } = setup();
+    const teammate = await activeTeammate(teammates, "platform");
+    const ensured = await runtime.ensureRuntime({
+      teammateId: teammate.id,
+      workspaceId: "workspace-1",
+      actor: admin,
+    });
+    expect(runtime.availabilityOf(teammate.id, "workspace-1")).toEqual({
+      available: true,
+    });
+    const profile = agentProfiles.find(
+      (candidate) => candidate.id === ensured.profileId,
+    );
+    if (profile === undefined) throw new Error("agent profile not created");
+    profile.status = "disabled";
+    expect(runtime.availabilityOf(teammate.id, "workspace-1")).toEqual({
+      available: false,
+      reason: "Agent Profile 已停用",
+    });
+    await runtime.ensureRuntime({
+      teammateId: teammate.id,
+      workspaceId: "workspace-1",
+      actor: admin,
+    });
+    expect(profile.status, "生效实例派发前应自动修复停用的执行身份").toBe(
+      "active",
+    );
+    expect(runtime.availabilityOf(teammate.id, "workspace-1")).toEqual({
+      available: true,
+    });
+  });
+
   it("archives an idle instance and transfers open tasks to its owner", async () => {
     const { teammates, runtime, principalRuntime, agentProfiles, employees } =
       setup();

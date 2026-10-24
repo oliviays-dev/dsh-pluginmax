@@ -149,7 +149,10 @@ export interface AgentServiceLike {
       readonly execution?: "builtin" | "external" | undefined;
       readonly externalRuntimeId?: string | undefined;
       readonly runtimeKind?:
-        "task-worker" | "continuable-session" | "connector" | undefined;
+        | "task-worker"
+        | "continuable-session"
+        | "connector"
+        | undefined;
       readonly visibility?: "workspace" | "platform" | undefined;
       /** 允许的工具名；空数组 = 不限制（与模版「未限制工具清单」一致）。 */
       readonly allowedTools?: readonly string[] | undefined;
@@ -202,7 +205,10 @@ export interface AgentServiceLike {
       readonly execution?: "builtin" | "external" | undefined;
       readonly externalRuntimeId?: string | undefined;
       readonly runtimeKind?:
-        "task-worker" | "continuable-session" | "connector" | undefined;
+        | "task-worker"
+        | "continuable-session"
+        | "connector"
+        | undefined;
       readonly visibility?: "workspace" | "platform" | undefined;
       readonly allowedTools?: readonly string[] | undefined;
     },
@@ -235,6 +241,8 @@ export interface AgentServiceLike {
     readonly agentProfileId?: string | undefined;
     readonly employeeId?: string | undefined;
     readonly principalId?: string | undefined;
+    /** 实际执行该 run 的人格；用于识别「任务接收人是人类、但由该 AI伙伴代跑」的情况。 */
+    readonly personaId?: string | undefined;
     readonly status: string;
     readonly runSeq: number;
     readonly nodeId: string;
@@ -367,6 +375,11 @@ export interface TeammateIdentity {
   readonly runtimeStatus: string;
 }
 
+export interface TeammateAvailability {
+  readonly available: boolean;
+  readonly reason?: string | undefined;
+}
+
 export interface TeammateArchiveTask {
   readonly id: string;
   readonly status: string;
@@ -402,7 +415,8 @@ export interface TeammateLeaveResult {
   }[];
   readonly reassignedTaskIds: readonly string[];
   readonly receiver?:
-    { readonly id: string; readonly name: string } | undefined;
+    | { readonly id: string; readonly name: string }
+    | undefined;
 }
 
 export interface TeammateLiveInstanceCounts {
@@ -852,6 +866,57 @@ export class TeammateRuntime {
   }
 
   /**
+   * 判断 AI伙伴能否在指定项目中真实执行。实例状态为 active 并不够：
+   * 已存在但停用的 Agent Profile 仍会让消息在派发阶段失败。
+   */
+  availabilityOf(
+    teammateId: string,
+    workspaceId: string,
+  ): TeammateAvailability {
+    const teammate = this.deps.teammates.get(teammateId);
+    if (teammate.state !== "active") {
+      return {
+        available: false,
+        reason: `AI伙伴当前为「${STATE_LABELS[teammate.state]}」`,
+      };
+    }
+    if (!this.templateActive(teammate)) {
+      return { available: false, reason: "AI伙伴模版不可用" };
+    }
+    const principals = this.deps.principals?.();
+    if (teammate.principalId !== undefined && principals !== undefined) {
+      const principal = principals.resolveSubject("teammate", teammate.id);
+      if (principal !== undefined && principal.status !== "active") {
+        return { available: false, reason: "AI Principal 不可用" };
+      }
+    }
+    const runtimeProfile =
+      teammate.principalId === undefined
+        ? undefined
+        : this.deps
+            .principalRuntime?.()
+            ?.profile(teammate.principalId, workspaceId);
+    if (runtimeProfile === undefined) {
+      // 首次对话时 ensureRuntime 会自动补齐运行时身份。
+      return { available: true };
+    }
+    if (runtimeProfile.status !== "active") {
+      return { available: false, reason: "运行时身份已停用" };
+    }
+    const agentProfile = this.deps
+      .agents?.()
+      ?.profiles?.(workspaceId)
+      .find((profile) => profile.id === runtimeProfile.agentProfileId);
+    if (agentProfile === undefined) {
+      return { available: false, reason: "Agent Profile 不存在" };
+    }
+    if (agentProfile.status !== "active") {
+      return { available: false, reason: "Agent Profile 已停用" };
+    }
+    return { available: true };
+  }
+
+  /**
    * Live instance requires every execution layer to be active; one workspace
    * contributes at most one live runtime even if legacy data has duplicates.
    */
@@ -1195,7 +1260,8 @@ export class TeammateRuntime {
     readonly assignmentId?: string | undefined;
     /** 未完成任务的改派目标；缺省表示本次不改派任务。 */
     readonly reassignTo?:
-      { readonly id: string; readonly name: string } | undefined;
+      | { readonly id: string; readonly name: string }
+      | undefined;
     readonly tasks: readonly TeammateLeaveTask[];
     readonly assignTask: (input: {
       readonly taskId: string;
@@ -1370,6 +1436,18 @@ export class TeammateRuntime {
   }
 
   /**
+   * Owner visibility is modeled as a set even though current data has one
+   * owner. Future shared-Agent ownership can add members without changing
+   * memory or private-chat authorization callers.
+   */
+  ownersOf(
+    ref: string,
+  ): readonly { readonly userId: string; readonly name: string }[] {
+    const owner = this.ownerOf(ref);
+    return owner === undefined ? [] : [owner];
+  }
+
+  /**
    * 人格文件回写：SOUL.md 正文 + 「工作场景」「工作目标」两个章节。
    * 场景行为 / 工作目标不再作为独立字段注入，运行时只有这一个人格口径；
    * 模版改过之后，老实例在下一次派发时自动对齐。
@@ -1510,6 +1588,7 @@ export class TeammateRuntime {
           await updateProfile.call(agents, runtimeAgentActor(input), {
             workspaceId: input.workspaceId,
             profileId: agentProfile.id,
+            status: "active",
             execution,
             ...(externalRuntimeId === undefined
               ? { externalRuntimeId: null }
@@ -1597,6 +1676,7 @@ export class TeammateRuntime {
           await updateProfile.call(agents, runtimeAgentActor(input), {
             workspaceId: input.workspaceId,
             profileId,
+            status: "active",
             execution,
             ...(externalRuntimeId === undefined
               ? { externalRuntimeId: null }
@@ -1829,6 +1909,7 @@ export class TeammateRuntime {
         {
           workspaceId: input.workspaceId,
           profileId,
+          status: "active",
           execution,
           ...(externalRuntimeId === undefined
             ? { externalRuntimeId: null }

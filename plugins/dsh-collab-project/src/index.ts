@@ -260,7 +260,14 @@ interface TaskLike {
   readonly receiverName?: string | undefined;
   readonly due?: string | undefined;
   readonly archivedAt?: string | undefined;
-  readonly workflow?: { readonly instanceId?: string | undefined } | undefined;
+  readonly workflow?:
+    | {
+        readonly instanceId?: string | undefined;
+        readonly instanceTitle?: string | undefined;
+        readonly nodeId?: string | undefined;
+        readonly nodeName?: string | undefined;
+      }
+    | undefined;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -272,6 +279,31 @@ interface TaskServiceLike {
     roles: ReadonlyMap<string, string>,
     skipTaskIds?: ReadonlySet<string>,
   ): Promise<number>;
+}
+
+interface TaskDocumentLike {
+  readonly id: string;
+  readonly kind: "produced" | "uploaded";
+  readonly name: string;
+  readonly relativePath: string;
+  readonly size: number;
+  readonly mimeType: string;
+  readonly updatedBy: string;
+  readonly updatedAt: string;
+  readonly available: boolean;
+}
+
+interface TaskDocumentQueryServiceLike {
+  list(
+    taskId: string,
+    options?: {
+      readonly includeUploaded?: boolean;
+      readonly maxFiles?: number;
+    },
+  ): Promise<{
+    readonly workspaceReady: boolean;
+    readonly documents: readonly TaskDocumentLike[];
+  }>;
 }
 
 interface PrincipalRecordLike {
@@ -315,6 +347,7 @@ interface PrincipalServiceLike {
 
 interface WorkflowInstanceLike {
   readonly id: string;
+  readonly definitionId?: string | undefined;
   readonly definitionKey: string;
   readonly definitionVersion: number;
   readonly title: string;
@@ -324,6 +357,26 @@ interface WorkflowInstanceLike {
     string,
     { readonly roleId?: string } | undefined
   >;
+}
+
+interface WorkflowArtifactLike {
+  readonly id: string;
+  readonly fileName: string;
+  readonly mimeType: string;
+  readonly size: number;
+}
+
+interface WorkflowSubmissionLike {
+  readonly id: string;
+  readonly instanceId: string;
+  readonly nodeId: string;
+  readonly requirementKey: string;
+  readonly requirementTitle: string;
+  readonly type: "file" | "text" | "link";
+  readonly artifacts: readonly WorkflowArtifactLike[];
+  readonly submittedByName: string;
+  readonly submittedAt: string;
+  readonly status: "submitted" | "rejected";
 }
 
 interface WorkflowNodeLike {
@@ -355,6 +408,7 @@ interface WorkflowDefinitionLike {
 interface WorkflowServiceLike {
   instances(workspaceId: string): readonly WorkflowInstanceLike[];
   instance?(instanceId: string): WorkflowInstanceLike | undefined;
+  submissions?(instanceId: string): readonly WorkflowSubmissionLike[];
   sharedDefinitions?(): readonly WorkflowDefinitionLike[];
 }
 
@@ -365,6 +419,7 @@ interface ProjectDependencies {
   readonly employees: () => EmployeeServiceLike | undefined;
   readonly teammates: () => TeammateRuntimeLike | undefined;
   readonly tasks: () => TaskServiceLike | undefined;
+  readonly taskDocuments?: () => TaskDocumentQueryServiceLike | undefined;
   readonly workflows: () => WorkflowServiceLike | undefined;
   readonly principals?: () => PrincipalServiceLike | undefined;
   readonly now?: () => Date;
@@ -645,6 +700,238 @@ function activeTasks(tasks: readonly TaskLike[]): TaskLike[] {
       if (gap !== 0) return gap;
       return String(right.createdAt).localeCompare(String(left.createdAt));
     });
+}
+
+type ProjectOutputType =
+  | "pdf"
+  | "word"
+  | "spreadsheet"
+  | "presentation"
+  | "markdown"
+  | "text"
+  | "image"
+  | "archive"
+  | "other";
+
+interface ProjectOutputItem {
+  readonly id: string;
+  readonly name: string;
+  readonly mimeType: string;
+  readonly size: number;
+  readonly updatedAt: string;
+  readonly documentType: ProjectOutputType;
+  readonly extension: string;
+  readonly authorName: string;
+  readonly sourceKind: "task" | "workflow";
+  readonly sourceId: string;
+  readonly sourceName: string;
+  readonly taskId?: string;
+  readonly workflowInstanceId?: string;
+  readonly workflowInstanceTitle?: string;
+  readonly workflowNodeId?: string;
+  readonly workflowNodeName?: string;
+  readonly submissionId?: string;
+  readonly artifactId?: string;
+  readonly downloadUrl: string;
+}
+
+function outputExtension(name: string): string {
+  const match = /\.([a-zA-Z0-9]{1,16})$/.exec(name.trim());
+  return match?.[1]?.toLowerCase() ?? "";
+}
+
+function outputType(name: string, mimeType: string): ProjectOutputType {
+  const extension = outputExtension(name);
+  if (extension === "pdf" || mimeType === "application/pdf") return "pdf";
+  if (["doc", "docx", "rtf", "odt"].includes(extension)) return "word";
+  if (["csv", "xls", "xlsx", "ods"].includes(extension)) return "spreadsheet";
+  if (["ppt", "pptx", "odp"].includes(extension)) return "presentation";
+  if (["md", "markdown"].includes(extension)) return "markdown";
+  if (["txt", "log", "json", "yml", "yaml"].includes(extension)) return "text";
+  if (
+    mimeType.startsWith("image/") ||
+    ["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(extension)
+  ) {
+    return "image";
+  }
+  if (["zip", "tar", "gz", "rar", "7z"].includes(extension)) return "archive";
+  return "other";
+}
+
+function outputDateKey(value: string): string {
+  return dateOf(value) || value.slice(0, 10);
+}
+
+function outputDedupeKey(
+  workflowInstanceId: string,
+  workflowNodeId: string,
+  name: string,
+  size: number,
+  date: string,
+): string {
+  return JSON.stringify([workflowInstanceId, workflowNodeId, name, size, date]);
+}
+
+async function projectOutputs(
+  workspaceId: string,
+  tasks: readonly TaskLike[],
+  taskDocuments: TaskDocumentQueryServiceLike | undefined,
+  workflows: WorkflowServiceLike | undefined,
+): Promise<ProjectOutputItem[]> {
+  const items: ProjectOutputItem[] = [];
+  const definitions = workflows?.sharedDefinitions?.() ?? [];
+  const instances = workflows?.instances(workspaceId) ?? [];
+  const instanceById = new Map(
+    instances.map((instance) => [instance.id, instance]),
+  );
+  const nodeNameFor = (
+    instance: WorkflowInstanceLike,
+    nodeId: string,
+  ): string | undefined => {
+    const definition =
+      definitions.find((item) => item.id === instance.definitionId) ??
+      definitions.find(
+        (item) =>
+          item.key === instance.definitionKey &&
+          item.version === instance.definitionVersion,
+      );
+    return definition?.graph?.nodes.find((node) => node.id === nodeId)?.name;
+  };
+
+  // 工作流提交是交付物的权威来源；同名同日期的任务扫描结果只保留一份。
+  const dedupe = new Set<string>();
+  for (const instance of instances) {
+    const submissions = [...(workflows?.submissions?.(instance.id) ?? [])]
+      .filter(
+        (submission) =>
+          submission.status === "submitted" &&
+          submission.type === "file" &&
+          submission.artifacts.length > 0,
+      )
+      .sort((left, right) => right.submittedAt.localeCompare(left.submittedAt));
+    const seenRequirements = new Set<string>();
+    for (const submission of submissions) {
+      const requirementId = `${submission.nodeId}:${submission.requirementKey}`;
+      if (seenRequirements.has(requirementId)) continue;
+      seenRequirements.add(requirementId);
+      const nodeName =
+        nodeNameFor(instance, submission.nodeId) ?? submission.nodeId;
+      for (const artifact of submission.artifacts) {
+        const key = outputDedupeKey(
+          instance.id,
+          submission.nodeId,
+          artifact.fileName,
+          artifact.size,
+          outputDateKey(submission.submittedAt),
+        );
+        dedupe.add(key);
+        items.push({
+          id: `workflow:${submission.id}:${artifact.id}`,
+          name: artifact.fileName,
+          mimeType: artifact.mimeType,
+          size: artifact.size,
+          updatedAt: submission.submittedAt,
+          documentType: outputType(artifact.fileName, artifact.mimeType),
+          extension: outputExtension(artifact.fileName),
+          authorName: submission.submittedByName,
+          sourceKind: "workflow",
+          sourceId: instance.id,
+          sourceName: instance.title,
+          workflowInstanceId: instance.id,
+          workflowInstanceTitle: instance.title,
+          workflowNodeId: submission.nodeId,
+          workflowNodeName: nodeName,
+          submissionId: submission.id,
+          artifactId: artifact.id,
+          downloadUrl: `/api/collab/workflow/deliverables/download?submissionId=${encodeURIComponent(submission.id)}&artifactId=${encodeURIComponent(artifact.id)}`,
+        });
+      }
+    }
+  }
+
+  for (const task of tasks) {
+    if (taskDocuments === undefined) break;
+    let result: Awaited<ReturnType<TaskDocumentQueryServiceLike["list"]>>;
+    try {
+      result = await taskDocuments.list(task.id, {
+        includeUploaded: false,
+        maxFiles: 100,
+      });
+    } catch {
+      continue;
+    }
+    const workflow = task.workflow;
+    const workflowInstance =
+      workflow?.instanceId === undefined
+        ? undefined
+        : instanceById.get(workflow.instanceId);
+    const workflowNodeName =
+      workflow?.nodeName ??
+      (workflowInstance === undefined || workflow?.nodeId === undefined
+        ? undefined
+        : nodeNameFor(workflowInstance, workflow.nodeId));
+    for (const document of result.documents) {
+      if (document.kind !== "produced" || !document.available) continue;
+      if (
+        workflow?.instanceId !== undefined &&
+        workflow.nodeId !== undefined &&
+        dedupe.has(
+          outputDedupeKey(
+            workflow.instanceId,
+            workflow.nodeId,
+            document.name,
+            document.size,
+            outputDateKey(document.updatedAt),
+          ),
+        )
+      ) {
+        continue;
+      }
+      const workflowInstanceTitle =
+        workflow?.instanceTitle ?? workflowInstance?.title;
+      const taskWorkflowLink: Pick<
+        ProjectOutputItem,
+        "workflowInstanceId" | "workflowInstanceTitle"
+      > =
+        workflow?.instanceId === undefined
+          ? {}
+          : workflowInstanceTitle === undefined
+            ? { workflowInstanceId: workflow.instanceId }
+            : {
+                workflowInstanceId: workflow.instanceId,
+                workflowInstanceTitle,
+              };
+      items.push({
+        id: `task:${task.id}:${document.id}`,
+        name: document.name,
+        mimeType: document.mimeType,
+        size: document.size,
+        updatedAt: document.updatedAt,
+        documentType: outputType(document.name, document.mimeType),
+        extension: outputExtension(document.name),
+        authorName: document.updatedBy,
+        sourceKind: "task",
+        sourceId: task.id,
+        sourceName: task.title,
+        taskId: task.id,
+        ...taskWorkflowLink,
+        ...(workflow?.nodeId === undefined
+          ? {}
+          : {
+              workflowNodeId: workflow.nodeId,
+              ...(workflowNodeName === undefined ? {} : { workflowNodeName }),
+            }),
+        downloadUrl: `/api/collab/tasks/document/content?taskId=${encodeURIComponent(task.id)}&path=${encodeURIComponent(document.relativePath)}`,
+      });
+    }
+  }
+  return items
+    .sort(
+      (left, right) =>
+        right.updatedAt.localeCompare(left.updatedAt) ||
+        left.name.localeCompare(right.name),
+    )
+    .slice(0, 2_000);
 }
 
 interface ProjectNoteSet {
@@ -937,9 +1224,10 @@ function buildMembers(
           principals?.resolveSubject("teammate", teammate.id)?.id ??
           (teammate.employeeId === undefined
             ? undefined
-            : employees?.list().find(
-                (employee) => employee.id === teammate.employeeId,
-              )?.principalId);
+            : employees
+                ?.list()
+                .find((employee) => employee.id === teammate.employeeId)
+                ?.principalId);
         return {
           id: teammate.id,
           ...(principalId === undefined ? {} : { principalId }),
@@ -1421,10 +1709,9 @@ export function createProjectRoutes(
       readonly detail?: Readonly<Record<string, string>> | undefined;
     },
   ): Promise<void> {
-    const actorPrincipalId = dependencies.principals?.()?.resolveSubject(
-      "auth-user",
-      current.userId,
-    )?.id;
+    const actorPrincipalId = dependencies
+      .principals?.()
+      ?.resolveSubject("auth-user", current.userId)?.id;
     await service.appendAudit({
       workspaceId,
       actorId: current.userId,
@@ -2732,6 +3019,38 @@ export function createProjectRoutes(
     }
   };
 
+  const outputs = async (
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> => {
+    try {
+      assertSameOrigin(request);
+      const workspaceId = query(request).get("workspaceId") ?? "";
+      if (workspaceId === "") {
+        throw new ProjectError("invalid_input", "workspaceId is required");
+      }
+      requireWorkspaceAccess(request, team, workspaceId);
+      const workspace = workspaces.get(workspaceId);
+      if (workspace === undefined) {
+        throw new ProjectError("not_found", "项目不存在");
+      }
+      const items = await projectOutputs(
+        workspaceId,
+        dependencies.tasks()?.list(workspaceId) ?? [],
+        dependencies.taskDocuments?.(),
+        dependencies.workflows(),
+      );
+      sendJson(response, 200, {
+        ok: true,
+        workspaceId,
+        generatedAt: nowIso(now),
+        outputs: items,
+      });
+    } catch (cause) {
+      routeError(response, cause);
+    }
+  };
+
   const membersSave = async (
     request: IncomingMessage,
     response: ServerResponse,
@@ -2963,8 +3282,7 @@ export function createProjectRoutes(
                 name: actorName(current.userId),
                 role: current.role,
               },
-            ).find((candidate) => candidate.id === memberId)?.name ??
-            memberId);
+            ).find((candidate) => candidate.id === memberId)?.name ?? memberId);
       if (memberKind === "human") {
         const previousWorkspaceRole = memberRoleOf(
           team,
@@ -3178,6 +3496,7 @@ export function createProjectRoutes(
   return [
     { kind: "exact", path: "/api/collab/projects", handler: list },
     { kind: "exact", path: "/api/collab/projects/detail", handler: detail },
+    { kind: "exact", path: "/api/collab/projects/outputs", handler: outputs },
     { kind: "exact", path: "/api/collab/projects/create", handler: create },
     { kind: "exact", path: "/api/collab/projects/update", handler: update },
     {
@@ -3333,7 +3652,8 @@ export async function apply(ctx: ProjectContext): Promise<void> {
   ctx.effect(() => () => void domain.close());
   ctx.inject(["collabTeam"], (child) => {
     const workspaces = child.get("workspaceRegistry") as
-      WorkspaceRegistryLike | undefined;
+      | WorkspaceRegistryLike
+      | undefined;
     if (workspaces === undefined) return;
     /** 启动时为已有工作区补齐项目记录与编号（幂等，已有编号不变）。 */
     void (async () => {
@@ -3356,6 +3676,10 @@ export async function apply(ctx: ProjectContext): Promise<void> {
       teammates: () =>
         child.get("collabTeammateRuntime") as TeammateRuntimeLike | undefined,
       tasks: () => child.get("collabTasks") as TaskServiceLike | undefined,
+      taskDocuments: () =>
+        child.get("collabTaskDocuments") as
+          | TaskDocumentQueryServiceLike
+          | undefined,
       workflows: () =>
         child.get("collabWorkflow") as WorkflowServiceLike | undefined,
       principals: () =>
@@ -3371,7 +3695,8 @@ export async function apply(ctx: ProjectContext): Promise<void> {
    */
   ctx.inject(["collabTeam", "workspaceController"], (child) => {
     const workspaces = child.get("workspaceRegistry") as
-      WorkspaceRegistryLike | undefined;
+      | WorkspaceRegistryLike
+      | undefined;
     const controller =
       child.workspaceController ??
       (child.get("workspaceController") as WorkspaceControllerLike | undefined);

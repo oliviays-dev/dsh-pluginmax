@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, utimes, writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +7,7 @@ import {
   canReviewTask,
   createTaskDispatcher,
   createTaskRoutes,
+  taskContextContributions,
 } from "./index.js";
 import {
   orderQueue,
@@ -18,6 +19,8 @@ import type { TaskRecord } from "./types.js";
 import {
   attachmentDocuments,
   collectDocuments,
+  extractAgentOutputDocuments,
+  materializeAgentOutputDocuments,
   mergeDocuments,
   safeFileName,
   windowsFromRuns,
@@ -148,6 +151,17 @@ describe("dsh-collab-task service", () => {
     });
     const commentId = commented.comments[0]?.id;
     expect(commentId).toBeDefined();
+    expect(commented.comments[0]?.isKeyConsensus).toBe(false);
+    const consensus = await tasks.addComment(olivia, {
+      taskId: created.id,
+      content: "风险章节使用统一口径，并保留来源链接。",
+      isKeyConsensus: true,
+    });
+    expect(consensus.comments.at(-1)).toMatchObject({
+      content: "风险章节使用统一口径，并保留来源链接。",
+      isKeyConsensus: true,
+    });
+    expect(consensus.events.at(-1)?.message).toBe("Olivia 添加了关键共识");
     const replied = await tasks.replyComment(olivia, {
       taskId: created.id,
       commentId: commentId!,
@@ -158,6 +172,40 @@ describe("dsh-collab-task service", () => {
     const done = await tasks.approve(olivia, created.id);
     expect(done.status).toBe("done");
     expect(done.progress).toBe(100);
+  });
+
+  it("exposes key consensus as structured context contributions", async () => {
+    const tasks = service();
+    const created = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Context contributions",
+      priority: "P2",
+      receiverType: "unassigned",
+      description: "Collect confirmed decisions.",
+      acceptance: ["Decision is recorded"],
+    });
+    await tasks.addComment(olivia, {
+      taskId: created.id,
+      content: "这条只是讨论",
+    });
+    await tasks.addComment(olivia, {
+      taskId: created.id,
+      content: "正文控制在 1000 字以内。",
+      isKeyConsensus: true,
+    });
+    const contributions = taskContextContributions(tasks.get(created.id));
+    expect(contributions).toHaveLength(1);
+    expect(contributions[0]).toMatchObject({
+      id: expect.stringMatching(/^task-consensus:/),
+      text: expect.stringContaining("正文控制在 1000 字以内。"),
+      sourceRefs: [
+        {
+          type: "task-comment",
+          version: expect.any(String),
+        },
+      ],
+    });
+    expect(JSON.stringify(contributions)).not.toContain("这条只是讨论");
   });
 
   it("refuses review submission without a completed acceptance item", async () => {
@@ -214,6 +262,44 @@ describe("dsh-collab-task service", () => {
     const completed = await tasks.submit(olivia, created.id);
     expect(completed.status).toBe("done");
     expect(completed.progress).toBe(100);
+  });
+
+  it("requires and records a rejection note", async () => {
+    const tasks = service();
+    const created = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Reject with explanation",
+      priority: "P2",
+      status: "review",
+      receiverType: "human",
+      receiverId: "olivia",
+      receiverName: "Olivia",
+      description: "Rejections must explain what remains incomplete.",
+      acceptance: ["Risk section is complete"],
+    });
+
+    await expect(tasks.reject(olivia, created.id, "   ")).rejects.toMatchObject(
+      {
+        code: "invalid_input",
+        message: "退回必须填写退回说明",
+      },
+    );
+    expect(tasks.get(created.id).status).toBe("review");
+
+    const rejected = await tasks.reject(
+      olivia,
+      created.id,
+      "缺少风险项，请补充影响范围和应对措施",
+    );
+    expect(rejected.status).toBe("progress");
+    expect(rejected.messages.at(-1)).toMatchObject({
+      kind: "human",
+      content: "缺少风险项，请补充影响范围和应对措施",
+      deliveryTarget: "receiver",
+    });
+    expect(rejected.events.at(-1)?.message).toContain(
+      "退回并补充说明：缺少风险项",
+    );
   });
 
   it("rejects invalid create input", async () => {
@@ -404,6 +490,7 @@ describe("dsh-collab-task service", () => {
     expect(queued.agentRunIds).toEqual(["run-1"]);
     expect(queued.messages[0]).toMatchObject({
       runId: "run-1",
+      runRole: "owner",
       state: "queued",
       authorName: "Backend DE",
     });
@@ -414,6 +501,14 @@ describe("dsh-collab-task service", () => {
         id: "run-1",
         instanceId: created.id,
         status: "succeeded",
+        execution: {
+          provider: "custom",
+          model: "deepseek-flash",
+          runtime: "Codex CLI",
+          runtimeVersion: "0.163.0-alpha.10.2",
+          authMode: "api-key",
+          sandbox: "read-only / network restricted",
+        },
         output: { summary: "Implementation note completed." },
       },
       "Backend DE",
@@ -423,6 +518,14 @@ describe("dsh-collab-task service", () => {
       runId: "run-1",
       state: "succeeded",
       content: "Implementation note completed.",
+      execution: {
+        provider: "custom",
+        model: "deepseek-flash",
+        runtime: "Codex CLI",
+        runtimeVersion: "0.163.0-alpha.10.2",
+        authMode: "api-key",
+        sandbox: "read-only / network restricted",
+      },
     });
   });
 
@@ -737,9 +840,10 @@ describe("dsh-collab-task service", () => {
       receiverName: "Member",
     });
     expect(events).toContainEqual({ kind: "assigned", decision: "member" });
-    const rejected = await tasks.reject(olivia, approval.id);
+    const rejected = await tasks.reject(olivia, approval.id, "审批资料不完整");
     expect(rejected.status).toBe("done");
     expect(rejected.workflow?.outcome).toBe("rejected");
+    expect(rejected.messages.at(-1)?.content).toBe("审批资料不完整");
     expect(events).toContainEqual({ kind: "decision", decision: "rejected" });
   });
 
@@ -1132,6 +1236,45 @@ describe("dsh-collab-task service", () => {
     expect(unchanged.events).toHaveLength(restored.events.length);
   });
 
+  it("archives a cancelled task and restores it without reopening it", async () => {
+    const tasks = service();
+    const created = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Archive a cancelled task",
+      priority: "P3",
+      receiverType: "human",
+      receiverId: "olivia",
+      receiverName: "Olivia",
+      description: "Cancelled history should be removable from the board.",
+      acceptance: ["Cancellation remains unchanged"],
+    });
+    const cancelled = await tasks.changeStatus(olivia, {
+      taskId: created.id,
+      status: "cancelled",
+    });
+    expect(cancelled.status).toBe("cancelled");
+
+    const archived = await tasks.archive(olivia, created.id);
+    expect(archived).toMatchObject({
+      id: created.id,
+      status: "cancelled",
+    });
+    expect(archived.archivedAt).toBeTruthy();
+
+    const restored = await tasks.restore(olivia, created.id);
+    expect(restored).toMatchObject({
+      id: created.id,
+      status: "cancelled",
+    });
+    expect(restored.archivedAt).toBeUndefined();
+    expect(restored.events.map((event) => event.kind)).toEqual([
+      "created",
+      "status",
+      "archived",
+      "restored",
+    ]);
+  });
+
   it("keeps archived tasks read-only until they are restored", async () => {
     const tasks = service();
     const created = await tasks.create(olivia, {
@@ -1192,8 +1335,14 @@ describe("dsh-collab-task service", () => {
     await mkdir(join(root, "src"), { recursive: true });
     await writeFile(join(root, "src", "index.ts"), "export {};\n", "utf8");
     await mkdir(join(root, "node_modules", "left-pad"), { recursive: true });
+    await mkdir(join(root, ".pluginmax", "task-outputs"), { recursive: true });
     await writeFile(
       join(root, "node_modules", "left-pad", "index.js"),
+      "",
+      "utf8",
+    );
+    await writeFile(
+      join(root, ".pluginmax", "task-outputs", "内部文档.md"),
       "",
       "utf8",
     );
@@ -1204,12 +1353,18 @@ describe("dsh-collab-task service", () => {
       inside,
       inside,
     );
+    await utimes(
+      join(root, ".pluginmax", "task-outputs", "内部文档.md"),
+      inside,
+      inside,
+    );
     await writeFile(join(root, ".DS_Store"), "junk", "utf8");
     await utimes(join(root, ".DS_Store"), inside, inside);
 
     const windows = windowsFromRuns(
       [
         {
+          id: "run-product",
           startedAt: new Date(now - 120_000).toISOString(),
           endedAt: new Date(now).toISOString(),
           actor: "Pluginmax DE",
@@ -1224,6 +1379,7 @@ describe("dsh-collab-task service", () => {
       "产品PRD.md",
     ]);
     expect(documents[0]).toMatchObject({
+      runId: "run-product",
       kind: "produced",
       name: "产品PRD.md",
       updatedBy: "Pluginmax DE",
@@ -1242,6 +1398,7 @@ describe("dsh-collab-task service", () => {
     const windows = windowsFromRuns(
       [
         {
+          id: "run-after-settle",
           startedAt: new Date(now - 10 * 60_000).toISOString(),
           endedAt: new Date(now - 8 * 60_000).toISOString(),
           actor: "DE 测小白",
@@ -1255,6 +1412,7 @@ describe("dsh-collab-task service", () => {
       "五子棋PRD.md",
     ]);
     expect(documents[0]?.updatedBy).toBe("DE 测小白");
+    expect(documents[0]?.runId).toBe("run-after-settle");
   });
 
   it("ignores files touched outside every run window", async () => {
@@ -1280,6 +1438,175 @@ describe("dsh-collab-task service", () => {
     });
     expect(documents).toEqual([]);
     expect(await collectDocuments({ root, windows: [] })).toEqual([]);
+  });
+
+  it("extracts named documents from read-only agent output", () => {
+    const legacy = [
+      "当前工作区为只读，无法生成可下载附件；以下为完整单文件 Markdown 源文，名为 `OPPO_R9_2016_上市前行业分析.md`。",
+      "",
+      "# OPPO R9 上市前行业分析",
+      "",
+      "## 结论",
+      "",
+      "只采用发布前可获得的信息。",
+    ].join("\n");
+    expect(extractAgentOutputDocuments(legacy)).toEqual([
+      {
+        name: "OPPO_R9_2016_上市前行业分析.md",
+        content: [
+          "# OPPO R9 上市前行业分析",
+          "",
+          "## 结论",
+          "",
+          "只采用发布前可获得的信息。",
+        ].join("\n"),
+      },
+    ]);
+
+    const protocol = [
+      "已完成两份文档。",
+      "<!-- pluginmax-document: 调研报告.md -->",
+      "# 调研报告",
+      "",
+      "正文",
+      "<!-- /pluginmax-document -->",
+      "<!-- pluginmax-document: 数据附录.json -->",
+      '{"ok":true}',
+      "<!-- /pluginmax-document -->",
+    ].join("\n");
+    expect(extractAgentOutputDocuments(protocol)).toEqual([
+      { name: "调研报告.md", content: "# 调研报告\n\n正文" },
+      { name: "数据附录.json", content: '{"ok":true}' },
+    ]);
+  });
+
+  it("materializes read-only agent output as downloadable task documents", async () => {
+    const root = await mkdtemp(join(tmpdir(), "task-output-documents-"));
+    const summary = [
+      "当前工作区为只读；以下文件名为 `行业分析.md`。",
+      "",
+      "# 行业分析",
+      "",
+      "这是完整正文。",
+    ].join("\n");
+    const options = {
+      root,
+      taskId: "TSK-OUTPUT-1",
+      runs: [
+        {
+          id: "run-output-1",
+          status: "succeeded",
+          endedAt: "2026-10-23T03:00:00.000Z",
+          actor: "Codex 调研架构师",
+          output: { summary },
+        },
+      ],
+    };
+    const documents = await materializeAgentOutputDocuments(options);
+    expect(documents).toHaveLength(1);
+    expect(documents[0]).toMatchObject({
+      runId: "run-output-1",
+      kind: "produced",
+      name: "行业分析.md",
+      updatedBy: "Codex 调研架构师",
+      updatedAt: "2026-10-23T03:00:00.000Z",
+      mimeType: "text/markdown; charset=utf-8",
+      available: true,
+    });
+    expect(
+      await readFile(
+        join(root, documents[0]?.relativePath ?? "missing"),
+        "utf8",
+      ),
+    ).toBe("# 行业分析\n\n这是完整正文。\n");
+
+    const repeated = await materializeAgentOutputDocuments(options);
+    expect(repeated.map((document) => document.relativePath)).toEqual(
+      documents.map((document) => document.relativePath),
+    );
+  });
+
+  it("lists read-only run output through the task documents endpoint", async () => {
+    const root = await mkdtemp(join(tmpdir(), "task-output-route-"));
+    const tasks = service();
+    const created = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "读取只读运行产物",
+      priority: "P2",
+      receiverType: "agent",
+      receiverId: "tm-1",
+      receiverName: "Codex 调研架构师",
+      description: "生成 Markdown 报告。",
+      acceptance: ["报告可下载"],
+    });
+    const routes = createTaskRoutes(
+      tasks,
+      {
+        resolveToken: (candidate) =>
+          candidate === "token"
+            ? { userId: "admin", role: "admin" }
+            : undefined,
+        users: () => [{ id: "admin", name: "Admin", role: "admin" }],
+        members: () => [{ userId: "admin", memberRole: "owner" }],
+      },
+      undefined,
+      undefined,
+      () => ({
+        bindTask: () => undefined,
+        dispatch: async () => {
+          throw new Error("not used");
+        },
+        runs: () => [
+          {
+            id: "run-doc-1",
+            status: "succeeded" as const,
+            createdAt: "2026-10-23T02:50:00.000Z",
+            startedAt: "2026-10-23T02:50:00.000Z",
+            endedAt: "2026-10-23T03:00:00.000Z",
+            payload: {
+              profileName: "Codex 调研架构师",
+              context: { taskRunRole: "owner" },
+            },
+            output: {
+              summary:
+                "当前工作区为只读；文档名为 `行业分析.md`。\n\n# 行业分析\n\n完整正文。",
+            },
+          },
+        ],
+      }),
+      {
+        get: () => ({ id: "workspace-1", path: root }),
+        list: () => [{ id: "workspace-1", path: root }],
+      },
+    );
+    const documentsRoute = routes.find(
+      (route) => route.path === "/api/collab/tasks/documents",
+    );
+    const response = fakeResponse();
+    await documentsRoute?.handler(
+      fakeRequest({
+        method: "GET",
+        url: `/api/collab/tasks/documents?taskId=${created.id}`,
+      }),
+      response.response,
+    );
+    const result = response.read();
+    expect(result.status).toBe(200);
+    expect(result.body?.documents).toContainEqual(
+      expect.objectContaining({
+        runId: "run-doc-1",
+        kind: "produced",
+        name: "行业分析.md",
+        updatedBy: "Codex 调研架构师",
+        available: true,
+      }),
+    );
+    const listed = (
+      result.body?.documents as Array<{ relativePath: string }> | undefined
+    )?.[0];
+    expect(
+      await readFile(join(root, listed?.relativePath ?? "missing"), "utf8"),
+    ).toBe("# 行业分析\n\n完整正文。\n");
   });
 
   it("falls back to the task owner name and sanitizes upload names", () => {
@@ -1333,9 +1660,11 @@ describe("dsh-collab-task service", () => {
         ],
       },
       true,
+      new Map([["message-1", "run-upload-1"]]),
     );
     expect(uploaded).toHaveLength(2);
     expect(uploaded[0]).toMatchObject({
+      runId: "run-upload-1",
       kind: "uploaded",
       name: "需求.md",
       relativePath: ".pluginmax/task-uploads/TSK-1/需求.md",
@@ -1664,6 +1993,8 @@ describe("teammate task assignment", () => {
     const tasks = new TaskService({ tasks: memoryTable() });
     const dispatched: Array<Record<string, unknown>> = [];
     const tickets: Array<Record<string, unknown>> = [];
+    const prepared: Array<Record<string, unknown>> = [];
+    const receipts: Array<Record<string, unknown>> = [];
     const actor = { id: "admin", name: "Admin", kind: "human" as const };
     const task = await tasks.create(actor, {
       workspaceId: "workspace-1",
@@ -1693,6 +2024,21 @@ describe("teammate task assignment", () => {
             status: "queued",
           };
         },
+        run: (runId: string) =>
+          runId === "run-previous"
+            ? {
+                id: "run-previous",
+                instanceId: task.id,
+                status: "queued" as const,
+                payload: {
+                  context: {
+                    taskReceiverId: "tm-principal",
+                    taskRunRole: "owner",
+                    taskSessionEpoch: "0",
+                  },
+                },
+              }
+            : undefined,
       }),
       workspaces: {
         get: () => ({ id: "workspace-1", path: "/tmp/workspace-1" }),
@@ -1713,21 +2059,77 @@ describe("teammate task assignment", () => {
           return { id: "principal-ticket-task" };
         },
       }),
+      context: () => ({
+        registerAdapter: () => () => undefined,
+        prepare: async (input) => {
+          prepared.push(input);
+          return {
+            id: "pack-task-1",
+            sessionBindingId: "task:task-1:principal:g0",
+            rendered: {
+              systemText: "system",
+              userText: "task context",
+              flattenedPrompt: "system\n\ntask context",
+            },
+          };
+        },
+        session: () => ({ sessionId: "de-task-context", generation: 0 }),
+        recordRuntime: async (input) => {
+          receipts.push(input);
+        },
+      }),
     });
 
-    await dispatch(task, actor);
+    const taskWithHistory = await tasks.attachAgentRun(
+      task.id,
+      {
+        id: "run-previous",
+        instanceId: task.id,
+        status: "queued",
+        payload: {
+          context: {
+            taskReceiverId: "tm-principal",
+            taskRunRole: "owner",
+            taskSessionEpoch: "0",
+          },
+        },
+      },
+      "Principal Worker",
+    );
+    await dispatch(taskWithHistory, actor);
 
     expect(dispatched[0]).toMatchObject({
       profileId: "agent-principal",
       principalId: "principal-ai-tm-principal",
       principalType: "principal-runtime",
       ticketId: "principal-ticket-task",
+      contextPackId: "pack-task-1",
+      sessionBindingId: "task:task-1:principal:g0",
+      sessionId: "de-task-context",
+      payload: {
+        context: {
+          instruction: "system\n\ntask context",
+          contextPackId: "pack-task-1",
+        },
+      },
     });
     expect(dispatched[0]?.employeeId).toBeUndefined();
     expect(tickets[0]).toMatchObject({
       principalId: "principal-ai-tm-principal",
       contextType: "task",
       contextId: task.id,
+    });
+    expect(prepared[0]).toMatchObject({
+      scene: "task",
+      objectId: task.id,
+      agentProfileId: "agent-principal",
+      actorPrincipalId: "admin",
+      rerunOfRunId: "run-previous",
+    });
+    expect(receipts[0]).toMatchObject({
+      runId: "run-principal",
+      contextPackId: "pack-task-1",
+      runtime: { kind: "builtin" },
     });
   });
 
@@ -2217,11 +2619,19 @@ describe("task context delivery", () => {
         body: {
           taskId: task.id,
           content: "我们内部再确认一下风险章节的口径。",
+          isKeyConsensus: true,
         },
       }),
       discussion.response,
     );
     expect(discussion.read().body?.dispatched).toBe(false);
+    expect(
+      (
+        discussion.read().body?.task as
+          | { comments?: Array<Record<string, unknown>> }
+          | undefined
+      )?.comments?.at(-1),
+    ).toMatchObject({ isKeyConsensus: true });
     expect(dispatched).toHaveLength(1);
 
     // 指令输入框：不 @ 也直接触发，且只投递增量
@@ -2240,6 +2650,7 @@ describe("task context delivery", () => {
     expect(second).not.toContain("# 任务");
     expect(second).toContain("## 上次投递之后的新增讨论");
     expect(second).not.toContain("这是 Agent 的旧结论");
+    expect(second).not.toContain("我们内部再确认一下风险章节的口径。");
     expect(second).toContain("请按确认后的口径更新风险章节。");
     expect(dispatched[1]?.payload.context.firstDelivery).toBe("false");
     expect(dispatched[1]?.payload.context.taskReceiverId).toBe("tm-1");
@@ -2476,6 +2887,140 @@ describe("task continuation re-dispatch", () => {
     expect(instruction).toContain("补一节回滚方案");
     expect(instruction).toContain("回滚方案可执行");
     expect(instruction).not.toContain("这是 Agent 的上一轮结论");
+  });
+
+  it("restores the submitting agent and immediately redelivers a rejection note", async () => {
+    const harness = contextHarness();
+    const { dispatched, tasks } = harness;
+    const task = await createAssignedTask(harness);
+    await settleFirstRound(harness, task.id);
+    await tasks.assign(
+      { id: "admin", name: "Admin", kind: "human" },
+      {
+        taskId: task.id,
+        receiverType: "human",
+        receiverId: "admin",
+        receiverName: "平台 Admin",
+      },
+    );
+    expect(tasks.get(task.id)).toMatchObject({
+      status: "review",
+      receiverType: "human",
+      receiverId: "admin",
+      reviewSubmitter: {
+        receiverType: "agent",
+        receiverId: "tm-1",
+        receiverName: "测小白",
+      },
+    });
+    expect(dispatched).toHaveLength(1);
+
+    const note = "请补充风险清单，并为每个风险写出应对措施和责任人。";
+    const rejected = fakeResponse();
+    await harness.route("/api/collab/tasks/action").handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/action",
+        body: { taskId: task.id, action: "reject", note },
+      }),
+      rejected.response,
+    );
+
+    const result = rejected.read();
+    expect(result.status).toBe(200);
+    const rejectedTask = result.body?.task as
+      | (Record<string, unknown> & {
+          messages?: Array<Record<string, unknown>>;
+        })
+      | undefined;
+    expect(rejectedTask).toMatchObject({
+      status: "progress",
+      receiverType: "agent",
+      receiverId: "tm-1",
+      receiverName: "测小白",
+    });
+    expect(rejectedTask?.reviewSubmitter).toBeUndefined();
+    const rejectedMessages = rejectedTask?.messages ?? [];
+    expect(rejectedMessages).toContainEqual(
+      expect.objectContaining({
+        kind: "human",
+        content: note,
+        deliveryTarget: "receiver",
+      }),
+    );
+    expect(result.body?.execution).toMatchObject({ runId: "run-2" });
+
+    expect(dispatched).toHaveLength(2);
+    expect(dispatched[1]?.payload.context.taskReceiverId).toBe("tm-1");
+    expect(dispatched[1]?.payload.context.triggerMessageId).not.toBe("");
+    expect(dispatched[1]?.payload.context.instruction).toContain(note);
+    expect(
+      tasks
+        .get(task.id)
+        .messages.some(
+          (message) => message.kind === "human" && message.content === note,
+        ),
+    ).toBe(true);
+  });
+
+  it("keeps rejected feedback active when a failed run is retried", async () => {
+    const harness = contextHarness();
+    const { dispatched, tasks } = harness;
+    const task = await createAssignedTask(harness);
+    await settleFirstRound(harness, task.id);
+    await tasks.assign(
+      { id: "admin", name: "Admin", kind: "human" },
+      {
+        taskId: task.id,
+        receiverType: "human",
+        receiverId: "admin",
+        receiverName: "平台 Admin",
+      },
+    );
+
+    const note = "补充分析过程说明，并解释订单需求缺口如何影响结论。";
+    const rejected = fakeResponse();
+    await harness.route("/api/collab/tasks/action").handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/action",
+        body: { taskId: task.id, action: "reject", note },
+      }),
+      rejected.response,
+    );
+    expect(rejected.read().status).toBe(200);
+    expect(dispatched).toHaveLength(2);
+
+    await tasks.attachAgentRun(
+      task.id,
+      {
+        id: "run-2",
+        instanceId: task.id,
+        status: "failed",
+        error: "502 TLS connection failed",
+      },
+      "测小白",
+    );
+
+    const retried = fakeResponse();
+    await harness.route("/api/collab/tasks/message").handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/message",
+        body: { taskId: task.id, content: "重试一下" },
+      }),
+      retried.response,
+    );
+    expect(retried.read().status).toBe(200);
+    expect(dispatched).toHaveLength(3);
+
+    const instruction = dispatched[2]?.payload.context.instruction ?? "";
+    const activeSection = instruction.slice(
+      instruction.indexOf("## 本次需要你响应"),
+    );
+    expect(activeSection).toContain("本轮仍有尚未完成的人类要求");
+    expect(activeSection).toContain(note);
+    expect(activeSection).toContain("重试一下");
   });
 
   it("stays a no-op when the same agent already saw everything", async () => {
@@ -2795,6 +3340,7 @@ describe("task cross-agent mention", () => {
       "评审意见：可以进入开发，注意补回滚方案。",
     );
     expect(after.messages.at(-1)?.authorName).toBe("柯真 01 测试");
+    expect(after.messages.at(-1)?.runRole).toBe("assist");
   });
 
   it("refuses any write that would move a task to another project", async () => {
@@ -3050,6 +3596,11 @@ describe("task queue and待确认", () => {
     );
     expect(inReview.status).toBe("review");
     expect(inReview.receiverType).toBe("human");
+    expect(inReview.reviewSubmitter).toMatchObject({
+      receiverType: "agent",
+      receiverId: "tm-1",
+      receiverName: "小白 PD",
+    });
 
     const handed = await tasks.confirm(olivia, {
       taskId: created.id,
@@ -3066,6 +3617,7 @@ describe("task queue and待确认", () => {
     });
     expect(approved.status).toBe("done");
     expect(approved.progress).toBe(100);
+    expect(approved.reviewSubmitter).toBeUndefined();
   });
 
   it("requeues a rejected task with the note and a tail sequence", async () => {
@@ -3096,8 +3648,12 @@ describe("task queue and待确认", () => {
     expect(rejected.status).toBe("todo");
     expect(rejected.needsInput).toBe(false);
     expect(rejected.queueSeq).toBe(2000);
+    expect(rejected.receiverType).toBe("agent");
+    expect(rejected.receiverId).toBe("tm-1");
+    expect(rejected.receiverName).toBe("小白 PD");
+    expect(rejected.reviewSubmitter).toBeUndefined();
     expect(rejected.messages.at(-1)?.content).toBe("请补充证据链");
-    expect(rejected.events.at(-1)?.message).toContain("退回并补充说明");
+    expect(rejected.events.at(-1)?.message).toContain("负责人恢复为 小白 PD");
     // 退回后任务已回到「待处理」，再次退回属于状态冲突。
     await expect(
       tasks.confirm(olivia, { taskId: created.id, action: "reject" }),

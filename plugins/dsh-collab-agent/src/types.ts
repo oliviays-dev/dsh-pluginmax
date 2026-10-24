@@ -35,6 +35,15 @@ export const agentDeliverableBriefSchema = z.object({
   minTextLength: z.number().int().min(1).max(20_000).optional(),
 });
 
+export const agentExecutionMetadataSchema = z.object({
+  provider: z.string().trim().min(1).max(120).default("unknown"),
+  model: z.string().trim().min(1).max(160).default("unknown"),
+  runtime: z.string().trim().min(1).max(200).default("unknown"),
+  runtimeVersion: z.string().trim().min(1).max(120).default("unknown"),
+  authMode: z.string().trim().min(1).max(120).default("unknown"),
+  sandbox: z.string().trim().min(1).max(240).default("unknown"),
+});
+
 export const agentRunPayloadSchema = z.object({
   instanceTitle: z.string().min(1).max(160),
   nodeName: z.string().min(1).max(160),
@@ -71,7 +80,7 @@ export const agentRunSchema = z.object({
     .enum(["transitional-agent", "digital-employee", "principal-runtime"])
     .optional(),
   ticketId: z.string().regex(idPattern).optional(),
-  source: z.enum(["workflow", "task", "meeting"]),
+  source: z.enum(["workflow", "task", "meeting", "chat"]),
   instanceId: z.string().min(1).max(160),
   nodeId: z.string().regex(idPattern),
   dispatchKey: z.string().min(1).max(400),
@@ -84,7 +93,10 @@ export const agentRunSchema = z.object({
   payload: agentRunPayloadSchema,
   promptSnapshot: z.string().max(60_000).optional(),
   sessionId: z.string().min(1).max(200).optional(),
+  sessionBindingId: z.string().min(1).max(240).optional(),
   externalSessionId: z.string().min(1).max(200).optional(),
+  contextPackId: z.string().min(1).max(180).optional(),
+  execution: agentExecutionMetadataSchema.optional(),
   output: z
     .object({
       summary: z.string().max(60_000),
@@ -152,6 +164,9 @@ export type ExternalAgentProtocol = z.infer<
 >["protocol"];
 export type ExternalAgentRuntime = z.infer<typeof externalAgentRuntimeSchema>;
 export type AgentDeliverableBrief = z.infer<typeof agentDeliverableBriefSchema>;
+export type AgentExecutionMetadata = z.infer<
+  typeof agentExecutionMetadataSchema
+>;
 export type AgentRunPayload = z.infer<typeof agentRunPayloadSchema>;
 export type AgentRunStatus = z.infer<typeof agentRunStatusSchema>;
 export type AgentRun = z.infer<typeof agentRunSchema>;

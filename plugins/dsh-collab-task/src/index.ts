@@ -26,6 +26,7 @@ import type { TaskRecord } from "./types.js";
 import {
   attachmentDocuments,
   collectDocuments,
+  materializeAgentOutputDocuments,
   mergeDocuments,
   mimeTypeFor,
   safeFileName,
@@ -148,7 +149,8 @@ interface EmployeeServiceLike {
           readonly name: string;
           readonly legacyAgentProfileId?: string | undefined;
           readonly budget?:
-            { readonly maxMinutes?: number | undefined } | undefined;
+            | { readonly maxMinutes?: number | undefined }
+            | undefined;
         };
       }
     | undefined;
@@ -185,7 +187,7 @@ interface TaskAgentServiceLike {
     readonly workspaceId: string;
     readonly workspacePath?: string | undefined;
     readonly profileId: string;
-    readonly source: "task";
+    readonly source: "task" | "meeting";
     readonly instanceId: string;
     readonly nodeId: string;
     readonly dispatchKey: string;
@@ -203,6 +205,9 @@ interface TaskAgentServiceLike {
       | "principal-runtime"
       | undefined;
     readonly ticketId?: string | undefined;
+    readonly contextPackId?: string | undefined;
+    readonly sessionBindingId?: string | undefined;
+    readonly sessionId?: string | undefined;
     readonly payload: {
       readonly instanceTitle: string;
       readonly nodeName: string;
@@ -231,6 +236,93 @@ interface TaskAgentServiceLike {
   }): readonly TaskAgentRunSummary[];
 }
 
+interface ContextSourceRefLike {
+  readonly type:
+    | "task"
+    | "meeting"
+    | "minute-version"
+    | "workflow"
+    | "document"
+    | "chat"
+    | "task-comment"
+    | "human-edit";
+  readonly id: string;
+  readonly version?: string;
+  readonly quote?: string;
+}
+
+export interface TaskContextContribution {
+  readonly id: string;
+  readonly version: string;
+  readonly text: string;
+  readonly sourceRefs: readonly ContextSourceRefLike[];
+}
+
+interface TaskContextPackLike {
+  readonly id: string;
+  readonly sessionBindingId: string;
+  readonly rendered: {
+    readonly systemText: string;
+    readonly userText: string;
+    readonly flattenedPrompt: string;
+  };
+}
+
+interface TaskContextServiceLike {
+  registerAdapter(adapter: {
+    readonly scene: "task";
+    resolve(input: {
+      readonly workspaceId?: string;
+      readonly objectId: string;
+      readonly agentPrincipalId: string;
+      readonly actorPrincipalId: string;
+    }): Promise<{
+      readonly allowed: boolean;
+      readonly workspaceId?: string;
+      readonly sceneRevision: string;
+      readonly sourceRefs: readonly ContextSourceRefLike[];
+    }>;
+    loadFacts(input: {
+      readonly workspaceId?: string;
+      readonly objectId: string;
+      readonly agentPrincipalId: string;
+      readonly asOf: string;
+    }): Promise<{
+      readonly text: string;
+      readonly structured?: Readonly<Record<string, unknown>>;
+      readonly sourceRefs: readonly ContextSourceRefLike[];
+      readonly historyText?: string;
+      readonly contributions?: readonly TaskContextContribution[];
+    }>;
+    policy(): Promise<{
+      readonly version: string;
+      readonly instructions: string;
+      readonly allowedWriteback: readonly (
+        | "agent-private-memory"
+        | "run-evidence"
+        | "memory-candidate"
+      )[];
+    }>;
+  }): () => void;
+  prepare(input: Record<string, unknown>): Promise<TaskContextPackLike>;
+  session?(bindingId: string):
+    | {
+        readonly sessionId: string;
+        readonly generation: number;
+      }
+    | undefined;
+  recordRuntime(input: {
+    readonly runId: string;
+    readonly contextPackId: string;
+    readonly runtime: {
+      readonly kind: "builtin" | "external";
+      readonly provider?: string;
+      readonly model?: string;
+      readonly externalSessionId?: string;
+    };
+  }): Promise<unknown>;
+}
+
 interface TaskAgentRunSummary {
   readonly id: string;
   readonly nodeId?: string | undefined;
@@ -239,9 +331,159 @@ interface TaskAgentRunSummary {
   readonly createdAt?: string | undefined;
   readonly startedAt?: string | undefined;
   readonly endedAt?: string | undefined;
-  readonly payload?: { readonly profileName?: string | undefined } | undefined;
+  readonly execution?: TaskAgentRun["execution"] | undefined;
+  readonly payload?:
+    | {
+        readonly profileName?: string | undefined;
+        readonly context?:
+          | Record<string, string | number | boolean>
+          | undefined;
+      }
+    | undefined;
   readonly output?: TaskAgentRun["output"] | undefined;
   readonly error?: string | undefined;
+}
+
+export interface TaskDocumentQueryOptions {
+  readonly includeUploaded?: boolean;
+  readonly maxFiles?: number;
+}
+
+export interface TaskDocumentQueryResult {
+  readonly workspaceReady: boolean;
+  readonly documents: readonly TaskDocumentEntry[];
+}
+
+export interface TaskDocumentQueryService {
+  list(
+    taskId: string,
+    options?: TaskDocumentQueryOptions,
+  ): Promise<TaskDocumentQueryResult>;
+}
+
+function taskRunActorName(
+  task: Pick<TaskRecord, "receiverId" | "receiverName">,
+  run: {
+    readonly payload?:
+      | {
+          readonly profileName?: string | undefined;
+          readonly context?:
+            | Record<string, string | number | boolean>
+            | undefined;
+        }
+      | undefined;
+  },
+): string {
+  const receiverName = run.payload?.context?.taskReceiverName;
+  if (typeof receiverName === "string" && receiverName.trim() !== "") {
+    return receiverName;
+  }
+  return (
+    run.payload?.profileName?.trim() ||
+    task.receiverName ||
+    task.receiverId ||
+    "Agent"
+  );
+}
+
+function taskAgentDisplayName(task: TaskRecord): string {
+  return task.receiverName ?? task.receiverId ?? "Agent";
+}
+
+export function createTaskDocumentQueryService(
+  service: TaskService,
+  agent: () => TaskAgentServiceLike | undefined,
+  workspaces: WorkspaceRegistryLike | undefined,
+): TaskDocumentQueryService {
+  return {
+    async list(taskId, options = {}) {
+      const task = service.get(taskId);
+      const root = workspaces?.get(task.workspaceId)?.path;
+      if (root === undefined) {
+        return { workspaceReady: false, documents: [] };
+      }
+      const runs =
+        agent()?.runs?.({
+          workspaceId: task.workspaceId,
+          instanceId: task.id,
+        }) ?? [];
+      const ownerRuns = runs.filter(
+        (run) => (run.payload?.context?.taskRunRole ?? "owner") === "owner",
+      );
+      const documents = await collectDocuments({
+        root,
+        windows: windowsFromRuns(
+          ownerRuns.map((run) => ({
+            id: run.id,
+            startedAt: run.startedAt,
+            endedAt: run.endedAt,
+            createdAt: run.createdAt,
+            actor: taskRunActorName(task, run),
+          })),
+          taskAgentDisplayName(task),
+          Date.now(),
+        ),
+        ...(options.maxFiles === undefined
+          ? {}
+          : { maxFiles: options.maxFiles }),
+      });
+      const outputDocuments = await materializeAgentOutputDocuments({
+        root,
+        taskId: task.id,
+        runs: ownerRuns.map((run) => ({
+          id: run.id,
+          status: run.status,
+          createdAt: run.createdAt,
+          endedAt: run.endedAt,
+          actor: taskRunActorName(task, run),
+          output: run.output,
+        })),
+      }).catch(() => []);
+      return {
+        workspaceReady: true,
+        documents: mergeDocuments([
+          ...documents,
+          ...outputDocuments,
+          ...(options.includeUploaded === false
+            ? []
+            : attachmentDocuments(
+                task,
+                true,
+                new Map(
+                  ownerRuns.flatMap((run) => {
+                    const messageId = run.payload?.context?.triggerMessageId;
+                    return typeof messageId === "string" && messageId !== ""
+                      ? [[messageId, run.id] as const]
+                      : [];
+                  }),
+                ),
+              )),
+        ]),
+      };
+    },
+  };
+}
+
+/** Task 模块只提供结构化候选，是否进入某次运行由 Context 决定。 */
+export function taskContextContributions(
+  task: Pick<TaskRecord, "comments">,
+): TaskContextContribution[] {
+  return task.comments
+    .filter((comment) => comment.isKeyConsensus)
+    .slice(-20)
+    .map((comment) => ({
+      id: `task-consensus:${comment.id}`,
+      version: comment.at,
+      text: `[${comment.at}] ${comment.authorName}：${contextLine(comment.content, 4_000)}`,
+      sourceRefs: [
+        {
+          type: "task-comment" as const,
+          id: comment.id,
+          version: comment.at,
+          quote: comment.content.slice(0, 4_000),
+        },
+      ],
+    }));
 }
 
 interface AssignmentSeatLike {
@@ -283,8 +525,10 @@ interface TaskContext {
   effect(register: () => () => void): void;
   provide(key: "collabTasks", value: TaskService): unknown;
   provide(key: "collabTaskDispatch", value: TaskDispatchService): unknown;
+  provide(key: "collabTaskDocuments", value: TaskDocumentQueryService): unknown;
   webServer: { register(route: WebRouteLike): unknown };
   get(key: string): unknown;
+  get(key: "collabContext"): TaskContextServiceLike | undefined;
   emit?(event: string, payload?: unknown): void;
   inject(
     keys: readonly ["collabTeam"],
@@ -309,6 +553,44 @@ interface TaskContext {
       },
     ) => Promise<void> | void,
   ): { dispose(): void };
+  inject(
+    keys: readonly ["collabContext"],
+    callback: (
+      child: TaskContext & {
+        readonly collabContext: TaskContextServiceLike;
+      },
+    ) => void,
+  ): { dispose(): void };
+}
+
+interface MemoryIngestLike {
+  ingestSource(input: {
+    readonly sourceType: "task";
+    readonly sourceId: string;
+    readonly version: string;
+    readonly workspaceId?: string;
+    readonly payload?: {
+      readonly title: string;
+      readonly content: string;
+      readonly actorPrincipalId?: string;
+      readonly projectId?: string;
+      readonly occurredAt?: string;
+      readonly sourceRefs?: readonly {
+        readonly type:
+          | "task"
+          | "meeting"
+          | "minute-version"
+          | "workflow"
+          | "document"
+          | "chat"
+          | "human-edit";
+        readonly id: string;
+        readonly version?: string;
+        readonly quote?: string;
+      }[];
+      readonly metadata?: Readonly<Record<string, string | number | boolean>>;
+    };
+  }): Promise<unknown>;
 }
 
 const taskQuerySchema = z.object({
@@ -693,6 +975,7 @@ export function taskMessageMentionsReceiver(
 interface TaskContextOptions {
   readonly firstDelivery: boolean;
   readonly deliveredThroughMessageId?: string | undefined;
+  readonly triggerMessageId?: string | undefined;
   readonly triggerContent?: string | undefined;
   /** 人类在上次投递之后改写过任务内容，需要把最新定义重新带上。 */
   readonly definitionChanged?: boolean | undefined;
@@ -799,25 +1082,67 @@ function buildTaskContext(
   } else if (!firstDelivery) {
     lines.push("", "## 上次投递之后的新增讨论", "- 没有新增讨论。");
   }
+  // 上一轮成功产出之后、本轮触发之前的人类消息仍然属于当前修改要求。
+  // 例如退回说明执行失败后用户只补一句「重试一下」，不能让「重试」覆盖
+  // 原退回意见，否则模型会把前面的退回说明误当成已处理背景。
+  const lastSuccessfulAgentIndex = task.messages.findLastIndex(
+    (message) => message.kind === "agent" && message.state === "succeeded",
+  );
+  const activeHumanMessages = task.messages
+    .slice(lastSuccessfulAgentIndex + 1)
+    .filter((message) => message.kind === "human")
+    .filter((message) => message.id !== options.triggerMessageId);
   lines.push("", "## 本次需要你响应");
   if (
     options.triggerContent !== undefined &&
     options.triggerContent.trim() !== ""
   ) {
-    lines.push(
-      "以下内容 @ 了你，请针对它行动（时间线里的其它内容只是背景）：",
-      "",
-      `> ${contextLine(options.triggerContent, 4_000)}`,
-    );
+    if (activeHumanMessages.length > 0) {
+      lines.push(
+        "本轮仍有尚未完成的人类要求，请与本次最新指令一起处理：",
+        "",
+        ...activeHumanMessages.map(
+          (message) => `- ${contextLine(message.content, 4_000)}`,
+        ),
+        "",
+        "本次最新指令：",
+        "",
+        `> ${contextLine(options.triggerContent, 4_000)}`,
+      );
+    } else {
+      lines.push(
+        "以下内容 @ 了你，请针对它行动：",
+        "",
+        `> ${contextLine(options.triggerContent, 4_000)}`,
+      );
+    }
   } else {
     lines.push(
+      ...(activeHumanMessages.length === 0
+        ? []
+        : [
+            "请先完成以下尚未落实的人类要求：",
+            "",
+            ...activeHumanMessages.map(
+              (message) => `- ${contextLine(message.content, 4_000)}`,
+            ),
+            "",
+          ]),
       "按上面的任务描述与验收标准开始执行；信息不足时先列出缺失项再等补充。",
     );
   }
   lines.push(
     "",
+    "## 产出物提交",
+    "- 任务需要交付文件时，优先直接写入任务工作区。",
+    "- 如果执行环境是只读的，无法写文件，请按下面格式返回每个文件，平台会自动登记为可下载文档：",
+    "",
+    "<!-- pluginmax-document: 文件名.md -->",
+    "<完整文件正文>",
+    "<!-- /pluginmax-document -->",
+    "",
     "## 边界",
-    "- 时间线中的人类讨论是背景信息，只有「本次需要你响应」的内容需要你行动。",
+    "- 「本次需要你响应」中列出的人类要求都必须落实；时间线中的其它已处理讨论才是背景。",
     "- 不要重复处理已经完成的内容，也不要声称完成未提交的交付物。",
   );
   return lines.join("\n");
@@ -887,25 +1212,56 @@ async function taskDocumentBrief(
   const displayName = task.receiverName ?? task.receiverId ?? "Agent";
   const runs =
     agent?.runs?.({ workspaceId: task.workspaceId, instanceId: task.id }) ?? [];
+  const ownerRuns = runs.filter(
+    (run) => (run.payload?.context?.taskRunRole ?? "owner") === "owner",
+  );
   const produced =
     root === undefined
       ? []
       : await collectDocuments({
           root,
           windows: windowsFromRuns(
-            runs.map((run) => ({
+            ownerRuns.map((run) => ({
+              id: run.id,
               startedAt: run.startedAt,
               endedAt: run.endedAt,
               createdAt: run.createdAt,
-              actor: displayName,
+              actor: taskRunActorName(task, run),
             })),
             displayName,
             Date.now(),
           ),
         }).catch(() => []);
+  const outputDocuments =
+    root === undefined
+      ? []
+      : await materializeAgentOutputDocuments({
+          root,
+          taskId: task.id,
+          runs: ownerRuns.map((run) => ({
+            id: run.id,
+            status: run.status,
+            createdAt: run.createdAt,
+            endedAt: run.endedAt,
+            actor: taskRunActorName(task, run),
+            output: run.output,
+          })),
+        }).catch(() => []);
   return mergeDocuments([
     ...produced,
-    ...attachmentDocuments(task, root !== undefined),
+    ...outputDocuments,
+    ...attachmentDocuments(
+      task,
+      root !== undefined,
+      new Map(
+        ownerRuns.flatMap((run) => {
+          const messageId = run.payload?.context?.triggerMessageId;
+          return typeof messageId === "string" && messageId !== ""
+            ? [[messageId, run.id] as const]
+            : [];
+        }),
+      ),
+    ),
   ]).map(
     (document) =>
       `- ${document.kind === "produced" ? "产出" : "上传"}：${document.name}（${document.relativePath}）${document.available ? "" : " · 当前不可读"}`,
@@ -919,6 +1275,7 @@ async function dispatchTaskInstruction(
   workspaces: WorkspaceRegistryLike | undefined,
   teammates: TeammateRuntimeLike | undefined,
   principalRuntime: PrincipalRuntimeServiceLike | undefined,
+  contextService: TaskContextServiceLike | undefined,
   task: TaskRecord,
   actor: TaskActor,
   options?:
@@ -936,6 +1293,13 @@ async function dispatchTaskInstruction(
           | undefined;
         /** 协作轮次「本次需要你回应」的内容（通常是 @ 那句）。 */
         readonly ask?: string | undefined;
+        readonly contextOverride?:
+          | {
+              readonly scene: "task" | "meeting";
+              readonly objectId: string;
+              readonly content: string;
+            }
+          | undefined;
       }
     | undefined,
 ): Promise<TaskAgentRun> {
@@ -1071,7 +1435,8 @@ async function dispatchTaskInstruction(
     !firstDelivery &&
     (typeof previousDefinitionDigest !== "string" ||
       previousDefinitionDigest !== definitionDigest);
-  const instruction =
+  const runSeq = task.agentRunIds.length + 1;
+  const legacyInstruction =
     runRole === "owner"
       ? buildTaskContext(task, {
           firstDelivery,
@@ -1079,6 +1444,9 @@ async function dispatchTaskInstruction(
           ...(deliveredThrough === undefined
             ? {}
             : { deliveredThroughMessageId: deliveredThrough }),
+          ...(trigger?.messageId === undefined
+            ? {}
+            : { triggerMessageId: trigger.messageId }),
           ...(trigger === undefined ? {} : { triggerContent: trigger.content }),
           ...(definitionChanged ? { definitionChanged: true } : {}),
         })
@@ -1088,14 +1456,66 @@ async function dispatchTaskInstruction(
           from: actor.name,
           documents: await taskDocumentBrief(agent, workspaces, task),
         });
-  const runSeq = task.agentRunIds.length + 1;
+  const contextPack =
+    contextService === undefined
+      ? undefined
+      : await contextService.prepare({
+          requestId: `${options?.contextOverride?.scene ?? "task"}:${options?.contextOverride?.objectId ?? task.id}:${runRole}:${targetRef}:${String(runSeq)}`,
+          mode: "execute",
+          ...(previousRunId === undefined
+            ? {}
+            : { rerunOfRunId: previousRunId }),
+          scene: options?.contextOverride?.scene ?? "task",
+          workspaceId: task.workspaceId,
+          objectId:
+            options?.contextOverride?.objectId ??
+            (sessionEpoch === 0 ? task.id : `${task.id}:g${sessionEpoch}`),
+          agentPrincipalId: target.principalId ?? target.profileId,
+          agentProfileId: target.profileId,
+          teammateId: targetRef,
+          actorPrincipalId: actor.id,
+          input: {
+            type: "user-message",
+            ...(trigger?.messageId === undefined
+              ? {}
+              : { messageId: trigger.messageId }),
+            content:
+              options?.contextOverride?.content ??
+              trigger?.content ??
+              task.description,
+            attachments: [],
+          },
+          explicitRefs: task.links.flatMap((link) =>
+            link.type === "meeting" ||
+            link.type === "workflow" ||
+            link.type === "document"
+              ? [{ type: link.type, id: link.id }]
+              : [],
+          ),
+          pinnedMemoryIds: [],
+          excludedSourceIds: [],
+          runtimeCapabilities: {
+            contextWindowTokens: 32_000,
+            maxOutputTokens: 4_000,
+            supportsSystemSections: true,
+            isStateless: statelessExternal,
+          },
+        });
+  const contextSession =
+    contextService !== undefined && contextPack !== undefined
+      ? contextService.session?.(contextPack.sessionBindingId)
+      : undefined;
+  const instruction =
+    contextPack === undefined
+      ? legacyInstruction
+      : contextPack.rendered.flattenedPrompt;
   const timeoutMinutes = target.maxMinutes ?? 30;
   const workspacePath = workspaces?.get(task.workspaceId)?.path;
-  return agent.dispatch({
+  const run = await agent.dispatch({
     workspaceId: task.workspaceId,
     ...(workspacePath === undefined ? {} : { workspacePath }),
     profileId: target.profileId,
-    source: "task",
+    source: options?.contextOverride?.scene ?? "task",
     instanceId: task.id,
     nodeId: "task",
     dispatchKey: `task:${task.id}:${runSeq}`,
@@ -1112,6 +1532,15 @@ async function dispatchTaskInstruction(
       ? {}
       : { principalId: target.principalId }),
     ...(target.ticketId === undefined ? {} : { ticketId: target.ticketId }),
+    ...(contextPack === undefined
+      ? {}
+      : {
+          contextPackId: contextPack.id,
+          sessionBindingId: contextPack.sessionBindingId,
+        }),
+    ...(contextSession === undefined
+      ? {}
+      : { sessionId: contextSession.sessionId }),
     principalType:
       target.employeeId === undefined
         ? "principal-runtime"
@@ -1140,10 +1569,21 @@ async function dispatchTaskInstruction(
         deliveredThroughMessageId: lastDeliveredMessageId ?? "",
         taskDefinitionDigest: definitionDigest,
         acceptance: task.acceptance.join("\n"),
+        ...(contextPack === undefined ? {} : { contextPackId: contextPack.id }),
       },
     },
     createdBy: actor.id,
   });
+  if (contextService !== undefined && contextPack !== undefined) {
+    await contextService.recordRuntime({
+      runId: run.id,
+      contextPackId: contextPack.id,
+      runtime: {
+        kind: statelessExternal ? "external" : "builtin",
+      },
+    });
+  }
+  return run;
 }
 
 const uploadInputSchema = z.object({
@@ -1204,7 +1644,9 @@ export interface TaskDispatchDependencies {
   readonly workspaces?: WorkspaceRegistryLike | undefined;
   readonly teammates?: (() => TeammateRuntimeLike | undefined) | undefined;
   readonly principalRuntime?:
-    (() => PrincipalRuntimeServiceLike | undefined) | undefined;
+    | (() => PrincipalRuntimeServiceLike | undefined)
+    | undefined;
+  readonly context?: (() => TaskContextServiceLike | undefined) | undefined;
 }
 
 export interface TaskDispatchOutcome {
@@ -1214,7 +1656,15 @@ export interface TaskDispatchOutcome {
 
 /** 供其它模块复用任务派发链路的服务面。 */
 export interface TaskDispatchService {
-  dispatch(task: TaskRecord, actor: TaskActor): Promise<TaskDispatchOutcome>;
+  dispatch(
+    task: TaskRecord,
+    actor: TaskActor,
+    context?: {
+      readonly scene: "task" | "meeting";
+      readonly objectId: string;
+      readonly content: string;
+    },
+  ): Promise<TaskDispatchOutcome>;
 }
 
 export function canReviewTask(input: {
@@ -1385,8 +1835,13 @@ export function createTaskDispatcher(deps: TaskDispatchDependencies): (
     readonly messageId?: string | undefined;
     readonly content: string;
   },
+  contextOverride?: {
+    readonly scene: "task" | "meeting";
+    readonly objectId: string;
+    readonly content: string;
+  },
 ) => Promise<TaskDispatchOutcome> {
-  return async (task, currentActor, trigger) => {
+  return async (task, currentActor, trigger, contextOverride) => {
     try {
       const run = await dispatchTaskInstruction(
         deps.agent?.(),
@@ -1395,11 +1850,13 @@ export function createTaskDispatcher(deps: TaskDispatchDependencies): (
         deps.workspaces,
         deps.teammates?.(),
         deps.principalRuntime?.(),
+        deps.context?.(),
         task,
         currentActor,
         {
           role: "owner",
           ...(trigger === undefined ? {} : { trigger }),
+          ...(contextOverride === undefined ? {} : { contextOverride }),
         },
       );
       return {
@@ -1435,12 +1892,18 @@ export function createTaskRoutes(
   workspaces?: WorkspaceRegistryLike,
   teammates?: () => TeammateRuntimeLike | undefined,
   principalRuntime?: () => PrincipalRuntimeServiceLike | undefined,
+  context?: () => TaskContextServiceLike | undefined,
+  documents?: TaskDocumentQueryService,
 ): WebRouteLike[] {
+  const documentQuery =
+    documents ??
+    createTaskDocumentQueryService(
+      service,
+      agent ?? (() => undefined),
+      workspaces,
+    );
   const workspaceRoot = (task: TaskRecord): string | undefined =>
     workspaces?.get(task.workspaceId)?.path;
-
-  const agentDisplayName = (task: TaskRecord): string =>
-    task.receiverName ?? task.receiverId ?? "Agent";
 
   const reconcileWorkflowAgentRuns = async (
     workspaceId: string,
@@ -1493,6 +1956,7 @@ export function createTaskRoutes(
         workspaces,
         teammates?.(),
         principalRuntime?.(),
+        context?.(),
         task,
         actor,
         {
@@ -1627,6 +2091,7 @@ export function createTaskRoutes(
     workspaces,
     teammates,
     principalRuntime,
+    context,
   });
 
   return [
@@ -1867,9 +2332,11 @@ export function createTaskRoutes(
         const parsedBody = body as {
           taskId?: unknown;
           action?: unknown;
+          note?: unknown;
         };
         const taskIdValue = String(parsedBody.taskId ?? "");
         const action = String(parsedBody.action ?? "");
+        const note = typeof parsedBody.note === "string" ? parsedBody.note : "";
         if (action === "approve" || action === "reject") {
           const task = service.get(taskIdValue);
           if (
@@ -1886,11 +2353,31 @@ export function createTaskRoutes(
             );
           }
         }
+        if (action === "reject") {
+          const rejected = await service.reject(
+            currentActor,
+            taskIdValue,
+            note,
+          );
+          if (
+            rejected.receiverType !== "agent" ||
+            rejected.receiverId === undefined
+          ) {
+            return { task: rejected };
+          }
+          const feedback = rejected.messages.at(-1);
+          return dispatchTask(
+            rejected,
+            currentActor,
+            feedback === undefined
+              ? undefined
+              : { messageId: feedback.id, content: feedback.content },
+          );
+        }
         const actions: Record<string, () => Promise<TaskRecord>> = {
           start: () => service.start(currentActor, taskIdValue),
           submit: () => service.submit(currentActor, taskIdValue),
           approve: () => service.approve(currentActor, taskIdValue),
-          reject: () => service.reject(currentActor, taskIdValue),
           nudge: () => service.nudge(currentActor, taskIdValue),
           archive: () => service.archive(currentActor, taskIdValue),
           restore: () => service.restore(currentActor, taskIdValue),
@@ -2002,35 +2489,11 @@ export function createTaskRoutes(
           });
           const task = service.get(params.taskId);
           requireAccess(request, team, task.workspaceId);
-          const root = workspaceRoot(task);
-          const documents: TaskDocumentEntry[] =
-            root === undefined
-              ? []
-              : await collectDocuments({
-                  root,
-                  windows: windowsFromRuns(
-                    (
-                      agent?.()?.runs?.({
-                        workspaceId: task.workspaceId,
-                        instanceId: task.id,
-                      }) ?? []
-                    ).map((run) => ({
-                      startedAt: run.startedAt,
-                      endedAt: run.endedAt,
-                      createdAt: run.createdAt,
-                      actor: agentDisplayName(task),
-                    })),
-                    agentDisplayName(task),
-                    Date.now(),
-                  ),
-                });
+          const result = await documentQuery.list(task.id);
           sendJson(response, 200, {
             ok: true,
-            documents: mergeDocuments([
-              ...documents,
-              ...attachmentDocuments(task, root !== undefined),
-            ]),
-            workspaceReady: root !== undefined,
+            documents: result.documents,
+            workspaceReady: result.workspaceReady,
           });
         } catch (cause) {
           routeError(response, cause);
@@ -2151,6 +2614,59 @@ export async function apply(ctx: TaskContext): Promise<void> {
             workspaceId: task.workspaceId,
             status: task.status,
           });
+          if (task.status === "done") {
+            void (ctx.get("collabMemory") as MemoryIngestLike | undefined)
+              ?.ingestSource({
+                sourceType: "task",
+                sourceId: task.id,
+                version: task.updatedAt,
+                workspaceId: task.workspaceId,
+                payload: {
+                  title: task.title,
+                  content: [
+                    task.description,
+                    "",
+                    "## 验收标准",
+                    ...task.acceptance.map(
+                      (item, index) => `${String(index + 1)}. ${item}`,
+                    ),
+                    "",
+                    "## 任务时间线",
+                    ...task.messages.map(
+                      (message) => `${message.authorName}：${message.content}`,
+                    ),
+                  ]
+                    .filter(Boolean)
+                    .join("\n"),
+                  occurredAt: task.updatedAt,
+                  projectId: task.workspaceId,
+                  sourceRefs: [
+                    { type: "task", id: task.id },
+                    ...task.links.flatMap((link) =>
+                      link.type === "meeting" ||
+                      link.type === "workflow" ||
+                      link.type === "document"
+                        ? [
+                            {
+                              type: link.type,
+                              id: link.id,
+                              ...(link.label === undefined
+                                ? {}
+                                : { quote: link.label }),
+                            },
+                          ]
+                        : [],
+                    ),
+                  ],
+                  metadata: {
+                    type: task.type,
+                    status: task.status,
+                    priority: task.priority,
+                  },
+                },
+              })
+              .catch(() => undefined);
+          }
         } catch {
           // Domain events are best-effort.
         }
@@ -2159,13 +2675,94 @@ export async function apply(ctx: TaskContext): Promise<void> {
   );
   ctx.provide("collabTasks", service);
   ctx.effect(() => () => void domain.close());
+  ctx.inject(["collabContext"], (child) => {
+    const dispose = child.collabContext.registerAdapter({
+      scene: "task",
+      resolve: async (input) => {
+        const task = service.get(input.objectId.replace(/:g\d+$/, ""));
+        return {
+          allowed:
+            input.workspaceId === undefined ||
+            input.workspaceId === task.workspaceId,
+          workspaceId: task.workspaceId,
+          sceneRevision: task.updatedAt,
+          sourceRefs: [
+            { type: "task" as const, id: task.id },
+            ...task.links.flatMap((link) =>
+              link.type === "meeting" ||
+              link.type === "workflow" ||
+              link.type === "document"
+                ? [{ type: link.type, id: link.id }]
+                : [],
+            ),
+          ],
+        };
+      },
+      loadFacts: async (input) => {
+        const task = service.get(input.objectId.replace(/:g\d+$/, ""));
+        const text = buildTaskContext(task, {
+          firstDelivery: true,
+          statelessExternal: true,
+        });
+        return {
+          text,
+          structured: {
+            id: task.id,
+            title: task.title,
+            type: task.type,
+            status: task.status,
+            priority: task.priority,
+            description: task.description,
+            acceptance: task.acceptance,
+            due: task.due ?? null,
+            receiverId: task.receiverId ?? null,
+            links: task.links,
+          },
+          sourceRefs: [
+            { type: "task" as const, id: task.id },
+            ...task.links.flatMap((link) =>
+              link.type === "meeting" ||
+              link.type === "workflow" ||
+              link.type === "document"
+                ? [{ type: link.type, id: link.id }]
+                : [],
+            ),
+          ],
+          historyText: task.messages
+            .map((message) => `${message.authorName}：${message.content}`)
+            .join("\n"),
+          contributions: taskContextContributions(task),
+        };
+      },
+      policy: async () => ({
+        version: "task-context-v1",
+        instructions: [
+          "你正在执行一个受治理的平台任务。",
+          "以任务定义、最新人类指令和 ContextPack 中标记为当前真相的内容为准。",
+          "不得读取 ContextPack 之外的来源。",
+          "输出格式必须满足任务交付要求。",
+        ].join("\n"),
+        allowedWriteback: ["agent-private-memory", "run-evidence"],
+      }),
+    });
+    child.effect(() => () => dispose());
+  });
   ctx.inject(["collabTeam"], (child) => {
     const employees = child.get("collabEmployee") as
-      EmployeeServiceLike | undefined;
+      | EmployeeServiceLike
+      | undefined;
     const assignments = child.get("collabAssignment") as
-      AssignmentServiceLike | undefined;
+      | AssignmentServiceLike
+      | undefined;
     const workspaces = child.get("workspaceRegistry") as
-      WorkspaceRegistryLike | undefined;
+      | WorkspaceRegistryLike
+      | undefined;
+    const taskDocuments = createTaskDocumentQueryService(
+      service,
+      () => child.get("collabAgent") as TaskAgentServiceLike | undefined,
+      workspaces,
+    );
+    child.provide("collabTaskDocuments", taskDocuments);
     const dispatchService: TaskDispatchService = {
       dispatch: createTaskDispatcher({
         service,
@@ -2178,7 +2775,10 @@ export async function apply(ctx: TaskContext): Promise<void> {
           child.get("collabTeammateRuntime") as TeammateRuntimeLike | undefined,
         principalRuntime: () =>
           child.get("collabPrincipalRuntime") as
-            PrincipalRuntimeServiceLike | undefined,
+            | PrincipalRuntimeServiceLike
+            | undefined,
+        context: () =>
+          child.get("collabContext") as TaskContextServiceLike | undefined,
       }),
     };
     child.provide("collabTaskDispatch", dispatchService);
@@ -2193,7 +2793,10 @@ export async function apply(ctx: TaskContext): Promise<void> {
         child.get("collabTeammateRuntime") as TeammateRuntimeLike | undefined,
       () =>
         child.get("collabPrincipalRuntime") as
-          PrincipalRuntimeServiceLike | undefined,
+          | PrincipalRuntimeServiceLike
+          | undefined,
+      () => child.get("collabContext") as TaskContextServiceLike | undefined,
+      taskDocuments,
     ).map((route) => child.webServer.register(route) as () => void);
     child.effect(() => () => {
       for (const dispose of disposers) dispose();
@@ -2201,7 +2804,8 @@ export async function apply(ctx: TaskContext): Promise<void> {
   });
   ctx.inject(["collabAgent", "workspaceRegistry"], async (child) => {
     const workspaces = child.get("workspaceRegistry") as
-      WorkspaceRegistryLike | undefined;
+      | WorkspaceRegistryLike
+      | undefined;
     child.collabAgent.bindTask({
       onSettled: async (run) => {
         const task = service.get(run.instanceId);
@@ -2227,6 +2831,21 @@ export async function apply(ctx: TaskContext): Promise<void> {
           });
           return;
         }
+        const root = workspaces?.get(task.workspaceId)?.path;
+        if (root !== undefined) {
+          await materializeAgentOutputDocuments({
+            root,
+            taskId: task.id,
+            runs: [
+              {
+                id: run.id,
+                status: run.status,
+                actor: taskRunActorName(task, run),
+                output: run.output,
+              },
+            ],
+          }).catch(() => []);
+        }
         await service.attachAgentRun(
           task.id,
           run,
@@ -2237,7 +2856,8 @@ export async function apply(ctx: TaskContext): Promise<void> {
               team: child.get("collabTeam") as TeamServiceLike | undefined,
               teammates: () =>
                 child.get("collabTeammateRuntime") as
-                  TeammateRuntimeLike | undefined,
+                  | TeammateRuntimeLike
+                  | undefined,
             },
             task,
             run,

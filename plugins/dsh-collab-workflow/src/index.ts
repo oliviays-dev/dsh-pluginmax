@@ -256,8 +256,14 @@ export interface AgentRunView {
   readonly employeeId?: string | undefined;
   readonly principalId?: string | undefined;
   readonly principalType?:
-    "transitional-agent" | "digital-employee" | "principal-runtime" | undefined;
+    | "transitional-agent"
+    | "digital-employee"
+    | "principal-runtime"
+    | undefined;
   readonly ticketId?: string | undefined;
+  readonly contextPackId?: string | undefined;
+  readonly sessionBindingId?: string | undefined;
+  readonly sessionId?: string | undefined;
   readonly instanceId: string;
   readonly nodeId: string;
   readonly dispatchKey: string;
@@ -294,6 +300,16 @@ export interface AgentRunView {
     readonly context: Record<string, string | number | boolean>;
   };
   readonly promptSnapshot?: string | undefined;
+  readonly execution?:
+    | {
+        readonly provider: string;
+        readonly model: string;
+        readonly runtime: string;
+        readonly runtimeVersion: string;
+        readonly authMode: string;
+        readonly sandbox: string;
+      }
+    | undefined;
   readonly output?:
     | {
         readonly summary: string;
@@ -410,6 +426,7 @@ export interface WorkflowTaskBridge {
       readonly status: AgentRunView["status"];
       readonly output?: AgentRunView["output"];
       readonly error?: string | undefined;
+      readonly execution?: AgentRunView["execution"];
     },
     receiverName: string,
   ): Promise<WorkflowTaskRef>;
@@ -426,6 +443,7 @@ export interface AgentServiceLike {
         readonly runtimeKind: string;
         readonly status: string;
         readonly personaId?: string | undefined;
+        readonly execution?: "builtin" | "external" | undefined;
       }
     | undefined;
   runs(instanceId: string, nodeId?: string | undefined): AgentRunView[];
@@ -452,6 +470,9 @@ export interface AgentServiceLike {
       | "principal-runtime"
       | undefined;
     readonly ticketId?: string | undefined;
+    readonly contextPackId?: string | undefined;
+    readonly sessionBindingId?: string | undefined;
+    readonly sessionId?: string | undefined;
     readonly payload: AgentRunView["payload"];
     readonly createdBy: string;
   }): Promise<AgentRunView>;
@@ -488,6 +509,92 @@ const stringToolOutput: ToolOutputLike = {
   schema: { type: "string" },
   render: (_args, value) => [{ type: "text", text: value }],
 };
+
+interface WorkflowContextPackLike {
+  readonly id: string;
+  readonly sessionBindingId: string;
+  readonly rendered: {
+    readonly systemText: string;
+    readonly userText: string;
+    readonly flattenedPrompt: string;
+  };
+}
+
+interface WorkflowContextServiceLike {
+  registerAdapter(adapter: {
+    readonly scene: "workflow-node";
+    resolve(input: {
+      readonly workspaceId?: string;
+      readonly objectId: string;
+      readonly agentPrincipalId: string;
+      readonly actorPrincipalId: string;
+    }): Promise<{
+      readonly allowed: boolean;
+      readonly workspaceId?: string;
+      readonly sceneRevision: string;
+      readonly sourceRefs: readonly {
+        readonly type:
+          | "task"
+          | "meeting"
+          | "minute-version"
+          | "workflow"
+          | "document"
+          | "chat"
+          | "human-edit";
+        readonly id: string;
+        readonly version?: string;
+      }[];
+    }>;
+    loadFacts(input: {
+      readonly workspaceId?: string;
+      readonly objectId: string;
+      readonly agentPrincipalId: string;
+      readonly asOf: string;
+    }): Promise<{
+      readonly text: string;
+      readonly structured?: Readonly<Record<string, unknown>>;
+      readonly sourceRefs: readonly {
+        readonly type:
+          | "task"
+          | "meeting"
+          | "minute-version"
+          | "workflow"
+          | "document"
+          | "chat"
+          | "human-edit";
+        readonly id: string;
+        readonly version?: string;
+      }[];
+      readonly historyText?: string;
+    }>;
+    policy(): Promise<{
+      readonly version: string;
+      readonly instructions: string;
+      readonly allowedWriteback: readonly (
+        | "agent-private-memory"
+        | "run-evidence"
+        | "memory-candidate"
+      )[];
+    }>;
+  }): () => void;
+  prepare(input: Record<string, unknown>): Promise<WorkflowContextPackLike>;
+  session?(bindingId: string):
+    | {
+        readonly sessionId: string;
+        readonly generation: number;
+      }
+    | undefined;
+  recordRuntime(input: {
+    readonly runId: string;
+    readonly contextPackId: string;
+    readonly runtime: {
+      readonly kind: "builtin" | "external";
+      readonly provider?: string;
+      readonly model?: string;
+      readonly externalSessionId?: string;
+    };
+  }): Promise<unknown>;
+}
 
 interface WorkflowContext {
   storageDomain: { open(spec: DomainSpecLike): Promise<WorkflowDomainLike> };
@@ -532,11 +639,52 @@ interface WorkflowContext {
   get(key: "collabAssignment"): WorkflowRoleServiceLike | undefined;
   get(key: "collabPrincipal"): WorkflowPrincipalServiceLike | undefined;
   get(key: "collabPrincipalRuntime"): WorkflowPrincipalRuntimeLike | undefined;
+  get(key: "collabContext"): WorkflowContextServiceLike | undefined;
+  get(key: "collabMemory"):
+    | {
+        ingestSource(input: {
+          readonly sourceType: "workflow";
+          readonly sourceId: string;
+          readonly version: string;
+          readonly workspaceId?: string;
+          readonly payload?: {
+            readonly title: string;
+            readonly content: string;
+            readonly actorPrincipalId?: string;
+            readonly projectId?: string;
+            readonly occurredAt?: string;
+            readonly sourceRefs?: readonly {
+              readonly type:
+                | "task"
+                | "meeting"
+                | "minute-version"
+                | "workflow"
+                | "document"
+                | "chat"
+                | "human-edit";
+              readonly id: string;
+              readonly version?: string;
+            }[];
+            readonly metadata?: Readonly<
+              Record<string, string | number | boolean>
+            >;
+          };
+        }): Promise<unknown>;
+      }
+    | undefined;
   inject(
     keys: readonly ["workspaceRegistry"],
     callback: (
       child: WorkflowContext & {
         readonly workspaceRegistry: WorkflowWorkspaceRegistryLike;
+      },
+    ) => void,
+  ): { dispose(): void } | void;
+  inject(
+    keys: readonly ["collabContext"],
+    callback: (
+      child: WorkflowContext & {
+        readonly collabContext: WorkflowContextServiceLike;
       },
     ) => void,
   ): { dispose(): void } | void;
@@ -1045,7 +1193,9 @@ export class WorkflowService {
       /** Principal 引用解析：principal:<id> 在解析模板前降为兼容主体。 */
       readonly principals?: () => WorkflowPrincipalServiceLike | undefined;
       readonly principalRuntime?: () =>
-        WorkflowPrincipalRuntimeLike | undefined;
+        | WorkflowPrincipalRuntimeLike
+        | undefined;
+      readonly context?: () => WorkflowContextServiceLike | undefined;
       /** AI Teammate 运行时：Agent 节点派发前按需开通运行身份。 */
       readonly teammateRuntime?: () => WorkflowTeammateRuntimeLike | undefined;
       /** AI Teammate 实例清单：执行者可读名解析。 */
@@ -1725,6 +1875,9 @@ export class WorkflowService {
             status: run.status,
             output: run.output,
             error: run.error,
+            ...(run.execution === undefined
+              ? {}
+              : { execution: run.execution }),
           },
           receiverName,
         );
@@ -2192,7 +2345,8 @@ export class WorkflowService {
       readonly receiverId?: string | undefined;
       readonly receiverName?: string | undefined;
       readonly workflow?:
-        { readonly instanceId: string; readonly nodeId: string } | undefined;
+        | { readonly instanceId: string; readonly nodeId: string }
+        | undefined;
     },
     actor: WorkflowActor,
   ): Promise<void> {
@@ -2329,7 +2483,8 @@ export class WorkflowService {
     task: {
       readonly id: string;
       readonly workflow?:
-        { readonly instanceId: string; readonly nodeId: string } | undefined;
+        | { readonly instanceId: string; readonly nodeId: string }
+        | undefined;
     },
     actor: WorkflowActor,
   ): Promise<void> {
@@ -2385,7 +2540,8 @@ export class WorkflowService {
     task: {
       readonly id: string;
       readonly workflow?:
-        { readonly instanceId: string; readonly nodeId: string } | undefined;
+        | { readonly instanceId: string; readonly nodeId: string }
+        | undefined;
     },
     actor: WorkflowActor,
     decision: "approved" | "rejected",
@@ -2421,7 +2577,8 @@ export class WorkflowService {
     task: {
       readonly id: string;
       readonly workflow?:
-        { readonly instanceId: string; readonly nodeId: string } | undefined;
+        | { readonly instanceId: string; readonly nodeId: string }
+        | undefined;
     },
     actor: WorkflowActor,
   ): Promise<void> {
@@ -2455,7 +2612,8 @@ export class WorkflowService {
   async handleTaskReconcile(task: {
     readonly id: string;
     readonly workflow?:
-      { readonly instanceId: string; readonly nodeId: string } | undefined;
+      | { readonly instanceId: string; readonly nodeId: string }
+      | undefined;
   }): Promise<
     "approved" | "rejected" | "cancelled" | "superseded" | undefined
   > {
@@ -2539,7 +2697,8 @@ export class WorkflowService {
   async refreshTaskReceiverDisplay(task: {
     readonly id: string;
     readonly workflow?:
-      { readonly instanceId: string; readonly nodeId: string } | undefined;
+      | { readonly instanceId: string; readonly nodeId: string }
+      | undefined;
   }): Promise<void> {
     if (task.workflow === undefined) return;
     const instance = this.instance(task.workflow.instanceId);
@@ -2620,7 +2779,8 @@ export class WorkflowService {
     readonly id: string;
     readonly nodeAttempt?: number | undefined;
     readonly workflow?:
-      { readonly instanceId: string; readonly nodeId: string } | undefined;
+      | { readonly instanceId: string; readonly nodeId: string }
+      | undefined;
   }): Promise<
     "approved" | "rejected" | "cancelled" | "superseded" | undefined
   > {
@@ -2634,7 +2794,8 @@ export class WorkflowService {
 
   taskEventProjections(task: {
     readonly workflow?:
-      { readonly instanceId: string; readonly nodeId: string } | undefined;
+      | { readonly instanceId: string; readonly nodeId: string }
+      | undefined;
   }): WorkflowEvent[] {
     if (task.workflow === undefined) return [];
     return this.events(task.workflow.instanceId)
@@ -3469,7 +3630,8 @@ export class WorkflowService {
       throw new WorkflowError("conflict", "节点当前不处于可执行状态");
     const employees = this.options.employee?.();
     let employeeTarget:
-      ReturnType<EmployeeServiceLike["workflowTarget"]> | undefined;
+      | ReturnType<EmployeeServiceLike["workflowTarget"]>
+      | undefined;
     let runtimePrincipalId: string | undefined;
     let provisionFailure: string | undefined;
     let profileId: string;
@@ -3865,6 +4027,49 @@ export class WorkflowService {
         return { instance: blocked };
       }
     }
+    const contextService = this.options.context?.();
+    const contextPack =
+      contextService === undefined
+        ? undefined
+        : await contextService.prepare({
+            requestId: `workflow-node:${instance.id}:${node.id}:${dispatchKey}`,
+            mode: "execute",
+            scene: "workflow-node",
+            workspaceId: instance.workspaceId,
+            objectId: `${instance.id}:${node.id}`,
+            agentPrincipalId: principalId ?? profile.id,
+            agentProfileId: profile.id,
+            teammateId: node.executor.id,
+            actorPrincipalId: actor.id,
+            input: {
+              type: "node-dispatch",
+              content: node.description,
+              attachments: [],
+            },
+            explicitRefs: [
+              { type: "workflow", id: instance.id },
+              ...(state.taskIds.at(-1) === undefined
+                ? []
+                : [
+                    {
+                      type: "task" as const,
+                      id: state.taskIds.at(-1)!,
+                    },
+                  ]),
+            ],
+            pinnedMemoryIds: [],
+            excludedSourceIds: [],
+            runtimeCapabilities: {
+              contextWindowTokens: 32_000,
+              maxOutputTokens: 4_000,
+              supportsSystemSections: true,
+              isStateless: false,
+            },
+          });
+    const contextSession =
+      contextService !== undefined && contextPack !== undefined
+        ? contextService.session?.(contextPack.sessionBindingId)
+        : undefined;
     const run = await agent.dispatch({
       workspaceId: instance.workspaceId,
       ...(this.workspacePath(instance.workspaceId) === undefined
@@ -3897,6 +4102,15 @@ export class WorkflowService {
             ...(ticketId === undefined ? {} : { ticketId }),
           }),
       ...(principalId === undefined ? {} : { principalId }),
+      ...(contextPack === undefined
+        ? {}
+        : {
+            contextPackId: contextPack.id,
+            sessionBindingId: contextPack.sessionBindingId,
+          }),
+      ...(contextSession === undefined
+        ? {}
+        : { sessionId: contextSession.sessionId }),
       payload: {
         instanceTitle: instance.title,
         nodeName: node.name,
@@ -3921,6 +4135,12 @@ export class WorkflowService {
         })),
         context: {
           ...instance.context,
+          ...(contextPack === undefined
+            ? {}
+            : {
+                instruction: contextPack.rendered.flattenedPrompt,
+                contextPackId: contextPack.id,
+              }),
           ...(state.taskIds.at(-1) === undefined
             ? {}
             : { workflowTaskId: state.taskIds.at(-1)! }),
@@ -3928,6 +4148,13 @@ export class WorkflowService {
       },
       createdBy: actor.kind === "user" ? actor.id : "workflow",
     });
+    if (contextService !== undefined && contextPack !== undefined) {
+      await contextService.recordRuntime({
+        runId: run.id,
+        contextPackId: contextPack.id,
+        runtime: { kind: "builtin" },
+      });
+    }
     const updated = await this.putInstance(
       this.syncDeliverableStates({
         ...instance,
@@ -6541,6 +6768,7 @@ export async function apply(
   let injectedTeam: TeamServiceLike | undefined;
   let injectedTasks: WorkflowTaskBridge | undefined;
   let injectedWorkspaces: WorkflowWorkspaceRegistryLike | undefined;
+  let injectedContext: WorkflowContextServiceLike | undefined;
   const service = new WorkflowService(
     {
       definitions: domain.table("definitions"),
@@ -6554,6 +6782,7 @@ export async function apply(
       employee: () => ctx.get("collabEmployee"),
       tasks: () => injectedTasks,
       workspaces: () => injectedWorkspaces,
+      context: () => injectedContext,
       teammateRuntime: () => ctx.get("collabTeammateRuntime"),
       teammates: () => ctx.get("collabTeammates"),
       roles: () => ctx.get("collabAssignment"),
@@ -6570,6 +6799,57 @@ export async function apply(
             workspaceId: event.workspaceId,
             kind: event.kind,
           });
+          if (event.kind === "node.completed" && event.nodeId !== undefined) {
+            const instance = service.instance(event.instanceId);
+            if (instance !== undefined) {
+              const node = instance.nodes[event.nodeId];
+              const definition = service.definition(instance.definitionId);
+              const nodeDefinition = definition?.graph.nodes.find(
+                (item) => item.id === event.nodeId,
+              );
+              void ctx
+                .get("collabMemory")
+                ?.ingestSource({
+                  sourceType: "workflow",
+                  sourceId: instance.id,
+                  version: event.at,
+                  workspaceId: instance.workspaceId,
+                  payload: {
+                    title: `${instance.title} · ${nodeDefinition?.name ?? event.nodeId}`,
+                    content: [
+                      nodeDefinition?.description ?? "",
+                      "",
+                      "## 节点事件",
+                      ...service
+                        .events(instance.id)
+                        .filter((item) => item.nodeId === event.nodeId)
+                        .map((item) => `${item.kind}: ${item.message ?? ""}`),
+                    ]
+                      .filter(Boolean)
+                      .join("\n"),
+                    actorPrincipalId: instance.createdBy,
+                    projectId: instance.workspaceId,
+                    occurredAt: event.at,
+                    sourceRefs: [
+                      { type: "workflow", id: instance.id },
+                      ...(node?.taskIds.at(-1) === undefined
+                        ? []
+                        : [
+                            {
+                              type: "task" as const,
+                              id: node.taskIds.at(-1)!,
+                            },
+                          ]),
+                    ],
+                    metadata: {
+                      nodeId: event.nodeId,
+                      status: node?.status ?? "unknown",
+                    },
+                  },
+                })
+                .catch(() => undefined);
+            }
+          }
         } catch {
           // Domain events are best-effort.
         }
@@ -6578,6 +6858,122 @@ export async function apply(
   );
   ctx.provide("collabWorkflow", service);
   ctx.effect(() => () => void domain.close());
+  ctx.inject(["collabContext"], (child) => {
+    injectedContext = child.collabContext;
+    const dispose = child.collabContext.registerAdapter({
+      scene: "workflow-node",
+      resolve: async (input: {
+        readonly workspaceId?: string;
+        readonly objectId: string;
+        readonly agentPrincipalId: string;
+        readonly actorPrincipalId: string;
+      }) => {
+        const [instanceId, nodeId] = input.objectId.split(":", 2);
+        const instance =
+          instanceId === undefined ? undefined : service.instance(instanceId);
+        const node =
+          instance === undefined || nodeId === undefined
+            ? undefined
+            : instance.nodes[nodeId];
+        return {
+          allowed:
+            instance !== undefined &&
+            node !== undefined &&
+            (input.workspaceId === undefined ||
+              input.workspaceId === instance.workspaceId),
+          ...(instance === undefined
+            ? {}
+            : { workspaceId: instance.workspaceId }),
+          sceneRevision: instance?.updatedAt ?? new Date(0).toISOString(),
+          sourceRefs:
+            instance === undefined
+              ? []
+              : [
+                  { type: "workflow" as const, id: instance.id },
+                  ...(node?.taskIds.at(-1) === undefined
+                    ? []
+                    : [
+                        {
+                          type: "task" as const,
+                          id: node.taskIds.at(-1)!,
+                        },
+                      ]),
+                ],
+        };
+      },
+      loadFacts: async (input: {
+        readonly workspaceId?: string;
+        readonly objectId: string;
+        readonly agentPrincipalId: string;
+        readonly asOf: string;
+      }) => {
+        const [instanceId, nodeId] = input.objectId.split(":", 2);
+        const instance =
+          instanceId === undefined ? undefined : service.instance(instanceId);
+        if (instance === undefined || nodeId === undefined) {
+          throw new WorkflowError("not_found", "workflow node not found");
+        }
+        const node = instance.nodes[nodeId];
+        if (node === undefined) {
+          throw new WorkflowError("not_found", "workflow node not found");
+        }
+        const definition = service.definition(instance.definitionId);
+        const nodeDefinition = definition?.graph.nodes.find(
+          (item) => item.id === nodeId,
+        );
+        const text = [
+          `# 工作流 ${instance.title}`,
+          `节点: ${nodeDefinition?.name ?? nodeId}`,
+          `状态: ${node.status}`,
+          `执行者: ${nodeDefinition?.executor?.kind ?? "unknown"}:${nodeDefinition?.executor?.id ?? "unknown"}`,
+          "",
+          "## 节点说明",
+          nodeDefinition?.description ?? "未填写",
+          "",
+          "## 工作流上下文",
+          JSON.stringify(instance.context, null, 2),
+        ].join("\n");
+        return {
+          text,
+          structured: {
+            instanceId: instance.id,
+            nodeId,
+            title: instance.title,
+            status: node.status,
+            context: instance.context,
+            taskIds: node.taskIds,
+          },
+          sourceRefs: [
+            { type: "workflow" as const, id: instance.id },
+            ...(node.taskIds.at(-1) === undefined
+              ? []
+              : [{ type: "task" as const, id: node.taskIds.at(-1)! }]),
+          ],
+          historyText: service
+            .events(instance.id)
+            .filter((event) => event.nodeId === nodeId)
+            .map((event) => `${event.kind}: ${event.message ?? ""}`)
+            .join("\n"),
+        };
+      },
+      policy: async () => ({
+        version: "workflow-node-context-v1",
+        instructions: [
+          "你正在执行工作流中的一个受控节点。",
+          "只处理当前节点的目标、上下文和交付要求。",
+          "不得读取其他工作流实例或其他项目的事实。",
+          "最终输出必须满足节点交付契约。",
+        ].join("\n"),
+        allowedWriteback: ["agent-private-memory", "run-evidence"],
+      }),
+    } as never);
+    child.effect(() => () => {
+      if (injectedContext === child.collabContext) {
+        injectedContext = undefined;
+      }
+      dispose();
+    });
+  });
   ctx.inject(["collabAgent"], (child) => {
     const agent = (
       child as WorkflowContext & { collabAgent?: AgentServiceLike }
@@ -6631,7 +7027,8 @@ export async function apply(
       ) => service.refreshTaskReceiverDisplay(task),
       events: (task: {
         readonly workflow?:
-          { readonly instanceId: string; readonly nodeId: string } | undefined;
+          | { readonly instanceId: string; readonly nodeId: string }
+          | undefined;
       }) => service.taskEventProjections(task),
       submit: (
         task: Parameters<WorkflowService["handleTaskSubmitted"]>[0],

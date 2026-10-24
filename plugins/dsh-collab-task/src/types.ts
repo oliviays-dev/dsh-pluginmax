@@ -100,6 +100,15 @@ export const taskAttachmentSchema = z.object({
   storedPath: z.string().min(1).max(500).optional(),
 });
 
+export const taskExecutionMetadataSchema = z.object({
+  provider: z.string().trim().min(1).max(120),
+  model: z.string().trim().min(1).max(160),
+  runtime: z.string().trim().min(1).max(200),
+  runtimeVersion: z.string().trim().min(1).max(120),
+  authMode: z.string().trim().min(1).max(120),
+  sandbox: z.string().trim().min(1).max(240),
+});
+
 export const taskMessageSchema = z.object({
   id: z.string().min(1).max(160),
   at: z.string().min(1),
@@ -111,6 +120,8 @@ export const taskMessageSchema = z.object({
   mentions: z.array(taskMentionSchema).default([]),
   deliveryTarget: taskDeliveryTargetSchema.optional(),
   runId: z.string().min(1).max(180).optional(),
+  runRole: z.enum(["owner", "assist", "fyi"]).optional(),
+  execution: taskExecutionMetadataSchema.optional(),
   state: z
     .enum([
       "queued",
@@ -135,6 +146,15 @@ export const taskReplySchema = z.object({
   content: z.string().min(1).max(8000),
 });
 
+/** 进入 Review 前的执行负责人快照，用于退回时恢复原提交人。 */
+export const taskReviewSubmitterSchema = z.object({
+  receiverType: taskReceiverTypeSchema,
+  receiverId: z.string().min(1).max(160).optional(),
+  receiverPrincipalId: z.string().min(1).max(180).optional(),
+  receiverName: z.string().min(1).max(200).optional(),
+  submittedAt: z.string().min(1).max(40),
+});
+
 export const taskCommentSchema = z.object({
   id: z.string().min(1).max(160),
   at: z.string().min(1),
@@ -142,6 +162,8 @@ export const taskCommentSchema = z.object({
   authorName: z.string().min(1).max(200),
   kind: taskActorKindSchema,
   content: z.string().min(1).max(8000),
+  /** 人类显式确认的关键共识；默认评论仅为讨论。 */
+  isKeyConsensus: z.boolean().default(false),
   replies: z.array(taskReplySchema).default([]),
 });
 
@@ -198,6 +220,8 @@ export const taskRecordSchema = z.object({
   autoRunEligible: z.boolean().default(true),
   /** 反馈项：Agent 判断信息不足，等待人工补充后才能继续。 */
   needsInput: z.boolean().default(false),
+  /** 最近一次进入 Review 时的执行负责人；退回后恢复并清除。 */
+  reviewSubmitter: taskReviewSubmitterSchema.optional(),
   archivedAt: z.string().min(1).max(40).optional(),
   // Reserved hook for the recycle bin: a soft-deleted task keeps `deletedAt`
   // set until it is restored or purged. Nothing writes it yet.
@@ -209,6 +233,7 @@ export const taskRecordSchema = z.object({
 export type TaskRecord = z.infer<typeof taskRecordSchema>;
 export type TaskEvent = z.infer<typeof taskEventSchema>;
 export type TaskMessage = z.infer<typeof taskMessageSchema>;
+export type TaskExecutionMetadata = z.infer<typeof taskExecutionMetadataSchema>;
 export type TaskComment = z.infer<typeof taskCommentSchema>;
 export type TaskStep = z.infer<typeof taskStepSchema>;
 export type TaskLink = z.infer<typeof taskLinkSchema>;

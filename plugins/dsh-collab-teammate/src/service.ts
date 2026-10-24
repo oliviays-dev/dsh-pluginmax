@@ -170,7 +170,7 @@ const STATE_ORDER: Record<TeammateState, number> = {
 };
 
 const DEFAULT_NAME = "未命名 AI伙伴";
-const DEFAULT_ROLE = "待定义";
+const DEFAULT_ROLE = "角色待定";
 const DEFAULT_SOUL =
   "定义这名 AI伙伴是谁、如何判断、遇到什么情况需要升级给本人。";
 
@@ -1176,6 +1176,40 @@ export class TeammateService {
           : `将实例设为「${STATE_LABELS[input.state]}」`,
       );
       return teammate;
+    });
+  }
+
+  /** Runtime 停用/归档时，由受信任的跨域治理链路暂停所有仍生效的绑定实例。 */
+  pauseForExternalRuntime(input: {
+    readonly runtimeId: string;
+    readonly runtimeName: string;
+    readonly runtimeStatus: "disabled" | "archived";
+    readonly actor: TeammateActor;
+  }): Promise<readonly Teammate[]> {
+    return this.enqueue(async () => {
+      const affected = this.values(this.options.tables.teammates).filter(
+        (teammate) =>
+          teammate.state === "active" &&
+          (teammate.execution ?? "builtin") === "external" &&
+          teammate.externalRuntimeId === input.runtimeId,
+      );
+      const updated: Teammate[] = [];
+      for (const current of affected) {
+        const teammate = teammateSchema.parse({
+          ...current,
+          state: "paused",
+          updatedAt: this.timestamp(),
+        });
+        await this.options.tables.teammates.put(teammate.id, teammate);
+        await this.record(
+          teammate,
+          input.actor,
+          "state",
+          `外部 Agent 运行时「${input.runtimeName}」${input.runtimeStatus === "archived" ? "已归档" : "已停用"}，自动暂停该 AI伙伴`,
+        );
+        updated.push(teammate);
+      }
+      return updated;
     });
   }
 

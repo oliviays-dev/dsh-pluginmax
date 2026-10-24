@@ -277,10 +277,293 @@ describe("dsh-collab-meeting", () => {
     );
     expect(list.status).toBe(200);
     expect(
-      (list.json() as { meetings: Meeting[] }).meetings.map(
-        (item) => item.id,
-      ),
+      (list.json() as { meetings: Meeting[] }).meetings.map((item) => item.id),
     ).toContain(meeting.id);
+  });
+
+  it("creates and reuses an AI conversation with one teammate", async () => {
+    const team = {
+      resolveToken: (token: string) =>
+        token === "alice-token"
+          ? { userId: "alice", role: "member" }
+          : undefined,
+      members: () => [{ userId: "alice", name: "Alice", memberRole: "member" }],
+    };
+    const routes = createMeetingRoutes(service, team);
+    const createRoute = findRoute(routes, "/api/collab/meetings");
+    const body = {
+      workspaceId: "main",
+      title: "研究伙伴",
+      kind: "ai",
+      teammateInstanceId: "tm-research",
+      teammateName: "研究伙伴",
+      displayName: "Alice",
+    };
+    const first = await call(
+      createRoute,
+      fakeRequest("POST", "/api/collab/meetings", {
+        token: "alice-token",
+        origin: "http://127.0.0.1:33117",
+        body,
+      }),
+    );
+    expect(first.status).toBe(201);
+    const firstMeeting = (first.json() as { meeting: Meeting }).meeting;
+    expect(firstMeeting).toMatchObject({
+      kind: "ai",
+      teammateInstanceId: "tm-research",
+    });
+    expect(
+      service
+        .participants(firstMeeting.id)
+        .map((participant) => participant.kind),
+    ).toEqual(["human", "ai_teammate"]);
+
+    const second = await call(
+      createRoute,
+      fakeRequest("POST", "/api/collab/meetings", {
+        token: "alice-token",
+        origin: "http://127.0.0.1:33117",
+        body,
+      }),
+    );
+    expect(second.status).toBe(200);
+    expect((second.json() as { meeting: Meeting }).meeting.id).toBe(
+      firstMeeting.id,
+    );
+  });
+
+  it("keeps AI conversations private from other workspace members", async () => {
+    const team = {
+      resolveToken: (token: string) =>
+        token === "alice-token"
+          ? { userId: "alice", role: "member" as const }
+          : token === "bob-token"
+            ? { userId: "bob", role: "member" as const }
+            : token === "charlie-token"
+              ? { userId: "charlie", role: "member" as const }
+              : undefined,
+      members: () => [
+        { userId: "alice", name: "Alice", memberRole: "member" as const },
+        { userId: "bob", name: "Bob", memberRole: "member" as const },
+        { userId: "charlie", name: "Charlie", memberRole: "member" as const },
+      ],
+    };
+    const routes = createMeetingRoutes(service, team, {
+      teammateRuntime: () => ({
+        ensureRuntime: async () => {
+          throw new Error("not used");
+        },
+        ownersOf: () => [{ userId: "charlie", name: "Charlie" }],
+      }),
+    });
+    const created = await call(
+      findRoute(routes, "/api/collab/meetings"),
+      fakeRequest("POST", "/api/collab/meetings", {
+        token: "alice-token",
+        origin: "http://127.0.0.1:33117",
+        body: {
+          workspaceId: "main",
+          title: "Alice 的私聊",
+          kind: "ai",
+          teammateInstanceId: "tm-research",
+          teammateName: "研究伙伴",
+          displayName: "Alice",
+        },
+      }),
+    );
+    const meeting = (created.json() as { meeting: Meeting }).meeting;
+
+    const list = await call(
+      findRoute(routes, "/api/collab/meetings"),
+      fakeRequest("GET", "/api/collab/meetings?workspaceId=main", {
+        token: "bob-token",
+        origin: "http://127.0.0.1:33117",
+      }),
+    );
+    expect(
+      (list.json() as { meetings: Meeting[] }).meetings.map((item) => item.id),
+    ).not.toContain(meeting.id);
+
+    const denied = await call(
+      findRoute(routes, "/api/collab/meeting"),
+      fakeRequest(
+        "GET",
+        `/api/collab/meeting?meetingId=${encodeURIComponent(meeting.id)}`,
+        {
+          token: "bob-token",
+          origin: "http://127.0.0.1:33117",
+        },
+      ),
+    );
+    expect(denied.status).toBe(403);
+
+    const ownerAccess = await call(
+      findRoute(routes, "/api/collab/meeting"),
+      fakeRequest(
+        "GET",
+        `/api/collab/meeting?meetingId=${encodeURIComponent(meeting.id)}`,
+        {
+          token: "charlie-token",
+          origin: "http://127.0.0.1:33117",
+        },
+      ),
+    );
+    expect(ownerAccess.status).toBe(200);
+
+    const allowed = await call(
+      findRoute(routes, "/api/collab/meeting"),
+      fakeRequest(
+        "GET",
+        `/api/collab/meeting?meetingId=${encodeURIComponent(meeting.id)}`,
+        {
+          token: "alice-token",
+          origin: "http://127.0.0.1:33117",
+        },
+      ),
+    );
+    expect(allowed.status).toBe(200);
+
+    const minutes = await call(
+      findRoute(routes, "/api/collab/meeting/minutes"),
+      fakeRequest(
+        "GET",
+        `/api/collab/meeting/minutes?meetingId=${encodeURIComponent(meeting.id)}`,
+        {
+          token: "alice-token",
+          origin: "http://127.0.0.1:33117",
+        },
+      ),
+    );
+    expect(minutes.status).toBe(403);
+  });
+
+  it("dispatches AI conversation messages as chat runs, not meeting tasks", async () => {
+    const team = {
+      resolveToken: (token: string) =>
+        token === "alice-token"
+          ? { userId: "alice", role: "member" as const }
+          : undefined,
+      members: () => [
+        { userId: "alice", name: "Alice", memberRole: "member" as const },
+      ],
+    };
+    const dispatched: Array<Record<string, any>> = [];
+    const preparedRequests: Array<Record<string, any>> = [];
+    const recordedRuns: Array<Record<string, any>> = [];
+    const chatAgent = {
+      dispatch: async (input: Record<string, any>) => {
+        dispatched.push(input);
+        return {
+          id: "run-chat-1",
+          status: "queued",
+          source: "chat",
+          instanceId: input.instanceId,
+          nodeId: input.nodeId,
+          payload: input.payload,
+        };
+      },
+      run: () => undefined,
+    };
+    const routes = createMeetingRoutes(service, team, {
+      teammateRuntime: () => ({
+        ensureRuntime: async () => ({
+          teammateId: "tm-research",
+          principalId: "principal-tm-research",
+          profileId: "agent-profile-research",
+          personaId: "persona-tm-research",
+        }),
+      }),
+      chatAgent: () => chatAgent as never,
+      workspaces: () => ({
+        get: () => ({ path: "/tmp/workspace" }),
+      }),
+      context: () => ({
+        registerAdapter: () => () => undefined,
+        ensureChatChannel: async () => ({ id: "chat-channel-main-alice" }),
+        prepare: async (request: Record<string, any>) => {
+          preparedRequests.push(request);
+          return {
+            id: "pack-chat-1",
+            sessionBindingId: "chat:chat-channel-main-alice:principal-tm-research:g0",
+            rendered: {
+              systemText: "system",
+              userText: "已装配的聊天上下文",
+              flattenedPrompt: "system\n\n已装配的聊天上下文",
+            },
+          };
+        },
+        session: () => ({
+          sessionId:
+            "de-chat-main-chat-channel-main-alice-principal-tm-research",
+          generation: 0,
+        }),
+        recordRuntime: async (request: Record<string, any>) => {
+          recordedRuns.push(request);
+        },
+      }),
+    });
+    const created = await call(
+      findRoute(routes, "/api/collab/meetings"),
+      fakeRequest("POST", "/api/collab/meetings", {
+        token: "alice-token",
+        origin: "http://127.0.0.1:33117",
+        body: {
+          workspaceId: "main",
+          title: "Alice 与 研究伙伴",
+          kind: "ai",
+          teammateInstanceId: "tm-research",
+          teammateName: "研究伙伴",
+          displayName: "Alice",
+        },
+      }),
+    );
+    const meeting = (created.json() as { meeting: Meeting }).meeting;
+    const posted = await call(
+      findRoute(routes, "/api/collab/meeting/message"),
+      fakeRequest("POST", "/api/collab/meeting/message", {
+        token: "alice-token",
+        origin: "http://127.0.0.1:33117",
+        body: {
+          meetingId: meeting.id,
+          content: "帮我分析这周的风险。",
+        },
+      }),
+    );
+
+    expect(posted.status).toBe(201);
+    expect(dispatched).toHaveLength(1);
+    expect(dispatched[0]).toMatchObject({
+      source: "chat",
+      instanceId: meeting.id,
+      principalId: "principal-tm-research",
+      contextPackId: "pack-chat-1",
+      sessionBindingId:
+        "chat:chat-channel-main-alice:principal-tm-research:g0",
+      sessionId:
+        "de-chat-main-chat-channel-main-alice-principal-tm-research",
+      payload: {
+        context: {
+          instruction: "已装配的聊天上下文",
+          chatChannelId: "chat-channel-main-alice",
+          meetingId: meeting.id,
+          contextPackId: "pack-chat-1",
+        },
+      },
+    });
+    expect(preparedRequests[0]).toMatchObject({
+      scene: "chat",
+      chatCarrier: "meeting-ai",
+      chatChannelId: "chat-channel-main-alice",
+      objectId: "chat-channel-main-alice",
+      workspaceId: "main",
+      teammateId: "tm-research",
+    });
+    expect(recordedRuns[0]).toMatchObject({
+      runId: "run-chat-1",
+      contextPackId: "pack-chat-1",
+      runtime: { kind: "builtin" },
+    });
   });
 
   it("reuses the AI participant when an agent joins the same meeting twice", async () => {
@@ -314,7 +597,11 @@ describe("dsh-collab-meeting", () => {
   });
 
   it("announces Facilitator joining again after it was removed", async () => {
-    const actor = { kind: "user" as const, id: "admin", globalRole: "admin" as const };
+    const actor = {
+      kind: "user" as const,
+      id: "admin",
+      globalRole: "admin" as const,
+    };
     const meeting = await service.create(actor, {
       workspaceId: "main",
       title: "Facilitator 重入",
@@ -815,6 +1102,57 @@ describe("dsh-collab-meeting", () => {
     );
     expect(member.status).toBe(200);
     expect(member.json()).toMatchObject({ ok: true, meetings: [meeting] });
+    expect(
+      (
+        member.json() as {
+          meetings: Array<{
+            messageCount: number;
+            lastMessage: unknown;
+            lastActivityAt: string;
+          }>;
+        }
+      ).meetings[0],
+    ).toMatchObject({
+      messageCount: 0,
+      lastMessage: null,
+      lastActivityAt: meeting.updatedAt,
+    });
+    await service.join(
+      { kind: "user", id: "admin", globalRole: "admin" },
+      meeting.id,
+      "Admin",
+    );
+    await service.post(
+      { kind: "user", id: "admin", globalRole: "admin" },
+      meeting.id,
+      "最新消息内容",
+    );
+    const withUnread = await call(
+      list,
+      fakeRequest("GET", "/api/collab/meetings?workspaceId=main", {
+        token: "member-token",
+        origin: "http://127.0.0.1:33117",
+      }),
+    );
+    expect(withUnread.status).toBe(200);
+    expect(
+      (
+        withUnread.json() as {
+          meetings: Array<{
+            messageCount: number;
+            unreadCount: number;
+            lastMessage: { content: string; createdAt: string };
+            lastActivityAt: string;
+          }>;
+        }
+      ).meetings[0],
+    ).toMatchObject({
+      messageCount: 1,
+      unreadCount: 1,
+      lastMessage: {
+        content: "最新消息内容",
+      },
+    });
 
     await service.join(
       { kind: "user", id: "alice", workspaceRole: "member" },
@@ -922,6 +1260,19 @@ describe("dsh-collab-meeting", () => {
     const tools: unknown[] = [];
     const routes: WebRouteLike[] = [];
     const disposers: Array<() => void> = [];
+    const registeredAdapters: Array<{
+      readonly scene?: string;
+      readonly chatCarrier?: string;
+    }> = [];
+    const chatContext = {
+      registerAdapter: (adapter: {
+        readonly scene?: string;
+        readonly chatCarrier?: string;
+      }) => {
+        registeredAdapters.push(adapter);
+        return () => undefined;
+      },
+    };
     const ctx: MeetingContext = {
       effect: (register) => disposers.push(register()),
       provide: (key) => provided.push(key),
@@ -929,7 +1280,8 @@ describe("dsh-collab-meeting", () => {
       tools: { register: (definition) => tools.push(definition) },
       webServer: { register: (route) => routes.push(route) },
       storageDomain: { open: async () => fakeDomain(current) },
-      get: () => undefined,
+      get: (key) =>
+        key === "collabContext" ? (chatContext as never) : undefined,
       inject: (_keys, callback) => {
         callback(
           ctx as MeetingContext & {
@@ -954,6 +1306,13 @@ describe("dsh-collab-meeting", () => {
     ]);
     expect(commands).toHaveLength(1);
     expect(tools).toHaveLength(1);
+    expect(registeredAdapters).toEqual([
+      expect.objectContaining({
+        scene: "chat",
+        chatCarrier: "meeting-ai",
+      }),
+      expect.objectContaining({ scene: "meeting" }),
+    ]);
     expect(routes.map((route) => route.path)).toContain("/api/collab/meetings");
     expect(typeof dispose).toBe("function");
   });
@@ -992,6 +1351,7 @@ describe("dsh-collab-meeting", () => {
       id: "m-legacy",
       workspaceId: "main",
       title: "旧会议",
+      kind: "meeting",
       agenda: "",
       status: "active",
       createdBy: "admin",

@@ -12,8 +12,10 @@ import {
   EXTERNAL_AGENT_PROVIDERS,
   agentProfileSchema,
   agentRunSchema,
+  agentExecutionMetadataSchema,
   externalAgentRuntimeSchema,
   type AgentProfile,
+  type AgentExecutionMetadata,
   type AgentRun,
   type AgentRunStatus,
   type ExternalAgentRuntime,
@@ -23,7 +25,10 @@ import {
   externalSessionId,
   probeExternalRuntime,
   terminalExternalAgentTrace,
+  terminalExternalAgentRuntimeTrace,
   type ExternalAgentRunner,
+  type ExternalAgentRuntimeTraceAction,
+  type ExternalAgentRuntimeTraceListener,
 } from "./external.js";
 
 export type { AgentProfile, AgentRun, ExternalAgentRuntime };
@@ -193,10 +198,12 @@ export interface AgentSessionTitleLike {
 export interface WorkspaceLike {
   readonly path: string;
   attachSession(sessionId: string): Promise<void>;
+  detachSession?(sessionId: string): Promise<void>;
 }
 
 export interface WorkspaceRegistryLike {
   create(path: string, title?: string): Promise<WorkspaceLike>;
+  get?(id: string): WorkspaceLike | undefined;
 }
 
 export interface SubagentRunLike {
@@ -225,7 +232,16 @@ function subagentOutputText(result: SubagentResultLike): string {
     .join("\n");
 }
 
+function normalizeExecutionMetadata(
+  metadata: Partial<AgentExecutionMetadata>,
+): AgentExecutionMetadata {
+  return agentExecutionMetadataSchema.parse(metadata);
+}
+
 function taskSessionId(run: AgentRun): string {
+  if (run.sessionId !== undefined) {
+    return run.sessionId;
+  }
   // 一个「任务 + AI 执行者」对应左侧一条独立会话，重跑同一任务复用同一条。
   // 任务重置执行会话后代数 +1，下一次执行换一条全新会话。
   const epoch = run.payload.context.taskSessionEpoch;
@@ -234,10 +250,18 @@ function taskSessionId(run: AgentRun): string {
       ? `-r${epoch}`
       : "";
   const scope =
-    run.source === "workflow"
-      ? `${String(run.payload.context.workflowTaskId ?? run.instanceId)}-${run.nodeId}`
-      : run.instanceId;
-  return `de-task-${scope}-${run.employeeId ?? run.agentProfileId}${generation}`
+    run.source === "chat"
+      ? String(run.payload.context.chatChannelId ?? run.instanceId)
+      : run.source === "workflow"
+        ? `${String(run.payload.context.workflowTaskId ?? run.instanceId)}-${run.nodeId}`
+        : run.instanceId;
+  const prefix = run.source === "chat" ? "de-chat" : "de-task";
+  if (run.source === "meeting") {
+    return `de-meeting-${scope}-${run.employeeId ?? run.agentProfileId}`
+      .replace(/[^a-zA-Z0-9._-]/g, "-")
+      .slice(0, 200);
+  }
+  return `${prefix}-${scope}-${run.employeeId ?? run.agentProfileId}${generation}`
     .replace(/[^a-zA-Z0-9._-]/g, "-")
     .slice(0, 200);
 }
@@ -258,6 +282,17 @@ function desiredTaskSessionTitle(run: AgentRun): string {
     )
       .split("-")
       .at(-1) ?? run.id;
+  if (run.source === "chat") {
+    return [
+      employeeName,
+      "AI对话",
+      compact(run.payload.instanceTitle),
+      taskKey.slice(-4),
+    ]
+      .filter((part) => part !== "")
+      .join("-")
+      .slice(0, 120);
+  }
   return [
     employeeName,
     "TSK",
@@ -501,7 +536,7 @@ export interface AgentDispatchInput {
   readonly workspaceId: string;
   readonly workspacePath?: string | undefined;
   readonly profileId: string;
-  readonly source: "workflow" | "task" | "meeting";
+  readonly source: "workflow" | "task" | "meeting" | "chat";
   readonly instanceId: string;
   readonly nodeId: string;
   readonly dispatchKey: string;
@@ -514,8 +549,14 @@ export interface AgentDispatchInput {
   readonly employeeId?: string | undefined;
   readonly principalId?: string | undefined;
   readonly principalType?:
-    "transitional-agent" | "digital-employee" | "principal-runtime" | undefined;
+    | "transitional-agent"
+    | "digital-employee"
+    | "principal-runtime"
+    | undefined;
   readonly ticketId?: string | undefined;
+  readonly contextPackId?: string | undefined;
+  readonly sessionBindingId?: string | undefined;
+  readonly sessionId?: string | undefined;
   readonly payload: AgentRun["payload"];
   readonly createdBy: string;
 }
@@ -601,7 +642,10 @@ export class ExternalAgentRuntimeService {
 
   constructor(
     private readonly table: KvTableLike<ExternalAgentRuntime>,
-    private readonly deps: { readonly now?: () => Date } = {},
+    private readonly deps: {
+      readonly now?: () => Date;
+      readonly onTrace?: ExternalAgentRuntimeTraceListener | undefined;
+    } = {},
   ) {}
 
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {
@@ -612,6 +656,27 @@ export class ExternalAgentRuntimeService {
 
   private now(): Date {
     return this.deps.now?.() ?? new Date();
+  }
+
+  private trace(
+    action: ExternalAgentRuntimeTraceAction,
+    runtime: ExternalAgentRuntime,
+    options: {
+      readonly actorUserId?: string | undefined;
+      readonly previousStatus?: ExternalAgentRuntime["status"] | undefined;
+      readonly message?: string | undefined;
+      readonly fields?: Readonly<Record<string, unknown>> | undefined;
+    } = {},
+  ): void {
+    try {
+      this.deps.onTrace?.({
+        action,
+        runtime,
+        ...options,
+      });
+    } catch {
+      // Audit output must never change the result of a runtime operation.
+    }
   }
 
   /**
@@ -628,6 +693,7 @@ export class ExternalAgentRuntimeService {
           (options?.includeArchived === true ||
             runtime.status !== "archived") &&
           (workspaceId === undefined ||
+            runtime.visibility === "platform" ||
             runtime.workspaceId === undefined ||
             runtime.workspaceId === workspaceId),
       )
@@ -752,6 +818,15 @@ export class ExternalAgentRuntimeService {
         updatedAt: timestamp,
       });
       await this.table.put(record.id, record);
+      this.trace("register", record, {
+        actorUserId: actor.id,
+        message: "外部 Agent 运行时已注册",
+        fields: {
+          command: record.command,
+          argsCount: record.args.length,
+          visibility: record.visibility,
+        },
+      });
       return record;
     });
   }
@@ -780,6 +855,20 @@ export class ExternalAgentRuntimeService {
         input.args !== undefined &&
         (input.args.length !== current.args.length ||
           input.args.some((arg, index) => arg !== current.args[index]));
+      const changedFields = [
+        input.name !== undefined && input.name !== current.name ? "name" : "",
+        input.provider !== undefined && input.provider !== current.provider
+          ? "provider"
+          : "",
+        input.protocol !== undefined && input.protocol !== current.protocol
+          ? "protocol"
+          : "",
+        commandChanged ? "command" : "",
+        argsChanged ? "args" : "",
+        input.status !== undefined && input.status !== current.status
+          ? "status"
+          : "",
+      ].filter((field) => field !== "");
       const next = parseOrInvalid(externalAgentRuntimeSchema, {
         ...current,
         name: input.name ?? current.name,
@@ -798,6 +887,26 @@ export class ExternalAgentRuntimeService {
           : {}),
       });
       await this.table.put(next.id, next);
+      const action: ExternalAgentRuntimeTraceAction =
+        current.status !== next.status
+          ? next.status === "active"
+            ? "enable"
+            : next.status === "disabled"
+              ? "disable"
+              : "update"
+          : "update";
+      this.trace(action, next, {
+        actorUserId: actor.id,
+        previousStatus: current.status,
+        message:
+          action === "update" ? "外部 Agent 运行时定义已更新" : undefined,
+        fields: {
+          changed:
+            changedFields.length === 0 ? "none" : changedFields.join(","),
+          command: next.command,
+          argsCount: next.args.length,
+        },
+      });
       return next;
     });
   }
@@ -816,6 +925,11 @@ export class ExternalAgentRuntimeService {
         updatedAt: iso(this.now()),
       });
       await this.table.put(next.id, next);
+      this.trace("archive", next, {
+        actorUserId: actor.id,
+        previousStatus: current.status,
+        message: "外部 Agent 运行时已归档",
+      });
       return next;
     });
   }
@@ -840,13 +954,28 @@ export class ExternalAgentRuntimeService {
         updatedAt: iso(this.now()),
       });
       await this.table.put(next.id, next);
+      this.trace("restore", next, {
+        actorUserId: actor.id,
+        previousStatus: current.status,
+        message: "外部 Agent 运行时已复原为停用",
+      });
       return next;
     });
   }
 
   markProbe(
     runtimeId: string,
-    result: { readonly ok: boolean; readonly message: string },
+    result: {
+      readonly ok: boolean;
+      readonly message: string;
+      readonly command?: string | undefined;
+      readonly args?: readonly string[] | undefined;
+      readonly exitCode?: number | null | undefined;
+      readonly durationMs?: number | undefined;
+      readonly stdout?: string | undefined;
+      readonly stderr?: string | undefined;
+    },
+    actor?: AgentActor,
   ): Promise<ExternalAgentRuntime | undefined> {
     return this.enqueue(async () => {
       const current = this.get(runtimeId);
@@ -859,6 +988,22 @@ export class ExternalAgentRuntimeService {
         updatedAt: iso(this.now()),
       });
       await this.table.put(next.id, next);
+      this.trace("probe", next, {
+        actorUserId: actor?.id,
+        previousStatus: current.status,
+        message: result.ok
+          ? "外部 Agent 运行时探测通过"
+          : "外部 Agent 运行时探测失败",
+        fields: {
+          ok: result.ok,
+          command: result.command ?? next.command,
+          probe: result.message,
+          exit: result.exitCode,
+          durationMs: result.durationMs,
+          stdout: result.stdout,
+          stderr: result.stderr,
+        },
+      });
       return next;
     });
   }
@@ -902,6 +1047,29 @@ function buildPrompt(run: AgentRun, profile: AgentProfile): string {
     (item) => item.required && item.type === "text",
   );
   const previousFailure = payload.previousFailure?.trim() ?? "";
+  if (run.source === "chat") {
+    const instruction =
+      typeof payload.context.instruction === "string"
+        ? payload.context.instruction.trim()
+        : "";
+    const transcript =
+      typeof payload.context.transcript === "string"
+        ? payload.context.transcript.trim()
+        : "";
+    return [
+      "# AI伙伴一对一对话",
+      "",
+      "你正在与当前用户进行私密的一对一对话。只处理当前对话，不要读取或描述其他会议、其他用户私聊或未显式带入的任务上下文。",
+      "",
+      ...(transcript === "" ? [] : ["## 最近对话", transcript, ""]),
+      "## 当前用户消息",
+      instruction === "" ? payload.nodeDescription.trim() : instruction,
+      "",
+      "直接回复用户，不要输出会议纪要、任务交付报告或执行计划。",
+    ]
+      .filter((line) => line !== "")
+      .join("\n");
+  }
   if (run.source === "meeting") {
     // 会议纪要：固定输出口径，会议级额外要求走「本次嘱咐」（context.brief）。
     const transcript =
@@ -1018,6 +1186,30 @@ function buildPrompt(run: AgentRun, profile: AgentProfile): string {
   ].join("\n");
 }
 
+/** 外部 CLI 没有平台的会话人设层，因此 SOUL 必须作为 Prompt 的前置角色设定注入。 */
+function buildExternalAgentPrompt(
+  personaSoul: string,
+  taskPrompt: string,
+): string {
+  const soul = personaSoul.trim();
+  if (soul === "") return taskPrompt;
+  return [
+    "# AI伙伴身份与行为边界",
+    "",
+    "以下定义是你在当前平台中的长期身份，优先于执行工具的默认身份说明。不要把自己描述成通用的 Codex、CodeBuddy 或其他 CLI 助手。",
+    "",
+    soul,
+    "",
+    "---",
+    "",
+    "# 当前任务",
+    "",
+    taskPrompt.trim(),
+  ]
+    .join("\n")
+    .slice(0, 60_000);
+}
+
 export interface AgentTaskTables {
   readonly profiles: KvTableLike<AgentProfile>;
   readonly runs: KvTableLike<AgentRun>;
@@ -1036,7 +1228,8 @@ export interface AgentRuntimeDeps {
   readonly sessionTitle?: () => AgentSessionTitleLike | undefined;
   readonly provider?: () => string;
   readonly externalRuntimes?: () =>
-    KvTableLike<ExternalAgentRuntime> | undefined;
+    | KvTableLike<ExternalAgentRuntime>
+    | undefined;
   readonly externalRunner?: () => ExternalAgentRunner | undefined;
   readonly now?: () => Date;
   readonly onSettled?: (run: AgentRun) => Promise<void> | void;
@@ -1292,7 +1485,15 @@ export class AgentTaskRuntime {
         text: "",
         updatedAt: iso(this.now()),
       });
-      await this.attachSession(run, sessionId);
+      // Chat sessions are private to the communication surface. Attaching them
+      // to the shared workspace session tree would expose the session title to
+      // every project member, even when the meeting transcript itself is
+      // access-controlled.
+      if (run.source === "chat") {
+        await this.saveRun({ ...run, sessionId });
+      } else {
+        await this.attachSession(run, sessionId);
+      }
       if (signal.aborted) {
         agent.cancel?.({ kind: "user" });
         throw new Error("worker aborted");
@@ -1766,7 +1967,11 @@ export class AgentTaskRuntime {
       }
     }
     let reservedPersonaSoul = "";
-    if (!isExternal && claimed.workspacePath !== undefined) {
+    if (
+      !isExternal &&
+      claimed.workspacePath !== undefined &&
+      claimed.source !== "chat"
+    ) {
       // 会话必须先可见，再进入全局并发/执行队列；否则排队期间左侧清单
       // 会缺项，服务重启后也可能留下「有任务、无 session」的断档。
       reservedPersonaSoul = await this.resolvePersonaSoul(claimed.personaId);
@@ -1815,9 +2020,11 @@ export class AgentTaskRuntime {
       const signal = task.controller.signal;
       // 人设文本在启动前解析一次：内置会话与 subagent 两条路径共用。
       const personaSoul =
-        reservedPersonaSoul !== "" || current.personaId === undefined
-          ? reservedPersonaSoul
-          : await this.resolvePersonaSoul(current.personaId);
+        current.contextPackId !== undefined
+          ? ""
+          : reservedPersonaSoul !== "" || current.personaId === undefined
+            ? reservedPersonaSoul
+            : await this.resolvePersonaSoul(current.personaId);
       let result: SubagentResultLike;
       if (isExternal) {
         const runner = this.deps.externalRunner?.();
@@ -1858,10 +2065,28 @@ export class AgentTaskRuntime {
           sessionId,
         });
         const live = this.deps.tables.runs.get(runId)!;
+        const externalPrompt = buildExternalAgentPrompt(personaSoul, prompt);
+        await this.saveRun({
+          ...live,
+          promptSnapshot: externalPrompt,
+        });
+        const prepared = this.deps.tables.runs.get(runId) ?? live;
+        const baseExecution = normalizeExecutionMetadata({
+          provider: externalRuntime.provider,
+          runtime: externalRuntime.name,
+          sandbox:
+            externalRuntime.protocol === "codex-jsonl"
+              ? "read-only / network restricted"
+              : "unknown",
+        });
+        await this.saveRun({
+          ...prepared,
+          execution: baseExecution,
+        });
         const result = await runner.execute({
           runId,
           runtime: externalRuntime,
-          prompt,
+          prompt: externalPrompt,
           workspacePath: current.workspacePath,
           signal,
           onProgress: (text) => {
@@ -1871,8 +2096,19 @@ export class AgentTaskRuntime {
             });
           },
         });
+        const execution = normalizeExecutionMetadata({
+          ...baseExecution,
+          ...result.execution,
+          provider: result.execution?.provider ?? baseExecution.provider,
+          runtime: result.execution?.runtime ?? baseExecution.runtime,
+        });
+        const withExecution = this.deps.tables.runs.get(runId) ?? prepared;
+        await this.saveRun({
+          ...withExecution,
+          execution,
+        });
         if (result.sessionId !== undefined) {
-          const withExternal = this.deps.tables.runs.get(runId) ?? live;
+          const withExternal = this.deps.tables.runs.get(runId) ?? prepared;
           await this.saveRun({
             ...withExternal,
             externalSessionId: result.sessionId,
@@ -1880,18 +2116,18 @@ export class AgentTaskRuntime {
         }
         if (this.cancelledRunIds.has(runId)) return;
         if (task.cancelReason === "cancelled") {
-          await this.settle(this.deps.tables.runs.get(runId) ?? live, {
+          await this.settle(this.deps.tables.runs.get(runId) ?? prepared, {
             status: "cancelled",
             endedAt: iso(this.now()),
           });
         } else if (task.timedOut) {
-          await this.settle(this.deps.tables.runs.get(runId) ?? live, {
+          await this.settle(this.deps.tables.runs.get(runId) ?? prepared, {
             status: "timeout",
             error: "运行超时，已中止",
             endedAt: iso(this.now()),
           });
         } else if (result.stopReason !== "completed") {
-          await this.settle(this.deps.tables.runs.get(runId) ?? live, {
+          await this.settle(this.deps.tables.runs.get(runId) ?? prepared, {
             status: "failed",
             error: (result.diagnostic ?? "外部 Agent 执行失败").slice(0, 1_000),
             endedAt: iso(this.now()),
@@ -1923,7 +2159,7 @@ export class AgentTaskRuntime {
                 endedAt: iso(this.now()),
               });
             } else {
-              await this.settle(this.deps.tables.runs.get(runId) ?? live, {
+              await this.settle(this.deps.tables.runs.get(runId) ?? prepared, {
                 status: "succeeded",
                 output: {
                   summary: outputText,
@@ -1940,6 +2176,18 @@ export class AgentTaskRuntime {
         return;
       }
       const builtinSubagents = subagents!;
+      const modelSelection = this.deps.defaultModel?.()?.currentSelection();
+      const latestBuiltin = this.deps.tables.runs.get(runId) ?? current;
+      await this.saveRun({
+        ...latestBuiltin,
+        execution: normalizeExecutionMetadata({
+          provider: modelSelection?.provider ?? "platform",
+          model: modelSelection?.model ?? "unknown",
+          runtime: "DSH built-in",
+          authMode: "platform-managed",
+          sandbox: "platform-managed",
+        }),
+      });
       if (current.workspacePath !== undefined) {
         result = await this.executeHomeSession(
           current,
@@ -2126,6 +2374,10 @@ export interface AgentServiceDeps {
   readonly now?: () => Date;
   readonly sessions?: () => AgentSessionsLike | undefined;
   readonly sessionPersistence?: () => AgentSessionPersistenceLike | undefined;
+  readonly workspaces?: () => WorkspaceRegistryLike | undefined;
+  readonly externalRuntimes?: () =>
+    | KvTableLike<ExternalAgentRuntime>
+    | undefined;
 }
 
 export class AgentRegistryService {
@@ -2163,6 +2415,46 @@ export class AgentRegistryService {
       run.endedAt ?? iso(this.now()),
     );
     return outputTokens === undefined ? run : { ...run, outputTokens };
+  }
+
+  private withLegacyExecutionMetadata(run: AgentRun): AgentRun {
+    if (run.execution !== undefined) return run;
+    const profile = this.tables.profiles.get(run.agentProfileId);
+    const runtimeId = profile?.externalRuntimeId;
+    const externalRuntime =
+      runtimeId === undefined
+        ? undefined
+        : this.deps.externalRuntimes?.()?.get(runtimeId);
+    const external =
+      profile?.execution === "external" || externalRuntime !== undefined;
+    return {
+      ...run,
+      execution: normalizeExecutionMetadata(
+        external
+          ? {
+              provider: externalRuntime?.provider ?? "unknown",
+              model: profile?.defaultModel?.model ?? "unknown",
+              runtime:
+                externalRuntime === undefined
+                  ? "外部 Agent Runtime（历史配置回填）"
+                  : `${externalRuntime.name}（历史配置回填）`,
+              runtimeVersion: "unknown",
+              authMode: "unknown",
+              sandbox:
+                externalRuntime?.protocol === "codex-jsonl"
+                  ? "read-only / network restricted"
+                  : "unknown",
+            }
+          : {
+              provider: profile?.defaultModel?.provider ?? "platform",
+              model: profile?.defaultModel?.model ?? "unknown",
+              runtime: "DSH built-in（历史配置回填）",
+              runtimeVersion: "unknown",
+              authMode: "platform-managed",
+              sandbox: "platform-managed",
+            },
+      ),
+    };
   }
 
   /** Backfill legacy runs once from their persisted session logs. */
@@ -2465,11 +2757,16 @@ export class AgentRegistryService {
           right.createdAt.localeCompare(left.createdAt) ||
           right.runSeq - left.runSeq,
       )
-      .map((run) => this.withObservedOutputTokens(run));
+      .map((run) =>
+        this.withLegacyExecutionMetadata(this.withObservedOutputTokens(run)),
+      );
   }
 
   run(runId: string): AgentRun | undefined {
-    return this.tables.runs.get(runId);
+    const run = this.tables.runs.get(runId);
+    return run === undefined
+      ? undefined
+      : this.withLegacyExecutionMetadata(this.withObservedOutputTokens(run));
   }
 
   progress(runId: string): AgentRunProgress | undefined {
@@ -2508,6 +2805,15 @@ export class AgentRegistryService {
           ? {}
           : { principalType: input.principalType }),
         ...(input.ticketId === undefined ? {} : { ticketId: input.ticketId }),
+        ...(input.contextPackId === undefined
+          ? {}
+          : { contextPackId: input.contextPackId }),
+        ...(input.sessionBindingId === undefined
+          ? {}
+          : { sessionBindingId: input.sessionBindingId }),
+        ...(input.sessionId === undefined
+          ? {}
+          : { sessionId: input.sessionId }),
         source: input.source,
         instanceId: input.instanceId,
         nodeId: input.nodeId,
@@ -2561,6 +2867,7 @@ export class AgentRegistryService {
 
   /** Re-enqueue queued runs and retire orphaned running runs after restart. */
   restore(): void {
+    void this.detachLegacyChatSessions();
     for (const run of values(this.tables.runs)) {
       if (run.status === "queued") {
         this.runtime?.enqueue(run);
@@ -2586,6 +2893,26 @@ export class AgentRegistryService {
           await this.runtime?.republishLegacyRestart(run);
         });
       }
+    }
+  }
+
+  /**
+   * Older builds attached de-chat sessions to the shared workspace tree.
+   * Detach them during startup so project members cannot discover another
+   * user's private AI conversation from the sidebar.
+   */
+  private async detachLegacyChatSessions(): Promise<void> {
+    const workspaces = this.deps.workspaces?.();
+    if (workspaces === undefined) return;
+    const sessions = new Map<string, string>();
+    for (const run of values(this.tables.runs)) {
+      if (run.source !== "chat" || run.sessionId === undefined) continue;
+      sessions.set(run.sessionId, run.workspaceId);
+    }
+    for (const [sessionId, workspaceId] of sessions) {
+      const workspace = workspaces.get?.(workspaceId);
+      if (workspace?.detachSession === undefined) continue;
+      await workspace.detachSession(sessionId).catch(() => undefined);
     }
   }
 
@@ -2767,12 +3094,27 @@ export function createAgentRoutes(
   team: () => TeamServiceLike | undefined,
   personas?: () => PersonaServiceLike | undefined,
   externalRuntimes?: () => ExternalAgentRuntimeService | undefined,
+  onRuntimeUnavailable?: (input: {
+    readonly runtime: ExternalAgentRuntime;
+    readonly previousStatus?: ExternalAgentRuntime["status"] | undefined;
+    readonly actor: AgentActor;
+  }) => Promise<readonly string[]> | readonly string[],
 ): WebRouteLike[] {
   const requireTeam = (): TeamServiceLike => {
     const value = team();
     if (value === undefined)
       throw new AgentError("not_found", "identity service is unavailable");
     return value;
+  };
+  const pauseBoundTeammates = async (
+    runtime: ExternalAgentRuntime,
+    actor: AgentActor,
+    previousStatus?: ExternalAgentRuntime["status"],
+  ): Promise<readonly string[]> => {
+    if (runtime.status === "active" || onRuntimeUnavailable === undefined) {
+      return [];
+    }
+    return await onRuntimeUnavailable({ runtime, previousStatus, actor });
   };
   return [
     {
@@ -2869,8 +3211,14 @@ export function createAgentRoutes(
           if (runtimeService === undefined)
             throw new AgentError("not_found", "外部 Agent 服务不可用");
           const actor = browserActor(requireTeam(), request, body.workspaceId);
+          const previous = runtimeService.get(body.runtimeId);
           const runtime = await runtimeService.update(actor, body);
-          sendJson(response, 200, { ok: true, runtime });
+          const pausedTeammateIds = await pauseBoundTeammates(
+            runtime,
+            actor,
+            previous?.status,
+          );
+          sendJson(response, 200, { ok: true, runtime, pausedTeammateIds });
         }, response);
       },
     },
@@ -2890,8 +3238,14 @@ export function createAgentRoutes(
           if (runtimeService === undefined)
             throw new AgentError("not_found", "外部 Agent 服务不可用");
           const actor = browserActor(requireTeam(), request, body.workspaceId);
+          const previous = runtimeService.get(body.runtimeId);
           const runtime = await runtimeService.archive(actor, body);
-          sendJson(response, 200, { ok: true, runtime });
+          const pausedTeammateIds = await pauseBoundTeammates(
+            runtime,
+            actor,
+            previous?.status,
+          );
+          sendJson(response, 200, { ok: true, runtime, pausedTeammateIds });
         }, response);
       },
     },
@@ -2911,8 +3265,14 @@ export function createAgentRoutes(
           if (runtimeService === undefined)
             throw new AgentError("not_found", "外部 Agent 服务不可用");
           const actor = browserActor(requireTeam(), request, body.workspaceId);
+          const previous = runtimeService.get(body.runtimeId);
           const runtime = await runtimeService.restore(actor, body);
-          sendJson(response, 200, { ok: true, runtime });
+          const pausedTeammateIds = await pauseBoundTeammates(
+            runtime,
+            actor,
+            previous?.status,
+          );
+          sendJson(response, 200, { ok: true, runtime, pausedTeammateIds });
         }, response);
       },
     },
@@ -2937,7 +3297,11 @@ export function createAgentRoutes(
             actor,
           );
           const probe = await probeExternalRuntime(current.command);
-          const runtime = await runtimeService.markProbe(body.runtimeId, probe);
+          const runtime = await runtimeService.markProbe(
+            body.runtimeId,
+            probe,
+            actor,
+          );
           sendJson(response, 200, { ok: true, runtime, probe });
         }, response);
       },
@@ -3129,6 +3493,7 @@ export interface AgentContext {
   get(key: "sessions"): AgentSessionsLike | undefined;
   get(key: "sessionPersistence"): AgentSessionPersistenceLike | undefined;
   get(key: "sessionTitle"): AgentSessionTitleLike | undefined;
+  get(key: "collabTeammates"): RuntimeBoundTeammateServiceLike | undefined;
   on?(
     event: "agent/assistant-stream",
     listener: (payload: unknown) => void,
@@ -3142,6 +3507,19 @@ export interface AgentContext {
   ): { dispose(): void } | void;
 }
 
+interface RuntimeBoundTeammateServiceLike {
+  pauseForExternalRuntime(input: {
+    readonly runtimeId: string;
+    readonly runtimeName: string;
+    readonly runtimeStatus: "disabled" | "archived";
+    readonly actor: {
+      readonly userId: string;
+      readonly name: string;
+      readonly role: "admin" | "owner" | "member" | "guest";
+    };
+  }): Promise<readonly { readonly id: string }[]>;
+}
+
 export async function apply(ctx: AgentContext): Promise<void | (() => void)> {
   const domain = await ctx.storageDomain.open(agentDomainSpec);
   const service = new AgentRegistryService(
@@ -3152,10 +3530,13 @@ export async function apply(ctx: AgentContext): Promise<void | (() => void)> {
     {
       sessions: () => ctx.get("sessions"),
       sessionPersistence: () => ctx.get("sessionPersistence"),
+      workspaces: () => ctx.get("workspaceRegistry"),
+      externalRuntimes: () => domain.table("external_runtimes"),
     },
   );
   const externalRuntimeService = new ExternalAgentRuntimeService(
     domain.table("external_runtimes"),
+    { onTrace: terminalExternalAgentRuntimeTrace },
   );
   const runtime = new AgentTaskRuntime({
     tables: {
@@ -3218,6 +3599,22 @@ export async function apply(ctx: AgentContext): Promise<void | (() => void)> {
       () => child.collabTeam,
       () => ctx.get("collabPersonas"),
       () => externalRuntimeService,
+      async ({ runtime, actor }) => {
+        if (runtime.status === "active") return [];
+        const teammates = ctx.get("collabTeammates");
+        if (teammates === undefined) return [];
+        const paused = await teammates.pauseForExternalRuntime({
+          runtimeId: runtime.id,
+          runtimeName: runtime.name,
+          runtimeStatus: runtime.status,
+          actor: {
+            userId: actor.id,
+            name: actor.name ?? actor.id,
+            role: actor.globalRole ?? actor.workspaceRole ?? "member",
+          },
+        });
+        return paused.map((teammate) => teammate.id);
+      },
     )) {
       ctx.webServer.register(route);
     }

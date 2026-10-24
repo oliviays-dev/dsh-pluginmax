@@ -10,6 +10,21 @@
 2. **执行归 Provider Adapter**：不同 CLI 的启动参数、流式协议、会话恢复能力不同，平台只做归一化，不假设所有工具能力相同。
 3. **业务门禁不变**：外部 Agent 的运行完成不等于业务任务完成；工作流仍按交付物、Review 和审批规则推进。
 
+### 1.1 Runtime 与 Agent 的职责边界
+
+参考 Multica 的对象模型，必须保持以下边界：
+
+| 对象                    | 只负责                                                 | 不应承载                         |
+| ----------------------- | ------------------------------------------------------ | -------------------------------- |
+| AI Teammate 模版 / 实例 | 身份、角色、职责、SOUL、行为边界                       | 某台机器的 CLI 注册信息          |
+| External Agent Runtime  | 本机 CLI、协议、基础参数、模型能力、健康状态、可见范围 | “调研架构师”“报告主编”等岗位身份 |
+| Task / Issue            | 目标、讨论、负责人和验收门禁                           | Provider 进程状态                |
+| Run                     | 一次执行的 Prompt、命令、过程、结果和错误              | Agent 的长期身份                 |
+
+同一 Codex CLI 或 CodeBuddy CLI 应只需一个 Runtime，并可被多个 AI Teammate 复用。角色差异由 Teammate 定义和 SOUL 决定。若当前 Provider 需要在模型、推理强度或回合数上使用不同配置，这些应优先建模为 Agent 级执行偏好；在 Agent 级配置尚未实现前，可以按模型/能力命名多个 Runtime，但不得按 Agent 岗位命名，也不能把这种行为固化为长期产品模型。
+
+`SOUL.md` 必须保持 Provider 无关：它只描述 Agent 的身份、职责、方法、输出结构和行为边界，不包含 Provider 名称、CLI 命令、模型名、Runtime ID、固定参数或临时演示标记。Provider 与执行参数通过 Runtime 绑定和 Run 快照治理。
+
 ## 2. 用户视角
 
 ### 配置阶段
@@ -68,6 +83,21 @@ interface ExternalAgentRuntime {
 }
 ```
 
+每次 Run 额外保存结构化执行元数据，不能依赖 Agent 在正文中自报：
+
+```ts
+interface AgentExecutionMetadata {
+  provider: string;
+  model: string;
+  runtime: string;
+  runtimeVersion: string;
+  authMode: string;
+  sandbox: string;
+}
+```
+
+`unknown` 表示平台无法从 Runtime 可靠采集该项，不能用产品名或默认提示词推断。任务消息保存同一份元数据快照，任务执行历史与运行详情分别展示，避免正文中的自述被误认为平台事实。
+
 约束：
 
 1. `command` 不支持 shell 字符串拼接；执行时必须使用参数数组。
@@ -78,6 +108,7 @@ interface ExternalAgentRuntime {
 6. 状态流转：`active ↔ disabled`；`active | disabled → archived`；`archived → disabled`（复原）。
    归档为终态，不能直接启用，必须经「复原」回到停用，再由管理员确认启用。
 7. 归档项从默认列表隐藏，只在「已归档」视图可见；已归档运行时不参与探测、绑定选择与派发。
+   停用或归档 Runtime 时，所有绑定它且仍处于生效状态的 Teammate 必须在同一治理请求内自动暂停，并写入状态事件；重新启用 Runtime 不会自动恢复这些 Teammate。
    归档一个仍被 Teammate 绑定的运行时时允许操作，但确认弹窗与归档结果必须提示受影响的 Teammate 数量。
 8. 定义编辑不允许变更 ID 和归属。命令或参数变化后清空旧探测结果，避免把上一条命令的探测结论误用于新定义。
 
@@ -126,9 +157,22 @@ externalRuntimeId?: string;
   output: [{ type: "text", text }];
   stopReason: "completed" | "failed" | "cancelled";
   sessionId?: string;
+  execution?: Partial<AgentExecutionMetadata>;
   diagnostic?: string;
 }
 ```
+
+外部 CLI 没有平台内置的 persona/systemPrompt 注入层，因此外部执行分支必须把 AI Teammate 的 SOUL 作为 Prompt 前置角色设定，再拼接当前任务：
+
+```text
+# AI伙伴身份与行为边界
+<SOUL.md>
+
+# 当前任务
+<任务 Prompt>
+```
+
+`promptSnapshot` 必须保存拼接后的完整输入，便于确认任务实际收到的身份、行为和上下文。
 
 ### 4.1 Codex Adapter
 
@@ -147,6 +191,10 @@ codex exec --json --cd <workspacePath> --sandbox read-only - \
 2. `--output-last-message` 的文件内容作为最终结果；
 3. 进程错误和 stderr 作为失败诊断；
 4. CLI 返回的 session id 写入 AgentRun。
+5. 根据 session id 读取 Codex 原始 session 元数据；`turn_context.model` 记录实际模型，`session_meta.cli_version` 记录 CLI 版本，`sandbox_policy` 与 `permission_profile.network` 记录沙箱状态。
+6. 通过 `codex login status` 记录认证方式，只保存标准化结果（如 `api-key`、`chatgpt`、`none`、`unknown`），不读取或保存凭据正文。
+
+Codex 的通用基础提示词可能包含 “based on GPT-5” 等产品身份文本，即使实际模型已被自定义 Provider 覆盖。平台必须以 session 元数据中的模型和 Provider 为准，不得从 Prompt 文本推断。
 
 第一版不开放 `danger-full-access`。需要写仓库的场景必须在后续版本引入显式工作区写授权和审计。
 
@@ -220,7 +268,7 @@ Teammate 列表与详情在绑定的运行时不可用时标注「（已停用�
 1. 平台不承诺外部 CLI 天然沙箱；真实边界是运行服务进程的操作系统用户。
 2. Codex 第一版固定 read-only 沙箱；`plain-text` CLI 的能力由 Runtime Owner 和部署者负责。
 3. Runtime 命令仅 Admin/Owner 可配置，且不提供任意 shell 执行入口。
-4. Agent Run 继续保存 Prompt 快照、输出、错误和触发者。
+4. Agent Run 继续保存 Prompt 快照、输出、错误和触发者，并新增 Provider、模型、Runtime、版本、认证方式和沙箱等执行元数据。
 5. 外部 Provider Session ID 只作为诊断和后续恢复依据，不能替代平台任务权限。
 6. 后续若支持写操作，必须引入显式“运行时能力等级 + 项目写授权 + Run Token”三层校验。
 
@@ -247,7 +295,7 @@ Teammate 列表与详情在绑定的运行时不可用时标注「（已停用�
 1. 外部运行时注册、编辑、启停、探测；
 2. Codex JSONL 与通用 plain-text adapter；
 3. AI Teammate 执行方式选择；
-4. AgentRun 与任务执行历史同步；
+4. AgentRun 与任务执行历史同步，包括结构化执行元数据；
 5. 基础 API 和自动化测试；
 6. 独立 GUI 测试方案。
 

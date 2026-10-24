@@ -1,4 +1,4 @@
-import { readdir, stat } from "node:fs/promises";
+import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, extname, join, relative, sep } from "node:path";
 import type { TaskRecord } from "./types.js";
 
@@ -7,10 +7,13 @@ export interface DocumentWindow {
   readonly from: number;
   readonly to: number;
   readonly actor: string;
+  readonly runId?: string | undefined;
 }
 
 export interface TaskDocumentEntry {
   readonly id: string;
+  /** Producing run; absent only for legacy task-level files. */
+  readonly runId?: string | undefined;
   readonly kind: "produced" | "uploaded";
   readonly name: string;
   readonly relativePath: string;
@@ -26,6 +29,7 @@ const IGNORED_DIRECTORIES = new Set([
   ".hg",
   ".svn",
   ".pnpm-store",
+  ".pluginmax",
   "node_modules",
   "__pycache__",
   ".venv",
@@ -66,12 +70,28 @@ const MIME_TYPES: Record<string, string> = {
   ".docx":
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   ".xls": "application/vnd.ms-excel",
-  ".xlsx":
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   ".ppt": "application/vnd.ms-powerpoint",
   ".pptx":
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 };
+
+const TEXT_DOCUMENT_EXTENSIONS = new Set([
+  ".md",
+  ".markdown",
+  ".txt",
+  ".csv",
+  ".json",
+  ".yml",
+  ".yaml",
+  ".html",
+  ".css",
+  ".js",
+  ".mjs",
+  ".ts",
+  ".tsx",
+  ".svg",
+]);
 
 export function mimeTypeFor(name: string): string {
   return MIME_TYPES[extname(name).toLowerCase()] ?? "application/octet-stream";
@@ -92,8 +112,186 @@ export function safeFileName(name: string): string {
   return safe.slice(-160);
 }
 
+function normalizedDocumentName(value: string): string | undefined {
+  const trimmed = value
+    .trim()
+    .replace(/^[`"'“”]+/, "")
+    .replace(/[`"'“”]+$/, "");
+  const candidate = safeFileName(basename(trimmed));
+  if (!TEXT_DOCUMENT_EXTENSIONS.has(extname(candidate).toLowerCase())) {
+    return undefined;
+  }
+  return candidate;
+}
+
+function withoutMarkdownFence(content: string): string {
+  const trimmed = content.trim();
+  const fenced =
+    /^```(?:markdown|md|text|txt)?[^\r\n]*\r?\n([\s\S]*?)\r?\n```\s*$/i.exec(
+      trimmed,
+    );
+  return (fenced?.[1] ?? trimmed).trim();
+}
+
+function contentForNamedOutput(output: string, nameEnd: number): string {
+  const remainder = output.slice(nameEnd);
+  const firstHeading = /^#{1,6}\s+\S/m.exec(remainder);
+  const body =
+    firstHeading !== null && firstHeading.index <= 1_000
+      ? remainder.slice(firstHeading.index)
+      : remainder;
+  return withoutMarkdownFence(body);
+}
+
+export interface AgentOutputDocument {
+  readonly name: string;
+  readonly content: string;
+}
+
+/**
+ * Read-only runtimes cannot write files into the workspace. They can still
+ * return complete document bodies in the final message, so retain an explicit
+ * machine-readable protocol and a legacy natural-language filename fallback.
+ */
+export function extractAgentOutputDocuments(
+  output: string,
+): AgentOutputDocument[] {
+  const value = output.trim();
+  if (value === "") return [];
+  const documents: AgentOutputDocument[] = [];
+  const marker = /<!--\s*pluginmax-document\s*:\s*([^\r\n>]+?)\s*-->/gi;
+  let markerMatch: RegExpExecArray | null;
+  while ((markerMatch = marker.exec(value)) !== null) {
+    const endMarker = /<!--\s*\/pluginmax-document\s*-->/gi.exec(
+      value.slice(marker.lastIndex),
+    );
+    if (endMarker === null) continue;
+    const name = normalizedDocumentName(markerMatch[1] ?? "");
+    const content = withoutMarkdownFence(
+      value.slice(marker.lastIndex, marker.lastIndex + endMarker.index),
+    );
+    if (name !== undefined && content !== "") {
+      documents.push({ name, content });
+    }
+    marker.lastIndex += endMarker.index + endMarker[0].length;
+  }
+  if (documents.length > 0) return documents.slice(0, 20);
+
+  const fenced =
+    /^```(?:markdown|md|text|txt)?[ \t]+(?:filename|file|name)\s*=\s*["'`]?([^"'`\r\n]+?)(?:["'`])?[ \t]*\r?\n([\s\S]*?)\r?\n```/gimu;
+  let fencedMatch: RegExpExecArray | null;
+  while ((fencedMatch = fenced.exec(value)) !== null) {
+    const name = normalizedDocumentName(fencedMatch[1] ?? "");
+    const content = (fencedMatch[2] ?? "").trim();
+    if (name !== undefined && content !== "") {
+      documents.push({ name, content });
+    }
+  }
+  if (documents.length > 0) return documents.slice(0, 20);
+
+  const patterns = [
+    /(?:名为|文件名(?:称)?(?:为|是)?|文档名(?:称)?(?:为|是)?|保存为|保存到|输出为|输出到|下载文件名(?:为)?)\s*[：:]?\s*[`"'“”]([^`"'“”\r\n]+?\.(?:md|markdown|txt|csv|json|yml|yaml|html|css|js|mjs|ts|tsx|svg))[`"'“”]/iu,
+    /(?:名为|文件名(?:称)?(?:为|是)?|文档名(?:称)?(?:为|是)?|保存为|保存到|输出为|输出到|下载文件名(?:为)?)\s*[：:]?\s*([^\s`"'“”<>:：，。；;]+?\.(?:md|markdown|txt|csv|json|yml|yaml|html|css|js|mjs|ts|tsx|svg))/iu,
+  ];
+  for (const pattern of patterns) {
+    const match = pattern.exec(value);
+    if (match === null) continue;
+    const name = normalizedDocumentName(match[1] ?? "");
+    if (name === undefined) continue;
+    const content = contentForNamedOutput(
+      value,
+      (match.index ?? 0) + match[0].length,
+    );
+    if (content !== "") return [{ name, content }];
+  }
+  return [];
+}
+
 export function toRelativePath(root: string, absolutePath: string): string {
   return relative(root, absolutePath).split(sep).join("/");
+}
+
+export interface AgentOutputRun {
+  readonly id: string;
+  readonly status?: string | undefined;
+  readonly createdAt?: string | undefined;
+  readonly endedAt?: string | undefined;
+  readonly updatedAt?: string | undefined;
+  readonly actor: string;
+  readonly output?: { readonly summary: string } | undefined;
+}
+
+export interface MaterializeAgentOutputOptions {
+  readonly root: string;
+  readonly taskId: string;
+  readonly runs: readonly AgentOutputRun[];
+  readonly now?: Date;
+}
+
+/**
+ * Persists named documents returned in successful run output. Per-run folders
+ * keep retries idempotent and avoid overwriting files from earlier rounds.
+ */
+export async function materializeAgentOutputDocuments(
+  options: MaterializeAgentOutputOptions,
+): Promise<TaskDocumentEntry[]> {
+  const now = options.now ?? new Date();
+  const entries: TaskDocumentEntry[] = [];
+  for (const run of options.runs) {
+    if (run.status !== undefined && run.status !== "succeeded") continue;
+    const documents = extractAgentOutputDocuments(run.output?.summary ?? "");
+    if (documents.length === 0) continue;
+    const directory = join(
+      options.root,
+      ".pluginmax",
+      "task-outputs",
+      safeFileName(options.taskId),
+      safeFileName(run.id),
+    );
+    await mkdir(directory, { recursive: true });
+    for (const document of documents) {
+      const name = safeFileName(document.name);
+      const absolute = join(directory, name);
+      const content = document.content.endsWith("\n")
+        ? document.content
+        : `${document.content}\n`;
+      try {
+        await writeFile(absolute, content, { encoding: "utf8", flag: "wx" });
+      } catch (cause) {
+        if (
+          typeof cause !== "object" ||
+          cause === null ||
+          (cause as { code?: unknown }).code !== "EEXIST"
+        ) {
+          throw cause;
+        }
+      }
+      const info = await stat(absolute);
+      const candidateTime =
+        run.endedAt ?? run.updatedAt ?? run.createdAt ?? now.toISOString();
+      const updatedAt = Number.isNaN(Date.parse(candidateTime))
+        ? now.toISOString()
+        : candidateTime;
+      const relativePath = toRelativePath(options.root, absolute);
+      entries.push({
+        id: `produced:${relativePath}`,
+        runId: run.id,
+        kind: "produced",
+        name,
+        relativePath,
+        size: info.size,
+        mimeType: mimeTypeFor(name),
+        updatedBy: run.actor,
+        updatedAt,
+        available: true,
+      });
+    }
+  }
+  return entries.sort(
+    (left, right) =>
+      Date.parse(right.updatedAt) - Date.parse(left.updatedAt) ||
+      left.name.localeCompare(right.name),
+  );
 }
 
 export interface CollectDocumentsOptions {
@@ -142,14 +340,15 @@ export async function collectDocuments(
       } catch {
         continue;
       }
-      const window = windows.find(
-        (item) => info.mtimeMs >= item.from && info.mtimeMs <= item.to,
-      );
+      const window = windows
+        .filter((item) => info.mtimeMs >= item.from && info.mtimeMs <= item.to)
+        .sort((left, right) => right.from - left.from)[0];
       if (window === undefined) continue;
       const updatedAt = new Date(info.mtimeMs).toISOString();
       const timestamp = Date.parse(updatedAt);
       const entry: TaskDocumentEntry = {
         id: `produced:${childRelative}`,
+        ...(window.runId === undefined ? {} : { runId: window.runId }),
         kind: "produced",
         name: basename(childRelative),
         relativePath: childRelative,
@@ -174,6 +373,7 @@ export async function collectDocuments(
 
 export function windowsFromRuns(
   runs: readonly {
+    readonly id?: string | undefined;
     readonly startedAt?: string | undefined;
     readonly endedAt?: string | undefined;
     readonly createdAt?: string | undefined;
@@ -185,6 +385,7 @@ export function windowsFromRuns(
   const windows: DocumentWindow[] = [];
   const sorted = runs
     .map((run) => ({
+      id: run.id,
       start: Date.parse(run.startedAt ?? run.createdAt ?? ""),
       end: Date.parse(run.endedAt ?? ""),
       actor: run.actor,
@@ -200,6 +401,7 @@ export function windowsFromRuns(
       // 或当前时刻，保证任务执行期间（含子代理）产出的文件不会漏。
       to: Math.max(ended, nextStart ?? now),
       actor: run.actor === "" ? fallbackActor : run.actor,
+      ...(run.id === undefined ? {} : { runId: run.id }),
     });
   });
   return windows;
@@ -209,13 +411,16 @@ export function windowsFromRuns(
 export function attachmentDocuments(
   task: Pick<TaskRecord, "messages">,
   workspaceReady: boolean,
+  runIdByMessageId: ReadonlyMap<string, string> = new Map(),
 ): TaskDocumentEntry[] {
   const documents: TaskDocumentEntry[] = [];
   for (const message of task.messages) {
+    const runId = runIdByMessageId.get(message.id);
     message.attachments.forEach((attachment, index) => {
       const storedPath = attachment.storedPath;
       documents.push({
         id: `uploaded:${message.id}:${index}`,
+        ...(runId === undefined ? {} : { runId }),
         kind: "uploaded",
         name: attachment.name,
         relativePath: storedPath ?? "",

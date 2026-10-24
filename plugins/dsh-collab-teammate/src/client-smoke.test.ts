@@ -370,6 +370,19 @@ describe("AI Teammate runtime client", () => {
     expect(source).toContain("const startExternalEdit = (runtime)");
     expect(source).toContain("已更新外部 Agent");
     expect(source).toContain("/api/collab/agent/external-runtimes/update");
+    expect(source).toContain("运行时名称");
+    expect(source).toContain("Agent 角色、职责和 SOUL 请在定义态配置");
+    expect(source).toContain("每个 argv token 单独一行");
+    expect(source).toContain("pmtm-profile-head-actions");
+    expect(source).toContain(".pmtm-instance-exec .pmtm-select{height:34px");
+    expect(source).toContain('className: "pmtm-meta secondary"');
+    expect(source).toContain('ROLE_PLACEHOLDER = "角色待定"');
+    expect(source).toContain("result.pausedTeammateIds?.length");
+    expect(source).toContain("个绑定的 AI伙伴已暂停");
+    expect(source).toContain("const openDefinitionForTeammate = (teammate)");
+    expect(source).toContain(
+      "onClick: () => openDefinitionForTeammate(teammate)",
+    );
   });
 
   it("archives external runtimes through the shared archive view", () => {
@@ -386,5 +399,13 @@ describe("AI Teammate runtime client", () => {
     const source = readFileSync(CLIENT_PATH, "utf8");
     // 输入框不再用回车隐式提交：中文输入法确认候选词时按 Enter 会误触发。
     expect(source).not.toContain('event.key === "Enter"');
+  });
+
+  it("creates a task inside the assign dialog for the selected teammate", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain('"/api/collab/tasks/create"');
+    expect(source).toContain("新建任务并安排给");
+    expect(source).toContain("创建并派发");
+    expect(source).toContain("receiverId: selected.id");
   });
 });

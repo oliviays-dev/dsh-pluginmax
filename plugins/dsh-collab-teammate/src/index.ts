@@ -1194,6 +1194,41 @@ function tasksForTeammate(
 }
 
 /**
+ * 任务接收人可能是人类（例如对话/会议代跑），但实际 run 用的是某个 AI伙伴的
+ * persona。返回这些 run 对应的任务 id，用于补齐「当前工作」列表。
+ */
+export function taskIdsExecutedByPersona(
+  runs: readonly {
+    readonly instanceId: string;
+    readonly personaId?: string | undefined;
+  }[],
+  personaId: string | undefined,
+): Set<string> {
+  const result = new Set<string>();
+  if (personaId === undefined) return result;
+  for (const run of runs) {
+    if (run.personaId === personaId) result.add(run.instanceId);
+  }
+  return result;
+}
+
+/**
+ * 只有实例专属 persona（`persona-<teammateId>`）才能用于任务归属兜底。
+ *
+ * 平台模版可能让多个实例共用同一个 persona（例如 `architect`）；此时按 persona
+ * 匹配会把历史上别人的运行也算到新实例头上，必须排除。
+ */
+export function isInstanceOwnedPersona(
+  teammateId: string,
+  personaId: string | undefined,
+): boolean {
+  if (personaId === undefined) return false;
+  const expected =
+    `persona-${teammateId.replace(/[^a-zA-Z0-9._-]/g, "-")}`.slice(0, 120);
+  return personaId === expected;
+}
+
+/**
  * 退出项目时未完成任务的改派目标：优先交回实例 owner；
  * 实例 owner 不是项目成员时交给项目 owner（没有项目 owner 再兜回实例 owner）。
  */
@@ -1491,6 +1526,8 @@ export function createTeammateRoutes(
           const actor = requirePrincipal(request, requireTeam());
           await runBeforeList();
           const scopeParam = query(request).get("scope");
+          const availabilityWorkspaceId =
+            query(request).get("workspaceId")?.trim() ?? "";
           const identity = requireTeam();
           const accessibleTasks = collectAccessibleTasks({
             team: identity,
@@ -1511,9 +1548,20 @@ export function createTeammateRoutes(
           const liveInstanceCounts = await teammateRuntime?.liveInstanceCounts(
             actor.userId,
           );
+          const teammatesWithAvailability =
+            availabilityWorkspaceId === "" ||
+            teammateRuntime?.availabilityOf === undefined
+              ? teammates
+              : teammates.map((teammate) => ({
+                  ...teammate,
+                  availability: teammateRuntime.availabilityOf(
+                    teammate.id,
+                    availabilityWorkspaceId,
+                  ),
+                }));
           sendJson(response, 200, {
             ok: true,
-            teammates,
+            teammates: teammatesWithAvailability,
             canManagePlatform: actor.role === "admin",
             liveInstanceCounts: Object.fromEntries(
               liveInstanceCounts?.entries() ?? [],
@@ -1933,17 +1981,45 @@ export function createTeammateRoutes(
           methods("GET", request);
           const { actor, teammate } = requireReadableTeammate(request);
           const registry = workspaces();
-          const collected = tasksForTeammate(
-            teammate,
-            collectAccessibleTasks({
-              team: requireTeam(),
-              actor,
-              tasks: tasks(),
-              workspaces: registry,
-            }),
-          ).map((task) => {
-            const agent = agentRuns?.();
-            return {
+          const accessibleTasks = collectAccessibleTasks({
+            team: requireTeam(),
+            actor,
+            tasks: tasks(),
+            workspaces: registry,
+          });
+          const agent = agentRuns?.();
+          // 任务接收人可能仍是人类（例如从对话/会议代跑），但实际执行 run 用的是
+          // 该 AI伙伴的 persona；这类任务也要出现在「当前工作」里。
+          const identity = await teammateRuntime?.identityOf(teammate.id);
+          const personaId = identity?.personaId ?? teammate.personaId;
+          const executedTaskIds = new Set<string>();
+          // 共享 persona（如模版别名 architect）不能用于归属：它会被多个实例共用，
+          // 否则新建实例会把历史运行一起算进来。
+          if (isInstanceOwnedPersona(teammate.id, personaId)) {
+            const workspaceIds = new Set(
+              accessibleTasks.map((task) => task.workspaceId),
+            );
+            const personaRuns: Array<{
+              instanceId: string;
+              personaId?: string | undefined;
+            }> = [];
+            for (const workspaceId of workspaceIds) {
+              for (const run of agent?.runs?.({ workspaceId }) ?? []) {
+                personaRuns.push(run);
+              }
+            }
+            for (const id of taskIdsExecutedByPersona(personaRuns, personaId)) {
+              executedTaskIds.add(id);
+            }
+          }
+          const collected = accessibleTasks
+            .filter(
+              (task) =>
+                tasksForTeammate(teammate, [task]).length > 0 ||
+                executedTaskIds.has(task.id),
+            )
+            .map((task) => {
+              return {
               ...runtimeTask(
                 task,
                 workspaceTitleOf(registry, task.workspaceId),

@@ -75,6 +75,8 @@ const meetingSchema = z.object({
   id: z.string().min(1).max(160),
   workspaceId: idSchema,
   title: titleSchema,
+  kind: z.enum(["meeting", "ai"]).default("meeting"),
+  teammateInstanceId: idSchema.optional(),
   agenda: z.string().trim().max(20_000).default(""),
   status: z.enum(["draft", "active", "closed", "archived"]),
   createdBy: idSchema,
@@ -638,7 +640,219 @@ interface TeammateRuntimeLike {
     readonly principalId?: string | undefined;
     readonly profileId: string;
     readonly personaId?: string | undefined;
+    readonly execution?: "builtin" | "external" | undefined;
   }>;
+  assignable?(actor: {
+    readonly userId: string;
+    readonly name: string;
+    readonly role: "admin" | "owner" | "member" | "guest";
+  }): readonly {
+    readonly id: string;
+    readonly employeeId?: string | undefined;
+  }[];
+  ownerOf?(
+    ref: string,
+  ): { readonly userId: string; readonly name: string } | undefined;
+  ownersOf?(
+    ref: string,
+  ): readonly { readonly userId: string; readonly name: string }[];
+}
+
+interface WorkspaceRegistryLike {
+  get(workspaceId: string): { readonly path: string } | undefined;
+}
+
+interface AgentRunLike {
+  readonly id: string;
+  readonly status: string;
+  readonly source: string;
+  readonly instanceId: string;
+  readonly nodeId: string;
+  readonly output?: { readonly summary?: string | undefined } | undefined;
+  readonly error?: string | undefined;
+  readonly payload: {
+    readonly context: Readonly<Record<string, string | number | boolean>>;
+  };
+}
+
+interface ChatAgentInputLike {
+  readonly workspaceId: string;
+  readonly workspacePath?: string | undefined;
+  readonly profileId: string;
+  readonly source: "chat";
+  readonly instanceId: string;
+  readonly nodeId: string;
+  readonly dispatchKey: string;
+  readonly trigger: "manual-dispatch";
+  readonly attempt: number;
+  readonly runSeq: number;
+  readonly maxAttempts: number;
+  readonly timeoutMs: number;
+  readonly personaId?: string | undefined;
+  readonly employeeId?: string | undefined;
+  readonly principalId?: string | undefined;
+  readonly principalType?:
+    | "transitional-agent"
+    | "digital-employee"
+    | "principal-runtime"
+    | undefined;
+  readonly contextPackId?: string | undefined;
+  readonly sessionBindingId?: string | undefined;
+  readonly sessionId?: string | undefined;
+  readonly payload: {
+    readonly instanceTitle: string;
+    readonly nodeName: string;
+    readonly nodeDescription: string;
+    readonly profileName: string;
+    readonly deliverables: readonly [];
+    readonly context: Readonly<Record<string, string | number | boolean>>;
+  };
+  readonly createdBy: string;
+}
+
+interface ChatAgentServiceLike {
+  dispatch(input: ChatAgentInputLike): Promise<AgentRunLike>;
+  run(runId: string): AgentRunLike | undefined;
+  runs?(filter: {
+    readonly workspaceId?: string | undefined;
+    readonly instanceId?: string | undefined;
+    readonly nodeId?: string | undefined;
+  }): readonly AgentRunLike[];
+}
+
+interface ContextPackLike {
+  readonly id: string;
+  readonly sessionBindingId?: string | undefined;
+  readonly rendered: {
+    readonly systemText: string;
+    readonly userText: string;
+    readonly flattenedPrompt: string;
+  };
+}
+
+interface MeetingChatContextAdapterLike {
+  readonly scene: "chat";
+  readonly chatCarrier: "meeting-ai";
+  resolve(input: {
+    readonly workspaceId?: string;
+    readonly objectId: string;
+    readonly agentPrincipalId: string;
+    readonly actorPrincipalId: string;
+    readonly chatCarrier?: "native-session" | "meeting-ai";
+    readonly chatChannelId?: string;
+  }): Promise<{
+    readonly allowed: boolean;
+    readonly workspaceId?: string;
+    readonly sceneRevision: string;
+    readonly sourceRefs: readonly {
+      readonly type:
+        | "task"
+        | "meeting"
+        | "minute-version"
+        | "workflow"
+        | "document"
+        | "chat"
+        | "human-edit";
+      readonly id: string;
+      readonly version?: string;
+    }[];
+  }>;
+  loadFacts(input: {
+    readonly workspaceId?: string;
+    readonly objectId: string;
+    readonly agentPrincipalId: string;
+    readonly asOf: string;
+  }): Promise<{
+    readonly text: string;
+    readonly sourceRefs: readonly {
+      readonly type:
+        | "task"
+        | "meeting"
+        | "minute-version"
+        | "workflow"
+        | "document"
+        | "chat"
+        | "human-edit";
+      readonly id: string;
+      readonly version?: string;
+    }[];
+    readonly historyText?: string;
+  }>;
+  policy(): Promise<{
+    readonly version: string;
+    readonly instructions: string;
+    readonly allowedWriteback: readonly (
+      | "agent-private-memory"
+      | "run-evidence"
+      | "memory-candidate"
+    )[];
+  }>;
+}
+
+interface ContextServiceLike {
+  registerAdapter(adapter: MeetingChatContextAdapterLike): () => void;
+  ensureChatChannel(input: {
+    readonly workspaceId: string;
+    readonly userPrincipalId: string;
+    readonly agentPrincipalId: string;
+    readonly teammateInstanceId: string;
+    readonly carrier: "meeting-ai";
+    readonly carrierRefId: string;
+  }): Promise<{ readonly id: string }>;
+  chatChannel?(channelId: string): {
+    readonly id: string;
+    readonly workspaceId: string;
+    readonly userPrincipalId: string;
+    readonly agentPrincipalId: string;
+    readonly activeCarrierRefId: string;
+  } | undefined;
+  prepare(input: Record<string, unknown>): Promise<ContextPackLike>;
+  session?(bindingId: string): {
+    readonly sessionId: string;
+    readonly generation: number;
+  } | undefined;
+  recordRuntime(input: {
+    readonly runId: string;
+    readonly contextPackId: string;
+    readonly runtime: {
+      readonly kind: "builtin" | "external";
+      readonly provider?: string;
+      readonly model?: string;
+      readonly externalSessionId?: string;
+    };
+  }): Promise<unknown>;
+}
+
+interface MemoryIngestLike {
+  ingestSource(input: {
+    readonly sourceType: "meeting";
+    readonly sourceId: string;
+    readonly version: string;
+    readonly workspaceId?: string;
+    readonly payload?: {
+      readonly title: string;
+      readonly content: string;
+      readonly actorPrincipalId?: string;
+      readonly projectId?: string;
+      readonly occurredAt?: string;
+      readonly sourceRefs?: readonly {
+        readonly type:
+          | "task"
+          | "meeting"
+          | "minute-version"
+          | "workflow"
+          | "document"
+          | "chat"
+          | "human-edit";
+        readonly id: string;
+        readonly version?: string;
+        readonly quote?: string;
+      }[];
+      readonly metadata?: Readonly<
+        Record<string, string | number | boolean>
+      >;
+    };
+  }): Promise<unknown>;
 }
 
 /** 任务域的最小投影：只用到「查找 / 建任务 / 派发」三件事。 */
@@ -682,7 +896,15 @@ interface TaskServiceLike {
 }
 
 interface TaskDispatchLike {
-  dispatch(task: TaskRecordLike, actor: TaskActorLike): Promise<unknown>;
+  dispatch(
+    task: TaskRecordLike,
+    actor: TaskActorLike,
+    context?: {
+      readonly scene: "task" | "meeting";
+      readonly objectId: string;
+      readonly content: string;
+    },
+  ): Promise<unknown>;
 }
 
 const MEETING_AGENT_TASK_TYPE = "会议";
@@ -825,7 +1047,11 @@ async function feedMeetingMessageToAgent(input: {
       taskId: task.id,
       content,
     });
-    await dispatcher.dispatch(updated, actor);
+    await dispatcher.dispatch(updated, actor, {
+      scene: "meeting",
+      objectId: input.meeting.id,
+      content,
+    });
   } catch {
     // 任务域异常不阻断会议发言。
   }
@@ -1359,7 +1585,8 @@ export class MeetingService {
    * MeetingService 直接依赖纪要服务。
    */
   private facilitatorReader:
-    ((meetingId: string) => readonly MeetingFacilitatorActivity[]) | undefined;
+    | ((meetingId: string) => readonly MeetingFacilitatorActivity[])
+    | undefined;
   /**
    * 对话内容变化（发言、worker 回复、散会）时触发一次。
    * 仅由写入路径调用，读取 / 轮询路径绝不触发；实现方负责异步与去重。
@@ -1407,6 +1634,8 @@ export class MeetingService {
     input: {
       readonly workspaceId: string;
       readonly title: string;
+      readonly kind?: "meeting" | "ai" | undefined;
+      readonly teammateInstanceId?: string | undefined;
       readonly agenda?: string | undefined;
       readonly parentSessionId?: string | undefined;
     },
@@ -1416,6 +1645,8 @@ export class MeetingService {
       z.object({
         workspaceId: idSchema,
         title: titleSchema,
+        kind: z.enum(["meeting", "ai"]).default("meeting"),
+        teammateInstanceId: idSchema.optional(),
         agenda: textSchema.optional(),
         parentSessionId: idSchema.optional(),
       }),
@@ -1426,6 +1657,10 @@ export class MeetingService {
       id: randomUUID(),
       workspaceId: parsed.workspaceId,
       title: parsed.title,
+      kind: parsed.kind,
+      ...(parsed.teammateInstanceId === undefined
+        ? {}
+        : { teammateInstanceId: parsed.teammateInstanceId }),
       agenda: parsed.agenda ?? "",
       status: "active" as const,
       createdBy: parsedActor.id,
@@ -1592,11 +1827,13 @@ export class MeetingService {
         candidate.kind === actorKind(parsedActor) &&
         candidate.refId === parsedActor.id,
     );
-    if (!(
-      caller !== undefined ||
-      meeting.createdBy === parsedActor.id ||
-      managerActor(parsedActor)
-    )) {
+    if (
+      !(
+        caller !== undefined ||
+        meeting.createdBy === parsedActor.id ||
+        managerActor(parsedActor)
+      )
+    ) {
       throw new MeetingError(
         "forbidden",
         "an active meeting participant, creator, or workspace owner role is required",
@@ -1725,8 +1962,7 @@ export class MeetingService {
       leader: false,
       status: "active",
       source: "direct",
-      joinedAt:
-        existing?.status === "active" ? existing.joinedAt : timestamp,
+      joinedAt: existing?.status === "active" ? existing.joinedAt : timestamp,
       leftAt: undefined,
       updatedAt: timestamp,
     });
@@ -1810,10 +2046,12 @@ export class MeetingService {
         candidate.kind === actorKind(parsedActor) &&
         candidate.refId === parsedActor.id,
     );
-    if (!(
-      (parsedActor.kind === "user" && caller !== undefined) ||
-      managerActor(parsedActor)
-    )) {
+    if (
+      !(
+        (parsedActor.kind === "user" && caller !== undefined) ||
+        managerActor(parsedActor)
+      )
+    ) {
       throw new MeetingError(
         "forbidden",
         "an active human participant or workspace owner role is required",
@@ -2575,6 +2813,7 @@ export const MEETING_FACILITATOR_TEAMMATE_ID = "meeting-facilitator";
 export const MEETING_FACILITATOR_PERSONA_ID = "persona-meeting-facilitator";
 /** 纪要 run 的节点 id：工作台按它筛选会议来源的 agent run。 */
 export const MEETING_MINUTES_NODE_ID = "meeting-minutes";
+export const MEETING_AI_CHAT_NODE_ID = "meeting-ai-chat";
 
 const MEETING_MINUTES_TIMEOUT_MS = 120_000;
 /**
@@ -2980,6 +3219,9 @@ export interface MeetingContext {
   get(key: "collabTasks"): TaskServiceLike | undefined;
   get(key: "collabTaskDispatch"): TaskDispatchLike | undefined;
   get(key: "collabPrincipal"): PrincipalServiceLike | undefined;
+  get(key: "workspaceRegistry"): WorkspaceRegistryLike | undefined;
+  get(key: "collabContext"): ContextServiceLike | undefined;
+  get(key: "collabMemory"): MemoryIngestLike | undefined;
   inject(
     keys: readonly ["collabEmployee"],
     callback: (
@@ -2993,6 +3235,10 @@ export interface MeetingContext {
     callback: (
       child: MeetingContext & { readonly collabTeam: TeamServiceLike },
     ) => void,
+  ): { dispose(): void };
+  inject(
+    keys: readonly ["collabContext"],
+    callback: () => void,
   ): { dispose(): void };
 }
 
@@ -3046,8 +3292,9 @@ function browserActor(
   const principal = team.resolveToken(token);
   if (principal === undefined)
     throw new MeetingError("unauthorized", "invalid bearer token");
-  const member = workspaceMembers(team, workspaceId)
-    .find((candidate) => candidate.userId === principal.userId);
+  const member = workspaceMembers(team, workspaceId).find(
+    (candidate) => candidate.userId === principal.userId,
+  );
   if (member === undefined && principal.role !== "admin")
     throw new MeetingError("forbidden", "workspace member role is required");
   return {
@@ -3146,6 +3393,9 @@ export function createMeetingRoutes(
     readonly taskService?: () => TaskServiceLike | undefined;
     readonly taskDispatch?: () => TaskDispatchLike | undefined;
     readonly principals?: () => PrincipalServiceLike | undefined;
+    readonly chatAgent?: () => ChatAgentServiceLike | undefined;
+    readonly workspaces?: () => WorkspaceRegistryLike | undefined;
+    readonly context?: () => ContextServiceLike | undefined;
   } = {},
 ): WebRouteLike[] {
   const resolveAgentReference = (
@@ -3168,9 +3418,47 @@ export function createMeetingRoutes(
   };
   const memberNames = (workspaceId: string) =>
     new Map(
-      workspaceMembers(team, workspaceId)
-        .map((member) => [member.userId, member.name ?? member.userId]),
+      workspaceMembers(team, workspaceId).map((member) => [
+        member.userId,
+        member.name ?? member.userId,
+      ]),
     );
+  const canAccessMeeting = (meeting: Meeting, actor: MeetingActor): boolean => {
+    if (meeting.kind !== "ai") return true;
+    if (managerActor(actor) || meeting.createdBy === actor.id) return true;
+    if (meeting.teammateInstanceId === undefined) return false;
+    const runtime = dependencies.teammateRuntime?.();
+    const primaryOwner = runtime?.ownerOf?.(meeting.teammateInstanceId);
+    const owners =
+      runtime?.ownersOf?.(meeting.teammateInstanceId) ??
+      (primaryOwner === undefined ? [] : [primaryOwner]);
+    return owners.some((owner) => owner.userId === actor.id);
+  };
+  const canListMeeting = (meeting: Meeting, actor: MeetingActor): boolean =>
+    meeting.kind !== "ai" || meeting.createdBy === actor.id;
+  const assertMeetingAccess = (meeting: Meeting, actor: MeetingActor): void => {
+    if (canAccessMeeting(meeting, actor)) return;
+    throw new MeetingError(
+      "forbidden",
+      "AI伙伴私聊仅对会话用户、对应 Owner 或管理员可见",
+    );
+  };
+  const assertGroupMeeting = (meeting: Meeting): void => {
+    if (meeting.kind === "ai") {
+      throw new MeetingError(
+        "forbidden",
+        "AI伙伴一对一对话不支持会议成员、委托或纪要操作",
+      );
+    }
+  };
+  const meetingActor = (
+    meeting: Meeting,
+    request: IncomingMessage,
+  ): MeetingActor => {
+    const actor = browserActor(team, request, meeting.workspaceId);
+    assertMeetingAccess(meeting, actor);
+    return actor;
+  };
   const activeHumanCaller = (
     meeting: Meeting,
     actor: MeetingActor,
@@ -3197,6 +3485,173 @@ export function createMeetingRoutes(
         "forbidden",
         "only the meeting owner can confirm minutes",
       );
+  };
+  const dispatchAiChat = async (input: {
+    readonly meeting: Meeting;
+    readonly participant: MeetingParticipant;
+    readonly message: MeetingMessage;
+    readonly actor: MeetingActor;
+  }): Promise<AgentRunLike | undefined> => {
+    const agent = dependencies.chatAgent?.();
+    const teammateRuntime = dependencies.teammateRuntime?.();
+    if (agent === undefined || teammateRuntime === undefined) return undefined;
+    const teammateId =
+      input.participant.teammateInstanceId ?? input.participant.refId;
+    const actorName =
+      memberNames(input.meeting.workspaceId).get(input.actor.id) ??
+      input.actor.id;
+    const ensured = await teammateRuntime.ensureRuntime({
+      teammateId,
+      workspaceId: input.meeting.workspaceId,
+      actor: {
+        userId: input.actor.id,
+        name: actorName,
+        role:
+          input.actor.globalRole === "admin"
+            ? "admin"
+            : input.actor.workspaceRole === "owner"
+              ? "owner"
+              : input.actor.workspaceRole === "guest"
+                ? "guest"
+                : "member",
+      },
+    });
+    const workspacePath = dependencies
+      .workspaces?.()
+      ?.get(input.meeting.workspaceId)?.path;
+    const transcript = meetings
+      .transcript(input.meeting.id)
+      .filter((message) => message.id !== input.message.id)
+      .slice(-TRANSCRIPT_WINDOW)
+      .map((message) => `${message.senderName}: ${message.content}`)
+      .join("\n");
+    const previousRuns =
+      agent.runs?.({
+        workspaceId: input.meeting.workspaceId,
+        instanceId: input.meeting.id,
+        nodeId: MEETING_AI_CHAT_NODE_ID,
+      }) ?? [];
+    const agentPrincipalId = ensured.principalId ?? teammateId;
+    const context = dependencies.context?.();
+    const fallbackChannelId = [
+      input.meeting.workspaceId,
+      input.actor.id,
+      teammateId,
+    ]
+      .join(":")
+      .replace(/[^a-zA-Z0-9._-]/g, "-");
+    const chatChannel =
+      context === undefined
+        ? undefined
+        : await context.ensureChatChannel({
+            workspaceId: input.meeting.workspaceId,
+            userPrincipalId: input.actor.id,
+            agentPrincipalId,
+            teammateInstanceId: teammateId,
+            carrier: "meeting-ai",
+            carrierRefId: input.meeting.id,
+          });
+    const chatChannelId = chatChannel?.id ?? fallbackChannelId;
+    const contextPack =
+      context === undefined
+        ? undefined
+        : await context.prepare({
+            requestId: `meeting-ai:${input.meeting.id}:${input.message.id}`,
+            mode: "execute",
+            scene: "chat",
+            chatCarrier: "meeting-ai",
+            chatChannelId,
+            workspaceId: input.meeting.workspaceId,
+            objectId: chatChannelId,
+            agentPrincipalId,
+            teammateId,
+            actorPrincipalId: input.actor.id,
+            input: {
+              type: "user-message",
+              messageId: input.message.id,
+              content: input.message.content,
+              attachments: [],
+            },
+            explicitRefs: [],
+            pinnedMemoryIds: [],
+            excludedSourceIds: [],
+            runtimeCapabilities: {
+              contextWindowTokens: 32_000,
+              maxOutputTokens: 4_000,
+              supportsSystemSections: true,
+              isStateless: ensured.execution === "external",
+            },
+          });
+    const contextSession =
+      context !== undefined && contextPack?.sessionBindingId !== undefined
+        ? context.session?.(contextPack.sessionBindingId)
+        : undefined;
+    const run = await agent.dispatch({
+      workspaceId: input.meeting.workspaceId,
+      ...(workspacePath === undefined ? {} : { workspacePath }),
+      profileId: ensured.profileId,
+      source: "chat",
+      instanceId: input.meeting.id,
+      nodeId: MEETING_AI_CHAT_NODE_ID,
+      dispatchKey: `meeting-ai:${input.meeting.id}:${input.message.id}`,
+      trigger: "manual-dispatch",
+      attempt: 1,
+      runSeq: previousRuns.length + 1,
+      maxAttempts: 1,
+      timeoutMs: 120_000,
+      ...(ensured.personaId === undefined
+        ? {}
+        : { personaId: ensured.personaId }),
+      ...(ensured.employeeId === undefined
+        ? {}
+        : { employeeId: ensured.employeeId }),
+      ...(ensured.principalId === undefined
+        ? {}
+        : {
+            principalId: ensured.principalId,
+            principalType: "principal-runtime" as const,
+          }),
+      ...(contextPack?.id === undefined
+        ? {}
+        : { contextPackId: contextPack.id }),
+      ...(contextPack?.sessionBindingId === undefined
+        ? {}
+        : { sessionBindingId: contextPack.sessionBindingId }),
+      ...(ensured.execution === "external" || contextSession === undefined
+        ? {}
+        : { sessionId: contextSession.sessionId }),
+      payload: {
+        instanceTitle: input.meeting.title,
+        nodeName: "AI 1:1 对话",
+        nodeDescription: "",
+        profileName: input.participant.displayName,
+        deliverables: [],
+        context: {
+          instruction: contextPack?.rendered.userText ?? input.message.content,
+          transcript,
+          chatChannelId,
+          chatUserId: input.actor.id,
+          teammateId,
+          participantId: input.participant.id,
+          meetingId: input.meeting.id,
+          messageId: input.message.id,
+          ...(contextPack === undefined
+            ? {}
+            : { contextPackId: contextPack.id }),
+        },
+      },
+      createdBy: input.actor.id,
+    });
+    if (context !== undefined && contextPack !== undefined) {
+      await context.recordRuntime({
+        runId: run.id,
+        contextPackId: contextPack.id,
+        runtime: {
+          kind: ensured.execution === "external" ? "external" : "builtin",
+        },
+      });
+    }
+    return run;
   };
   const requireMinutes = (): MeetingMinutesService => {
     const service = dependencies.minutes?.();
@@ -3280,9 +3735,44 @@ export function createMeetingRoutes(
       handler: (request: IncomingMessage, response: ServerResponse) => {
         const workspaceId = requireQuery(request, "workspaceId");
         const actor = browserActor(team, request, workspaceId);
+        const visibleMeetings = meetings
+          .list(workspaceId)
+          .filter((meeting) => canListMeeting(meeting, actor))
+          .map((meeting) => {
+            const transcript = meetings.transcript(meeting.id);
+            const conversation = transcript.filter(
+              (message) => message.senderKind !== "system",
+            );
+            const lastMessage = conversation.at(-1);
+            const lastReadSeq =
+              dependencies.reads?.()?.lastReadSeq(meeting.id, actor.id) ?? 0;
+            return {
+              ...meeting,
+              messageCount: conversation.length,
+              unreadCount: conversation.filter(
+                (message) =>
+                  message.sequence > lastReadSeq &&
+                  !(
+                    message.senderKind === "human" &&
+                    message.senderId === actor.id
+                  ),
+              ).length,
+              lastMessage:
+                lastMessage === undefined
+                  ? null
+                  : {
+                      id: lastMessage.id,
+                      senderKind: lastMessage.senderKind,
+                      senderName: lastMessage.senderName,
+                      content: lastMessage.content.slice(0, 240),
+                      createdAt: lastMessage.createdAt,
+                    },
+              lastActivityAt: lastMessage?.createdAt ?? meeting.updatedAt,
+            };
+          });
         sendJson(response, 200, {
           ok: true,
-          meetings: meetings.list(workspaceId),
+          meetings: visibleMeetings,
           actorId: actor.id,
         });
       },
@@ -3295,6 +3785,9 @@ export function createMeetingRoutes(
           z.object({
             workspaceId: idSchema.optional(),
             title: titleSchema,
+            kind: z.enum(["meeting", "ai"]).default("meeting"),
+            teammateInstanceId: idSchema.optional(),
+            teammateName: displayNameSchema.optional(),
             agenda: textSchema.optional(),
             displayName: displayNameSchema.optional(),
             parentSessionId: idSchema.optional(),
@@ -3303,6 +3796,62 @@ export function createMeetingRoutes(
         );
         const workspaceId = body.workspaceId ?? SYSTEM_DEFAULT_WORKSPACE_ID;
         const actor = browserActor(team, request, workspaceId);
+        if (body.kind === "ai" && body.teammateInstanceId === undefined)
+          throw new MeetingError(
+            "invalid_input",
+            "teammateInstanceId is required for an AI conversation",
+          );
+        if (body.kind === "ai" && body.teammateInstanceId !== undefined) {
+          const assignable = dependencies.teammateRuntime?.()?.assignable?.({
+            userId: actor.id,
+            name: memberNames(workspaceId).get(actor.id) ?? actor.id,
+            role:
+              actor.globalRole === "admin"
+                ? "admin"
+                : actor.workspaceRole === "owner"
+                  ? "owner"
+                  : actor.workspaceRole === "guest"
+                    ? "guest"
+                    : "member",
+          });
+          if (
+            assignable !== undefined &&
+            !assignable.some(
+              (candidate) =>
+                candidate.id === body.teammateInstanceId ||
+                candidate.employeeId === body.teammateInstanceId,
+            )
+          ) {
+            throw new MeetingError(
+              "forbidden",
+              "只能与可指派的 AI伙伴发起一对一对话",
+            );
+          }
+        }
+        const existing =
+          body.kind === "ai"
+            ? meetings
+                .list(workspaceId)
+                .find(
+                  (meeting) =>
+                    meeting.kind === "ai" &&
+                    meeting.status === "active" &&
+                    meeting.createdBy === actor.id &&
+                    meeting.teammateInstanceId === body.teammateInstanceId,
+                )
+            : undefined;
+        if (existing !== undefined) {
+          const participants = meetings.participants(existing.id);
+          sendJson(response, 200, {
+            ok: true,
+            meeting: existing,
+            participant: participants.find(
+              (participant) =>
+                participant.kind === "human" && participant.refId === actor.id,
+            ),
+          });
+          return;
+        }
         const meeting = await meetings.create(actor, {
           ...body,
           workspaceId,
@@ -3312,6 +3861,15 @@ export function createMeetingRoutes(
           meeting.id,
           body.displayName ?? `用户-${actor.id.slice(0, 6)}`,
         );
+        if (meeting.kind === "ai" && meeting.teammateInstanceId !== undefined) {
+          await meetings.addAiTeammate(actor, {
+            meetingId: meeting.id,
+            teammateInstanceId: meeting.teammateInstanceId,
+            displayName: body.teammateName ?? meeting.title,
+            speechMode: "active",
+            announce: false,
+          });
+        }
         // Phase 1 下线席位：建会不再默认物化「会议 Facilitator」席位。
         // 纪要服务改为由任意活跃人类参与者按需开启（/facilitator/open），
         // 旧的席位同步链路仅保留给历史数据。
@@ -3328,7 +3886,7 @@ export function createMeetingRoutes(
       handler: (request: IncomingMessage, response: ServerResponse) => {
         const meetingId = requireQuery(request, "meetingId");
         const meeting = meetings.get(meetingId);
-        const actor = browserActor(team, request, meeting.workspaceId);
+        const actor = meetingActor(meeting, request);
         const caller = meetings
           .participants(meeting.id)
           .find(
@@ -3384,7 +3942,8 @@ export function createMeetingRoutes(
           await readBody(request),
         );
         const meeting = meetings.get(body.meetingId);
-        const actor = browserActor(team, request, meeting.workspaceId);
+        const actor = meetingActor(meeting, request);
+        assertGroupMeeting(meeting);
         const participant = meetings
           .participants(meeting.id)
           .find((candidate) => candidate.id === body.participantId);
@@ -3429,7 +3988,8 @@ export function createMeetingRoutes(
           await readBody(request),
         );
         const meeting = meetings.get(body.meetingId);
-        const actor = browserActor(team, request, meeting.workspaceId);
+        const actor = meetingActor(meeting, request);
+        assertGroupMeeting(meeting);
         sendJson(response, 201, {
           ok: true,
           participant: await meetings.join(actor, meeting.id, body.displayName),
@@ -3442,23 +4002,26 @@ export function createMeetingRoutes(
       handler: (request: IncomingMessage, response: ServerResponse) => {
         const meetingId = requireQuery(request, "meetingId");
         const meeting = meetings.get(meetingId);
-        browserActor(team, request, meeting.workspaceId);
+        meetingActor(meeting, request);
+        assertGroupMeeting(meeting);
         const currentByUser = new Map(
           meetings
             .participants(meeting.id)
             .filter((participant) => participant.kind === "human")
             .map((participant) => [participant.refId, participant]),
         );
-        const people = workspaceMembers(team, meeting.workspaceId).map((member) => {
-          const current = currentByUser.get(member.userId);
-          return {
-            id: member.userId,
-            name: member.name ?? member.userId,
-            role: member.memberRole,
-            participantId: current?.id,
-            state: current?.status,
-          };
-        });
+        const people = workspaceMembers(team, meeting.workspaceId).map(
+          (member) => {
+            const current = currentByUser.get(member.userId);
+            return {
+              id: member.userId,
+              name: member.name ?? member.userId,
+              role: member.memberRole,
+              participantId: current?.id,
+              state: current?.status,
+            };
+          },
+        );
         sendJson(response, 200, { ok: true, people });
       },
     },
@@ -3481,10 +4044,13 @@ export function createMeetingRoutes(
           await readBody(request),
         );
         const meeting = meetings.get(body.meetingId);
-        const actor = browserActor(team, request, meeting.workspaceId);
+        const actor = meetingActor(meeting, request);
+        assertGroupMeeting(meeting);
         const members = new Map(
-          workspaceMembers(team, meeting.workspaceId)
-            .map((member) => [member.userId, member]),
+          workspaceMembers(team, meeting.workspaceId).map((member) => [
+            member.userId,
+            member,
+          ]),
         );
         const targets = new Set(body.people.map((person) => person.targetId));
         if (targets.size !== body.people.length)
@@ -3520,7 +4086,7 @@ export function createMeetingRoutes(
           await readBody(request),
         );
         const meeting = meetings.get(body.meetingId);
-        const actor = browserActor(team, request, meeting.workspaceId);
+        const actor = meetingActor(meeting, request);
         const message = await meetings.post(
           actor,
           meeting.id,
@@ -3535,6 +4101,37 @@ export function createMeetingRoutes(
               (delivery) => delivery.participantId === participant.id,
             ),
           );
+        if (meeting.kind === "ai") {
+          for (const participant of delivered) {
+            if (participant.kind === "human") continue;
+            try {
+              const run = await dispatchAiChat({
+                meeting,
+                participant,
+                message,
+                actor,
+              });
+              if (run === undefined) {
+                runtime?.dispatch(message, [participant]);
+              }
+            } catch (cause) {
+              const reason =
+                cause instanceof Error ? cause.message : "AI对话派发失败";
+              await meetings.markDelivery(
+                message.id,
+                participant.id,
+                "failed",
+                reason,
+              );
+              await meetings.postSystemMessage(
+                meeting.id,
+                `${participant.displayName} 暂时无法回复：${reason}`,
+              );
+            }
+          }
+          sendJson(response, 201, { ok: true, message });
+          return;
+        }
         // AI 参会方分流：已绑定「会议」任务的走任务会话链路（被动 @ / 主动监听
         // 都落到它自己的任务上，run 产出经 collab/task-changed 回写群聊）；
         // 没绑定任务的仍用一次性 worker 兜底。两条路径互斥，避免重复跑模型。
@@ -3571,7 +4168,7 @@ export function createMeetingRoutes(
           await readBody(request),
         );
         const meeting = meetings.get(body.meetingId);
-        const actor = browserActor(team, request, meeting.workspaceId);
+        const actor = meetingActor(meeting, request);
         const participant = meetings
           .participants(meeting.id)
           .find(
@@ -3600,7 +4197,7 @@ export function createMeetingRoutes(
           await readBody(request),
         );
         const meeting = meetings.get(body.meetingId);
-        const actor = browserActor(team, request, meeting.workspaceId);
+        const actor = meetingActor(meeting, request);
         const runtime = dependencies.runtime?.();
         if (runtime !== undefined) runtime.cancelMeeting(meeting.id);
         sendJson(response, 200, {
@@ -3618,7 +4215,7 @@ export function createMeetingRoutes(
           await readBody(request),
         );
         const meeting = meetings.get(body.meetingId);
-        const actor = browserActor(team, request, meeting.workspaceId);
+        const actor = meetingActor(meeting, request);
         sendJson(response, 200, {
           ok: true,
           meeting: await meetings.archive(actor, meeting.id),
@@ -3638,7 +4235,7 @@ export function createMeetingRoutes(
           await readBody(request),
         );
         const meeting = meetings.get(body.meetingId);
-        const actor = browserActor(team, request, meeting.workspaceId);
+        const actor = meetingActor(meeting, request);
         sendJson(response, 200, {
           ok: true,
           meeting: await meetings.update(actor, meeting.id, {
@@ -3668,7 +4265,8 @@ export function createMeetingRoutes(
           ["teammate", "employee"],
         );
         const meeting = meetings.get(body.meetingId);
-        const actor = browserActor(team, request, meeting.workspaceId);
+        const actor = meetingActor(meeting, request);
+        assertGroupMeeting(meeting);
         activeHumanCaller(meeting, actor);
         let personaId: string | undefined;
         const teammateRuntime = dependencies.teammateRuntime?.();
@@ -3749,7 +4347,8 @@ export function createMeetingRoutes(
           await readBody(request),
         );
         const meeting = meetings.get(body.meetingId);
-        const actor = browserActor(team, request, meeting.workspaceId);
+        const actor = meetingActor(meeting, request);
+        assertGroupMeeting(meeting);
         if (actor.kind !== "user")
           throw new MeetingError(
             "forbidden",
@@ -3907,7 +4506,8 @@ export function createMeetingRoutes(
           await readBody(request),
         );
         const meeting = meetings.get(body.meetingId);
-        const actor = browserActor(team, request, meeting.workspaceId);
+        const actor = meetingActor(meeting, request);
+        assertGroupMeeting(meeting);
         const participant = meetings
           .participants(meeting.id)
           .find((candidate) => candidate.id === body.participantId);
@@ -3939,7 +4539,8 @@ export function createMeetingRoutes(
           await readBody(request),
         );
         const meeting = meetings.get(body.meetingId);
-        const actor = browserActor(team, request, meeting.workspaceId);
+        const actor = meetingActor(meeting, request);
+        assertGroupMeeting(meeting);
         activeHumanCaller(meeting, actor);
         // 双向联动：Facilitator 是会议成员，开启席位后要在成员列表里出现。
         await meetings.addAiTeammate(actor, {
@@ -3965,7 +4566,8 @@ export function createMeetingRoutes(
           await readBody(request),
         );
         const meeting = meetings.get(body.meetingId);
-        const actor = browserActor(team, request, meeting.workspaceId);
+        const actor = meetingActor(meeting, request);
+        assertGroupMeeting(meeting);
         activeHumanCaller(meeting, actor);
         const facilitator = await requireMinutes().closeFacilitator(
           meeting.id,
@@ -3985,7 +4587,8 @@ export function createMeetingRoutes(
           await readBody(request),
         );
         const meeting = meetings.get(body.meetingId);
-        const actor = browserActor(team, request, meeting.workspaceId);
+        const actor = meetingActor(meeting, request);
+        assertGroupMeeting(meeting);
         activeHumanCaller(meeting, actor);
         const facilitator = await requireMinutes().replaceFacilitator(
           meeting.id,
@@ -4000,7 +4603,8 @@ export function createMeetingRoutes(
       handler: (request: IncomingMessage, response: ServerResponse) => {
         const meetingId = requireQuery(request, "meetingId");
         const meeting = meetings.get(meetingId);
-        const actor = browserActor(team, request, meeting.workspaceId);
+        const actor = meetingActor(meeting, request);
+        assertGroupMeeting(meeting);
         const minutes = requireMinutes();
         sendJson(response, 200, {
           ok: true,
@@ -4024,7 +4628,8 @@ export function createMeetingRoutes(
           await readBody(request),
         );
         const meeting = meetings.get(body.meetingId);
-        const actor = browserActor(team, request, meeting.workspaceId);
+        const actor = meetingActor(meeting, request);
+        assertGroupMeeting(meeting);
         activeHumanCaller(meeting, actor);
         const version = await requireMinutesRuntime().trigger({
           meetingId: meeting.id,
@@ -4047,7 +4652,8 @@ export function createMeetingRoutes(
           await readBody(request),
         );
         const meeting = meetings.get(body.meetingId);
-        const actor = browserActor(team, request, meeting.workspaceId);
+        const actor = meetingActor(meeting, request);
+        assertGroupMeeting(meeting);
         ownerCaller(meeting, actor);
         const version = await requireMinutes().confirmVersion({
           meetingId: meeting.id,
@@ -4072,7 +4678,8 @@ export function createMeetingRoutes(
       handler: (request: IncomingMessage, response: ServerResponse) => {
         const meetingId = requireQuery(request, "meetingId");
         const meeting = meetings.get(meetingId);
-        const actor = browserActor(team, request, meeting.workspaceId);
+        const actor = meetingActor(meeting, request);
+        assertGroupMeeting(meeting);
         sendJson(response, 200, {
           ok: true,
           delegates: requireDelegates().list(meeting.id),
@@ -4105,7 +4712,8 @@ export function createMeetingRoutes(
             ? undefined
             : resolveAgentReference(body.employeeId, ["employee", "teammate"]);
         const meeting = meetings.get(body.meetingId);
-        const actor = browserActor(team, request, meeting.workspaceId);
+        const actor = meetingActor(meeting, request);
+        assertGroupMeeting(meeting);
         activeHumanCaller(meeting, actor);
         const principalName =
           memberNames(meeting.workspaceId).get(actor.id) ?? actor.id;
@@ -4209,11 +4817,9 @@ export function createMeetingRoutes(
             ? undefined
             : resolveAgentReference(body.employeeId, ["employee", "teammate"]);
         const delegates = requireDelegates();
-        const actor = browserActor(
-          team,
-          request,
-          meetings.get(delegates.get(body.delegateId).meetingId).workspaceId,
-        );
+        const meeting = meetings.get(delegates.get(body.delegateId).meetingId);
+        const actor = meetingActor(meeting, request);
+        assertGroupMeeting(meeting);
         const updated = await delegates.update({
           delegateId: body.delegateId,
           actorUserId: actor.id,
@@ -4226,11 +4832,11 @@ export function createMeetingRoutes(
             ? {}
             : { instruction: body.instruction }),
         });
-        const meeting = meetings.get(updated.delegate.meetingId);
+        const updatedMeeting = meetings.get(updated.delegate.meetingId);
         const representative =
-          meeting.status === "active"
+          updatedMeeting.status === "active"
             ? await meetings.addAiRepresentative(actor, {
-                meetingId: meeting.id,
+                meetingId: updatedMeeting.id,
                 delegateId: updated.delegate.id,
                 principalUserId: updated.delegate.principalUserId,
                 principalName: updated.delegate.principalName,
@@ -4259,11 +4865,9 @@ export function createMeetingRoutes(
           await readBody(request),
         );
         const delegates = requireDelegates();
-        const actor = browserActor(
-          team,
-          request,
-          meetings.get(delegates.get(body.delegateId).meetingId).workspaceId,
-        );
+        const meeting = meetings.get(delegates.get(body.delegateId).meetingId);
+        const actor = meetingActor(meeting, request);
+        assertGroupMeeting(meeting);
         const delegate =
           body.status === "active"
             ? await delegates.resume(body.delegateId, actor.id)
@@ -4282,7 +4886,8 @@ export function createMeetingRoutes(
         const delegateId = requireQuery(request, "delegateId");
         const delegates = requireDelegates();
         const meeting = meetings.get(delegates.get(delegateId).meetingId);
-        const actor = browserActor(team, request, meeting.workspaceId);
+        const actor = meetingActor(meeting, request);
+        assertGroupMeeting(meeting);
         sendJson(response, 200, {
           ok: true,
           instruction: delegates.instructionFor(delegateId, actor.id),
@@ -4301,7 +4906,7 @@ export function createMeetingRoutes(
           await readBody(request),
         );
         const meeting = meetings.get(body.meetingId);
-        const actor = browserActor(team, request, meeting.workspaceId);
+        const actor = meetingActor(meeting, request);
         const read = await requireReads().markRead(
           meeting.id,
           actor.id,
@@ -4316,7 +4921,7 @@ export function createMeetingRoutes(
       handler: (request: IncomingMessage, response: ServerResponse) => {
         const meetingId = requireQuery(request, "meetingId");
         const meeting = meetings.get(meetingId);
-        const actor = browserActor(team, request, meeting.workspaceId);
+        const actor = meetingActor(meeting, request);
         const reads = requireReads();
         sendJson(response, 200, {
           ok: true,
@@ -4334,7 +4939,8 @@ export function createMeetingRoutes(
       handler: (request: IncomingMessage, response: ServerResponse) => {
         const meetingId = requireQuery(request, "meetingId");
         const meeting = meetings.get(meetingId);
-        browserActor(team, request, meeting.workspaceId);
+        meetingActor(meeting, request);
+        assertGroupMeeting(meeting);
         const tasks = requireTasks();
         sendJson(response, 200, {
           ok: true,
@@ -4349,7 +4955,7 @@ export function createMeetingRoutes(
       handler: (request: IncomingMessage, response: ServerResponse) => {
         const meetingId = requireQuery(request, "meetingId");
         const meeting = meetings.get(meetingId);
-        browserActor(team, request, meeting.workspaceId);
+        meetingActor(meeting, request);
         const files = requireFiles().list(meeting.id);
         sendJson(response, 200, {
           ok: true,
@@ -4371,7 +4977,7 @@ export function createMeetingRoutes(
         const fileId = requireQuery(request, "fileId");
         const file = requireFiles().get(fileId);
         const meeting = meetings.get(file.meetingId);
-        browserActor(team, request, meeting.workspaceId);
+        meetingActor(meeting, request);
         sendJson(response, 200, { ok: true, file });
       },
     },
@@ -4389,7 +4995,7 @@ export function createMeetingRoutes(
           await readBody(request),
         );
         const meeting = meetings.get(body.meetingId);
-        const actor = browserActor(team, request, meeting.workspaceId);
+        const actor = meetingActor(meeting, request);
         activeHumanCaller(meeting, actor);
         const file = await requireFiles().put({
           meetingId: meeting.id,
@@ -4858,6 +5464,42 @@ export async function apply(ctx: MeetingContext): Promise<void | (() => void)> {
   // 过度实现修正：纪要不再随每条消息自动生成。触发点收敛为「手动按钮」
   // 与「会议关闭」两处，避免每条发言都调一次模型、产生无人确认的版本。
   meetings.onMeetingClosed = (meetingId) => {
+    const closedMeeting = meetings.get(meetingId);
+    if (closedMeeting.kind === "ai") return;
+    void ctx
+      .get("collabMemory")
+      ?.ingestSource({
+        sourceType: "meeting",
+        sourceId: meetingId,
+        version: closedMeeting.updatedAt,
+        workspaceId: closedMeeting.workspaceId,
+        payload: {
+          title: closedMeeting.title,
+          content: [
+            closedMeeting.agenda === ""
+              ? ""
+              : `## 议程\n${closedMeeting.agenda}`,
+            "",
+            "## 会议转写",
+            ...meetings
+              .transcript(meetingId)
+              .map((message) => `${message.senderName}：${message.content}`),
+          ]
+            .filter(Boolean)
+            .join("\n")
+            .slice(0, 200_000),
+          actorPrincipalId:
+            closedMeeting.ownerUserId ?? closedMeeting.createdBy,
+          projectId: closedMeeting.workspaceId,
+          occurredAt: closedMeeting.closedAt ?? closedMeeting.updatedAt,
+          sourceRefs: [{ type: "meeting", id: meetingId }],
+          metadata: {
+            participants: meetings.participants(meetingId).length,
+            kind: closedMeeting.kind,
+          },
+        },
+      })
+      .catch(() => undefined);
     void meetingDelegates.completeByMeeting(meetingId).catch(() => undefined);
     // 已有新 Facilitator 时走单一纪要对象；否则保留旧纪要卡片路径。
     const facilitator = meetingMinutes.activeFacilitator(meetingId);
@@ -4881,6 +5523,141 @@ export async function apply(ctx: MeetingContext): Promise<void | (() => void)> {
   });
   ctx.effect(() => () => {
     void minutesRuntime.waitIdle();
+  });
+  let disposeChatContextAdapter: (() => void) | undefined;
+  let disposeMeetingContextAdapter: (() => void) | undefined;
+  const contextFiber = ctx.inject(["collabContext"], () => {
+    const collabContext = ctx.get("collabContext");
+    if (collabContext === undefined) return;
+    const chatCarrier = (objectId: string, channelId?: string) => {
+      const resolvedChannelId = channelId ?? objectId;
+      const channel = collabContext.chatChannel?.(resolvedChannelId);
+      return {
+        channel,
+        meeting: meetings.get(channel?.activeCarrierRefId ?? objectId),
+      };
+    };
+    disposeChatContextAdapter?.();
+    disposeMeetingContextAdapter?.();
+    disposeChatContextAdapter = collabContext.registerAdapter({
+      scene: "chat",
+      chatCarrier: "meeting-ai",
+      resolve: async (input) => {
+        const { channel, meeting } = chatCarrier(
+          input.objectId,
+          input.chatChannelId,
+        );
+        return {
+          allowed:
+            meeting.kind === "ai" &&
+            (channel === undefined ||
+              (channel.userPrincipalId === input.actorPrincipalId &&
+                channel.agentPrincipalId === input.agentPrincipalId)) &&
+            (input.workspaceId === undefined ||
+              input.workspaceId === meeting.workspaceId),
+          workspaceId: meeting.workspaceId,
+          sceneRevision: meeting.updatedAt,
+          sourceRefs: [{ type: "chat", id: channel?.id ?? meeting.id }],
+        };
+      },
+      loadFacts: async (input) => {
+        const { channel, meeting } = chatCarrier(input.objectId);
+        const transcript = meetings
+          .transcript(meeting.id)
+          .slice(-TRANSCRIPT_WINDOW)
+          .map((message) => `${message.senderName}: ${message.content}`)
+          .join("\n");
+        return {
+          text: transcript === "" ? "（暂无历史对话）" : transcript,
+          sourceRefs: [{ type: "chat", id: channel?.id ?? meeting.id }],
+          historyText: transcript,
+        };
+      },
+      policy: async () => ({
+        version: "meeting-ai-chat-v1",
+        instructions: [
+          "这是用户与当前 AI伙伴的一对一私密对话。",
+          "只处理当前对话和显式带入的项目上下文。",
+          "不得提及或读取其他用户的一对一对话。",
+          "直接回复用户，不生成会议纪要或任务交付报告。",
+        ].join("\n"),
+        allowedWriteback: ["agent-private-memory", "run-evidence"],
+      }),
+    });
+    disposeMeetingContextAdapter = collabContext.registerAdapter({
+      scene: "meeting",
+      resolve: async (input: {
+        readonly workspaceId?: string;
+        readonly objectId: string;
+        readonly agentPrincipalId: string;
+        readonly actorPrincipalId: string;
+      }) => {
+        const meeting = meetings.get(input.objectId);
+        return {
+          allowed:
+            meeting.kind === "meeting" &&
+            (input.workspaceId === undefined ||
+              input.workspaceId === meeting.workspaceId),
+          workspaceId: meeting.workspaceId,
+          sceneRevision: meeting.updatedAt,
+          sourceRefs: [{ type: "meeting", id: meeting.id }],
+        };
+      },
+      loadFacts: async (input: {
+        readonly workspaceId?: string;
+        readonly objectId: string;
+        readonly agentPrincipalId: string;
+        readonly asOf: string;
+      }) => {
+        const meeting = meetings.get(input.objectId);
+        const transcript = meetings
+          .transcript(meeting.id)
+          .slice(-TRANSCRIPT_WINDOW);
+        const text = [
+          `# ${meeting.title}`,
+          `状态: ${meeting.status}`,
+          `议程: ${meeting.agenda || "未填写"}`,
+          "",
+          "## 最近会议转写",
+          ...transcript.map(
+            (message) => `${message.senderName}: ${message.content}`,
+          ),
+        ].join("\n");
+        return {
+          text,
+          structured: {
+            id: meeting.id,
+            title: meeting.title,
+            agenda: meeting.agenda,
+            status: meeting.status,
+            participants: meetings.participants(meeting.id).map((item) => ({
+              id: item.id,
+              displayName: item.displayName,
+              kind: item.kind,
+              status: item.status,
+            })),
+          },
+          sourceRefs: [{ type: "meeting", id: meeting.id }],
+          historyText: transcript
+            .map((message) => `${message.senderName}: ${message.content}`)
+            .join("\n"),
+        };
+      },
+      policy: async () => ({
+        version: "group-meeting-context-v1",
+        instructions: [
+          "你正在一个多人会议中作为 AI 参会方发言。",
+          "只依据当前会议转写、参与者和 ContextPack 中授权的项目事实回应。",
+          "被 @ 时回应定向指令；主动发言必须有明确价值，不得复述已有结论。",
+          "不得读取其他会议或私人聊天。",
+        ].join("\n"),
+        allowedWriteback: ["agent-private-memory", "run-evidence"],
+      }),
+    } as never);
+  });
+  ctx.effect(() => () => {
+    disposeChatContextAdapter?.();
+    disposeMeetingContextAdapter?.();
   });
   registerMeetingInterfaces(ctx, meetings);
   // 任务域 → 会议回写：AI 参会方在任务会话里产出的定稿发言，落回会议群聊。
@@ -4931,6 +5708,68 @@ export async function apply(ctx: MeetingContext): Promise<void | (() => void)> {
   ctx.on?.("collab/task-changed", (change: unknown) => {
     void mirrorTaskReplyToMeeting(change);
   });
+  const handledChatRuns = new Set<string>();
+  const mirrorChatRunToMeeting = async (change: unknown): Promise<void> => {
+    const runId =
+      change !== null && typeof change === "object" && "runId" in change
+        ? String((change as { runId?: unknown }).runId ?? "")
+        : "";
+    if (runId === "" || handledChatRuns.has(runId)) return;
+    const agent = ctx.get("collabAgent") as ChatAgentServiceLike | undefined;
+    const run = agent?.run(runId);
+    if (
+      run === undefined ||
+      run.source !== "chat" ||
+      run.nodeId !== MEETING_AI_CHAT_NODE_ID
+    ) {
+      return;
+    }
+    const meetingId = String(run.payload.context.meetingId ?? run.instanceId);
+    const participantId = String(run.payload.context.participantId ?? "");
+    const messageId = String(run.payload.context.messageId ?? "");
+    if (meetingId === "" || participantId === "" || messageId === "") return;
+    let meeting: Meeting;
+    try {
+      meeting = meetings.get(meetingId);
+    } catch {
+      return;
+    }
+    if (meeting.kind !== "ai") return;
+    if (run.status === "succeeded") {
+      const reply = run.output?.summary?.trim() ?? "";
+      if (reply === "") {
+        await meetings.markDelivery(
+          messageId,
+          participantId,
+          "failed",
+          "AI伙伴未返回文本回复",
+        );
+        handledChatRuns.add(runId);
+        return;
+      }
+      await meetings.postWorkerReply(participantId, reply);
+      await meetings.markDelivery(messageId, participantId, "delivered");
+      handledChatRuns.add(runId);
+      return;
+    }
+    if (
+      run.status === "failed" ||
+      run.status === "timeout" ||
+      run.status === "cancelled" ||
+      run.status === "interrupted"
+    ) {
+      const reason = run.error ?? `AI对话运行${run.status}`;
+      await meetings.markDelivery(messageId, participantId, "failed", reason);
+      await meetings.postSystemMessage(
+        meeting.id,
+        `AI伙伴暂时无法回复：${reason}`,
+      );
+      handledChatRuns.add(runId);
+    }
+  };
+  ctx.on?.("collab/agent-run-settled", (change: unknown) => {
+    void mirrorChatRunToMeeting(change);
+  });
   let routeDisposers: Array<() => void> = [];
   const identityFiber = ctx.inject(["collabTeam"], (child) => {
     teamService = child.collabTeam;
@@ -4950,6 +5789,11 @@ export async function apply(ctx: MeetingContext): Promise<void | (() => void)> {
       taskService: () => ctx.get("collabTasks"),
       taskDispatch: () => ctx.get("collabTaskDispatch"),
       principals: () => ctx.get("collabPrincipal"),
+      chatAgent: () =>
+        ctx.get("collabAgent") as ChatAgentServiceLike | undefined,
+      workspaces: () =>
+        ctx.get("workspaceRegistry") as WorkspaceRegistryLike | undefined,
+      context: () => ctx.get("collabContext") as ContextServiceLike | undefined,
     }).map((route) => ctx.webServer.register(route)) as Array<() => void>;
   });
   const employeeFiber = ctx.inject(["collabEmployee"], (child) => {
@@ -4957,6 +5801,7 @@ export async function apply(ctx: MeetingContext): Promise<void | (() => void)> {
   });
   return () => {
     identityFiber.dispose();
+    contextFiber.dispose();
     employeeFiber?.dispose();
     for (const dispose of routeDisposers) dispose();
   };

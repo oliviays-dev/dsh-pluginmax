@@ -20,7 +20,7 @@ describe("shell client navigation", () => {
       { key: "projects", label: "项目" },
       { key: "task", label: "任务" },
       { key: "workflow", label: "工作流" },
-      { key: "meetings", label: "会议" },
+      { key: "meetings", label: "沟通" },
       { key: "teammates", label: "AI伙伴" },
     ]);
   });

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { Readable } from "node:stream";
 import {
   AgentRegistryService,
   AgentTaskRuntime,
@@ -18,9 +19,10 @@ import {
   type PersonaServiceLike,
   type SubagentsRuntimeLike,
   type WebRouteLike,
+  type WorkspaceLike,
   type WorkspaceRegistryLike,
 } from "./index.js";
-import type { ExternalAgentRunner } from "./external.js";
+import type { ExternalAgentRunner, ExternalRunnerRequest } from "./external.js";
 
 class FakeTable<V> {
   readonly records = new Map<string, V>();
@@ -232,6 +234,9 @@ function harness(
     ...(options.sessionPersistence === undefined
       ? {}
       : { sessionPersistence: () => options.sessionPersistence }),
+    ...(options.workspaces === undefined
+      ? {}
+      : { workspaces: () => options.workspaces }),
   });
   const subagents = fakeSubagents();
   const settled: AgentRun[] = [];
@@ -348,6 +353,49 @@ describe("agent profile registry", () => {
     expect(service.run(run.id)?.outputTokens).toBe(34);
   });
 
+  it("returns conservative execution metadata for legacy runs", async () => {
+    const current = tables();
+    const runtimes = new FakeTable<ExternalAgentRuntime>();
+    await runtimes.put("codex-local", {
+      id: "codex-local",
+      workspaceId: "main",
+      name: "Codex CLI · 搜索只读",
+      provider: "codex",
+      protocol: "codex-jsonl",
+      command: "codex",
+      args: ["--search"],
+      status: "active",
+      visibility: "workspace",
+      ownerUserId: owner.id,
+      createdAt: now().toISOString(),
+      updatedAt: now().toISOString(),
+    });
+    const service = new AgentRegistryService(current, {
+      now,
+      externalRuntimes: () => runtimes,
+    });
+    await service.createProfile(owner, {
+      workspaceId: "main",
+      id: "backend-agent",
+      name: "Backend Agent",
+      execution: "external",
+      externalRuntimeId: "codex-local",
+    });
+    const run = await service.dispatch(dispatchInput());
+
+    expect(service.run(run.id)?.execution).toEqual({
+      provider: "codex",
+      model: "unknown",
+      runtime: "Codex CLI · 搜索只读（历史配置回填）",
+      runtimeVersion: "unknown",
+      authMode: "unknown",
+      sandbox: "read-only / network restricted",
+    });
+    expect(
+      service.runs({ workspaceId: "main", instanceId: "inst-1" })[0]?.execution,
+    ).toEqual(service.run(run.id)?.execution);
+  });
+
   it("rejects cross-workspace profile access", async () => {
     const { service } = harness();
     await createProfile(service);
@@ -408,7 +456,7 @@ describe("agent profile registry", () => {
 });
 
 describe("external agent runtime", () => {
-  it("stores runtime configuration and enforces manager permissions", async () => {
+  it("shares platform runtimes across projects while isolating workspace runtimes", async () => {
     const table = new FakeTable<ExternalAgentRuntime>();
     const service = new ExternalAgentRuntimeService(table, { now });
     expect(() =>
@@ -430,13 +478,187 @@ describe("external agent runtime", () => {
       args: ["--profile", "work"],
     });
     expect(runtime.status).toBe("active");
-    expect(service.list("other")).toEqual([]);
+    expect(runtime.visibility).toBe("platform");
+    expect(service.list("other")).toHaveLength(1);
     expect(service.list("main")).toHaveLength(1);
+    const workspaceRuntime = await service.create(owner, {
+      workspaceId: "main",
+      name: "Workspace Codex",
+      provider: "codex",
+      protocol: "codex-jsonl",
+      command: "codex",
+      visibility: "workspace",
+    });
+    expect(service.list("main")).toHaveLength(2);
+    expect(service.list("other").map((item) => item.id)).not.toContain(
+      workspaceRuntime.id,
+    );
     const disabled = await service.update(owner, {
       runtimeId: runtime.id,
       status: "disabled",
     });
     expect(disabled.status).toBe("disabled");
+  });
+
+  it("notifies the teammate boundary when an unavailable runtime pauses bindings", async () => {
+    const runtimeTable = new FakeTable<ExternalAgentRuntime>();
+    const runtimeService = new ExternalAgentRuntimeService(runtimeTable, {
+      now,
+    });
+    const runtime = await runtimeService.create(admin, {
+      workspaceId: "main",
+      name: "Codex CLI 本机",
+      provider: "codex",
+      protocol: "codex-jsonl",
+      command: "codex",
+    });
+    const notifications: Array<{
+      runtimeId: string;
+      status: string;
+      previousStatus?: string | undefined;
+    }> = [];
+    const routes = createAgentRoutes(
+      new AgentRegistryService(tables(), { now }),
+      () => ({
+        resolveToken: (token) =>
+          token === "admin" ? { userId: "root", role: "admin" } : undefined,
+        members: () => [{ userId: "root", memberRole: "owner" }],
+      }),
+      undefined,
+      () => runtimeService,
+      async ({ runtime: changed, previousStatus }) => {
+        notifications.push({
+          runtimeId: changed.id,
+          status: changed.status,
+          previousStatus,
+        });
+        return ["tm-bound"];
+      },
+    );
+    const route = routes.find(
+      (candidate) =>
+        candidate.path === "/api/collab/agent/external-runtimes/update",
+    )!;
+    let finishResponse: (() => void) | undefined;
+    const responseFinished = new Promise<void>((resolve) => {
+      finishResponse = resolve;
+    });
+    const response = {
+      status: 0,
+      body: "",
+      writeHead(status: number) {
+        this.status = status;
+        return this;
+      },
+      end(body?: string) {
+        if (body !== undefined) this.body = body;
+        finishResponse?.();
+        return this;
+      },
+    };
+    const request = Readable.from([
+      JSON.stringify({
+        workspaceId: "main",
+        runtimeId: runtime.id,
+        status: "disabled",
+      }),
+    ]);
+    Object.assign(request, {
+      method: "POST",
+      url: "/api/collab/agent/external-runtimes/update",
+      headers: {
+        host: "127.0.0.1:33117",
+        origin: "http://127.0.0.1:33117",
+        authorization: "Bearer admin",
+        "content-type": "application/json",
+      },
+    });
+
+    await route.handler(
+      request as unknown as Parameters<WebRouteLike["handler"]>[0],
+      response as unknown as Parameters<WebRouteLike["handler"]>[1],
+    );
+    await responseFinished;
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toMatchObject({
+      ok: true,
+      pausedTeammateIds: ["tm-bound"],
+      runtime: { id: runtime.id, status: "disabled" },
+    });
+    expect(notifications).toEqual([
+      {
+        runtimeId: runtime.id,
+        status: "disabled",
+        previousStatus: "active",
+      },
+    ]);
+  });
+
+  it("emits trace events for runtime governance actions", async () => {
+    const table = new FakeTable<ExternalAgentRuntime>();
+    const events: Array<{
+      action: string;
+      status: string;
+      previousStatus?: string | undefined;
+    }> = [];
+    const service = new ExternalAgentRuntimeService(table, {
+      now,
+      onTrace: (event) => {
+        events.push({
+          action: event.action,
+          status: event.runtime.status,
+          previousStatus: event.previousStatus,
+        });
+      },
+    });
+    const runtime = await service.create(owner, {
+      workspaceId: "main",
+      name: "WorkBuddy",
+      provider: "workbuddy",
+      protocol: "plain-text",
+      command: "/usr/local/bin/codebuddy",
+    });
+    await service.markProbe(
+      runtime.id,
+      {
+        ok: true,
+        message: "命令可用",
+        exitCode: 0,
+        durationMs: 42,
+      },
+      owner,
+    );
+    await service.update(owner, {
+      runtimeId: runtime.id,
+      status: "disabled",
+    });
+    await service.archive(owner, { runtimeId: runtime.id });
+    await service.restore(owner, { runtimeId: runtime.id });
+
+    expect(events).toEqual([
+      { action: "register", status: "active" },
+      {
+        action: "probe",
+        status: "active",
+        previousStatus: "active",
+      },
+      {
+        action: "disable",
+        status: "disabled",
+        previousStatus: "active",
+      },
+      {
+        action: "archive",
+        status: "archived",
+        previousStatus: "disabled",
+      },
+      {
+        action: "restore",
+        status: "disabled",
+        previousStatus: "archived",
+      },
+    ]);
   });
 
   it("edits runtime definitions and clears stale probe results", async () => {
@@ -601,10 +823,11 @@ describe("external agent runtime", () => {
       workspaceId: "main",
       id: "backend-agent",
       name: "Backend Agent",
+      personaId: "persona-editor",
       execution: "external",
       externalRuntimeId: "codex-local",
     });
-    const execute = vi.fn(async () => ({
+    const execute = vi.fn(async (_request: ExternalRunnerRequest) => ({
       output: [
         {
           type: "text" as const,
@@ -613,6 +836,14 @@ describe("external agent runtime", () => {
       ],
       stopReason: "completed" as const,
       sessionId: "provider-session-1",
+      execution: {
+        provider: "custom",
+        model: "deepseek-flash",
+        runtime: "Codex 本机",
+        runtimeVersion: "0.163.0-alpha.10.2",
+        authMode: "api-key",
+        sandbox: "read-only / network restricted",
+      },
     }));
     const runner: ExternalAgentRunner = {
       progress: () => undefined,
@@ -623,6 +854,12 @@ describe("external agent runtime", () => {
       tables: current,
       subagents: () => undefined,
       agents: fakeAgents,
+      personas: () => ({
+        get: async (personaId) =>
+          personaId === "persona-editor"
+            ? { soul: "你是报告主编，只输出可审核的研究报告。" }
+            : undefined,
+      }),
       externalRuntimes: () => runtimeTable,
       externalRunner: () => runner,
       onSettled: (run) => {
@@ -632,18 +869,41 @@ describe("external agent runtime", () => {
       now,
     });
     service.attachRuntime(runtime);
-    await service.dispatch(dispatchInput({ workspacePath: "/tmp/project" }));
+    await service.dispatch(
+      dispatchInput({
+        workspacePath: "/tmp/project",
+        personaId: "persona-editor",
+      }),
+    );
     await vi.waitFor(() =>
       expect([...current.runs.records.values()][0]?.status).toBe("succeeded"),
     );
     expect(execute).toHaveBeenCalledWith(
-      expect.objectContaining({ workspacePath: "/tmp/project" }),
+      expect.objectContaining({
+        workspacePath: "/tmp/project",
+        prompt: expect.stringContaining("# AI伙伴身份与行为边界"),
+      }),
     );
+    expect(execute.mock.calls[0]?.[0]?.prompt).toContain(
+      "你是报告主编，只输出可审核的研究报告。",
+    );
+    expect(execute.mock.calls[0]?.[0]?.prompt).toContain("# 当前任务");
     expect(
       current.runs.records.get([...current.runs.records.keys()][0]!),
     ).toMatchObject({
       externalSessionId: "provider-session-1",
       status: "succeeded",
+      execution: {
+        provider: "custom",
+        model: "deepseek-flash",
+        runtime: "Codex 本机",
+        runtimeVersion: "0.163.0-alpha.10.2",
+        authMode: "api-key",
+        sandbox: "read-only / network restricted",
+      },
+      promptSnapshot: expect.stringContaining(
+        "你是报告主编，只输出可审核的研究报告。",
+      ),
     });
     expect(settled).toHaveLength(1);
   });
@@ -1087,6 +1347,92 @@ describe("agent task runtime", () => {
       "Backend Agent-TSK-订单导出-A",
       "Backend Agent-TSK-订单导出-B",
     ]);
+  });
+
+  it("keeps private chat sessions out of the shared workspace tree", async () => {
+    const attached: string[] = [];
+    const workspaces: WorkspaceRegistryLike = {
+      create: async (path) => ({
+        path,
+        attachSession: async (sessionId) => {
+          attached.push(sessionId);
+        },
+      }),
+    };
+    const sessions: AgentSessionsLike = {
+      get: (sessionId) => ({
+        id: sessionId,
+        snapshotEvents: () => [],
+      }),
+    };
+    const { service, runtime } = harness({ now, workspaces, sessions });
+    await createProfile(service);
+    const run = await service.dispatch(
+      dispatchInput({
+        source: "chat",
+        employeeId: "pluginmax-de",
+        workspacePath: "/tmp/pluginmax-workspace",
+        instanceId: "meeting-ai-1",
+        nodeId: "meeting-ai-chat",
+        sessionBindingId: "chat:chat-channel-1:principal-ai-pluginmax-de:g0",
+        sessionId: "de-chat-main-chat-channel-1-principal-ai-pluginmax-de",
+        dispatchKey: "chat:meeting-ai-1:message-1",
+        payload: {
+          ...dispatchInput().payload,
+          context: {
+            ...dispatchInput().payload.context,
+            chatChannelId: "chat-channel-1",
+          },
+        },
+      }),
+    );
+    await runtime.waitIdle();
+    expect(attached).toEqual([]);
+    expect(service.run(run.id)).toMatchObject({
+      status: "succeeded",
+      sessionId: "de-chat-main-chat-channel-1-principal-ai-pluginmax-de",
+      sessionBindingId: "chat:chat-channel-1:principal-ai-pluginmax-de:g0",
+    });
+    expect(service.run(run.id)?.output?.summary).toBe("home session response");
+  });
+
+  it("detaches legacy private chat sessions from shared workspaces on restore", async () => {
+    const detached: string[] = [];
+    const workspace: WorkspaceLike = {
+      path: "/tmp/pluginmax-workspace",
+      attachSession: async () => undefined,
+      detachSession: async (sessionId) => {
+        detached.push(sessionId);
+      },
+    };
+    const workspaces: WorkspaceRegistryLike = {
+      create: async () => workspace,
+      get: () => workspace,
+    };
+    const { service, runtime } = harness({ now, workspaces });
+    await createProfile(service);
+    const run = await service.dispatch(
+      dispatchInput({
+        source: "chat",
+        employeeId: "pluginmax-de",
+        workspacePath: workspace.path,
+        workspaceId: "main",
+        instanceId: "meeting-ai-legacy",
+        nodeId: "meeting-ai-chat",
+        dispatchKey: "chat:meeting-ai-legacy:message-1",
+        payload: {
+          ...dispatchInput().payload,
+          context: {
+            ...dispatchInput().payload.context,
+            chatChannelId: "chat-channel-legacy",
+          },
+        },
+      }),
+    );
+    await runtime.waitIdle();
+    const sessionId = service.run(run.id)?.sessionId;
+    service.restore();
+    await vi.waitFor(() => expect(detached).toEqual([sessionId]));
   });
 
   it("routes follow-up instructions to the session of their own task", async () => {

@@ -11,6 +11,7 @@ import {
   taskStatusSchema,
   taskDeliveryTargetSchema,
   type TaskDeliveryTarget,
+  type TaskExecutionMetadata,
   type TaskRecord,
   type TaskStatus,
   taskWorkflowRefSchema,
@@ -75,6 +76,7 @@ export interface TaskAgentRun {
     | "timeout"
     | "cancelled"
     | "interrupted";
+  readonly execution?: TaskExecutionMetadata | undefined;
   readonly output?: { readonly summary: string } | undefined;
   readonly error?: string | undefined;
 }
@@ -93,7 +95,11 @@ export interface WorkflowTaskEventProjection {
 export class TaskError extends Error {
   constructor(
     readonly code:
-      "invalid_input" | "unauthorized" | "forbidden" | "not_found" | "conflict",
+      | "invalid_input"
+      | "unauthorized"
+      | "forbidden"
+      | "not_found"
+      | "conflict",
     message: string,
   ) {
     super(message);
@@ -218,6 +224,7 @@ const sessionResetInputSchema = z.object({
 const commentInputSchema = z.object({
   taskId: z.string().min(1).max(160),
   content: z.string().min(1).max(8000),
+  isKeyConsensus: z.boolean().default(false),
 });
 
 const replyInputSchema = z.object({
@@ -493,6 +500,59 @@ export class TaskService {
       receiverType: "agent",
       receiverId: agentId ?? input.receiverId,
       receiverPrincipalId: principal.id,
+    };
+  }
+
+  private captureReviewSubmitter(
+    task: TaskRecord,
+  ): NonNullable<TaskRecord["reviewSubmitter"]> {
+    return {
+      receiverType: task.receiverType,
+      ...(task.receiverId === undefined ? {} : { receiverId: task.receiverId }),
+      ...(task.receiverPrincipalId === undefined
+        ? {}
+        : { receiverPrincipalId: task.receiverPrincipalId }),
+      ...(task.receiverName === undefined
+        ? {}
+        : { receiverName: task.receiverName }),
+      submittedAt: this.now(),
+    };
+  }
+
+  /**
+   * 兼容升级前已经处于 Review 的任务：旧数据没有负责人快照时，
+   * 从最近一次成功的 Agent 交付消息推断原执行人。
+   */
+  private inferReviewSubmitter(
+    task: TaskRecord,
+  ): TaskRecord["reviewSubmitter"] | undefined {
+    if (task.reviewSubmitter !== undefined) return task.reviewSubmitter;
+    const agentMessage = [...task.messages]
+      .reverse()
+      .find(
+        (message) =>
+          message.kind === "agent" &&
+          message.runId !== undefined &&
+          message.state === "succeeded",
+      );
+    if (agentMessage === undefined) return undefined;
+    return {
+      receiverType: "agent",
+      receiverId: agentMessage.authorId,
+      receiverName: agentMessage.authorName,
+      submittedAt: agentMessage.at,
+    };
+  }
+
+  private restoreReviewSubmitter(task: TaskRecord): Partial<TaskRecord> {
+    const submitter = this.inferReviewSubmitter(task);
+    if (submitter === undefined) return { reviewSubmitter: undefined };
+    return {
+      receiverType: submitter.receiverType,
+      receiverId: submitter.receiverId,
+      receiverPrincipalId: submitter.receiverPrincipalId,
+      receiverName: submitter.receiverName,
+      reviewSubmitter: undefined,
     };
   }
 
@@ -970,21 +1030,62 @@ export class TaskService {
     return this.settleProjection(actor, parsed.taskId, "approved");
   }
 
-  async reject(actor: TaskActor, taskIdValue: string): Promise<TaskRecord> {
+  async reject(
+    actor: TaskActor,
+    taskIdValue: string,
+    noteValue: unknown,
+  ): Promise<TaskRecord> {
+    const note = typeof noteValue === "string" ? noteValue.trim() : "";
+    if (note === "") {
+      throw new TaskError("invalid_input", "退回必须填写退回说明");
+    }
+    if (note.length > 8_000) {
+      throw new TaskError("invalid_input", "退回说明不能超过 8000 个字符");
+    }
     let task = requireOpen(this.require(taskIdValue));
+    const message = taskMessageSchema.parse({
+      id: randomUUID(),
+      at: this.now(),
+      authorId: actor.id,
+      authorName: actor.name,
+      kind: actor.kind,
+      content: note,
+      attachments: [],
+      deliveryTarget: "receiver",
+    });
     if (task.workflow !== undefined) {
       await this.workflowActions?.decide(task, actor, "rejected");
       task = this.require(taskIdValue);
+      task = await this.put(
+        this.event(
+          {
+            ...task,
+            messages: [...task.messages, message],
+            updatedAt: this.now(),
+          },
+          actor,
+          "status",
+          `${actor.name} 退回审批：${note}`,
+        ),
+      );
       if (isSettled(task)) return task;
       return this.settleProjection(actor, taskIdValue, "rejected");
     }
-    const rejected = await this.setStatus(
-      actor,
-      task,
-      "progress",
-      "退回并补充意见",
+    const reviewSubmitter = this.inferReviewSubmitter(task);
+    return this.put(
+      this.event(
+        {
+          ...task,
+          ...this.restoreReviewSubmitter(task),
+          status: "progress",
+          messages: [...task.messages, message],
+          updatedAt: this.now(),
+        },
+        actor,
+        "status",
+        `${actor.name} 退回并补充说明：${note}${reviewSubmitter === undefined ? "" : `，负责人恢复为 ${reviewSubmitter.receiverName ?? reviewSubmitter.receiverId ?? "原执行人"}`}`,
+      ),
     );
-    return rejected;
   }
 
   async projectAssigned(
@@ -1254,7 +1355,10 @@ export class TaskService {
   async projectAgentRun(
     _actor: TaskActor,
     taskIdValue: string,
-    run: Pick<TaskAgentRun, "id" | "status" | "output" | "error"> & {
+    run: Pick<
+      TaskAgentRun,
+      "id" | "status" | "output" | "error" | "execution"
+    > & {
       readonly nodeId?: string | undefined;
     },
     receiverName: string,
@@ -1309,6 +1413,7 @@ export class TaskService {
       existing !== undefined &&
       existing.state === run.status &&
       existing.content === content &&
+      JSON.stringify(existing.execution) === JSON.stringify(run.execution) &&
       task.agentRunIds.includes(run.id)
     ) {
       return task;
@@ -1322,6 +1427,8 @@ export class TaskService {
       content,
       attachments: [],
       runId: run.id,
+      runRole: "owner",
+      ...(run.execution === undefined ? {} : { execution: run.execution }),
       state: run.status,
     });
     const messages =
@@ -1406,7 +1513,20 @@ export class TaskService {
             ? Math.min(5, task.progress)
             : Math.max(task.progress, progressForSteps(task.steps));
     const updated = this.event(
-      { ...task, status, progress, updatedAt: this.now() },
+      {
+        ...task,
+        status,
+        progress,
+        ...(status === "review" && task.status !== "review"
+          ? {
+              reviewSubmitter:
+                task.reviewSubmitter ?? this.captureReviewSubmitter(task),
+            }
+          : status === "done" || status === "cancelled"
+            ? { reviewSubmitter: undefined }
+            : {}),
+        updatedAt: this.now(),
+      },
       actor,
       status === "done" ? "closed" : "status",
       `${actor.name} ${action}：${task.status} → ${status}`,
@@ -1553,6 +1673,8 @@ export class TaskService {
               : "已接收指令，正在执行…",
       attachments: [],
       runId: run.id,
+      runRole: options?.role ?? "owner",
+      ...(run.execution === undefined ? {} : { execution: run.execution }),
       state: run.status,
     });
     const messages =
@@ -1636,6 +1758,12 @@ export class TaskService {
       {
         ...task,
         ...receiverOverride,
+        ...(autoReview || workflowReview
+          ? {
+              reviewSubmitter:
+                task.reviewSubmitter ?? this.captureReviewSubmitter(task),
+            }
+          : {}),
         agentRunIds: task.agentRunIds.includes(run.id)
           ? task.agentRunIds
           : [...task.agentRunIds, run.id],
@@ -1773,6 +1901,7 @@ export class TaskService {
       authorName: actor.name,
       kind: actor.kind,
       content: parsed.content,
+      isKeyConsensus: parsed.isKeyConsensus,
       replies: [],
     });
     const updated = this.event(
@@ -1783,7 +1912,9 @@ export class TaskService {
       },
       actor,
       "comment",
-      `${actor.name} 添加了评论`,
+      parsed.isKeyConsensus
+        ? `${actor.name} 添加了关键共识`
+        : `${actor.name} 添加了评论`,
     );
     return this.put(updated);
   }
@@ -2000,11 +2131,14 @@ export class TaskService {
         kind: actor.kind,
         content: note,
         attachments: [],
+        deliveryTarget: "receiver",
       });
+      const reviewSubmitter = this.inferReviewSubmitter(task);
       return this.put(
         this.event(
           {
             ...task,
+            ...this.restoreReviewSubmitter(task),
             status: "todo",
             progress: Math.min(5, task.progress),
             messages: [...task.messages, message],
@@ -2015,7 +2149,7 @@ export class TaskService {
           },
           actor,
           "status",
-          `${actor.name} 退回并补充说明：${task.status} → todo`,
+          `${actor.name} 退回并补充说明：${task.status} → todo${reviewSubmitter === undefined ? "" : `，负责人恢复为 ${reviewSubmitter.receiverName ?? reviewSubmitter.receiverId ?? "原执行人"}`}`,
         ),
       );
     }

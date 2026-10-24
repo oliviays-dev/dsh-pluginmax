@@ -1,9 +1,11 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { createReadStream } from "node:fs";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ExternalAgentRuntime } from "./types.js";
+import { createInterface } from "node:readline";
+import type { AgentExecutionMetadata, ExternalAgentRuntime } from "./types.js";
 
 export interface ExternalRunnerRequest {
   readonly runId: string;
@@ -21,11 +23,33 @@ export interface ExternalRunnerResult {
   }>;
   readonly stopReason: "completed" | "failed" | "cancelled";
   readonly sessionId?: string | undefined;
+  readonly execution?: Partial<AgentExecutionMetadata> | undefined;
   readonly diagnostic?: string | undefined;
 }
 
+type ExecutionMetadataPatch = {
+  provider?: string | undefined;
+  model?: string | undefined;
+  runtime?: string | undefined;
+  runtimeVersion?: string | undefined;
+  authMode?: string | undefined;
+  sandbox?: string | undefined;
+};
+
 export type ExternalAgentTraceKind =
-  "spawn" | "stdin" | "stdout" | "stderr" | "error" | "close";
+  | "spawn"
+  | "stdin"
+  | "stdout"
+  | "stderr"
+  | "error"
+  | "close"
+  | "session"
+  | "thinking"
+  | "assistant"
+  | "tool_call"
+  | "tool_result"
+  | "result"
+  | "retry";
 
 export interface ExternalAgentTraceEvent {
   readonly kind: ExternalAgentTraceKind;
@@ -49,6 +73,39 @@ export type ExternalAgentTraceListener = (
   event: ExternalAgentTraceEvent,
 ) => void;
 
+export type ExternalAgentRuntimeTraceAction =
+  | "register"
+  | "update"
+  | "probe"
+  | "enable"
+  | "disable"
+  | "archive"
+  | "restore";
+
+export interface ExternalAgentRuntimeTraceEvent {
+  readonly action: ExternalAgentRuntimeTraceAction;
+  readonly runtime: ExternalAgentRuntime;
+  readonly actorUserId?: string | undefined;
+  readonly previousStatus?: ExternalAgentRuntime["status"] | undefined;
+  readonly message?: string | undefined;
+  readonly fields?: Readonly<Record<string, unknown>> | undefined;
+}
+
+export type ExternalAgentRuntimeTraceListener = (
+  event: ExternalAgentRuntimeTraceEvent,
+) => void;
+
+function traceField(value: unknown): string {
+  if (value === undefined || value === null || value === "") return '""';
+  if (typeof value === "number" || typeof value === "boolean")
+    return String(value);
+  const normalized = String(value).replace(/\s+/g, " ").trim();
+  if (normalized === "") return '""';
+  return /^[A-Za-z0-9._/@:+-]+$/.test(normalized)
+    ? normalized
+    : JSON.stringify(normalized);
+}
+
 /** Writes execution evidence to the terminal hosting the DSH service. */
 export const terminalExternalAgentTrace: ExternalAgentTraceListener = (
   event,
@@ -68,11 +125,46 @@ export const terminalExternalAgentTrace: ExternalAgentTraceListener = (
           : event.kind === "close"
             ? `exit=${event.exitCode ?? "-"} signal=${event.exitSignal ?? "-"} duration=${event.durationMs ?? 0}ms`
             : (event.data ?? event.message ?? "");
-    process.stderr.write(`${header} ${event.kind}: ${body}\n`);
+    const indented = body.replace(/\r/g, "").replace(/\n/g, "\n  ");
+    process.stderr.write(`${header} ${event.kind}: ${indented}\n`);
   } catch {
     // Terminal tracing is best-effort and must never affect task execution.
   }
 };
+
+/** Runtime governance actions are logged separately from task execution runs. */
+export const terminalExternalAgentRuntimeTrace: ExternalAgentRuntimeTraceListener =
+  (event) => {
+    try {
+      const runtime = event.runtime;
+      const fields = [
+        `action=${event.action}`,
+        `runtime=${runtime.id}`,
+        `name=${traceField(runtime.name)}`,
+        `provider=${runtime.provider}`,
+        `protocol=${runtime.protocol}`,
+        `status=${runtime.status}`,
+        ...(event.previousStatus === undefined
+          ? []
+          : [`previous=${event.previousStatus}`]),
+        ...(runtime.workspaceId === undefined
+          ? []
+          : [`workspace=${runtime.workspaceId}`]),
+        ...(event.actorUserId === undefined
+          ? []
+          : [`actor=${event.actorUserId}`]),
+        ...(event.message === undefined
+          ? []
+          : [`message=${traceField(event.message)}`]),
+        ...Object.entries(event.fields ?? {}).map(
+          ([key, value]) => `${key}=${traceField(value)}`,
+        ),
+      ];
+      process.stderr.write(`[外部Agent治理] ${fields.join(" ")}\n`);
+    } catch {
+      // Runtime audit tracing is best-effort and must never block management.
+    }
+  };
 
 export interface ExternalAgentRunner {
   progress(runId: string): string | undefined;
@@ -118,6 +210,186 @@ function findSessionId(value: unknown): string | undefined {
   return undefined;
 }
 
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() !== ""
+    ? value.trim()
+    : undefined;
+}
+
+function executionMetadata(
+  runtime: ExternalAgentRuntime,
+  details: ExecutionMetadataPatch = {},
+): Partial<AgentExecutionMetadata> {
+  return {
+    provider: details.provider ?? runtime.provider,
+    model: details.model ?? "unknown",
+    runtime: details.runtime ?? runtime.name,
+    runtimeVersion: details.runtimeVersion ?? "unknown",
+    authMode: details.authMode ?? "unknown",
+    sandbox: details.sandbox ?? "unknown",
+  };
+}
+
+function codexSandboxLabel(value: unknown): string | undefined {
+  const payload = asRecord(value);
+  if (payload === undefined) return undefined;
+  const sandboxPolicy = asRecord(payload.sandbox_policy);
+  const permissionProfile = asRecord(payload.permission_profile);
+  const mode =
+    asString(sandboxPolicy?.type) ??
+    asString(permissionProfile?.type) ??
+    "unknown";
+  const network =
+    asString(permissionProfile?.network) ??
+    asString(permissionProfile?.network_access);
+  return network === undefined ? mode : `${mode} / network ${network}`;
+}
+
+interface CodexSessionMetadata {
+  readonly provider?: string | undefined;
+  readonly model?: string | undefined;
+  readonly runtimeVersion?: string | undefined;
+  readonly sandbox?: string | undefined;
+}
+
+function dateParts(value: Date): readonly [string, string, string] {
+  return [
+    String(value.getFullYear()),
+    String(value.getMonth() + 1).padStart(2, "0"),
+    String(value.getDate()).padStart(2, "0"),
+  ];
+}
+
+async function findCodexSessionFile(input: {
+  readonly threadId: string;
+  readonly codexHome: string;
+  readonly at: Date;
+}): Promise<string | undefined> {
+  const sessionsRoot = join(input.codexHome, "sessions");
+  for (let offset = 0; offset < 10; offset += 1) {
+    for (const dayOffset of [-1, 0, 1]) {
+      const date = new Date(input.at);
+      date.setDate(date.getDate() + dayOffset);
+      const [year, month, day] = dateParts(date);
+      const directory = join(sessionsRoot, year, month, day);
+      const names = await readdir(directory).catch(() => []);
+      const match = names.find(
+        (name) =>
+          name.startsWith("rollout-") &&
+          name.endsWith(`-${input.threadId}.jsonl`),
+      );
+      if (match !== undefined) return join(directory, match);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return undefined;
+}
+
+async function readCodexSessionMetadata(input: {
+  readonly threadId: string | undefined;
+  readonly codexHome: string;
+  readonly at: Date;
+}): Promise<CodexSessionMetadata> {
+  if (input.threadId === undefined) return {};
+  const path = await findCodexSessionFile({
+    threadId: input.threadId,
+    codexHome: input.codexHome,
+    at: input.at,
+  });
+  if (path === undefined) return {};
+  let provider: string | undefined;
+  let model: string | undefined;
+  let runtimeVersion: string | undefined;
+  let sandbox: string | undefined;
+  const stream = createReadStream(path, { encoding: "utf8" });
+  const lines = createInterface({ input: stream, crlfDelay: Infinity });
+  try {
+    for await (const line of lines) {
+      if (line.trim() === "") continue;
+      let event: JsonRecord;
+      try {
+        const parsed = asRecord(JSON.parse(line));
+        if (parsed === undefined) continue;
+        event = parsed;
+      } catch {
+        continue;
+      }
+      const payload = asRecord(event.payload);
+      if (event.type === "session_meta" && payload !== undefined) {
+        provider = asString(payload.model_provider) ?? provider;
+        runtimeVersion = asString(payload.cli_version) ?? runtimeVersion;
+      }
+      if (event.type === "turn_context" && payload !== undefined) {
+        model = asString(payload.model) ?? model;
+        sandbox = codexSandboxLabel(payload) ?? sandbox;
+      }
+      if (
+        provider !== undefined &&
+        model !== undefined &&
+        runtimeVersion !== undefined &&
+        sandbox !== undefined
+      ) {
+        break;
+      }
+    }
+  } finally {
+    lines.close();
+    stream.destroy();
+  }
+  return { provider, model, runtimeVersion, sandbox };
+}
+
+function probeCodexAuthMode(command: string): Promise<string> {
+  return new Promise((resolve) => {
+    execFile(
+      command,
+      ["login", "status"],
+      { timeout: 2_500, maxBuffer: 64 * 1024 },
+      (_error, stdout, stderr) => {
+        const output = `${stdout}\n${stderr}`.toLowerCase();
+        if (output.includes("logged in using an api key")) {
+          resolve("api-key");
+          return;
+        }
+        if (
+          output.includes("logged in using chatgpt") ||
+          output.includes("chatgpt account")
+        ) {
+          resolve("chatgpt");
+          return;
+        }
+        if (output.includes("not logged in")) {
+          resolve("none");
+          return;
+        }
+        resolve("unknown");
+      },
+    );
+  });
+}
+
+function compactTraceText(value: string, maxLength = 4_000): string {
+  const normalized = value.trim();
+  return normalized.length <= maxLength
+    ? normalized
+    : `${normalized.slice(0, maxLength)}... [truncated ${normalized.length - maxLength} chars]`;
+}
+
+function workbuddyStreamArgs(args: readonly string[]): string[] {
+  const normalized: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--output-format") {
+      index += 1;
+      continue;
+    }
+    if (arg?.startsWith("--output-format=") === true) continue;
+    if (arg !== undefined) normalized.push(arg);
+  }
+  normalized.push("--output-format", "stream-json");
+  return normalized;
+}
+
 function terminate(child: ReturnType<typeof spawn>): void {
   if (child.pid === undefined || child.exitCode !== null) return;
   try {
@@ -127,12 +399,37 @@ function terminate(child: ReturnType<typeof spawn>): void {
   }
 }
 
+function isTransientWorkBuddyFailure(result: ExternalRunnerResult): boolean {
+  if (result.stopReason !== "failed") return false;
+  const diagnostic = result.diagnostic?.toLowerCase() ?? "";
+  return [
+    "502",
+    "503",
+    "504",
+    "429",
+    "tls",
+    "socket disconnected",
+    "connection reset",
+    "econnreset",
+    "etimedout",
+    "eai_again",
+    "network error",
+    "temporarily unavailable",
+  ].some((pattern) => diagnostic.includes(pattern));
+}
+
 export class ExternalAgentProcessRunner implements ExternalAgentRunner {
   private readonly progressByRun = new Map<string, string>();
 
   constructor(
     private readonly options: {
       readonly onTrace?: ExternalAgentTraceListener | undefined;
+      readonly maxWorkBuddyAttempts?: number | undefined;
+      readonly retryDelayMs?: number | undefined;
+      readonly codexHome?: string | undefined;
+      readonly inspectCodexAuth?:
+        | ((command: string) => Promise<string>)
+        | undefined;
     } = {},
   ) {}
 
@@ -163,7 +460,13 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
         ],
       };
     }
-    return { command: runtime.command, args: [...runtime.args] };
+    return {
+      command: runtime.command,
+      args:
+        runtime.provider === "workbuddy"
+          ? workbuddyStreamArgs(runtime.args)
+          : [...runtime.args],
+    };
   }
 
   async execute(request: ExternalRunnerRequest): Promise<ExternalRunnerResult> {
@@ -173,7 +476,73 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
     if (request.runtime.protocol === "codex-jsonl") {
       return await this.executeCodex(request);
     }
+    if (request.runtime.provider === "workbuddy") {
+      return await this.executeWorkBuddyWithRetry(request);
+    }
     return await this.executePlainText(request);
+  }
+
+  private async executeWorkBuddyWithRetry(
+    request: ExternalRunnerRequest,
+  ): Promise<ExternalRunnerResult> {
+    const { command, args } = this.commandAndArgs(
+      request.runtime,
+      request,
+      undefined,
+    );
+    const maxAttempts = Math.max(
+      1,
+      Math.trunc(this.options.maxWorkBuddyAttempts ?? 3),
+    );
+    let result = await this.executeWorkBuddyStream(request);
+    for (
+      let attempt = 2;
+      attempt <= maxAttempts && isTransientWorkBuddyFailure(result);
+      attempt += 1
+    ) {
+      if (request.signal.aborted) {
+        return { output: [], stopReason: "cancelled" };
+      }
+      const message = `WorkBuddy 瞬时连接失败，正在自动重试（${attempt}/${maxAttempts}）`;
+      this.options.onTrace?.({
+        runId: request.runId,
+        runtimeName: request.runtime.name,
+        provider: request.runtime.provider,
+        protocol: request.runtime.protocol,
+        command,
+        args,
+        workspacePath: request.workspacePath,
+        kind: "retry",
+        data: message,
+      });
+      this.appendProgress(request.runId, `[retry] ${message}\n`);
+      request.onProgress?.(this.progressByRun.get(request.runId) ?? "");
+      await this.waitForRetry(
+        (this.options.retryDelayMs ?? 1_500) * (attempt - 1),
+        request.signal,
+      );
+      if (request.signal.aborted) {
+        return { output: [], stopReason: "cancelled" };
+      }
+      result = await this.executeWorkBuddyStream(request);
+    }
+    return result;
+  }
+
+  private async waitForRetry(
+    delayMs: number,
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (delayMs <= 0 || signal.aborted) return;
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(finish, delayMs);
+      function finish(): void {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", finish);
+        resolve();
+      }
+      signal.addEventListener("abort", finish, { once: true });
+    });
   }
 
   private async executeCodex(
@@ -181,6 +550,9 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
   ): Promise<ExternalRunnerResult> {
     const directory = await mkdtemp(join(tmpdir(), "dsh-external-agent-"));
     const outputFile = join(directory, "last-message.md");
+    const authModePromise = (
+      this.options.inspectCodexAuth ?? probeCodexAuthMode
+    )(request.runtime.command).catch(() => "unknown");
     try {
       await writeFile(outputFile, "", { encoding: "utf8" });
       const { command, args } = this.commandAndArgs(
@@ -211,12 +583,30 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
           }
         },
       });
-      if (execution.stopReason !== "completed") return execution;
+      const [sessionMetadata, authMode] = await Promise.all([
+        readCodexSessionMetadata({
+          threadId: execution.sessionId,
+          codexHome:
+            this.options.codexHome ??
+            process.env.CODEX_HOME ??
+            join(homedir(), ".codex"),
+          at: new Date(),
+        }).catch(() => ({})),
+        authModePromise,
+      ]);
+      const metadata = executionMetadata(request.runtime, {
+        ...sessionMetadata,
+        authMode,
+      });
+      if (execution.stopReason !== "completed") {
+        return { ...execution, execution: metadata };
+      }
       const finalText = (await readFile(outputFile, "utf8")).trim();
       if (finalText === "") {
         return {
           output: execution.output,
           stopReason: "failed",
+          execution: metadata,
           ...(execution.sessionId === undefined
             ? {}
             : { sessionId: execution.sessionId }),
@@ -226,6 +616,7 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
       return {
         output: [{ type: "text", text: finalText }],
         stopReason: "completed",
+        execution: metadata,
         ...(execution.sessionId === undefined
           ? {}
           : { sessionId: execution.sessionId }),
@@ -237,6 +628,191 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
     }
   }
 
+  private async executeWorkBuddyStream(
+    request: ExternalRunnerRequest,
+  ): Promise<ExternalRunnerResult> {
+    const { command, args } = this.commandAndArgs(
+      request.runtime,
+      request,
+      undefined,
+    );
+    let resultText = "";
+    let sessionId: string | undefined;
+    let streamError: string | undefined;
+    const assistantParts: string[] = [];
+    const executionDetails: ExecutionMetadataPatch = {
+      provider: request.runtime.provider,
+      runtime: request.runtime.name,
+    };
+    const reportProgress = (kind: string, text: string): void => {
+      this.appendProgress(request.runId, `[${kind}] ${text}\n`);
+      request.onProgress?.(this.progressByRun.get(request.runId) ?? "");
+    };
+
+    const executionResult = await this.spawnAndCollect({
+      ...request,
+      runtimeName: request.runtime.name,
+      provider: request.runtime.provider,
+      protocol: request.runtime.protocol,
+      command,
+      args,
+      captureStdoutAsOutput: false,
+      allowEmptyStdout: true,
+      traceStdout: false,
+      onStdoutLine: (line, trace) => {
+        let event: JsonRecord | undefined;
+        try {
+          event = asRecord(JSON.parse(line));
+        } catch {
+          trace("stdout", compactTraceText(line));
+          return undefined;
+        }
+        if (event === undefined) {
+          trace("stdout", compactTraceText(line));
+          return undefined;
+        }
+
+        const lineSessionId =
+          asString(event.session_id) ?? findSessionId(event);
+        if (lineSessionId !== undefined) sessionId = lineSessionId;
+        const type = asString(event.type);
+        const subtype = asString(event.subtype);
+
+        if (type === "system" && subtype === "init") {
+          const model = asString(event.model) ?? "unknown";
+          executionDetails.model = model;
+          const provider =
+            asString(event.model_provider) ?? asString(event.provider);
+          if (provider !== undefined) executionDetails.provider = provider;
+          const runtimeVersion =
+            asString(event.runtime_version) ?? asString(event.cli_version);
+          if (runtimeVersion !== undefined) {
+            executionDetails.runtimeVersion = runtimeVersion;
+          }
+          const authMode = asString(event.auth_mode);
+          if (authMode !== undefined) executionDetails.authMode = authMode;
+          const sandbox = asString(event.sandbox);
+          if (sandbox !== undefined) executionDetails.sandbox = sandbox;
+          const cwd = asString(event.cwd) ?? request.workspacePath;
+          const text = `started session=${lineSessionId ?? "-"} model=${model} cwd=${cwd}`;
+          trace("session", text);
+          reportProgress("session", text);
+          return lineSessionId;
+        }
+
+        if (type === "assistant") {
+          const message = asRecord(event.message);
+          const content = Array.isArray(message?.content)
+            ? message.content
+            : [];
+          for (const item of content) {
+            const block = asRecord(item);
+            const blockType = asString(block?.type);
+            if (blockType === "thinking") {
+              const thinking = asString(block?.thinking);
+              if (thinking !== undefined) {
+                const text = compactTraceText(thinking);
+                trace("thinking", text);
+                reportProgress("thinking", text);
+              }
+              continue;
+            }
+            if (blockType === "text") {
+              const text = asString(block?.text);
+              if (text !== undefined) {
+                assistantParts.push(text);
+                const preview = compactTraceText(text);
+                trace("assistant", preview);
+                reportProgress("assistant", preview);
+              }
+              continue;
+            }
+            if (blockType === "tool_use") {
+              const name = asString(block?.name) ?? "unknown";
+              const input =
+                typeof block?.input === "string"
+                  ? block.input
+                  : JSON.stringify(block?.input ?? {});
+              const text = `${name} ${compactTraceText(input, 1_500)}`;
+              trace("tool_call", text);
+              reportProgress("tool_call", text);
+            }
+          }
+          return lineSessionId;
+        }
+
+        if (type === "user") {
+          const message = asRecord(event.message);
+          const content = Array.isArray(message?.content)
+            ? message.content
+            : [];
+          for (const item of content) {
+            const block = asRecord(item);
+            if (asString(block?.type) !== "tool_result") continue;
+            const text = collectText(block?.content).join("\n");
+            const status = block?.is_error === true ? "error" : "ok";
+            const summary = `${status} tool=${asString(block?.tool_use_id) ?? "-"} ${compactTraceText(text, 1_500)}`;
+            trace("tool_result", summary);
+            reportProgress("tool_result", summary);
+          }
+          return lineSessionId;
+        }
+
+        if (type === "result") {
+          resultText = asString(event.result) ?? resultText;
+          const failed =
+            event.is_error === true ||
+            (subtype !== undefined && subtype !== "success");
+          if (failed) {
+            streamError =
+              resultText ||
+              compactTraceText(assistantParts.join("\n"), 4_000) ||
+              `WorkBuddy stream result failed: ${subtype ?? "unknown"}`;
+            trace("error", compactTraceText(streamError));
+            reportProgress("error", compactTraceText(streamError));
+          } else {
+            const text = `success ${compactTraceText(resultText, 2_000)}`;
+            trace("result", text);
+            reportProgress("result", text);
+          }
+        }
+        return lineSessionId;
+      },
+    });
+
+    if (executionResult.stopReason !== "completed") {
+      return {
+        ...executionResult,
+        execution: executionMetadata(request.runtime, executionDetails),
+      };
+    }
+    if (streamError !== undefined) {
+      return {
+        output: [],
+        stopReason: "failed",
+        execution: executionMetadata(request.runtime, executionDetails),
+        ...(sessionId === undefined ? {} : { sessionId }),
+        diagnostic: streamError,
+      };
+    }
+    const finalText = resultText.trim() || assistantParts.join("\n").trim();
+    if (finalText === "") {
+      return {
+        output: [],
+        stopReason: "failed",
+        execution: executionMetadata(request.runtime, executionDetails),
+        ...(sessionId === undefined ? {} : { sessionId }),
+        diagnostic: "WorkBuddy 未返回可解析的 stream-json 最终结果",
+      };
+    }
+    return {
+      output: [{ type: "text", text: finalText }],
+      stopReason: "completed",
+      execution: executionMetadata(request.runtime, executionDetails),
+      ...(sessionId === undefined ? {} : { sessionId }),
+    };
+  }
+
   private async executePlainText(
     request: ExternalRunnerRequest,
   ): Promise<ExternalRunnerResult> {
@@ -245,7 +821,7 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
       request,
       undefined,
     );
-    return await this.spawnAndCollect({
+    const result = await this.spawnAndCollect({
       ...request,
       runtimeName: request.runtime.name,
       provider: request.runtime.provider,
@@ -258,6 +834,10 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
         request.onProgress?.(this.progressByRun.get(request.runId) ?? "");
       },
     });
+    return {
+      ...result,
+      execution: executionMetadata(request.runtime, result.execution),
+    };
   }
 
   private appendProgress(runId: string, text: string): void {
@@ -277,7 +857,13 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
     readonly workspacePath: string;
     readonly captureStdoutAsOutput: boolean;
     readonly allowEmptyStdout?: boolean | undefined;
-    readonly onStdoutLine?: (line: string) => string | undefined;
+    readonly traceStdout?: boolean | undefined;
+    readonly onStdoutLine?:
+      | ((
+          line: string,
+          trace: (kind: ExternalAgentTraceKind, data: string) => void,
+        ) => string | undefined)
+      | undefined;
     readonly onStdoutChunk?: (chunk: string) => void;
   }): Promise<ExternalRunnerResult> {
     return new Promise((resolve) => {
@@ -339,7 +925,7 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
       child.stdout.setEncoding("utf8");
       child.stdout.on("data", (chunk: string) => {
         stdout = `${stdout}${chunk}`.slice(-120_000);
-        trace({ kind: "stdout", data: chunk });
+        if (input.traceStdout !== false) trace({ kind: "stdout", data: chunk });
         if (input.onStdoutChunk !== undefined) input.onStdoutChunk(chunk);
         if (input.onStdoutLine === undefined) return;
         lineBuffer += chunk;
@@ -347,7 +933,9 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
         lineBuffer = lines.pop() ?? "";
         for (const line of lines) {
           if (line.trim() === "") continue;
-          const found = input.onStdoutLine(line);
+          const found = input.onStdoutLine(line, (kind, data) =>
+            trace({ kind, data }),
+          );
           if (found !== undefined) sessionId = found;
         }
       });
@@ -364,7 +952,9 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
           durationMs: Date.now() - startedAt,
         });
         if (input.onStdoutLine !== undefined && lineBuffer.trim() !== "") {
-          const found = input.onStdoutLine(lineBuffer);
+          const found = input.onStdoutLine(lineBuffer, (kind, data) =>
+            trace({ kind, data }),
+          );
           if (found !== undefined) sessionId = found;
         }
         const outputText = input.captureStdoutAsOutput ? stdout.trim() : "";
@@ -419,10 +1009,22 @@ export function externalSessionId(runId: string): string {
 export function probeExternalRuntime(
   command: string,
   timeoutMs = 3_000,
-): Promise<{ readonly ok: boolean; readonly message: string }> {
+): Promise<{
+  readonly ok: boolean;
+  readonly message: string;
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly exitCode: number | null | undefined;
+  readonly durationMs: number;
+  readonly stdout: string;
+  readonly stderr: string;
+}> {
   return new Promise((resolve) => {
+    const startedAt = Date.now();
+    let stdout = "";
     let stderr = "";
     let settled = false;
+    let exitCode: number | null | undefined;
     const child = spawn(command, ["--version"], {
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -433,6 +1035,12 @@ export function probeExternalRuntime(
       resolve({
         ok,
         message: message.slice(0, 500),
+        command,
+        args: ["--version"],
+        exitCode,
+        durationMs: Date.now() - startedAt,
+        stdout: stdout.trim().slice(0, 1_000),
+        stderr: stderr.trim().slice(0, 1_000),
       });
     };
     const timer = setTimeout(() => {
@@ -440,11 +1048,16 @@ export function probeExternalRuntime(
       finish(false, "探测超时：命令未在 3 秒内返回 --version");
     }, timeoutMs);
     child.once("error", (cause: Error) => finish(false, cause.message));
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+    });
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk: string) => {
       stderr += chunk;
     });
     child.once("close", (code) => {
+      exitCode = code;
       finish(
         code === 0,
         code === 0
