@@ -830,6 +830,125 @@ describe("task client", () => {
           }),
         );
       }
+      if (input.startsWith("/api/collab/agent/execution/detail")) {
+        const selectedRunId =
+          new URL(`http://x${input}`).searchParams.get("runId") ?? "run-meta-3";
+        const snapshots = new Map([
+          [
+            "run-meta-1",
+            {
+              provider: "custom",
+              model: "deepseek-flash",
+              runtimeName: "Codex CLI",
+              runtimeVersion: "0.163.0-alpha.10.2",
+              authMode: "api-key",
+              sandbox: "read-only / network restricted",
+              searchEnabled: false,
+              networkAccess: "restricted",
+              searchUsed: false,
+              planVisibility: "summary",
+            },
+          ],
+          [
+            "run-meta-2",
+            {
+              provider: "workbuddy",
+              model: "hunyuan-code",
+              runtimeName: "WorkBuddy CLI",
+              runtimeVersion: "2.161.0",
+              authMode: "cli-login",
+              sandbox: "accept-edits",
+              searchEnabled: false,
+              networkAccess: "unknown",
+              searchUsed: null,
+              planVisibility: "summary",
+            },
+          ],
+          [
+            "run-meta-3",
+            {
+              provider: "workbuddy",
+              model: "hy4-reasoning",
+              runtimeName: "CodeBuddy CLI · hy4 标准",
+              runtimeVersion: "3.0.1",
+              authMode: "cli-login",
+              sandbox: "workspace-write",
+              searchEnabled: true,
+              networkAccess: "restricted",
+              searchUsed: true,
+              planVisibility: "structured",
+            },
+          ],
+        ]);
+        return Promise.resolve(
+          payload({
+            execution: {
+              runId: selectedRunId,
+              plan: {
+                id: "plan-1",
+                runId: "run-meta-3",
+                workspaceId: "ws-1",
+                source: "explicit",
+                visibility: "structured",
+                revision: 2,
+                status: "active",
+                summary: "先检索来源，再汇总报告",
+                steps: [
+                  {
+                    id: "step-1",
+                    ordinal: 0,
+                    title: "检索公开来源",
+                    status: "completed",
+                    evidenceRefs: [],
+                  },
+                  {
+                    id: "step-2",
+                    ordinal: 1,
+                    title: "汇总最终结论",
+                    status: "active",
+                    evidenceRefs: [],
+                  },
+                ],
+                subagents: [],
+                lastEventSeq: 2,
+                createdAt: "2026-10-23T03:02:00.000Z",
+                updatedAt: "2026-10-23T03:03:00.000Z",
+              },
+              events: [
+                {
+                  id: "event-1",
+                  runId: "run-meta-3",
+                  seq: 1,
+                  type: "tool.call",
+                  source: "external-trace",
+                  visibility: "public",
+                  summary: "调用工具：web_search",
+                  createdAt: "2026-10-23T03:02:10.000Z",
+                },
+              ],
+              gates: [
+                {
+                  id: "gate-1",
+                  runId: "run-meta-3",
+                  taskId: "TSK-RUN-META-1",
+                  workspaceId: "ws-1",
+                  kind: "tool-approval",
+                  status: "pending",
+                  reason: "请求写入最终报告文件",
+                  requestedScope: ["write"],
+                  enforcement: "blocking",
+                  requestedAt: "2026-10-23T03:02:20.000Z",
+                },
+              ],
+              snapshot: {
+                runId: selectedRunId,
+                ...(snapshots.get(selectedRunId) ??
+                  snapshots.get("run-meta-3")),
+              },
+            },
+          }),
+        );
+      }
       if (input.startsWith("/api/collab/tasks/documents")) {
         return Promise.resolve(
           payload({
@@ -919,9 +1038,27 @@ describe("task client", () => {
     expect(containsText(executionRecord?.props?.children, "执行过程")).toBe(
       true,
     );
+    expect(
+      containsText(executionRecord?.props?.children, "Agent 执行计划"),
+    ).toBe(true);
+    expect(containsText(executionRecord?.props?.children, "检索公开来源")).toBe(
+      true,
+    );
+    expect(
+      containsText(executionRecord?.props?.children, "调用工具：web_search"),
+    ).toBe(true);
     expect(containsText(executionRecord?.props?.children, "运行信息")).toBe(
       true,
     );
+    expect(containsText(executionRecord?.props?.children, "实际搜索")).toBe(
+      true,
+    );
+    expect(containsText(executionRecord?.props?.children, "等待执行授权")).toBe(
+      true,
+    );
+    expect(
+      containsText(executionRecord?.props?.children, "请求写入最终报告文件"),
+    ).toBe(true);
 
     const executionRuns = findNode(
       executionRecord,
@@ -990,8 +1127,7 @@ describe("task client", () => {
     ).toBe(true);
     (
       selectedInstructionToggle?.props?.onClick as
-        | ((event: { stopPropagation: () => void }) => void)
-        | undefined
+        ((event: { stopPropagation: () => void }) => void) | undefined
     )?.({
       stopPropagation: () => undefined,
     });
@@ -1110,8 +1246,7 @@ describe("task client", () => {
     let instructionClickStopped = false;
     (
       expandInstruction?.props?.onClick as
-        | ((event: { stopPropagation: () => void }) => void)
-        | undefined
+        ((event: { stopPropagation: () => void }) => void) | undefined
     )?.({
       stopPropagation: () => {
         instructionClickStopped = true;
@@ -1290,8 +1425,7 @@ describe("task client", () => {
     );
     (
       openRun1Button?.props?.onClick as
-        | ((event: { stopPropagation: () => void }) => void)
-        | undefined
+        ((event: { stopPropagation: () => void }) => void) | undefined
     )?.({
       stopPropagation: () => undefined,
     });
@@ -1715,8 +1849,7 @@ describe("task client", () => {
     );
     (
       updatedDialog?.props?.onSubmit as
-        | ((event: { preventDefault: () => void }) => void)
-        | undefined
+        ((event: { preventDefault: () => void }) => void) | undefined
     )?.({ preventDefault: () => undefined });
     await settle(root, harness.runtime);
 
@@ -2666,8 +2799,7 @@ describe("task client", () => {
     ).toContain("flex:1 1 140px;");
     (
       consensusCheckbox?.props?.onChange as
-        | ((event: unknown) => void)
-        | undefined
+        ((event: unknown) => void) | undefined
     )?.({
       target: { checked: true },
     });
@@ -2706,8 +2838,7 @@ describe("task client", () => {
     ).toEqual(["comment-input", "key-consensus"]);
     (
       form?.props?.onSubmit as
-        | ((event: { preventDefault: () => void }) => void)
-        | undefined
+        ((event: { preventDefault: () => void }) => void) | undefined
     )?.({ preventDefault: () => undefined });
     tree = await settle(root, harness.runtime);
 
@@ -2941,13 +3072,54 @@ describe("task client", () => {
     ]);
   });
 
-  it("uses container queries so a narrowed pane keeps the board usable", () => {
-    // 会议侧边栏展开时视口仍然很宽，但任务区变窄：必须按容器宽度响应，
-    // 否则五列会被挤成一条、最后一列还会被裁掉。
+  it("keeps all four board columns inside the desktop pane", () => {
+    // 宽屏下四列必须等分可用宽度；只有窄于最小可读宽度时，
+    // 才切换成固定列宽并交给看板自身横向滚动。
     const source = readFileSync(CLIENT_PATH, "utf8");
     expect(source).toContain("container-type:inline-size");
-    expect(source).toContain("@container (max-width:1000px)");
-    expect(source).toContain("grid-auto-columns:260px");
+    expect(source).toContain("grid-template-columns:repeat(4,minmax(0,1fr))");
+    expect(source).toContain("@container (max-width:900px)");
+    expect(source).toContain("grid-template-columns:repeat(4,220px)");
+    expect(source).not.toContain("grid-auto-columns:260px");
+  });
+
+  it("lets users define the phase-one execution policy when creating a task", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain("允许公开网页与监管文件");
+    expect(source).toContain("写文件、执行命令和外部发布前需要人工确认");
+    expect(source).toContain("executionPolicy: buildExecutionPolicy(form)");
+    expect(source).toContain("本轮模型");
+    expect(source).toContain("推理强度");
+    expect(source).toContain("沿用 Runtime 默认模型");
+    expect(source).toContain("supportedModels");
+    expect(source).toContain("reasoningEffort");
+    expect(source).toContain("/api/collab/agent/external-runtimes");
+    expect(source).toContain("执行运行时（只读）");
+    expect(source).toContain('"aria-readonly": "true"');
+    expect(source).not.toContain("value: form.runtimeId");
+    expect(source).not.toContain("沿用责任人运行时 / 平台推荐");
+    expect(source).toContain("searchEnabled");
+    expect(source).toContain("searchUsed");
+  });
+
+  it("keeps newly created agent tasks visible after review handoff", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain('setOwnership("sent");');
+    expect(source).toContain('setReceiver("all");');
+    expect(source).not.toContain("receiverFilterKey(task)");
+  });
+
+  it("uses product-language labels for plan visibility and source", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain('structured: "结构化"');
+    expect(source).toContain('summary: "摘要"');
+    expect(source).toContain('derived: "根据事件整理"');
+    expect(source).toContain("planVisibilityLabel(selectedPlan.visibility)");
+    expect(source).toContain("planSourceLabel(selectedPlan.source)");
+    expect(source).toContain('"observe-only": "仅执行后观察"');
+    expect(source).toContain(
+      'selectedExecution?.gateEnforcement === "observe-only"',
+    );
   });
 
   it("shows the owning project and never offers to change it", async () => {

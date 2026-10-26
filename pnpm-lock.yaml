@@ -27,6 +27,12 @@ importers:
         specifier: 4.1.8
         version: 4.1.8(@types/node@24.13.3)(vite@8.2.2(@types/node@24.13.3))
 
+  packages/contracts:
+    dependencies:
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+
   packages/shared:
     dependencies:
       zod:
@@ -35,6 +41,9 @@ importers:
 
   plugins/dsh-collab-agent:
     dependencies:
+      '@pluginmax/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@pluginmax/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -44,6 +53,9 @@ importers:
 
   plugins/dsh-collab-context:
     dependencies:
+      '@pluginmax/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@pluginmax/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -118,6 +130,9 @@ importers:
 
   plugins/dsh-collab-task:
     dependencies:
+      '@pluginmax/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@pluginmax/shared':
         specifier: workspace:*
         version: link:../../packages/shared

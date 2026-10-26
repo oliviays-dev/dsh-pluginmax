@@ -3425,9 +3425,11 @@ window.__ModuleLoader__.load({
       },
       item: {
         background: "var(--dsw-alias-bg-layer-1)",
-        // 未选中卡片与顶部搜索框共用边框颜色，避免暗色主题下出现白边。
-        border: "0.5px solid var(--dsw-alias-border-l3)",
+        // 固定使用不透明深灰，避免主题变量或透明度把边框渲染成白色。
+        border: "1px solid #44454a",
+        borderColor: "#44454a",
         borderRadius: 7,
+        boxShadow: "none",
         color: "inherit",
         cursor: "pointer",
         display: "grid",
@@ -3436,6 +3438,9 @@ window.__ModuleLoader__.load({
         padding: "9px 10px",
         textAlign: "left",
         width: "100%",
+      },
+      itemIdle: {
+        borderColor: "#44454a",
       },
       itemActive: {
         background:
@@ -6644,6 +6649,7 @@ window.__ModuleLoader__.load({
             style: Object.assign(
               {},
               PS.item,
+              PS.itemIdle,
               selected ? PS.itemActive : {},
               busy !== "" && !loading ? { opacity: 0.55 } : {},
             ),
@@ -6753,6 +6759,7 @@ window.__ModuleLoader__.load({
             style: Object.assign(
               {},
               PS.item,
+              PS.itemIdle,
               item.id === meetingId ? PS.itemActive : {},
             ),
             onMouseDown: () => setMeetingId(item.id),

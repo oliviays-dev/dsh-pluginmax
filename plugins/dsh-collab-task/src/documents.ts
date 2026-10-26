@@ -43,6 +43,8 @@ const IGNORED_FILES = new Set([
   "desktop.ini",
 ]);
 
+const RUN_SETTLE_GRACE_MS = 15 * 60_000;
+
 const MIME_TYPES: Record<string, string> = {
   ".md": "text/markdown; charset=utf-8",
   ".markdown": "text/markdown; charset=utf-8",
@@ -394,12 +396,12 @@ export function windowsFromRuns(
     .sort((left, right) => left.start - right.start);
   sorted.forEach((run, index) => {
     const nextStart = sorted[index + 1]?.start;
-    const ended = Number.isNaN(run.end) ? now : run.end + 5_000;
+    const ended = Number.isNaN(run.end) ? now : run.end + RUN_SETTLE_GRACE_MS;
     windows.push({
       from: run.start - 5_000,
-      // 子代理可能在父 run settle 之后才写完文件：窗口一直延伸到下一次运行开始
-      // 或当前时刻，保证任务执行期间（含子代理）产出的文件不会漏。
-      to: Math.max(ended, nextStart ?? now),
+      // 子代理可能在父 run settle 后短暂继续写文件，但不能把窗口无限延伸到
+      // 后续任务运行期间，否则同工作区的其他任务产出会被错误串台。
+      to: Math.min(ended, nextStart ?? Number.POSITIVE_INFINITY),
       actor: run.actor === "" ? fallbackActor : run.actor,
       ...(run.id === undefined ? {} : { runId: run.id }),
     });

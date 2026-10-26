@@ -146,6 +146,8 @@ export const contextSectionSchema = z.object({
     "platform-policy",
     "agent-identity",
     "scene-policy",
+    "execution-policy",
+    "source-policy",
     "scene-facts",
     "scene-consensus",
     "project-memory",

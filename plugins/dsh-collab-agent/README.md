@@ -8,4 +8,14 @@ Agent Profile 注册表与 Task Worker 运行时。Phase X 中工作流 Agent �
 它不是员工模型里的 Digital Employee，也不是真人派出的 Human Avatar；
 后续以 `collabEmployee` 和统一授权模型为准，本插件只保留为执行适配层。
 
+阶段一新增 `collab_agent_execution` 独立存储域：
+
+- Runtime capability snapshot；
+- 五层能力/授权/参数解析后的 Execution Envelope；
+- Agent Execution Plan 与结构化 Run Event；
+- Execution Gate 和决策审计；
+- Run Execution Snapshot，包括搜索、网络、沙箱和计划可见性。
+
+该插件继续只拥有执行域。Task 业务状态、项目记忆和团队编排分别由对应插件拥有。
+
 详见 `docs/agent-workflow-execution-phase-x.md`。

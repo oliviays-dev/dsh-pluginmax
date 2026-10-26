@@ -10,10 +10,14 @@ import type { AgentExecutionMetadata, ExternalAgentRuntime } from "./types.js";
 export interface ExternalRunnerRequest {
   readonly runId: string;
   readonly runtime: ExternalAgentRuntime;
+  /** Task-level override. Runtime default remains in args when omitted. */
+  readonly model?: string | undefined;
+  readonly reasoningEffort?: string | undefined;
   readonly prompt: string;
   readonly workspacePath: string;
   readonly signal: AbortSignal;
   readonly onProgress?: (text: string) => void;
+  readonly onTrace?: (event: ExternalAgentTraceEvent) => void;
 }
 
 export interface ExternalRunnerResult {
@@ -30,6 +34,7 @@ export interface ExternalRunnerResult {
 type ExecutionMetadataPatch = {
   provider?: string | undefined;
   model?: string | undefined;
+  reasoningEffort?: string | undefined;
   runtime?: string | undefined;
   runtimeVersion?: string | undefined;
   authMode?: string | undefined;
@@ -223,6 +228,9 @@ function executionMetadata(
   return {
     provider: details.provider ?? runtime.provider,
     model: details.model ?? "unknown",
+    ...(details.reasoningEffort === undefined
+      ? {}
+      : { reasoningEffort: details.reasoningEffort }),
     runtime: details.runtime ?? runtime.name,
     runtimeVersion: details.runtimeVersion ?? "unknown",
     authMode: details.authMode ?? "unknown",
@@ -384,10 +392,86 @@ function workbuddyStreamArgs(args: readonly string[]): string[] {
       continue;
     }
     if (arg?.startsWith("--output-format=") === true) continue;
+    if (arg === "--print" || arg === "-p") continue;
     if (arg !== undefined) normalized.push(arg);
   }
-  normalized.push("--output-format", "stream-json");
+  normalized.push("--print", "--output-format", "stream-json");
   return normalized;
+}
+
+function stripManagedArgs(
+  args: readonly string[],
+  options: {
+    readonly model?: boolean | undefined;
+    readonly reasoning?: boolean | undefined;
+    readonly provider?: ExternalAgentRuntime["provider"] | undefined;
+  },
+): string[] {
+  const result: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index];
+    if (options.model === true) {
+      if (token === "--model" || token === "-m") {
+        index += 1;
+        continue;
+      }
+      if (token?.startsWith("--model=") === true) continue;
+    }
+    if (options.provider === "workbuddy" && options.reasoning === true) {
+      if (token === "--effort") {
+        index += 1;
+        continue;
+      }
+      if (token?.startsWith("--effort=") === true) continue;
+    }
+    if (
+      options.reasoning === true &&
+      (token === "-c" || token === "--config")
+    ) {
+      const next = args[index + 1] ?? "";
+      if (next.startsWith("model_reasoning_effort=")) {
+        index += 1;
+        continue;
+      }
+    }
+    if (
+      options.reasoning === true &&
+      (token?.startsWith("-c=model_reasoning_effort=") === true ||
+        token?.startsWith("--config=model_reasoning_effort=") === true)
+    ) {
+      continue;
+    }
+    if (token !== undefined) result.push(token);
+  }
+  return result;
+}
+
+function launchArgs(
+  runtime: ExternalAgentRuntime,
+  request: ExternalRunnerRequest,
+): string[] {
+  let args = stripManagedArgs(runtime.args, {
+    model: request.model !== undefined,
+    reasoning:
+      request.reasoningEffort !== undefined && runtime.provider === "codex",
+    provider: runtime.provider,
+  });
+  if (request.model !== undefined) args.push("--model", request.model);
+  if (request.reasoningEffort !== undefined) {
+    if (runtime.provider === "codex") {
+      args.push(
+        "-c",
+        `model_reasoning_effort="${request.reasoningEffort.replaceAll('"', '\\"')}"`,
+      );
+    } else if (runtime.provider === "workbuddy") {
+      args = stripManagedArgs(args, {
+        reasoning: true,
+        provider: runtime.provider,
+      });
+      args.push("--effort", request.reasoningEffort);
+    }
+  }
+  return args;
 }
 
 function terminate(child: ReturnType<typeof spawn>): void {
@@ -428,8 +512,7 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
       readonly retryDelayMs?: number | undefined;
       readonly codexHome?: string | undefined;
       readonly inspectCodexAuth?:
-        | ((command: string) => Promise<string>)
-        | undefined;
+        ((command: string) => Promise<string>) | undefined;
     } = {},
   ) {}
 
@@ -442,11 +525,12 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
     request: ExternalRunnerRequest,
     outputFileName: string | undefined,
   ): { readonly command: string; readonly args: string[] } {
+    const args = launchArgs(runtime, request);
     if (runtime.protocol === "codex-jsonl") {
       return {
         command: runtime.command,
         args: [
-          ...runtime.args,
+          ...args,
           "exec",
           "--json",
           "--cd",
@@ -462,10 +546,7 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
     }
     return {
       command: runtime.command,
-      args:
-        runtime.provider === "workbuddy"
-          ? workbuddyStreamArgs(runtime.args)
-          : [...runtime.args],
+      args: runtime.provider === "workbuddy" ? workbuddyStreamArgs(args) : args,
     };
   }
 
@@ -504,7 +585,7 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
         return { output: [], stopReason: "cancelled" };
       }
       const message = `WorkBuddy 瞬时连接失败，正在自动重试（${attempt}/${maxAttempts}）`;
-      this.options.onTrace?.({
+      const retryEvent: ExternalAgentTraceEvent = {
         runId: request.runId,
         runtimeName: request.runtime.name,
         provider: request.runtime.provider,
@@ -514,7 +595,9 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
         workspacePath: request.workspacePath,
         kind: "retry",
         data: message,
-      });
+      };
+      this.options.onTrace?.(retryEvent);
+      request.onTrace?.(retryEvent);
       this.appendProgress(request.runId, `[retry] ${message}\n`);
       request.onProgress?.(this.progressByRun.get(request.runId) ?? "");
       await this.waitForRetry(
@@ -553,6 +636,19 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
     const authModePromise = (
       this.options.inspectCodexAuth ?? probeCodexAuthMode
     )(request.runtime.command).catch(() => "unknown");
+    const reportTrace = (kind: ExternalAgentTraceKind, data: string): void => {
+      request.onTrace?.({
+        runId: request.runId,
+        runtimeName: request.runtime.name,
+        provider: request.runtime.provider,
+        protocol: request.runtime.protocol,
+        command: request.runtime.command,
+        args: request.runtime.args,
+        workspacePath: request.workspacePath,
+        kind,
+        data,
+      });
+    };
     try {
       await writeFile(outputFile, "", { encoding: "utf8" });
       const { command, args } = this.commandAndArgs(
@@ -577,6 +673,36 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
               this.appendProgress(request.runId, texts.join("\n"));
               request.onProgress?.(this.progressByRun.get(request.runId) ?? "");
             }
+            const record = asRecord(event);
+            const item = asRecord(record?.item);
+            const itemType = asString(item?.type);
+            if (itemType === "reasoning") {
+              reportTrace("thinking", "Codex reported a reasoning item");
+            } else if (itemType === "command_execution") {
+              const command =
+                asString(item?.command) ??
+                asString(record?.command) ??
+                "command";
+              reportTrace("tool_call", `exec_command ${command}`);
+              const output =
+                asString(item?.aggregated_output) ?? asString(item?.output);
+              if (output !== undefined) {
+                reportTrace("tool_result", output);
+              }
+            } else if (itemType === "file_change") {
+              reportTrace(
+                "tool_call",
+                `file_change ${compactTraceText(
+                  JSON.stringify(item?.changes ?? item ?? {}),
+                  1_500,
+                )}`,
+              );
+            } else if (itemType === "agent_message") {
+              const message = asString(item?.text);
+              if (message !== undefined) {
+                reportTrace("assistant", compactTraceText(message));
+              }
+            }
             return findSessionId(event);
           } catch {
             return undefined;
@@ -595,6 +721,10 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
         authModePromise,
       ]);
       const metadata = executionMetadata(request.runtime, {
+        ...(request.model === undefined ? {} : { model: request.model }),
+        ...(request.reasoningEffort === undefined
+          ? {}
+          : { reasoningEffort: request.reasoningEffort }),
         ...sessionMetadata,
         authMode,
       });
@@ -643,6 +773,10 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
     const executionDetails: ExecutionMetadataPatch = {
       provider: request.runtime.provider,
       runtime: request.runtime.name,
+      ...(request.model === undefined ? {} : { model: request.model }),
+      ...(request.reasoningEffort === undefined
+        ? {}
+        : { reasoningEffort: request.reasoningEffort }),
     };
     const reportProgress = (kind: string, text: string): void => {
       this.appendProgress(request.runId, `[${kind}] ${text}\n`);
@@ -711,9 +845,11 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
             if (blockType === "thinking") {
               const thinking = asString(block?.thinking);
               if (thinking !== undefined) {
-                const text = compactTraceText(thinking);
-                trace("thinking", text);
-                reportProgress("thinking", text);
+                // Reasoning text may contain private chain-of-thought. Keep a
+                // stable phase marker without persisting or rendering content.
+                const summary = "Runtime 报告了新的推理阶段";
+                trace("thinking", summary);
+                reportProgress("thinking", summary);
               }
               continue;
             }
@@ -836,7 +972,13 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
     });
     return {
       ...result,
-      execution: executionMetadata(request.runtime, result.execution),
+      execution: executionMetadata(request.runtime, {
+        ...result.execution,
+        ...(request.model === undefined ? {} : { model: request.model }),
+        ...(request.reasoningEffort === undefined
+          ? {}
+          : { reasoningEffort: request.reasoningEffort }),
+      }),
     };
   }
 
@@ -865,6 +1007,7 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
         ) => string | undefined)
       | undefined;
     readonly onStdoutChunk?: (chunk: string) => void;
+    readonly onTrace?: (event: ExternalAgentTraceEvent) => void;
   }): Promise<ExternalRunnerResult> {
     return new Promise((resolve) => {
       let stdout = "";
@@ -885,7 +1028,7 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
           | "workspacePath"
         >,
       ): void => {
-        this.options.onTrace?.({
+        const eventWithContext: ExternalAgentTraceEvent = {
           runId: input.runId,
           runtimeName: input.runtimeName,
           provider: input.provider,
@@ -894,7 +1037,9 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
           args: input.args,
           workspacePath: input.workspacePath,
           ...event,
-        });
+        };
+        this.options.onTrace?.(eventWithContext);
+        input.onTrace?.(eventWithContext);
       };
       const child = spawn(input.command, [...input.args], {
         cwd: input.workspacePath,

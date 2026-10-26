@@ -149,10 +149,7 @@ export interface AgentServiceLike {
       readonly execution?: "builtin" | "external" | undefined;
       readonly externalRuntimeId?: string | undefined;
       readonly runtimeKind?:
-        | "task-worker"
-        | "continuable-session"
-        | "connector"
-        | undefined;
+        "task-worker" | "continuable-session" | "connector" | undefined;
       readonly visibility?: "workspace" | "platform" | undefined;
       /** 允许的工具名；空数组 = 不限制（与模版「未限制工具清单」一致）。 */
       readonly allowedTools?: readonly string[] | undefined;
@@ -205,10 +202,7 @@ export interface AgentServiceLike {
       readonly execution?: "builtin" | "external" | undefined;
       readonly externalRuntimeId?: string | undefined;
       readonly runtimeKind?:
-        | "task-worker"
-        | "continuable-session"
-        | "connector"
-        | undefined;
+        "task-worker" | "continuable-session" | "connector" | undefined;
       readonly visibility?: "workspace" | "platform" | undefined;
       readonly allowedTools?: readonly string[] | undefined;
     },
@@ -415,8 +409,7 @@ export interface TeammateLeaveResult {
   }[];
   readonly reassignedTaskIds: readonly string[];
   readonly receiver?:
-    | { readonly id: string; readonly name: string }
-    | undefined;
+    { readonly id: string; readonly name: string } | undefined;
 }
 
 export interface TeammateLiveInstanceCounts {
@@ -1260,8 +1253,7 @@ export class TeammateRuntime {
     readonly assignmentId?: string | undefined;
     /** 未完成任务的改派目标；缺省表示本次不改派任务。 */
     readonly reassignTo?:
-      | { readonly id: string; readonly name: string }
-      | undefined;
+      { readonly id: string; readonly name: string } | undefined;
     readonly tasks: readonly TeammateLeaveTask[];
     readonly assignTask: (input: {
       readonly taskId: string;
@@ -1394,6 +1386,8 @@ export class TeammateRuntime {
     readonly source: Teammate["source"];
     readonly avatar: string;
     readonly employeeId?: string | undefined;
+    readonly execution?: "builtin" | "external" | undefined;
+    readonly externalRuntimeId?: string | undefined;
   }[] {
     return this.deps.teammates
       .list()
@@ -1414,6 +1408,12 @@ export class TeammateRuntime {
         ...(teammate.employeeId === undefined
           ? {}
           : { employeeId: teammate.employeeId }),
+        ...(teammate.execution === undefined
+          ? {}
+          : { execution: teammate.execution }),
+        ...(teammate.externalRuntimeId === undefined
+          ? {}
+          : { externalRuntimeId: teammate.externalRuntimeId }),
       }));
   }
 

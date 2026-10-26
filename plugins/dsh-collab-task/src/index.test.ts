@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   canReviewTask,
   createTaskDispatcher,
+  createTaskDocumentQueryService,
   createTaskRoutes,
   taskContextContributions,
 } from "./index.js";
@@ -1440,6 +1441,121 @@ describe("dsh-collab-task service", () => {
     expect(await collectDocuments({ root, windows: [] })).toEqual([]);
   });
 
+  it("does not leave a settled run window open indefinitely", async () => {
+    const root = await mkdtemp(join(tmpdir(), "task-documents-"));
+    const now = Date.now();
+    const lateFile = new Date(now - 60_000);
+    await writeFile(join(root, "late-manual-edit.md"), "late\n", "utf8");
+    await utimes(join(root, "late-manual-edit.md"), lateFile, lateFile);
+
+    const documents = await collectDocuments({
+      root,
+      windows: windowsFromRuns(
+        [
+          {
+            id: "run-old",
+            startedAt: new Date(now - 40 * 60_000).toISOString(),
+            endedAt: new Date(now - 30 * 60_000).toISOString(),
+            actor: "Old Agent",
+          },
+        ],
+        "Agent",
+        now,
+      ),
+    });
+    expect(documents).toEqual([]);
+  });
+
+  it("does not attribute another task's files to the current task", async () => {
+    const root = await mkdtemp(join(tmpdir(), "task-documents-"));
+    const now = Date.now();
+    const tasks = service();
+    const current = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Current task",
+      priority: "P2",
+      receiverType: "human",
+      receiverId: "olivia",
+      receiverName: "Olivia",
+      description: "Current task",
+      acceptance: ["Current output only"],
+    });
+    const other = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Other task",
+      priority: "P2",
+      receiverType: "human",
+      receiverId: "olivia",
+      receiverName: "Olivia",
+      description: "Other task",
+      acceptance: ["Other output only"],
+    });
+    await writeFile(join(root, "current.md"), "current\n", "utf8");
+    await writeFile(join(root, "other.md"), "other\n", "utf8");
+    await utimes(
+      join(root, "current.md"),
+      new Date(now - 4 * 60_000),
+      new Date(now - 4 * 60_000),
+    );
+    await utimes(
+      join(root, "other.md"),
+      new Date(now - 60_000),
+      new Date(now - 60_000),
+    );
+    const runs = [
+      {
+        id: "run-current",
+        instanceId: current.id,
+        nodeId: "task",
+        status: "succeeded" as const,
+        createdAt: new Date(now - 5 * 60_000).toISOString(),
+        startedAt: new Date(now - 5 * 60_000).toISOString(),
+        endedAt: new Date(now - 3 * 60_000).toISOString(),
+        payload: {
+          profileName: "Current Agent",
+          context: {
+            taskId: current.id,
+            taskReceiverName: "Current Agent",
+            taskRunRole: "owner",
+          },
+        },
+      },
+      {
+        id: "run-other",
+        instanceId: other.id,
+        nodeId: "task",
+        status: "succeeded" as const,
+        createdAt: new Date(now - 2 * 60_000).toISOString(),
+        startedAt: new Date(now - 2 * 60_000).toISOString(),
+        endedAt: new Date(now - 30_000).toISOString(),
+        payload: {
+          profileName: "Other Agent",
+          context: {
+            taskId: other.id,
+            taskReceiverName: "Other Agent",
+            taskRunRole: "owner",
+          },
+        },
+      },
+    ];
+    const agent = {
+      runs: (filter: { instanceId?: string }) =>
+        filter.instanceId === undefined
+          ? runs
+          : runs.filter((run) => run.instanceId === filter.instanceId),
+    };
+    const query = createTaskDocumentQueryService(tasks, () => agent as never, {
+      get: () => ({ id: "workspace-1", title: "Workspace", path: root }),
+      list: () => [],
+    } as never);
+
+    const result = await query.list(current.id);
+    expect(result.documents.map((document) => document.relativePath)).toEqual([
+      "current.md",
+    ]);
+    expect(result.documents[0]?.runId).toBe("run-current");
+  });
+
   it("extracts named documents from read-only agent output", () => {
     const legacy = [
       "当前工作区为只读，无法生成可下载附件；以下为完整单文件 Markdown 源文，名为 `OPPO_R9_2016_上市前行业分析.md`。",
@@ -2628,8 +2744,7 @@ describe("task context delivery", () => {
     expect(
       (
         discussion.read().body?.task as
-          | { comments?: Array<Record<string, unknown>> }
-          | undefined
+          { comments?: Array<Record<string, unknown>> } | undefined
       )?.comments?.at(-1),
     ).toMatchObject({ isKeyConsensus: true });
     expect(dispatched).toHaveLength(1);

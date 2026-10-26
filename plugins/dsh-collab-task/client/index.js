@@ -25,6 +25,86 @@ window.__ModuleLoader__.load({
      */
     const PRIORITY_DISPLAY = { P1: "P0", P2: "P1", P3: "P2" };
     const priorityLabel = (value) => PRIORITY_DISPLAY[value] ?? value;
+    const REASONING_EFFORT_OPTIONS = [
+      { value: "minimal", label: "最低" },
+      { value: "low", label: "低" },
+      { value: "medium", label: "中" },
+      { value: "high", label: "高" },
+      { value: "xhigh", label: "极高" },
+      { value: "max", label: "最大" },
+    ];
+
+    function buildExecutionPolicy(form) {
+      const allowPublicWeb = form.allowPublicWeb === true;
+      const runtimeId = String(form.runtimeId ?? "").trim();
+      const model = String(form.model ?? "").trim();
+      const reasoningEffort = String(form.reasoningEffort ?? "").trim();
+      return {
+        schemaVersion: 1,
+        runtime: {
+          selection: runtimeId === "" ? "recommended" : "user-selected",
+          allowedRuntimeIds: runtimeId === "" ? [] : [runtimeId],
+          requiredCapabilities: allowPublicWeb
+            ? [{ key: "search", necessity: "required" }]
+            : [],
+          ...(model === "" ? {} : { model }),
+          ...(reasoningEffort === "" ? {} : { reasoningEffort }),
+        },
+        sourcePolicy: {
+          allow: [
+            "workspace",
+            "task-attachments",
+            "project-memory",
+            ...(allowPublicWeb ? ["public-web", "regulatory-filing"] : []),
+          ],
+          deny: ["private-local-data"],
+          citation: allowPublicWeb ? "required-for-factual-claims" : "none",
+          requirePublishedAt: allowPublicWeb,
+          requireAccessedAt: allowPublicWeb,
+        },
+        toolPolicy: {
+          allow: [],
+          deny: [],
+          requireApproval:
+            form.requireToolApproval === false
+              ? []
+              : ["fs.write", "shell.execute", "external.publish"],
+        },
+        evidence: {
+          requirePlan: true,
+          requireToolEvents: form.requireToolEvents !== false,
+          requireCitations: allowPublicWeb,
+          requireStructuredSubagents: false,
+        },
+        humanGates: [],
+        budget: {},
+      };
+    }
+
+    function executionPolicyForm(task) {
+      const policy = task.executionPolicy;
+      if (policy === undefined || policy === null) {
+        return {
+          allowPublicWeb: false,
+          requireToolApproval: false,
+          requireToolEvents: false,
+          runtimeId: "",
+          model: "",
+          reasoningEffort: "",
+        };
+      }
+      return {
+        allowPublicWeb:
+          policy.sourcePolicy?.allow?.includes("public-web") === true,
+        requireToolApproval:
+          Array.isArray(policy.toolPolicy?.requireApproval) &&
+          policy.toolPolicy.requireApproval.length > 0,
+        requireToolEvents: policy.evidence?.requireToolEvents === true,
+        runtimeId: policy.runtime?.allowedRuntimeIds?.[0] ?? "",
+        model: policy.runtime?.model ?? "",
+        reasoningEffort: policy.runtime?.reasoningEffort ?? "",
+      };
+    }
 
     /**
      * 「重置会话」入口开关：前期用户还不熟悉这个语义，先在界面上隐藏。
@@ -61,7 +141,7 @@ window.__ModuleLoader__.load({
     const styles = `
       /* 页面内边距由 shell 的 .pmx-page 提供，这里不再叠加，保持与工作台一致的内容宽度。 */
       /* 会议侧边栏展开时任务区会变窄：用容器查询按「可用宽度」而不是视口宽度响应。 */
-      .pmtask{min-height:100%;display:flex;flex-direction:column;color:var(--dsw-alias-label-primary);container-type:inline-size;}
+      .pmtask{min-width:0;max-width:100%;min-height:100%;display:flex;flex-direction:column;color:var(--dsw-alias-label-primary);container-type:inline-size;}
       .pmtask *{box-sizing:border-box;}
       .pmtask-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:14px;}
       .pmtask-head h1{margin:0;font-size:19px;line-height:1.3;}
@@ -82,7 +162,7 @@ window.__ModuleLoader__.load({
       .pmtask-btn:disabled{opacity:.45;cursor:not-allowed;}
       .pmtask-icon-btn:disabled,.pmtask-tool-btn:disabled,.pmtask-assign-trigger:disabled,.pmtask-input:disabled,.pmtask-composer-input:disabled{opacity:.5;cursor:not-allowed;}
       .pmtask-locked-hint{margin:0;color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1.6;}
-      .pmtask-filter{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:14px;padding:10px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
+      .pmtask-filter{min-width:0;max-width:100%;display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:14px;padding:10px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
       .pmtask-notice{flex:none;min-height:38px;padding:8px 10px;}
       .pmtask-search{display:flex;align-items:center;gap:6px;flex:1 1 260px;min-width:220px;}
       .pmtask-search .pmtask-input{flex:1 1 auto;}
@@ -92,8 +172,8 @@ window.__ModuleLoader__.load({
       .pmtask-scope-seg{display:inline-flex;align-items:center;gap:2px;padding:2px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
       .pmtask-scope-seg .pmtask-token{height:24px;padding:0 8px;background:transparent;}
       .pmtask-scope-seg .pmtask-token:not(.active):hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
-      .pmtask-board{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:12px;align-items:stretch;flex:1;min-height:max(420px,calc(100vh - 255px));overflow-x:auto;}
-      .pmtask-column{min-width:0;min-height:100%;display:flex;flex-direction:column;border:0.5px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
+      .pmtask-board{min-width:0;max-width:100%;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;align-items:stretch;flex:1;min-height:max(420px,calc(100vh - 255px));overflow-x:auto;overscroll-behavior-inline:contain;}
+      .pmtask-column{min-width:0;min-height:100%;display:flex;flex-direction:column;overflow:hidden;border:0.5px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
       .pmtask-column.drop-ready{border-color:var(--dsw-alias-accent-primary,#4f8ef7);box-shadow:0 0 0 1px var(--dsw-alias-accent-primary,#4f8ef7);}
       .pmtask-column-head{display:grid;grid-template-columns:8px minmax(0,1fr) auto auto;align-items:center;gap:7px;padding:10px 10px 8px;border-bottom:0.5px solid var(--dsw-alias-border-l2);}
       .pmtask-column-head strong{font-size:12.5px;}
@@ -102,8 +182,8 @@ window.__ModuleLoader__.load({
       .pmtask-column-add:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
       .pmtask-column-dot{width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-label-tertiary);}
       .pmtask-column-dot.progress{background:#4f8ef7}.pmtask-column-dot.review{background:#e2a737}.pmtask-column-dot.done{background:#34d47e}.pmtask-column-dot.cancelled{background:var(--dsw-alias-state-error-primary,#e5534b)}
-      .pmtask-cards{flex:1;display:grid;gap:7px;align-content:start;padding:8px;}
-      .pmtask-card{display:grid;gap:7px;padding:10px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-2);cursor:pointer;}
+      .pmtask-cards{min-width:0;flex:1;display:grid;gap:7px;align-content:start;padding:8px;}
+      .pmtask-card{min-width:0;display:grid;gap:7px;overflow:hidden;padding:10px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-2);cursor:pointer;}
       .pmtask-card:hover{border-color:var(--dsw-alias-border-l4);}
       .pmtask-card.dragging{opacity:.55;}
       .pmtask-card.running{border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 38%,transparent);}
@@ -114,8 +194,8 @@ window.__ModuleLoader__.load({
       .pmtask-spinner{width:14px;height:14px;flex:none;display:inline-block;border-radius:50%;border:2px solid color-mix(in srgb,var(--dsw-alias-label-tertiary) 38%,transparent);border-top-color:var(--dsw-alias-accent-primary,#4f8ef7);animation:pmtask-spin .8s linear infinite;}
       .pmtask-spinner.lg{width:16px;height:16px;}
       @keyframes pmtask-spin{to{transform:rotate(360deg);}}
-      .pmtask-title{font-size:13px;font-weight:650;line-height:1.35;}
-      .pmtask-desc{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1.45;}
+      .pmtask-title{font-size:13px;font-weight:650;line-height:1.35;overflow-wrap:anywhere;}
+      .pmtask-desc{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1.45;}
       .pmtask-meta{display:flex;align-items:center;gap:5px;flex-wrap:wrap;color:var(--dsw-alias-label-secondary);font-size:10.5px;}
       .pmtask-pill{display:inline-flex;align-items:center;height:20px;border-radius:6px;padding:0 6px;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-base));font-size:10.5px;line-height:1;white-space:nowrap;}
       .pmtask-pill.p1{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 14%,transparent);color:var(--dsw-alias-state-error-primary,#e5534b);}
@@ -398,12 +478,32 @@ window.__ModuleLoader__.load({
       .pmtask-execution-block:first-child{padding-top:0;border-top:0;}
       .pmtask-execution-block h4{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0;color:var(--dsw-alias-label-primary);font-size:12px;font-weight:700;}
       .pmtask-execution-block h4 span{min-width:0;overflow:hidden;color:var(--dsw-alias-label-tertiary);font-size:10px;font-weight:400;text-overflow:ellipsis;white-space:nowrap;}
+      .pmtask-plan-list{display:grid;gap:6px;margin:0;padding:0;list-style:none;}
+      .pmtask-plan-step{display:grid;grid-template-columns:18px minmax(0,1fr) auto;align-items:start;gap:7px;padding:7px 8px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);font-size:11.5px;line-height:1.45;}
+      .pmtask-plan-step-dot{width:8px;height:8px;margin-top:4px;border-radius:50%;background:var(--dsw-alias-label-tertiary);}
+      .pmtask-plan-step.active .pmtask-plan-step-dot{background:var(--dsw-alias-accent-primary,#4f8ef7);}
+      .pmtask-plan-step.completed .pmtask-plan-step-dot{background:var(--dsw-alias-state-success-primary,#34d47e);}
+      .pmtask-plan-step.failed .pmtask-plan-step-dot{background:var(--dsw-alias-state-error-primary,#e5534b);}
+      .pmtask-plan-step-title{min-width:0;overflow-wrap:anywhere;}
+      .pmtask-plan-step-status{color:var(--dsw-alias-label-tertiary);white-space:nowrap;font-size:10.5px;}
+      .pmtask-execution-events{display:grid;gap:5px;margin:0;padding:0;list-style:none;}
+      .pmtask-execution-event{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:6px 7px;border-left:2px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.45;}
+      .pmtask-execution-event strong{min-width:0;overflow-wrap:anywhere;color:var(--dsw-alias-label-primary);font-weight:500;}
+      .pmtask-execution-event time{color:var(--dsw-alias-label-tertiary);white-space:nowrap;}
+      .pmtask-gate{display:grid;gap:8px;padding:10px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-warning-primary,#e2a737) 40%,transparent);border-radius:7px;background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#e2a737) 8%,transparent);}
+      .pmtask-gate strong{font-size:12px;}
+      .pmtask-gate p{margin:0;color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1.5;}
+      .pmtask-gate-actions{display:flex;gap:7px;flex-wrap:wrap;}
+      .pmtask-gate-actions .pmtask-btn{height:30px;padding:0 10px;font-size:11.5px;}
       .pmtask-comment-list>.pmtask-empty,.pmtask-history>.pmtask-empty{padding:36px;border:1px dashed var(--dsw-alias-border-l2);border-radius:8px;color:var(--dsw-alias-label-secondary);text-align:center;font-size:13px;}
       .pmtask-detail-section>.pmtask-empty{padding:28px 10px;}
       .pmtask-mask{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:20px;background:rgba(0,0,0,.24);backdrop-filter:blur(2px);}
       .pmtask-modal{width:min(620px,calc(100vw - 40px));max-height:min(720px,calc(100vh - 40px));overflow:auto;display:grid;gap:12px;padding:16px;border:1px solid var(--dsw-alias-border-l3);border-radius:10px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));box-shadow:0 22px 54px rgba(0,0,0,.22);}
       .pmtask-modal-head{display:flex;align-items:center;justify-content:space-between;gap:10px;}
       .pmtask-modal-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;}
+      .pmtask-execution-overrides{grid-column:1 / -1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;padding:10px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-2);}
+      .pmtask-execution-runtime{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:34px;padding:0 9px;border:0.5px dashed var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:12px;overflow-wrap:anywhere;cursor:default;user-select:text;}
+      .pmtask-readonly-badge{flex:none;padding:2px 5px;border-radius:4px;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:1.2;}
       .pmtask-span-2{grid-column:1 / -1;}
       .pmtask-modal.pmtask-confirm{width:min(440px,calc(100vw - 40px));gap:10px;}
       .pmtask-modal.pmtask-confirm h2{margin:0;font-size:15px;font-weight:700;}
@@ -413,11 +513,9 @@ window.__ModuleLoader__.load({
       .pmtask-confirm-actions .pmtask-btn{height:32px;padding:0 12px;font-size:12px;}
       .pmtask-btn.danger-solid{background:var(--dsw-alias-state-error-primary,#e5534b);color:#fff;}
       .pmtask-empty{padding:46px 18px;text-align:center;color:var(--dsw-alias-label-secondary);font-size:12.5px;}
-      @media(max-width:1100px){.pmtask-board{grid-auto-columns:260px;overflow-x:auto;}}
       @media(max-width:900px){.pmtask-detail-layout{grid-template-columns:1fr}.pmtask-detail-main{border-right:0;border-bottom:0.5px solid var(--dsw-alias-border-l2);}.pmtask-detail-top .pmtask-crumb{flex-basis:100%;order:3}.pmtask-grid-demo{grid-template-columns:repeat(2,minmax(0,1fr));}}
-      @media(max-width:700px){.pmtask-head{flex-direction:column}.pmtask-modal-grid{grid-template-columns:1fr}.pmtask-board{grid-auto-columns:240px}}
-      @container (max-width:1000px){.pmtask-board{grid-auto-columns:260px;}}
-      @container (max-width:700px){.pmtask-board{grid-auto-columns:240px;}}
+      @media(max-width:700px){.pmtask-head{flex-direction:column}.pmtask-modal-grid,.pmtask-execution-overrides{grid-template-columns:1fr}}
+      @container (max-width:900px){.pmtask-board{grid-template-columns:repeat(4,220px);}}
     `;
 
     function token() {
@@ -710,7 +808,45 @@ window.__ModuleLoader__.load({
       return STATUS_LABEL[status] ?? status;
     }
 
+    function planVisibilityLabel(value) {
+      return (
+        {
+          structured: "结构化",
+          summary: "摘要",
+          opaque: "不透明",
+        }[value] ??
+        value ??
+        "未知"
+      );
+    }
+
+    function planSourceLabel(value) {
+      return (
+        {
+          explicit: "Agent 制定",
+          derived: "根据事件整理",
+          unavailable: "不可用",
+        }[value] ??
+        value ??
+        "未知"
+      );
+    }
+
+    function gateEnforcementLabel(value) {
+      return (
+        {
+          blocking: "执行前阻断",
+          cooperative: "协作式暂停",
+          "observe-only": "仅执行后观察",
+        }[value] ??
+        value ??
+        "未知"
+      );
+    }
+
     function executionMetaLabel(value) {
+      if (typeof value === "boolean") return value ? "是" : "否";
+      if (value === null) return "未知";
       const text = typeof value === "string" ? value.trim() : "";
       return text === "" || text === "unknown" ? "未采集" : text;
     }
@@ -723,10 +859,16 @@ window.__ModuleLoader__.load({
         ...[
           ["Provider", execution.provider],
           ["模型", execution.model],
+          ["推理强度", execution.reasoningEffort],
           ["Runtime", execution.runtime],
           ["版本", execution.runtimeVersion],
           ["认证", execution.authMode],
           ["沙箱", execution.sandbox],
+          ["搜索启用", execution.searchEnabled],
+          ["网络", execution.networkAccess],
+          ["实际搜索", execution.searchUsed],
+          ["计划", planVisibilityLabel(execution.planVisibility)],
+          ["工具门禁", gateEnforcementLabel(execution.gateEnforcement)],
         ].map(([label, value]) =>
           h(
             "span",
@@ -770,10 +912,16 @@ window.__ModuleLoader__.load({
         ...[
           ["Provider", execution.provider],
           ["模型", execution.model],
+          ["推理强度", execution.reasoningEffort],
           ["Runtime", execution.runtime],
           ["版本", execution.runtimeVersion],
           ["认证", execution.authMode],
           ["沙箱", execution.sandbox],
+          ["搜索启用", execution.searchEnabled],
+          ["网络", execution.networkAccess],
+          ["实际搜索", execution.searchUsed],
+          ["计划", planVisibilityLabel(execution.planVisibility)],
+          ["工具门禁", gateEnforcementLabel(execution.gateEnforcement)],
         ].map(([label, value]) =>
           h(
             "div",
@@ -791,11 +939,14 @@ window.__ModuleLoader__.load({
 
     const RUNNING_MESSAGE_STATES = ["queued", "running", "waiting_input"];
     const RUN_STATUS_LABEL = {
+      pending: "待执行",
+      active: "进行中",
+      completed: "已完成",
+      failed: "失败",
       queued: "排队中",
       running: "执行中",
       waiting_input: "待补充",
       succeeded: "已完成",
-      failed: "失败",
       timeout: "超时",
       cancelled: "已取消",
       interrupted: "已中断",
@@ -954,10 +1105,6 @@ window.__ModuleLoader__.load({
         workspaceId: props.workspaceId,
         workflowInstanceId: props.workflowInstanceId,
       });
-    }
-
-    function receiverFilterKey(task) {
-      return `${task.receiverType}:${task.receiverId}`;
     }
 
     function FilterDropdown({
@@ -1558,6 +1705,7 @@ window.__ModuleLoader__.load({
       const [allWorkspaces, setAllWorkspaces] = react.useState([]);
       const [workspaceFilter, setWorkspaceFilter] = react.useState("");
       const [tasks, setTasks] = react.useState([]);
+      const [externalRuntimes, setExternalRuntimes] = react.useState([]);
       const [reviewableTaskIds, setReviewableTaskIds] = react.useState([]);
       const [directory, setDirectory] = react.useState({
         humans: [],
@@ -1664,13 +1812,34 @@ window.__ModuleLoader__.load({
                 workspace.id === activeWorkspaceFilter,
             );
             const target = requested.length === 0 ? fetchOptions : requested;
-            const results = await Promise.all(
-              target.map((workspace) =>
-                request(
-                  `/api/collab/tasks/bootstrap?workspaceId=${encodeURIComponent(workspace.id)}`,
+            const [results, runtimeResults] = await Promise.all([
+              Promise.all(
+                target.map((workspace) =>
+                  request(
+                    `/api/collab/tasks/bootstrap?workspaceId=${encodeURIComponent(workspace.id)}`,
+                  ),
                 ),
               ),
-            );
+              Promise.all(
+                target.map((workspace) =>
+                  request(
+                    `/api/collab/agent/external-runtimes?workspaceId=${encodeURIComponent(workspace.id)}`,
+                  ).catch(() => ({ runtimes: [] })),
+                ),
+              ),
+            ]);
+            const mergedRuntimes = [];
+            for (const result of runtimeResults) {
+              for (const runtime of result.runtimes ?? []) {
+                if (
+                  !mergedRuntimes.some(
+                    (candidate) => candidate.id === runtime.id,
+                  )
+                ) {
+                  mergedRuntimes.push(runtime);
+                }
+              }
+            }
             const mergedDirectory = {
               humans: [],
               agents: [],
@@ -1706,6 +1875,7 @@ window.__ModuleLoader__.load({
               .flatMap((result) => result.tasks ?? [])
               .filter(keepInScope);
             setTasks(mergedTasks);
+            setExternalRuntimes(mergedRuntimes);
             setReviewableTaskIds([
               ...new Set(
                 results.flatMap((result) => result.reviewableTaskIds ?? []),
@@ -1990,6 +2160,7 @@ window.__ModuleLoader__.load({
                   )
                 )?.title ?? selected.workspaceId,
               directory,
+              externalRuntimes,
               currentUser,
               reviewableTaskIds,
               pendingAssignee,
@@ -2057,6 +2228,7 @@ window.__ModuleLoader__.load({
           ? h(CreateTaskModal, {
               workspaces,
               directory,
+              externalRuntimes,
               currentWorkspaceId: workspaceFilter,
               initialStatus: createStatus,
               onClose: () => setCreateOpen(false),
@@ -2074,11 +2246,10 @@ window.__ModuleLoader__.load({
                     setWorkspaceFilter(task.workspaceId);
                     setOwnership("sent");
                   }
-                  setReceiver(
-                    task.receiverType === "unassigned" || task.receiverId === ""
-                      ? "all"
-                      : receiverFilterKey(task),
-                  );
+                  // Agent tasks can hand off to the instance owner as soon as
+                  // automatic review starts. Keep the creator-scoped task
+                  // visible instead of retaining the pre-handoff assignee.
+                  setReceiver("all");
                 } catch (cause) {
                   fail(cause);
                 }
@@ -2770,6 +2941,7 @@ window.__ModuleLoader__.load({
         task,
         workspaceTitle,
         directory,
+        externalRuntimes,
         currentUser,
         reviewableTaskIds,
         pendingAssignee,
@@ -2794,6 +2966,7 @@ window.__ModuleLoader__.load({
       const [executionLive, setExecutionLive] = react.useState(null);
       const [executionDetailState, setExecutionDetailState] =
         react.useState("idle");
+      const [executionControl, setExecutionControl] = react.useState(null);
       const [taskRuns, setTaskRuns] = react.useState([]);
       const [selectedRunId, setSelectedRunId] = react.useState("");
       const [roundMenuOpen, setRoundMenuOpen] = react.useState(false);
@@ -3003,19 +3176,27 @@ window.__ModuleLoader__.load({
       react.useEffect(() => {
         if (selectedRunId === "") {
           setExecutionLive(null);
+          setExecutionControl(null);
           setExecutionDetailState("idle");
           return undefined;
         }
         setExecutionLive(null);
+        setExecutionControl(null);
         setExecutionDetailState("loading");
         let disposed = false;
         const loadExecution = async () => {
           try {
-            const result = await request(
-              `/api/collab/agent/runs/detail?workspaceId=${encodeURIComponent(task.workspaceId)}&runId=${encodeURIComponent(selectedRunId)}`,
-            );
+            const [result, controlResult] = await Promise.all([
+              request(
+                `/api/collab/agent/runs/detail?workspaceId=${encodeURIComponent(task.workspaceId)}&runId=${encodeURIComponent(selectedRunId)}`,
+              ),
+              request(
+                `/api/collab/agent/execution/detail?workspaceId=${encodeURIComponent(task.workspaceId)}&runId=${encodeURIComponent(selectedRunId)}`,
+              ).catch(() => ({ execution: null })),
+            ]);
             if (!disposed) {
               setExecutionLive(result);
+              setExecutionControl(controlResult?.execution ?? null);
               setExecutionDetailState("ready");
             }
           } catch {
@@ -3145,10 +3326,30 @@ window.__ModuleLoader__.load({
       const selectedParticipant = participants.find((participant) =>
         participant.runs.some((run) => run.id === selectedRunId),
       );
-      const selectedExecution =
+      const selectedExecutionBase =
         executionLive?.run?.execution ??
         selectedRun?.execution ??
         selectedRunMessage?.execution;
+      const selectedExecutionSnapshot = executionControl?.snapshot;
+      const selectedExecution =
+        selectedExecutionSnapshot === undefined ||
+        selectedExecutionSnapshot === null
+          ? selectedExecutionBase
+          : {
+              ...(selectedExecutionBase ?? {}),
+              provider: selectedExecutionSnapshot.provider,
+              model: selectedExecutionSnapshot.model,
+              reasoningEffort: selectedExecutionSnapshot.reasoningEffort,
+              runtime: selectedExecutionSnapshot.runtimeName,
+              runtimeVersion: selectedExecutionSnapshot.runtimeVersion,
+              authMode: selectedExecutionSnapshot.authMode,
+              sandbox: selectedExecutionSnapshot.sandbox,
+              searchEnabled: selectedExecutionSnapshot.searchEnabled,
+              networkAccess: selectedExecutionSnapshot.networkAccess,
+              searchUsed: selectedExecutionSnapshot.searchUsed,
+              planVisibility: selectedExecutionSnapshot.planVisibility,
+              gateEnforcement: selectedExecutionSnapshot.gateEnforcement,
+            };
       const executionSummaryState =
         selectedExecution !== undefined && selectedExecution !== null
           ? "ready"
@@ -3169,6 +3370,43 @@ window.__ModuleLoader__.load({
         selectedRunMessage?.state ??
         "idle";
       const executionRunning = RUNNING_MESSAGE_STATES.includes(executionStatus);
+      const selectedPlan = executionControl?.plan ?? null;
+      const selectedExecutionEvents = Array.isArray(executionControl?.events)
+        ? executionControl.events.slice(-12).reverse()
+        : [];
+      const pendingExecutionGates = Array.isArray(executionControl?.gates)
+        ? executionControl.gates.filter((gate) => gate.status === "pending")
+        : [];
+      const decideExecutionGate = async (gateId, decision) => {
+        try {
+          await request("/api/collab/tasks/execution/gates/decide", {
+            method: "POST",
+            body: JSON.stringify({
+              taskId: task.id,
+              gateId,
+              decision,
+            }),
+          });
+          setExecutionControl((current) =>
+            current === null || !Array.isArray(current.gates)
+              ? current
+              : {
+                  ...current,
+                  gates: current.gates.map((gate) =>
+                    gate.id === gateId
+                      ? {
+                          ...gate,
+                          status: decision,
+                          decidedAt: new Date().toISOString(),
+                        }
+                      : gate,
+                  ),
+                },
+          );
+        } catch (cause) {
+          fail(cause);
+        }
+      };
       const selectedRunDocuments = documents.filter(
         (document) => document.runId === selectedRunId,
       );
@@ -3619,6 +3857,8 @@ window.__ModuleLoader__.load({
                 ? h(EditTaskForm, {
                     task,
                     workspaceTitle,
+                    directory,
+                    externalRuntimes,
                     onCancel: () => setEditing(false),
                     onSave: async (input) => {
                       try {
@@ -4960,6 +5200,150 @@ window.__ModuleLoader__.load({
                           h(
                             "h4",
                             null,
+                            "Agent 执行计划",
+                            h(
+                              "span",
+                              null,
+                              selectedPlan === null
+                                ? "暂无"
+                                : `${planVisibilityLabel(selectedPlan.visibility)} · ${planSourceLabel(selectedPlan.source)}`,
+                            ),
+                          ),
+                          selectedExecution?.gateEnforcement === "observe-only"
+                            ? h(
+                                "div",
+                                { className: "pmtask-gate observe-only" },
+                                h("strong", null, "仅执行后观察"),
+                                h(
+                                  "p",
+                                  null,
+                                  "该 Runtime 无法在工具执行前阻断。平台会记录已观察到的动作，但不能把它展示为已成功拦截。",
+                                ),
+                              )
+                            : null,
+                          pendingExecutionGates.length === 0
+                            ? null
+                            : h(
+                                "div",
+                                { className: "pmtask-gate" },
+                                h("strong", null, "等待执行授权"),
+                                h("p", null, pendingExecutionGates[0].reason),
+                                h(
+                                  "div",
+                                  {
+                                    className: "pmtask-gate-actions",
+                                  },
+                                  h(
+                                    "button",
+                                    {
+                                      className: "pmtask-btn",
+                                      type: "button",
+                                      onClick: () =>
+                                        void decideExecutionGate(
+                                          pendingExecutionGates[0].id,
+                                          "approved",
+                                        ),
+                                    },
+                                    "批准",
+                                  ),
+                                  h(
+                                    "button",
+                                    {
+                                      className: "pmtask-btn secondary danger",
+                                      type: "button",
+                                      onClick: () =>
+                                        void decideExecutionGate(
+                                          pendingExecutionGates[0].id,
+                                          "denied",
+                                        ),
+                                    },
+                                    "拒绝",
+                                  ),
+                                ),
+                              ),
+                          selectedPlan === null
+                            ? h(
+                                "div",
+                                { className: "pmtask-side-empty" },
+                                "当前 Run 尚未产生 Agent Execution Plan。",
+                              )
+                            : [
+                                selectedPlan.summary
+                                  ? h(
+                                      "p",
+                                      {
+                                        className: "pmtask-locked-hint",
+                                      },
+                                      selectedPlan.summary,
+                                    )
+                                  : null,
+                                h(
+                                  "ol",
+                                  { className: "pmtask-plan-list" },
+                                  ...(selectedPlan.steps ?? []).map((step) =>
+                                    h(
+                                      "li",
+                                      {
+                                        className: `pmtask-plan-step ${step.status}`,
+                                        key: step.id,
+                                      },
+                                      h("span", {
+                                        className: "pmtask-plan-step-dot",
+                                        "aria-hidden": "true",
+                                      }),
+                                      h(
+                                        "span",
+                                        {
+                                          className: "pmtask-plan-step-title",
+                                        },
+                                        step.title,
+                                        step.detail
+                                          ? h("small", null, step.detail)
+                                          : null,
+                                      ),
+                                      h(
+                                        "span",
+                                        {
+                                          className: "pmtask-plan-step-status",
+                                        },
+                                        runStatusLabel(step.status),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                selectedExecutionEvents.length === 0
+                                  ? null
+                                  : h(
+                                      "ul",
+                                      {
+                                        className: "pmtask-execution-events",
+                                      },
+                                      ...selectedExecutionEvents.map((item) =>
+                                        h(
+                                          "li",
+                                          {
+                                            className: "pmtask-execution-event",
+                                            key: item.id,
+                                          },
+                                          h("strong", null, item.summary),
+                                          h(
+                                            "time",
+                                            {
+                                              dateTime: item.createdAt,
+                                            },
+                                            localTime(item.createdAt),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                              ],
+                        ),
+                        h(
+                          "section",
+                          { className: "pmtask-execution-block" },
+                          h(
+                            "h4",
+                            null,
                             "运行信息",
                             h(
                               "span",
@@ -5028,7 +5412,27 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function EditTaskForm({ task, workspaceTitle, onCancel, onSave }) {
+    function EditTaskForm({
+      task,
+      workspaceTitle,
+      directory,
+      externalRuntimes,
+      onCancel,
+      onSave,
+    }) {
+      const initialPolicy = executionPolicyForm(task);
+      const responsibleAgent =
+        task.receiverType === "agent"
+          ? (directory?.agents ?? []).find(
+              (agent) => agent.id === task.receiverId,
+            )
+          : undefined;
+      const boundRuntimeId =
+        initialPolicy.runtimeId !== ""
+          ? initialPolicy.runtimeId
+          : responsibleAgent?.execution === "external"
+            ? (responsibleAgent.externalRuntimeId ?? "")
+            : "";
       const [form, setForm] = react.useState({
         title: task.title,
         priority: task.priority,
@@ -5036,7 +5440,42 @@ window.__ModuleLoader__.load({
         acceptance: task.acceptance.join("\n"),
         due: task.due ?? "",
         autoSubmitReview: task.autoSubmitReview !== false,
+        ...initialPolicy,
+        runtimeId: boundRuntimeId,
+        model: boundRuntimeId === "" ? "" : initialPolicy.model,
+        reasoningEffort:
+          boundRuntimeId === "" ? "" : initialPolicy.reasoningEffort,
       });
+      const selectedRuntime = (externalRuntimes ?? []).find(
+        (runtime) => runtime.id === form.runtimeId,
+      );
+      const runtimeDisplayValue =
+        selectedRuntime?.name ??
+        (boundRuntimeId !== ""
+          ? boundRuntimeId
+          : responsibleAgent === undefined
+            ? "未指派 AI伙伴"
+            : responsibleAgent.execution === "external"
+              ? (responsibleAgent.externalRuntimeId ?? "外部 Runtime 未绑定")
+              : "内置执行");
+      const runtimeDisplayHint =
+        selectedRuntime?.status === "active"
+          ? "来自任务执行 AI伙伴定义，任务内不可修改。"
+          : selectedRuntime !== undefined
+            ? "该 Runtime 当前不可用。"
+            : boundRuntimeId !== ""
+              ? "该 Runtime 不存在或已归档。"
+              : responsibleAgent === undefined
+                ? "运行时会随责任 AI伙伴自动确定。"
+                : "来自 AI伙伴定义，任务内不可修改。";
+      const modelChoices = [
+        ...new Set([
+          ...(selectedRuntime?.supportedModels ?? []),
+          ...(selectedRuntime?.defaultModel === undefined
+            ? []
+            : [selectedRuntime.defaultModel]),
+        ]),
+      ];
       return h(
         "form",
         {
@@ -5052,6 +5491,7 @@ window.__ModuleLoader__.load({
                 .map((item) => item.trim())
                 .filter(Boolean),
               due: form.due || undefined,
+              executionPolicy: buildExecutionPolicy(form),
               ...(task.receiverType === "agent" || task.workflow !== undefined
                 ? { autoSubmitReview: form.autoSubmitReview }
                 : {}),
@@ -5153,6 +5593,144 @@ window.__ModuleLoader__.load({
               setForm((current) => ({ ...current, due: event.target.value })),
           }),
         ),
+        h(
+          "div",
+          { className: "pmtask-field" },
+          "执行策略",
+          h(
+            "label",
+            { className: "pmtask-check" },
+            h("input", {
+              type: "checkbox",
+              checked: form.allowPublicWeb,
+              onChange: (event) =>
+                setForm((current) => ({
+                  ...current,
+                  allowPublicWeb: event.target.checked,
+                })),
+            }),
+            h(
+              "span",
+              null,
+              "允许公开网页与监管文件",
+              h(
+                "em",
+                null,
+                "启用后要求事实性结论记录来源、发布日期和访问时间。",
+              ),
+            ),
+          ),
+          h(
+            "label",
+            { className: "pmtask-check" },
+            h("input", {
+              type: "checkbox",
+              checked: form.requireToolApproval,
+              onChange: (event) =>
+                setForm((current) => ({
+                  ...current,
+                  requireToolApproval: event.target.checked,
+                })),
+            }),
+            h("span", null, "写文件、执行命令和外部发布前需要人工确认"),
+          ),
+          h(
+            "label",
+            { className: "pmtask-check" },
+            h("input", {
+              type: "checkbox",
+              checked: form.requireToolEvents,
+              onChange: (event) =>
+                setForm((current) => ({
+                  ...current,
+                  requireToolEvents: event.target.checked,
+                })),
+            }),
+            h("span", null, "要求记录实际工具调用事件"),
+          ),
+          h(
+            "div",
+            { className: "pmtask-execution-overrides" },
+            h(
+              "div",
+              { className: "pmtask-field" },
+              "执行运行时（只读）",
+              h(
+                "div",
+                {
+                  className: "pmtask-execution-runtime",
+                  role: "textbox",
+                  "aria-readonly": "true",
+                },
+                h("span", null, runtimeDisplayValue),
+                h("span", { className: "pmtask-readonly-badge" }, "只读"),
+              ),
+              h(
+                "span",
+                { className: "pmtask-locked-hint" },
+                runtimeDisplayHint,
+              ),
+            ),
+            h(
+              "label",
+              { className: "pmtask-field" },
+              "本轮模型",
+              h(
+                "select",
+                {
+                  className: "pmtask-select",
+                  value: form.model,
+                  disabled:
+                    selectedRuntime === undefined ||
+                    selectedRuntime.status !== "active",
+                  onChange: (event) =>
+                    setForm((current) => ({
+                      ...current,
+                      model: event.target.value,
+                    })),
+                },
+                h(
+                  "option",
+                  { value: "" },
+                  selectedRuntime?.defaultModel
+                    ? `Runtime 默认（${selectedRuntime.defaultModel}）`
+                    : "沿用 Runtime 默认模型",
+                ),
+                ...modelChoices.map((model) =>
+                  h("option", { value: model, key: model }, model),
+                ),
+              ),
+            ),
+            h(
+              "label",
+              { className: "pmtask-field" },
+              "推理强度",
+              h(
+                "select",
+                {
+                  className: "pmtask-select",
+                  value: form.reasoningEffort,
+                  disabled:
+                    selectedRuntime === undefined ||
+                    selectedRuntime.status !== "active",
+                  onChange: (event) =>
+                    setForm((current) => ({
+                      ...current,
+                      reasoningEffort: event.target.value,
+                    })),
+                },
+                h("option", { value: "" }, "沿用 Runtime 默认值"),
+                ...REASONING_EFFORT_OPTIONS.map((option) =>
+                  h(
+                    "option",
+                    { value: option.value, key: option.value },
+                    option.label,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
         task.receiverType === "agent" && task.workflow === undefined
           ? h(
               "label",
@@ -5190,7 +5768,17 @@ window.__ModuleLoader__.load({
             },
             "取消",
           ),
-          h("button", { className: "pmtask-btn", type: "submit" }, "保存内容"),
+          h(
+            "button",
+            {
+              className: "pmtask-btn",
+              type: "submit",
+              disabled:
+                responsibleAgent?.execution === "external" &&
+                selectedRuntime?.status !== "active",
+            },
+            "保存内容",
+          ),
         ),
       );
     }
@@ -5198,6 +5786,7 @@ window.__ModuleLoader__.load({
     function CreateTaskModal({
       workspaces,
       directory,
+      externalRuntimes,
       currentWorkspaceId,
       initialStatus,
       onClose,
@@ -5219,6 +5808,11 @@ window.__ModuleLoader__.load({
             : initialReceiverType === "role"
               ? directory.roles[0]
               : undefined;
+      const initialRuntimeId =
+        initialReceiverType === "agent" &&
+        initialReceiver?.execution === "external"
+          ? (initialReceiver.externalRuntimeId ?? "")
+          : "";
       const [form, setForm] = react.useState({
         workspaceId: currentWorkspaceId || workspaces[0]?.id || "",
         title: "",
@@ -5232,6 +5826,12 @@ window.__ModuleLoader__.load({
         acceptance: "",
         due: "",
         autoSubmitReview: true,
+        allowPublicWeb: false,
+        requireToolApproval: true,
+        requireToolEvents: false,
+        runtimeId: initialRuntimeId,
+        model: "",
+        reasoningEffort: "",
       });
       const receiverValue =
         form.receiverType === "unassigned"
@@ -5254,8 +5854,29 @@ window.__ModuleLoader__.load({
           receiverType: type,
           receiverId: id,
           receiverName: item?.name ?? "",
+          runtimeId:
+            type === "agent" && item?.execution === "external"
+              ? (item.externalRuntimeId ?? "")
+              : "",
+          model: "",
+          reasoningEffort: "",
         }));
       };
+      const selectedAgent =
+        form.receiverType === "agent"
+          ? directory.agents.find((item) => item.id === form.receiverId)
+          : undefined;
+      const selectedRuntime = (externalRuntimes ?? []).find(
+        (runtime) => runtime.id === form.runtimeId,
+      );
+      const modelChoices = [
+        ...new Set([
+          ...(selectedRuntime?.supportedModels ?? []),
+          ...(selectedRuntime?.defaultModel === undefined
+            ? []
+            : [selectedRuntime.defaultModel]),
+        ]),
+      ];
       return h(
         "div",
         {
@@ -5289,6 +5910,7 @@ window.__ModuleLoader__.load({
                   form.receiverType === "unassigned"
                     ? undefined
                     : form.receiverName,
+                executionPolicy: buildExecutionPolicy(form),
               });
             },
           },
@@ -5527,6 +6149,184 @@ window.__ModuleLoader__.load({
                   ),
                 )
               : null,
+            h(
+              "div",
+              { className: "pmtask-field pmtask-span-2" },
+              "执行策略",
+              h(
+                "label",
+                { className: "pmtask-check" },
+                h("input", {
+                  type: "checkbox",
+                  checked: form.allowPublicWeb,
+                  onChange: (event) =>
+                    setForm((current) => ({
+                      ...current,
+                      allowPublicWeb: event.target.checked,
+                    })),
+                }),
+                h(
+                  "span",
+                  null,
+                  "允许公开网页与监管文件",
+                  h(
+                    "em",
+                    null,
+                    "研究类任务建议开启；事实性结论将要求来源、发布日期和访问时间。",
+                  ),
+                ),
+              ),
+              h(
+                "label",
+                { className: "pmtask-check" },
+                h("input", {
+                  type: "checkbox",
+                  checked: form.requireToolApproval,
+                  onChange: (event) =>
+                    setForm((current) => ({
+                      ...current,
+                      requireToolApproval: event.target.checked,
+                    })),
+                }),
+                h("span", null, "写文件、执行命令和外部发布前需要人工确认"),
+              ),
+              h(
+                "label",
+                { className: "pmtask-check" },
+                h("input", {
+                  type: "checkbox",
+                  checked: form.requireToolEvents,
+                  onChange: (event) =>
+                    setForm((current) => ({
+                      ...current,
+                      requireToolEvents: event.target.checked,
+                    })),
+                }),
+                h("span", null, "要求记录实际工具调用事件"),
+              ),
+              h(
+                "div",
+                { className: "pmtask-execution-overrides" },
+                h(
+                  "div",
+                  { className: "pmtask-field" },
+                  "执行运行时（只读）",
+                  h(
+                    "div",
+                    {
+                      className: "pmtask-execution-runtime",
+                      role: "textbox",
+                      "aria-readonly": "true",
+                    },
+                    h(
+                      "span",
+                      null,
+                      selectedAgent === undefined
+                        ? "未指派 AI伙伴"
+                        : selectedAgent.execution === "external"
+                          ? (selectedRuntime?.name ??
+                            selectedAgent.externalRuntimeId ??
+                            "外部 Runtime 未绑定")
+                          : "内置执行",
+                    ),
+                    h("span", { className: "pmtask-readonly-badge" }, "只读"),
+                  ),
+                  h(
+                    "span",
+                    { className: "pmtask-locked-hint" },
+                    selectedAgent === undefined
+                      ? "运行时会随责任 AI伙伴自动确定。"
+                      : selectedAgent.execution === "external"
+                        ? selectedRuntime === undefined
+                          ? "AI伙伴绑定的 Runtime 不存在或已归档。"
+                          : selectedRuntime.status !== "active"
+                            ? "AI伙伴绑定的 Runtime 当前不可用。"
+                            : "来自 AI伙伴定义，任务内不可修改。"
+                        : "来自 AI伙伴定义，任务内不可修改。",
+                  ),
+                ),
+                h(
+                  "label",
+                  { className: "pmtask-field" },
+                  "本轮模型",
+                  h(
+                    "select",
+                    {
+                      className: "pmtask-select",
+                      value: form.model,
+                      disabled:
+                        selectedRuntime === undefined ||
+                        selectedRuntime.status !== "active",
+                      onChange: (event) =>
+                        setForm((current) => ({
+                          ...current,
+                          model: event.target.value,
+                        })),
+                    },
+                    h(
+                      "option",
+                      { value: "" },
+                      selectedRuntime?.defaultModel
+                        ? `Runtime 默认（${selectedRuntime.defaultModel}）`
+                        : "沿用 Runtime 默认模型",
+                    ),
+                    ...modelChoices.map((model) =>
+                      h("option", { value: model, key: model }, model),
+                    ),
+                  ),
+                  h(
+                    "span",
+                    { className: "pmtask-locked-hint" },
+                    selectedRuntime === undefined
+                      ? selectedAgent?.execution === "external"
+                        ? "AI伙伴绑定的 Runtime 当前不可用，无法选择模型。"
+                        : "先选择绑定了外部 Runtime 的 AI伙伴，才能指定本轮模型。"
+                      : modelChoices.length === 0
+                        ? "该 Runtime 尚未声明模型池，将使用 CLI 默认模型。"
+                        : "模型必须来自 Runtime 定义中的模型池。",
+                  ),
+                ),
+                h(
+                  "label",
+                  { className: "pmtask-field" },
+                  "推理强度",
+                  h(
+                    "select",
+                    {
+                      className: "pmtask-select",
+                      value: form.reasoningEffort,
+                      disabled:
+                        selectedRuntime === undefined ||
+                        selectedRuntime.status !== "active",
+                      onChange: (event) =>
+                        setForm((current) => ({
+                          ...current,
+                          reasoningEffort: event.target.value,
+                        })),
+                    },
+                    h("option", { value: "" }, "沿用 Runtime 默认值"),
+                    ...REASONING_EFFORT_OPTIONS.map((option) =>
+                      h(
+                        "option",
+                        { value: option.value, key: option.value },
+                        option.label,
+                      ),
+                    ),
+                  ),
+                  h(
+                    "span",
+                    { className: "pmtask-locked-hint" },
+                    selectedRuntime === undefined
+                      ? "只有外部 Runtime 任务可以指定推理强度。"
+                      : selectedRuntime.provider === "workbuddy"
+                        ? "将映射为 CodeBuddy 的 --effort。"
+                        : selectedRuntime.provider === "codex"
+                          ? "将映射为 Codex 的 model_reasoning_effort 配置。"
+                          : "通用命令不自动翻译该参数；仍会写入 Run 快照。",
+                  ),
+                ),
+              ),
+            ),
           ),
           h(
             "label",
@@ -5583,7 +6383,10 @@ window.__ModuleLoader__.load({
                   form.description.trim() === "" ||
                   form.workspaceId === "" ||
                   (form.receiverType !== "unassigned" &&
-                    form.receiverId === ""),
+                    form.receiverId === "") ||
+                  (form.receiverType === "agent" &&
+                    selectedAgent?.execution === "external" &&
+                    selectedRuntime?.status !== "active"),
               },
               "派发",
             ),

@@ -14,6 +14,13 @@ import {
   sendJson,
 } from "@pluginmax/shared";
 import {
+  legacyTaskExecutionPolicy,
+  type ExecutionGate,
+  type ExecutionPreflightResult,
+  type TaskExecutionPolicy,
+  type TaskExecutionProjection,
+} from "@pluginmax/contracts";
+import {
   TaskError,
   TaskService,
   taskDomainSpec,
@@ -98,6 +105,8 @@ interface TeammateRuntimeLike {
     readonly source: "platform" | "personal";
     readonly avatar: string;
     readonly employeeId?: string | undefined;
+    readonly execution?: "builtin" | "external" | undefined;
+    readonly externalRuntimeId?: string | undefined;
   }[];
   ownerOf?(
     ref: string,
@@ -149,8 +158,7 @@ interface EmployeeServiceLike {
           readonly name: string;
           readonly legacyAgentProfileId?: string | undefined;
           readonly budget?:
-            | { readonly maxMinutes?: number | undefined }
-            | undefined;
+            { readonly maxMinutes?: number | undefined } | undefined;
         };
       }
     | undefined;
@@ -174,6 +182,26 @@ interface PrincipalRuntimeServiceLike {
 }
 
 interface TaskAgentServiceLike {
+  preflightForProfile?(input: {
+    readonly workspaceId: string;
+    readonly taskId: string;
+    readonly profileId: string;
+    readonly principalId: string;
+    readonly teammateId?: string | undefined;
+    readonly ticketId?: string | undefined;
+    readonly policy?: TaskExecutionPolicy | undefined;
+  }): ExecutionPreflightResult;
+  taskExecution?(
+    taskId: string,
+    workspaceId?: string | undefined,
+  ): TaskExecutionProjection;
+  executionGate?(gateId: string): ExecutionGate | undefined;
+  decideExecutionGate?(input: {
+    readonly gateId: string;
+    readonly decision: "approved" | "denied";
+    readonly actorPrincipalId: string;
+    readonly note?: string | undefined;
+  }): Promise<ExecutionGate>;
   run?(runId: string):
     | {
         /** 该轮执行落在哪条 DSH 会话里（会话尚未启动时缺省）。 */
@@ -208,6 +236,7 @@ interface TaskAgentServiceLike {
     readonly contextPackId?: string | undefined;
     readonly sessionBindingId?: string | undefined;
     readonly sessionId?: string | undefined;
+    readonly executionPolicy?: TaskExecutionPolicy | undefined;
     readonly payload: {
       readonly instanceTitle: string;
       readonly nodeName: string;
@@ -294,14 +323,20 @@ interface TaskContextServiceLike {
       readonly historyText?: string;
       readonly contributions?: readonly TaskContextContribution[];
     }>;
-    policy(): Promise<{
+    policy(input: {
+      readonly scene: "task";
+      readonly objectId: string;
+      readonly agentPrincipalId: string;
+    }): Promise<{
       readonly version: string;
       readonly instructions: string;
       readonly allowedWriteback: readonly (
-        | "agent-private-memory"
-        | "run-evidence"
-        | "memory-candidate"
+        "agent-private-memory" | "run-evidence" | "memory-candidate"
       )[];
+      readonly policySections?: {
+        readonly executionPolicy?: string | undefined;
+        readonly sourcePolicy?: string | undefined;
+      };
     }>;
   }): () => void;
   prepare(input: Record<string, unknown>): Promise<TaskContextPackLike>;
@@ -336,8 +371,7 @@ interface TaskAgentRunSummary {
     | {
         readonly profileName?: string | undefined;
         readonly context?:
-          | Record<string, string | number | boolean>
-          | undefined;
+          Record<string, string | number | boolean> | undefined;
       }
     | undefined;
   readonly output?: TaskAgentRun["output"] | undefined;
@@ -368,8 +402,7 @@ function taskRunActorName(
       | {
           readonly profileName?: string | undefined;
           readonly context?:
-            | Record<string, string | number | boolean>
-            | undefined;
+            Record<string, string | number | boolean> | undefined;
         }
       | undefined;
   },
@@ -402,31 +435,54 @@ export function createTaskDocumentQueryService(
       if (root === undefined) {
         return { workspaceReady: false, documents: [] };
       }
-      const runs =
-        agent()?.runs?.({
+      const agentService = agent();
+      const taskRuns =
+        agentService?.runs?.({
           workspaceId: task.workspaceId,
           instanceId: task.id,
         }) ?? [];
+      const taskRunIds = new Set(taskRuns.map((run) => run.id));
+      const allRuns =
+        agentService?.runs?.({ workspaceId: task.workspaceId }) ?? taskRuns;
+      const runs = allRuns.filter(
+        (run) =>
+          taskRunIds.has(run.id) || run.payload?.context?.taskId === task.id,
+      );
       const ownerRuns = runs.filter(
         (run) => (run.payload?.context?.taskRunRole ?? "owner") === "owner",
       );
-      const documents = await collectDocuments({
-        root,
-        windows: windowsFromRuns(
-          ownerRuns.map((run) => ({
+      const ownerRunIds = new Set(ownerRuns.map((run) => run.id));
+      const allWindows = windowsFromRuns(
+        allRuns.map((run) => {
+          const context = run.payload?.context ?? {};
+          return {
             id: run.id,
             startedAt: run.startedAt,
             endedAt: run.endedAt,
             createdAt: run.createdAt,
-            actor: taskRunActorName(task, run),
-          })),
-          taskAgentDisplayName(task),
-          Date.now(),
-        ),
+            actor: ownerRunIds.has(run.id)
+              ? taskRunActorName(task, run)
+              : String(
+                  context.taskReceiverName ??
+                    run.payload?.profileName ??
+                    "Agent",
+                ),
+          };
+        }),
+        taskAgentDisplayName(task),
+        Date.now(),
+      );
+      const collectedDocuments = await collectDocuments({
+        root,
+        windows: allWindows,
         ...(options.maxFiles === undefined
           ? {}
           : { maxFiles: options.maxFiles }),
       });
+      const documents = collectedDocuments.filter(
+        (document) =>
+          document.runId !== undefined && ownerRunIds.has(document.runId),
+      );
       const outputDocuments = await materializeAgentOutputDocuments({
         root,
         taskId: task.id,
@@ -707,6 +763,8 @@ function directory(
     personaId?: string;
     source?: "platform" | "personal";
     avatar?: string;
+    execution?: "builtin" | "external";
+    externalRuntimeId?: string;
   }>;
   roles: Array<{
     id: string;
@@ -749,6 +807,8 @@ function directory(
     personaId?: string;
     source?: "platform" | "personal";
     avatar?: string;
+    execution?: "builtin" | "external";
+    externalRuntimeId?: string;
   }> = employeeDirectory
     .filter(
       (employee) =>
@@ -789,6 +849,12 @@ function directory(
         ownerName: teammate.ownerName,
         source: teammate.source,
         avatar: teammate.avatar,
+        ...(teammate.execution === undefined
+          ? {}
+          : { execution: teammate.execution }),
+        ...(teammate.externalRuntimeId === undefined
+          ? {}
+          : { externalRuntimeId: teammate.externalRuntimeId }),
         ...(teammate.employeeId === undefined
           ? {}
           : { employeeId: teammate.employeeId }),
@@ -998,10 +1064,48 @@ function taskDefinitionDigest(task: TaskRecord): string {
         due: task.due ?? "",
         description: task.description,
         acceptance: task.acceptance,
+        executionPolicy: task.executionPolicy ?? null,
       }),
     )
     .digest("hex")
     .slice(0, 16);
+}
+
+function taskSourcePolicyLines(task: TaskRecord): string[] {
+  const policy = task.executionPolicy ?? legacyTaskExecutionPolicy();
+  return [
+    "## 来源策略",
+    `- 允许来源：${policy.sourcePolicy.allow.join("、") || "未额外授权主动来源"}`,
+    `- 禁止来源：${policy.sourcePolicy.deny.join("、") || "无"}`,
+    `- 引用要求：${policy.sourcePolicy.citation}`,
+    ...(policy.sourcePolicy.requirePublishedAt
+      ? ["- 事实性结论必须记录发布日期"]
+      : []),
+    ...(policy.sourcePolicy.requireAccessedAt
+      ? ["- 网页来源必须记录访问时间"]
+      : []),
+  ];
+}
+
+function taskToolPolicyLines(task: TaskRecord): string[] {
+  const policy = task.executionPolicy ?? legacyTaskExecutionPolicy();
+  return [
+    "## Runtime 执行覆盖",
+    `- 指定 Runtime：${policy.runtime.allowedRuntimeIds.join("、") || "由平台与责任人决定"}`,
+    `- 指定模型：${policy.runtime.model ?? "沿用 Runtime 默认模型"}`,
+    `- 推理强度：${policy.runtime.reasoningEffort ?? "沿用 Runtime 默认值"}`,
+    "",
+    "## 工具策略",
+    `- 允许工具类别：${policy.toolPolicy.allow.join("、") || "由 Runtime 和 Agent Profile 决定"}`,
+    `- 禁止工具类别：${policy.toolPolicy.deny.join("、") || "无"}`,
+    `- 需审批工具类别：${policy.toolPolicy.requireApproval.join("、") || "无"}`,
+    "",
+    "如来源或工具未获授权，必须说明缺口并请求人工处理，不能绕过限制或伪造已读取。",
+  ];
+}
+
+function taskExecutionPolicyLines(task: TaskRecord): string[] {
+  return [...taskSourcePolicyLines(task), "", ...taskToolPolicyLines(task)];
 }
 
 function appendTaskDefinition(
@@ -1038,6 +1142,7 @@ function appendTaskDefinition(
       ),
     );
   }
+  lines.push("", ...taskExecutionPolicyLines(task));
 }
 
 function buildTaskContext(
@@ -1398,6 +1503,27 @@ async function dispatchTaskInstruction(
     });
     target = { ...target, ticketId: ticket.id };
   }
+  const executionPolicy = task.executionPolicy ?? legacyTaskExecutionPolicy();
+  const preflight = agent.preflightForProfile?.({
+    workspaceId: task.workspaceId,
+    taskId: task.id,
+    profileId: target.profileId,
+    principalId: target.principalId ?? target.profileId,
+    teammateId: targetRef,
+    ...(target.ticketId === undefined ? {} : { ticketId: target.ticketId }),
+    policy: executionPolicy,
+  });
+  if (preflight !== undefined && !preflight.compatible) {
+    const required = preflight.gaps
+      .filter((gap) => gap.necessity === "required")
+      .map((gap) => gap.message);
+    throw new TaskError(
+      "conflict",
+      required.length > 0
+        ? required.join("；")
+        : "当前 Runtime 不满足任务的执行能力要求",
+    );
+  }
   const sessionEpoch = task.sessionEpoch ?? 0;
   // 协作轮次不参与增量投递：被 @ 的 Agent 每次都要看到完整任务与这次的诉求。
   const previousRunId =
@@ -1495,7 +1621,8 @@ async function dispatchTaskInstruction(
           pinnedMemoryIds: [],
           excludedSourceIds: [],
           runtimeCapabilities: {
-            contextWindowTokens: 32_000,
+            contextWindowTokens:
+              preflight?.runtime.limits.contextWindowTokens ?? 32_000,
             maxOutputTokens: 4_000,
             supportsSystemSections: true,
             isStateless: statelessExternal,
@@ -1545,6 +1672,7 @@ async function dispatchTaskInstruction(
       target.employeeId === undefined
         ? "principal-runtime"
         : "digital-employee",
+    executionPolicy,
     payload: {
       instanceTitle: task.title.slice(0, 160),
       nodeName: "任务执行",
@@ -1644,8 +1772,7 @@ export interface TaskDispatchDependencies {
   readonly workspaces?: WorkspaceRegistryLike | undefined;
   readonly teammates?: (() => TeammateRuntimeLike | undefined) | undefined;
   readonly principalRuntime?:
-    | (() => PrincipalRuntimeServiceLike | undefined)
-    | undefined;
+    (() => PrincipalRuntimeServiceLike | undefined) | undefined;
   readonly context?: (() => TaskContextServiceLike | undefined) | undefined;
 }
 
@@ -2137,6 +2264,84 @@ export function createTaskRoutes(
           routeError(response, cause);
         }
       },
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/tasks/execution",
+      handler: async (request, response) => {
+        try {
+          assertSameOrigin(request);
+          const params = taskQuerySchema.parse({
+            taskId: query(request).get("taskId") ?? "",
+          });
+          const task = service.get(params.taskId);
+          const currentActor = requireAccess(request, team, task.workspaceId);
+          const agentService = agent?.();
+          const execution = agentService?.taskExecution?.(
+            task.id,
+            task.workspaceId,
+          );
+          sendJson(response, 200, {
+            ok: true,
+            execution: execution ?? {
+              taskId: task.id,
+              runs: [],
+              events: [],
+              gates: [],
+              capabilities: {
+                planAvailable: false,
+                contextAvailable: context !== undefined,
+                gateAvailable: agentService?.decideExecutionGate !== undefined,
+                memoryAvailable: false,
+              },
+            },
+            actorPrincipalId: currentActor.principalId ?? currentActor.id,
+          });
+        } catch (cause) {
+          routeError(response, cause);
+        }
+      },
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/tasks/execution/gates/decide",
+      handler: mutate(async (_request, currentActor, body) => {
+        const parsed = z
+          .object({
+            taskId: z.string().min(1),
+            gateId: z.string().min(1),
+            decision: z.enum(["approved", "denied"]),
+            note: z.string().trim().max(4_000).optional(),
+          })
+          .parse(body);
+        const task = service.get(parsed.taskId);
+        const agentService = agent?.();
+        if (
+          agentService?.executionGate === undefined ||
+          agentService.decideExecutionGate === undefined
+        ) {
+          throw new TaskError("conflict", "Agent Execution Control 不可用");
+        }
+        const gate = agentService.executionGate(parsed.gateId);
+        if (gate === undefined || gate.taskId !== task.id) {
+          throw new TaskError("not_found", "执行授权不存在");
+        }
+        if (
+          currentActor.kind === "human" &&
+          currentActor.role === "guest" &&
+          currentActor.id !== task.createdBy
+        ) {
+          throw new TaskError("forbidden", "guest 不能批准执行授权");
+        }
+        return {
+          gate: await agentService.decideExecutionGate({
+            gateId: parsed.gateId,
+            decision: parsed.decision,
+            actorPrincipalId: currentActor.principalId ?? currentActor.id,
+            ...(parsed.note === undefined ? {} : { note: parsed.note }),
+          }),
+        };
+      }),
     },
     {
       kind: "exact",
@@ -2734,29 +2939,42 @@ export async function apply(ctx: TaskContext): Promise<void> {
           contributions: taskContextContributions(task),
         };
       },
-      policy: async () => ({
-        version: "task-context-v1",
-        instructions: [
-          "你正在执行一个受治理的平台任务。",
-          "以任务定义、最新人类指令和 ContextPack 中标记为当前真相的内容为准。",
-          "不得读取 ContextPack 之外的来源。",
-          "输出格式必须满足任务交付要求。",
-        ].join("\n"),
-        allowedWriteback: ["agent-private-memory", "run-evidence"],
-      }),
+      policy: async (input) => {
+        const task = service.get(input.objectId.replace(/:g\d+$/, ""));
+        const executionPolicy =
+          task.executionPolicy ?? legacyTaskExecutionPolicy();
+        return {
+          version: `task-context-v2:${createHash("sha1")
+            .update(JSON.stringify(executionPolicy))
+            .digest("hex")
+            .slice(0, 12)}`,
+          instructions: [
+            "你正在执行一个受治理的平台任务。",
+            "以任务定义、最新人类指令和 ContextPack 中标记为当前真相的内容为准。",
+            "只能使用执行来源策略明确允许的来源；需要公开网页时，按 Runtime 工具能力检索并记录引用。",
+            "不得访问未授权的私有来源，也不得伪造已读取的来源。",
+            "禁止或需要审批的工具类别必须遵守平台 Gate，不得绕过。",
+            "输出格式必须满足任务交付要求。",
+            "",
+            ...taskExecutionPolicyLines(task),
+          ].join("\n"),
+          allowedWriteback: ["agent-private-memory", "run-evidence"],
+          policySections: {
+            sourcePolicy: taskSourcePolicyLines(task).join("\n"),
+            executionPolicy: taskToolPolicyLines(task).join("\n"),
+          },
+        };
+      },
     });
     child.effect(() => () => dispose());
   });
   ctx.inject(["collabTeam"], (child) => {
     const employees = child.get("collabEmployee") as
-      | EmployeeServiceLike
-      | undefined;
+      EmployeeServiceLike | undefined;
     const assignments = child.get("collabAssignment") as
-      | AssignmentServiceLike
-      | undefined;
+      AssignmentServiceLike | undefined;
     const workspaces = child.get("workspaceRegistry") as
-      | WorkspaceRegistryLike
-      | undefined;
+      WorkspaceRegistryLike | undefined;
     const taskDocuments = createTaskDocumentQueryService(
       service,
       () => child.get("collabAgent") as TaskAgentServiceLike | undefined,
@@ -2775,8 +2993,7 @@ export async function apply(ctx: TaskContext): Promise<void> {
           child.get("collabTeammateRuntime") as TeammateRuntimeLike | undefined,
         principalRuntime: () =>
           child.get("collabPrincipalRuntime") as
-            | PrincipalRuntimeServiceLike
-            | undefined,
+            PrincipalRuntimeServiceLike | undefined,
         context: () =>
           child.get("collabContext") as TaskContextServiceLike | undefined,
       }),
@@ -2793,8 +3010,7 @@ export async function apply(ctx: TaskContext): Promise<void> {
         child.get("collabTeammateRuntime") as TeammateRuntimeLike | undefined,
       () =>
         child.get("collabPrincipalRuntime") as
-          | PrincipalRuntimeServiceLike
-          | undefined,
+          PrincipalRuntimeServiceLike | undefined,
       () => child.get("collabContext") as TaskContextServiceLike | undefined,
       taskDocuments,
     ).map((route) => child.webServer.register(route) as () => void);
@@ -2804,8 +3020,7 @@ export async function apply(ctx: TaskContext): Promise<void> {
   });
   ctx.inject(["collabAgent", "workspaceRegistry"], async (child) => {
     const workspaces = child.get("workspaceRegistry") as
-      | WorkspaceRegistryLike
-      | undefined;
+      WorkspaceRegistryLike | undefined;
     child.collabAgent.bindTask({
       onSettled: async (run) => {
         const task = service.get(run.instanceId);
@@ -2856,8 +3071,7 @@ export async function apply(ctx: TaskContext): Promise<void> {
               team: child.get("collabTeam") as TeamServiceLike | undefined,
               teammates: () =>
                 child.get("collabTeammateRuntime") as
-                  | TeammateRuntimeLike
-                  | undefined,
+                  TeammateRuntimeLike | undefined,
             },
             task,
             run,

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { taskExecutionPolicySchema } from "@pluginmax/contracts";
 
 export const taskIdSchema = z.string().min(1).max(160);
 export const taskStatusSchema = z.enum([
@@ -103,10 +104,15 @@ export const taskAttachmentSchema = z.object({
 export const taskExecutionMetadataSchema = z.object({
   provider: z.string().trim().min(1).max(120),
   model: z.string().trim().min(1).max(160),
+  reasoningEffort: z.string().trim().min(1).max(40).optional(),
   runtime: z.string().trim().min(1).max(200),
   runtimeVersion: z.string().trim().min(1).max(120),
   authMode: z.string().trim().min(1).max(120),
   sandbox: z.string().trim().min(1).max(240),
+  searchEnabled: z.boolean().nullable().optional(),
+  networkAccess: z.enum(["none", "restricted", "public", "unknown"]).optional(),
+  searchUsed: z.boolean().nullable().optional(),
+  planVisibility: z.enum(["structured", "summary", "opaque"]).optional(),
 });
 
 export const taskMessageSchema = z.object({
@@ -194,6 +200,7 @@ export const taskRecordSchema = z.object({
   createdByName: z.string().min(1).max(200),
   description: z.string().min(1).max(20000),
   acceptance: z.array(z.string().min(1).max(500)).min(1).max(30),
+  executionPolicy: taskExecutionPolicySchema.optional(),
   due: z.string().max(40).optional(),
   links: z.array(taskLinkSchema).default([]),
   workflow: taskWorkflowRefSchema.optional(),

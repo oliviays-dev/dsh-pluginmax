@@ -119,7 +119,88 @@ describe("external agent process runner", () => {
     expect(chunks.join("")).toContain("请完成交付报告");
   });
 
-  it("streams WorkBuddy thinking and tool events into readable traces", async () => {
+  it("maps task-level model and reasoning overrides into provider CLI args", async () => {
+    const path = await script(
+      [
+        "process.stdin.resume();",
+        "process.stdin.on('end', () => {",
+        "  process.stdout.write(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'OK', session_id: 'override-session' }) + '\\n');",
+        "});",
+      ].join("\n"),
+    );
+    const traces: Array<{ args?: readonly string[] | undefined }> = [];
+    const runner = new ExternalAgentProcessRunner({
+      onTrace: (event) => {
+        if (event.kind === "spawn") traces.push({ args: event.args });
+      },
+    });
+    const result = await runner.execute({
+      runId: "run-workbuddy-override",
+      runtime: runtime({
+        provider: "workbuddy",
+        protocol: "plain-text",
+        command: process.execPath,
+        args: [
+          path,
+          "--model",
+          "runtime-default",
+          "--effort",
+          "low",
+          "--max-turns",
+          "6",
+        ],
+      }),
+      model: "task-selected-model",
+      reasoningEffort: "high",
+      prompt: "执行调研",
+      workspacePath,
+      signal: new AbortController().signal,
+    });
+    const args = traces.find((trace) => trace.args !== undefined)?.args ?? [];
+    expect(result.stopReason).toBe("completed");
+    expect(args.filter((arg) => arg === "--model")).toHaveLength(1);
+    expect(args).toContain("task-selected-model");
+    expect(args).not.toContain("runtime-default");
+    expect(args.filter((arg) => arg === "--effort")).toHaveLength(1);
+    expect(args).toContain("high");
+    expect(args).not.toContain("low");
+    expect(result.execution).toMatchObject({
+      model: "task-selected-model",
+      reasoningEffort: "high",
+    });
+  });
+
+  it("passes Codex reasoning as model_reasoning_effort config", async () => {
+    const path = await script("process.stdin.resume();");
+    const traces: Array<{ args?: readonly string[] | undefined }> = [];
+    const runner = new ExternalAgentProcessRunner({
+      onTrace: (event) => {
+        if (event.kind === "spawn") traces.push({ args: event.args });
+      },
+    });
+    await runner.execute({
+      runId: "run-codex-override",
+      runtime: runtime({
+        provider: "codex",
+        protocol: "codex-jsonl",
+        command: process.execPath,
+        args: [path, "--model", "runtime-default"],
+      }),
+      model: "task-selected-model",
+      reasoningEffort: "medium",
+      prompt: "执行任务",
+      workspacePath,
+      signal: new AbortController().signal,
+    });
+    const args = traces[0]?.args ?? [];
+    expect(args.filter((arg) => arg === "--model")).toHaveLength(1);
+    expect(args).toContain("task-selected-model");
+    expect(args).not.toContain("runtime-default");
+    expect(args).toContain('model_reasoning_effort="medium"');
+    expect(args).toContain("exec");
+  });
+
+  it("streams WorkBuddy reasoning summaries and tool events without leaking reasoning text", async () => {
     const path = await script(
       [
         "let prompt = '';",
@@ -176,8 +257,11 @@ describe("external agent process runner", () => {
     expect(traces.find((event) => event.kind === "spawn")?.args).toContain(
       "stream-json",
     );
-    expect(traces.find((event) => event.kind === "thinking")?.data).toContain(
-      "先读取项目文件",
+    expect(traces.find((event) => event.kind === "spawn")?.args).toContain(
+      "--print",
+    );
+    expect(traces.find((event) => event.kind === "thinking")?.data).toBe(
+      "Runtime 报告了新的推理阶段",
     );
     expect(traces.find((event) => event.kind === "tool_call")?.data).toContain(
       "Read",
@@ -194,6 +278,7 @@ describe("external agent process runner", () => {
     expect(traces.find((event) => event.kind === "stdout")).toBeUndefined();
     expect(progress.join("")).toContain("[thinking]");
     expect(progress.join("")).toContain("[tool_call]");
+    expect(progress.join("")).not.toContain("先读取项目文件");
   });
 
   it("retries WorkBuddy after a transient TLS or 502 failure", async () => {

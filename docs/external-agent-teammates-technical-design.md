@@ -71,7 +71,22 @@ interface ExternalAgentRuntime {
   provider: "codex" | "workbuddy" | "command";
   protocol: "codex-jsonl" | "plain-text";
   command: string;
+  /** 平台按结构化配置生成并用于执行的完整 argv 快照。 */
   args: string[];
+  /** 用户在高级配置中显式追加的参数，不包含平台托管参数。 */
+  customArgs?: string[];
+  supportedTools?: (
+    | "web_search"
+    | "web_fetch"
+    | "read_file"
+    | "write_file"
+    | "run_command"
+    | "browser"
+    | "mcp"
+  )[];
+  supportedModels?: string[];
+  defaultModel?: string;
+  contextWindowTokens?: number;
   status: "active" | "disabled" | "archived";
   visibility: "workspace" | "platform";
   ownerUserId: string;
@@ -89,6 +104,7 @@ interface ExternalAgentRuntime {
 interface AgentExecutionMetadata {
   provider: string;
   model: string;
+  reasoningEffort?: string;
   runtime: string;
   runtimeVersion: string;
   authMode: string;
@@ -111,6 +127,26 @@ interface AgentExecutionMetadata {
    停用或归档 Runtime 时，所有绑定它且仍处于生效状态的 Teammate 必须在同一治理请求内自动暂停，并写入状态事件；重新启用 Runtime 不会自动恢复这些 Teammate。
    归档一个仍被 Teammate 绑定的运行时时允许操作，但确认弹窗与归档结果必须提示受影响的 Teammate 数量。
 8. 定义编辑不允许变更 ID 和归属。命令或参数变化后清空旧探测结果，避免把上一条命令的探测结论误用于新定义。
+9. `defaultModel` 必须属于 `supportedModels`；模型池为空表示沿用 CLI 默认模型。任务级模型只能从已选 Runtime 的模型池覆盖，不能绕过 Runtime 定义。
+10. `supportedTools` 是 Runtime 技术能力上限，不是本轮授权。任务能否使用公开网页、写文件或执行命令，仍由 Task Execution Policy 决定。
+11. `contextWindowTokens` 是上下文装配输入预算，默认建议 `128000`；任务派发时进入 Runtime Capability Profile，并参与 ContextPack 的输入预算计算。
+12. 首次注册保存后默认状态为 `active`；编辑表单不展示状态字段，更新定义时不得改变启用/停用状态。
+
+注册与编辑界面向用户提供结构化配置，并保留受控的高级参数入口：
+
+- Provider 决定允许的协议；
+- 常用工具使用人类可读名称多选，不展示内部枚举；
+- 模型使用“支持的模型池 + 默认模型”，允许加入自定义模型 ID；
+- 搜索、抓取、文件读写、命令、浏览器和 MCP 分别声明为独立工具能力；
+- WorkBuddy 的文件修改权限和最大回合使用下拉与数值控件；
+- 高级参数默认折叠，用户粘贴一段额外 argv 文本；格式正确时不重复展示 token 或成功摘要，只在错误时提示；不支持管道、重定向、命令替换或 shell 展开；
+- 完整启动命令只读展示，避免用户修改平台生成的协议参数；
+- 编辑表单不重复展示摘要标签，也不提供状态切换；状态通过列表操作显式启停。
+- Codex 的 `exec`、JSONL、工作目录、沙箱和临时输出文件，CodeBuddy 的 `--print` 和 `stream-json` 输出格式由平台托管，并只体现在最终命令预览中；
+- 列表和详情展示模型池、默认模型、工具能力、权限、回合、额外参数数量等人类可读摘要；
+- 保存时由客户端编译为 `args: string[]`，服务端和 Runtime Adapter 仍以 argv 数组作为唯一执行契约；
+- `customArgs` 只保存用户额外参数；平台升级推荐参数时不需要要求用户重写整条命令；
+- 编辑存量 Runtime 时，从既有 argv 反向解析结构化字段，无法识别的选项迁移到 `customArgs`，避免编辑一次就丢失配置。
 
 ### 3.2 Teammate 执行偏好
 
@@ -133,6 +169,23 @@ externalRuntimeId?: string;
 ```
 
 `execution` 缺省为 `builtin`。这样可以继续读取历史 Profile，不需要一次性迁移。
+
+### 3.4 Task 级模型与推理覆盖
+
+`TaskExecutionPolicy.runtime` 增加两个可选值：
+
+```ts
+model?: string;
+reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+```
+
+- Runtime 在 AI伙伴定义态确定；任务页只读展示责任 AI伙伴绑定的 Runtime，不提供 Runtime 切换。
+- 任务创建/编辑时，模型下拉只展示该责任 AI伙伴所绑定 Runtime 的 `supportedModels`；留空表示使用 `defaultModel`。
+- 责任人是人类或 AI伙伴使用内置执行时，任务页不提供外部模型和推理强度覆盖。
+- 服务端在 preflight 再次校验模型属于 Runtime 模型池，不能依赖前端校验。
+- 任务覆盖值进入 `ExecutionEnvelope.launch`、`RunExecutionSnapshot` 和 `AgentRun.execution`，任务详情优先展示快照。
+- Runtime Adapter 在启动时剥离旧模型参数并追加本轮覆盖值；Codex 的推理强度映射为 `-c model_reasoning_effort="..."`，CodeBuddy 映射为 `--effort ...`。
+- 通用命令不假设存在统一推理参数；值仍写入平台快照，但不会擅自追加未知 CLI 参数。
 
 ## 4. 执行链路
 

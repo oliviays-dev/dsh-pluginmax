@@ -2149,11 +2149,10 @@ describe("meeting client", () => {
     expect(selectedStyle?.outline).toBe("none");
     expect(unselectedStyle?.outline).toBe("none");
     expect(selectedStyle?.border).toBe(unselectedStyle?.border);
-    expect(unselectedStyle?.border).toBe(
-      "0.5px solid var(--dsw-alias-border-l3)",
-    );
+    expect(unselectedStyle?.border).toBe("1px solid #44454a");
+    expect(unselectedStyle?.boxShadow).toBe("none");
     expect(typeof selectedStyle?.borderColor).toBe("string");
-    expect(unselectedStyle?.borderColor).toBeUndefined();
+    expect(unselectedStyle?.borderColor).toBe("#44454a");
     expect(
       findNode(
         aiThreadCard,

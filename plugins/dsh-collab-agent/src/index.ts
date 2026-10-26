@@ -6,19 +6,38 @@ import {
   sendJson,
   readJsonBody,
 } from "@pluginmax/shared";
+import {
+  type ExecutionGate,
+  type ExecutionPreflightResult,
+  type RunEvent,
+  type TaskExecutionProjection,
+  type TaskExecutionPolicy,
+  taskExecutionPolicySchema,
+} from "@pluginmax/contracts";
 import { z } from "zod";
+import {
+  AgentExecutionService,
+  executionDomainSpec,
+  executionToolCategory,
+  type ExecutionDomainLike,
+  type ExecutionPreflightInput,
+  type ExecutionProjection,
+} from "./execution.js";
 import {
   EXTERNAL_AGENT_PROTOCOLS,
   EXTERNAL_AGENT_PROVIDERS,
+  RUNTIME_TOOL_NAMES,
   agentProfileSchema,
   agentRunSchema,
   agentExecutionMetadataSchema,
   externalAgentRuntimeSchema,
+  runtimeToolNameSchema,
   type AgentProfile,
   type AgentExecutionMetadata,
   type AgentRun,
   type AgentRunStatus,
   type ExternalAgentRuntime,
+  type RuntimeToolName,
 } from "./types.js";
 import {
   ExternalAgentProcessRunner,
@@ -549,14 +568,12 @@ export interface AgentDispatchInput {
   readonly employeeId?: string | undefined;
   readonly principalId?: string | undefined;
   readonly principalType?:
-    | "transitional-agent"
-    | "digital-employee"
-    | "principal-runtime"
-    | undefined;
+    "transitional-agent" | "digital-employee" | "principal-runtime" | undefined;
   readonly ticketId?: string | undefined;
   readonly contextPackId?: string | undefined;
   readonly sessionBindingId?: string | undefined;
   readonly sessionId?: string | undefined;
+  readonly executionPolicy?: TaskExecutionPolicy | undefined;
   readonly payload: AgentRun["payload"];
   readonly createdBy: string;
 }
@@ -780,6 +797,11 @@ export class ExternalAgentRuntimeService {
       readonly protocol: ExternalAgentRuntime["protocol"];
       readonly command: string;
       readonly args?: readonly string[] | undefined;
+      readonly customArgs?: readonly string[] | undefined;
+      readonly supportedTools?: readonly RuntimeToolName[] | undefined;
+      readonly supportedModels?: readonly string[] | undefined;
+      readonly defaultModel?: string | undefined;
+      readonly contextWindowTokens?: number | undefined;
       readonly status?: ExternalAgentRuntime["status"] | undefined;
       readonly visibility?: ExternalAgentRuntime["visibility"] | undefined;
     },
@@ -792,6 +814,10 @@ export class ExternalAgentRuntimeService {
         protocol: input.protocol,
         command: input.command,
         args: [],
+        customArgs: [],
+        supportedTools: [],
+        supportedModels: [],
+        contextWindowTokens: input.contextWindowTokens,
         status: input.status ?? "active",
         visibility: input.visibility ?? "platform",
         ownerUserId: actor.id,
@@ -824,6 +850,11 @@ export class ExternalAgentRuntimeService {
         fields: {
           command: record.command,
           argsCount: record.args.length,
+          customArgsCount: (record.customArgs ?? []).length,
+          supportedTools: (record.supportedTools ?? []).join(","),
+          supportedModels: (record.supportedModels ?? []).join(","),
+          defaultModel: record.defaultModel,
+          contextWindowTokens: record.contextWindowTokens,
           visibility: record.visibility,
         },
       });
@@ -840,6 +871,11 @@ export class ExternalAgentRuntimeService {
       readonly protocol?: ExternalAgentRuntime["protocol"] | undefined;
       readonly command?: string | undefined;
       readonly args?: readonly string[] | undefined;
+      readonly customArgs?: readonly string[] | undefined;
+      readonly supportedTools?: readonly RuntimeToolName[] | undefined;
+      readonly supportedModels?: readonly string[] | undefined;
+      readonly defaultModel?: string | null | undefined;
+      readonly contextWindowTokens?: number | null | undefined;
       readonly status?: ExternalAgentRuntime["status"] | undefined;
     },
   ): Promise<ExternalAgentRuntime> {
@@ -855,6 +891,12 @@ export class ExternalAgentRuntimeService {
         input.args !== undefined &&
         (input.args.length !== current.args.length ||
           input.args.some((arg, index) => arg !== current.args[index]));
+      const customArgsChanged =
+        input.customArgs !== undefined &&
+        (input.customArgs.length !== (current.customArgs ?? []).length ||
+          input.customArgs.some(
+            (arg, index) => arg !== (current.customArgs ?? [])[index],
+          ));
       const changedFields = [
         input.name !== undefined && input.name !== current.name ? "name" : "",
         input.provider !== undefined && input.provider !== current.provider
@@ -865,6 +907,31 @@ export class ExternalAgentRuntimeService {
           : "",
         commandChanged ? "command" : "",
         argsChanged ? "args" : "",
+        customArgsChanged ? "customArgs" : "",
+        input.supportedTools !== undefined &&
+        (input.supportedTools.length !==
+          (current.supportedTools ?? []).length ||
+          input.supportedTools.some(
+            (tool, index) => tool !== (current.supportedTools ?? [])[index],
+          ))
+          ? "supportedTools"
+          : "",
+        input.supportedModels !== undefined &&
+        (input.supportedModels.length !==
+          (current.supportedModels ?? []).length ||
+          input.supportedModels.some(
+            (model, index) => model !== (current.supportedModels ?? [])[index],
+          ))
+          ? "supportedModels"
+          : "",
+        input.defaultModel !== undefined &&
+        (input.defaultModel ?? undefined) !== current.defaultModel
+          ? "defaultModel"
+          : "",
+        input.contextWindowTokens !== undefined &&
+        (input.contextWindowTokens ?? undefined) !== current.contextWindowTokens
+          ? "contextWindowTokens"
+          : "",
         input.status !== undefined && input.status !== current.status
           ? "status"
           : "",
@@ -876,9 +943,20 @@ export class ExternalAgentRuntimeService {
         protocol: input.protocol ?? current.protocol,
         command: input.command ?? current.command,
         args: input.args ?? current.args,
+        customArgs: input.customArgs ?? current.customArgs ?? [],
+        supportedTools: input.supportedTools ?? current.supportedTools ?? [],
+        supportedModels: input.supportedModels ?? current.supportedModels ?? [],
+        defaultModel:
+          input.defaultModel === null
+            ? undefined
+            : (input.defaultModel ?? current.defaultModel),
+        contextWindowTokens:
+          input.contextWindowTokens === null
+            ? undefined
+            : (input.contextWindowTokens ?? current.contextWindowTokens),
         status: input.status ?? current.status,
         updatedAt: iso(this.now()),
-        ...(commandChanged || argsChanged
+        ...(commandChanged || argsChanged || customArgsChanged
           ? {
               lastProbeAt: undefined,
               lastProbeOk: undefined,
@@ -905,6 +983,11 @@ export class ExternalAgentRuntimeService {
             changedFields.length === 0 ? "none" : changedFields.join(","),
           command: next.command,
           argsCount: next.args.length,
+          customArgsCount: (next.customArgs ?? []).length,
+          supportedTools: (next.supportedTools ?? []).join(","),
+          supportedModels: (next.supportedModels ?? []).join(","),
+          defaultModel: next.defaultModel,
+          contextWindowTokens: next.contextWindowTokens,
         },
       });
       return next;
@@ -1228,9 +1311,9 @@ export interface AgentRuntimeDeps {
   readonly sessionTitle?: () => AgentSessionTitleLike | undefined;
   readonly provider?: () => string;
   readonly externalRuntimes?: () =>
-    | KvTableLike<ExternalAgentRuntime>
-    | undefined;
+    KvTableLike<ExternalAgentRuntime> | undefined;
   readonly externalRunner?: () => ExternalAgentRunner | undefined;
+  readonly execution?: () => AgentExecutionService | undefined;
   readonly now?: () => Date;
   readonly onSettled?: (run: AgentRun) => Promise<void> | void;
 }
@@ -1508,6 +1591,13 @@ export class AgentTaskRuntime {
         await agent.whenIdle();
       } finally {
         signal.removeEventListener("abort", onAbort);
+      }
+      const execution = this.deps.execution?.();
+      if (execution !== undefined) {
+        execution.bindSession(run.id, sessionId);
+        await execution
+          .recordSessionEvents(run.id, agent.session.snapshotEvents(), start)
+          .catch(() => undefined);
       }
       if (signal.aborted) throw new Error("worker aborted");
       const output = lastAssistantText(agent.session, start);
@@ -2064,6 +2154,7 @@ export class AgentTaskRuntime {
           promptSnapshot: prompt,
           sessionId,
         });
+        this.deps.execution?.()?.bindSession(runId, sessionId);
         const live = this.deps.tables.runs.get(runId)!;
         const externalPrompt = buildExternalAgentPrompt(personaSoul, prompt);
         await this.saveRun({
@@ -2071,8 +2162,21 @@ export class AgentTaskRuntime {
           promptSnapshot: externalPrompt,
         });
         const prepared = this.deps.tables.runs.get(runId) ?? live;
+        const plannedExecution = this.deps
+          .execution?.()
+          ?.projection(runId)?.snapshot;
+        const requestedModel =
+          plannedExecution?.model === undefined ||
+          plannedExecution.model === "unknown"
+            ? undefined
+            : plannedExecution.model;
+        const requestedReasoningEffort = plannedExecution?.reasoningEffort;
         const baseExecution = normalizeExecutionMetadata({
           provider: externalRuntime.provider,
+          model: requestedModel ?? "unknown",
+          ...(requestedReasoningEffort === undefined
+            ? {}
+            : { reasoningEffort: requestedReasoningEffort }),
           runtime: externalRuntime.name,
           sandbox:
             externalRuntime.protocol === "codex-jsonl"
@@ -2086,6 +2190,10 @@ export class AgentTaskRuntime {
         const result = await runner.execute({
           runId,
           runtime: externalRuntime,
+          ...(requestedModel === undefined ? {} : { model: requestedModel }),
+          ...(requestedReasoningEffort === undefined
+            ? {}
+            : { reasoningEffort: requestedReasoningEffort }),
           prompt: externalPrompt,
           workspacePath: current.workspacePath,
           signal,
@@ -2094,6 +2202,9 @@ export class AgentTaskRuntime {
               text,
               updatedAt: iso(this.now()),
             });
+          },
+          onTrace: (event) => {
+            void this.deps.execution?.()?.recordTrace(runId, event);
           },
         });
         const execution = normalizeExecutionMetadata({
@@ -2376,8 +2487,8 @@ export interface AgentServiceDeps {
   readonly sessionPersistence?: () => AgentSessionPersistenceLike | undefined;
   readonly workspaces?: () => WorkspaceRegistryLike | undefined;
   readonly externalRuntimes?: () =>
-    | KvTableLike<ExternalAgentRuntime>
-    | undefined;
+    KvTableLike<ExternalAgentRuntime> | undefined;
+  readonly execution?: () => AgentExecutionService | undefined;
 }
 
 export class AgentRegistryService {
@@ -2520,7 +2631,35 @@ export class AgentRegistryService {
 
   /** Runtime hands finished runs over; workflow replay goes through flush. */
   async onRuntimeSettled(run: AgentRun): Promise<void> {
-    await this.deliverSettle(run);
+    const execution = this.deps.execution?.();
+    let enriched = run;
+    if (execution !== undefined) {
+      const projection = await execution
+        .finalizeRun(run)
+        .catch(() => undefined);
+      if (projection !== undefined) {
+        const snapshot = projection.snapshot;
+        enriched = agentRunSchema.parse({
+          ...run,
+          execution: {
+            ...(run.execution ?? normalizeExecutionMetadata({})),
+            provider: snapshot.provider,
+            model: snapshot.model,
+            runtime: snapshot.runtimeName,
+            runtimeVersion: snapshot.runtimeVersion,
+            authMode: snapshot.authMode,
+            sandbox: snapshot.sandbox,
+            searchEnabled: snapshot.searchEnabled,
+            networkAccess: snapshot.networkAccess,
+            searchUsed: snapshot.searchUsed,
+            planVisibility: snapshot.planVisibility,
+          },
+          updatedAt: iso(this.now()),
+        });
+        await this.tables.runs.put(enriched.id, enriched);
+      }
+    }
+    await this.deliverSettle(enriched);
   }
 
   profiles(workspaceId: string): AgentProfile[] {
@@ -2776,6 +2915,113 @@ export class AgentRegistryService {
       : this.runtime?.progress(run.sessionId);
   }
 
+  preflight(input: ExecutionPreflightInput): ExecutionPreflightResult {
+    const execution = this.deps.execution?.();
+    if (execution === undefined) {
+      throw new AgentError("not_found", "Agent Execution Control 服务不可用");
+    }
+    return execution.preflight(input);
+  }
+
+  preflightForProfile(input: {
+    readonly workspaceId: string;
+    readonly taskId: string;
+    readonly profileId: string;
+    readonly principalId: string;
+    readonly teammateId?: string | undefined;
+    readonly ticketId?: string | undefined;
+    readonly policy?: TaskExecutionPolicy | undefined;
+  }): ExecutionPreflightResult {
+    const profile = this.profile(input.workspaceId, input.profileId);
+    if (profile === undefined) {
+      throw new AgentError("not_found", "agent profile not found");
+    }
+    const runtime =
+      profile.externalRuntimeId === undefined
+        ? undefined
+        : this.deps.externalRuntimes?.()?.get(profile.externalRuntimeId);
+    if (
+      profile.externalRuntimeId !== undefined &&
+      (runtime === undefined || runtime.status !== "active")
+    ) {
+      throw new AgentError(
+        "conflict",
+        externalRuntimeUnavailableReason(runtime),
+      );
+    }
+    return this.preflight({
+      ...input,
+      profile,
+      ...(runtime === undefined ? {} : { runtime }),
+    });
+  }
+
+  execution(runId: string): ExecutionProjection | undefined {
+    return this.deps.execution?.()?.projection(runId);
+  }
+
+  executionEvents(
+    runId: string,
+    afterSeq = 0,
+    limit = 500,
+  ): readonly RunEvent[] {
+    return this.deps.execution?.()?.listEvents(runId, afterSeq, limit) ?? [];
+  }
+
+  executionGates(runId: string): readonly ExecutionGate[] {
+    return this.deps.execution?.()?.listGates(runId) ?? [];
+  }
+
+  executionGate(gateId: string): ExecutionGate | undefined {
+    return this.deps.execution?.()?.gate(gateId);
+  }
+
+  decideExecutionGate(input: {
+    readonly gateId: string;
+    readonly decision: "approved" | "denied";
+    readonly actorPrincipalId: string;
+    readonly note?: string | undefined;
+  }): Promise<ExecutionGate> {
+    const execution = this.deps.execution?.();
+    if (execution === undefined) {
+      throw new AgentError("not_found", "Agent Execution Control 服务不可用");
+    }
+    return execution.decideGate(input);
+  }
+
+  taskExecution(
+    taskId: string,
+    workspaceId?: string | undefined,
+  ): TaskExecutionProjection {
+    const runs = this.runs({
+      instanceId: taskId,
+      ...(workspaceId === undefined ? {} : { workspaceId }),
+    });
+    const selectedRun = runs[0];
+    const projection =
+      selectedRun === undefined
+        ? undefined
+        : this.deps.execution?.()?.projection(selectedRun.id);
+    return {
+      taskId,
+      runs,
+      ...(selectedRun === undefined ? {} : { selectedRunId: selectedRun.id }),
+      ...(projection === undefined ? {} : { plan: projection.plan }),
+      events: [...(projection?.events ?? [])],
+      gates: [...(projection?.gates ?? [])],
+      ...(projection === undefined ? {} : { snapshot: projection.snapshot }),
+      capabilities: {
+        planAvailable: projection !== undefined,
+        contextAvailable:
+          selectedRun?.contextPackId !== undefined ||
+          this.deps.sessions?.()?.get(selectedRun?.sessionId ?? "") !==
+            undefined,
+        gateAvailable: this.deps.execution !== undefined,
+        memoryAvailable: false,
+      },
+    };
+  }
+
   dispatch(input: AgentDispatchInput): Promise<AgentRun> {
     return this.enqueue(async () => {
       const active = values(this.tables.runs).find(
@@ -2831,6 +3077,54 @@ export class AgentRegistryService {
         settleDelivered: false,
       });
       await this.tables.runs.put(run.id, run);
+      const execution = this.deps.execution?.();
+      if (execution !== undefined) {
+        const profile = this.tables.profiles.get(run.agentProfileId);
+        if (profile === undefined) {
+          const failed = agentRunSchema.parse({
+            ...run,
+            status: "failed",
+            error: "Agent Profile 不存在，无法创建执行计划",
+            endedAt: iso(this.now()),
+            updatedAt: iso(this.now()),
+          });
+          await this.tables.runs.put(failed.id, failed);
+          await this.deliverSettle(failed);
+          return failed;
+        }
+        const runtime =
+          profile.externalRuntimeId === undefined
+            ? undefined
+            : this.deps.externalRuntimes?.()?.get(profile.externalRuntimeId);
+        try {
+          await execution.beginRun({
+            run,
+            profile,
+            ...(runtime === undefined ? {} : { runtime }),
+            ...(input.executionPolicy === undefined
+              ? {}
+              : { policy: input.executionPolicy }),
+            ...(run.employeeId === undefined
+              ? {}
+              : { teammateId: run.employeeId }),
+          });
+        } catch (cause) {
+          const message =
+            cause instanceof Error
+              ? cause.message
+              : "创建 Agent Execution Plan 失败";
+          const failed = agentRunSchema.parse({
+            ...run,
+            status: "failed",
+            error: message.slice(0, 1_000),
+            endedAt: iso(this.now()),
+            updatedAt: iso(this.now()),
+          });
+          await this.tables.runs.put(failed.id, failed);
+          await this.deliverSettle(failed);
+          return failed;
+        }
+      }
       this.runtime?.enqueue(run);
       return run;
     });
@@ -3173,6 +3467,25 @@ export function createAgentRoutes(
               protocol: z.enum(["codex-jsonl", "plain-text"]),
               command: z.string().trim().min(1).max(500),
               args: z.array(z.string().min(1).max(1_000)).max(50).optional(),
+              customArgs: z
+                .array(z.string().min(1).max(1_000))
+                .max(50)
+                .optional(),
+              supportedTools: z
+                .array(runtimeToolNameSchema)
+                .max(RUNTIME_TOOL_NAMES.length)
+                .optional(),
+              supportedModels: z
+                .array(z.string().trim().min(1).max(160))
+                .max(50)
+                .optional(),
+              defaultModel: z.string().trim().min(1).max(160).optional(),
+              contextWindowTokens: z
+                .number()
+                .int()
+                .min(1_000)
+                .max(10_000_000)
+                .optional(),
               status: z.enum(["active", "disabled", "archived"]).optional(),
               visibility: z.enum(["workspace", "platform"]).optional(),
             })
@@ -3204,6 +3517,32 @@ export function createAgentRoutes(
               protocol: z.enum(EXTERNAL_AGENT_PROTOCOLS).optional(),
               command: z.string().trim().min(1).max(500).optional(),
               args: z.array(z.string().min(1).max(1_000)).max(50).optional(),
+              customArgs: z
+                .array(z.string().min(1).max(1_000))
+                .max(50)
+                .optional(),
+              supportedTools: z
+                .array(runtimeToolNameSchema)
+                .max(RUNTIME_TOOL_NAMES.length)
+                .optional(),
+              supportedModels: z
+                .array(z.string().trim().min(1).max(160))
+                .max(50)
+                .optional(),
+              defaultModel: z
+                .string()
+                .trim()
+                .min(1)
+                .max(160)
+                .nullable()
+                .optional(),
+              contextWindowTokens: z
+                .number()
+                .int()
+                .min(1_000)
+                .max(10_000_000)
+                .nullable()
+                .optional(),
               status: z.enum(["active", "disabled", "archived"]).optional(),
             })
             .parse(await readBody(request));
@@ -3443,6 +3782,170 @@ export function createAgentRoutes(
     },
     {
       kind: "exact",
+      path: "/api/collab/agent/execution/preflight",
+      handler: (request, response) => {
+        void runHandler(async () => {
+          assertMethod(request, response, "POST");
+          const body = z
+            .object({
+              workspaceId: z.string().min(1),
+              taskId: z.string().min(1),
+              profileId: z.string().min(1),
+              principalId: z.string().trim().min(1).optional(),
+              teammateId: z.string().trim().min(1).optional(),
+              runtimeId: z.string().trim().min(1).optional(),
+              policy: taskExecutionPolicySchema.optional(),
+            })
+            .parse(await readBody(request));
+          const actor = browserActor(requireTeam(), request, body.workspaceId);
+          const profile = service.profile(body.workspaceId, body.profileId);
+          if (profile === undefined) {
+            throw new AgentError("not_found", "agent profile not found");
+          }
+          const runtimeId = body.runtimeId ?? profile.externalRuntimeId;
+          const runtime =
+            runtimeId === undefined
+              ? undefined
+              : externalRuntimes?.()?.get(runtimeId);
+          if (
+            runtimeId !== undefined &&
+            (runtime === undefined || runtime.status !== "active")
+          ) {
+            throw new AgentError(
+              "conflict",
+              externalRuntimeUnavailableReason(runtime),
+            );
+          }
+          const result = service.preflight({
+            taskId: body.taskId,
+            workspaceId: body.workspaceId,
+            principalId: body.principalId ?? actor.id,
+            ...(body.teammateId === undefined
+              ? {}
+              : { teammateId: body.teammateId }),
+            ...(body.policy === undefined ? {} : { policy: body.policy }),
+            profile,
+            ...(runtime === undefined ? {} : { runtime }),
+          });
+          sendJson(response, 200, { ok: true, result });
+        }, response);
+      },
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/agent/execution/detail",
+      handler: (request, response) => {
+        void runHandler(async () => {
+          assertMethod(request, response, "GET");
+          const workspaceId = queryParam(request, "workspaceId");
+          const runId = queryParam(request, "runId");
+          if (workspaceId === undefined || workspaceId === "") {
+            throw new AgentError("invalid_input", "workspaceId is required");
+          }
+          if (runId === undefined || runId === "") {
+            throw new AgentError("invalid_input", "runId is required");
+          }
+          browserActor(requireTeam(), request, workspaceId);
+          const run = service.run(runId);
+          if (run === undefined || run.workspaceId !== workspaceId) {
+            throw new AgentError("not_found", "agent run not found");
+          }
+          sendJson(response, 200, {
+            ok: true,
+            execution: service.execution(runId) ?? null,
+          });
+        }, response);
+      },
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/agent/execution/events",
+      handler: (request, response) => {
+        void runHandler(async () => {
+          assertMethod(request, response, "GET");
+          const workspaceId = queryParam(request, "workspaceId");
+          const runId = queryParam(request, "runId");
+          if (workspaceId === undefined || workspaceId === "") {
+            throw new AgentError("invalid_input", "workspaceId is required");
+          }
+          if (runId === undefined || runId === "") {
+            throw new AgentError("invalid_input", "runId is required");
+          }
+          browserActor(requireTeam(), request, workspaceId);
+          const run = service.run(runId);
+          if (run === undefined || run.workspaceId !== workspaceId) {
+            throw new AgentError("not_found", "agent run not found");
+          }
+          const afterSeq = Number(queryParam(request, "afterSeq") ?? "0");
+          const limit = Number(queryParam(request, "limit") ?? "500");
+          sendJson(response, 200, {
+            ok: true,
+            events: service.executionEvents(
+              runId,
+              Number.isFinite(afterSeq) ? afterSeq : 0,
+              Number.isFinite(limit) ? limit : 500,
+            ),
+          });
+        }, response);
+      },
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/agent/execution/task",
+      handler: (request, response) => {
+        void runHandler(async () => {
+          assertMethod(request, response, "GET");
+          const workspaceId = queryParam(request, "workspaceId");
+          const taskId = queryParam(request, "taskId");
+          if (workspaceId === undefined || workspaceId === "") {
+            throw new AgentError("invalid_input", "workspaceId is required");
+          }
+          if (taskId === undefined || taskId === "") {
+            throw new AgentError("invalid_input", "taskId is required");
+          }
+          browserActor(requireTeam(), request, workspaceId);
+          sendJson(response, 200, {
+            ok: true,
+            execution: service.taskExecution(taskId, workspaceId),
+          });
+        }, response);
+      },
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/agent/execution/gates/decide",
+      handler: (request, response) => {
+        void runHandler(async () => {
+          assertMethod(request, response, "POST");
+          const body = z
+            .object({
+              workspaceId: z.string().min(1),
+              gateId: z.string().min(1),
+              decision: z.enum(["approved", "denied"]),
+              note: z.string().trim().max(4_000).optional(),
+              principalId: z.string().trim().min(1).optional(),
+            })
+            .parse(await readBody(request));
+          const actor = browserActor(requireTeam(), request, body.workspaceId);
+          if (actor.globalRole !== "admin" && actor.workspaceRole === "guest") {
+            throw new AgentError("forbidden", "guest 不能批准 Agent 执行授权");
+          }
+          const gate = service.executionGate(body.gateId);
+          if (gate === undefined || gate.workspaceId !== body.workspaceId) {
+            throw new AgentError("not_found", "execution gate not found");
+          }
+          const decided = await service.decideExecutionGate({
+            gateId: body.gateId,
+            decision: body.decision,
+            actorPrincipalId: body.principalId ?? actor.id,
+            ...(body.note === undefined ? {} : { note: body.note }),
+          });
+          sendJson(response, 200, { ok: true, gate: decided });
+        }, response);
+      },
+    },
+    {
+      kind: "exact",
       path: "/api/collab/agent/runs/cancel",
       handler: (request, response) => {
         void runHandler(async () => {
@@ -3470,12 +3973,34 @@ export function createAgentRoutes(
   ];
 }
 
+interface ToolPreExecutionLike {
+  readonly name: string;
+  readonly arguments?: Readonly<Record<string, unknown>> | undefined;
+  readonly signal?: AbortSignal | undefined;
+  readonly agent?:
+    | {
+        readonly session?:
+          | {
+              readonly id?: string | undefined;
+            }
+          | undefined;
+      }
+    | undefined;
+}
+
+type PreToolDecisionLike =
+  | { readonly kind: "allow" }
+  | { readonly kind: "deny"; readonly reason: string }
+  | { readonly kind: "ask"; readonly reason?: string | undefined };
+
 export interface AgentContext {
   storageDomain: {
     open(spec: typeof agentDomainSpec): Promise<AgentDomainLike>;
+    open(spec: typeof executionDomainSpec): Promise<ExecutionDomainLike>;
   };
   webServer: { register(route: WebRouteLike): unknown };
   provide(key: "collabAgent", service: AgentRegistryService): void;
+  provide(key: "collabAgentExecution", service: AgentExecutionService): void;
   effect(operation: () => () => void): void;
   collabTeam?: TeamServiceLike;
   collabPersonas?: PersonaServiceLike;
@@ -3497,6 +4022,13 @@ export interface AgentContext {
   on?(
     event: "agent/assistant-stream",
     listener: (payload: unknown) => void,
+  ): () => void;
+  on?(
+    event: "tools/pre-execute",
+    listener: (
+      exec: ToolPreExecutionLike,
+      next: () => Promise<PreToolDecisionLike>,
+    ) => Promise<PreToolDecisionLike>,
   ): () => void;
   emit?(event: string, payload?: unknown): void;
   inject(
@@ -3522,6 +4054,16 @@ interface RuntimeBoundTeammateServiceLike {
 
 export async function apply(ctx: AgentContext): Promise<void | (() => void)> {
   const domain = await ctx.storageDomain.open(agentDomainSpec);
+  const executionDomain = await ctx.storageDomain.open(executionDomainSpec);
+  const executionService = new AgentExecutionService({
+    capabilities: executionDomain.table("capabilities"),
+    envelopes: executionDomain.table("envelopes"),
+    plans: executionDomain.table("plans"),
+    runEvents: executionDomain.table("run_events"),
+    gates: executionDomain.table("gates"),
+    snapshots: executionDomain.table("snapshots"),
+    outbox: executionDomain.table("outbox"),
+  });
   const service = new AgentRegistryService(
     {
       profiles: domain.table("profiles"),
@@ -3532,6 +4074,7 @@ export async function apply(ctx: AgentContext): Promise<void | (() => void)> {
       sessionPersistence: () => ctx.get("sessionPersistence"),
       workspaces: () => ctx.get("workspaceRegistry"),
       externalRuntimes: () => domain.table("external_runtimes"),
+      execution: () => executionService,
     },
   );
   const externalRuntimeService = new ExternalAgentRuntimeService(
@@ -3554,6 +4097,7 @@ export async function apply(ctx: AgentContext): Promise<void | (() => void)> {
     sessions: () => ctx.get("sessions"),
     sessionPersistence: () => ctx.get("sessionPersistence"),
     sessionTitle: () => ctx.get("sessionTitle"),
+    execution: () => executionService,
     onSettled: async (run) => {
       await service.onRuntimeSettled(run);
       try {
@@ -3582,6 +4126,49 @@ export async function apply(ctx: AgentContext): Promise<void | (() => void)> {
     if (sessionId !== undefined) runtime.recordStream(sessionId, value?.frame);
   });
   ctx.provide("collabAgent", service);
+  ctx.provide("collabAgentExecution", executionService);
+  const toolGateDisposer = ctx.on?.(
+    "tools/pre-execute",
+    async (exec, next): Promise<PreToolDecisionLike> => {
+      const sessionId = exec.agent?.session?.id;
+      if (sessionId === undefined) return next();
+      const runId = executionService.runIdForSession(sessionId);
+      if (runId === undefined) return next();
+      const category = executionToolCategory(exec.name);
+      const disposition = executionService.gateDisposition(runId, category);
+      if (disposition === "allow") return next();
+      if (disposition === "deny") {
+        return {
+          kind: "deny",
+          reason: `执行策略禁止工具类别：${category}`,
+        };
+      }
+      const envelope = executionService.envelopeForRun(runId);
+      if (envelope?.resolved.gateEnforcement !== "blocking") {
+        return {
+          kind: "deny",
+          reason: `Runtime 无法阻断式执行 ${category}，请改用支持的 Runtime`,
+        };
+      }
+      const decision = await executionService.requestGate({
+        runId,
+        kind: "tool-approval",
+        reason: `Agent 请求使用需要审批的工具类别：${category}`,
+        requestedToolCategory: category,
+        requestedScope: [exec.name],
+        ...(exec.signal === undefined ? {} : { signal: exec.signal }),
+      });
+      return decision === "approved"
+        ? next()
+        : {
+            kind: "deny",
+            reason:
+              decision === "expired"
+                ? `执行授权已超时：${category}`
+                : `用户拒绝执行：${category}`,
+          };
+    },
+  );
   // Let sibling runtime plugins finish mounting before replaying persisted runs.
   const restoreTimer = setTimeout(() => {
     service.restore();
@@ -3590,8 +4177,9 @@ export async function apply(ctx: AgentContext): Promise<void | (() => void)> {
   ctx.effect(() => () => {
     clearTimeout(restoreTimer);
     streamDisposer?.();
+    toolGateDisposer?.();
     void runtime.dispose();
-    void domain.close();
+    void Promise.allSettled([domain.close(), executionDomain.close()]);
   });
   const identityFiber = ctx.inject(["collabTeam"], (child) => {
     for (const route of createAgentRoutes(

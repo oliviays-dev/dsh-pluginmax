@@ -56,6 +56,70 @@ function storedTask(overrides: Record<string, unknown> = {}): TaskRecord {
   } as unknown as TaskRecord;
 }
 
+describe("task execution policy", () => {
+  it("stores and updates the phase-one execution policy", async () => {
+    const tasks = new TaskService({ tasks: memoryTable() });
+    const executionPolicy = {
+      schemaVersion: 1 as const,
+      runtime: {
+        selection: "recommended" as const,
+        allowedRuntimeIds: [],
+        requiredCapabilities: [
+          { key: "search" as const, necessity: "required" as const },
+        ],
+      },
+      sourcePolicy: {
+        allow: ["workspace", "public-web"] as const,
+        deny: ["private-local-data"] as const,
+        citation: "required-for-factual-claims" as const,
+        requirePublishedAt: true,
+        requireAccessedAt: true,
+      },
+      toolPolicy: {
+        allow: [],
+        deny: [],
+        requireApproval: ["fs.write"],
+      },
+      evidence: {
+        requirePlan: true,
+        requireToolEvents: true,
+        requireCitations: true,
+        requireStructuredSubagents: false,
+      },
+      humanGates: [],
+      budget: {},
+    };
+    const created = await tasks.create(actor, {
+      workspaceId: "workspace-1",
+      title: "Research with sources",
+      priority: "P2",
+      receiverType: "human",
+      receiverId: "admin",
+      receiverName: "Admin",
+      description: "Research the market.",
+      acceptance: ["Report with citations"],
+      executionPolicy,
+    });
+    expect(created.executionPolicy).toEqual(executionPolicy);
+
+    const updated = await tasks.update(actor, {
+      taskId: created.id,
+      title: created.title,
+      priority: created.priority,
+      description: created.description,
+      acceptance: created.acceptance,
+      executionPolicy: {
+        ...executionPolicy,
+        evidence: {
+          ...executionPolicy.evidence,
+          requireToolEvents: false,
+        },
+      },
+    });
+    expect(updated.executionPolicy?.evidence.requireToolEvents).toBe(false);
+  });
+});
+
 describe("legacy task compatibility", () => {
   it("accepts canonical Principal receivers and keeps compatibility aliases", async () => {
     const table = memoryTable();

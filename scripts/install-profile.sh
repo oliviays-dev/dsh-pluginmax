@@ -2,9 +2,11 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DSH_HOME="$ROOT/.tmp/dsh-home"
+DSH_HOME="${DSH_HOME:-$ROOT/.tmp/dsh-home}"
 DSH_BIN="$ROOT/vendor/deepseek-harness/apps/cli/lib/bin.js"
 PROFILE_DIR="$DSH_HOME/profiles/pluginmax"
+
+export DSH_HOME
 
 if [[ ! -f "$DSH_BIN" ]]; then
   echo "upstream DSH CLI is not built: $DSH_BIN" >&2

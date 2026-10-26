@@ -81,10 +81,474 @@ window.__ModuleLoader__.load({
       "codex-jsonl": "Codex JSONL",
       "plain-text": "stdio 文本",
     };
+    const EXTERNAL_RUNTIME_TOOLS = [
+      { value: "web_search", label: "网页搜索" },
+      { value: "web_fetch", label: "网页抓取" },
+      { value: "read_file", label: "读取文件" },
+      { value: "write_file", label: "写入文件" },
+      { value: "run_command", label: "执行命令" },
+      { value: "browser", label: "浏览器" },
+      { value: "mcp", label: "MCP" },
+    ];
+    const EXTERNAL_RUNTIME_TOOL_LABEL = Object.fromEntries(
+      EXTERNAL_RUNTIME_TOOLS.map((item) => [item.value, item.label]),
+    );
+    const EXTERNAL_MODEL_SUGGESTIONS = {
+      codex: [
+        "gpt-5.2-codex",
+        "gpt-5.1-codex-max",
+        "gpt-5.1-codex",
+        "gpt-5-codex",
+        "gpt-5.1",
+        "gpt-5",
+        "o3",
+      ],
+      workbuddy: [
+        "hy4-preview",
+        "hy3",
+        "hy3-x",
+        "deepseek-v4-pro",
+        "deepseek-v4.1-flash",
+        "glm-5.3",
+        "kimi-k3-1",
+        "minimax-m3",
+        "step-5-preview",
+      ],
+      command: ["deepseek-chat", "deepseek-reasoner"],
+    };
     const externalRuntimeProviderLabel = (provider) =>
       EXTERNAL_RUNTIME_PROVIDER_LABEL[provider] ?? provider;
     const externalRuntimeProtocolLabel = (protocol) =>
       EXTERNAL_RUNTIME_PROTOCOL_LABEL[protocol] ?? protocol;
+    const EXTERNAL_PERMISSION_MODE_LABEL = {
+      default: "默认权限",
+      plan: "计划模式",
+      acceptEdits: "自动接受文件修改",
+    };
+    const DEFAULT_CONTEXT_WINDOW_TOKENS = 128_000;
+    const formatContextWindowTokens = (value) => {
+      const tokens = Number(value);
+      if (!Number.isFinite(tokens) || tokens <= 0) return "未设置";
+      if (tokens >= 1_000_000) {
+        return `${Number((tokens / 1_000_000).toFixed(1))}M`;
+      }
+      if (tokens >= 1_000) {
+        return `${Number((tokens / 1_000).toFixed(1))}K`;
+      }
+      return String(tokens);
+    };
+    const EXTERNAL_SHELL_OPERATORS = new Set(["|", "&", ";", "<", ">"]);
+    let externalArgRowSequence = 0;
+    const externalArgRow = (input = {}) => ({
+      id: `external-arg-${++externalArgRowSequence}`,
+      kind: input.kind ?? "flag",
+      name: input.name ?? "",
+      value: input.value ?? "",
+    });
+    const quoteExternalArg = (value) => {
+      const token = String(value);
+      if (token === "") return '""';
+      return /^[A-Za-z0-9_@%+=:,./-]+$/.test(token)
+        ? token
+        : `"${token.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+    };
+    const formatExternalArgsText = (args) =>
+      (Array.isArray(args) ? args : []).map(quoteExternalArg).join(" ");
+    const parseExternalArgsText = (value) => {
+      const text = String(value ?? "");
+      const args = [];
+      let current = "";
+      let quote = "";
+      let escaped = false;
+      let tokenStarted = false;
+      const pushToken = () => {
+        if (!tokenStarted) return;
+        args.push(current);
+        current = "";
+        tokenStarted = false;
+      };
+      for (let index = 0; index < text.length; index += 1) {
+        const char = text[index];
+        if (char === "\0") {
+          return { args: [], error: "额外参数不能包含空字符。" };
+        }
+        if (escaped) {
+          current += char;
+          tokenStarted = true;
+          escaped = false;
+          continue;
+        }
+        if (quote === "'") {
+          if (char === "'") quote = "";
+          else current += char;
+          continue;
+        }
+        if (quote === '"') {
+          if (char === '"') quote = "";
+          else if (char === "\\") escaped = true;
+          else current += char;
+          continue;
+        }
+        if (char === "\\") {
+          escaped = true;
+          tokenStarted = true;
+          continue;
+        }
+        if (char === "'" || char === '"') {
+          quote = char;
+          tokenStarted = true;
+          continue;
+        }
+        if (/\s/.test(char)) {
+          pushToken();
+          continue;
+        }
+        if (EXTERNAL_SHELL_OPERATORS.has(char)) {
+          return {
+            args: [],
+            error: `不支持 shell 操作符 ${char}；这里只接受 argv 参数。`,
+          };
+        }
+        if (char === "`" || (char === "$" && text[index + 1] === "(")) {
+          return {
+            args: [],
+            error: "不支持命令替换；这里只接受 argv 参数。",
+          };
+        }
+        current += char;
+        tokenStarted = true;
+      }
+      if (escaped) {
+        return { args: [], error: "额外参数末尾存在未完成的转义。" };
+      }
+      if (quote !== "") {
+        return { args: [], error: "额外参数中的引号未闭合。" };
+      }
+      pushToken();
+      return { args, error: "" };
+    };
+    const externalAdvancedArgs = (form) => {
+      if (typeof form.customArgsText === "string") {
+        const parsed = parseExternalArgsText(form.customArgsText);
+        return parsed.error === "" ? parsed.args : [];
+      }
+      if (Array.isArray(form.customArgs)) return form.customArgs;
+      const args = [];
+      for (const row of form.advancedArgs ?? []) {
+        const name = String(row.name ?? "").trim();
+        const value = String(row.value ?? "").trim();
+        if (row.kind === "flag" && name !== "") args.push(name);
+        if (row.kind === "keyValue" && name !== "" && value !== "") {
+          args.push(name, value);
+        }
+        if (row.kind === "positional" && value !== "") args.push(value);
+      }
+      return args;
+    };
+    const advancedArgsFromRows = (rows) => {
+      const args = [];
+      for (const row of rows ?? []) {
+        if (row.kind === "flag" && row.name !== "") args.push(row.name);
+        if (row.kind === "keyValue" && row.name !== "" && row.value !== "") {
+          args.push(row.name, row.value);
+        }
+        if (row.kind === "positional" && row.value !== "") args.push(row.value);
+      }
+      return args;
+    };
+    const parseExternalRuntimeArgs = (provider, argsValue) => {
+      const args = Array.isArray(argsValue)
+        ? argsValue.filter((item) => typeof item === "string")
+        : [];
+      let model = "";
+      let searchEnabled = false;
+      let permissionMode = "default";
+      let maxTurns = "";
+      let ignoredOutputFormat = false;
+      const advancedArgs = [];
+      const isValue = (value) =>
+        value !== undefined && (!value.startsWith("-") || value === "-");
+      for (let index = 0; index < args.length; index += 1) {
+        const token = args[index];
+        if (token === "--search") {
+          searchEnabled = true;
+          continue;
+        }
+        if (token === "--model" && isValue(args[index + 1])) {
+          model = args[index + 1];
+          index += 1;
+          continue;
+        }
+        if (
+          provider === "workbuddy" &&
+          token === "--max-turns" &&
+          /^\d+$/.test(args[index + 1] ?? "")
+        ) {
+          maxTurns = args[index + 1];
+          index += 1;
+          continue;
+        }
+        if (
+          provider === "workbuddy" &&
+          token === "--permission-mode" &&
+          Object.hasOwn(EXTERNAL_PERMISSION_MODE_LABEL, args[index + 1] ?? "")
+        ) {
+          permissionMode = args[index + 1];
+          index += 1;
+          continue;
+        }
+        if (
+          provider === "workbuddy" &&
+          token === "--output-format" &&
+          isValue(args[index + 1])
+        ) {
+          ignoredOutputFormat = true;
+          index += 1;
+          continue;
+        }
+        if (
+          provider === "workbuddy" &&
+          (token === "--print" || token === "-p")
+        ) {
+          continue;
+        }
+        if (token.startsWith("-")) {
+          if (isValue(args[index + 1])) {
+            advancedArgs.push(
+              externalArgRow({
+                kind: "keyValue",
+                name: token,
+                value: args[index + 1],
+              }),
+            );
+            index += 1;
+          } else {
+            advancedArgs.push(externalArgRow({ kind: "flag", name: token }));
+          }
+          continue;
+        }
+        advancedArgs.push(externalArgRow({ kind: "positional", value: token }));
+      }
+      return {
+        modelMode: model === "" ? "default" : "custom",
+        model,
+        searchEnabled,
+        permissionMode,
+        maxTurns,
+        advancedArgs,
+        ignoredOutputFormat,
+      };
+    };
+    const compileExternalRuntimeArgs = (form) => {
+      const customArgsInvalid =
+        typeof form.customArgsText === "string" &&
+        externalAdvancedArgError(form) !== "";
+      const args = customArgsInvalid ? [] : [...externalAdvancedArgs(form)];
+      // Keep an executable/script positional argument in the first position.
+      // Structured flags are appended so wrappers such as `node script.mjs`
+      // continue to receive their own options after the script path.
+      const model = String(form.model ?? "").trim();
+      const defaultModel =
+        String(form.defaultModel ?? "").trim() ||
+        (form.modelMode === "custom" ? model : "");
+      if (defaultModel !== "") args.push("--model", defaultModel);
+      if (
+        form.provider === "codex" &&
+        ((Array.isArray(form.supportedTools) &&
+          form.supportedTools.includes("web_search")) ||
+          form.searchEnabled === true)
+      ) {
+        args.push("--search");
+      }
+      if (form.provider === "workbuddy") {
+        if (
+          form.permissionMode !== undefined &&
+          form.permissionMode !== "default"
+        ) {
+          args.push("--permission-mode", form.permissionMode);
+        }
+        const maxTurns = String(form.maxTurns ?? "").trim();
+        if (maxTurns !== "") args.push("--max-turns", maxTurns);
+      }
+      return args;
+    };
+    const externalAdvancedArgError = (form) => {
+      const parsed = parseExternalArgsText(form.customArgsText ?? "");
+      if (parsed.error !== "") return parsed.error;
+      for (let index = 0; index < parsed.args.length; index += 1) {
+        const token = parsed.args[index];
+        if (
+          token === "--model" ||
+          token === "-m" ||
+          token.startsWith("--model=")
+        ) {
+          return "模型请在任务执行时从 Runtime 模型池选择，不要在额外参数中固定。";
+        }
+        if (token === "--effort" || token.startsWith("--effort=")) {
+          return "推理强度请在任务执行时选择，不要在额外参数中固定。";
+        }
+        if (token === "--search") {
+          return "搜索能力请在上方“网页搜索”工具中声明。";
+        }
+        if (form.provider === "workbuddy") {
+          if (
+            [
+              "--permission-mode",
+              "--max-turns",
+              "--print",
+              "-p",
+              "--output-format",
+            ].includes(token) ||
+            token.startsWith("--permission-mode=") ||
+            token.startsWith("--max-turns=") ||
+            token.startsWith("--output-format=")
+          ) {
+            return `参数 ${token.split("=")[0]} 由平台托管，无需填写。`;
+          }
+        }
+        if (form.provider === "codex") {
+          if (
+            [
+              "exec",
+              "--json",
+              "--cd",
+              "--sandbox",
+              "--output-last-message",
+            ].includes(token) ||
+            token === "-" ||
+            token.startsWith("--sandbox=")
+          ) {
+            return `参数 ${token.split("=")[0]} 由平台托管，无需填写。`;
+          }
+          if (
+            (token === "-c" || token === "--config") &&
+            String(parsed.args[index + 1] ?? "").startsWith(
+              "model_reasoning_effort=",
+            )
+          ) {
+            return "推理强度请在任务执行时选择，不要在额外参数中固定。";
+          }
+          if (
+            token.startsWith("-c=model_reasoning_effort=") ||
+            token.startsWith("--config=model_reasoning_effort=")
+          ) {
+            return "推理强度请在任务执行时选择，不要在额外参数中固定。";
+          }
+        }
+      }
+      return "";
+    };
+    const externalRuntimeFormError = (form) => {
+      if (
+        form.protocol !== undefined &&
+        ((form.provider === "codex" && form.protocol !== "codex-jsonl") ||
+          (form.provider !== "codex" && form.protocol !== "plain-text"))
+      ) {
+        return "当前 Provider 与协议不匹配，请重新选择 Provider。";
+      }
+      const supportedModels = Array.isArray(form.supportedModels)
+        ? form.supportedModels
+        : [];
+      const defaultModel = String(form.defaultModel ?? "").trim();
+      if (defaultModel !== "" && !supportedModels.includes(defaultModel)) {
+        return "默认模型必须来自模型池。";
+      }
+      if (
+        form.provider === "workbuddy" &&
+        String(form.maxTurns ?? "").trim() !== "" &&
+        (!/^\d+$/.test(String(form.maxTurns).trim()) ||
+          Number(form.maxTurns) < 1 ||
+          Number(form.maxTurns) > 100)
+      ) {
+        return "最大回合必须是 1 到 100 之间的整数。";
+      }
+      const contextWindowTokens = String(form.contextWindowTokens ?? "").trim();
+      if (
+        contextWindowTokens !== "" &&
+        (!/^\d+$/.test(contextWindowTokens) ||
+          Number(contextWindowTokens) < 1_000 ||
+          Number(contextWindowTokens) > 10_000_000)
+      ) {
+        return "最大上下文窗口必须是 1,000 到 10,000,000 之间的整数 token。";
+      }
+      const advancedError = externalAdvancedArgError(form);
+      if (advancedError !== "") return advancedError;
+      return "";
+    };
+    const externalPlatformArgs = (form) => {
+      if (form.provider === "codex") {
+        return [
+          "exec",
+          "--json",
+          "--cd",
+          "<workspace>",
+          "--sandbox",
+          "read-only",
+          "--output-last-message",
+          "<temp-file>",
+          "-",
+        ];
+      }
+      if (form.provider === "workbuddy") {
+        return ["--print", "--output-format", "stream-json"];
+      }
+      return [];
+    };
+    const formatPreviewToken = (token) =>
+      /^<[^>]+>$/.test(token) ? token : quoteExternalArg(token);
+    const externalCommandPreview = (form) =>
+      [
+        String(form.command ?? "").trim() || "<command>",
+        ...compileExternalRuntimeArgs(form),
+        ...externalPlatformArgs(form),
+      ]
+        .map(formatPreviewToken)
+        .join(" ");
+    const externalCustomArgs = (form) => {
+      const parsed = parseExternalArgsText(form.customArgsText ?? "");
+      return parsed.error === "" ? parsed.args : [];
+    };
+    const runtimeConfigurationLabels = (runtime) => {
+      const config = parseExternalRuntimeArgs(runtime.provider, runtime.args);
+      const supportedModels = Array.isArray(runtime.supportedModels)
+        ? runtime.supportedModels
+        : [];
+      const defaultModel =
+        runtime.defaultModel ?? (config.model === "" ? "" : config.model);
+      const supportedTools = Array.isArray(runtime.supportedTools)
+        ? runtime.supportedTools
+        : config.searchEnabled
+          ? ["web_search"]
+          : [];
+      const customArgsCount = Array.isArray(runtime.customArgs)
+        ? runtime.customArgs.length
+        : config.advancedArgs.length;
+      const labels = [
+        supportedModels.length > 0
+          ? `模型池：${supportedModels.length} 个`
+          : defaultModel !== ""
+            ? `模型：${defaultModel}`
+            : "模型：CLI 默认",
+        `默认模型：${defaultModel || "CLI 默认"}`,
+        supportedTools.length > 0
+          ? `工具：${supportedTools.map((tool) => EXTERNAL_RUNTIME_TOOL_LABEL[tool] ?? tool).join("、")}`
+          : "工具：未声明",
+        `上下文窗口：${formatContextWindowTokens(runtime.contextWindowTokens)} token`,
+      ];
+      if (runtime.provider === "workbuddy") {
+        labels.push(
+          `权限：${EXTERNAL_PERMISSION_MODE_LABEL[config.permissionMode] ?? config.permissionMode}`,
+        );
+        if (config.maxTurns !== "") {
+          labels.push(`回合上限：${config.maxTurns}`);
+        }
+      }
+      if (runtime.provider === "codex") labels.push("沙箱：只读");
+      if (customArgsCount > 0) {
+        labels.push(`额外参数：${customArgsCount} 项`);
+      }
+      return labels;
+    };
     /**
      * 运行时下拉选项：只允许选择启用中的运行时；当前绑定若已停用/归档，
      * 保留为禁用项以便如实展示现状，而不是静默显示成空选。
@@ -361,13 +825,13 @@ window.__ModuleLoader__.load({
       .pmtm-notice.info{border-color:color-mix(in srgb,${ACCENT} 30%,transparent);color:color-mix(in srgb,${ACCENT} 70%,var(--dsw-alias-label-primary));background:color-mix(in srgb,${ACCENT} 12%,transparent);}
       .pmtm-notice svg{flex:none;width:15px;height:15px;margin-top:1px;}
       .pmtm-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:13px;}
-      .pmtm-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:14px;}
+      .pmtm-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:9px;margin-top:14px;}
       .pmtm-grid.three{grid-template-columns:repeat(3,minmax(0,1fr));}
       /* 右列只剩工具清单时，按 2:1 分栏，人格正文留更多宽度。 */
       .pmtm-grid.two-one{grid-template-columns:2fr minmax(0,1fr);}
       .pmtm-grid.wide-gap{gap:12px;}
       .pmtm-grid .wide{grid-column:1 / -1;}
-      .pmtm-field{display:grid;gap:4px;min-width:0;}
+      .pmtm-field{display:grid;align-content:start;gap:4px;min-width:0;}
       .pmtm-field > .label{color:var(--dsw-alias-label-tertiary);font-size:10.5px;}
       .pmtm-field.card{padding:9px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-base);}
       .pmtm-field .value{color:var(--dsw-alias-label-primary);font-size:12px;line-height:1.55;overflow-wrap:anywhere;white-space:pre-wrap;}
@@ -377,6 +841,7 @@ window.__ModuleLoader__.load({
       .pmtm-code-info:hover{color:${ACCENT};}
       .pmtm-code-info svg{width:11px;height:11px;}
       .pmtm-input,.pmtm-area,.pmtm-select{width:100%;min-width:0;min-height:34px;padding:7px 9px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;}
+      .pmtm-input,.pmtm-select{height:34px;padding-top:0;padding-bottom:0;}
       .pmtm-area{min-height:92px;resize:vertical;}
       .pmtm-area.soul{min-height:210px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.55;}
       .pmtm-block{padding:12px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-base);min-width:0;}
@@ -497,6 +962,44 @@ window.__ModuleLoader__.load({
       .pmtm-profile-item.runtime.archived{border-style:dashed;opacity:.72;}
       .pmtm-profile-item.runtime .pmtm-runtime-head-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0;}
       .pmtm-inline-sub{margin-top:2px;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.5;overflow-wrap:anywhere;}
+      .pmtm-runtime-summary{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:6px;}
+      .pmtm-runtime-summary span{display:inline-flex;align-items:center;min-height:22px;padding:2px 7px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:5px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:10px;line-height:1.35;}
+      .pmtm-config-section{margin-top:14px;padding-top:14px;border-top:0.5px solid var(--dsw-alias-border-l2);}
+      .pmtm-config-section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:9px;}
+      .pmtm-config-section-head strong{font-size:12.5px;}
+      .pmtm-config-section-head span{max-width:560px;color:var(--dsw-alias-label-tertiary);font-size:10.5px;line-height:1.5;}
+      .pmtm-choice-group{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-height:34px;}
+      .pmtm-choice{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:6px 9px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);font-size:11.5px;cursor:pointer;}
+      .pmtm-choice:has(input:checked){border-color:color-mix(in srgb,${ACCENT} 55%,transparent);background:color-mix(in srgb,${ACCENT} 11%,transparent);color:var(--dsw-alias-label-primary);}
+      .pmtm-choice input{accent-color:${ACCENT};margin:0;}
+      .pmtm-capability-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:6px;}
+      .pmtm-capability-grid.models{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));}
+      .pmtm-capability-option{display:flex;align-items:center;gap:6px;min-width:0;min-height:32px;padding:6px 8px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);font-size:11px;cursor:pointer;overflow-wrap:anywhere;}
+      .pmtm-capability-option:has(input:checked){border-color:color-mix(in srgb,${ACCENT} 55%,transparent);background:color-mix(in srgb,${ACCENT} 11%,transparent);color:var(--dsw-alias-label-primary);}
+      .pmtm-capability-option input{flex:none;accent-color:${ACCENT};margin:0;}
+      .pmtm-model-add{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px;margin-top:8px;}
+      .pmtm-config-facts{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:8px;}
+      .pmtm-config-facts span{display:inline-flex;min-height:22px;align-items:center;padding:2px 7px;border-radius:5px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:10px;line-height:1.35;}
+      .pmtm-config-error{margin-top:8px;color:var(--dsw-alias-state-error-primary,#e5534b);font-size:11px;line-height:1.5;}
+      .pmtm-command-preview{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:8px;padding:9px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);}
+      .pmtm-command-preview code{display:block;min-width:0;overflow-wrap:anywhere;color:var(--dsw-alias-label-primary);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;line-height:1.55;}
+      .pmtm-advanced-config{padding-top:0;border-top:0;}
+      .pmtm-advanced-toggle{width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto 12px;align-items:center;gap:9px;border:0;padding:11px 0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;text-align:left;cursor:pointer;}
+      .pmtm-advanced-toggle-copy{display:grid;gap:3px;min-width:0;}
+      .pmtm-advanced-toggle-copy strong{font-size:12.5px;}
+      .pmtm-advanced-toggle-copy small{color:var(--dsw-alias-label-tertiary);font-size:10.5px;line-height:1.45;}
+      .pmtm-advanced-badge{display:inline-flex;align-items:center;min-height:22px;padding:2px 7px;border-radius:5px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:10px;white-space:nowrap;}
+      .pmtm-advanced-caret{width:7px;height:7px;border-right:1.5px solid var(--dsw-alias-label-tertiary);border-bottom:1.5px solid var(--dsw-alias-label-tertiary);transform:rotate(45deg) translate(-2px,-2px);transition:transform .15s ease;}
+      .pmtm-advanced-caret.open{transform:rotate(225deg) translate(-2px,-2px);}
+      .pmtm-advanced-body{display:grid;gap:10px;padding:0 0 2px;}
+      .pmtm-advanced-args{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;}
+      .pmtm-runtime-form-actions{flex-wrap:nowrap;align-items:center;}
+      .pmtm-runtime-form-actions > :first-child{margin-right:auto;}
+      .pmtm-arg-list{display:grid;gap:7px;margin-top:8px;}
+      .pmtm-arg-row{display:grid;grid-template-columns:128px minmax(0,1fr) auto;align-items:center;gap:7px;min-width:0;}
+      .pmtm-arg-row.with-value{grid-template-columns:128px minmax(0,0.9fr) minmax(0,1.1fr) auto;}
+      .pmtm-arg-remove{width:30px;height:30px;display:grid;place-items:center;padding:0;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;cursor:pointer;}
+      .pmtm-arg-remove:hover{color:var(--dsw-alias-state-error-primary,#e5534b);border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 42%,transparent);}
       .pmtm-profile-detail{min-width:0;min-height:420px;padding:16px;}
       .pmtm-profile-detail h3,.pmtm-profile-form h3{margin:0;font-size:15px;}
       .pmtm-profile-title{display:grid;gap:4px;}
@@ -610,6 +1113,8 @@ window.__ModuleLoader__.load({
         .pmtm-grid,.pmtm-grid.three,.pmtm-grid.two-one{grid-template-columns:1fr;}
         .pmtm-grid .wide{grid-column:auto;}
         .pmtm-instance-exec{grid-template-columns:1fr;}
+        .pmtm-arg-row,.pmtm-arg-row.with-value{grid-template-columns:1fr;}
+        .pmtm-arg-remove{width:100%;}
         .pmtm-toolbar{flex-direction:column;align-items:flex-start;}
         .pmtm-toolbar-note{max-width:none;text-align:left;}
         .pmtm-presets{grid-template-columns:repeat(3,minmax(0,1fr));}
@@ -622,6 +1127,8 @@ window.__ModuleLoader__.load({
         .pmtm-grid,.pmtm-grid.three,.pmtm-grid.two-one{grid-template-columns:1fr;}
         .pmtm-grid .wide{grid-column:auto;}
         .pmtm-instance-exec{grid-template-columns:1fr;}
+        .pmtm-arg-row,.pmtm-arg-row.with-value{grid-template-columns:1fr;}
+        .pmtm-arg-remove{width:100%;}
         .pmtm-toolbar{flex-direction:column;align-items:flex-start;}
         .pmtm-toolbar-note{max-width:none;text-align:left;}
         .pmtm-presets{grid-template-columns:repeat(3,minmax(0,1fr));}
@@ -2621,8 +3128,20 @@ window.__ModuleLoader__.load({
         provider: "codex",
         protocol: "codex-jsonl",
         command: "codex",
-        args: "",
-        active: true,
+        modelMode: "default",
+        model: "",
+        supportedModels: [],
+        defaultModel: "",
+        contextWindowTokens: String(DEFAULT_CONTEXT_WINDOW_TOKENS),
+        modelDraft: "",
+        supportedTools: [],
+        searchEnabled: false,
+        permissionMode: "default",
+        maxTurns: "",
+        customArgs: [],
+        customArgsText: "",
+        advancedOpen: false,
+        advancedArgs: [],
       });
 
       const startExternalCreate = () => {
@@ -2632,6 +3151,23 @@ window.__ModuleLoader__.load({
       };
 
       const startExternalEdit = (runtime) => {
+        const launch = parseExternalRuntimeArgs(runtime.provider, runtime.args);
+        const supportedModels =
+          Array.isArray(runtime.supportedModels) &&
+          runtime.supportedModels.length > 0
+            ? runtime.supportedModels
+            : launch.model === ""
+              ? []
+              : [launch.model];
+        const supportedTools =
+          Array.isArray(runtime.supportedTools) &&
+          runtime.supportedTools.length > 0
+            ? runtime.supportedTools
+            : launch.searchEnabled
+              ? ["web_search"]
+              : [];
+        const customArgs =
+          runtime.customArgs ?? advancedArgsFromRows(launch.advancedArgs);
         setExternalArchivedOnly(false);
         setExternalEditing(true);
         setExternalForm({
@@ -2640,8 +3176,17 @@ window.__ModuleLoader__.load({
           provider: runtime.provider,
           protocol: runtime.protocol,
           command: runtime.command,
-          args: runtime.args.join("\n"),
-          active: runtime.status === "active",
+          ...launch,
+          supportedModels,
+          defaultModel: runtime.defaultModel ?? launch.model,
+          contextWindowTokens: String(
+            runtime.contextWindowTokens ?? DEFAULT_CONTEXT_WINDOW_TOKENS,
+          ),
+          modelDraft: "",
+          supportedTools,
+          customArgs,
+          customArgsText: formatExternalArgsText(customArgs),
+          advancedOpen: customArgs.length > 0,
         });
       };
 
@@ -2653,6 +3198,20 @@ window.__ModuleLoader__.load({
                 ...current,
                 provider,
                 protocol: provider === "codex" ? "codex-jsonl" : "plain-text",
+                modelMode: "default",
+                model: "",
+                supportedModels: [],
+                defaultModel: "",
+                contextWindowTokens: String(DEFAULT_CONTEXT_WINDOW_TOKENS),
+                modelDraft: "",
+                supportedTools: [],
+                searchEnabled: false,
+                permissionMode: "default",
+                maxTurns: "",
+                customArgs: [],
+                customArgsText: "",
+                advancedOpen: false,
+                advancedArgs: [],
                 ...(current.runtimeId !== undefined
                   ? {}
                   : {
@@ -2687,17 +3246,27 @@ window.__ModuleLoader__.load({
         if (externalForm === null) return;
         try {
           setExternalBusy(true);
-          const args = externalForm.args
-            .split("\n")
-            .map((item) => item.trim())
-            .filter(Boolean);
+          const formError = externalRuntimeFormError(externalForm);
+          if (formError !== "") throw new Error(formError);
+          const args = compileExternalRuntimeArgs(externalForm);
+          const customArgs = externalCustomArgs(externalForm);
+          const defaultModel = String(externalForm.defaultModel ?? "").trim();
+          const contextWindowTokens = Number(
+            String(
+              externalForm.contextWindowTokens ?? DEFAULT_CONTEXT_WINDOW_TOKENS,
+            ).trim() || DEFAULT_CONTEXT_WINDOW_TOKENS,
+          );
           const definition = {
             name: externalForm.name,
             provider: externalForm.provider,
             protocol: externalForm.protocol,
             command: externalForm.command,
             args,
-            status: externalForm.active ? "active" : "disabled",
+            customArgs,
+            supportedTools: externalForm.supportedTools ?? [],
+            supportedModels: externalForm.supportedModels ?? [],
+            contextWindowTokens,
+            ...(defaultModel === "" ? {} : { defaultModel }),
           };
           const result =
             externalForm.runtimeId === undefined
@@ -2713,6 +3282,7 @@ window.__ModuleLoader__.load({
                   body: {
                     workspaceId: externalWorkspaceId,
                     runtimeId: externalForm.runtimeId,
+                    ...(defaultModel === "" ? { defaultModel: null } : {}),
                     ...definition,
                   },
                 });
@@ -2743,12 +3313,12 @@ window.__ModuleLoader__.load({
           const result = await request(
             "/api/collab/agent/external-runtimes/update",
             {
-            method: "POST",
-            body: {
-              workspaceId: externalWorkspaceId,
-              runtimeId: runtime.id,
-              status,
-            },
+              method: "POST",
+              body: {
+                workspaceId: externalWorkspaceId,
+                runtimeId: runtime.id,
+                status,
+              },
             },
           );
           await Promise.all([
@@ -2785,8 +3355,8 @@ window.__ModuleLoader__.load({
           const result = await request(
             "/api/collab/agent/external-runtimes/archive",
             {
-            method: "POST",
-            body: { workspaceId: externalWorkspaceId, runtimeId: runtime.id },
+              method: "POST",
+              body: { workspaceId: externalWorkspaceId, runtimeId: runtime.id },
             },
           );
           setExternalArchiveTarget(null);
@@ -2813,8 +3383,8 @@ window.__ModuleLoader__.load({
           const result = await request(
             "/api/collab/agent/external-runtimes/restore",
             {
-            method: "POST",
-            body: { workspaceId: externalWorkspaceId, runtimeId: runtime.id },
+              method: "POST",
+              body: { workspaceId: externalWorkspaceId, runtimeId: runtime.id },
             },
           );
           await Promise.all([
@@ -5774,6 +6344,93 @@ window.__ModuleLoader__.load({
           ) ??
           visibleExternalRuntimes[0] ??
           null;
+        const editFormError =
+          externalForm === null ? "" : externalRuntimeFormError(externalForm);
+        const advancedArgsState =
+          externalForm === null
+            ? { args: [], error: "" }
+            : parseExternalArgsText(externalForm.customArgsText ?? "");
+        const customArgsCount = advancedArgsState.args.length;
+        const externalModelChoices =
+          externalForm === null
+            ? []
+            : [
+                ...new Set([
+                  ...(EXTERNAL_MODEL_SUGGESTIONS[externalForm.provider] ?? []),
+                  ...(externalForm.supportedModels ?? []),
+                ]),
+              ];
+        const commandPreview =
+          externalForm === null ? "" : externalCommandPreview(externalForm);
+        const toggleExternalTool = (tool) =>
+          setExternalForm((current) => {
+            if (current === null) return current;
+            const selected = current.supportedTools ?? [];
+            return {
+              ...current,
+              supportedTools: selected.includes(tool)
+                ? selected.filter((item) => item !== tool)
+                : [...selected, tool],
+            };
+          });
+        const toggleExternalModel = (model) =>
+          setExternalForm((current) => {
+            if (current === null) return current;
+            const selected = current.supportedModels ?? [];
+            const next = selected.includes(model)
+              ? selected.filter((item) => item !== model)
+              : [...selected, model];
+            return {
+              ...current,
+              supportedModels: next,
+              defaultModel: next.includes(current.defaultModel)
+                ? current.defaultModel
+                : "",
+            };
+          });
+        const addExternalModel = () =>
+          setExternalForm((current) => {
+            if (current === null) return current;
+            const model = String(current.modelDraft ?? "").trim();
+            if (model === "") return current;
+            const selected = current.supportedModels ?? [];
+            return {
+              ...current,
+              supportedModels: selected.includes(model)
+                ? selected
+                : [...selected, model],
+              defaultModel:
+                current.defaultModel === "" ? model : current.defaultModel,
+              modelDraft: "",
+            };
+          });
+        const toggleAdvancedOptions = () =>
+          setExternalForm((current) =>
+            current === null
+              ? current
+              : {
+                  ...current,
+                  advancedOpen: current.advancedOpen !== true,
+                },
+          );
+        const resetAdvancedOptions = () =>
+          setExternalForm((current) =>
+            current === null
+              ? current
+              : {
+                  ...current,
+                  customArgs: [],
+                  customArgsText: "",
+                },
+          );
+        const copyCommandPreview = async () => {
+          try {
+            await navigator.clipboard?.writeText(commandPreview);
+            succeed("启动命令已复制。");
+          } catch {
+            fail(new Error("复制失败，请手动选择命令文本。"));
+          }
+        };
         const externalDirectory = h(
           "aside",
           {
@@ -5840,6 +6497,13 @@ window.__ModuleLoader__.load({
                       ),
                       h(
                         "span",
+                        { className: "pmtm-runtime-summary" },
+                        ...runtimeConfigurationLabels(runtime).map((label) =>
+                          h("span", { key: label }, label),
+                        ),
+                      ),
+                      h(
+                        "span",
                         {
                           className: `pmtm-state-text ${externalRuntimeStatusTone(runtime.status)}`,
                         },
@@ -5861,306 +6525,681 @@ window.__ModuleLoader__.load({
               "aria-label": "运行时设置详情",
             },
             externalWorkspaceId === ""
-            ? h(
-                "div",
-                { className: "pmtm-profile-empty tall" },
-                "请先加入一个项目，再注册本机外部 Agent。",
-              )
-            : externalEditing && externalForm !== null
               ? h(
                   "div",
-                  { className: "pmtm-profile-form" },
-                  h(
+                  { className: "pmtm-profile-empty tall" },
+                  "请先加入一个项目，再注册本机外部 Agent。",
+                )
+              : externalEditing && externalForm !== null
+                ? h(
                     "div",
-                    { className: "pmtm-editor-head" },
+                    { className: "pmtm-profile-form" },
                     h(
-                      "h2",
-                      null,
-                      externalForm.runtimeId === undefined
-                        ? "注册运行时"
-                        : "编辑运行时",
+                      "div",
+                      { className: "pmtm-editor-head" },
+                      h(
+                        "h2",
+                        null,
+                        externalForm.runtimeId === undefined
+                          ? "注册运行时"
+                          : "编辑运行时",
+                      ),
                     ),
-                  ),
-                  h(
-                    "label",
-                    { className: "pmtm-field" },
+                    h(
+                      "label",
+                      { className: "pmtm-field" },
                       h("span", { className: "label" }, "运行时名称"),
-                    h("input", {
-                      className: "pmtm-input",
-                      value: externalForm.name,
+                      h("input", {
+                        className: "pmtm-input",
+                        value: externalForm.name,
                         placeholder: "例如：Codex CLI 本机",
-                      onChange: (event) =>
-                        setExternalForm({
-                          ...externalForm,
-                          name: event.target.value,
-                        }),
-                    }),
+                        onChange: (event) =>
+                          setExternalForm({
+                            ...externalForm,
+                            name: event.target.value,
+                          }),
+                      }),
                       h(
                         "span",
                         { className: "pmtm-inline-sub" },
                         "Runtime 只描述执行通道、模型或固定能力；Agent 角色、职责和 SOUL 请在定义态配置。",
                       ),
-                  ),
-                  h(
-                    "label",
-                    { className: "pmtm-field" },
-                    h("span", { className: "label" }, "Provider"),
-                    h(
-                      "select",
-                      {
-                        className: "pmtm-select",
-                        value: externalForm.provider,
-                        onChange: (event) =>
-                          changeExternalProvider(event.target.value),
-                      },
-                      h("option", { value: "codex" }, "Codex"),
-                      h("option", { value: "workbuddy" }, "WorkBuddy"),
-                      h("option", { value: "command" }, "通用命令"),
                     ),
-                  ),
-                  h(
-                    "label",
-                    { className: "pmtm-field" },
-                    h("span", { className: "label" }, "协议"),
                     h(
-                      "select",
-                      {
-                        className: "pmtm-select",
-                        value: externalForm.protocol,
-                        onChange: (event) =>
-                          setExternalForm({
-                            ...externalForm,
-                            protocol: event.target.value,
-                          }),
-                      },
-                      h("option", { value: "codex-jsonl" }, "Codex JSONL"),
-                      h("option", { value: "plain-text" }, "通用 stdin/stdout"),
-                    ),
-                  ),
-                  h(
-                    "label",
-                    { className: "pmtm-field" },
-                    h("span", { className: "label" }, "命令"),
-                    h("input", {
-                      className: "pmtm-input",
-                      value: externalForm.command,
-                      onChange: (event) =>
-                        setExternalForm({
-                          ...externalForm,
-                          command: event.target.value,
-                        }),
-                    }),
-                  ),
-                  h(
-                    "label",
-                    { className: "pmtm-field" },
+                      "label",
+                      { className: "pmtm-field" },
+                      h("span", { className: "label" }, "Provider"),
                       h(
-                        "span",
-                        { className: "label" },
-                        "固定参数（每个 argv token 单独一行）",
-                      ),
-                    h("textarea", {
-                      className: "pmtm-area",
-                      value: externalForm.args,
-                      onChange: (event) =>
-                        setExternalForm({
-                          ...externalForm,
-                          args: event.target.value,
-                        }),
-                    }),
-                      h(
-                        "span",
-                        { className: "pmtm-inline-sub" },
-                        "选项和值必须分开，例如 --model 与模型名各占一行；不要把整段命令粘贴成一行。",
-                      ),
-                  ),
-                  h(
-                    "label",
-                    { className: "pmtm-field" },
-                    h("span", { className: "label" }, "状态"),
-                    h(
-                      "select",
-                      {
-                        className: "pmtm-select",
-                        value: externalForm.active ? "active" : "disabled",
-                        onChange: (event) =>
-                          setExternalForm({
-                            ...externalForm,
-                            active: event.target.value === "active",
-                          }),
-                      },
-                      h("option", { value: "active" }, "启用"),
-                      h("option", { value: "disabled" }, "停用"),
-                    ),
-                  ),
-                  h(
-                    "div",
-                    { className: "pmtm-actions" },
-                    h(
-                      "button",
-                      {
-                        type: "button",
-                        className: "pmtm-btn secondary small",
-                        onClick: () => setExternalEditing(false),
-                      },
-                      "取消",
-                    ),
-                    h(
-                      "button",
-                      {
-                        type: "button",
-                        className: "pmtm-btn small",
-                        disabled:
-                          externalBusy || externalForm.name.trim() === "",
-                        onClick: () => void saveExternalRuntime(),
-                      },
-                      externalBusy
-                        ? "保存中"
-                        : externalForm.runtimeId === undefined
-                          ? "保存运行时"
-                          : "保存修改",
-                    ),
-                  ),
-                )
-              : visibleExternalRuntimes.length === 0
-                ? h(
-                    "div",
-                    { className: "pmtm-profile-empty tall" },
-                    externalArchivedOnly
-                      ? "还没有已归档的外部 Agent 运行时。"
-                      : "还没有外部 Agent 运行时。",
-                  )
-                : h(
-                    "div",
-                    { className: "pmtm-profile-list" },
-                    visibleExternalRuntimes
-                      .filter(
-                        (runtime) =>
-                          runtime.id === selectedExternalRuntime?.id,
-                      )
-                      .map((runtime) =>
-                      h(
-                        "div",
+                        "select",
                         {
-                          key: runtime.id,
-                          className: `pmtm-profile-item runtime ${externalRuntimeStatusTone(runtime.status)}`,
+                          className: "pmtm-select",
+                          value: externalForm.provider,
+                          onChange: (event) =>
+                            changeExternalProvider(event.target.value),
+                        },
+                        h("option", { value: "codex" }, "Codex"),
+                        h("option", { value: "workbuddy" }, "WorkBuddy"),
+                        h("option", { value: "command" }, "通用命令"),
+                      ),
+                    ),
+                    h(
+                      "label",
+                      { className: "pmtm-field" },
+                      h("span", { className: "label" }, "协议"),
+                      h(
+                        "select",
+                        {
+                          className: "pmtm-select",
+                          value: externalForm.protocol,
+                          onChange: (event) =>
+                            setExternalForm({
+                              ...externalForm,
+                              protocol: event.target.value,
+                            }),
                         },
                         h(
-                          "div",
+                          "option",
+                          {
+                            value: "codex-jsonl",
+                            disabled: externalForm.provider !== "codex",
+                          },
+                          "Codex JSONL",
+                        ),
+                        h(
+                          "option",
+                          {
+                            value: "plain-text",
+                            disabled: externalForm.provider === "codex",
+                          },
+                          "通用 stdin/stdout",
+                        ),
+                      ),
+                    ),
+                    h(
+                      "label",
+                      { className: "pmtm-field" },
+                      h("span", { className: "label" }, "命令"),
+                      h("input", {
+                        className: "pmtm-input",
+                        value: externalForm.command,
+                        onChange: (event) =>
+                          setExternalForm({
+                            ...externalForm,
+                            command: event.target.value,
+                          }),
+                      }),
+                    ),
+                    h(
+                      "section",
+                      { className: "pmtm-config-section" },
+                      h(
+                        "div",
+                        { className: "pmtm-config-section-head" },
+                        h("strong", null, "执行配置"),
+                        h(
+                          "span",
                           null,
+                          "使用可读选项描述 Runtime 的启动方式，平台会自动转换为命令行参数。",
+                        ),
+                      ),
+                      h(
+                        "div",
+                        { className: "pmtm-grid" },
+                        h(
+                          "div",
+                          { className: "pmtm-field wide" },
+                          h("span", { className: "label" }, "支持的常用工具"),
                           h(
                             "div",
-                            { className: "pmtm-runtime-head-line" },
-                            h("strong", null, runtime.name),
-                            h(
-                              "span",
-                              {
-                                className: `pmtm-pill runtime-status ${externalRuntimeStatusTone(runtime.status)}`,
-                              },
-                              externalRuntimeStatusLabel(runtime.status),
+                            {
+                              className: "pmtm-capability-grid",
+                              role: "group",
+                              "aria-label": "Runtime 支持的常用工具",
+                            },
+                            ...EXTERNAL_RUNTIME_TOOLS.map((tool) =>
+                              h(
+                                "label",
+                                {
+                                  className: "pmtm-capability-option",
+                                  key: tool.value,
+                                },
+                                h("input", {
+                                  type: "checkbox",
+                                  checked:
+                                    externalForm.supportedTools?.includes(
+                                      tool.value,
+                                    ) === true,
+                                  onChange: () =>
+                                    toggleExternalTool(tool.value),
+                                }),
+                                tool.label,
+                              ),
+                            ),
+                          ),
+                          h(
+                            "span",
+                            { className: "pmtm-inline-sub" },
+                            "这里声明 Runtime 的技术能力上限；任务是否获准使用公开网页、写文件或执行命令仍由 Task Execution Policy 决定。",
+                          ),
+                        ),
+                        h(
+                          "div",
+                          { className: "pmtm-field wide" },
+                          h(
+                            "span",
+                            { className: "label" },
+                            "支持的模型池（管理员声明）",
+                          ),
+                          h(
+                            "div",
+                            {
+                              className: "pmtm-capability-grid models",
+                              role: "group",
+                              "aria-label": "Runtime 支持的模型",
+                            },
+                            ...externalModelChoices.map((model) =>
+                              h(
+                                "label",
+                                {
+                                  className: "pmtm-capability-option",
+                                  key: model,
+                                },
+                                h("input", {
+                                  type: "checkbox",
+                                  checked:
+                                    externalForm.supportedModels?.includes(
+                                      model,
+                                    ) === true,
+                                  onChange: () => toggleExternalModel(model),
+                                }),
+                                model,
+                              ),
                             ),
                           ),
                           h(
                             "div",
-                            { className: "pmtm-inline-sub" },
-                            `${externalRuntimeProviderLabel(runtime.provider)} · ${externalRuntimeProtocolLabel(runtime.protocol)}`,
+                            { className: "pmtm-model-add" },
+                            h("input", {
+                              className: "pmtm-input",
+                              value: externalForm.modelDraft ?? "",
+                              placeholder: "添加自定义模型 ID",
+                              "aria-label": "自定义模型 ID",
+                              onChange: (event) =>
+                                setExternalForm({
+                                  ...externalForm,
+                                  modelDraft: event.target.value,
+                                }),
+                              onKeyDown: (event) => {
+                                if (event.key !== "Enter") return;
+                                event.preventDefault();
+                                addExternalModel();
+                              },
+                            }),
+                            h(
+                              "button",
+                              {
+                                type: "button",
+                                className: "pmtm-btn secondary small",
+                                disabled:
+                                  String(
+                                    externalForm.modelDraft ?? "",
+                                  ).trim() === "",
+                                onClick: addExternalModel,
+                              },
+                              "加入模型池",
+                            ),
                           ),
                           h(
-                            "div",
+                            "span",
                             { className: "pmtm-inline-sub" },
-                            runtime.command,
-                            runtime.args.length === 0
-                              ? ""
-                              : ` ${runtime.args.join(" ")}`,
+                            "常用候选仅用于快速录入；请添加本机 CLI 实际支持的模型 ID。任务端只会展示这里已勾选的模型。",
                           ),
-                          externalRuntimeBindingCount(runtime) > 0
-                            ? h(
-                                "div",
-                                { className: "pmtm-inline-sub" },
-                                `已绑定 ${externalRuntimeBindingCount(runtime)} 个 AI伙伴`,
-                              )
-                            : null,
-                          runtime.lastProbeMessage !== undefined
-                            ? h(
-                                "div",
-                                { className: "pmtm-inline-sub" },
-                                `${runtime.lastProbeOk === true ? "探测通过" : "探测失败"}：${runtime.lastProbeMessage}`,
-                              )
-                            : null,
                         ),
-                        canManageExternal
-                          ? externalArchivedOnly
-                            ? h(
+                        h(
+                          "label",
+                          { className: "pmtm-field" },
+                          h("span", { className: "label" }, "默认模型"),
+                          h(
+                            "select",
+                            {
+                              className: "pmtm-select",
+                              value: externalForm.defaultModel ?? "",
+                              onChange: (event) =>
+                                setExternalForm({
+                                  ...externalForm,
+                                  defaultModel: event.target.value,
+                                }),
+                            },
+                            h("option", { value: "" }, "沿用 CLI 默认模型"),
+                            ...(externalForm.supportedModels ?? []).map(
+                              (model) =>
+                                h(
+                                  "option",
+                                  { value: model, key: model },
+                                  model,
+                                ),
+                            ),
+                          ),
+                          h(
+                            "span",
+                            { className: "pmtm-inline-sub" },
+                            "未在任务中覆盖时使用；默认模型必须属于上方模型池。",
+                          ),
+                        ),
+                        externalForm.provider === "workbuddy"
+                          ? h(
+                              "label",
+                              { className: "pmtm-field" },
+                              h("span", { className: "label" }, "文件修改权限"),
+                              h(
+                                "select",
+                                {
+                                  className: "pmtm-select",
+                                  value: externalForm.permissionMode,
+                                  onChange: (event) =>
+                                    setExternalForm({
+                                      ...externalForm,
+                                      permissionMode: event.target.value,
+                                    }),
+                                },
+                                h("option", { value: "default" }, "默认权限"),
+                                h(
+                                  "option",
+                                  { value: "plan" },
+                                  "计划模式，不直接修改",
+                                ),
+                                h(
+                                  "option",
+                                  { value: "acceptEdits" },
+                                  "自动接受文件修改",
+                                ),
+                              ),
+                            )
+                          : h(
+                              "div",
+                              { className: "pmtm-field" },
+                              h("span", { className: "label" }, "执行沙箱"),
+                              h(
                                 "div",
-                                { className: "pmtm-actions" },
+                                { className: "pmtm-config-facts" },
                                 h(
-                                  "button",
-                                  {
-                                    type: "button",
-                                    className: "pmtm-btn small",
-                                    disabled: externalBusy,
-                                    onClick: () =>
-                                      void restoreExternalRuntime(runtime),
-                                  },
-                                  "复原",
+                                  "span",
+                                  null,
+                                  externalForm.provider === "codex"
+                                    ? "只读 / 网络受限"
+                                    : "由通用命令自行负责",
                                 ),
-                              )
-                            : h(
-                                "div",
-                                { className: "pmtm-actions" },
-                                h(
-                                  "button",
-                                  {
-                                    type: "button",
-                                    className: "pmtm-btn small",
-                                    disabled: externalBusy,
-                                    onClick: () => startExternalEdit(runtime),
-                                  },
-                                  "编辑",
-                                ),
-                                h(
-                                  "button",
-                                  {
-                                    type: "button",
-                                    className: "pmtm-btn secondary small",
-                                    disabled: externalBusy,
-                                    onClick: () =>
-                                      void probeExternalRuntime(runtime),
-                                  },
-                                  "探测",
-                                ),
-                                h(
-                                  "button",
-                                  {
-                                    type: "button",
-                                    className: "pmtm-btn secondary small",
-                                    disabled: externalBusy,
-                                    onClick: () =>
-                                      void changeExternalState(
-                                        runtime,
-                                        runtime.status === "active"
-                                          ? "disabled"
-                                          : "active",
-                                      ),
-                                  },
-                                  runtime.status === "active" ? "停用" : "启用",
-                                ),
-                                h(
-                                  "button",
-                                  {
-                                    type: "button",
-                                    className: "pmtm-btn danger small",
-                                    disabled: externalBusy,
-                                    onClick: () =>
-                                      setExternalArchiveTarget(runtime),
-                                  },
-                                  "归档",
-                                ),
-                              )
+                              ),
+                            ),
+                        externalForm.provider === "workbuddy"
+                          ? h(
+                              "label",
+                              { className: "pmtm-field" },
+                              h("span", { className: "label" }, "最大执行回合"),
+                              h("input", {
+                                className: "pmtm-input",
+                                type: "number",
+                                min: 1,
+                                max: 100,
+                                value: externalForm.maxTurns,
+                                placeholder: "留空使用 CLI 默认值",
+                                onChange: (event) =>
+                                  setExternalForm({
+                                    ...externalForm,
+                                    maxTurns: event.target.value,
+                                  }),
+                              }),
+                            )
                           : null,
+                        h(
+                          "label",
+                          { className: "pmtm-field" },
+                          h("span", { className: "label" }, "最大上下文窗口"),
+                          h("input", {
+                            className: "pmtm-input",
+                            type: "number",
+                            min: 1_000,
+                            max: 10_000_000,
+                            step: 1_000,
+                            value: externalForm.contextWindowTokens ?? "",
+                            onChange: (event) =>
+                              setExternalForm({
+                                ...externalForm,
+                                contextWindowTokens: event.target.value,
+                              }),
+                          }),
+                          h(
+                            "span",
+                            { className: "pmtm-inline-sub" },
+                            `输入 token；建议值 ${DEFAULT_CONTEXT_WINDOW_TOKENS.toLocaleString("en-US")}。`,
+                          ),
+                        ),
+                        h(
+                          "div",
+                          { className: "pmtm-field wide" },
+                          h("span", { className: "label" }, "平台托管配置"),
+                          h(
+                            "div",
+                            { className: "pmtm-config-facts" },
+                            h(
+                              "span",
+                              null,
+                              `协议：${externalRuntimeProtocolLabel(externalForm.protocol)}`,
+                            ),
+                            h("span", null, "Prompt：stdin"),
+                            h(
+                              "span",
+                              null,
+                              externalForm.provider === "workbuddy"
+                                ? "输出：stream-json"
+                                : externalForm.provider === "codex"
+                                  ? "输出：JSONL"
+                                  : "输出：stdout",
+                            ),
+                          ),
+                        ),
                       ),
                     ),
-                  ),
+                    h(
+                      "section",
+                      {
+                        className:
+                          "pmtm-config-section pmtm-command-preview-section",
+                      },
+                      h(
+                        "div",
+                        { className: "pmtm-config-section-head" },
+                        h("strong", null, "启动命令预览"),
+                        h(
+                          "span",
+                          null,
+                          "根据上方配置自动生成。运行期的工作区、临时文件和任务模型会用占位符或实际值表示。",
+                        ),
+                      ),
+                      h(
+                        "div",
+                        { className: "pmtm-command-preview" },
+                        h("code", null, commandPreview),
+                        h(
+                          "button",
+                          {
+                            type: "button",
+                            className: "pmtm-btn secondary small",
+                            onClick: () => void copyCommandPreview(),
+                          },
+                          "复制",
+                        ),
+                      ),
+                    ),
+                    h(
+                      "section",
+                      {
+                        className: "pmtm-config-section pmtm-advanced-config",
+                      },
+                      h(
+                        "button",
+                        {
+                          type: "button",
+                          className: "pmtm-advanced-toggle",
+                          "aria-expanded": externalForm.advancedOpen === true,
+                          onClick: toggleAdvancedOptions,
+                        },
+                        h(
+                          "span",
+                          { className: "pmtm-advanced-toggle-copy" },
+                          h("strong", null, "高级启动参数"),
+                          h(
+                            "small",
+                            null,
+                            "通常无需修改；只有 CLI 存在额外选项时才需要配置。",
+                          ),
+                        ),
+                        h(
+                          "span",
+                          { className: "pmtm-advanced-badge" },
+                          customArgsCount === 0
+                            ? "推荐配置"
+                            : `已自定义 ${String(customArgsCount)} 项`,
+                        ),
+                        h("span", {
+                          className: `pmtm-advanced-caret${externalForm.advancedOpen === true ? " open" : ""}`,
+                          "aria-hidden": "true",
+                        }),
+                      ),
+                      externalForm.advancedOpen === true
+                        ? h(
+                            "div",
+                            { className: "pmtm-advanced-body" },
+                            h(
+                              "label",
+                              { className: "pmtm-field" },
+                              h("span", { className: "label" }, "额外参数"),
+                              h("textarea", {
+                                className: "pmtm-area pmtm-advanced-args",
+                                rows: 3,
+                                value: externalForm.customArgsText ?? "",
+                                placeholder:
+                                  '例如：--verbose --include-directory "./docs"',
+                                spellCheck: false,
+                                onChange: (event) =>
+                                  setExternalForm({
+                                    ...externalForm,
+                                    customArgsText: event.target.value,
+                                  }),
+                              }),
+                              h(
+                                "span",
+                                { className: "pmtm-inline-sub" },
+                                "只填写追加参数，不要包含命令本身；支持引号，不支持管道、重定向、命令替换或环境变量展开。",
+                              ),
+                            ),
+                            advancedArgsState.error !== ""
+                              ? h(
+                                  "div",
+                                  { className: "pmtm-config-error" },
+                                  advancedArgsState.error,
+                                )
+                              : null,
+                          )
+                        : null,
+                    ),
+                    editFormError === ""
+                      ? null
+                      : h(
+                          "div",
+                          { className: "pmtm-config-error" },
+                          editFormError,
+                        ),
+                    h(
+                      "div",
+                      {
+                        className: "pmtm-actions pmtm-runtime-form-actions",
+                      },
+                      h(
+                        "button",
+                        {
+                          type: "button",
+                          className: "pmtm-btn secondary small",
+                          disabled: customArgsCount === 0,
+                          onClick: resetAdvancedOptions,
+                        },
+                        "恢复推荐配置",
+                      ),
+                      h(
+                        "button",
+                        {
+                          type: "button",
+                          className: "pmtm-btn secondary small",
+                          onClick: () => setExternalEditing(false),
+                        },
+                        "取消",
+                      ),
+                      h(
+                        "button",
+                        {
+                          type: "button",
+                          className: "pmtm-btn small",
+                          disabled:
+                            externalBusy ||
+                            externalForm.name.trim() === "" ||
+                            externalForm.command.trim() === "" ||
+                            editFormError !== "",
+                          onClick: () => void saveExternalRuntime(),
+                        },
+                        externalBusy
+                          ? "保存中"
+                          : externalForm.runtimeId === undefined
+                            ? "保存运行时"
+                            : "保存修改",
+                      ),
+                    ),
+                  )
+                : visibleExternalRuntimes.length === 0
+                  ? h(
+                      "div",
+                      { className: "pmtm-profile-empty tall" },
+                      externalArchivedOnly
+                        ? "还没有已归档的外部 Agent 运行时。"
+                        : "还没有外部 Agent 运行时。",
+                    )
+                  : h(
+                      "div",
+                      { className: "pmtm-profile-list" },
+                      visibleExternalRuntimes
+                        .filter(
+                          (runtime) =>
+                            runtime.id === selectedExternalRuntime?.id,
+                        )
+                        .map((runtime) =>
+                          h(
+                            "div",
+                            {
+                              key: runtime.id,
+                              className: `pmtm-profile-item runtime ${externalRuntimeStatusTone(runtime.status)}`,
+                            },
+                            h(
+                              "div",
+                              null,
+                              h(
+                                "div",
+                                { className: "pmtm-runtime-head-line" },
+                                h("strong", null, runtime.name),
+                                h(
+                                  "span",
+                                  {
+                                    className: `pmtm-pill runtime-status ${externalRuntimeStatusTone(runtime.status)}`,
+                                  },
+                                  externalRuntimeStatusLabel(runtime.status),
+                                ),
+                              ),
+                              h(
+                                "div",
+                                { className: "pmtm-inline-sub" },
+                                `${externalRuntimeProviderLabel(runtime.provider)} · ${externalRuntimeProtocolLabel(runtime.protocol)}`,
+                              ),
+                              h(
+                                "div",
+                                { className: "pmtm-runtime-summary" },
+                                ...runtimeConfigurationLabels(runtime).map(
+                                  (label) => h("span", { key: label }, label),
+                                ),
+                              ),
+                              h(
+                                "div",
+                                { className: "pmtm-inline-sub" },
+                                `启动命令：${runtime.command}`,
+                              ),
+                              externalRuntimeBindingCount(runtime) > 0
+                                ? h(
+                                    "div",
+                                    { className: "pmtm-inline-sub" },
+                                    `已绑定 ${externalRuntimeBindingCount(runtime)} 个 AI伙伴`,
+                                  )
+                                : null,
+                              runtime.lastProbeMessage !== undefined
+                                ? h(
+                                    "div",
+                                    { className: "pmtm-inline-sub" },
+                                    `${runtime.lastProbeOk === true ? "探测通过" : "探测失败"}：${runtime.lastProbeMessage}`,
+                                  )
+                                : null,
+                            ),
+                            canManageExternal
+                              ? externalArchivedOnly
+                                ? h(
+                                    "div",
+                                    { className: "pmtm-actions" },
+                                    h(
+                                      "button",
+                                      {
+                                        type: "button",
+                                        className: "pmtm-btn small",
+                                        disabled: externalBusy,
+                                        onClick: () =>
+                                          void restoreExternalRuntime(runtime),
+                                      },
+                                      "复原",
+                                    ),
+                                  )
+                                : h(
+                                    "div",
+                                    { className: "pmtm-actions" },
+                                    h(
+                                      "button",
+                                      {
+                                        type: "button",
+                                        className: "pmtm-btn small",
+                                        disabled: externalBusy,
+                                        onClick: () =>
+                                          startExternalEdit(runtime),
+                                      },
+                                      "编辑",
+                                    ),
+                                    h(
+                                      "button",
+                                      {
+                                        type: "button",
+                                        className: "pmtm-btn secondary small",
+                                        disabled: externalBusy,
+                                        onClick: () =>
+                                          void probeExternalRuntime(runtime),
+                                      },
+                                      "探测",
+                                    ),
+                                    h(
+                                      "button",
+                                      {
+                                        type: "button",
+                                        className: "pmtm-btn secondary small",
+                                        disabled: externalBusy,
+                                        onClick: () =>
+                                          void changeExternalState(
+                                            runtime,
+                                            runtime.status === "active"
+                                              ? "disabled"
+                                              : "active",
+                                          ),
+                                      },
+                                      runtime.status === "active"
+                                        ? "停用"
+                                        : "启用",
+                                    ),
+                                    h(
+                                      "button",
+                                      {
+                                        type: "button",
+                                        className: "pmtm-btn danger small",
+                                        disabled: externalBusy,
+                                        onClick: () =>
+                                          setExternalArchiveTarget(runtime),
+                                      },
+                                      "归档",
+                                    ),
+                                  )
+                              : null,
+                          ),
+                        ),
+                    ),
           ),
           externalArchiveDialog,
         );
@@ -6892,8 +7931,7 @@ window.__ModuleLoader__.load({
                 type: "button",
                 className: `pmtm-token${scopeAll ? " active" : ""}`,
                 "aria-pressed": scopeAll,
-                title:
-                  "平台全量视图：显示全部账号（含其他用户个人）的 AI伙伴",
+                title: "平台全量视图：显示全部账号（含其他用户个人）的 AI伙伴",
                 onClick: () => {
                   if (!scopeAllRef.current) setScopeView(true);
                 },
@@ -7096,11 +8134,7 @@ window.__ModuleLoader__.load({
                   : tab === "definition"
                     ? renderDefinition(null)
                     : selected === null
-                      ? h(
-                          "div",
-                          { className: "pmtm-empty" },
-                          "还没有 AI伙伴。",
-                        )
+                      ? h("div", { className: "pmtm-empty" }, "还没有 AI伙伴。")
                       : tab === "runtime"
                         ? renderRuntime(selected)
                         : renderDefinition(selected),
@@ -7164,11 +8198,7 @@ window.__ModuleLoader__.load({
                           setCreateInstanceWorkspaceId(event.target.value),
                       },
                       createInstanceWorkspaces.length === 0
-                        ? h(
-                            "option",
-                            { value: "" },
-                            "请先加入一个项目",
-                          )
+                        ? h("option", { value: "" }, "请先加入一个项目")
                         : createInstanceWorkspaces.map((item) =>
                             h(
                               "option",
@@ -7543,143 +8573,148 @@ window.__ModuleLoader__.load({
                   assignCreateOpen
                     ? null
                     : h(
-                    "div",
-                    { className: "pmtm-search-row" },
-                    h("input", {
-                      value: assignQuery,
-                      placeholder: "搜索任务、编号、项目、接收方或状态",
-                      onChange: (event) => setAssignQuery(event.target.value),
-                    }),
-                    h(
-                      "button",
-                      {
-                        type: "button",
-                        className: "pmtm-search-btn",
-                        "aria-label": "搜索任务",
-                      },
-                      "⌕",
-                    ),
-                  ),
-                  assignCreateOpen
-                    ? null
-                    : h(
-                    "div",
-                    { className: "pmtm-filter-row" },
-                    h(
-                      "select",
-                      {
-                        "aria-label": "任务状态",
-                        value: assignStatus,
-                        onChange: (event) =>
-                          setAssignStatus(event.target.value),
-                      },
-                      h("option", { value: "" }, "任务状态"),
-                      h("option", { value: "todo" }, "待处理"),
-                      h("option", { value: "progress" }, "进行中"),
-                      h("option", { value: "review" }, "待验收"),
-                    ),
-                    h(
-                      "select",
-                      {
-                        "aria-label": "优先级",
-                        value: assignPriority,
-                        onChange: (event) =>
-                          setAssignPriority(event.target.value),
-                      },
-                      h("option", { value: "" }, "优先级"),
-                      h("option", { value: "P1" }, "P0"),
-                      h("option", { value: "P2" }, "P1"),
-                      h("option", { value: "P3" }, "P2"),
-                    ),
-                    h(
-                      "select",
-                      {
-                        "aria-label": "项目名称",
-                        value: assignProject,
-                        onChange: (event) =>
-                          setAssignProject(event.target.value),
-                      },
-                      h("option", { value: "" }, "项目名称"),
-                      ...[
-                        ...new Set(
-                          assignTasks.map((task) => task.workspaceTitle),
+                        "div",
+                        { className: "pmtm-search-row" },
+                        h("input", {
+                          value: assignQuery,
+                          placeholder: "搜索任务、编号、项目、接收方或状态",
+                          onChange: (event) =>
+                            setAssignQuery(event.target.value),
+                        }),
+                        h(
+                          "button",
+                          {
+                            type: "button",
+                            className: "pmtm-search-btn",
+                            "aria-label": "搜索任务",
+                          },
+                          "⌕",
                         ),
-                      ].map((title) =>
-                        h("option", { value: title, key: title }, title),
                       ),
-                    ),
-                    h(
-                      "span",
-                      { className: "pmtm-result-count" },
-                      `${String(assignCandidates.length)} 个可选任务`,
-                    ),
-                  ),
                   assignCreateOpen
                     ? null
                     : h(
-                    "div",
-                    { className: "pmtm-assign-list" },
-                    assignCandidates.length === 0
-                      ? h(
-                          "div",
-                          { className: "pmtm-empty" },
-                          "没有可安排的现有任务。",
-                        )
-                      : assignCandidates.map((task) => {
-                          const checked = assignSelected.includes(task.id);
-                          return h(
-                            "button",
-                            {
-                              key: task.id,
-                              type: "button",
-                              className: `pmtm-assign-item${checked ? " selected" : ""}`,
-                              "aria-pressed": checked,
-                              onClick: () =>
-                                setAssignSelected((current) =>
-                                  current.includes(task.id)
-                                    ? current.filter((id) => id !== task.id)
-                                    : [...current, task.id],
-                                ),
-                            },
-                            h(
-                              "span",
-                              null,
-                              h("strong", null, `${task.id} · ${task.title}`),
-                              h(
-                                "span",
-                                { className: "pmtm-assign-meta" },
+                        "div",
+                        { className: "pmtm-filter-row" },
+                        h(
+                          "select",
+                          {
+                            "aria-label": "任务状态",
+                            value: assignStatus,
+                            onChange: (event) =>
+                              setAssignStatus(event.target.value),
+                          },
+                          h("option", { value: "" }, "任务状态"),
+                          h("option", { value: "todo" }, "待处理"),
+                          h("option", { value: "progress" }, "进行中"),
+                          h("option", { value: "review" }, "待验收"),
+                        ),
+                        h(
+                          "select",
+                          {
+                            "aria-label": "优先级",
+                            value: assignPriority,
+                            onChange: (event) =>
+                              setAssignPriority(event.target.value),
+                          },
+                          h("option", { value: "" }, "优先级"),
+                          h("option", { value: "P1" }, "P0"),
+                          h("option", { value: "P2" }, "P1"),
+                          h("option", { value: "P3" }, "P2"),
+                        ),
+                        h(
+                          "select",
+                          {
+                            "aria-label": "项目名称",
+                            value: assignProject,
+                            onChange: (event) =>
+                              setAssignProject(event.target.value),
+                          },
+                          h("option", { value: "" }, "项目名称"),
+                          ...[
+                            ...new Set(
+                              assignTasks.map((task) => task.workspaceTitle),
+                            ),
+                          ].map((title) =>
+                            h("option", { value: title, key: title }, title),
+                          ),
+                        ),
+                        h(
+                          "span",
+                          { className: "pmtm-result-count" },
+                          `${String(assignCandidates.length)} 个可选任务`,
+                        ),
+                      ),
+                  assignCreateOpen
+                    ? null
+                    : h(
+                        "div",
+                        { className: "pmtm-assign-list" },
+                        assignCandidates.length === 0
+                          ? h(
+                              "div",
+                              { className: "pmtm-empty" },
+                              "没有可安排的现有任务。",
+                            )
+                          : assignCandidates.map((task) => {
+                              const checked = assignSelected.includes(task.id);
+                              return h(
+                                "button",
+                                {
+                                  key: task.id,
+                                  type: "button",
+                                  className: `pmtm-assign-item${checked ? " selected" : ""}`,
+                                  "aria-pressed": checked,
+                                  onClick: () =>
+                                    setAssignSelected((current) =>
+                                      current.includes(task.id)
+                                        ? current.filter((id) => id !== task.id)
+                                        : [...current, task.id],
+                                    ),
+                                },
                                 h(
                                   "span",
                                   null,
-                                  `${task.workspaceTitle ?? task.workspaceId} · 更新 ${timeShort(task.updatedAt)}`,
+                                  h(
+                                    "strong",
+                                    null,
+                                    `${task.id} · ${task.title}`,
+                                  ),
+                                  h(
+                                    "span",
+                                    { className: "pmtm-assign-meta" },
+                                    h(
+                                      "span",
+                                      null,
+                                      `${task.workspaceTitle ?? task.workspaceId} · 更新 ${timeShort(task.updatedAt)}`,
+                                    ),
+                                    h(
+                                      "span",
+                                      { className: `pmtm-pill ${task.status}` },
+                                      STATUS_LABEL[task.status] ?? task.status,
+                                    ),
+                                  ),
                                 ),
                                 h(
                                   "span",
-                                  { className: `pmtm-pill ${task.status}` },
-                                  STATUS_LABEL[task.status] ?? task.status,
+                                  { className: "pmtm-assign-trailing" },
+                                  h(
+                                    "span",
+                                    { className: "pmtm-pill" },
+                                    priorityLabel(task.priority),
+                                  ),
+                                  h(
+                                    "span",
+                                    {
+                                      className: "pmtm-check",
+                                      "aria-hidden": "true",
+                                    },
+                                    "✓",
+                                  ),
                                 ),
-                              ),
-                            ),
-                            h(
-                              "span",
-                              { className: "pmtm-assign-trailing" },
-                              h(
-                                "span",
-                                { className: "pmtm-pill" },
-                                priorityLabel(task.priority),
-                              ),
-                              h(
-                                "span",
-                                {
-                                  className: "pmtm-check",
-                                  "aria-hidden": "true",
-                                },
-                                "✓",
-                              ),
-                            ),
-                          );
-                        }),
-                  ),
+                              );
+                            }),
+                      ),
                 ),
                 h(
                   "div",
@@ -7746,8 +8781,7 @@ window.__ModuleLoader__.load({
                           {
                             type: "button",
                             className: "pmtm-btn small",
-                            disabled:
-                              assignSelected.length === 0 || assignBusy,
+                            disabled: assignSelected.length === 0 || assignBusy,
                             onClick: () => void confirmAssign(),
                           },
                           assignBusy ? "指派中…" : "确认指派",
@@ -7844,6 +8878,14 @@ window.__ModuleLoader__.load({
       teammateExecutionPill,
       externalRuntimeOptions,
       unavailableBoundRuntime,
+      parseExternalArgsText,
+      formatExternalArgsText,
+      parseExternalRuntimeArgs,
+      compileExternalRuntimeArgs,
+      externalAdvancedArgError,
+      externalRuntimeFormError,
+      externalCommandPreview,
+      runtimeConfigurationLabels,
     };
     exports.apply = (ctx) => {
       ctx.slots.inject("pluginmax.global", () =>

@@ -498,6 +498,57 @@ describe("external agent runtime", () => {
       status: "disabled",
     });
     expect(disabled.status).toBe("disabled");
+    const renamed = await service.update(owner, {
+      runtimeId: runtime.id,
+      name: "Codex Renamed",
+    });
+    expect(renamed.status).toBe("disabled");
+  });
+
+  it("stores runtime tool capabilities and a coherent model pool", async () => {
+    const table = new FakeTable<ExternalAgentRuntime>();
+    const service = new ExternalAgentRuntimeService(table, { now });
+    const runtime = await service.create(owner, {
+      workspaceId: "main",
+      name: "CodeBuddy Research",
+      provider: "workbuddy",
+      protocol: "plain-text",
+      command: "codebuddy",
+      customArgs: ["--include-directory", "docs"],
+      supportedTools: ["web_search", "web_fetch", "read_file"],
+      supportedModels: ["deepseek-v4-pro", "glm-5.3"],
+      defaultModel: "deepseek-v4-pro",
+      contextWindowTokens: 128_000,
+    });
+    expect(runtime).toMatchObject({
+      supportedTools: ["web_search", "web_fetch", "read_file"],
+      customArgs: ["--include-directory", "docs"],
+      supportedModels: ["deepseek-v4-pro", "glm-5.3"],
+      defaultModel: "deepseek-v4-pro",
+      contextWindowTokens: 128_000,
+    });
+    const updated = await service.update(owner, {
+      runtimeId: runtime.id,
+      customArgs: ["--verbose"],
+      supportedTools: ["web_fetch", "write_file"],
+      supportedModels: ["glm-5.3"],
+      defaultModel: "glm-5.3",
+      contextWindowTokens: 200_000,
+    });
+    expect(updated).toMatchObject({
+      supportedTools: ["web_fetch", "write_file"],
+      customArgs: ["--verbose"],
+      supportedModels: ["glm-5.3"],
+      defaultModel: "glm-5.3",
+      contextWindowTokens: 200_000,
+    });
+    await expect(
+      service.update(owner, {
+        runtimeId: runtime.id,
+        supportedModels: ["glm-5.3"],
+        defaultModel: "deepseek-v4-pro",
+      }),
+    ).rejects.toThrow("invalid request payload");
   });
 
   it("notifies the teammate boundary when an unavailable runtime pauses bindings", async () => {

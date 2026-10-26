@@ -14,5 +14,8 @@ AI Teammate 统一管理面。平台归属的 teammate 与个人归属的数字�
 - 历史迁移：启动时把 Employee Runtime Profile 映射到 Principal Runtime，保留 `employeeId` 只作历史别名。
 - 迁移后优先：一旦绑定 `principalId`，后续派发和高优先级状态判断只走 Principal，不回退到 Employee 运行路径。
 - 产品入口：AI伙伴自行创建和管理，不依赖员工平台页面。
+- 外部 Runtime：注册使用结构化表单描述工具能力、模型池、默认模型、最大上下文窗口、文件修改权限和回合上限；
+  AI伙伴定义态绑定唯一执行 Runtime，任务页只能从该 Runtime 模型池选择本轮模型与推理强度；
+  高级启动参数默认折叠，只接受额外 argv 文本并实时生成只读命令预览；平台托管参数不暴露编辑。
 
 会议里的「本次嘱咐」不在本插件内存储，落在每次派遣生成的委托上。

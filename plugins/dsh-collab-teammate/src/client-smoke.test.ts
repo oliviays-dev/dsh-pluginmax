@@ -61,6 +61,91 @@ interface ClientExports {
       runtimes: readonly { id: string; status: string }[],
       boundId?: string,
     ): { id: string; status: string } | undefined;
+    parseExternalArgsText(value: string): {
+      args: readonly string[];
+      error: string;
+    };
+    formatExternalArgsText(args: readonly string[]): string;
+    parseExternalRuntimeArgs(
+      provider: string,
+      args: readonly string[],
+    ): {
+      modelMode: string;
+      model: string;
+      supportedModels?: readonly string[] | undefined;
+      defaultModel?: string | undefined;
+      supportedTools?: readonly string[] | undefined;
+      customArgs?: readonly string[] | undefined;
+      customArgsText?: string | undefined;
+      searchEnabled: boolean;
+      permissionMode: string;
+      maxTurns: string;
+      ignoredOutputFormat: boolean;
+      advancedArgs?:
+        | readonly {
+            kind: string;
+            name: string;
+            value: string;
+          }[]
+        | undefined;
+    };
+    compileExternalRuntimeArgs(form: {
+      provider: string;
+      modelMode: string;
+      model: string;
+      supportedModels?: readonly string[] | undefined;
+      defaultModel?: string | undefined;
+      supportedTools?: readonly string[] | undefined;
+      searchEnabled: boolean;
+      permissionMode: string;
+      maxTurns: string;
+      advancedArgs: readonly {
+        kind: string;
+        name: string;
+        value: string;
+      }[];
+    }): readonly string[];
+    externalRuntimeFormError(form: {
+      provider: string;
+      modelMode: string;
+      model: string;
+      supportedModels?: readonly string[] | undefined;
+      defaultModel?: string | undefined;
+      maxTurns: string;
+      contextWindowTokens?: string | undefined;
+      customArgsText?: string | undefined;
+      advancedArgs?:
+        | readonly {
+            kind: string;
+            name: string;
+            value: string;
+          }[]
+        | undefined;
+    }): string;
+    runtimeConfigurationLabels(runtime: {
+      provider: string;
+      args: readonly string[];
+      supportedModels?: readonly string[] | undefined;
+      defaultModel?: string | undefined;
+      supportedTools?: readonly string[] | undefined;
+      customArgs?: readonly string[] | undefined;
+      contextWindowTokens?: number | undefined;
+    }): readonly string[];
+    externalCommandPreview(form: {
+      provider: string;
+      protocol: string;
+      command: string;
+      modelMode: string;
+      model: string;
+      supportedModels?: readonly string[] | undefined;
+      defaultModel?: string | undefined;
+      supportedTools?: readonly string[] | undefined;
+      customArgsText?: string | undefined;
+      searchEnabled: boolean;
+      permissionMode: string;
+      maxTurns: string;
+      contextWindowTokens?: string | undefined;
+    }): string;
   };
 }
 
@@ -372,7 +457,31 @@ describe("AI Teammate runtime client", () => {
     expect(source).toContain("/api/collab/agent/external-runtimes/update");
     expect(source).toContain("运行时名称");
     expect(source).toContain("Agent 角色、职责和 SOUL 请在定义态配置");
-    expect(source).toContain("每个 argv token 单独一行");
+    expect(source).toContain("执行配置");
+    expect(source).toContain("支持的常用工具");
+    expect(source).toContain("网页搜索");
+    expect(source).toContain("执行命令");
+    expect(source).toContain("MCP");
+    expect(source).toContain("支持的模型池");
+    expect(source).toContain("默认模型");
+    expect(source).toContain("加入模型池");
+    expect(source).toContain("supportedModels: externalForm.supportedModels");
+    expect(source).toContain("supportedTools: externalForm.supportedTools");
+    expect(source).toContain("启动命令预览");
+    expect(source).toContain("高级启动参数");
+    expect(source).toContain("最大上下文窗口");
+    expect(source).toContain("DEFAULT_CONTEXT_WINDOW_TOKENS");
+    expect(source).toContain("DEFAULT_CONTEXT_WINDOW_TOKENS = 128_000");
+    expect(source).toContain("align-items:start;gap:9px;margin-top:14px");
+    expect(source).toContain(".pmtm-input,.pmtm-select{height:34px");
+    expect(source).toContain("恢复推荐配置");
+    expect(source).toContain("pmtm-runtime-form-actions");
+    expect(source).not.toContain("参数格式有效");
+    expect(source).not.toContain("平台托管参数");
+    expect(source).not.toContain("status: externalForm.active");
+    expect(source).not.toContain("value: externalForm.active");
+    expect(source).not.toContain("添加参数");
+    expect(source).not.toContain("固定参数（每个 argv token 单独一行）");
     expect(source).toContain("pmtm-profile-head-actions");
     expect(source).toContain(".pmtm-instance-exec .pmtm-select{height:34px");
     expect(source).toContain('className: "pmtm-meta secondary"');
@@ -382,6 +491,182 @@ describe("AI Teammate runtime client", () => {
     expect(source).toContain("const openDefinitionForTeammate = (teammate)");
     expect(source).toContain(
       "onClick: () => openDefinitionForTeammate(teammate)",
+    );
+  });
+
+  it("converts runtime args to structured readable configuration", () => {
+    const exported = loadClientExports();
+    const test = exported.__test;
+    const parsed = test?.parseExternalRuntimeArgs("workbuddy", [
+      "/tmp/workbuddy.mjs",
+      "--print",
+      "--model",
+      "hy4",
+      "--permission-mode",
+      "acceptEdits",
+      "--max-turns",
+      "8",
+      "--output-format",
+      "text",
+      "--include-directory",
+      "docs",
+      "extra-token",
+    ]);
+    expect(parsed).toMatchObject({
+      modelMode: "custom",
+      model: "hy4",
+      permissionMode: "acceptEdits",
+      maxTurns: "8",
+      ignoredOutputFormat: true,
+    });
+    expect(parsed?.advancedArgs).toMatchObject([
+      { kind: "positional", value: "/tmp/workbuddy.mjs" },
+      { kind: "keyValue", name: "--include-directory", value: "docs" },
+      { kind: "positional", value: "extra-token" },
+    ]);
+    const compiled = test?.compileExternalRuntimeArgs({
+      provider: "workbuddy",
+      modelMode: "custom",
+      model: "hy4",
+      supportedModels: ["hy4"],
+      defaultModel: "hy4",
+      supportedTools: ["web_search"],
+      searchEnabled: true,
+      permissionMode: "acceptEdits",
+      maxTurns: "8",
+      advancedArgs: parsed?.advancedArgs ?? [],
+    });
+    expect(compiled).toEqual([
+      "/tmp/workbuddy.mjs",
+      "--include-directory",
+      "docs",
+      "extra-token",
+      "--model",
+      "hy4",
+      "--permission-mode",
+      "acceptEdits",
+      "--max-turns",
+      "8",
+    ]);
+    expect(
+      test?.runtimeConfigurationLabels({
+        provider: "workbuddy",
+        args: compiled ?? [],
+        supportedModels: ["hy4"],
+        defaultModel: "hy4",
+        supportedTools: ["web_search"],
+        contextWindowTokens: 128_000,
+      }),
+    ).toEqual([
+      "模型池：1 个",
+      "默认模型：hy4",
+      "工具：网页搜索",
+      "上下文窗口：128K token",
+      "权限：自动接受文件修改",
+      "回合上限：8",
+      "额外参数：3 项",
+    ]);
+  });
+
+  it("validates structured runtime configuration before save", () => {
+    const exported = loadClientExports();
+    const test = exported.__test;
+    expect(
+      test?.externalRuntimeFormError({
+        provider: "codex",
+        modelMode: "custom",
+        model: "",
+        supportedModels: ["gpt-5"],
+        defaultModel: "gpt-5.2-codex",
+        maxTurns: "",
+        advancedArgs: [],
+      }),
+    ).toContain("默认模型必须来自模型池");
+    expect(
+      test?.externalRuntimeFormError({
+        provider: "workbuddy",
+        modelMode: "default",
+        model: "",
+        maxTurns: "1.5",
+        advancedArgs: [],
+      }),
+    ).toContain("1 到 100");
+    expect(
+      test?.externalRuntimeFormError({
+        provider: "command",
+        modelMode: "default",
+        model: "",
+        maxTurns: "",
+        customArgsText: "docs | report",
+      }),
+    ).toContain("不支持 shell 操作符");
+    expect(
+      test?.externalRuntimeFormError({
+        provider: "workbuddy",
+        modelMode: "default",
+        model: "",
+        maxTurns: "",
+        customArgsText: "--effort high",
+      }),
+    ).toContain("推理强度请在任务执行时选择");
+    expect(
+      test?.externalRuntimeFormError({
+        provider: "workbuddy",
+        modelMode: "default",
+        model: "",
+        maxTurns: "",
+        customArgsText: "--print",
+      }),
+    ).toContain("由平台托管");
+    expect(
+      test?.externalRuntimeFormError({
+        provider: "codex",
+        modelMode: "default",
+        model: "",
+        maxTurns: "",
+        contextWindowTokens: "999",
+        customArgsText: "",
+      }),
+    ).toContain("最大上下文窗口");
+  });
+
+  it("parses pasted extra argv and generates an executable preview", () => {
+    const exported = loadClientExports();
+    const test = exported.__test;
+    const parsed = test?.parseExternalArgsText(
+      '--add-dir "./docs and specs" --verbose',
+    );
+    expect(parsed).toEqual({
+      args: ["--add-dir", "./docs and specs", "--verbose"],
+      error: "",
+    });
+    expect(test?.formatExternalArgsText(parsed?.args ?? [])).toBe(
+      '--add-dir "./docs and specs" --verbose',
+    );
+    const form = {
+      provider: "workbuddy",
+      protocol: "plain-text",
+      command: "codebuddy",
+      modelMode: "default",
+      model: "",
+      supportedModels: ["hy3"],
+      defaultModel: "hy3",
+      supportedTools: ["web_search"],
+      customArgsText: '--add-dir "./docs and specs"',
+      searchEnabled: false,
+      permissionMode: "default",
+      maxTurns: "6",
+    };
+    expect(test?.externalCommandPreview(form)).toBe(
+      'codebuddy --add-dir "./docs and specs" --model hy3 --max-turns 6 --print --output-format stream-json',
+    );
+    expect(
+      test?.externalCommandPreview({
+        ...form,
+        customArgsText: "--effort high",
+      }),
+    ).toBe(
+      "codebuddy --model hy3 --max-turns 6 --print --output-format stream-json",
     );
   });
 

@@ -29,3 +29,19 @@ state; it never auto-checks the first step on the user's behalf.
 Rejecting a task also requires a non-empty rejection note. The note is stored in
 task history with `deliveryTarget: receiver`, so the next executor sees the
 reason without relying on a separate comment.
+
+Phase-one execution control adds an optional task execution policy:
+
+- allowed runtime pool and required capabilities;
+- source/citation policy;
+- tool allow/deny/approval categories;
+- evidence and human-gate requirements.
+
+The policy may override model and reasoning effort only from the Runtime already
+bound in the responsible AI teammate's definition. The task UI never changes the
+Runtime itself; humans and built-in teammates do not expose external-model
+overrides.
+
+Task creation remains independent of Team/Delivery. The task plugin exposes an
+aggregated execution view and Execution Gate decisions, but Agent Plan, Run
+Events and Run snapshots remain owned by `dsh-collab-agent`.

@@ -6,5 +6,5 @@ export default defineConfig({
   format: "esm",
   outDir: "lib",
   outExtensions: () => ({ js: ".js", dts: ".d.ts" }),
-  external: ["@pluginmax/shared", "zod"],
+  external: ["@pluginmax/contracts", "@pluginmax/shared", "zod"],
 });

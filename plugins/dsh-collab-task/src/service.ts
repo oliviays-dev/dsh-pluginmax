@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { taskExecutionPolicySchema } from "@pluginmax/contracts";
 import {
   taskCommentSchema,
   taskEventSchema,
@@ -95,11 +96,7 @@ export interface WorkflowTaskEventProjection {
 export class TaskError extends Error {
   constructor(
     readonly code:
-      | "invalid_input"
-      | "unauthorized"
-      | "forbidden"
-      | "not_found"
-      | "conflict",
+      "invalid_input" | "unauthorized" | "forbidden" | "not_found" | "conflict",
     message: string,
   ) {
     super(message);
@@ -140,6 +137,7 @@ const createInputSchema = z.object({
   receiverName: z.string().max(200).optional(),
   description: z.string().min(1).max(20000),
   acceptance: z.array(z.string().min(1).max(500)).min(1).max(30),
+  executionPolicy: taskExecutionPolicySchema.optional(),
   due: z.string().max(40).optional(),
   links: z
     .array(
@@ -161,6 +159,7 @@ const updateInputSchema = z.object({
   priority: z.enum(["P1", "P2", "P3"]),
   description: z.string().min(1).max(20000),
   acceptance: z.array(z.string().min(1).max(500)).min(1).max(30),
+  executionPolicy: taskExecutionPolicySchema.optional(),
   due: z.string().max(40).optional(),
   autoSubmitReview: z.boolean().optional(),
 });
@@ -772,6 +771,9 @@ export class TaskService {
       createdByName: actor.name,
       description: parsed.description,
       acceptance: parsed.acceptance,
+      ...(parsed.executionPolicy === undefined
+        ? {}
+        : { executionPolicy: parsed.executionPolicy }),
       ...(parsed.due === undefined ? {} : { due: parsed.due }),
       links: parsed.links,
       ...(parsed.workflow === undefined ? {} : { workflow: parsed.workflow }),
@@ -822,6 +824,9 @@ export class TaskService {
           priority: parsed.priority,
           description: parsed.description,
           acceptance: parsed.acceptance,
+          ...(parsed.executionPolicy === undefined
+            ? {}
+            : { executionPolicy: parsed.executionPolicy }),
           steps,
           progress: progressForSteps(steps),
           ...(parsed.due === undefined

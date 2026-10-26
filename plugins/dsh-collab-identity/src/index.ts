@@ -1122,6 +1122,8 @@ async function syncAccountPrincipal(
     name: user.name,
     status: user.status,
   });
+  // Archived principals cannot receive grants; skip instead of failing boot.
+  if (principal.status === "archived") return;
   await principals.syncExclusiveGrant({
     principalId: principal.id,
     scopeType: "platform",

@@ -5,6 +5,9 @@
       "path": "packages/shared"
     },
     {
+      "path": "packages/contracts"
+    },
+    {
       "path": "plugins/dsh-collab-shell"
     },
     {
