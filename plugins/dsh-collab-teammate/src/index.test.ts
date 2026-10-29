@@ -20,6 +20,7 @@ import type {
 import {
   calculateInstanceLastUsedAt,
   calculateTeammateActivity,
+  calculateTeammateWorkload,
   isInstanceOwnedPersona,
   taskIdsExecutedByPersona,
 } from "./index.js";
@@ -316,6 +317,107 @@ describe("dsh-collab-teammate service", () => {
     expect(activity[0]?.instance.meetingCount).toBe(1);
   });
 
+  it("builds 24/72 hour AI partner workload with blockers", () => {
+    const now = new Date("2026-10-14T12:00:00.000Z");
+    const iso = (hours: number) =>
+      new Date(now.getTime() + hours * 3_600_000).toISOString();
+    const snapshot = calculateTeammateWorkload({
+      teammates: [
+        {
+          ...definition("tm-active", "personal", "active", "研究伙伴"),
+          role: "研究员",
+          employeeId: "emp-active",
+        },
+        {
+          ...definition("tm-idle", "personal", "active", "复盘伙伴"),
+          role: "复盘",
+          employeeId: "emp-idle",
+        },
+      ],
+      tasks: [
+        {
+          id: "task-1",
+          workspaceId: "main",
+          title: "竞品分析",
+          status: "progress",
+          receiverType: "agent",
+          receiverId: "tm-active",
+          needsInput: true,
+          createdAt: iso(-60),
+          updatedAt: iso(-10),
+          messages: [
+            {
+              content: "等待补充数据",
+              runId: "run-24",
+              state: "waiting_input",
+            },
+          ],
+        },
+      ],
+      agents: {
+        runs: () => [
+          {
+            id: "run-24",
+            instanceId: "task-1",
+            employeeId: "emp-active",
+            status: "waiting_input",
+            runSeq: 1,
+            nodeId: "task",
+            outputTokens: 100,
+            startedAt: iso(-12),
+            endedAt: iso(-11),
+            createdAt: iso(-12),
+          },
+          {
+            id: "run-72",
+            instanceId: "task-1",
+            employeeId: "emp-active",
+            status: "succeeded",
+            runSeq: 2,
+            nodeId: "task",
+            outputTokens: 200,
+            startedAt: iso(-48),
+            endedAt: iso(-47),
+            createdAt: iso(-48),
+          },
+          {
+            id: "run-old",
+            instanceId: "old",
+            employeeId: "emp-idle",
+            status: "succeeded",
+            runSeq: 1,
+            nodeId: "task",
+            outputTokens: 50,
+            startedAt: iso(-80),
+            endedAt: iso(-79),
+            createdAt: iso(-80),
+          },
+        ],
+      },
+      workspaces: { list: () => [{ id: "main" }] },
+      now,
+    });
+    const active = snapshot.items.find((item) => item.teammateId === "tm-active");
+    const idle = snapshot.items.find((item) => item.teammateId === "tm-idle");
+    expect(active?.hasRunIn72h).toBe(true);
+    expect(active?.last24h).toMatchObject({
+      taskCount: 1,
+      outputTokens: 100,
+      blockedTaskCount: 1,
+    });
+    expect(active?.last72h).toMatchObject({
+      taskCount: 1,
+      outputTokens: 300,
+    });
+    expect(active?.blockers[0]).toMatchObject({
+      taskId: "task-1",
+      reason: "等待补充信息",
+    });
+    expect(idle?.hasRunIn72h).toBe(false);
+    expect(snapshot.activeCount).toBe(1);
+    expect(snapshot.inactiveCount).toBe(1);
+  });
+
   it("counts workflow runs through the teammate's bound Agent Profile", () => {
     const now = new Date("2026-10-09T12:00:00.000Z");
     const iso = (hours: number) =>
@@ -608,6 +710,113 @@ describe("dsh-collab-teammate service", () => {
       name: "平台自定义 Facilitator",
       state: "archived",
     });
+  });
+
+  it("seeds data-agent as an idempotent protected system identity", async () => {
+    const tables = {
+      teammates: memoryTable<Teammate>(),
+      events: memoryTable<TeammateEvent>(),
+    };
+    const templates = templateService();
+    const teammates = service(tables, templates);
+    const legacySeed = {
+      id: "data-agent",
+      templateId: "sys-data-agent",
+      systemKey: "data-agent" as const,
+      name: "Data Agent",
+      role: "高级数据分析师",
+      tools: ["read_file", "mcp"],
+    };
+    const first = await teammates.ensureSeededPlatformTeammate(legacySeed);
+    const second = await teammates.ensureSeededPlatformTeammate({
+      ...legacySeed,
+      tools: [
+        "entity.read",
+        "metric.query",
+        "dataset.query.readonly",
+        "report.render",
+        "artifact.write",
+      ],
+    });
+
+    expect(second.id).toBe(first.id);
+    expect(first).toMatchObject({
+      id: "data-agent",
+      templateId: "sys-data-agent",
+      systemKey: "data-agent",
+      protected: {
+        deletable: false,
+        archivable: false,
+        templateSwitchable: false,
+      },
+      state: "active",
+    });
+    expect(templates.get("sys-data-agent")).toMatchObject({
+      systemKey: "data-agent",
+      state: "active",
+      tools: [
+        "entity.read",
+        "metric.query",
+        "dataset.query.readonly",
+        "report.render",
+        "artifact.write",
+      ],
+      version: "v1.1",
+    });
+    expect(teammates.listInstances(admin)[0]?.id).toBe("data-agent");
+    await expect(
+      teammates.archiveInstanceRecord(admin, "data-agent"),
+    ).rejects.toMatchObject({ code: "system_agent_protected" });
+    await expect(
+      teammates.changeState(admin, {
+        teammateId: "data-agent",
+        state: "paused",
+      }),
+    ).rejects.toMatchObject({ code: "system_agent_protected" });
+    await expect(
+      teammates.updateInstanceProfile(admin, {
+        teammateId: "data-agent",
+        name: "Renamed",
+        description: "",
+      }),
+    ).rejects.toMatchObject({ code: "system_agent_protected" });
+    await expect(
+      teammates.switchTemplate(admin, {
+        teammateId: "data-agent",
+        templateId: "sys-data-agent",
+      }),
+    ).rejects.toMatchObject({ code: "system_agent_protected" });
+    await expect(
+      templates.update(olivia, {
+        templateId: "sys-data-agent",
+        name: "Changed",
+      }),
+    ).rejects.toMatchObject({ code: "system_agent_protected" });
+    const beforeAdminEdit = templates.get("sys-data-agent");
+    if (beforeAdminEdit === undefined) {
+      throw new Error("seeded template not found");
+    }
+    const changed = await templates.update(admin, {
+      templateId: "sys-data-agent",
+      name: "Changed",
+      role: "平台数据分析师",
+      soul: "仅平台管理员可维护。",
+    });
+    expect(changed).toMatchObject({
+      id: "sys-data-agent",
+      name: "Changed",
+      role: "平台数据分析师",
+      soul: "仅平台管理员可维护。",
+      systemKey: "data-agent",
+      state: "active",
+      version: nextVersion(beforeAdminEdit.version),
+    });
+    await expect(
+      templates.changeState(admin, {
+        templateId: "sys-data-agent",
+        state: "archived",
+      }),
+    ).rejects.toMatchObject({ code: "system_agent_protected" });
   });
 
   it("switches an instance template reference without copying definition fields", async () => {

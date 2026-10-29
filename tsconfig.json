@@ -41,6 +41,9 @@
       "path": "plugins/dsh-collab-agent"
     },
     {
+      "path": "plugins/dsh-collab-data-agent"
+    },
+    {
       "path": "plugins/dsh-collab-employee"
     },
     {
@@ -48,6 +51,15 @@
     },
     {
       "path": "plugins/dsh-collab-workbench"
+    },
+    {
+      "path": "plugins/dsh-collab-workbench-v2"
+    },
+    {
+      "path": "plugins/dsh-collab-workbench-panels"
+    },
+    {
+      "path": "plugins/dsh-collab-resource-market"
     }
   ]
 }

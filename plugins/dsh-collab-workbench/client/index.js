@@ -2236,7 +2236,7 @@ ${SCOPE_BUTTON_STYLES}
 
     // -------------------------------------------------------------------- page
 
-    function WorkbenchPage() {
+    function WorkbenchPage(props) {
       const [mode, setMode] = react.useState("personal");
       const [modules, setModules] = react.useState({});
       const [states, setStates] = react.useState({});
@@ -3711,6 +3711,7 @@ ${SCOPE_BUTTON_STYLES}
               },
               ICONS.refresh,
             ),
+            props.renderActions?.() ?? null,
             h(
               "button",
               {
@@ -3745,7 +3746,7 @@ ${SCOPE_BUTTON_STYLES}
       const useShellRoute = props?.useShellRoute;
       const route = useShellRoute?.((state) => state.route);
       if (route !== "workbench") return null;
-      return h(WorkbenchPage, {});
+      return h(WorkbenchPage, props);
     }
 
     exports.__test = { navigateTo, itemReadSignature, filterUnreadItems };

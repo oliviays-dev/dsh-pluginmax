@@ -10,9 +10,12 @@ import {
   type BriefLiveState,
 } from "./brief.js";
 import {
+  DEFAULT_BRIEF_INCLUDE_TYPES,
   briefItemKey,
   followKey,
   type BriefItemRecord,
+  type BriefCustomRule,
+  type BriefIncludeType,
   type BriefReader,
   type FollowRecord,
   type FollowType,
@@ -2156,6 +2159,142 @@ export class WorkbenchService {
     );
   }
 
+  private briefRuleKeywords(prompt: string): string[] {
+    const keywords: string[] = [];
+    for (const line of prompt.split(/\r?\n/u)) {
+      const labeled = line.match(
+        /(?:关键词|匹配词|包含(?:关键词|词语)?)\s*[：:]\s*(.+)$/iu,
+      );
+      if (labeled?.[1] !== undefined) {
+        keywords.push(
+          ...labeled[1]
+            .split(/[、,，;；]+/u)
+            .map((value) => value.trim())
+            .filter((value) => value !== ""),
+        );
+      }
+    }
+    for (const match of prompt.matchAll(
+      /["“”'‘’`]([^"“”'‘’`]{2,40})["“”'‘’`]/gu,
+    )) {
+      if (match[1] !== undefined) keywords.push(match[1].trim());
+    }
+    return [...new Set(keywords)]
+      .filter((value) => value.length >= 2)
+      .slice(0, 12);
+  }
+
+  private briefRuleSections(
+    prompt: string,
+  ): ReadonlySet<BriefItemRecord["section"]> {
+    const scope = prompt.match(
+      /(?:仅纳入|只纳入|仅看|只看)([^\n。；;]+)/u,
+    )?.[1];
+    if (scope === undefined) return new Set();
+    const sections = new Set<BriefItemRecord["section"]>();
+    if (/风险|异常/u.test(scope)) sections.add("risk");
+    if (/升级|催办|审批/u.test(scope)) sections.add("escalation");
+    if (/结论|验收/u.test(scope)) sections.add("conclusion");
+    return sections;
+  }
+
+  private customBriefCandidates(
+    candidates: readonly BriefCandidate[],
+    rules: readonly BriefCustomRule[],
+  ): BriefCandidate[] {
+    const custom: BriefCandidate[] = [];
+    for (const rule of rules) {
+      if (rule.enabled === false) continue;
+      const keywords = this.briefRuleKeywords(rule.prompt);
+      if (keywords.length === 0) continue;
+      const sections = this.briefRuleSections(rule.prompt);
+      const matched = candidates
+        .filter((candidate) => {
+          if (sections.size > 0 && !sections.has(candidate.section)) {
+            return false;
+          }
+          const searchable = [
+            candidate.title,
+            candidate.conclusion,
+            candidate.reason,
+            candidate.workspaceName,
+            candidate.statusLabel,
+          ]
+            .join("\n")
+            .normalize("NFKC")
+            .toLocaleLowerCase("zh-CN");
+          return keywords.some((keyword) =>
+            searchable.includes(
+              keyword.normalize("NFKC").toLocaleLowerCase("zh-CN"),
+            ),
+          );
+        })
+        .sort(
+          (left, right) =>
+            right.priorityScore - left.priorityScore ||
+            right.occurredAt.localeCompare(left.occurredAt),
+        );
+      if (matched.length === 0) continue;
+      const lead = matched[0]!;
+      const section = matched.some((candidate) => candidate.section === "risk")
+        ? "risk"
+        : matched.some((candidate) => candidate.section === "escalation")
+          ? "escalation"
+          : "conclusion";
+      const visible = matched.slice(0, 6).map(
+        (candidate) =>
+          `- ${clip(candidate.title, 80)}：${clip(
+            candidate.statusLabel || candidate.conclusion,
+            140,
+          )}`,
+      );
+      if (matched.length > visible.length) {
+        visible.push(`- 另有 ${matched.length - visible.length} 条命中事项`);
+      }
+      const promptSummary = clip(rule.prompt.replace(/\s+/gu, " "), 300);
+      custom.push({
+        itemId: `D:rule:${rule.id}`,
+        section,
+        tag: "conclusion",
+        title: rule.name,
+        conclusion: `命中 ${matched.length} 条事项：\n${visible.join("\n")}`,
+        reason: clip(
+          `入选原因：命中自定义 Brief「${rule.name}」。规则：${promptSummary}`,
+          400,
+        ),
+        executorName: "自定义规则",
+        executorRole: "Brief 设置",
+        sourceDomain: lead.sourceDomain,
+        sourceId: rule.id,
+        statusLabel: "自定义规则",
+        actionLabel: "查看来源",
+        priorityScore: Math.max(
+          ...matched.map((candidate) => candidate.priorityScore),
+        ),
+        occurredAt: matched
+          .map((candidate) => candidate.occurredAt)
+          .sort((left, right) => right.localeCompare(left))[0]!,
+        deepLink: lead.deepLink,
+        workspaceId: lead.workspaceId,
+        workspaceName: lead.workspaceName,
+        condition: lead.condition,
+      });
+    }
+    return custom;
+  }
+
+  private briefIncludeTypeFor(candidate: BriefCandidate): BriefIncludeType {
+    if (candidate.condition.kind === "run-terminal") return "run_terminal";
+    if (candidate.condition.kind === "workflow-blocked") {
+      return "workflow_blocked";
+    }
+    if (candidate.condition.kind === "workflow-approval") {
+      return "workflow_approval";
+    }
+    if (candidate.condition.kind === "task-review") return "task_review";
+    return candidate.tag === "nudge" ? "task_nudge" : "task_escalation";
+  }
+
   private nodeName(
     instance: WorkflowInstanceLike,
     nodeId: string,
@@ -2191,6 +2330,8 @@ export class WorkbenchService {
       settings: {
         mode: "lastLeave" | "manual";
         manualWindowFrom?: string | undefined;
+        includeTypes: BriefIncludeType[];
+        customRules: BriefCustomRule[];
       };
     }>
   > {
@@ -2204,17 +2345,40 @@ export class WorkbenchService {
       tzOffsetMinutes: options.tzOffsetMinutes,
     });
     const snapshot = this.briefSnapshot(principal);
-    const candidates = this.briefCandidates(
+    const includeTypes = new Set(
+      reader?.includeTypes ?? DEFAULT_BRIEF_INCLUDE_TYPES,
+    );
+    const allCandidates = this.briefCandidates(
       principal,
       options,
       window,
       snapshot,
     );
+    const candidates = allCandidates.filter((candidate) =>
+      includeTypes.has(this.briefIncludeTypeFor(candidate)),
+    );
+    candidates.push(
+      ...this.customBriefCandidates(
+        allCandidates,
+        reader?.customRules ?? [],
+      ),
+    );
+    const activeCustomItems = new Set(
+      candidates
+        .filter((candidate) => candidate.itemId.startsWith("D:rule:"))
+        .map((candidate) => candidate.itemId),
+    );
     const stored = this.readerItems(principal.userId);
     const existing = this.migrateLegacyConclusionItems(
       this.migrateLegacyRiskItems(stored, snapshot),
       snapshot,
-    ).map((item) => this.refreshStoredConclusion(item, snapshot));
+    )
+      .filter(
+        (item) =>
+          !item.itemId.startsWith("D:rule:") ||
+          activeCustomItems.has(item.itemId),
+      )
+      .map((item) => this.refreshStoredConclusion(item, snapshot));
     const override = new Map(
       candidates.map((candidate) => [
         candidate.itemId,
@@ -2251,11 +2415,14 @@ export class WorkbenchService {
       );
     }
     await this.tables.briefReaders.put(principal.userId, {
-      readerId: principal.userId,
+      ...(reader ?? { readerId: principal.userId }),
       lastMergeAt: now.toISOString(),
       ...(reader?.lastSeenAt === undefined
         ? {}
         : { lastSeenAt: reader.lastSeenAt }),
+      includeTypes:
+        reader?.includeTypes ?? [...DEFAULT_BRIEF_INCLUDE_TYPES],
+      customRules: reader?.customRules ?? [],
       updatedAt: now.toISOString(),
     });
     return {
@@ -2273,6 +2440,10 @@ export class WorkbenchService {
         settings: {
           mode: reader?.briefMode ?? "lastLeave",
           manualWindowFrom: reader?.manualWindowFrom,
+          includeTypes: reader?.includeTypes ?? [
+            ...DEFAULT_BRIEF_INCLUDE_TYPES,
+          ],
+          customRules: reader?.customRules ?? [],
         },
       },
     };
@@ -2283,10 +2454,14 @@ export class WorkbenchService {
     input: {
       mode: "lastLeave" | "manual";
       manualWindowFrom?: string | undefined;
+      includeTypes?: BriefIncludeType[] | undefined;
+      customRules?: BriefCustomRule[] | undefined;
     },
   ): Promise<{
     mode: "lastLeave" | "manual";
     manualWindowFrom?: string | undefined;
+    includeTypes: BriefIncludeType[];
+    customRules: BriefCustomRule[];
   }> {
     const existing = this.tables.briefReaders.get(principal.userId);
     const now = nowIso(() => this.now());
@@ -2302,6 +2477,11 @@ export class WorkbenchService {
       ...(input.mode === "manual" && input.manualWindowFrom !== undefined
         ? { manualWindowFrom: input.manualWindowFrom }
         : {}),
+      includeTypes:
+        input.includeTypes ?? existing?.includeTypes ?? [
+          ...DEFAULT_BRIEF_INCLUDE_TYPES,
+        ],
+      customRules: input.customRules ?? existing?.customRules ?? [],
       updatedAt: now,
     });
     return {
@@ -2309,6 +2489,11 @@ export class WorkbenchService {
       ...(input.mode === "manual" && input.manualWindowFrom !== undefined
         ? { manualWindowFrom: input.manualWindowFrom }
         : {}),
+      includeTypes:
+        input.includeTypes ?? existing?.includeTypes ?? [
+          ...DEFAULT_BRIEF_INCLUDE_TYPES,
+        ],
+      customRules: input.customRules ?? existing?.customRules ?? [],
     };
   }
 
@@ -2338,10 +2523,13 @@ export class WorkbenchService {
     const existing = this.tables.briefReaders.get(principal.userId);
     const now = nowIso(() => this.now());
     void this.tables.briefReaders.put(principal.userId, {
-      readerId: principal.userId,
+      ...(existing ?? { readerId: principal.userId }),
       ...(existing?.lastMergeAt === undefined
         ? {}
         : { lastMergeAt: existing.lastMergeAt }),
+      includeTypes:
+        existing?.includeTypes ?? [...DEFAULT_BRIEF_INCLUDE_TYPES],
+      customRules: existing?.customRules ?? [],
       lastSeenAt: now,
       updatedAt: now,
     });

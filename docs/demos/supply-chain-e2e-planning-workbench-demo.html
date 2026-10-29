@@ -1,0 +1,2026 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>DSH Enterprise+ · 端到端计划工作台</title>
+  <style>
+    :root {
+      --dsw-alias-bg-base: #0f1116;
+      --dsw-alias-bg-layer-1: #161a21;
+      --dsw-alias-bg-layer-2: #1d222b;
+      --dsw-alias-bg-layer-3: #262c37;
+      --dsw-alias-border-l2: #2a303b;
+      --dsw-alias-border-l3: #353c49;
+      --dsw-alias-border-l4: #4a5363;
+      --dsw-alias-label-primary: #e8ecf3;
+      --dsw-alias-label-secondary: #a2abba;
+      --dsw-alias-label-tertiary: #707a8a;
+      --dsw-alias-label-primary-foreground: #ffffff;
+      --dsw-alias-button-primary-fill: #4f8ef7;
+      --dsw-alias-accent-primary: #4f8ef7;
+      --dsw-alias-state-success-primary: #34d47e;
+      --dsw-alias-state-warning-primary: #e2a737;
+      --dsw-alias-state-error-primary: #e5534b;
+      --dsw-alias-agent-primary: #8b7bf7;
+      --dsw-alias-brand-primary: #4f8ef7;
+
+      --fs-page: 19px;
+      --fs-detail: 16px;
+      --fs-title: 14px;
+      --fs-body: 13px;
+      --fs-secondary: 12px;
+      --fs-caption: 11px;
+      --fs-micro: 10px;
+
+      --radius-chip: 4px;
+      --radius-control: 6px;
+      --radius-card: 7px;
+      --radius-panel: 8px;
+
+      --shadow-1: 0 12px 28px rgba(0, 0, 0, .18);
+      --shadow-2: 0 14px 34px rgba(0, 0, 0, .28);
+      --shadow-3: 0 18px 48px rgba(0, 0, 0, .35);
+      --focus-ring: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-accent-primary) 45%, transparent);
+    }
+
+    html[data-theme="light"] {
+      --dsw-alias-bg-base: #f5f7fa;
+      --dsw-alias-bg-layer-1: #ffffff;
+      --dsw-alias-bg-layer-2: #eef1f5;
+      --dsw-alias-bg-layer-3: #e5e9f0;
+      --dsw-alias-border-l2: #e2e6ed;
+      --dsw-alias-border-l3: #d2d8e2;
+      --dsw-alias-border-l4: #b7c0cd;
+      --dsw-alias-label-primary: #1a1f29;
+      --dsw-alias-label-secondary: #596273;
+      --dsw-alias-label-tertiary: #8a93a2;
+      --dsw-alias-label-primary-foreground: #ffffff;
+      --dsw-alias-button-primary-fill: #2f6feb;
+      --dsw-alias-accent-primary: #2f6feb;
+      --dsw-alias-state-success-primary: #1f8f53;
+      --dsw-alias-state-warning-primary: #b7791f;
+      --dsw-alias-state-error-primary: #d0453b;
+      --dsw-alias-agent-primary: #7a5af8;
+      --dsw-alias-brand-primary: #2f6feb;
+      --shadow-1: 0 12px 28px rgba(20, 30, 50, .10);
+      --shadow-2: 0 14px 34px rgba(20, 30, 50, .16);
+      --shadow-3: 0 18px 48px rgba(20, 30, 50, .22);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body {
+      margin: 0;
+      background: var(--dsw-alias-bg-base);
+      color: var(--dsw-alias-label-primary);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      font-size: var(--fs-body);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+    button, input, select, textarea { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    button:disabled { cursor: default; }
+    button:focus-visible, [tabindex]:focus-visible {
+      outline: none;
+      box-shadow: var(--focus-ring);
+    }
+    svg { display: block; }
+    .i { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .i-sm { width: 13px; height: 13px; }
+    .i-lg { width: 18px; height: 18px; }
+    .sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+    .sr-only {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+    }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb {
+      background: var(--dsw-alias-border-l3);
+      border: 2px solid transparent;
+      border-radius: 999px;
+      background-clip: padding-box;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 232px minmax(0, 1fr);
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      background: var(--dsw-alias-bg-layer-1);
+      border-right: 1px solid var(--dsw-alias-border-l2);
+    }
+    .brand {
+      height: 56px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      flex: none;
+      padding: 0 14px;
+      border-bottom: 1px solid var(--dsw-alias-border-l2);
+    }
+    .brand-mark {
+      width: 29px;
+      height: 29px;
+      flex: none;
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 2px;
+      padding: 5px;
+      color: var(--dsw-alias-label-primary-foreground);
+      background: var(--dsw-alias-brand-primary);
+      border-radius: var(--radius-card);
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, #fff 18%, transparent);
+    }
+    .brand-mark span { border-radius: 1px; background: currentColor; opacity: .94; }
+    .brand-copy { min-width: 0; }
+    .brand-copy strong { display: block; font-size: 13px; font-weight: 700; line-height: 1.2; }
+    .brand-copy small { display: block; margin-top: 2px; color: var(--dsw-alias-label-tertiary); font-size: 10px; line-height: 1.2; }
+    .sidebar-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 9px 12px; }
+    .nav-group + .nav-group { margin-top: 14px; }
+    .nav-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 7px;
+      margin-bottom: 4px;
+      color: var(--dsw-alias-label-tertiary);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .06em;
+    }
+    .nav-item {
+      width: 100%;
+      min-height: 34px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 8px;
+      border: 0;
+      border-radius: var(--radius-control);
+      background: transparent;
+      color: var(--dsw-alias-label-secondary);
+      text-align: left;
+    }
+    .nav-item:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-2); }
+    .nav-item.active {
+      color: var(--dsw-alias-label-primary);
+      background: color-mix(in srgb, var(--dsw-alias-accent-primary) 13%, transparent);
+      box-shadow: inset 2px 0 0 var(--dsw-alias-accent-primary);
+    }
+    .nav-item.active .i { color: var(--dsw-alias-accent-primary); }
+    .nav-item span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .nav-badge {
+      min-width: 19px;
+      height: 17px;
+      display: grid;
+      place-items: center;
+      padding: 0 5px;
+      border-radius: 999px;
+      color: var(--dsw-alias-label-secondary);
+      background: var(--dsw-alias-bg-layer-3);
+      font-size: 9px;
+      font-weight: 700;
+    }
+    .nav-badge.hot { color: var(--dsw-alias-state-error-primary); background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 14%, transparent); }
+    .nav-switch {
+      min-height: 31px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: -1px 0 4px 25px;
+      padding: 5px 7px;
+      border: 1px solid var(--dsw-alias-border-l3);
+      border-radius: var(--radius-control);
+      color: var(--dsw-alias-label-secondary);
+      background: var(--dsw-alias-bg-layer-2);
+      font-size: 11px;
+      text-align: left;
+    }
+    .nav-switch strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-primary); font-size: 11px; font-weight: 600; }
+    .workspace-group { display: grid; gap: 1px; margin-top: 5px; }
+    .workspace-item {
+      width: 100%;
+      min-height: 38px;
+      display: grid;
+      grid-template-columns: 20px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 7px;
+      border: 0;
+      border-radius: var(--radius-control);
+      background: transparent;
+      color: var(--dsw-alias-label-secondary);
+      text-align: left;
+    }
+    .workspace-item:hover { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
+    .workspace-item.active { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
+    .workspace-icon {
+      width: 20px;
+      height: 20px;
+      display: grid;
+      place-items: center;
+      border-radius: 5px;
+      color: var(--dsw-alias-accent-primary);
+      background: color-mix(in srgb, var(--dsw-alias-accent-primary) 13%, transparent);
+    }
+    .workspace-copy { min-width: 0; }
+    .workspace-copy strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }
+    .workspace-copy small { display: block; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-tertiary); font-size: 10px; }
+    .workspace-meta { color: var(--dsw-alias-state-error-primary); font-size: 9px; font-weight: 700; }
+    .sidebar-foot {
+      flex: none;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 10px 11px;
+      border-top: 1px solid var(--dsw-alias-border-l2);
+    }
+    .avatar {
+      width: 27px;
+      height: 27px;
+      flex: none;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      color: #fff;
+      background: #456fbe;
+      font-size: 9px;
+      font-weight: 800;
+    }
+    .avatar.human-2 { background: #a75c44; }
+    .avatar.human-3 { background: #2f7f70; }
+    .avatar.ai {
+      background: conic-gradient(from 200deg, #826cf2, #4f8ef7, #41a5b7, #ff79b8, #826cf2);
+      box-shadow: inset 0 0 0 2px var(--dsw-alias-bg-layer-1);
+    }
+    .account-copy { min-width: 0; flex: 1; }
+    .account-copy strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 600; }
+    .account-copy small { display: block; color: var(--dsw-alias-label-tertiary); font-size: 9px; }
+    .icon-btn {
+      width: 29px;
+      height: 29px;
+      display: inline-grid;
+      place-items: center;
+      flex: none;
+      padding: 0;
+      border: 1px solid var(--dsw-alias-border-l3);
+      border-radius: var(--radius-control);
+      color: var(--dsw-alias-label-secondary);
+      background: var(--dsw-alias-bg-layer-1);
+    }
+    .icon-btn:hover { color: var(--dsw-alias-label-primary); border-color: var(--dsw-alias-border-l4); background: var(--dsw-alias-bg-layer-2); }
+
+    .main { min-width: 0; }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 25;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 18px;
+      background: color-mix(in srgb, var(--dsw-alias-bg-base) 90%, transparent);
+      border-bottom: 1px solid var(--dsw-alias-border-l2);
+      backdrop-filter: blur(14px);
+    }
+    .crumb { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--dsw-alias-label-tertiary); font-size: 11px; }
+    .crumb strong { color: var(--dsw-alias-label-secondary); font-weight: 600; }
+    .topbar-center {
+      flex: 1;
+      display: flex;
+      justify-content: center;
+      min-width: 0;
+    }
+    .plan-lockup {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-width: 0;
+      padding: 4px 9px;
+      border: 1px solid var(--dsw-alias-border-l3);
+      border-radius: 999px;
+      color: var(--dsw-alias-label-secondary);
+      background: var(--dsw-alias-bg-layer-1);
+      font-size: 10px;
+      white-space: nowrap;
+    }
+    .live-dot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--dsw-alias-state-success-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent); }
+    .topbar-actions { display: flex; align-items: center; gap: 6px; }
+    .topbar .icon-btn { border-color: transparent; background: transparent; }
+    .topbar .icon-btn:hover { border-color: var(--dsw-alias-border-l3); }
+    .topbar-divider { width: 1px; height: 18px; margin: 0 2px; background: var(--dsw-alias-border-l3); }
+
+    .page { padding: 15px 18px 26px; }
+    .page-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 11px;
+    }
+    .eyebrow { display: flex; align-items: center; gap: 7px; color: var(--dsw-alias-label-tertiary); font-size: 10px; }
+    .eyebrow strong { color: var(--dsw-alias-label-secondary); font-weight: 600; }
+    .page-title-row { display: flex; align-items: center; gap: 9px; margin-top: 3px; }
+    .page-head h1 { margin: 0; font-size: var(--fs-page); line-height: 1.3; letter-spacing: 0; font-weight: 700; }
+    .version-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      height: 19px;
+      padding: 0 6px;
+      border: 1px solid color-mix(in srgb, var(--dsw-alias-state-success-primary) 30%, transparent);
+      border-radius: var(--radius-chip);
+      color: var(--dsw-alias-state-success-primary);
+      background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 9%, transparent);
+      font-size: 9px;
+      font-weight: 700;
+    }
+    .page-sub { max-width: 600px; margin: 3px 0 0; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+    .page-actions { display: flex; align-items: center; gap: 7px; flex: none; padding-top: 6px; }
+    .btn {
+      min-height: 31px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 0 10px;
+      border: 1px solid var(--dsw-alias-border-l3);
+      border-radius: var(--radius-control);
+      color: var(--dsw-alias-label-primary);
+      background: var(--dsw-alias-bg-layer-1);
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .btn:hover { border-color: var(--dsw-alias-border-l4); background: var(--dsw-alias-bg-layer-2); }
+    .btn.primary {
+      color: var(--dsw-alias-label-primary-foreground);
+      border-color: transparent;
+      background: var(--dsw-alias-button-primary-fill);
+    }
+    .btn.primary:hover { background: color-mix(in srgb, var(--dsw-alias-button-primary-fill) 86%, #000); }
+    .btn.agent {
+      color: #fff;
+      border-color: color-mix(in srgb, var(--dsw-alias-agent-primary) 55%, transparent);
+      background: color-mix(in srgb, var(--dsw-alias-agent-primary) 26%, var(--dsw-alias-bg-layer-2));
+    }
+    .btn.agent:hover { background: color-mix(in srgb, var(--dsw-alias-agent-primary) 38%, var(--dsw-alias-bg-layer-2)); }
+    .btn.ghost { border-color: transparent; background: transparent; color: var(--dsw-alias-label-secondary); }
+    .btn.ghost:hover { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
+    .btn.sm { min-height: 27px; padding: 0 8px; font-size: 10px; }
+    .btn:disabled { opacity: .58; }
+
+    .signal-bar {
+      display: grid;
+      grid-template-columns: 1.15fr repeat(3, 1fr) 1.1fr;
+      align-items: stretch;
+      min-height: 58px;
+      margin-bottom: 11px;
+      overflow: hidden;
+      border: 1px solid var(--dsw-alias-border-l3);
+      border-radius: var(--radius-panel);
+      background: var(--dsw-alias-bg-layer-1);
+    }
+    .signal {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 2px;
+      padding: 8px 13px;
+      border-left: 1px solid var(--dsw-alias-border-l2);
+    }
+    .signal:first-child { border-left: 0; }
+    .signal-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-tertiary); font-size: 10px; }
+    .signal-value { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+    .signal-value strong { font-size: 17px; line-height: 1.2; font-weight: 700; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+    .signal-value em { color: var(--dsw-alias-label-tertiary); font-size: 10px; font-style: normal; white-space: nowrap; }
+    .signal.danger .signal-value strong { color: var(--dsw-alias-state-error-primary); }
+    .signal.warning .signal-value strong { color: var(--dsw-alias-state-warning-primary); }
+    .signal.agent {
+      background: color-mix(in srgb, var(--dsw-alias-agent-primary) 7%, var(--dsw-alias-bg-layer-1));
+    }
+    .health-wrap { display: flex; align-items: center; gap: 10px; }
+    .health-ring {
+      --score: 82;
+      width: 34px;
+      height: 34px;
+      flex: none;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: conic-gradient(var(--dsw-alias-state-warning-primary) calc(var(--score) * 1%), var(--dsw-alias-bg-layer-3) 0);
+    }
+    .health-ring::after {
+      content: "";
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: var(--dsw-alias-bg-layer-1);
+    }
+    .health-text { min-width: 0; }
+    .health-text strong { display: block; font-size: 14px; line-height: 1.25; font-weight: 700; }
+    .health-text small { display: block; color: var(--dsw-alias-state-warning-primary); font-size: 9px; }
+    .agent-line { display: flex; align-items: center; gap: 7px; min-width: 0; }
+    .agent-mark {
+      width: 24px;
+      height: 24px;
+      flex: none;
+      display: grid;
+      place-items: center;
+      border: 1px solid color-mix(in srgb, var(--dsw-alias-agent-primary) 50%, transparent);
+      border-radius: 6px;
+      color: #c8c0ff;
+      background: color-mix(in srgb, var(--dsw-alias-agent-primary) 17%, transparent);
+      font-size: 9px;
+      font-weight: 800;
+    }
+    .agent-copy { min-width: 0; }
+    .agent-copy strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+    .agent-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-tertiary); font-size: 9px; }
+
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 344px;
+      gap: 11px;
+    }
+    .card {
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid var(--dsw-alias-border-l3);
+      border-radius: var(--radius-panel);
+      background: var(--dsw-alias-bg-layer-1);
+    }
+    .card-head {
+      min-height: 43px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 12px;
+      border-bottom: 1px solid var(--dsw-alias-border-l2);
+    }
+    .card-title { min-width: 0; display: flex; align-items: center; gap: 7px; flex: 1; }
+    .card-title .i { color: var(--dsw-alias-label-tertiary); }
+    .card-title h2 { margin: 0; font-size: var(--fs-title); line-height: 1.3; font-weight: 650; white-space: nowrap; }
+    .card-sub { color: var(--dsw-alias-label-tertiary); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .head-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      min-height: 20px;
+      padding: 0 6px;
+      border-radius: var(--radius-chip);
+      color: var(--dsw-alias-label-secondary);
+      background: var(--dsw-alias-bg-layer-2);
+      font-size: 9px;
+      white-space: nowrap;
+    }
+    .head-tag.ai { color: #c2baff; background: color-mix(in srgb, var(--dsw-alias-agent-primary) 13%, transparent); }
+    .head-tag.danger { color: var(--dsw-alias-state-error-primary); background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent); }
+    .head-tag.success { color: var(--dsw-alias-state-success-primary); background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent); }
+    .card-tools { display: flex; align-items: center; gap: 4px; flex: none; }
+    .mini-btn {
+      width: 25px;
+      height: 25px;
+      display: grid;
+      place-items: center;
+      padding: 0;
+      border: 0;
+      border-radius: 5px;
+      color: var(--dsw-alias-label-tertiary);
+      background: transparent;
+    }
+    .mini-btn:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-2); }
+
+    .plan-card { min-height: 319px; }
+    .plan-body { padding: 8px 12px 10px; }
+    .plan-chain {
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      align-items: start;
+      padding: 4px 2px 2px;
+    }
+    .chain-line {
+      position: absolute;
+      top: 21px;
+      left: 9%;
+      right: 9%;
+      height: 1px;
+      background: var(--dsw-alias-border-l3);
+    }
+    .chain-line::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 29%;
+      width: 24%;
+      height: 1px;
+      background: var(--dsw-alias-state-error-primary);
+      box-shadow: 0 0 8px color-mix(in srgb, var(--dsw-alias-state-error-primary) 35%, transparent);
+    }
+    .stage {
+      position: relative;
+      z-index: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 0 4px;
+      border: 0;
+      background: transparent;
+      text-align: center;
+    }
+    .stage-icon {
+      width: 35px;
+      height: 35px;
+      display: grid;
+      place-items: center;
+      margin-bottom: 5px;
+      border: 1px solid var(--dsw-alias-border-l3);
+      border-radius: 50%;
+      color: var(--dsw-alias-label-secondary);
+      background: var(--dsw-alias-bg-layer-1);
+      transition: border-color .15s ease, background .15s ease;
+    }
+    .stage:hover .stage-icon { border-color: var(--dsw-alias-border-l4); background: var(--dsw-alias-bg-layer-2); }
+    .stage.active .stage-icon {
+      color: var(--dsw-alias-accent-primary);
+      border-color: color-mix(in srgb, var(--dsw-alias-accent-primary) 60%, transparent);
+      background: color-mix(in srgb, var(--dsw-alias-accent-primary) 11%, var(--dsw-alias-bg-layer-1));
+    }
+    .stage.risk .stage-icon {
+      color: var(--dsw-alias-state-error-primary);
+      border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 48%, transparent);
+      background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, var(--dsw-alias-bg-layer-1));
+    }
+    .stage-label { color: var(--dsw-alias-label-tertiary); font-size: 10px; }
+    .stage strong { margin-top: 1px; font-size: 15px; line-height: 1.2; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .stage em { margin-top: 1px; color: var(--dsw-alias-label-tertiary); font-size: 9px; font-style: normal; white-space: nowrap; }
+    .stage.risk strong { color: var(--dsw-alias-state-error-primary); }
+    .stage.warning strong { color: var(--dsw-alias-state-warning-primary); }
+
+    .insight {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 43px;
+      margin-top: 7px;
+      padding: 6px 8px;
+      border: 1px solid color-mix(in srgb, var(--dsw-alias-agent-primary) 28%, var(--dsw-alias-border-l3));
+      border-radius: var(--radius-card);
+      background: color-mix(in srgb, var(--dsw-alias-agent-primary) 6%, var(--dsw-alias-bg-layer-1));
+    }
+    .insight-copy { min-width: 0; flex: 1; }
+    .insight-copy strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 650; }
+    .insight-copy span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-secondary); font-size: 10px; }
+    .confidence {
+      flex: none;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding-left: 8px;
+      border-left: 1px solid var(--dsw-alias-border-l2);
+      color: var(--dsw-alias-label-tertiary);
+      font-size: 9px;
+      white-space: nowrap;
+    }
+    .confidence strong { color: var(--dsw-alias-state-success-primary); font-size: 11px; }
+    .insight-link {
+      flex: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 3px 5px;
+      border: 0;
+      border-radius: 4px;
+      color: #c1b8ff;
+      background: transparent;
+      font-size: 9px;
+      white-space: nowrap;
+    }
+    .insight-link:hover { background: color-mix(in srgb, var(--dsw-alias-agent-primary) 13%, transparent); }
+
+    .balance {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 7px;
+      min-height: 18px;
+    }
+    .balance strong { font-size: 10px; font-weight: 600; }
+    .balance-legend { display: flex; align-items: center; gap: 9px; color: var(--dsw-alias-label-tertiary); font-size: 9px; }
+    .legend-dot { width: 5px; height: 5px; display: inline-block; margin-right: 4px; border-radius: 50%; background: var(--dsw-alias-state-error-primary); }
+    .legend-dot.positive { background: var(--dsw-alias-state-success-primary); }
+    .chart-row { display: flex; gap: 7px; margin-top: 2px; }
+    .chart-y {
+      width: 24px;
+      flex: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 2px 0 18px;
+      color: var(--dsw-alias-label-tertiary);
+      font-size: 8px;
+      text-align: right;
+    }
+    .chart-plot {
+      position: relative;
+      flex: 1;
+      min-width: 0;
+      height: 82px;
+      display: grid;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      gap: 5px;
+      padding-bottom: 18px;
+    }
+    .chart-zero {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 42%;
+      height: 1px;
+      background: var(--dsw-alias-border-l3);
+    }
+    .chart-col {
+      position: relative;
+      min-width: 0;
+      height: 64px;
+      border-radius: 3px 3px 0 0;
+    }
+    .chart-col:hover { background: color-mix(in srgb, var(--dsw-alias-label-primary) 3%, transparent); }
+    .bar {
+      position: absolute;
+      left: 23%;
+      right: 23%;
+      min-height: 3px;
+      border-radius: 2px;
+      background: var(--dsw-alias-state-error-primary);
+    }
+    .bar.neg { top: 42%; height: var(--h); background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 82%, transparent); }
+    .bar.pos { bottom: calc(58% - 1px); height: var(--h); background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 72%, transparent); }
+    .chart-col.focus .bar { box-shadow: 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-error-primary) 72%, transparent), 0 0 8px color-mix(in srgb, var(--dsw-alias-state-error-primary) 20%, transparent); }
+    .chart-week {
+      position: absolute;
+      left: -2px;
+      right: -2px;
+      bottom: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1px;
+      color: var(--dsw-alias-label-tertiary);
+      font-size: 8px;
+      white-space: nowrap;
+    }
+    .chart-val { color: var(--dsw-alias-label-secondary); font-size: 8px; font-variant-numeric: tabular-nums; }
+    .chart-col.focus .chart-val { color: var(--dsw-alias-state-error-primary); font-weight: 700; }
+
+    .team-card { min-height: 319px; display: flex; flex-direction: column; }
+    .team-status { display: inline-flex; align-items: center; gap: 4px; color: var(--dsw-alias-state-success-primary); font-size: 9px; white-space: nowrap; }
+    .team-summary {
+      display: grid;
+      grid-template-columns: 1.35fr 1fr 1fr;
+      gap: 0;
+      margin: 9px 10px 7px;
+      border: 1px solid var(--dsw-alias-border-l2);
+      border-radius: var(--radius-card);
+      background: var(--dsw-alias-bg-layer-2);
+    }
+    .summary-cell { min-width: 0; padding: 7px 9px; border-left: 1px solid var(--dsw-alias-border-l2); }
+    .summary-cell:first-child { border-left: 0; }
+    .summary-cell small { display: block; color: var(--dsw-alias-label-tertiary); font-size: 9px; }
+    .summary-cell strong { display: block; margin-top: 1px; font-size: 17px; line-height: 1.2; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .summary-cell strong span { margin-left: 2px; color: var(--dsw-alias-label-tertiary); font-size: 9px; font-weight: 500; }
+    .summary-cell.ai strong { color: var(--dsw-alias-agent-primary); }
+    .summary-cell.human strong { color: var(--dsw-alias-state-warning-primary); }
+    .team-progress { height: 3px; margin: 0 10px 7px; overflow: hidden; border-radius: 999px; background: var(--dsw-alias-bg-layer-3); }
+    .team-progress span { display: block; width: 82%; height: 100%; border-radius: inherit; background: var(--dsw-alias-agent-primary); }
+    .team-list { display: grid; gap: 0; padding: 0 7px; }
+    .team-row { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 5px 3px; border-top: 1px solid var(--dsw-alias-border-l2); }
+    .team-row:first-child { border-top: 0; }
+    .avatar-wrap { position: relative; flex: none; }
+    .avatar-wrap .ai-tag {
+      position: absolute;
+      right: -2px;
+      bottom: -2px;
+      width: 10px;
+      height: 10px;
+      display: grid;
+      place-items: center;
+      border: 1.5px solid var(--dsw-alias-bg-layer-1);
+      border-radius: 50%;
+      color: #dcd7ff;
+      background: var(--dsw-alias-agent-primary);
+      font-size: 6px;
+      font-weight: 800;
+    }
+    .team-copy { min-width: 0; flex: 1; }
+    .team-copy strong { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 10px; font-weight: 600; }
+    .team-copy strong span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .role-chip { flex: none; padding: 0 3px; border-radius: 3px; color: var(--dsw-alias-label-tertiary); background: var(--dsw-alias-bg-layer-2); font-size: 7px; font-weight: 500; }
+    .team-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-tertiary); font-size: 9px; }
+    .team-state { flex: none; color: var(--dsw-alias-label-tertiary); font-size: 8px; white-space: nowrap; }
+    .team-state.done { color: var(--dsw-alias-state-success-primary); }
+    .team-state.action { color: var(--dsw-alias-state-warning-primary); }
+    .team-state.working { color: var(--dsw-alias-accent-primary); }
+    .team-foot {
+      margin-top: auto;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 32px;
+      padding: 5px 10px;
+      border-top: 1px solid var(--dsw-alias-border-l2);
+      color: var(--dsw-alias-label-tertiary);
+      font-size: 9px;
+    }
+    .team-foot strong { color: var(--dsw-alias-label-secondary); font-weight: 600; }
+    .team-foot .link { margin-left: auto; color: var(--dsw-alias-accent-primary); background: transparent; border: 0; padding: 0; font-size: 9px; white-space: nowrap; }
+
+    .decision-card { grid-column: 1 / -1; min-height: 294px; display: flex; flex-direction: column; }
+    .decision-head { border-bottom: 1px solid var(--dsw-alias-border-l2); }
+    .decision-head .card-sub { margin-left: 2px; }
+    .decision-body {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 316px minmax(0, 1fr);
+    }
+    .decision-queue { min-width: 0; border-right: 1px solid var(--dsw-alias-border-l2); padding: 6px; }
+    .queue-item {
+      position: relative;
+      width: 100%;
+      min-height: 68px;
+      display: grid;
+      grid-template-columns: 30px minmax(0, 1fr) auto;
+      align-items: start;
+      gap: 7px;
+      padding: 8px 7px;
+      border: 1px solid transparent;
+      border-radius: var(--radius-card);
+      color: var(--dsw-alias-label-primary);
+      background: transparent;
+      text-align: left;
+    }
+    .queue-item + .queue-item { margin-top: 2px; }
+    .queue-item:hover { background: var(--dsw-alias-bg-layer-2); }
+    .queue-item.active {
+      border-color: color-mix(in srgb, var(--dsw-alias-accent-primary) 35%, transparent);
+      background: color-mix(in srgb, var(--dsw-alias-accent-primary) 8%, transparent);
+    }
+    .queue-item.resolved { opacity: .64; }
+    .priority {
+      width: 27px;
+      height: 24px;
+      display: grid;
+      place-items: center;
+      border-radius: 5px;
+      color: var(--dsw-alias-state-error-primary);
+      background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);
+      font-size: 8px;
+      font-weight: 800;
+    }
+    .priority.p1 { color: var(--dsw-alias-state-warning-primary); background: color-mix(in srgb, var(--dsw-alias-state-warning-primary) 12%, transparent); }
+    .queue-copy { min-width: 0; }
+    .queue-copy strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 600; }
+    .queue-copy span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-tertiary); font-size: 9px; }
+    .queue-meta { min-width: 54px; text-align: right; }
+    .queue-meta em { display: block; color: var(--dsw-alias-state-warning-primary); font-size: 9px; font-style: normal; white-space: nowrap; }
+    .queue-meta small { display: block; margin-top: 1px; color: var(--dsw-alias-label-tertiary); font-size: 8px; white-space: nowrap; }
+    .resolved-mark { color: var(--dsw-alias-state-success-primary) !important; }
+    .queue-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 7px 5px 1px;
+      color: var(--dsw-alias-label-tertiary);
+      font-size: 9px;
+    }
+    .queue-foot strong { color: var(--dsw-alias-label-secondary); }
+
+    .cockpit { min-width: 0; padding: 8px 11px 8px 12px; }
+    .cockpit-top { display: flex; align-items: flex-start; gap: 10px; }
+    .cockpit-copy { min-width: 0; flex: 1; }
+    .cockpit-kicker { display: flex; align-items: center; gap: 6px; color: var(--dsw-alias-label-tertiary); font-size: 9px; }
+    .cockpit-kicker strong { color: var(--dsw-alias-state-error-primary); font-size: 9px; }
+    .cockpit h3 { margin: 2px 0 0; font-size: 14px; line-height: 1.3; font-weight: 650; }
+    .cockpit-summary { margin: 3px 0 0; color: var(--dsw-alias-label-secondary); font-size: 10px; line-height: 1.55; }
+    .cockpit-facts { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 5px; }
+    .fact-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      min-height: 19px;
+      padding: 0 6px;
+      border-radius: 4px;
+      color: var(--dsw-alias-label-secondary);
+      background: var(--dsw-alias-bg-layer-2);
+      font-size: 8px;
+      white-space: nowrap;
+    }
+    .fact-chip strong { color: var(--dsw-alias-label-primary); font-size: 9px; }
+    .fact-chip.danger strong { color: var(--dsw-alias-state-error-primary); }
+    .fact-chip.warning strong { color: var(--dsw-alias-state-warning-primary); }
+    .confidence-badge {
+      flex: none;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 7px;
+      border: 1px solid color-mix(in srgb, var(--dsw-alias-agent-primary) 30%, transparent);
+      border-radius: 5px;
+      color: #c4bcff;
+      background: color-mix(in srgb, var(--dsw-alias-agent-primary) 8%, transparent);
+      font-size: 9px;
+      white-space: nowrap;
+    }
+    .handoff { display: flex; align-items: center; gap: 4px; margin-top: 7px; min-width: 0; }
+    .handoff-step {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 5px;
+      border: 1px solid var(--dsw-alias-border-l2);
+      border-radius: 4px;
+      background: var(--dsw-alias-bg-layer-2);
+      color: var(--dsw-alias-label-tertiary);
+      font-size: 8px;
+      white-space: nowrap;
+    }
+    .handoff-step b { color: var(--dsw-alias-label-secondary); font-weight: 600; }
+    .handoff-step.done { border-color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 24%, transparent); }
+    .handoff-arrow { flex: none; color: var(--dsw-alias-border-l4); }
+    .options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 7px; }
+    .option {
+      position: relative;
+      min-width: 0;
+      min-height: 72px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      padding: 6px 7px;
+      border: 1px solid var(--dsw-alias-border-l3);
+      border-radius: var(--radius-card);
+      background: var(--dsw-alias-bg-layer-2);
+      text-align: left;
+    }
+    .option:hover { border-color: var(--dsw-alias-border-l4); }
+    .option.selected {
+      border-color: color-mix(in srgb, var(--dsw-alias-accent-primary) 65%, transparent);
+      background: color-mix(in srgb, var(--dsw-alias-accent-primary) 9%, var(--dsw-alias-bg-layer-1));
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dsw-alias-accent-primary) 18%, transparent);
+    }
+    .option:disabled { opacity: .75; }
+    .option-head { display: flex; align-items: center; gap: 5px; min-width: 0; }
+    .option-key {
+      width: 16px;
+      height: 16px;
+      flex: none;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--dsw-alias-border-l3);
+      border-radius: 50%;
+      color: var(--dsw-alias-label-tertiary);
+      font-size: 8px;
+      font-weight: 700;
+    }
+    .option.selected .option-key { color: #fff; border-color: var(--dsw-alias-accent-primary); background: var(--dsw-alias-accent-primary); }
+    .option-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; font-weight: 600; }
+    .recommend-tag {
+      flex: none;
+      margin-left: auto;
+      padding: 0 3px;
+      border-radius: 3px;
+      color: var(--dsw-alias-state-success-primary);
+      background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent);
+      font-size: 7px;
+      font-weight: 700;
+    }
+    .option-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-tertiary); font-size: 8px; }
+    .option-metrics { display: flex; align-items: center; gap: 7px; margin-top: auto; }
+    .option-metrics span { color: var(--dsw-alias-label-secondary); font-size: 8px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .option-metrics strong { color: var(--dsw-alias-label-primary); font-size: 9px; }
+    .option-metrics .good { color: var(--dsw-alias-state-success-primary); }
+    .option-metrics .cost { color: var(--dsw-alias-state-warning-primary); }
+    .cockpit-foot { display: flex; align-items: center; gap: 7px; margin-top: 7px; }
+    .evidence-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 2px;
+      border: 0;
+      color: var(--dsw-alias-label-tertiary);
+      background: transparent;
+      font-size: 9px;
+    }
+    .evidence-link:hover { color: var(--dsw-alias-label-primary); }
+    .cockpit-foot .btn.primary { margin-left: auto; }
+    .resolved-note {
+      display: none;
+      align-items: center;
+      gap: 7px;
+      margin-top: 7px;
+      min-height: 31px;
+      padding: 5px 8px;
+      border: 1px solid color-mix(in srgb, var(--dsw-alias-state-success-primary) 28%, transparent);
+      border-radius: 5px;
+      color: var(--dsw-alias-state-success-primary);
+      background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 7%, transparent);
+      font-size: 9px;
+    }
+    .resolved-note strong { font-size: 10px; }
+    .resolved-note .btn { margin-left: auto; }
+    .decision-card.is-resolved .cockpit-foot { display: none; }
+    .decision-card.is-resolved .resolved-note { display: flex; }
+
+    .overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 60;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: rgba(5, 8, 13, .66);
+      backdrop-filter: blur(3px);
+    }
+    .overlay.open { display: flex; }
+    .modal {
+      width: min(780px, 100%);
+      max-height: calc(100vh - 48px);
+      overflow: auto;
+      border: 1px solid var(--dsw-alias-border-l3);
+      border-radius: 10px;
+      background: var(--dsw-alias-bg-layer-1);
+      box-shadow: var(--shadow-3);
+    }
+    .modal-head { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px 12px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
+    .modal-title { flex: 1; min-width: 0; }
+    .modal-kicker { display: flex; align-items: center; gap: 6px; color: var(--dsw-alias-agent-primary); font-size: 9px; font-weight: 700; }
+    .modal h2 { margin: 3px 0 0; font-size: 16px; line-height: 1.35; font-weight: 650; }
+    .modal-sub { margin: 3px 0 0; color: var(--dsw-alias-label-secondary); font-size: 10px; }
+    .modal-body { padding: 13px 16px; }
+    .scenario-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .scenario {
+      min-width: 0;
+      padding: 10px;
+      border: 1px solid var(--dsw-alias-border-l3);
+      border-radius: var(--radius-card);
+      background: var(--dsw-alias-bg-layer-2);
+      cursor: pointer;
+    }
+    .scenario:hover { border-color: var(--dsw-alias-border-l4); }
+    .scenario.selected {
+      border-color: color-mix(in srgb, var(--dsw-alias-agent-primary) 64%, transparent);
+      background: color-mix(in srgb, var(--dsw-alias-agent-primary) 10%, var(--dsw-alias-bg-layer-1));
+    }
+    .scenario-top { display: flex; align-items: center; gap: 5px; }
+    .scenario-top strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+    .scenario-top span { margin-left: auto; flex: none; color: var(--dsw-alias-state-success-primary); font-size: 8px; font-weight: 700; }
+    .scenario p { min-height: 30px; margin: 5px 0 8px; color: var(--dsw-alias-label-tertiary); font-size: 9px; line-height: 1.55; }
+    .scenario-metric { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; padding: 3px 0; border-top: 1px solid var(--dsw-alias-border-l2); font-size: 9px; color: var(--dsw-alias-label-tertiary); }
+    .scenario-metric strong { color: var(--dsw-alias-label-primary); font-size: 10px; font-variant-numeric: tabular-nums; }
+    .scenario-metric strong.good { color: var(--dsw-alias-state-success-primary); }
+    .scenario-metric strong.warn { color: var(--dsw-alias-state-warning-primary); }
+    .scenario-rationale {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      margin-top: 10px;
+      padding: 8px 9px;
+      border: 1px solid color-mix(in srgb, var(--dsw-alias-agent-primary) 25%, transparent);
+      border-radius: var(--radius-card);
+      color: var(--dsw-alias-label-secondary);
+      background: color-mix(in srgb, var(--dsw-alias-agent-primary) 6%, transparent);
+      font-size: 9px;
+    }
+    .scenario-rationale strong { color: var(--dsw-alias-label-primary); }
+    .modal-foot { display: flex; align-items: center; gap: 7px; padding: 10px 16px; border-top: 1px solid var(--dsw-alias-border-l2); }
+    .modal-foot small { flex: 1; color: var(--dsw-alias-label-tertiary); font-size: 9px; }
+
+    .drawer-scrim {
+      position: fixed;
+      inset: 0;
+      z-index: 55;
+      display: none;
+      background: rgba(5, 8, 13, .48);
+    }
+    .drawer-scrim.open { display: block; }
+    .drawer {
+      position: fixed;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 56;
+      width: min(430px, 92vw);
+      display: flex;
+      flex-direction: column;
+      border-left: 1px solid var(--dsw-alias-border-l3);
+      background: var(--dsw-alias-bg-layer-1);
+      box-shadow: var(--shadow-3);
+      transform: translateX(100%);
+      transition: transform .2s ease;
+    }
+    .drawer.open { transform: translateX(0); }
+    .drawer-head { display: flex; align-items: flex-start; gap: 10px; padding: 14px 14px 11px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
+    .drawer-head .modal-title { flex: 1; }
+    .drawer h2 { margin: 2px 0 0; font-size: 15px; line-height: 1.35; font-weight: 650; }
+    .drawer-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px 16px; }
+    .drawer-section + .drawer-section { margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--dsw-alias-border-l2); }
+    .drawer-section h3 { margin: 0 0 6px; color: var(--dsw-alias-label-secondary); font-size: 10px; font-weight: 650; }
+    .drawer-section p { margin: 0; color: var(--dsw-alias-label-secondary); font-size: 10px; line-height: 1.65; }
+    .evidence {
+      display: grid;
+      gap: 6px;
+    }
+    .evidence-item {
+      display: grid;
+      grid-template-columns: 24px minmax(0, 1fr) auto;
+      gap: 7px;
+      padding: 7px;
+      border: 1px solid var(--dsw-alias-border-l2);
+      border-radius: var(--radius-card);
+      background: var(--dsw-alias-bg-layer-2);
+    }
+    .evidence-icon { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 5px; color: var(--dsw-alias-accent-primary); background: color-mix(in srgb, var(--dsw-alias-accent-primary) 11%, transparent); }
+    .evidence-copy { min-width: 0; }
+    .evidence-copy strong { display: block; font-size: 9px; font-weight: 600; }
+    .evidence-copy small { display: block; margin-top: 1px; color: var(--dsw-alias-label-tertiary); font-size: 8px; }
+    .evidence-source { align-self: center; color: var(--dsw-alias-label-tertiary); font-size: 8px; white-space: nowrap; }
+    .drawer-bullets { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
+    .drawer-bullets li { position: relative; padding-left: 12px; color: var(--dsw-alias-label-secondary); font-size: 9px; }
+    .drawer-bullets li::before { content: ""; position: absolute; top: 6px; left: 1px; width: 4px; height: 4px; border-radius: 50%; background: var(--dsw-alias-agent-primary); }
+    .confidence-meter { display: flex; align-items: center; gap: 9px; }
+    .confidence-meter strong { color: var(--dsw-alias-state-success-primary); font-size: 23px; line-height: 1; font-variant-numeric: tabular-nums; }
+    .confidence-meter div { flex: 1; }
+    .confidence-meter small { display: block; color: var(--dsw-alias-label-tertiary); font-size: 8px; }
+    .meter { height: 4px; margin-top: 4px; overflow: hidden; border-radius: 999px; background: var(--dsw-alias-bg-layer-3); }
+    .meter span { display: block; width: 87%; height: 100%; border-radius: inherit; background: var(--dsw-alias-state-success-primary); }
+    .drawer-foot { display: flex; gap: 7px; padding: 10px 14px; border-top: 1px solid var(--dsw-alias-border-l2); }
+    .drawer-foot .btn { flex: 1; }
+
+    .toast {
+      position: fixed;
+      z-index: 70;
+      right: 18px;
+      bottom: 18px;
+      max-width: min(420px, calc(100vw - 36px));
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 9px 11px;
+      border: 1px solid var(--dsw-alias-border-l4);
+      border-radius: 7px;
+      color: var(--dsw-alias-label-primary);
+      background: var(--dsw-alias-bg-layer-2);
+      box-shadow: var(--shadow-2);
+      font-size: 10px;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(8px);
+      transition: opacity .18s ease, transform .18s ease;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .toast .i { flex: none; margin-top: 1px; color: var(--dsw-alias-state-success-primary); }
+
+    @media (max-width: 1180px) {
+      .app { grid-template-columns: 72px minmax(0, 1fr); }
+      .brand { justify-content: center; padding: 0; }
+      .brand-copy, .nav-item span, .nav-label span, .nav-switch, .workspace-copy, .workspace-meta, .account-copy, .sidebar-foot .icon-btn { display: none; }
+      .nav-item { justify-content: center; padding: 7px; }
+      .nav-item .nav-badge { position: absolute; transform: translate(11px, -10px); }
+      .nav-item { position: relative; }
+      .workspace-item { display: flex; justify-content: center; padding: 6px; }
+      .workspace-item:nth-child(n+3) { display: none; }
+      .sidebar-foot { justify-content: center; }
+      .dashboard-grid { grid-template-columns: minmax(0, 1fr) 322px; }
+      .decision-body { grid-template-columns: 286px minmax(0, 1fr); }
+    }
+
+    @media (max-width: 1020px) {
+      .dashboard-grid { grid-template-columns: minmax(0, 1fr); }
+      .team-card { min-height: 0; }
+      .team-list { grid-template-columns: 1fr 1fr; gap: 0 10px; }
+      .team-row { border-top: 1px solid var(--dsw-alias-border-l2); }
+      .team-row:nth-child(-n+2) { border-top: 0; }
+      .decision-body { grid-template-columns: 280px minmax(0, 1fr); }
+      .signal-bar { grid-template-columns: 1.1fr 1fr 1fr; }
+      .signal:nth-child(4) { border-left: 0; border-top: 1px solid var(--dsw-alias-border-l2); }
+      .signal:nth-child(5) { grid-column: span 2; border-top: 1px solid var(--dsw-alias-border-l2); }
+    }
+
+    @media (max-width: 760px) {
+      .app { display: block; }
+      .sidebar { display: none; }
+      .topbar { height: 52px; padding: 0 12px; }
+      .topbar-center, .topbar-actions .desktop-only { display: none; }
+      .page { padding: 12px 12px 22px; }
+      .page-head { display: block; }
+      .page-actions { flex-wrap: wrap; padding-top: 10px; }
+      .page-actions .btn.ghost { display: none; }
+      .signal-bar { grid-template-columns: 1fr 1fr; }
+      .signal { border-top: 1px solid var(--dsw-alias-border-l2); }
+      .signal:nth-child(1), .signal:nth-child(2) { border-top: 0; }
+      .signal:nth-child(3) { border-left: 0; }
+      .signal:nth-child(4) { border-left: 1px solid var(--dsw-alias-border-l2); }
+      .signal:nth-child(5) { grid-column: span 2; border-left: 0; }
+      .plan-body { overflow: hidden; }
+      .plan-chain {
+        min-width: 640px;
+        overflow: visible;
+      }
+      .plan-body .plan-chain-wrap {
+        overflow-x: auto;
+        padding-bottom: 2px;
+      }
+      .insight { align-items: flex-start; flex-wrap: wrap; }
+      .insight-copy { min-width: 160px; }
+      .confidence { border-left: 0; padding-left: 0; }
+      .team-list { grid-template-columns: 1fr; }
+      .team-row:nth-child(2) { border-top: 1px solid var(--dsw-alias-border-l2); }
+      .decision-body { display: block; }
+      .decision-queue { border-right: 0; border-bottom: 1px solid var(--dsw-alias-border-l2); }
+      .options { grid-template-columns: 1fr; }
+      .option { min-height: 62px; }
+      .scenario-grid { grid-template-columns: 1fr; }
+      .modal { max-height: calc(100vh - 24px); }
+      .overlay { padding: 12px; }
+      .handoff { flex-wrap: wrap; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <svg class="sprite" aria-hidden="true">
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v8A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z"/></symbol>
+    <symbol id="i-check-square" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m7 12 3 3 7-7"/></symbol>
+    <symbol id="i-workflow" viewBox="0 0 24 24"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="15" width="6" height="6" rx="1"/><path d="M9 6h5a4 4 0 0 1 4 4v5M6 9v5a4 4 0 0 0 4 4h5"/></symbol>
+    <symbol id="i-message" viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+    <symbol id="i-store" viewBox="0 0 24 24"><path d="m3 9 2-5h14l2 5"/><path d="M5 13v7h14v-7"/><path d="M9 20v-5h6v5"/><path d="M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0"/></symbol>
+    <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>
+    <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="m12 3 1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z"/><path d="m19 16 .8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/><path d="m5 2 .7 1.8L7.5 4.5l-1.8.7L5 7l-.7-1.8L2.5 4.5l1.8-.7z"/></symbol>
+    <symbol id="i-share" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 10.5 6.8-4M8.6 13.5l6.8 4"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="m7 4 13 8-13 8z"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-.8 4.2"/><path d="M20 4v7h-7"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+    <symbol id="i-trending-up" viewBox="0 0 24 24"><path d="m3 17 6-6 4 4 8-8"/><path d="M15 7h6v6"/></symbol>
+    <symbol id="i-package" viewBox="0 0 24 24"><path d="m21 8-9-5-9 5 9 5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></symbol>
+    <symbol id="i-factory" viewBox="0 0 24 24"><path d="M3 21V9l6 3V9l6 3V7l6 3v11z"/><path d="M7 17h1M12 17h1M17 17h1"/><path d="M6 21v-4h4v4"/></symbol>
+    <symbol id="i-warehouse" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v11H3z"/><path d="M7 21v-7h10v7"/><path d="M7 17h10"/></symbol>
+    <symbol id="i-truck" viewBox="0 0 24 24"><path d="M1 4h13v13H1z"/><path d="M14 8h4l4 4v5h-8z"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="19" r="2"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.2 1.2"/><path d="M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.2-1.2"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v6c0 1.7 4 3 9 3s9-1.3 9-3V5"/><path d="M3 11v6c0 1.7 4 3 9 3s9-1.3 9-3v-6"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h6"/></symbol>
+    <symbol id="i-git-branch" viewBox="0 0 24 24"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></symbol>
+    <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/><path d="M1 14h6M9 8h6M17 16h6"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 9 5-9 5-9-5z"/><path d="m3 12 9 5 9-5M3 17l9 5 9-5"/></symbol>
+  </svg>
+
+  <div class="app">
+    <aside class="sidebar" aria-label="主导航">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+        <div class="brand-copy">
+          <strong>DSH Enterprise+</strong>
+          <small>Pluginmax 工作空间</small>
+        </div>
+      </div>
+      <div class="sidebar-scroll">
+        <nav class="nav-group" aria-label="平台功能">
+          <button class="nav-item active" type="button" title="工作台">
+            <svg class="i"><use href="#i-grid"></use></svg><span>工作台</span>
+          </button>
+          <button class="nav-switch" type="button" title="切换工作台">
+            <svg class="i i-sm"><use href="#i-layers"></use></svg>
+            <strong>端到端计划</strong>
+            <svg class="i i-sm"><use href="#i-chevron-down"></use></svg>
+          </button>
+          <button class="nav-item" type="button" title="项目">
+            <svg class="i"><use href="#i-folder"></use></svg><span>项目</span>
+          </button>
+          <button class="nav-item" type="button" title="任务">
+            <svg class="i"><use href="#i-check-square"></use></svg><span>任务</span><b class="nav-badge">12</b>
+          </button>
+          <button class="nav-item" type="button" title="工作流">
+            <svg class="i"><use href="#i-workflow"></use></svg><span>工作流</span>
+          </button>
+          <button class="nav-item" type="button" title="沟通">
+            <svg class="i"><use href="#i-message"></use></svg><span>沟通</span><b class="nav-badge hot">3</b>
+          </button>
+          <button class="nav-item" type="button" title="AI 伙伴">
+            <svg class="i"><use href="#i-users"></use></svg><span>AI 伙伴</span><b class="nav-badge">5</b>
+          </button>
+          <button class="nav-item" type="button" title="资源市场">
+            <svg class="i"><use href="#i-store"></use></svg><span>资源市场</span>
+          </button>
+        </nav>
+
+        <div class="nav-group">
+          <div class="nav-label"><span>计划工作区</span><svg class="i i-sm"><use href="#i-plus"></use></svg></div>
+          <div class="workspace-group">
+            <button class="workspace-item active" type="button">
+              <span class="workspace-icon"><svg class="i i-sm"><use href="#i-git-branch"></use></svg></span>
+              <span class="workspace-copy"><strong>S&amp;OP · W45 计划周期</strong><small>主计划 · 8 个协同角色</small></span>
+              <span class="workspace-meta">3</span>
+            </button>
+            <button class="workspace-item" type="button">
+              <span class="workspace-icon"><svg class="i i-sm"><use href="#i-alert"></use></svg></span>
+              <span class="workspace-copy"><strong>关键物料缺口处置</strong><small>流程运行中 · 67%</small></span>
+            </button>
+            <button class="workspace-item" type="button">
+              <span class="workspace-icon"><svg class="i i-sm"><use href="#i-file"></use></svg></span>
+              <span class="workspace-copy"><strong>W44 计划复盘</strong><small>已归档 · 交付物 6 份</small></span>
+            </button>
+          </div>
+        </div>
+
+        <div class="nav-group">
+          <div class="nav-label"><span>最近打开</span><svg class="i i-sm"><use href="#i-search"></use></svg></div>
+          <div class="workspace-group">
+            <button class="workspace-item" type="button">
+              <span class="workspace-icon"><svg class="i i-sm"><use href="#i-message"></use></svg></span>
+              <span class="workspace-copy"><strong>W45 S&amp;OP 决策评审</strong><small>会议 · 今天 15:30</small></span>
+            </button>
+            <button class="workspace-item" type="button">
+              <span class="workspace-icon"><svg class="i i-sm"><use href="#i-database"></use></svg></span>
+              <span class="workspace-copy"><strong>需求版本对比 v47 / v48</strong><small>Data Agent 报告</small></span>
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="sidebar-foot">
+        <div class="avatar">OY</div>
+        <div class="account-copy"><strong>Olivia Yang</strong><small>供应链计划总监</small></div>
+        <button class="icon-btn" type="button" title="设置"><svg class="i i-sm"><use href="#i-settings"></use></svg></button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="crumb"><strong>工作台</strong><svg class="i i-sm"><use href="#i-chevron-right"></use></svg><span>端到端计划</span></div>
+        <div class="topbar-center">
+          <div class="plan-lockup">
+            <span class="live-dot"></span>
+            <span>2026 · W45</span>
+            <span>|</span>
+            <span>计划冻结倒计时 <strong style="color:var(--dsw-alias-state-warning-primary)">02:18</strong></span>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <button class="icon-btn desktop-only" type="button" title="搜索"><svg class="i"><use href="#i-search"></use></svg></button>
+          <button class="icon-btn desktop-only" type="button" title="通知"><svg class="i"><use href="#i-bell"></use></svg></button>
+          <span class="topbar-divider desktop-only"></span>
+          <button class="icon-btn" id="themeBtn" type="button" title="切换深浅主题"><svg class="i"><use href="#i-sun"></use></svg></button>
+          <button class="icon-btn" type="button" title="沟通"><svg class="i"><use href="#i-message"></use></svg></button>
+          <div class="avatar">OY</div>
+        </div>
+      </header>
+
+      <div class="page">
+        <section class="page-head" aria-labelledby="pageTitle">
+          <div>
+            <div class="eyebrow"><span class="live-dot"></span><strong>11 月 2 日，星期一</strong><span>·</span><span>数据同步 09:40</span><span>·</span><span>ERP / SRM / APS / WMS / MES 已就绪</span></div>
+            <div class="page-title-row">
+              <h1 id="pageTitle">端到端计划工作台</h1>
+              <span class="version-pill" id="versionPill"><svg class="i" style="width:10px;height:10px"><use href="#i-check"></use></svg>v48 已冻结</span>
+            </div>
+            <p class="page-sub">需求、供给、产能、库存与客户承诺放在同一条计划链上。AI 伙伴先完成推演，你只处理真正需要判断的例外。</p>
+          </div>
+          <div class="page-actions">
+            <button class="btn ghost" type="button" id="shareBtn"><svg class="i i-sm"><use href="#i-share"></use></svg>共享视图</button>
+            <button class="btn" type="button" id="sopBtn"><svg class="i i-sm"><use href="#i-message"></use></svg>发起 S&amp;OP</button>
+            <button class="btn agent" type="button" id="rebalanceBtn"><svg class="i i-sm"><use href="#i-sparkles"></use></svg>AI 再平衡</button>
+          </div>
+        </section>
+
+        <section class="signal-bar" aria-label="计划信号">
+          <div class="signal">
+            <span class="signal-label">计划健康度</span>
+            <div class="health-wrap">
+              <div class="health-ring" id="healthRing" aria-hidden="true"></div>
+              <div class="health-text"><strong><span id="healthScore">82</span> / 100</strong><small id="healthLabel">需关注 · 2 个计划断点</small></div>
+            </div>
+          </div>
+          <div class="signal warning">
+            <span class="signal-label">12 周需求预测</span>
+            <div class="signal-value"><strong>384,200</strong><em>台</em></div>
+            <span class="signal-label">较基准 <span style="color:var(--dsw-alias-state-warning-primary)">+4.8%</span> · 华东促销拉动</span>
+          </div>
+          <div class="signal danger">
+            <span class="signal-label">W46–W47 供应缺口</span>
+            <div class="signal-value"><strong id="gapValue">4,320</strong><em>件</em></div>
+            <span class="signal-label">关键连接器 C-4821 · 影响 2 条产线</span>
+          </div>
+          <div class="signal warning">
+            <span class="signal-label">客户承诺风险</span>
+            <div class="signal-value"><strong>¥2,140</strong><em>万</em></div>
+            <span class="signal-label">P9 / A5 共 3 个客户 · OTIF -2.1pp</span>
+          </div>
+          <div class="signal agent">
+            <span class="signal-label">待你判断</span>
+            <div class="agent-line">
+              <div class="agent-mark">AI</div>
+              <div class="agent-copy"><strong><span id="decisionCount">3</span> 项决策 · 26 份证据已汇总</strong><small>夜间自动完成 17 次计划推演</small></div>
+            </div>
+          </div>
+        </section>
+
+        <div class="dashboard-grid">
+          <section class="card plan-card" aria-labelledby="planTitle">
+            <div class="card-head">
+              <div class="card-title">
+                <svg class="i"><use href="#i-git-branch"></use></svg>
+                <h2 id="planTitle">端到端计划链</h2>
+                <span class="head-tag ai"><svg class="i" style="width:10px;height:10px"><use href="#i-sparkles"></use></svg>AI 已归因</span>
+              </div>
+              <div class="card-tools">
+                <span class="head-tag">S&amp;OP v48</span>
+                <button class="mini-btn" type="button" title="刷新计划" id="refreshBtn"><svg class="i i-sm"><use href="#i-refresh"></use></svg></button>
+                <button class="mini-btn" type="button" title="更多"><svg class="i i-sm"><use href="#i-more"></use></svg></button>
+              </div>
+            </div>
+            <div class="plan-body">
+              <div class="plan-chain-wrap">
+                <div class="plan-chain" id="planChain" role="group" aria-label="端到端计划链阶段">
+                  <span class="chain-line" aria-hidden="true"></span>
+                  <button class="stage active" type="button" data-stage="demand">
+                    <span class="stage-icon"><svg class="i i-lg"><use href="#i-trending-up"></use></svg></span>
+                    <span class="stage-label">需求</span>
+                    <strong>384,200</strong>
+                    <em>台 · 12 周</em>
+                  </button>
+                  <button class="stage risk" type="button" data-stage="supply">
+                    <span class="stage-icon"><svg class="i i-lg"><use href="#i-package"></use></svg></span>
+                    <span class="stage-label">供给</span>
+                    <strong>379,880</strong>
+                    <em>缺口 4,320 件</em>
+                  </button>
+                  <button class="stage warning" type="button" data-stage="capacity">
+                    <span class="stage-icon"><svg class="i i-lg"><use href="#i-factory"></use></svg></span>
+                    <span class="stage-label">产能</span>
+                    <strong>92.4%</strong>
+                    <em>2 条线 &gt;97%</em>
+                  </button>
+                  <button class="stage" type="button" data-stage="inventory">
+                    <span class="stage-icon"><svg class="i i-lg"><use href="#i-warehouse"></use></svg></span>
+                    <span class="stage-label">库存</span>
+                    <strong>18.2</strong>
+                    <em>天 · 低于计划 1.4 天</em>
+                  </button>
+                  <button class="stage danger" type="button" data-stage="delivery">
+                    <span class="stage-icon"><svg class="i i-lg"><use href="#i-truck"></use></svg></span>
+                    <span class="stage-label">履约</span>
+                    <strong>93.7%</strong>
+                    <em>OTIF · -2.1pp</em>
+                  </button>
+                </div>
+              </div>
+
+              <div class="insight">
+                <span class="agent-mark">AI</span>
+                <div class="insight-copy">
+                  <strong id="insightTitle">W46–W47 断点已定位</strong>
+                  <span id="insightText">H 供应商产能恢复延迟 5 天，叠加华东促销需求 +9.2%，连接器缺口扩散至 3 个客户承诺。</span>
+                </div>
+                <div class="confidence"><span>置信</span><strong>87%</strong></div>
+                <button class="insight-link" type="button" id="explainBtn">为什么<svg class="i" style="width:10px;height:10px"><use href="#i-arrow-right"></use></svg></button>
+              </div>
+
+              <div class="balance">
+                <strong>未来 8 周计划平衡 <span style="color:var(--dsw-alias-label-tertiary);font-weight:400">/ 千件</span></strong>
+                <div class="balance-legend"><span><i class="legend-dot"></i>缺口</span><span><i class="legend-dot positive"></i>富余</span></div>
+              </div>
+              <div class="chart-row" aria-label="未来八周计划缺口">
+                <div class="chart-y"><span>+1.0</span><span>0</span><span>-1.5</span></div>
+                <div class="chart-plot">
+                  <span class="chart-zero" aria-hidden="true"></span>
+                  <div class="chart-col" style="--h:36%"><span class="bar neg" style="--h:36%"></span><span class="chart-week"><span class="chart-val">-0.8</span>W45</span></div>
+                  <div class="chart-col" style="--h:48%"><span class="bar neg" style="--h:48%"></span><span class="chart-week"><span class="chart-val">-1.2</span>W46</span></div>
+                  <div class="chart-col focus" style="--h:54%"><span class="bar neg" style="--h:54%"></span><span class="chart-week"><span class="chart-val">-1.3</span>W47</span></div>
+                  <div class="chart-col" style="--h:25%"><span class="bar neg" style="--h:25%"></span><span class="chart-week"><span class="chart-val">-0.6</span>W48</span></div>
+                  <div class="chart-col" style="--h:13%"><span class="bar pos" style="--h:13%"></span><span class="chart-week"><span class="chart-val">+0.3</span>W49</span></div>
+                  <div class="chart-col" style="--h:27%"><span class="bar pos" style="--h:27%"></span><span class="chart-week"><span class="chart-val">+0.7</span>W50</span></div>
+                  <div class="chart-col" style="--h:17%"><span class="bar pos" style="--h:17%"></span><span class="chart-week"><span class="chart-val">+0.4</span>W51</span></div>
+                  <div class="chart-col" style="--h:8%"><span class="bar pos" style="--h:8%"></span><span class="chart-week"><span class="chart-val">+0.2</span>W52</span></div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <aside class="card team-card" aria-labelledby="teamTitle">
+            <div class="card-head">
+              <div class="card-title">
+                <svg class="i"><use href="#i-users"></use></svg>
+                <h2 id="teamTitle">人机计划团队</h2>
+              </div>
+              <span class="team-status"><span class="live-dot"></span>4 AI + 3 人在线</span>
+            </div>
+            <div class="team-summary">
+              <div class="summary-cell ai">
+                <small>AI 工时占比</small>
+                <strong>82<span>%</span></strong>
+              </div>
+              <div class="summary-cell">
+                <small>自动完成</small>
+                <strong>17<span>项</span></strong>
+              </div>
+              <div class="summary-cell human">
+                <small>待你判断</small>
+                <strong id="teamDecisionCount">3<span>项</span></strong>
+              </div>
+            </div>
+            <div class="team-progress"><span></span></div>
+            <div class="team-list">
+              <div class="team-row">
+                <div class="avatar-wrap"><div class="avatar ai">N</div><span class="ai-tag">AI</span></div>
+                <div class="team-copy">
+                  <strong><span>Nova</span><i class="role-chip">需求计划</i></strong>
+                  <small>发现华东促销需求 +9.2%，已拆出 2 个异常渠道</small>
+                </div>
+                <span class="team-state done">已完成</span>
+              </div>
+              <div class="team-row">
+                <div class="avatar-wrap"><div class="avatar ai">A</div><span class="ai-tag">AI</span></div>
+                <div class="team-copy">
+                  <strong><span>Atlas</span><i class="role-chip">供应计划</i></strong>
+                  <small>完成 3 套再平衡推演，推荐“空运补料 + 产线重排”</small>
+                </div>
+                <span class="team-state action">待决策</span>
+              </div>
+              <div class="team-row">
+                <div class="avatar-wrap"><div class="avatar ai">S</div><span class="ai-tag">AI</span></div>
+                <div class="team-copy">
+                  <strong><span>Scout</span><i class="role-chip">物料风险</i></strong>
+                  <small>监控 186 个关键 SKU，锁定 H 供应商 2 个交付断点</small>
+                </div>
+                <span class="team-state working">已交接</span>
+              </div>
+              <div class="team-row">
+                <div class="avatar-wrap"><div class="avatar">LJ</div></div>
+                <div class="team-copy">
+                  <strong><span>林峻</span><i class="role-chip">采购</i></strong>
+                  <small>正在确认 H 供应商加急产能窗口与质量证明</small>
+                </div>
+                <span class="team-state working">进行中</span>
+              </div>
+            </div>
+            <div class="team-foot">
+              <svg class="i i-sm"><use href="#i-clock"></use></svg>
+              <span>本周已减少 <strong>11.5h</strong> 非必要协同</span>
+              <button class="link" type="button" id="teamLogBtn">协作记录</button>
+            </div>
+          </aside>
+
+          <section class="card decision-card" id="decisionCard" aria-labelledby="decisionTitle">
+            <div class="card-head decision-head">
+              <div class="card-title">
+                <svg class="i"><use href="#i-alert"></use></svg>
+                <h2 id="decisionTitle">决策队列</h2>
+                <span class="head-tag danger" id="pendingTag">3 项待判断</span>
+              </div>
+              <span class="card-sub">AI 已备齐证据与影响评估 · 仅需你做取舍</span>
+              <div class="card-tools">
+                <button class="btn sm ghost" type="button" id="allDecisionsBtn">查看全部 <svg class="i" style="width:11px;height:11px"><use href="#i-chevron-right"></use></svg></button>
+              </div>
+            </div>
+            <div class="decision-body">
+              <div class="decision-queue" id="decisionQueue" role="listbox" aria-label="待决策事项"></div>
+              <div class="cockpit" id="cockpit"></div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div class="overlay" id="scenarioOverlay" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="scenarioTitle">
+      <div class="modal-head">
+        <div class="modal-title">
+          <div class="modal-kicker"><svg class="i i-sm"><use href="#i-sparkles"></use></svg>PLAN AGENT · 约束推演完成</div>
+          <h2 id="scenarioTitle">3 个再平衡情景，1 项建议</h2>
+          <p class="modal-sub">已考虑 12 周需求、H 供应商产能、2 条瓶颈产线、库存下限与 3 个客户承诺。推演耗时 42 秒。</p>
+        </div>
+        <button class="mini-btn" type="button" data-close="scenarioOverlay" title="关闭"><svg class="i"><use href="#i-x"></use></svg></button>
+      </div>
+      <div class="modal-body">
+        <div class="scenario-grid" id="scenarioGrid">
+          <div class="scenario selected" data-scenario="service">
+            <div class="scenario-top"><strong>保承诺 · 组合补料</strong><span>推荐</span></div>
+            <p>空运 1,200 件连接器，同时将 A5 的 1 条排产移至 W48，优先守住 3 个客户承诺。</p>
+            <div class="scenario-metric"><span>预计 OTIF</span><strong class="good">97.4%</strong></div>
+            <div class="scenario-metric"><span>增量成本</span><strong class="warn">+¥86 万</strong></div>
+            <div class="scenario-metric"><span>库存天数</span><strong>16.8 天</strong></div>
+            <div class="scenario-metric"><span>执行风险</span><strong class="good">低</strong></div>
+          </div>
+          <div class="scenario" data-scenario="cost">
+            <div class="scenario-top"><strong>保成本 · 客户分批</strong><span style="color:var(--dsw-alias-label-tertiary)">可选</span></div>
+            <p>不加急，按客户等级重排交付批次。守住 P0 客户，P1 客户延期 3–5 天。</p>
+            <div class="scenario-metric"><span>预计 OTIF</span><strong class="warn">94.2%</strong></div>
+            <div class="scenario-metric"><span>增量成本</span><strong>+¥12 万</strong></div>
+            <div class="scenario-metric"><span>库存天数</span><strong>18.2 天</strong></div>
+            <div class="scenario-metric"><span>执行风险</span><strong class="warn">中</strong></div>
+          </div>
+          <div class="scenario" data-scenario="cash">
+            <div class="scenario-top"><strong>保现金 · 延后替代</strong><span style="color:var(--dsw-alias-label-tertiary)">可选</span></div>
+            <p>等待替代料认证，不增加现金支出；W47 供给缺口扩大，需客户逐单协商。</p>
+            <div class="scenario-metric"><span>预计 OTIF</span><strong class="warn">91.8%</strong></div>
+            <div class="scenario-metric"><span>增量成本</span><strong>¥0</strong></div>
+            <div class="scenario-metric"><span>库存天数</span><strong>20.6 天</strong></div>
+            <div class="scenario-metric"><span>执行风险</span><strong style="color:var(--dsw-alias-state-error-primary)">高</strong></div>
+          </div>
+        </div>
+        <div class="scenario-rationale">
+          <span class="agent-mark">AI</span>
+          <div><strong>为什么推荐“保承诺”：</strong>3 个客户承诺的违约影响约 ¥2,140 万，组合方案的 86 万增量成本可换来 3.7pp OTIF 恢复；同时不会击穿 16 天安全库存下限。</div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <small>应用只生成 v49 草案，不会自动修改生产计划或对外承诺。</small>
+        <button class="btn" type="button" data-close="scenarioOverlay">取消</button>
+        <button class="btn primary" type="button" id="applyScenarioBtn">生成 v49 草案</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="drawer-scrim" id="drawerScrim"></div>
+  <aside class="drawer" id="reasonDrawer" aria-hidden="true" aria-labelledby="drawerTitle">
+    <div class="drawer-head">
+      <div class="agent-mark">AI</div>
+      <div class="modal-title">
+        <div class="modal-kicker">PLAN AGENT · 证据链</div>
+        <h2 id="drawerTitle">为什么建议方案 A？</h2>
+        <p class="modal-sub">基于 09:40 数据 · 14 份记录 · 3 次约束推演</p>
+      </div>
+      <button class="mini-btn" type="button" id="closeDrawerBtn" title="关闭"><svg class="i"><use href="#i-x"></use></svg></button>
+    </div>
+    <div class="drawer-body">
+      <section class="drawer-section">
+        <h3>结论</h3>
+        <p>组合方案在满足 16 天库存下限的前提下，把 W46–W47 缺口从 4,320 件压缩到 640 件。空运只覆盖无法内部消化的 1,200 件，其余通过产线重排解决，因此比全量空运少 31% 增量成本。</p>
+      </section>
+      <section class="drawer-section">
+        <h3>关键证据</h3>
+        <div class="evidence">
+          <div class="evidence-item">
+            <span class="evidence-icon"><svg class="i i-sm"><use href="#i-database"></use></svg></span>
+            <div class="evidence-copy"><strong>SRM：H 供应商恢复日期由 11/04 推迟至 11/09</strong><small>采购订单 PO-26-0918 · 供应商交付经理已确认</small></div>
+            <span class="evidence-source">09:40</span>
+          </div>
+          <div class="evidence-item">
+            <span class="evidence-icon"><svg class="i i-sm"><use href="#i-warehouse"></use></svg></span>
+            <div class="evidence-copy"><strong>WMS：C-4821 可用库存 1,840 件，低于安全下限 3,600 件</strong><small>华东中心仓 + 华南中转仓 · 已扣除锁定库存</small></div>
+            <span class="evidence-source">09:36</span>
+          </div>
+          <div class="evidence-item">
+            <span class="evidence-icon"><svg class="i i-sm"><use href="#i-factory"></use></svg></span>
+            <div class="evidence-copy"><strong>APS：A5 产线提前/延后 1 个班次，可释放 2,480 件产能</strong><small>不增加换型次数 · 已验证 W48 交付余量</small></div>
+            <span class="evidence-source">09:32</span>
+          </div>
+        </div>
+      </section>
+      <section class="drawer-section">
+        <h3>推演边界</h3>
+        <ul class="drawer-bullets">
+          <li>不突破财务给定的 ¥100 万单次异常处置上限。</li>
+          <li>不改变 P0 客户已承诺的交付日期。</li>
+          <li>不让任一物料库存低于 16 天安全下限。</li>
+          <li>替代料认证周期按 QMS 当前 3 天口径计算。</li>
+        </ul>
+      </section>
+      <section class="drawer-section">
+        <h3>判断置信度</h3>
+        <div class="confidence-meter">
+          <strong>87%</strong>
+          <div><small>主要不确定性：H 供应商 11/09 恢复承诺仍有 13% 滑期风险</small><span class="meter"><span></span></span></div>
+        </div>
+      </section>
+    </div>
+    <div class="drawer-foot">
+      <button class="btn" type="button" id="makeTaskBtn"><svg class="i i-sm"><use href="#i-check-square"></use></svg>转跟进任务</button>
+      <button class="btn agent" type="button" id="makeMinutesBtn"><svg class="i i-sm"><use href="#i-file"></use></svg>生成决策纪要</button>
+    </div>
+  </aside>
+
+  <div class="toast" id="toast" role="status" aria-live="polite">
+    <svg class="i"><use href="#i-check"></use></svg>
+    <span id="toastText"></span>
+  </div>
+
+  <script>
+    const stageInsights = {
+      demand: {
+        title: "需求侧出现结构性上修",
+        text: "华东渠道促销拉动 12 周需求 +17,600 台，其中 P9 占 62%；Nova 已拆出 2 个异常渠道，建议只调整 A5 的 W46 供给。"
+      },
+      supply: {
+        title: "W46–W47 断点已定位",
+        text: "H 供应商产能恢复延迟 5 天，叠加华东促销需求 +9.2%，连接器缺口扩散至 3 个客户承诺。"
+      },
+      capacity: {
+        title: "2 条产线进入高负载区",
+        text: "A5 产线 W46 利用率 98.2%，但 W48 有 2,480 件余量；Atlas 已把“跨周重排”纳入组合方案。"
+      },
+      inventory: {
+        title: "库存缓冲被需求上修吃掉",
+        text: "库存天数由 19.6 天降至 18.2 天，C-4821 可用库存只剩 1,840 件，低于 3,600 件安全下限。"
+      },
+      delivery: {
+        title: "3 个客户承诺进入风险区",
+        text: "若不处置，W46–W47 的 OTIF 将降至 91.6%；组合方案可恢复到 97.4%，并守住 P0 客户的原始承诺。"
+      }
+    };
+
+    const decisions = [
+      {
+        id: "connector",
+        priority: "P0",
+        priorityClass: "",
+        title: "C-4821 连接器缺口 4,320 件",
+        meta: "影响 3 个客户承诺",
+        deadline: "14:00 前决策",
+        owner: "Olivia",
+        kicker: "P0 · 供应断点 · Atlas + Scout 已备齐证据",
+        summary: "H 供应商恢复延迟 5 天。组合方案可把缺口压到 640 件，并把 OTIF 从 93.7% 拉回 97.4%；不影响 P0 客户承诺。",
+        facts: [
+          ["缺口", "4,320 件", "danger"],
+          ["承诺风险", "¥2,140 万", "warning"],
+          ["AI 置信", "87%", ""]
+        ],
+        handoff: [
+          ["Scout", "核实供给"],
+          ["Atlas", "推演 3 案"],
+          ["Finance AI", "测算成本"]
+        ],
+        options: [
+          { key: "A", name: "空运补料 + 产线重排", desc: "保 3 个客户承诺", otif: "97.4%", cost: "+¥86万", risk: "低", rec: true },
+          { key: "B", name: "切换备用供应商", desc: "需 3 天质量认证", otif: "94.8%", cost: "+¥42万", risk: "中", rec: false },
+          { key: "C", name: "客户分批交付", desc: "P1 客户延期 3–5 天", otif: "92.6%", cost: "¥0", risk: "高", rec: false }
+        ],
+        recommendation: "A",
+        cta: "采用方案 A 并派发"
+      },
+      {
+        id: "supplier",
+        priority: "P1",
+        priorityClass: "p1",
+        title: "H 供应商产能恢复证明待补",
+        meta: "采购已催办 · 2 份证据缺失",
+        deadline: "今天 16:00",
+        owner: "林峻",
+        kicker: "P1 · 证据缺口 · 影响补料承诺",
+        summary: "供应商口头承诺 11/09 恢复，但缺少设备维修完成单与班次安排。Scout 建议先接受 70% 产能承诺，同时保留替代料小批试产。",
+        facts: [
+          ["承诺产能", "70%", "warning"],
+          ["证据缺失", "2 份", "danger"],
+          ["AI 置信", "74%", ""]
+        ],
+        handoff: [
+          ["Scout", "发现缺口"],
+          ["林峻", "催办证明"],
+          ["QMS AI", "检查认证"]
+        ],
+        options: [
+          { key: "A", name: "接受 70% 产能承诺", desc: "同步锁定补充证据", otif: "96.8%", cost: "+¥18万", risk: "中", rec: true },
+          { key: "B", name: "要求全量产能证明", desc: "可能错过 W46 备料窗口", otif: "95.9%", cost: "¥0", risk: "高", rec: false },
+          { key: "C", name: "启用替代料试产", desc: "需 3 天认证与客户确认", otif: "95.2%", cost: "+¥34万", risk: "中", rec: false }
+        ],
+        recommendation: "A",
+        cta: "采用方案 A 并派发"
+      },
+      {
+        id: "schedule",
+        priority: "P1",
+        priorityClass: "p1",
+        title: "W46 排产版本切换",
+        meta: "2 条产线 · 切换窗口 2 小时",
+        deadline: "明天 09:00",
+        owner: "周杰",
+        kicker: "P1 · 产能约束 · Forge 已完成模拟",
+        summary: "A5 产线 W46 利用率 98.2%。把 2,480 件 A5 排产移至 W48，可释放连接器缺口压力，且不影响任何已承诺订单。",
+        facts: [
+          ["产线负载", "98.2%", "danger"],
+          ["可释放", "2,480 件", ""],
+          ["换型增量", "+1 次", "warning"]
+        ],
+        handoff: [
+          ["Nova", "锁定订单"],
+          ["Forge", "模拟排产"],
+          ["周杰", "确认班次"]
+        ],
+        options: [
+          { key: "A", name: "周五夜班切换", desc: "对订单承诺零影响", otif: "97.1%", cost: "+¥6万", risk: "低", rec: true },
+          { key: "B", name: "周四白班切换", desc: "少 1 个班次缓冲", otif: "96.2%", cost: "+¥4万", risk: "中", rec: false },
+          { key: "C", name: "维持当前排产", desc: "需外部补料覆盖", otif: "94.9%", cost: "+¥28万", risk: "中", rec: false }
+        ],
+        recommendation: "A",
+        cta: "采用方案 A 并派发"
+      }
+    ];
+
+    const state = {
+      selectedDecision: 0,
+      selectedOptions: {
+        connector: "A",
+        supplier: "A",
+        schedule: "A"
+      },
+      resolved: new Set(),
+      scenario: "service",
+      scenarioApplied: false
+    };
+
+    const decisionQueue = document.getElementById("decisionQueue");
+    const cockpit = document.getElementById("cockpit");
+    const decisionCard = document.getElementById("decisionCard");
+    const toast = document.getElementById("toast");
+    const toastText = document.getElementById("toastText");
+    let toastTimer = null;
+
+    function icon(name, className = "i") {
+      return `<svg class="${className}"><use href="#i-${name}"></use></svg>`;
+    }
+
+    function showToast(message) {
+      toastText.textContent = message;
+      toast.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove("show"), 3200);
+    }
+
+    function renderQueue() {
+      decisionQueue.innerHTML = decisions.map((decision, index) => {
+        const resolved = state.resolved.has(decision.id);
+        return `
+          <button class="queue-item ${index === state.selectedDecision ? "active" : ""} ${resolved ? "resolved" : ""}"
+                  type="button" role="option" aria-selected="${index === state.selectedDecision}" data-index="${index}">
+            <span class="priority ${decision.priorityClass}">${decision.priority}</span>
+            <span class="queue-copy">
+              <strong>${decision.title}</strong>
+              <span>${decision.meta}</span>
+            </span>
+            <span class="queue-meta">
+              <em class="${resolved ? "resolved-mark" : ""}">${resolved ? "已决策" : decision.deadline}</em>
+              <small>${decision.owner}</small>
+            </span>
+          </button>
+        `;
+      }).join("") + `
+        <div class="queue-foot">
+          <span><strong>26</strong> 份证据 · <strong>3</strong> 次推演</span>
+          <span>AI 自动归档</span>
+        </div>
+      `;
+    }
+
+    function renderCockpit() {
+      const decision = decisions[state.selectedDecision];
+      const resolved = state.resolved.has(decision.id);
+      const selected = state.selectedOptions[decision.id];
+      const selectedOption = decision.options.find(option => option.key === selected);
+      decisionCard.classList.toggle("is-resolved", resolved);
+
+      cockpit.innerHTML = `
+        <div class="cockpit-top">
+          <div class="cockpit-copy">
+            <div class="cockpit-kicker"><strong>${decision.priority}</strong><span>${decision.kicker}</span></div>
+            <h3>${decision.title}</h3>
+            <p class="cockpit-summary">${decision.summary}</p>
+            <div class="cockpit-facts">
+              ${decision.facts.map(([label, value, tone]) => `<span class="fact-chip ${tone}">${label}<strong>${value}</strong></span>`).join("")}
+            </div>
+          </div>
+          <div class="confidence-badge">${icon("sparkles", "i i-sm")}AI 已交叉验证</div>
+        </div>
+        <div class="handoff" aria-label="AI 与人协作接力">
+          ${decision.handoff.map(([name, work], index) => `
+            <span class="handoff-step done"><b>${name}</b>${work}</span>
+            ${index < decision.handoff.length - 1 ? `<span class="handoff-arrow">${icon("chevron-right", "i i-sm")}</span>` : `<span class="handoff-arrow">${icon("chevron-right", "i i-sm")}</span><span class="handoff-step"><b>你</b>判断</span>`}
+          `).join("")}
+        </div>
+        <div class="options" role="radiogroup" aria-label="处置方案">
+          ${decision.options.map(option => `
+            <button class="option ${option.key === selected ? "selected" : ""}" type="button" role="radio"
+                    aria-checked="${option.key === selected}" data-option="${option.key}" ${resolved ? "disabled" : ""}>
+              <span class="option-head">
+                <span class="option-key">${option.key}</span>
+                <span class="option-name">${option.name}</span>
+                ${option.rec ? `<span class="recommend-tag">AI 推荐</span>` : ""}
+              </span>
+              <span class="option-desc">${option.desc}</span>
+              <span class="option-metrics">
+                <span>OTIF <strong class="good">${option.otif}</strong></span>
+                <span>成本 <strong class="cost">${option.cost}</strong></span>
+                <span>风险 <strong>${option.risk}</strong></span>
+              </span>
+            </button>
+          `).join("")}
+        </div>
+        <div class="cockpit-foot">
+          <button class="evidence-link" type="button" id="evidenceBtn">${icon("eye", "i i-sm")}查看证据链</button>
+          <span class="evidence-link">${icon("clock", "i i-sm")}预计 4 分钟完成派发</span>
+          <button class="btn primary" type="button" id="adoptBtn">${decision.cta.replace("A", selectedOption.key)}</button>
+        </div>
+        <div class="resolved-note">
+          ${icon("check", "i i-sm")}
+          <span><strong>决策已形成。</strong> 已派发 4 个任务，工作流“关键物料缺口处置”已启动。</span>
+          <button class="btn sm" type="button" id="openWorkflowBtn">查看工作流</button>
+        </div>
+      `;
+    }
+
+    function refreshSummary() {
+      const remaining = decisions.length - state.resolved.size;
+      document.getElementById("decisionCount").textContent = remaining;
+      document.getElementById("teamDecisionCount").innerHTML = `${remaining}<span>项</span>`;
+      const pendingTag = document.getElementById("pendingTag");
+      pendingTag.textContent = remaining > 0 ? `${remaining} 项待判断` : "全部已决策";
+      pendingTag.className = remaining > 0 ? "head-tag danger" : "head-tag success";
+    }
+
+    decisionQueue.addEventListener("click", event => {
+      const item = event.target.closest(".queue-item");
+      if (!item) return;
+      state.selectedDecision = Number(item.dataset.index);
+      renderQueue();
+      renderCockpit();
+    });
+
+    cockpit.addEventListener("click", event => {
+      const option = event.target.closest(".option");
+      const decision = decisions[state.selectedDecision];
+      if (option && !state.resolved.has(decision.id)) {
+        state.selectedOptions[decision.id] = option.dataset.option;
+        renderCockpit();
+        return;
+      }
+      if (event.target.closest("#adoptBtn")) {
+        state.resolved.add(decision.id);
+        renderQueue();
+        renderCockpit();
+        refreshSummary();
+        showToast(`已采用方案 ${state.selectedOptions[decision.id]}，4 个跟进任务与 1 个处置工作流已自动创建。`);
+        return;
+      }
+      if (event.target.closest("#evidenceBtn")) {
+        openDrawer();
+        return;
+      }
+      if (event.target.closest("#openWorkflowBtn")) {
+        showToast("已打开工作流“关键物料缺口处置”：证据确认 → 方案审批 → 补料执行 → 客户沟通。");
+      }
+    });
+
+    document.getElementById("planChain").addEventListener("click", event => {
+      const stage = event.target.closest(".stage");
+      if (!stage) return;
+      document.querySelectorAll(".stage").forEach(item => item.classList.remove("active"));
+      stage.classList.add("active");
+      const insight = stageInsights[stage.dataset.stage];
+      document.getElementById("insightTitle").textContent = insight.title;
+      document.getElementById("insightText").textContent = insight.text;
+    });
+
+    function openDrawer() {
+      document.getElementById("reasonDrawer").classList.add("open");
+      document.getElementById("reasonDrawer").setAttribute("aria-hidden", "false");
+      document.getElementById("drawerScrim").classList.add("open");
+    }
+
+    function closeDrawer() {
+      document.getElementById("reasonDrawer").classList.remove("open");
+      document.getElementById("reasonDrawer").setAttribute("aria-hidden", "true");
+      document.getElementById("drawerScrim").classList.remove("open");
+    }
+
+    document.getElementById("explainBtn").addEventListener("click", openDrawer);
+    document.getElementById("closeDrawerBtn").addEventListener("click", closeDrawer);
+    document.getElementById("drawerScrim").addEventListener("click", closeDrawer);
+    document.getElementById("makeTaskBtn").addEventListener("click", () => {
+      closeDrawer();
+      showToast("已创建跟进任务：确认 H 供应商 11/09 产能恢复证据，负责人林峻，截止今天 16:00。");
+    });
+    document.getElementById("makeMinutesBtn").addEventListener("click", () => {
+      closeDrawer();
+      showToast("决策纪要已生成，并自动关联 W45 S&OP 会议与 3 份证据。");
+    });
+
+    function openScenario() {
+      document.getElementById("scenarioOverlay").classList.add("open");
+      document.getElementById("scenarioOverlay").setAttribute("aria-hidden", "false");
+    }
+
+    function closeScenario() {
+      document.getElementById("scenarioOverlay").classList.remove("open");
+      document.getElementById("scenarioOverlay").setAttribute("aria-hidden", "true");
+    }
+
+    document.getElementById("rebalanceBtn").addEventListener("click", openScenario);
+    document.querySelectorAll("[data-close='scenarioOverlay']").forEach(button => {
+      button.addEventListener("click", closeScenario);
+    });
+
+    document.getElementById("scenarioGrid").addEventListener("click", event => {
+      const scenario = event.target.closest(".scenario");
+      if (!scenario) return;
+      state.scenario = scenario.dataset.scenario;
+      document.querySelectorAll(".scenario").forEach(item => item.classList.toggle("selected", item === scenario));
+    });
+
+    document.getElementById("applyScenarioBtn").addEventListener("click", () => {
+      if (state.scenarioApplied) {
+        showToast("v49 草案已经生成，正在等待 2 项人工确认。");
+        return;
+      }
+      state.scenarioApplied = true;
+      document.getElementById("gapValue").textContent = "640";
+      document.getElementById("healthScore").textContent = "88";
+      document.getElementById("healthLabel").textContent = "改善中 · 2 项待确认";
+      document.getElementById("healthRing").style.setProperty("--score", "88");
+      document.getElementById("versionPill").innerHTML = `${icon("git-branch", "i")} v49 草案`;
+      closeScenario();
+      showToast("已生成 v49 再平衡草案：缺口降至 640 件，尚未提交生产计划或客户承诺。");
+    });
+
+    document.getElementById("themeBtn").addEventListener("click", () => {
+      const root = document.documentElement;
+      const light = root.dataset.theme === "light";
+      root.dataset.theme = light ? "dark" : "light";
+      showToast(light ? "已切换为深色主题。" : "已切换为浅色主题。");
+    });
+
+    document.getElementById("sopBtn").addEventListener("click", () => {
+      showToast("已基于 3 个决策点生成 S&OP 议题；会议草稿等待你和林峻确认时间。");
+    });
+
+    document.getElementById("shareBtn").addEventListener("click", () => {
+      showToast("只读视图已复制：包含当前计划链、决策队列和证据链，不包含权限外数据。");
+    });
+
+    document.getElementById("refreshBtn").addEventListener("click", event => {
+      const button = event.currentTarget;
+      button.style.transform = "rotate(180deg)";
+      setTimeout(() => { button.style.transform = ""; }, 380);
+      showToast("计划信号已刷新：数据截止 09:40，无新增断点。");
+    });
+
+    document.getElementById("teamLogBtn").addEventListener("click", () => {
+      showToast("本周人机协作记录：AI 完成 17 项，自动收敛 9 个跨角色问题，节省 11.5 小时协同。");
+    });
+
+    document.getElementById("allDecisionsBtn").addEventListener("click", () => {
+      showToast("已展开本周期全部决策：3 项待判断，2 项由 AI 自动闭环，1 项已归档复盘。");
+    });
+
+    document.getElementById("toast").addEventListener("click", () => {
+      toast.classList.remove("show");
+    });
+
+    document.addEventListener("keydown", event => {
+      if (event.key !== "Escape") return;
+      closeDrawer();
+      closeScenario();
+    });
+
+    renderQueue();
+    renderCockpit();
+    refreshSummary();
+  </script>
+</body>
+</html>

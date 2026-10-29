@@ -119,9 +119,14 @@ export const inject = [
  * 固定 id：persona 派生规则 `persona-<teammateId>` 与角色席位共用该 id。
  */
 export const MEETING_FACILITATOR_TEAMMATE_ID = "meeting-facilitator";
+export const DATA_AGENT_TEAMMATE_ID = "data-agent";
+export const DATA_AGENT_TEMPLATE_ID = "sys-data-agent";
+export const DATA_AGENT_PROTECTED_ERROR = "system_agent_protected";
 
 const MEETING_FACILITATOR_SEED = {
   id: MEETING_FACILITATOR_TEAMMATE_ID,
+  templateId: "sys-meeting-facilitator",
+  systemKey: "meeting-facilitator" as const,
   name: "会议 Facilitator",
   role: "会议主持人",
   description:
@@ -139,6 +144,49 @@ const MEETING_FACILITATOR_SEED = {
   ].join("\n"),
   scenarios: ["推进会议议程并控制发散", "散会前用 1-2 句中文收敛关键结论"],
   goals: ["保证每场会议都有明确结论", "结论用中文、可直接进会议纪要"],
+} as const;
+
+const DATA_AGENT_SEED = {
+  id: DATA_AGENT_TEAMMATE_ID,
+  templateId: DATA_AGENT_TEMPLATE_ID,
+  systemKey: "data-agent" as const,
+  name: "Data Agent",
+  role: "高级数据分析师",
+  description:
+    "平台内置数据分析师。把工作上下文中的业务问题转化为可追溯的数据结论、图表、报告和下一步行动。",
+  soul: [
+    "# Data Agent SOUL",
+    "",
+    "你是一名长期在线的高级数据分析师，只在授权范围内使用只读数据。",
+    "",
+    "## 分析原则",
+    "- 先确认指标口径、时间范围和业务对象，再给结论。",
+    "- 明确区分数据事实、推断原因和建议动作。",
+    "- 不编造数据，不用示例值代替真实结果。",
+    "- 查询失败或字段缺失时，说明具体数据源、失败步骤和可执行的下一步。",
+    "- 默认只读，不直接修改业务数据，不自行指派他人。",
+    "- 跨项目、跨工作区数据必须重新校验权限。",
+    "",
+    "## 输出契约",
+    "- 使用中文 Markdown。",
+    "- 报告至少包含：结论、分析范围、口径、证据链、不确定性、建议下一步。",
+    "- 先给业务影响，再给证据；不要用长段落替代结论。",
+    "- 默认交付 Markdown 报告，不主动生成 HTML。",
+  ].join("\n"),
+  scenarios: ["即时查数", "异常诊断", "定期报告", "数据准备度治理"],
+  goals: [
+    "让业务问题获得可验证、可追溯、可行动的数据结论",
+    "数据不足时把问题转成透明的治理事项",
+  ],
+  // MCP 是连接协议，不是可授予的宽泛工具。Data Agent 只声明具体只读能力；
+  // 真实 MCP Connector 必须由 Runtime Profile 暴露对应的最小工具。
+  tools: [
+    "entity.read",
+    "metric.query",
+    "dataset.query.readonly",
+    "report.render",
+    "artifact.write",
+  ],
 } as const;
 
 type TeammateStorageTableName =
@@ -233,6 +281,7 @@ interface TaskRecordLike {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly messages?: readonly TaskMessageLike[] | undefined;
+  readonly agentRunIds?: readonly string[] | undefined;
   readonly workflow?:
     | {
         readonly instanceId: string;
@@ -485,9 +534,13 @@ export function calculateTeammateActivity(input: {
       >
     | undefined;
   readonly now?: Date | undefined;
+  readonly windowHours?: number | undefined;
 }): TeammateActivity[] {
   const now = input.now ?? new Date();
-  const windowStart = new Date(now.getTime() - 24 * 60 * 60 * 1_000);
+  const windowHours = Math.max(1, input.windowHours ?? 24);
+  const windowStart = new Date(
+    now.getTime() - windowHours * 60 * 60 * 1_000,
+  );
   const workspaces = input.workspaces?.list() ?? [];
 
   // 每个工作区只拉一次运行列表，两套口径复用。
@@ -720,6 +773,246 @@ export function calculateTeammateActivity(input: {
   });
 }
 
+export interface TeammateWorkloadWindow {
+  readonly runtimeHours: number;
+  readonly meetingCount: number;
+  readonly taskCount: number;
+  readonly outputTokens: number;
+  readonly blockedTaskCount: number;
+}
+
+export interface TeammateWorkloadBlocker {
+  readonly taskId: string;
+  readonly title: string;
+  readonly status: string;
+  readonly reason: string;
+  readonly updatedAt: string;
+}
+
+export interface TeammateWorkloadItem {
+  readonly teammateId: string;
+  readonly name: string;
+  readonly role: string;
+  readonly state: string;
+  readonly avatar: string;
+  readonly hasRunIn72h: boolean;
+  readonly lastActivityAt?: string | undefined;
+  readonly last24h: TeammateWorkloadWindow;
+  readonly last72h: TeammateWorkloadWindow;
+  readonly blockers: readonly TeammateWorkloadBlocker[];
+}
+
+export interface TeammateWorkloadSnapshot {
+  readonly generatedAt: string;
+  readonly activeCount: number;
+  readonly inactiveCount: number;
+  readonly items: readonly TeammateWorkloadItem[];
+}
+
+function blockingReason(
+  task: TaskRecordLike,
+  latestRunStatus?: string | undefined,
+): string | undefined {
+  if (task.needsInput === true) return "等待补充信息";
+  if (task.queueState === "blocked") return "依赖未满足";
+  const latestMessage = [...(task.messages ?? [])]
+    .reverse()
+    .find((message) => message.state !== undefined);
+  if (latestMessage?.state === "waiting_input") return "等待人工输入";
+  if (latestMessage?.state === "failed") return "最近一次执行失败";
+  if (latestMessage?.state === "timeout") return "最近一次执行超时";
+  if (latestMessage?.state === "interrupted") return "最近一次执行中断";
+  if (latestRunStatus === "waiting_input") return "等待人工输入";
+  if (latestRunStatus === "failed") return "最近一次执行失败";
+  if (latestRunStatus === "timeout") return "最近一次执行超时";
+  if (latestRunStatus === "interrupted") return "最近一次执行中断";
+  return undefined;
+}
+
+export function calculateTeammateWorkload(input: {
+  readonly teammates: readonly Teammate[];
+  readonly tasks: readonly TaskRecordLike[];
+  readonly agents?: Pick<AgentServiceLike, "runs"> | undefined;
+  readonly meetings?: MeetingActivityLike | undefined;
+  readonly workspaces?: WorkspaceRegistryLike | undefined;
+  readonly identities?:
+    | ReadonlyMap<
+        string,
+        {
+          readonly profileId?: string | undefined;
+          readonly personaId?: string | undefined;
+        }
+      >
+    | undefined;
+  readonly now?: Date | undefined;
+}): TeammateWorkloadSnapshot {
+  const now = input.now ?? new Date();
+  const activity24h = calculateTeammateActivity({
+    ...input,
+    windowHours: 24,
+  });
+  const activity72h = calculateTeammateActivity({
+    ...input,
+    windowHours: 72,
+  });
+  const activity24hById = new Map(
+    activity24h.map((item) => [item.teammateId, item.instance]),
+  );
+  const activity72hById = new Map(
+    activity72h.map((item) => [item.teammateId, item.instance]),
+  );
+  const start24h = new Date(now.getTime() - 24 * 60 * 60 * 1_000);
+  const start72h = new Date(now.getTime() - 72 * 60 * 60 * 1_000);
+  const runsByWorkspace = new Map<
+    string,
+    readonly (ActivityRun & { readonly principalId?: string | undefined })[]
+  >();
+  for (const workspace of input.workspaces?.list() ?? []) {
+    runsByWorkspace.set(
+      workspace.id,
+      (input.agents?.runs?.({ workspaceId: workspace.id }) ?? []) as readonly (
+        ActivityRun & { readonly principalId?: string | undefined }
+      )[],
+    );
+  }
+  const allRuns = [...runsByWorkspace.values()].flat();
+  const overlaps = (run: ActivityRun, start: Date): boolean => {
+    if (run.status === "queued") return false;
+    const started = new Date(run.startedAt ?? run.createdAt);
+    const ended = new Date(run.endedAt ?? run.updatedAt ?? now.toISOString());
+    return (
+      Number.isFinite(started.getTime()) &&
+      Number.isFinite(ended.getTime()) &&
+      started.getTime() < now.getTime() &&
+      ended.getTime() > start.getTime()
+    );
+  };
+  const items = input.teammates.map((teammate) => {
+    const receiverIds = new Set([teammate.id]);
+    if (teammate.employeeId !== undefined) {
+      receiverIds.add(teammate.employeeId);
+    }
+    const assignedTasks = input.tasks.filter(
+      (task) =>
+        (task.receiverType === "agent" &&
+          task.receiverId !== undefined &&
+          receiverIds.has(task.receiverId)) ||
+        (teammate.principalId !== undefined &&
+          task.receiverPrincipalId === teammate.principalId),
+    );
+    const taskByRun = new Map<string, TaskRecordLike>();
+    const taskRuns = new Map<string, ActivityRun[]>();
+    for (const task of assignedTasks) {
+      for (const run of allRuns) {
+        if (
+          !(task.agentRunIds ?? []).includes(run.id) &&
+          (run.instanceId !== (task.workflow?.instanceId ?? task.id) ||
+            (task.workflow !== undefined &&
+              run.nodeId !== task.workflow.nodeId))
+        ) {
+          continue;
+        }
+        taskByRun.set(run.id, task);
+        const runs = taskRuns.get(task.id) ?? [];
+        runs.push(run);
+        taskRuns.set(task.id, runs);
+      }
+    }
+    const assignedRunIds = new Set(taskByRun.keys());
+    const personalRuns = allRuns.filter(
+      (run) =>
+        assignedRunIds.has(run.id) ||
+        run.instanceId === teammate.id ||
+        (teammate.employeeId !== undefined &&
+          run.employeeId === teammate.employeeId) ||
+        (teammate.principalId !== undefined &&
+          run.principalId === teammate.principalId),
+    );
+    const runs72h = personalRuns.filter((run) => overlaps(run, start72h));
+    const runs24h = runs72h.filter((run) => overlaps(run, start24h));
+    const taskCount = (
+      runs: readonly ActivityRun[],
+      start: Date,
+    ): number => {
+      const ids = new Set(
+        runs
+          .filter((run) => overlaps(run, start))
+          .map((run) => taskByRun.get(run.id)?.id ?? run.instanceId),
+      );
+      return ids.size;
+    };
+    const blockerTasks = assignedTasks
+      .filter(
+        (task) => {
+          const latest = [...(taskRuns.get(task.id) ?? [])].sort(
+            (left, right) => right.createdAt.localeCompare(left.createdAt),
+          )[0];
+          return (
+            new Date(task.updatedAt).getTime() >= start72h.getTime() &&
+            blockingReason(task, latest?.status) !== undefined
+          );
+        },
+      )
+      .map((task) => ({
+        taskId: task.id,
+        title: task.title,
+        status: task.status,
+        reason:
+          blockingReason(
+            task,
+            [...(taskRuns.get(task.id) ?? [])].sort((left, right) =>
+              right.createdAt.localeCompare(left.createdAt),
+            )[0]?.status,
+          ) ?? "执行异常",
+        updatedAt: task.updatedAt,
+      }));
+    const activity24 = activity24hById.get(teammate.id);
+    const activity72 = activity72hById.get(teammate.id);
+    const lastActivityAt = runs72h
+      .map((run) => runActivityAt(run))
+      .sort()
+      .at(-1);
+    return {
+      teammateId: teammate.id,
+      name: teammate.name,
+      role: teammate.role,
+      state: teammate.state,
+      avatar: teammate.avatar,
+      hasRunIn72h: runs72h.length > 0,
+      ...(lastActivityAt === undefined ? {} : { lastActivityAt }),
+      last24h: {
+        runtimeHours: activity24?.runtimeHours ?? 0,
+        meetingCount: activity24?.meetingCount ?? 0,
+        taskCount: taskCount(runs24h, start24h),
+        outputTokens: activity24?.outputTokens ?? 0,
+        blockedTaskCount: blockerTasks.filter(
+          (task) => new Date(task.updatedAt).getTime() >= start24h.getTime(),
+        ).length,
+      },
+      last72h: {
+        runtimeHours: activity72?.runtimeHours ?? 0,
+        meetingCount: activity72?.meetingCount ?? 0,
+        taskCount: taskCount(runs72h, start72h),
+        outputTokens: activity72?.outputTokens ?? 0,
+        blockedTaskCount: blockerTasks.length,
+      },
+      blockers: blockerTasks,
+    } satisfies TeammateWorkloadItem;
+  });
+  items.sort(
+    (left, right) =>
+      Number(right.hasRunIn72h) - Number(left.hasRunIn72h) ||
+      (right.lastActivityAt ?? "").localeCompare(left.lastActivityAt ?? "") ||
+      left.name.localeCompare(right.name, "zh-Hans-CN"),
+  );
+  return {
+    generatedAt: now.toISOString(),
+    activeCount: items.filter((item) => item.hasRunIn72h).length,
+    inactiveCount: items.filter((item) => !item.hasRunIn72h).length,
+    items,
+  };
+}
+
 function runActivityAt(run: ActivityRun): string {
   return run.endedAt ?? run.updatedAt ?? run.startedAt ?? run.createdAt;
 }
@@ -875,7 +1168,7 @@ function parseOrInvalid<T>(schema: z.ZodType<T>, value: unknown): T {
 
 function errorStatus(code: TeammateError["code"]): number {
   if (code === "unauthorized") return 401;
-  if (code === "forbidden") return 403;
+  if (code === "forbidden" || code === "system_agent_protected") return 403;
   if (code === "not_found") return 404;
   if (code === "conflict") return 409;
   return 400;
@@ -901,6 +1194,7 @@ function runtimeError(
     code !== "invalid_input" &&
     code !== "unauthorized" &&
     code !== "forbidden" &&
+    code !== "system_agent_protected" &&
     code !== "not_found" &&
     code !== "conflict"
   ) {
@@ -1350,6 +1644,78 @@ export function runningTeammateIds(input: {
           runningReceivers.has(teammate.employeeId)),
     )
     .map((teammate) => teammate.id);
+}
+
+export interface TeammateWorkloadPort {
+  snapshot(actor: TeammateActor): Promise<TeammateWorkloadSnapshot>;
+}
+
+export class TeammateWorkloadService implements TeammateWorkloadPort {
+  constructor(
+    private readonly deps: {
+      readonly teammates: TeammateService;
+      readonly team: () => TeamServiceLike | undefined;
+      readonly tasks: () => TaskServiceLike | undefined;
+      readonly workspaces: () => WorkspaceRegistryLike | undefined;
+      readonly agents: () => AgentServiceLike | undefined;
+      readonly meetings: () => MeetingActivityLike | undefined;
+      readonly runtime: TeammateRuntime;
+      readonly beforeList?: (() => Promise<void>) | undefined;
+      readonly now?: (() => Date) | undefined;
+    },
+  ) {}
+
+  async snapshot(actor: TeammateActor): Promise<TeammateWorkloadSnapshot> {
+    await this.deps.beforeList?.().catch(() => undefined);
+    const team = this.deps.team();
+    if (team === undefined) {
+      throw new TeammateError("not_found", "identity service is unavailable");
+    }
+    const teammates = this.deps.teammates
+      .listInstances(actor, {
+        scope: actor.role === "admin" ? "all" : "mine",
+      })
+      .filter((teammate) => teammate.state !== "archived");
+    const registry = this.deps.workspaces();
+    const accessibleWorkspaces: WorkspaceRegistryLike = {
+      list: () =>
+        (registry?.list() ?? []).filter(
+          (workspace) =>
+            actor.role === "admin" ||
+            team
+              .members(workspace.id)
+              .some((member) => member.userId === actor.userId),
+        ),
+    };
+    const tasks = collectAccessibleTasks({
+      team,
+      actor,
+      tasks: this.deps.tasks(),
+      workspaces: accessibleWorkspaces,
+    });
+    const identities = new Map<
+      string,
+      {
+        readonly profileId?: string | undefined;
+        readonly personaId?: string | undefined;
+      }
+    >();
+    await Promise.all(
+      teammates.map(async (teammate) => {
+        const identity = await this.deps.runtime.identityOf(teammate.id);
+        if (identity !== undefined) identities.set(teammate.id, identity);
+      }),
+    );
+    return calculateTeammateWorkload({
+      teammates,
+      tasks,
+      agents: this.deps.agents(),
+      meetings: this.deps.meetings(),
+      workspaces: accessibleWorkspaces,
+      identities,
+      now: this.deps.now?.() ?? new Date(),
+    });
+  }
 }
 
 export function createTeammateRoutes(
@@ -2402,6 +2768,10 @@ export interface TeammateContext {
   ): unknown;
   provide(key: "collabTeammateRuntime", value: TeammateRuntime): unknown;
   provide(
+    key: "collabTeammateWorkload",
+    value: TeammateWorkloadService,
+  ): unknown;
+  provide(
     key: "collabPrincipalRuntime",
     value: PrincipalRuntimeService,
   ): unknown;
@@ -2474,8 +2844,9 @@ export async function apply(ctx: TeammateContext): Promise<void> {
       ctx.get("collabPrincipal") as
         PrincipalRuntimePrincipalServiceLike | undefined,
   );
-  // 平台内置数据：会议 Facilitator 开箱定义（只在缺失时写入，不覆盖平台维护）。
+  // 平台内置数据：只在缺失时写入，不覆盖平台维护。
   await service.ensureSeededPlatformTeammate(MEETING_FACILITATOR_SEED);
+  await service.ensureSeededPlatformTeammate(DATA_AGENT_SEED);
   ctx.provide("collabTeammates", service);
   ctx.provide("collabTeammateTemplates", teammateTemplateService);
   const runtimeService = new TeammateRuntime({
@@ -2511,6 +2882,17 @@ export async function apply(ctx: TeammateContext): Promise<void> {
     await runtimeService.syncFromEmployees();
     await runtimeService.migrateEmployeeIdentities();
   };
+  const workloadService = new TeammateWorkloadService({
+    teammates: service,
+    team: () => ctx.get("collabTeam"),
+    tasks: () => ctx.get("collabTasks"),
+    workspaces: () => ctx.get("workspaceRegistry"),
+    agents: () => ctx.get("collabAgent"),
+    meetings: () => ctx.get("collabMeeting"),
+    runtime: runtimeService,
+    beforeList: syncRuntimeIdentities,
+  });
+  ctx.provide("collabTeammateWorkload", workloadService);
   const identityFiber = ctx.inject(["collabTeam"], async (child) => {
     await migrate(
       child.collabTeam.users().map((user) => ({

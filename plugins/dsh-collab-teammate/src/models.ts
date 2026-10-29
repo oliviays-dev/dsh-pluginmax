@@ -29,12 +29,24 @@ export const PROFILE_TEMPLATE_STATES = [
   "archived",
 ] as const;
 export const TEAMMATE_TEMPLATE_STATES = PROFILE_TEMPLATE_STATES;
+export const SYSTEM_AGENT_KEYS = ["data-agent", "meeting-facilitator"] as const;
 
 export const teammateSourceSchema = z.enum(TEAMMATE_SOURCES);
 export const teammateStateSchema = z.enum(TEAMMATE_STATES);
 export const teammateEventKindSchema = z.enum(TEAMMATE_EVENT_KINDS);
 export const profileTemplateStateSchema = z.enum(PROFILE_TEMPLATE_STATES);
 export const teammateTemplateStateSchema = z.enum(TEAMMATE_TEMPLATE_STATES);
+export const systemAgentKeySchema = z.enum(SYSTEM_AGENT_KEYS);
+export const systemAgentProtectionSchema = z.object({
+  deletable: z.literal(false).default(false),
+  archivable: z.literal(false).default(false),
+  templateSwitchable: z.literal(false).default(false),
+});
+export const resettableScopeSchema = z.enum([
+  "workspace-config",
+  "memory",
+  "platform-definition",
+]);
 
 const ruleSchema = z.string().trim().min(1).max(500);
 
@@ -57,6 +69,10 @@ export const teammateSchema = z.object({
    * 由启动迁移补齐；模版承载平台/个人归属与定义内容。
    */
   templateId: idSchema.optional(),
+  /** 平台固定系统身份；普通入口不得换模版或归档，平台管理员可维护模版定义。 */
+  systemKey: systemAgentKeySchema.optional(),
+  protected: systemAgentProtectionSchema.optional(),
+  resettableScopes: z.array(resettableScopeSchema).max(8).optional(),
   personaId: idSchema.optional(),
   employeeId: idSchema.optional(),
   principalId: z.string().trim().min(1).max(180).optional(),
@@ -86,6 +102,8 @@ export const teammateTemplateSchema = z.object({
   tools: z.array(ruleSchema).max(100).default([]),
   state: teammateTemplateStateSchema,
   version: versionSchema,
+  systemKey: systemAgentKeySchema.optional(),
+  protected: systemAgentProtectionSchema.optional(),
   /**
    * 历史 persona 别名（`persona-<id>`）：roles 席位与员工 persona 仍按它引用，
    * 迁移时补齐，避免外部引用断裂。
@@ -126,6 +144,11 @@ export const teammateEventSchema = z.object({
 export type TeammateSource = z.infer<typeof teammateSourceSchema>;
 export type TeammateState = z.infer<typeof teammateStateSchema>;
 export type TeammateTemplateState = z.infer<typeof teammateTemplateStateSchema>;
+export type SystemAgentKey = z.infer<typeof systemAgentKeySchema>;
+export type SystemAgentProtection = z.infer<
+  typeof systemAgentProtectionSchema
+>;
+export type TeammateResettableScope = z.infer<typeof resettableScopeSchema>;
 export type Teammate = z.infer<typeof teammateSchema>;
 export type TeammateTemplate = z.infer<typeof teammateTemplateSchema>;
 export type TeammateEvent = z.infer<typeof teammateEventSchema>;

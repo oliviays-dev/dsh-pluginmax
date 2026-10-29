@@ -345,6 +345,13 @@ describe("AI Teammate runtime client", () => {
     expect(source).toContain("goals: [],");
   });
 
+  it("lets platform admins edit protected templates without lifecycle actions", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toMatch(
+      /if \(protectedSystem\) \{\s*return h\(\s*"div",\s*\{ className: "pmtm-actions" \},\s*protectedBadge,\s*h\(\s*"button",[\s\S]{0,500}?"编辑模版"/,
+    );
+  });
+
   it("filters the definition list by the archived view", () => {
     const source = readFileSync(CLIENT_PATH, "utf8");
     expect(source).toMatch(

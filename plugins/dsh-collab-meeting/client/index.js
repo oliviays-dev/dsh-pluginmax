@@ -14,7 +14,7 @@ window.__ModuleLoader__.load({
       "pluginmax.collab.meeting.panel.lastMeetingId";
     const RECENT_EMPTY_MEETING_IDS_KEY =
       "pluginmax.collab.meeting.recentEmptyMeetingIds";
-    const PANEL_WIDTH = 410;
+    const PANEL_WIDTH = 500;
     const SYSTEM_DEFAULT_WORKSPACE_ID = "system.default";
     const SYSTEM_DEFAULT_WORKSPACE = {
       id: SYSTEM_DEFAULT_WORKSPACE_ID,
@@ -27,22 +27,98 @@ window.__ModuleLoader__.load({
 
     /* ── module-level store (open/close shared by toggle + panel) ── */
 
+    const sidePanel = window.__pluginmaxSidePanel ?? (() => {
+      let state = {
+        open: false,
+        openTabs: [],
+        activeTab: undefined,
+        lastTab: "communication",
+        expanded: false,
+      };
+      const listeners = new Set();
+      const emit = (next) => {
+        state = next;
+        window.__pluginmaxShell?.setMeetingOpen(state.open);
+        window.__pluginmaxShell?.setSidePanelExpanded?.(state.expanded);
+        for (const listener of listeners) listener();
+      };
+      const fallback = {
+        getSnapshot: () => state,
+        subscribe(listener) {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+        openTab(tab) {
+          emit({
+            ...state,
+            open: true,
+            openTabs: state.openTabs.includes(tab)
+              ? state.openTabs
+              : [...state.openTabs, tab],
+            activeTab: tab,
+            lastTab: tab,
+          });
+        },
+        closeTab(tab) {
+          const openTabs = state.openTabs.filter((item) => item !== tab);
+          emit({
+            ...state,
+            open: openTabs.length > 0,
+            openTabs,
+            activeTab: openTabs[0],
+            expanded: openTabs.length > 0 ? state.expanded : false,
+          });
+        },
+        toggleTab(tab) {
+          if (state.open && state.activeTab === tab) this.closeTab(tab);
+          else this.openTab(tab);
+        },
+        activate(tab) {
+          if (!state.openTabs.includes(tab)) return;
+          emit({
+            ...state,
+            open: true,
+            activeTab: tab,
+            lastTab: tab,
+          });
+        },
+        closeAll() {
+          emit({
+            ...state,
+            open: false,
+            openTabs: [],
+            activeTab: undefined,
+            expanded: false,
+          });
+        },
+        restore() {
+          this.openTab(state.lastTab ?? "communication");
+        },
+        setExpanded(expanded) {
+          emit({ ...state, expanded: expanded === true });
+        },
+        toggleExpanded() {
+          this.setExpanded(!state.expanded);
+        },
+      };
+      window.__pluginmaxSidePanel = fallback;
+      return fallback;
+    })();
     const store = {
-      open: false,
       listeners: new Set(),
       // 跨视图数据联动：右侧栏与会议页各自持有一份会议数据，
       // 任一侧改完数据后通知另一侧重新拉取，避免两处显示不一致。
       changeListeners: new Set(),
       openPanel() {
-        this.open = true;
+        sidePanel?.openTab("communication");
         this.emit();
       },
       toggle() {
-        this.open = !this.open;
+        sidePanel?.toggleTab("communication");
         this.emit();
       },
       close() {
-        this.open = false;
+        sidePanel?.closeTab("communication");
         this.emit();
       },
       subscribe(fn) {
@@ -61,10 +137,26 @@ window.__ModuleLoader__.load({
         };
       },
       emit() {
-        window.__pluginmaxShell?.setMeetingOpen(this.open);
-        for (const fn of this.listeners) fn(this.open);
+        for (const fn of this.listeners) fn(this.getSnapshot());
+      },
+      getSnapshot() {
+        const snapshot = sidePanel?.getSnapshot?.();
+        return Boolean(
+          snapshot?.open === true && snapshot.activeTab === "communication",
+        );
+      },
+      getContainerSnapshot() {
+        return Boolean(sidePanel?.getSnapshot?.().open);
       },
     };
+
+    if (sidePanel !== undefined) {
+      sidePanel.subscribe(() => store.emit());
+    }
+    Object.defineProperty(store, "open", {
+      enumerable: true,
+      get: () => store.getSnapshot(),
+    });
 
     window.__pluginmaxMeeting = store;
 
@@ -95,9 +187,41 @@ window.__ModuleLoader__.load({
     const scopeStore = ensureScopeStore();
 
     function usePanelOpen() {
-      const [open, setOpen] = react.useState(store.open);
-      react.useEffect(() => store.subscribe(setOpen), []);
-      return open;
+      return react.useSyncExternalStore(
+        (listener) => store.subscribe(() => listener()),
+        () => store.getSnapshot(),
+        () => store.getSnapshot(),
+      );
+    }
+
+    function usePanelContainerOpen() {
+      return react.useSyncExternalStore(
+        (listener) =>
+          sidePanel?.subscribe?.(() => listener()) ?? (() => {}),
+        () => store.getContainerSnapshot(),
+        () => store.getContainerSnapshot(),
+      );
+    }
+
+    function useSidePanelState() {
+      return react.useSyncExternalStore(
+        (listener) =>
+          sidePanel?.subscribe?.(() => listener()) ?? (() => {}),
+        () =>
+          sidePanel?.getSnapshot?.() ?? {
+            open: false,
+            openTabs: [],
+            activeTab: undefined,
+            expanded: false,
+          },
+        () =>
+          sidePanel?.getSnapshot?.() ?? {
+            open: false,
+            openTabs: [],
+            activeTab: undefined,
+            expanded: false,
+          },
+      );
     }
 
     function useViewportWidth() {
@@ -130,6 +254,134 @@ window.__ModuleLoader__.load({
                 : children,
         }),
       );
+
+    const sidePanelTabsStyle = {
+      root: {
+        display: "flex",
+        alignItems: "stretch",
+        flexShrink: 0,
+        gap: 2,
+        minHeight: 38,
+        padding: "4px 6px 0",
+        borderBottom: "1px solid var(--dsw-alias-border-l2)",
+        background: "var(--dsw-alias-bg-layer-2)",
+      },
+      tab: {
+        position: "relative",
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        minWidth: 0,
+        height: 33,
+        padding: "0 7px 0 9px",
+        border: 0,
+        borderBottom: "2px solid transparent",
+        background: "transparent",
+        color: "var(--dsw-alias-label-secondary)",
+        font: "inherit",
+        fontSize: 11,
+        cursor: "pointer",
+      },
+      tabActive: {
+        color: "var(--dsw-alias-agent-primary, #8b7bf7)",
+        borderBottomColor: "var(--dsw-alias-agent-primary, #8b7bf7)",
+        background: "var(--dsw-alias-bg-layer-1)",
+      },
+      tabButton: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        height: "100%",
+        minWidth: 0,
+        padding: "0 4px 0 9px",
+        border: 0,
+        background: "transparent",
+        color: "inherit",
+        font: "inherit",
+        fontSize: 11,
+        cursor: "pointer",
+      },
+      close: {
+        width: 18,
+        height: 18,
+        display: "grid",
+        placeItems: "center",
+        padding: 0,
+        border: 0,
+        borderRadius: 4,
+        background: "transparent",
+        color: "var(--dsw-alias-label-tertiary)",
+        cursor: "pointer",
+      },
+    };
+
+    function SidePanelTabs() {
+      const snapshot = useSidePanelState();
+      const tabs = snapshot.openTabs ?? [];
+      if (tabs.length === 0) return null;
+      const labels = {
+        "data-agent": ["Data Agent", "spark"],
+        communication: ["沟通", "message"],
+      };
+      return h(
+        "div",
+        {
+          role: "tablist",
+          "aria-label": "侧边工作区",
+          style: sidePanelTabsStyle.root,
+        },
+        ...tabs.map((tab) => {
+          const active = snapshot.activeTab === tab;
+          const [label, icon] = labels[tab] ?? [tab, "message"];
+          return h(
+            "div",
+            {
+              key: tab,
+              style: Object.assign(
+                {},
+                sidePanelTabsStyle.tab,
+                active ? sidePanelTabsStyle.tabActive : {},
+              ),
+            },
+            h(
+              "button",
+              {
+                type: "button",
+                role: "tab",
+                "aria-selected": active,
+                style: sidePanelTabsStyle.tabButton,
+                onClick: () => window.__pluginmaxSidePanel?.openTab(tab),
+              },
+              svgIcon(
+                icon === "spark"
+                  ? [
+                      "m12 3 1.5 5.5L19 10l-5.5 1.5L12 17l-1.5-5.5L5 10l5.5-1.5Z",
+                      "M19 16l.7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7Z",
+                    ]
+                  : [
+                      "M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z",
+                    ],
+                13,
+              ),
+              h("span", null, label),
+            ),
+            h(
+              "button",
+              {
+                type: "button",
+                style: sidePanelTabsStyle.close,
+                title: `关闭${label}`,
+                "aria-label": `关闭${label}`,
+                onClick: () => {
+                  sidePanel.closeTab(tab);
+                },
+              },
+              svgIcon(["M18 6 6 18", "M6 6l12 12"], 10),
+            ),
+          );
+        }),
+      );
+    }
 
     /**
      * 展示层清理：模型偶尔会把思考过程或工具调用标记写进正文
@@ -1364,7 +1616,8 @@ window.__ModuleLoader__.load({
     };
 
     const MeetingPanel = () => {
-      const open = usePanelOpen();
+      const open = usePanelContainerOpen();
+      const sharedPanel = useSidePanelState();
       const [accountName, setAccountName] = react.useState("");
       const [meetings, setMeetings] = react.useState([]);
       const [query, setQuery] = react.useState("");
@@ -2344,8 +2597,19 @@ window.__ModuleLoader__.load({
 
       return h(
         "div",
-        { style: panelStyles.root },
+        {
+          "data-data-agent-entity":
+            meeting === undefined ? undefined : "meeting",
+          "data-data-agent-id": meeting?.id,
+          "data-data-agent-title": meeting?.title,
+          "data-workspace-id": meeting?.workspaceId,
+          style:
+            sharedPanel.activeTab === "communication"
+              ? panelStyles.root
+              : Object.assign({}, panelStyles.root, { display: "none" }),
+        },
         h("div", { style: panelStyles.panel }, [
+          h(SidePanelTabs),
           h("div", { style: panelStyles.head }, [
             panelView !== "list"
               ? h(
@@ -5218,13 +5482,20 @@ window.__ModuleLoader__.load({
           ? sortRowsByUpdatedAt(left, right)
           : sortRowsByRelevance(left, right);
 
-      const teammateRows =
+      // 「全部」只列当前数据范围内实际存在的沟通记录；AI伙伴名录仅用于
+      // 「AI伙伴」筛选下发现尚未聊过的伙伴并发起新对话。
+      const conversationTeammateRows =
         communicationFilter === "meeting"
           ? []
-          : teammates
-              .map((teammate) => {
-                const conversation =
-                  activeAiConversationByTeammate.get(teammate.id);
+          : [...activeAiConversationByTeammate.entries()]
+              .map(([teammateId, conversation]) => {
+                const teammate = teammateById.get(teammateId) ?? {
+                  id: teammateId,
+                  name: conversation.title,
+                  ownerName: conversation.ownerName ?? "",
+                  ownerUserId: conversation.ownerUserId ?? "",
+                  source: conversation.teammateSource ?? "personal",
+                };
                 return {
                   id: `teammate:${teammate.id}`,
                   teammate,
@@ -5233,12 +5504,29 @@ window.__ModuleLoader__.load({
                   score: teammateSearchScore(teammate),
                 };
               })
-              .filter(
-                (row) =>
-                  communicationFilter === "ai" ||
-                  row.conversation !== undefined,
-              )
               .filter((row) => matchesSearch(row.score));
+      const conversationTeammateIds = new Set(
+        conversationTeammateRows.map((row) => row.teammate.id),
+      );
+      const availableTeammateRows =
+        communicationFilter === "ai"
+          ? teammates
+              .filter(
+                (teammate) => !conversationTeammateIds.has(teammate.id),
+              )
+              .map((teammate) => ({
+                id: `teammate:${teammate.id}`,
+                teammate,
+                conversation: undefined,
+                updatedAt: undefined,
+                score: teammateSearchScore(teammate),
+              }))
+              .filter((row) => matchesSearch(row.score))
+          : [];
+      const teammateRows = [
+        ...conversationTeammateRows,
+        ...availableTeammateRows,
+      ];
       const rankedTeammateRows =
         normalizedQuery === ""
           ? teammateRows
@@ -6755,6 +7043,10 @@ window.__ModuleLoader__.load({
           {
             type: "button",
             key: item.id,
+            "data-data-agent-entity": "meeting",
+            "data-data-agent-id": item.id,
+            "data-data-agent-title": item.title,
+            "data-workspace-id": item.workspaceId,
             "aria-label": `打开会议 ${item.title}`,
             style: Object.assign(
               {},
@@ -6959,6 +7251,7 @@ window.__ModuleLoader__.load({
                 })
               : null,
             // 会议页右上角也提供侧边栏开关（与中间区域的会议图标等价）。
+            props.renderActions?.() ?? null,
             h(
               "button",
               {
@@ -7577,7 +7870,11 @@ window.__ModuleLoader__.load({
     exports.apply = (ctx) => {
       ctx.slots.inject("pluginmax.global", () =>
         ctx.slots.register(
-          { name: "pluginmax.global", id: "pluginmax-meetings", order: 34 },
+          {
+            name: "pluginmax.global",
+            id: "pluginmax-meetings",
+            order: 34,
+          },
           MeetingsGlobalPage,
         ),
       );

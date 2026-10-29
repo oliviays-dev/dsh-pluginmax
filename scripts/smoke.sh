@@ -2,9 +2,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# 默认使用隔离的 smoke 数据目录；需要复跑真实环境时用
-# PLUGINMAX_SMOKE_HOME 指向自己的 DSH_HOME，避免清空正在使用的数据。
-DSH_HOME="${PLUGINMAX_SMOKE_HOME:-$ROOT/.tmp/dsh-home}"
+# 默认使用独立的 smoke 数据目录，绝不能清理正在用于演示或开发的 DSH_HOME。
+# 如需保留某次 smoke 数据，可通过 PLUGINMAX_SMOKE_HOME 指向专用目录。
+DSH_HOME="${PLUGINMAX_SMOKE_HOME:-$ROOT/.tmp/smoke-dsh-home}"
 DSH_BIN="$ROOT/vendor/deepseek-harness/apps/cli/lib/bin.js"
 LOG="$ROOT/.tmp/pluginmax-web.log"
 COOKIE="$ROOT/.tmp/pluginmax-smoke.cookies"
@@ -18,6 +18,16 @@ IDENTITY_BASE="http://127.0.0.1:$PORT/api/collab"
 if [[ ! -f "$DSH_BIN" ]]; then
   echo "upstream DSH CLI is not built; run ./scripts/bootstrap.sh" >&2
   exit 1
+fi
+
+if [[ "$DSH_HOME" == "$ROOT/.tmp/dsh-home" && "${PLUGINMAX_SMOKE_ALLOW_SHARED_HOME:-}" != "1" ]]; then
+  echo "refusing to reset shared DSH_HOME: $DSH_HOME" >&2
+  echo "use the default .tmp/smoke-dsh-home or set PLUGINMAX_SMOKE_ALLOW_SHARED_HOME=1 intentionally" >&2
+  exit 1
+fi
+
+if [[ ! -d "$DSH_HOME/profiles/pluginmax" ]]; then
+  DSH_HOME="$DSH_HOME" "$ROOT/scripts/install-profile.sh"
 fi
 
 mkdir -p "$ROOT/.tmp"
@@ -35,6 +45,16 @@ rm -f "$DSH_HOME/storages/collab_assignment.json"
 rm -f "$DSH_HOME/storages/collab_memory.json"
 rm -f "$DSH_HOME/storages/collab_context.json"
 rm -f "$DSH_HOME/storages/collab_meeting.json"
+rm -f "$DSH_HOME/storages/collab_project.json"
+rm -f "$DSH_HOME/storages/collab_task.json"
+rm -f "$DSH_HOME/storages/collab_workflow.json"
+rm -f "$DSH_HOME/storages/collab_agent.json"
+rm -f "$DSH_HOME/storages/collab_employee.json"
+rm -f "$DSH_HOME/storages/collab_teammate.json"
+rm -f "$DSH_HOME/storages/collab_workbench.json"
+rm -f "$DSH_HOME/storages/collab_workbench_v2.json"
+rm -f "$DSH_HOME/storages/collab_resource_market.json"
+rm -f "$DSH_HOME/storages/collab_data_agent.json"
 rm -f "$DSH_HOME/storages/workspace.json"
 rm -rf "$DSH_HOME/pluginmax/shared"
 rm -rf "$DSH_HOME/pluginmax/personas"
@@ -465,8 +485,125 @@ grep -q '"action":"member_add"' "$BODY" || {
 code="$(api POST /auth/bootstrap "" '{"userId":"other","name":"Other","password":"password-789"}')"
 expect_code 409 "$code" "duplicate bootstrap"
 
+code="$(api GET /workbenches "$TOKEN")"
+expect_code 200 "$code" "workbench v2 list"
+grep -q '"workbenches"' "$BODY" || {
+  echo "workbench v2 list is missing workbenches" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+
+code="$(api POST /workbenches "$TOKEN" '{"name":"Smoke 工作台","visibility":"private"}' "http://127.0.0.1:$PORT")"
+expect_code 201 "$code" "workbench v2 create"
+WORKBENCH_ID="$(node -e 'const body=require(process.argv[1]);process.stdout.write(body.workbench.id)' "$BODY")"
+
+code="$(api GET /workbench-market/plugins "$TOKEN")"
+expect_code 200 "$code" "workbench panel plugin catalog"
+grep -q 'pluginmax.team-load' "$BODY" || {
+  echo "panel plugin catalog is missing team-load" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+grep -q 'pluginmax.data-agent' "$BODY" || {
+  echo "panel plugin catalog is missing data-agent" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+
+code="$(api POST /workbench-market/plugins/install "$TOKEN" '{"pluginId":"pluginmax.team-load"}' "http://127.0.0.1:$PORT")"
+expect_code 200 "$code" "panel plugin entitlement"
+grep -q '"status":"enabled"' "$BODY" || {
+  echo "panel plugin was not enabled" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+
+code="$(api POST /workbenches/panels "$TOKEN" "{\"workbenchId\":\"$WORKBENCH_ID\",\"pluginId\":\"pluginmax.team-load\",\"span\":3}" "http://127.0.0.1:$PORT")"
+expect_code 200 "$code" "workbench panel add"
+grep -q 'pluginmax.team-load' "$BODY" || {
+  echo "workbench panel add did not persist the instance" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+
+code="$(api GET /workbench-market/templates "$TOKEN")"
+expect_code 200 "$code" "workbench template catalog"
+grep -q 'tpl-supply' "$BODY" || {
+  echo "workbench template catalog is missing tpl-supply" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+
+code="$(api GET "/workbench-market/templates/detail?id=tpl-legacy&version=1.0.0" "$TOKEN")"
+expect_code 200 "$code" "workbench template detail"
+grep -q '"dependencies"' "$BODY" || {
+  echo "workbench template detail is missing dependency status" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+
+code="$(api POST /workbench-market/templates/install "$TOKEN" '{"templateId":"tpl-review","version":"1.0.0"}' "http://127.0.0.1:$PORT")"
+expect_code 201 "$code" "workbench template copy"
+grep -q '"sourceTemplate"' "$BODY" || {
+  echo "copied workbench is missing its template source" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+grep -q '"enabledPlugins"' "$BODY" || {
+  echo "copied workbench did not report required panel enablement" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+
+code="$(api GET /resources/skills "$TOKEN")"
+expect_code 200 "$code" "skill catalog"
+code="$(api GET /resources/mcps "$TOKEN")"
+expect_code 200 "$code" "mcp catalog"
+grep -q '"source":"seed"' "$BODY" || {
+  echo "seed MCP catalog is missing its source marker" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+if grep -q '"status":"connected"' "$BODY"; then
+  echo "seed MCP catalog must not report a connected state" >&2
+  cat "$BODY" >&2
+  exit 1
+fi
+
+code="$(api GET "/data-agent?workspaceId=$WORKSPACE_ID" "$TOKEN")"
+expect_code 200 "$code" "data agent bootstrap"
+grep -q '"systemKey":"data-agent"' "$BODY" || {
+  echo "data agent bootstrap is missing the protected system identity" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+
+code="$(api GET "/teammates/detail?teammateId=data-agent" "$TOKEN")"
+expect_code 200 "$code" "data agent teammate detail"
+grep -q '"deletable":false' "$BODY" || {
+  echo "data agent teammate detail is missing protection metadata" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+
+code="$(api POST /data-agent/delete "$TOKEN" '{}' "http://127.0.0.1:$PORT")"
+expect_code 403 "$code" "data agent protected delete"
+grep -q '"code":"system_agent_protected"' "$BODY" || {
+  echo "data agent delete did not return system_agent_protected" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+
+code="$(api POST /data-agent/reset "$TOKEN" "{\"workspaceId\":\"$WORKSPACE_ID\"}" "http://127.0.0.1:$PORT")"
+expect_code 200 "$code" "data agent workspace reset"
+code="$(api POST /data-agent/reset "$TOKEN" "{\"workspaceId\":\"$WORKSPACE_ID\"}" "http://127.0.0.1:$PORT")"
+expect_code 200 "$code" "data agent workspace reset idempotency"
+
+code="$(api POST /data-agent/selection/resolve "$TOKEN" "{\"workspaceId\":\"$WORKSPACE_ID\",\"selection\":{\"kind\":\"metric\",\"entityType\":\"metric_card\",\"entityId\":\"otif\",\"title\":\"OTIF 93.7%\",\"excerpt\":\"环比下降 3.1pp\",\"source\":{\"workspaceId\":\"$WORKSPACE_ID\",\"page\":\"workbench\"},\"snapshot\":{\"text\":\"OTIF 93.7%\"}}}" "http://127.0.0.1:$PORT")"
+expect_code 200 "$code" "data agent selection resolve"
+
 code="$(api POST /auth/logout "$TOKEN")"
 expect_code 200 "$code" "identity logout"
 
-echo "Pluginmax canary, identity, space, roles, meeting, and project smoke passed on port $PORT"
+echo "Pluginmax canary, identity, space, roles, meeting, project, workbench v2, resource market, and data agent smoke passed on port $PORT"
 exit 0

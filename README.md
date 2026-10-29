@@ -23,6 +23,18 @@ The context platform foundation adds:
 - meeting-module AI 1:1 conversations as private `chat` scenes with dedicated
   `de-chat-*` sessions instead of meeting tasks or minutes
 
+The Data Agent milestone adds:
+
+- a protected platform `data-agent` identity seeded into the existing AI伙伴 domain
+- global Data Agent / communication side-panel tabs with preserved drafts and scroll
+  positions
+- cross-page selection adapters for tasks, workflows, workflow nodes, meetings and
+  metric cards
+- durable conversations, messages, context attachments, Agent Runs, Markdown reports,
+  on-demand HTML derivatives, ownership and audit records in `collab_data_agent`
+- reuse of the existing Principal Runtime / Agent Run / external Runtime Profile chain
+  for Codex and Codebuddy-compatible execution
+
 Phase 3 delivered canonical `principal:<id>` references, with `employee:` / teammate / account aliases during migration, and mirrored all platform, workspace, and project grants to Principal.
 
 Phase X introduced `dsh-collab-agent`, which provides:
@@ -115,7 +127,7 @@ Product plugins are added milestone by milestone under `plugins/`.
 ./scripts/smoke.sh
 ```
 
-Bootstrap builds both this workspace and the locked upstream DSH checkout. Installation and smoke testing always use `.tmp/dsh-home`; they do not touch `~/.dsh`.
+Bootstrap builds both this workspace and the locked upstream DSH checkout. Profile installation uses `.tmp/dsh-home`; smoke testing defaults to the isolated `.tmp/smoke-dsh-home`. Neither touches `~/.dsh`, and smoke refuses to reset the shared development home unless explicitly overridden.
 
 ## Development
 

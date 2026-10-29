@@ -399,6 +399,12 @@ function workbuddyStreamArgs(args: readonly string[]): string[] {
   return normalized;
 }
 
+function usesStreamJsonAdapter(
+  provider: ExternalAgentRuntime["provider"],
+): boolean {
+  return provider === "workbuddy" || provider === "codebuddy";
+}
+
 function stripManagedArgs(
   args: readonly string[],
   options: {
@@ -417,7 +423,7 @@ function stripManagedArgs(
       }
       if (token?.startsWith("--model=") === true) continue;
     }
-    if (options.provider === "workbuddy" && options.reasoning === true) {
+    if (usesStreamJsonAdapter(options.provider ?? "command") && options.reasoning === true) {
       if (token === "--effort") {
         index += 1;
         continue;
@@ -463,7 +469,7 @@ function launchArgs(
         "-c",
         `model_reasoning_effort="${request.reasoningEffort.replaceAll('"', '\\"')}"`,
       );
-    } else if (runtime.provider === "workbuddy") {
+    } else if (usesStreamJsonAdapter(runtime.provider)) {
       args = stripManagedArgs(args, {
         reasoning: true,
         provider: runtime.provider,
@@ -546,7 +552,9 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
     }
     return {
       command: runtime.command,
-      args: runtime.provider === "workbuddy" ? workbuddyStreamArgs(args) : args,
+      args: usesStreamJsonAdapter(runtime.provider)
+        ? workbuddyStreamArgs(args)
+        : args,
     };
   }
 
@@ -557,7 +565,7 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
     if (request.runtime.protocol === "codex-jsonl") {
       return await this.executeCodex(request);
     }
-    if (request.runtime.provider === "workbuddy") {
+    if (usesStreamJsonAdapter(request.runtime.provider)) {
       return await this.executeWorkBuddyWithRetry(request);
     }
     return await this.executePlainText(request);

@@ -2533,6 +2533,7 @@ window.__ModuleLoader__.load({
      */
     function WorkflowFlowOverview({
       definition,
+      workspaceId,
       states,
       submissions,
       onDeliverableOpen,
@@ -2573,6 +2574,11 @@ window.__ModuleLoader__.load({
           {
             className: `pmwf-overview-node ${node.type} ${nodeClass(state)}`,
             title: `${node.name} · ${statusLabel}`,
+            "data-workflow-id": definition?.id,
+            "data-workflow-node-id": node.id,
+            "data-workspace-id": workspaceId,
+            "data-data-agent-title": node.name,
+            "data-data-agent-excerpt": `${executor} · ${statusLabel}${dueLabel ? ` · ${dueLabel}` : ""}`,
             children: [
               jsxRuntime.jsxs("button", {
                 type: "button",
@@ -4811,6 +4817,7 @@ window.__ModuleLoader__.load({
                         },
                         children: "新建工作流",
                       }),
+                      props.renderActions?.() ?? null,
                       jsxRuntime.jsx(MeetingPanelToggle, {}),
                     ],
                   }),
@@ -5406,6 +5413,10 @@ window.__ModuleLoader__.load({
                               jsxRuntime.jsxs("div", {
                                 className: `pmwf-summary-row${isOpen ? " active" : ""}`,
                                 style: { gridRow: String(index + 1) },
+                                "data-workflow-id": instance.id,
+                                "data-workspace-id": instance.workspaceId,
+                                "data-data-agent-title": instance.title,
+                                "data-data-agent-excerpt": `${currentState?.nodeId ?? ""} · ${instance.status ?? ""}`,
                                 children: [
                                   jsxRuntime.jsxs("button", {
                                     type: "button",
@@ -5606,6 +5617,8 @@ window.__ModuleLoader__.load({
                                                 WorkflowFlowOverview,
                                                 {
                                                   definition,
+                                                  workspaceId:
+                                                    instance.workspaceId,
                                                   states: detail.instance.nodes,
                                                   submissions:
                                                     detail.submissions ?? [],

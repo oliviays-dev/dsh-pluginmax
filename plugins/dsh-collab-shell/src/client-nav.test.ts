@@ -8,21 +8,31 @@ function readNavItems() {
   const source = readFileSync(CLIENT_PATH, "utf8");
   const block = source.match(/const navItems = \[([\s\S]*?)\n    \];/)?.[1];
   if (block === undefined) throw new Error("missing navItems");
-  return [...block.matchAll(/\{ key: "([^"]+)", label: "([^"]+)"/g)].map(
+  return [...block.matchAll(/\{ key: "([^"]+)",\s*label: "([^"]+)"/g)].map(
     (match) => ({ key: match[1], label: match[2] }),
   );
 }
 
 describe("shell client navigation", () => {
-  it("keeps the global menu order and the AI伙伴 label", () => {
+  it("merges the workbench entries and keeps the global menu order", () => {
     expect(readNavItems()).toEqual([
-      { key: "workbench", label: "工作台" },
+      { key: "workbench-new", label: "工作台" },
       { key: "projects", label: "项目" },
       { key: "task", label: "任务" },
       { key: "workflow", label: "工作流" },
       { key: "meetings", label: "沟通" },
       { key: "teammates", label: "AI伙伴" },
+      { key: "resource-market", label: "资源市场" },
     ]);
+  });
+
+  it("guards New workbench navigation without changing the legacy route", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain("window.__pluginmaxWorkbenchV2Guard");
+    expect(source).toContain('route: "workbench-new"');
+    expect(source).toContain('key: "workbench-new"');
+    expect(source).not.toContain('key: "workbench", label: "工作台"');
+    expect(source).not.toContain("pmx-workbench-switch");
   });
 
   it("localizes disabled-account login failures in both auth entry points", () => {
@@ -64,5 +74,20 @@ describe("shell client navigation", () => {
     const registration = source.slice(registerStart, registerEnd);
     expect(registration).toContain('name: "root"');
     expect(registration).not.toContain("ctx.effect(");
+  });
+
+  it("owns the shared Data Agent / communication side-panel state", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    const applyStart = source.indexOf("exports.apply = (ctx) =>");
+    const registerStart = source.indexOf("ctx.slots.register(", applyStart);
+    const registerEnd = source.indexOf("ctx.effect(() =>", registerStart);
+    const registration = source.slice(registerStart, registerEnd);
+    expect(source).toContain("window.__pluginmaxSidePanel");
+    expect(source).toContain('openTab(tab)');
+    expect(source).toContain('closeTab(tab)');
+    expect(source).toContain("toggleExpanded()");
+    expect(registration).toContain('"pluginmax.global.actions": {');
+    expect(source).toContain("renderActions: () =>");
+    expect(source).toContain('"data-side-panel-expanded"');
   });
 });

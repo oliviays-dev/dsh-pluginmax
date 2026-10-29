@@ -821,6 +821,7 @@ window.__ModuleLoader__.load({
       .pmtm-state.paused{color:#e8a33d;background:rgba(232,163,61,.14);}
       .pmtm-state.inactive,.pmtm-state.archived{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2);}
       .pmtm-state.draft{color:${ACCENT};background:color-mix(in srgb,${ACCENT} 14%,transparent);}
+      .pmtm-built-in-chip{flex:none;display:inline-flex;align-items:center;padding:2px 7px;border-radius:4px;background:color-mix(in srgb,var(--dsw-alias-agent-primary,#8b7bf7) 14%,transparent);color:var(--dsw-alias-agent-primary,#8b7bf7);font-size:10px;white-space:nowrap;}
       .pmtm-notice{display:flex;gap:8px;margin-top:13px;padding:10px 11px;border:0.5px solid rgba(232,163,61,.3);border-radius:7px;color:#e9c68c;background:rgba(232,163,61,.14);font-size:11.5px;line-height:1.6;}
       .pmtm-notice.info{border-color:color-mix(in srgb,${ACCENT} 30%,transparent);color:color-mix(in srgb,${ACCENT} 70%,var(--dsw-alias-label-primary));background:color-mix(in srgb,${ACCENT} 12%,transparent);}
       .pmtm-notice svg{flex:none;width:15px;height:15px;margin-top:1px;}
@@ -2358,7 +2359,7 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function AiTeammatesPage() {
+    function AiTeammatesPage(props) {
       const [teammates, setTeammates] = react.useState([]);
       const [canManagePlatform, setCanManagePlatform] = react.useState(false);
       const [teammateTemplates, setTeammateTemplates] = react.useState([]);
@@ -5814,9 +5815,37 @@ window.__ModuleLoader__.load({
       };
 
       const renderActions = (teammate) => {
+        const protectedSystem =
+          teammate.systemKey !== undefined ||
+          teammate.protected !== undefined;
+        const protectedBadge = protectedSystem
+          ? h(
+              "span",
+              { className: "pmtm-built-in-chip" },
+              "平台内置 · 受保护",
+            )
+          : null;
         if (tab === "definition") {
           if (selectedTemplate === null || !canManageSelectedTemplate) {
-            return null;
+            return protectedBadge;
+          }
+          // 受保护定义仍由管理员维护，但不开放停用或归档。
+          if (protectedSystem) {
+            return h(
+              "div",
+              { className: "pmtm-actions" },
+              protectedBadge,
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "pmtm-btn secondary small",
+                  onClick: startEdit,
+                  disabled: selectedTemplate.state === "archived",
+                },
+                "编辑模版",
+              ),
+            );
           }
           const buttons = [
             h(
@@ -5870,6 +5899,7 @@ window.__ModuleLoader__.load({
           }
           return h("div", { className: "pmtm-actions" }, buttons);
         }
+        if (protectedSystem) return protectedBadge;
         const manageable =
           canManagePlatform === true ||
           teammate.ownerUserId === currentUser?.id;
@@ -7580,7 +7610,9 @@ window.__ModuleLoader__.load({
             ),
           ),
           renderActions(teammate),
-          canManagePlatform === true || teammate.ownerUserId === currentUser?.id
+          (canManagePlatform === true || teammate.ownerUserId === currentUser?.id) &&
+          teammate.systemKey === undefined &&
+          teammate.protected === undefined
             ? h(
                 "section",
                 { className: "pmtm-block", style: { marginTop: 14 } },
@@ -8051,6 +8083,7 @@ window.__ModuleLoader__.load({
             { className: "pmtm-head-actions" },
             /* 数据范围开关替代原来的「平台管理员」徽标；运行时设置页不适用。 */
             tab !== "external" ? scopeToggle : null,
+            props.renderActions?.() ?? null,
             h(MeetingPanelToggle),
           ),
         ),

@@ -29,6 +29,30 @@ export const metricsPreferenceSchema = z.object({
 export type MetricsPreference = z.infer<typeof metricsPreferenceSchema>;
 
 export const briefSectionSchema = z.enum(["risk", "escalation", "conclusion"]);
+export const briefIncludeTypeSchema = z.enum([
+  "run_terminal",
+  "workflow_blocked",
+  "task_escalation",
+  "task_nudge",
+  "workflow_approval",
+  "task_review",
+]);
+export type BriefIncludeType = z.infer<typeof briefIncludeTypeSchema>;
+export const DEFAULT_BRIEF_INCLUDE_TYPES: readonly BriefIncludeType[] = [
+  "run_terminal",
+  "workflow_blocked",
+  "task_escalation",
+  "task_nudge",
+  "workflow_approval",
+  "task_review",
+];
+export const briefCustomRuleSchema = z.object({
+  id: idSchema,
+  name: z.string().trim().min(1).max(80),
+  prompt: z.string().trim().min(1).max(4_000),
+  enabled: z.boolean().default(true),
+});
+export type BriefCustomRule = z.infer<typeof briefCustomRuleSchema>;
 export const briefTagSchema = z.enum([
   "progress",
   "data",
@@ -117,6 +141,10 @@ export const briefReaderSchema = z.object({
   lastSeenAt: isoTimeSchema.optional(),
   briefMode: z.enum(["lastLeave", "manual"]).optional(),
   manualWindowFrom: isoTimeSchema.optional(),
+  includeTypes: z.array(briefIncludeTypeSchema).default([
+    ...DEFAULT_BRIEF_INCLUDE_TYPES,
+  ]),
+  customRules: z.array(briefCustomRuleSchema).max(20).default([]),
   updatedAt: isoTimeSchema,
 });
 

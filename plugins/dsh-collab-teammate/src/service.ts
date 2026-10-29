@@ -70,7 +70,12 @@ export interface TeammateEffectiveDefinition {
 export class TeammateError extends Error {
   constructor(
     readonly code:
-      "invalid_input" | "unauthorized" | "forbidden" | "not_found" | "conflict",
+      | "invalid_input"
+      | "unauthorized"
+      | "forbidden"
+      | "system_agent_protected"
+      | "not_found"
+      | "conflict",
     message: string,
   ) {
     super(message);
@@ -116,6 +121,7 @@ export interface UpdateInstanceProfileInput {
 }
 
 export interface CreateTeammateTemplateInput {
+  readonly id?: string | undefined;
   readonly source: TeammateSource;
   readonly name: string;
   readonly role?: string | undefined;
@@ -126,6 +132,7 @@ export interface CreateTeammateTemplateInput {
   readonly tools?: readonly string[] | undefined;
   /** 迁移期兼容外部 `persona-*` 引用；新模版通常不传。 */
   readonly personaAlias?: string | undefined;
+  readonly systemKey?: TeammateTemplate["systemKey"];
   readonly active?: boolean | undefined;
 }
 
@@ -169,6 +176,17 @@ const STATE_ORDER: Record<TeammateState, number> = {
   archived: 4,
 };
 
+const SYSTEM_AGENT_ORDER: Record<string, number> = {
+  "data-agent": 0,
+  "meeting-facilitator": 1,
+};
+
+function systemAgentOrder(
+  teammate: Pick<Teammate, "id" | "systemKey">,
+): number {
+  return SYSTEM_AGENT_ORDER[teammate.systemKey ?? teammate.id] ?? 100;
+}
+
 const DEFAULT_NAME = "未命名 AI伙伴";
 const DEFAULT_ROLE = "角色待定";
 const DEFAULT_SOUL =
@@ -186,6 +204,18 @@ const TEMPLATE_STATE_TRANSITIONS: Record<
   disabled: ["active", "archived"],
   archived: [],
 };
+
+export function isProtectedSystemTemplate(
+  template: Pick<TeammateTemplate, "systemKey" | "protected">,
+): boolean {
+  return template.systemKey !== undefined || template.protected !== undefined;
+}
+
+export function isProtectedSystemTeammate(
+  teammate: Pick<Teammate, "systemKey" | "protected">,
+): boolean {
+  return teammate.systemKey !== undefined || teammate.protected !== undefined;
+}
 
 function teammateTemplateId(): string {
   return `tpl-${randomUUID()}`;
@@ -280,6 +310,46 @@ export class TeammateTemplateService {
     return this.options.tables.templates.get(templateId);
   }
 
+  /**
+   * 受保护系统模版的版本迁移入口。只修复已知的旧种子缺陷，不接受普通
+   * 工作区编辑，也不会覆盖平台后续维护的其他工具。
+   */
+  repairProtectedSystemTemplate(input: {
+    readonly templateId: string;
+    readonly systemKey: NonNullable<TeammateTemplate["systemKey"]>;
+    readonly tools: readonly string[];
+  }): Promise<TeammateTemplate | undefined> {
+    return this.enqueue(async () => {
+      const current = this.options.tables.templates.get(input.templateId);
+      if (current === undefined) return undefined;
+      if (
+        current.systemKey !== undefined &&
+        current.systemKey !== input.systemKey
+      ) {
+        throw new TeammateError(
+          "conflict",
+          "系统 Agent 模版身份不一致，拒绝自动迁移",
+        );
+      }
+      const hasLegacyMcpGrant = current.tools.includes("mcp");
+      if (!hasLegacyMcpGrant) return current;
+      const next = teammateTemplateSchema.parse({
+        ...current,
+        systemKey: input.systemKey,
+        protected: {
+          deletable: false,
+          archivable: false,
+          templateSwitchable: false,
+        },
+        tools: [...input.tools],
+        version: nextVersion(current.version),
+        updatedAt: this.timestamp(),
+      });
+      await this.options.tables.templates.put(next.id, next);
+      return next;
+    });
+  }
+
   private assertCanCreate(
     actor: TeammateActor,
     input: Pick<CreateTeammateTemplateInput, "source">,
@@ -309,7 +379,7 @@ export class TeammateTemplateService {
     this.assertUniqueName({ source: input.source, name });
     const timestamp = this.timestamp();
     return teammateTemplateSchema.parse({
-      id: teammateTemplateId(),
+      id: input.id ?? teammateTemplateId(),
       source: input.source,
       ...(input.source === "personal" ? { ownerUserId: actor.userId } : {}),
       name,
@@ -321,6 +391,17 @@ export class TeammateTemplateService {
       tools: input.tools ?? [],
       state: input.active === false ? "disabled" : "active",
       version: "v1.0",
+      ...(input.systemKey === undefined
+        ? {}
+        : {
+            systemKey: input.systemKey,
+            protected: {
+              deletable: false as const,
+              archivable: false as const,
+              templateSwitchable: false as const,
+            },
+            state: "active" as const,
+          }),
       ...(input.personaAlias === undefined
         ? {}
         : { personaAlias: input.personaAlias }),
@@ -373,6 +454,15 @@ export class TeammateTemplateService {
   ): Promise<TeammateTemplate> {
     return this.enqueue(async () => {
       const current = this.require(input.templateId);
+      if (
+        isProtectedSystemTemplate(current) &&
+        actor.role !== "admin"
+      ) {
+        throw new TeammateError(
+          "system_agent_protected",
+          "系统 Agent 定义仅允许平台管理员维护",
+        );
+      }
       if (!canManageTemplate(current, actor)) {
         throw new TeammateError(
           "forbidden",
@@ -413,6 +503,12 @@ export class TeammateTemplateService {
   ): Promise<TeammateTemplate> {
     return this.enqueue(async () => {
       const current = this.require(input.templateId);
+      if (isProtectedSystemTemplate(current)) {
+        throw new TeammateError(
+          "system_agent_protected",
+          "系统 Agent 定义受保护，不能停用或归档",
+        );
+      }
       if (!canManageTemplate(current, actor)) {
         throw new TeammateError(
           "forbidden",
@@ -524,6 +620,12 @@ export class TeammateService {
     teammate: Teammate,
     actor: TeammateActor,
   ): void {
+    if (isProtectedSystemTeammate(teammate)) {
+      throw new TeammateError(
+        "system_agent_protected",
+        "系统 Agent 定义仅由平台版本维护，不能在工作区修改",
+      );
+    }
     const template = this.templateOf(teammate);
     if (
       (template !== undefined && canManageTemplate(template, actor)) ||
@@ -770,6 +872,9 @@ export class TeammateService {
     return visible
       .map((teammate) => this.viewOf(teammate))
       .sort((left, right) => {
+        const systemOrder =
+          systemAgentOrder(left) - systemAgentOrder(right);
+        if (systemOrder !== 0) return systemOrder;
         // 运行态列表：先按实例状态（生效 > 草稿 > 暂停 > 失效 > 已归档），
         // 同一状态内按最近使用倒序，最后用来源与名称兜底保证稳定。
         const stateOrder = STATE_ORDER[left.state] - STATE_ORDER[right.state];
@@ -787,6 +892,9 @@ export class TeammateService {
 
   list(): readonly Teammate[] {
     return this.values(this.options.tables.teammates).sort((left, right) => {
+      const systemOrder =
+        systemAgentOrder(left) - systemAgentOrder(right);
+      if (systemOrder !== 0) return systemOrder;
       const leftSource = this.templateOf(left)?.source ?? left.source;
       const rightSource = this.templateOf(right)?.source ?? right.source;
       if (leftSource !== rightSource) {
@@ -814,26 +922,86 @@ export class TeammateService {
     soul?: string;
     scenarios?: readonly string[];
     goals?: readonly string[];
+    tools?: readonly string[];
+    templateId?: string;
+    systemKey?: TeammateTemplate["systemKey"];
   }): Promise<Teammate> {
     return this.enqueue(async () => {
       const existing = this.options.tables.teammates.get(input.id);
-      if (existing !== undefined) return existing;
+      if (existing !== undefined) {
+        if (
+          input.systemKey !== undefined &&
+          existing.systemKey !== undefined &&
+          existing.systemKey !== input.systemKey
+        ) {
+          throw new TeammateError(
+            "conflict",
+            "系统 Agent 固定身份不一致，拒绝自动迁移",
+          );
+        }
+        const templateId = existing.templateId ?? input.templateId;
+        if (
+          input.systemKey !== undefined &&
+          input.tools !== undefined &&
+          templateId !== undefined
+        ) {
+          await this.templates?.repairProtectedSystemTemplate({
+            templateId,
+            systemKey: input.systemKey,
+            tools: input.tools,
+          });
+        }
+        const repaired =
+          input.systemKey === undefined
+            ? existing
+            : teammateSchema.parse({
+                ...existing,
+                systemKey: input.systemKey,
+                protected: {
+                  deletable: false,
+                  archivable: false,
+                  templateSwitchable: false,
+                },
+                resettableScopes: [
+                  "workspace-config",
+                  "memory",
+                  "platform-definition",
+                ],
+              });
+        if (JSON.stringify(repaired) !== JSON.stringify(existing)) {
+          await this.options.tables.teammates.put(repaired.id, repaired);
+        }
+        return repaired;
+      }
       if (this.templates === undefined) {
         throw new TeammateError("conflict", "AI伙伴模版服务不可用");
       }
-      const template = await this.templates.findOrCreate(
-        { userId: "system", name: "系统", role: "admin" },
-        {
-          source: "platform",
-          name: input.name,
-          role: input.role,
-          description: input.description,
-          soul: input.soul,
-          scenarios: input.scenarios,
-          goals: input.goals,
-          active: true,
-        },
-      );
+      const existingTemplate =
+        input.templateId === undefined
+          ? undefined
+          : this.templates.get(input.templateId);
+      const template =
+        existingTemplate ??
+        (await this.templates.findOrCreate(
+          { userId: "system", name: "系统", role: "admin" },
+          {
+            ...(input.templateId === undefined
+              ? {}
+              : { id: input.templateId }),
+            source: "platform",
+            name: input.name,
+            role: input.role,
+            description: input.description,
+            soul: input.soul,
+            scenarios: input.scenarios,
+            goals: input.goals,
+            tools: input.tools,
+            ...(input.systemKey === undefined
+              ? {}
+              : { systemKey: input.systemKey }),
+            active: true,
+          },
+        ));
       const timestamp = this.timestamp();
       const teammate = teammateSchema.parse({
         id: input.id,
@@ -844,6 +1012,21 @@ export class TeammateService {
         state: "active",
         version: "v1.0",
         templateId: template.id,
+        ...(input.systemKey === undefined
+          ? {}
+          : {
+              systemKey: input.systemKey,
+              protected: {
+                deletable: false as const,
+                archivable: false as const,
+                templateSwitchable: false as const,
+              },
+              resettableScopes: [
+                "workspace-config",
+                "memory",
+                "platform-definition",
+              ] as const,
+            }),
         createdBy: "platform",
         createdAt: timestamp,
         updatedAt: timestamp,
@@ -954,6 +1137,12 @@ export class TeammateService {
     }
     return this.enqueue(async () => {
       const current = this.requireTeammate(input.teammateId);
+      if (isProtectedSystemTeammate(current)) {
+        throw new TeammateError(
+          "system_agent_protected",
+          "系统 Agent 不允许切换模版",
+        );
+      }
       if (!canManageInstance(current, actor)) {
         throw new TeammateError(
           "forbidden",
@@ -979,6 +1168,12 @@ export class TeammateService {
   update(actor: TeammateActor, input: UpdateTeammateInput): Promise<Teammate> {
     return this.enqueue(async () => {
       const current = this.requireTeammate(input.teammateId);
+      if (isProtectedSystemTeammate(current)) {
+        throw new TeammateError(
+          "system_agent_protected",
+          "系统 Agent 身份与定义受保护，不能通过普通编辑入口修改",
+        );
+      }
       const wasDraft = current.state === "draft";
       let template = this.templateOf(current);
       const definitionTouched =
@@ -1075,6 +1270,12 @@ export class TeammateService {
   ): Promise<Teammate> {
     return this.enqueue(async () => {
       const current = this.requireTeammate(input.teammateId);
+      if (isProtectedSystemTeammate(current)) {
+        throw new TeammateError(
+          "system_agent_protected",
+          "系统 Agent 身份受保护，不能通过实例资料入口修改",
+        );
+      }
       // 实例归创建人所有：来自平台模版的实例同样由 owner 维护资料。
       if (!canManageInstance(current, actor)) {
         throw new TeammateError(
@@ -1122,6 +1323,12 @@ export class TeammateService {
   ): Promise<Teammate> {
     return this.enqueue(async () => {
       const current = this.requireTeammate(teammateId);
+      if (isProtectedSystemTeammate(current)) {
+        throw new TeammateError(
+          "system_agent_protected",
+          "系统 Agent 受保护，不能归档或卸载",
+        );
+      }
       if (!canManageInstance(current, actor)) {
         throw new TeammateError(
           "forbidden",
@@ -1146,6 +1353,12 @@ export class TeammateService {
   ): Promise<Teammate> {
     return this.enqueue(async () => {
       const current = this.requireTeammate(input.teammateId);
+      if (isProtectedSystemTeammate(current)) {
+        throw new TeammateError(
+          "system_agent_protected",
+          "系统 Agent 受保护，不能变更生命周期状态",
+        );
+      }
       if (!canManageInstance(current, actor)) {
         throw new TeammateError(
           "forbidden",
@@ -1189,6 +1402,7 @@ export class TeammateService {
     return this.enqueue(async () => {
       const affected = this.values(this.options.tables.teammates).filter(
         (teammate) =>
+          !isProtectedSystemTeammate(teammate) &&
           teammate.state === "active" &&
           (teammate.execution ?? "builtin") === "external" &&
           teammate.externalRuntimeId === input.runtimeId,
@@ -1240,6 +1454,52 @@ export class TeammateService {
         `绑定 Principal 执行身份 ${current.name}（${principalId}）`,
       );
       return teammate;
+    });
+  }
+
+  /**
+   * 系统 Agent 的运行时绑定不是身份编辑：工作区负责人可以在既有受保护身份下
+   * 选择 Codex / Codebuddy 等执行通道，但不能改变名称、模版或生命周期。
+   */
+  configureSystemAgentRuntime(
+    actor: TeammateActor,
+    input: {
+      readonly teammateId: string;
+      readonly execution: "builtin" | "external";
+      readonly externalRuntimeId?: string | undefined;
+    },
+  ): Promise<Teammate> {
+    return this.enqueue(async () => {
+      const current = this.requireTeammate(input.teammateId);
+      if (!isProtectedSystemTeammate(current)) {
+        throw new TeammateError(
+          "invalid_input",
+          "该 AI伙伴不是受保护系统 Agent",
+        );
+      }
+      if (actor.role !== "admin" && actor.role !== "owner") {
+        throw new TeammateError(
+          "forbidden",
+          "只有平台管理员或工作区负责人可以配置系统 Agent 运行时",
+        );
+      }
+      const next = teammateSchema.parse({
+        ...current,
+        execution: input.execution,
+        ...(input.execution === "external" &&
+        input.externalRuntimeId !== undefined
+          ? { externalRuntimeId: input.externalRuntimeId }
+          : { externalRuntimeId: undefined }),
+        updatedAt: this.timestamp(),
+      });
+      await this.options.tables.teammates.put(next.id, next);
+      await this.record(
+        next,
+        actor,
+        "updated",
+        `配置了系统 Agent 的${input.execution === "external" ? "外部" : "平台"}运行时`,
+      );
+      return next;
     });
   }
 

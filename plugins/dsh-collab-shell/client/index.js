@@ -9,12 +9,13 @@ window.__ModuleLoader__.load({
 
     const router = {
       state: {
-        // 刷新后的默认落地页：工作台
-        route: "workbench",
+        // 刷新后的默认落地页：新版工作台
+        route: "workbench-new",
         // 窄屏（手机）默认收起左侧栏，避免主区被挤到不可用；桌面/平板保持展开。
         leftOpen: typeof window === "undefined" || window.innerWidth >= 600,
         meetingOpen: false,
-        meetingWidth: 380,
+        meetingWidth: 500,
+        sidePanelExpanded: false,
         detailsOpen: false,
       },
       listeners: new Set(),
@@ -33,6 +34,9 @@ window.__ModuleLoader__.load({
       },
       setMeetingWidth(meetingWidth) {
         this.setState({ meetingWidth });
+      },
+      setSidePanelExpanded(sidePanelExpanded) {
+        this.setState({ sidePanelExpanded });
       },
       setDetailsOpen(detailsOpen) {
         this.setState({ detailsOpen });
@@ -58,7 +62,17 @@ window.__ModuleLoader__.load({
      * when the route is unchanged so a page can return to its root view when
      * its own navigation item is clicked again.
      */
-    function selectRoute(route) {
+    async function selectRoute(route) {
+      if (route !== router.state.route) {
+        const guard = window.__pluginmaxWorkbenchV2Guard;
+        if (typeof guard === "function") {
+          try {
+            if ((await guard(route)) === false) return;
+          } catch {
+            return;
+          }
+        }
+      }
       router.setRoute(route);
       window.dispatchEvent(
         new CustomEvent("pluginmax:route-select", { detail: { route } }),
@@ -67,7 +81,7 @@ window.__ModuleLoader__.load({
 
     window.addEventListener("pluginmax:navigate", (event) => {
       const route = event?.detail?.route;
-      if (typeof route === "string" && route !== "") selectRoute(route);
+      if (typeof route === "string" && route !== "") void selectRoute(route);
     });
 
     const DARK_ATTRIBUTE = "data-ds-dark-theme";
@@ -95,9 +109,112 @@ window.__ModuleLoader__.load({
       window.__pluginmaxShell = {
         setRoute: (route) => router.setRoute(route),
         setMeetingOpen: (open) => router.setMeetingOpen(open),
+        setSidePanelExpanded: (open) => router.setSidePanelExpanded(open),
         router,
       };
     }
+
+    const sidePanelListeners = new Set();
+    let sidePanelState = {
+      open: false,
+      openTabs: [],
+      activeTab: undefined,
+      lastTab: "communication",
+      expanded: false,
+    };
+    const sidePanelStore = window.__pluginmaxSidePanel ?? {
+      getSnapshot() {
+        return sidePanelState;
+      },
+      subscribe(listener) {
+        sidePanelListeners.add(listener);
+        return () => sidePanelListeners.delete(listener);
+      },
+      emit(next) {
+        sidePanelState = next;
+        router.setMeetingOpen(next.open);
+        router.setSidePanelExpanded(next.expanded);
+        for (const listener of sidePanelListeners) listener(next);
+      },
+      openTab(tab) {
+        if (tab !== "data-agent" && tab !== "communication") return;
+        const openTabs = sidePanelState.openTabs.includes(tab)
+          ? sidePanelState.openTabs
+          : [...sidePanelState.openTabs, tab];
+        this.emit({
+          ...sidePanelState,
+          open: true,
+          openTabs,
+          activeTab: tab,
+          lastTab: tab,
+        });
+      },
+      activate(tab) {
+        if (!sidePanelState.openTabs.includes(tab)) return;
+        this.emit({
+          ...sidePanelState,
+          open: true,
+          activeTab: tab,
+          lastTab: tab,
+        });
+      },
+      closeTab(tab) {
+        const index = sidePanelState.openTabs.indexOf(tab);
+        const openTabs = sidePanelState.openTabs.filter((item) => item !== tab);
+        if (openTabs.length === 0) {
+          this.emit({
+            ...sidePanelState,
+            open: false,
+            openTabs: [],
+            activeTab: undefined,
+            expanded: false,
+          });
+          return;
+        }
+        const activeTab =
+          sidePanelState.activeTab === tab
+            ? (openTabs[Math.max(0, index - 1)] ?? openTabs[0])
+            : sidePanelState.activeTab;
+        this.emit({
+          ...sidePanelState,
+          open: true,
+          openTabs,
+          activeTab,
+          lastTab: activeTab,
+        });
+      },
+      toggleTab(tab) {
+        if (
+          sidePanelState.open &&
+          sidePanelState.activeTab === tab &&
+          sidePanelState.openTabs.includes(tab)
+        ) {
+          this.closeTab(tab);
+          return;
+        }
+        this.openTab(tab);
+      },
+      closeAll() {
+        this.emit({
+          ...sidePanelState,
+          open: false,
+          openTabs: [],
+          activeTab: undefined,
+          expanded: false,
+        });
+      },
+      restore() {
+        this.openTab(sidePanelState.lastTab);
+      },
+      setExpanded(expanded) {
+        if (!sidePanelState.open) return;
+        this.emit({ ...sidePanelState, expanded: expanded === true });
+      },
+      toggleExpanded() {
+        this.setExpanded(!sidePanelState.expanded);
+      },
+    };
+    window.__pluginmaxSidePanel = sidePanelStore;
 
     const useShellState = () =>
       react.useSyncExternalStore(
@@ -230,6 +347,8 @@ window.__ModuleLoader__.load({
         color:var(--dsw-alias-label-secondary);text-align:center;font-size:13px;line-height:1.6;}
       .pmx-conversation-host{height:100%;min-height:0;display:flex;flex-direction:column;}
       .pmx-overlay-track{position:relative;min-width:0;min-height:0;overflow:visible;}
+      .pmx-shell[data-side-panel-expanded] .pmx-overlay-track{
+        background:var(--dsw-alias-bg-base);}
       .pmx-meeting-resize{position:absolute;top:0;bottom:0;left:0;z-index:30;width:10px;
         transform:translateX(-5px);cursor:col-resize;touch-action:none;}
       .pmx-meeting-resize::after{content:"";position:absolute;top:50%;left:50%;
@@ -490,15 +609,41 @@ window.__ModuleLoader__.load({
           ),
         ],
       }),
+      layout: jsxRuntime.jsxs("svg", {
+        viewBox: "0 0 24 24",
+        fill: "none",
+        stroke: "currentColor",
+        strokeWidth: 2,
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        children: [
+          jsxRuntime.jsx("rect", { x: 3, y: 3, width: 18, height: 18, rx: 2 }),
+          jsxRuntime.jsx("path", { d: "M3 9h18M9 9v12" }),
+        ],
+      }),
+      store: jsxRuntime.jsxs("svg", {
+        viewBox: "0 0 24 24",
+        fill: "none",
+        stroke: "currentColor",
+        strokeWidth: 2,
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        children: [
+          jsxRuntime.jsx("path", { d: "m3 9 2-5h14l2 5" }),
+          jsxRuntime.jsx("path", { d: "M4 9v11h16V9M9 20v-6h6v6" }),
+          jsxRuntime.jsx("path", { d: "M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0" }),
+        ],
+      }),
     };
 
     const navItems = [
-      { key: "workbench", label: "工作台", icon: icons.people },
+      { key: "workbench-new", label: "工作台", icon: icons.layout },
       { key: "projects", label: "项目", icon: icons.project },
       { key: "task", label: "任务", icon: icons.task },
       { key: "workflow", label: "工作流", icon: icons.workflow },
       { key: "meetings", label: "沟通", icon: icons.meeting },
       { key: "teammates", label: "AI伙伴", icon: icons.teammate },
+      { key: "resource-market", label: "资源市场", icon: icons.store },
     ];
 
     /**
@@ -1081,7 +1226,8 @@ window.__ModuleLoader__.load({
                     "aria-label": item.label,
                     title: item.label,
                     className: shell.route === item.key ? "active" : undefined,
-                    onClick: () => selectRoute(item.key),
+                    "data-nav-key": item.key,
+                    onClick: () => void selectRoute(item.key),
                     children: [
                       item.icon,
                       jsxRuntime.jsx("span", { children: item.label }),
@@ -1160,7 +1306,8 @@ window.__ModuleLoader__.load({
       const startWidth = react.useRef(width);
       const clampWidth = (nextWidth) => {
         const available = Math.max(280, window.innerWidth - 420);
-        return Math.max(300, Math.min(nextWidth, available));
+        const minimum = window.innerWidth <= 900 ? 300 : 480;
+        return Math.max(minimum, Math.min(nextWidth, available));
       };
       return jsxRuntime.jsx("div", {
         role: "separator",
@@ -1274,6 +1421,13 @@ window.__ModuleLoader__.load({
           ? "session"
           : shell.route;
       const activeGlobal = route === "session" ? "" : route;
+      const sidePanelExpanded = shell.sidePanelExpanded === true;
+      const expandedRailWidth =
+        typeof window !== "undefined" && window.innerWidth <= 640
+          ? 0
+          : shell.leftOpen
+            ? 264
+            : 72;
 
       return jsxRuntime.jsxs("div", {
         className: "pmx-shell",
@@ -1283,11 +1437,14 @@ window.__ModuleLoader__.load({
           account === null || account === undefined ? "true" : undefined,
         "data-global-route": activeGlobal === "" ? undefined : "true",
         "data-meeting-open": shell.meetingOpen ? "true" : undefined,
+        "data-side-panel-expanded": sidePanelExpanded ? "true" : undefined,
         "data-details-closed": shell.detailsOpen ? undefined : "true",
         style: {
-          gridTemplateColumns: `${shell.leftOpen ? 264 : 72}px minmax(0,1fr) ${
-            shell.detailsOpen ? "min(360px,32vw)" : "0"
-          } ${shell.meetingOpen ? `${shell.meetingWidth}px` : "0"}`,
+          gridTemplateColumns: sidePanelExpanded
+            ? `${expandedRailWidth}px 0 0 minmax(0,1fr)`
+            : `${shell.leftOpen ? 264 : 72}px minmax(0,1fr) ${
+                shell.detailsOpen ? "min(360px,32vw)" : "0"
+              } ${shell.meetingOpen ? `${shell.meetingWidth}px` : "0"}`,
         },
         children: [
           jsxRuntime.jsx("style", { children: styles }),
@@ -1308,7 +1465,10 @@ window.__ModuleLoader__.load({
                       })
                     : jsxRuntime.jsx("div", {
                         className: "pmx-page",
-                        children: renderSlot("pluginmax.global", {}),
+                        children: renderSlot("pluginmax.global", {
+                          renderActions: () =>
+                            renderSlot("pluginmax.global.actions", {}),
+                        }),
                       }),
               }),
             ],
@@ -1355,6 +1515,10 @@ window.__ModuleLoader__.load({
             "shell.overlay": { kind: "list", scope: "root" },
             "sidebar.workspaces": { kind: "single", scope: "root" },
             "sidebar.settings": { kind: "single", scope: "root" },
+            "pluginmax.global.actions": {
+              kind: "single",
+              scope: "root",
+            },
             "pluginmax.global": {
               kind: "list",
               scope: "root",

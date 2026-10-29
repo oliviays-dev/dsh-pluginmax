@@ -6,7 +6,12 @@ import {
   sameOrigin,
   sendJson,
 } from "@pluginmax/shared";
-import { followTypeSchema, workbenchDomainSpec } from "./models.js";
+import {
+  briefCustomRuleSchema,
+  briefIncludeTypeSchema,
+  followTypeSchema,
+  workbenchDomainSpec,
+} from "./models.js";
 import { BriefPushHub } from "./push.js";
 import {
   MODULE_IDS,
@@ -106,6 +111,8 @@ const briefSettingsInputSchema = z
   .object({
     mode: z.enum(["lastLeave", "manual"]),
     manualWindowFrom: z.string().datetime({ precision: 3 }).optional(),
+    includeTypes: z.array(briefIncludeTypeSchema).min(1).max(6).optional(),
+    customRules: z.array(briefCustomRuleSchema).max(20).optional(),
   })
   .refine(
     (value) => value.mode === "lastLeave" || value.manualWindowFrom !== undefined,

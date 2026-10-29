@@ -72,6 +72,7 @@ for (const pluginName of pluginNames) {
       "sidebar.footer.action",
       "shell.overlay",
       "pluginmax.global",
+      "workbench.canvas.panel",
     ];
     const replacesRoot = /ctx\.slots\.register\(\s*\{\s*name:\s*"root"/.test(
       clientSource,

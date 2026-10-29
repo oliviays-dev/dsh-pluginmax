@@ -2435,6 +2435,14 @@ describe("meeting client", () => {
       "AI伙伴筛选应提供尚无历史消息的新会话入口",
     ).toBeDefined();
     await clickTypeTag("全部");
+    expect(
+      findNode(
+        tree,
+        (node) =>
+          node.props?.["aria-label"] === "打开与 新建伙伴 的默认对话",
+      ),
+      "全部列表只应展示已有 1:1 沟通，不应展示尚无会话的 AI伙伴",
+    ).toBeUndefined();
     const sortedConversationLabels = findAllInOrder(
       tree,
       (node) =>

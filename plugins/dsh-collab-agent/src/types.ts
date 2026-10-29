@@ -130,6 +130,7 @@ export type AgentProfile = z.infer<typeof agentProfileSchema>;
 export const EXTERNAL_AGENT_PROVIDERS = [
   "codex",
   "workbuddy",
+  "codebuddy",
   "command",
 ] as const;
 export const EXTERNAL_AGENT_PROTOCOLS = ["codex-jsonl", "plain-text"] as const;

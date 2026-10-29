@@ -1699,7 +1699,7 @@ window.__ModuleLoader__.load({
       return h(TaskWorkspace, props);
     }
 
-    function TaskWorkspace() {
+    function TaskWorkspace(props) {
       const [workspaces, setWorkspaces] = react.useState([]);
       // 全部项目（用于标题解析）；workspaces 只放当前范围可见的下拉项。
       const [allWorkspaces, setAllWorkspaces] = react.useState([]);
@@ -2135,6 +2135,7 @@ window.__ModuleLoader__.load({
             )
           : null,
         h(TaskPageHeader, {
+          renderActions: props.renderActions,
           workspaces,
           workspaceFilter,
           setWorkspaceFilter,
@@ -2260,6 +2261,7 @@ window.__ModuleLoader__.load({
     }
 
     function TaskPageHeader({
+      renderActions,
       workspaces,
       workspaceFilter,
       setWorkspaceFilter,
@@ -2283,11 +2285,6 @@ window.__ModuleLoader__.load({
           "div",
           null,
           h("h1", null, "任务"),
-          h(
-            "div",
-            { className: "pmtask-sub" },
-            "看板、派发、认领、执行记录与验收统一管理",
-          ),
         ),
         h(
           "div",
@@ -2379,6 +2376,7 @@ window.__ModuleLoader__.load({
             },
             "新建任务",
           ),
+          renderActions?.() ?? null,
           h(
             "button",
             {
@@ -2697,6 +2695,9 @@ window.__ModuleLoader__.load({
                 key: task.id,
                 className: `pmtask-card${taskHasActiveRun(task) ? " running" : ""}${isArchived(task) ? " archived" : ""}${task.id === highlightedId ? " highlighted" : ""}`,
                 "data-task-id": task.id,
+                "data-workspace-id": task.workspaceId,
+                "data-data-agent-title": task.title,
+                "data-data-agent-excerpt": task.description,
                 draggable:
                   !isArchived(task) &&
                   task.status !== "cancelled" &&

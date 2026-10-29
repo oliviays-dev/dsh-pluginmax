@@ -611,6 +611,80 @@ describe("WorkbenchService", () => {
     expect(service.metricsModule(principal).data?.selected).toEqual(selected);
   });
 
+  it("filters Brief types and turns custom prompts into explainable items", async () => {
+    const instance = {
+      id: "WF-CUSTOM",
+      workspaceId: "ws-1",
+      title: "报价交付风险处置",
+      status: "blocked" as const,
+      updatedAt: "2026-10-09T01:50:00.000Z",
+      nodes: { review: { status: "blocked" } },
+    };
+    const service = serviceWith({
+      workflows: () => ({
+        instances: () => [instance],
+        instance: (instanceId: string) =>
+          instanceId === instance.id ? instance : undefined,
+        events: () => [
+          {
+            id: "ev-custom",
+            instanceId: instance.id,
+            nodeId: "review",
+            kind: "agent.failed",
+            actorId: "agent-1",
+            actorKind: "agent" as const,
+            actorName: "采购 Agent",
+            message: "报价附件缺失，流程无法继续",
+            at: "2026-10-09T01:20:00.000Z",
+          },
+        ],
+      }),
+    });
+    await service.setBriefSettings(principal, {
+      mode: "lastLeave",
+      includeTypes: ["task_review"],
+      customRules: [
+        {
+          id: "rule-delivery-risk",
+          name: "报价交付风险",
+          prompt:
+            "仅纳入风险类事项。\n关键词：报价、交付风险\n说明命中来源。",
+          enabled: true,
+        },
+      ],
+    });
+
+    const module = await service.briefModule(principal, {
+      tzOffsetMinutes,
+    });
+    const itemIds = (module.data?.views.all ?? []).map((item) => item.itemId);
+    expect(itemIds).toContain("D:rule:rule-delivery-risk");
+    expect(itemIds).not.toContain("A:workflow:WF-CUSTOM");
+    const custom = (module.data?.views.all ?? []).find(
+      (item) => item.itemId === "D:rule:rule-delivery-risk",
+    );
+    expect(custom?.title).toBe("报价交付风险");
+    expect(custom?.conclusion).toContain("报价交付风险处置");
+    expect(custom?.reason).toContain("关键词：报价、交付风险");
+
+    await service.setBriefSettings(principal, {
+      mode: "lastLeave",
+      includeTypes: ["task_review"],
+      customRules: [
+        {
+          id: "rule-delivery-risk",
+          name: "报价交付风险",
+          prompt: "关键词：报价",
+          enabled: false,
+        },
+      ],
+    });
+    const disabled = await service.briefModule(principal, {
+      tzOffsetMinutes,
+    });
+    expect(disabled.data?.views.all).toEqual([]);
+  });
+
   it("brings a nudged task into the receiver's brief", async () => {
     const tasks = [
       {
