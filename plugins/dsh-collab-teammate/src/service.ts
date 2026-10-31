@@ -318,6 +318,7 @@ export class TeammateTemplateService {
     readonly templateId: string;
     readonly systemKey: NonNullable<TeammateTemplate["systemKey"]>;
     readonly tools: readonly string[];
+    readonly soul?: string | undefined;
   }): Promise<TeammateTemplate | undefined> {
     return this.enqueue(async () => {
       const current = this.options.tables.templates.get(input.templateId);
@@ -332,7 +333,31 @@ export class TeammateTemplateService {
         );
       }
       const hasLegacyMcpGrant = current.tools.includes("mcp");
-      if (!hasLegacyMcpGrant) return current;
+      const missingNativeClarification =
+        !current.tools.includes("ask_user_question");
+      const missingProtectedTools = input.tools.filter(
+        (tool) => !current.tools.includes(tool),
+      );
+      const hasLegacyAlwaysReportSoul =
+        input.soul !== undefined &&
+        current.soul.includes("默认交付 Markdown 报告，不主动生成 HTML。");
+      const missingGeneralDataSoul =
+        input.soul !== undefined &&
+        input.soul.includes("用户没有分享卡片但在询问业务数据时") &&
+        !current.soul.includes("用户没有分享卡片但在询问业务数据时");
+      const shouldUpdateSoul =
+        input.soul !== undefined &&
+        (current.soul.trim() === "" ||
+          hasLegacyAlwaysReportSoul ||
+          missingGeneralDataSoul);
+      if (
+        !hasLegacyMcpGrant &&
+        !missingNativeClarification &&
+        missingProtectedTools.length === 0 &&
+        !shouldUpdateSoul
+      ) {
+        return current;
+      }
       const next = teammateTemplateSchema.parse({
         ...current,
         systemKey: input.systemKey,
@@ -341,7 +366,21 @@ export class TeammateTemplateService {
           archivable: false,
           templateSwitchable: false,
         },
-        tools: [...input.tools],
+        soul:
+          shouldUpdateSoul && input.soul !== undefined
+            ? input.soul
+            : current.soul,
+        tools: hasLegacyMcpGrant
+          ? [...input.tools]
+          : [
+              ...new Set([
+                ...current.tools,
+                ...missingProtectedTools,
+                ...input.tools.filter(
+                  (tool) => tool === "ask_user_question",
+                ),
+              ]),
+            ],
         version: nextVersion(current.version),
         updatedAt: this.timestamp(),
       });
@@ -949,6 +988,7 @@ export class TeammateService {
             templateId,
             systemKey: input.systemKey,
             tools: input.tools,
+            soul: input.soul,
           });
         }
         const repaired =

@@ -52,6 +52,95 @@ function service(): TaskService {
 const olivia = { id: "olivia", name: "Olivia", kind: "human" as const };
 
 describe("dsh-collab-task service", () => {
+  it("creates tasks from drafts idempotently without dispatching", async () => {
+    const tasks = service();
+    const input = {
+      creationKey: "task-capture:workspace-1:draft-1",
+      draft: {
+        workspaceId: "workspace-1",
+        title: "Confirm recovery plan",
+        description: "Produce the recovery schedule.",
+        priority: "P1" as const,
+        receiverType: "agent" as const,
+        receiverId: "data-agent",
+        receiverName: "Data Agent",
+        due: "2026-11-01",
+        acceptance: ["Recovery schedule is confirmed"],
+        collaboratorHints: [],
+      },
+    };
+    const first = await tasks.createFromDraft(olivia, input);
+    const second = await tasks.createFromDraft(olivia, input);
+    expect(second).toEqual({ ...first, deduplicated: true });
+    expect(first).toMatchObject({
+      workspaceId: "workspace-1",
+      status: "todo",
+      deduplicated: false,
+    });
+    expect(tasks.get(first.taskId)).toMatchObject({
+      creationKey: input.creationKey,
+      status: "todo",
+      receiverType: "agent",
+      receiverId: "data-agent",
+      agentRunIds: [],
+    });
+  });
+
+  it("lets only the current executor report progress, request input, and submit deliverables", async () => {
+    const tasks = service();
+    const task = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Agent execution feedback",
+      priority: "P2",
+      receiverType: "agent",
+      receiverId: "agent-1",
+      receiverName: "Worker Agent",
+      description: "Execute the task and report structured progress.",
+      acceptance: ["Evidence is attached", "Summary is complete"],
+    });
+    const agent = {
+      id: "agent-1",
+      name: "Worker Agent",
+      kind: "agent" as const,
+      principalId: "principal:agent-1",
+    };
+    const progressed = await tasks.reportProgress(agent, {
+      taskId: task.id,
+      progress: 35,
+      summary: "Collected the evidence set.",
+      completedStepIds: [],
+    });
+    expect(progressed).toMatchObject({
+      status: "progress",
+      progress: 35,
+      needsInput: false,
+    });
+    const waiting = await tasks.requestInput(agent, {
+      taskId: task.id,
+      question: "Should the scope include the cancelled orders?",
+    });
+    expect(waiting.needsInput).toBe(true);
+    expect(waiting.messages.at(-1)?.state).toBe("waiting_input");
+    await expect(
+      tasks.reportProgress(
+        { id: "other-agent", name: "Other", kind: "agent" },
+        {
+          taskId: task.id,
+          progress: 50,
+          summary: "Unauthorized progress.",
+          completedStepIds: [],
+        },
+      ),
+    ).rejects.toMatchObject({ code: "forbidden" });
+    const submitted = await tasks.submitDeliverable(agent, {
+      taskId: task.id,
+      summary: "Evidence and summary are ready for review.",
+      completedStepIds: [waiting.steps[0]!.id],
+      attachments: [],
+    });
+    expect(submitted.status).toBe("review");
+  });
+
   it("separates review authority from task assignment", async () => {
     const tasks = service();
     const task = await tasks.create(olivia, {
@@ -113,6 +202,45 @@ describe("dsh-collab-task service", () => {
     expect(canReview({ id: "owner", role: "member" })).toBe(true);
     expect(canReview({ id: "approver", role: "member" })).toBe(true);
     expect(canReview({ id: "worker", role: "member" })).toBe(false);
+  });
+
+  it("degrades review authority when workspace roles are not materialized", async () => {
+    const tasks = service();
+    const task = await tasks.create(olivia, {
+      workspaceId: "workspace-legacy",
+      title: "Legacy workspace task",
+      priority: "P2",
+      receiverType: "human",
+      receiverId: "worker",
+      receiverName: "Worker",
+      description: "Keep legacy workspaces readable.",
+      acceptance: ["Task bootstrap does not fail"],
+    });
+    const team = {
+      resolveToken: () => undefined,
+      users: () => [
+        { id: "owner", name: "Owner", role: "member" },
+        { id: "worker", name: "Worker", role: "member" },
+      ],
+      members: () => [
+        { userId: "owner", memberRole: "owner" },
+        { userId: "worker", memberRole: "member" },
+      ],
+    };
+    const assignments = {
+      config: () => {
+        throw new Error("workspace roles are not materialized");
+      },
+      members: () => [],
+    };
+    expect(
+      canReviewTask({
+        task,
+        actor: { id: "worker", name: "Worker", kind: "human", role: "member" },
+        team,
+        assignments,
+      }),
+    ).toBe(false);
   });
 
   it("creates, assigns, claims, transitions, comments, and replies", async () => {

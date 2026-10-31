@@ -224,6 +224,9 @@ ${SCOPE_BUTTON_STYLES}
 .pmwb-decision strong{display:block;margin-bottom:3px;color:var(--dsw-alias-label-primary);}
 .pmwb-brief-meta{margin:8px 0 0;color:var(--dsw-alias-label-tertiary);font-size:11px;}
 .pmwb-metrics{display:flex;gap:10px;min-width:0;overflow-x:auto;padding-bottom:2px;}
+.pmwb-metric-source{display:flex;gap:6px;align-items:center;margin-bottom:8px;padding:4px 7px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:1.45;}
+.pmwb-metric-source b{color:var(--dsw-alias-label-secondary);font-weight:650;}
+.pmwb-metric-source span{min-width:0;flex:1;overflow-wrap:anywhere;}
 .pmwb-metric{min-width:132px;flex:1 1 0;padding:11px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2);}
 .pmwb-metric-label{display:flex;align-items:center;gap:6px;justify-content:space-between;color:var(--dsw-alias-label-secondary);font-size:11.5px;}
 .pmwb-metric-trend{font-size:10.5px;font-weight:650;}
@@ -526,19 +529,6 @@ ${SCOPE_BUTTON_STYLES}
     };
 
     /*
-     * 会议侧栏的开关状态由 shell 与会议插件共享的全局 store 持有；
-     * 这里只订阅它的 open 状态，用于回显入口按钮的激活态。
-     */
-    const meetingPanelSource = {
-      getSnapshot: () => Boolean(window.__pluginmaxMeeting?.open),
-      subscribe: (listener) => {
-        const store = window.__pluginmaxMeeting;
-        if (store === undefined) return () => {};
-        return store.subscribe((open) => listener(Boolean(open)));
-      },
-    };
-
-    /*
      * 方案 B：工作台默认只聚合"已加入"的工作区；平台管理员可在页头显式打开
      * "全量项目"视图。该开关由卡片、项目页与简报长连接共享，请求时以
      * `scope=all` 透传给服务端（服务端对非管理员会忽略该参数）。
@@ -578,10 +568,6 @@ ${SCOPE_BUTTON_STYLES}
       },
     };
 
-    function toggleMeetingPanel() {
-      window.__pluginmaxMeeting?.toggle();
-    }
-
     const followIcon = (filled) =>
       h(
         "svg",
@@ -608,6 +594,61 @@ ${SCOPE_BUTTON_STYLES}
           ? item.coveredBy
           : [{ type: item?.kind ?? "task", id: item?.id }];
       return refs.some((ref) => isFollowed(ref.type, ref.id));
+    }
+
+    function dataAgentCardAttributes(item) {
+      return {
+        "data-data-agent-card": "true",
+        "data-workspace-id": item?.workspaceId,
+        "data-data-agent-title": item?.title,
+        "data-data-agent-excerpt":
+          item?.summary ?? item?.summaryText ?? item?.statusLabel,
+      };
+    }
+
+    function dataAgentEntityAttributes(item) {
+      const common = {
+        "data-workspace-id": item?.workspaceId,
+        "data-data-agent-title": item?.title,
+        "data-data-agent-excerpt":
+          item?.summary ?? item?.summaryText ?? item?.statusLabel,
+      };
+      if (item?.kind === "workflow") {
+        return { ...common, "data-workflow-id": item.id };
+      }
+      if (item?.kind === "meeting") {
+        return {
+          ...common,
+          "data-data-agent-entity": "meeting",
+          "data-data-agent-id": item.id,
+        };
+      }
+      if (item?.kind === "task" || item?.kind === undefined) {
+        return { ...common, "data-task-id": item.id };
+      }
+      return dataAgentCardAttributes(item);
+    }
+
+    function dataAgentBriefAttributes(item) {
+      const route = item?.deepLink?.route;
+      const entityId =
+        typeof item?.deepLink?.refId === "string"
+          ? item.deepLink.refId
+          : item?.sourceId;
+      if (
+        (route === "task" || route === "workflow" || route === "meeting") &&
+        typeof entityId === "string" &&
+        entityId !== ""
+      ) {
+        return dataAgentEntityAttributes({
+          ...item,
+          kind: route,
+          id: entityId,
+          workspaceId: item.deepLink?.workspaceId ?? item.workspaceId,
+          summary: item.conclusion ?? item.statusLabel,
+        });
+      }
+      return dataAgentCardAttributes(item);
     }
 
     /*
@@ -1088,6 +1129,20 @@ ${SCOPE_BUTTON_STYLES}
       }
       return h(
         "div",
+        null,
+        data.sourceNote
+          ? h(
+              "div",
+              {
+                className: "pmwb-metric-source",
+                "data-data-mode": data.dataMode,
+              },
+              h("b", null, data.dataMode === "unavailable" ? "数据不可用" : "数据来源"),
+              h("span", null, data.sourceNote),
+            )
+          : null,
+        h(
+        "div",
         { className: "pmwb-metrics" },
         ...items.map((metric) =>
           h(
@@ -1125,6 +1180,7 @@ ${SCOPE_BUTTON_STYLES}
               ),
             ),
           ),
+        ),
         ),
       );
     }
@@ -1398,16 +1454,7 @@ ${SCOPE_BUTTON_STYLES}
                   {
                     key: item.itemId,
                     className: `${item.tag}${item.readState === "read" ? " read" : ""}`,
-                    role: "button",
-                    tabIndex: 0,
-                    "aria-label": `打开 ${item.title}`,
-                    onClick: () => ctx.openBriefItem(item),
-                    onKeyDown: (event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        ctx.openBriefItem(item);
-                      }
-                    },
+                    ...dataAgentBriefAttributes(item),
                   },
                   h(
                     "div",
@@ -1664,16 +1711,7 @@ ${SCOPE_BUTTON_STYLES}
         {
           key: item.id,
           className: `pmwb-item${isFocus ? " pmwb-item-focus" : ""}${read ? " read" : ""}`,
-          role: "button",
-          tabIndex: 0,
-          "aria-label": `打开 ${item.title}`,
-          onClick: openItem,
-          onKeyDown: (event) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              openItem();
-            }
-          },
+          ...dataAgentEntityAttributes(item),
         },
         h(
           react.Fragment,
@@ -1854,16 +1892,7 @@ ${SCOPE_BUTTON_STYLES}
             {
               key: item.id,
               className: `pmwb-item meeting${read ? " read" : ""}`,
-              role: "button",
-              tabIndex: 0,
-              "aria-label": `打开会议 ${item.title}`,
-              onClick: openItem,
-              onKeyDown: (event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  openItem();
-                }
-              },
+              ...dataAgentEntityAttributes({ ...item, kind: "meeting" }),
             },
             h("div", { className: "pmwb-item-name" }, item.title),
             h(
@@ -2239,6 +2268,8 @@ ${SCOPE_BUTTON_STYLES}
     function WorkbenchPage(props) {
       const [mode, setMode] = react.useState("personal");
       const [modules, setModules] = react.useState({});
+      const [visibleModules, setVisibleModules] =
+        react.useState(FACTORY_ORDER);
       const [states, setStates] = react.useState({});
       const [globalError, setGlobalError] = react.useState("");
       const [loading, setLoading] = react.useState(true);
@@ -2288,11 +2319,6 @@ ${SCOPE_BUTTON_STYLES}
         followStore.subscribe.bind(followStore),
         followStore.getSnapshot.bind(followStore),
         followStore.getSnapshot.bind(followStore),
-      );
-      const meetingOpen = react.useSyncExternalStore(
-        meetingPanelSource.subscribe,
-        meetingPanelSource.getSnapshot,
-        meetingPanelSource.getSnapshot,
       );
       const followCount = followSnapshot.items.size;
       const previousFollowCount = react.useRef(followCount);
@@ -2363,6 +2389,16 @@ ${SCOPE_BUTTON_STYLES}
             `/api/collab/workbench/summary?tzOffset=${TZ_OFFSET}${scopeStore.query()}`,
           );
           setModules(result.modules ?? {});
+          const profileModules = Array.isArray(
+            result.display?.visibleModules,
+          )
+            ? result.display.visibleModules.filter((id) =>
+                MODULE_ORDER.includes(id),
+              )
+            : [];
+          setVisibleModules(
+            profileModules.length > 0 ? profileModules : MODULE_ORDER,
+          );
           if (typeof result.userId === "string" && result.userId !== "") {
             setCurrentUserId(result.userId);
           }
@@ -3054,7 +3090,9 @@ ${SCOPE_BUTTON_STYLES}
         briefData?.unreadCount ?? briefData?.views?.unread?.length ?? 0;
       const briefAllCount = briefData?.views?.all?.length ?? 0;
 
-      const cards = view.order.map((id) => {
+      const cards = view.order
+        .filter((id) => visibleModules.includes(id))
+        .map((id) => {
         const payload = modules[id];
         const state = states[id] ?? {
           status: loading && payload === undefined ? "loading" : "ready",
@@ -3240,7 +3278,7 @@ ${SCOPE_BUTTON_STYLES}
           },
           body,
         );
-      });
+        });
 
       const personal =
         mode !== "personal"
@@ -3712,18 +3750,6 @@ ${SCOPE_BUTTON_STYLES}
               ICONS.refresh,
             ),
             props.renderActions?.() ?? null,
-            h(
-              "button",
-              {
-                type: "button",
-                className: `pmwb-iconbtn${meetingOpen ? " active" : ""}`,
-                "aria-label": meetingOpen ? "收起会议侧栏" : "展开会议侧栏",
-                title: meetingOpen ? "收起会议侧栏" : "展开会议侧栏",
-                "aria-pressed": meetingOpen,
-                onClick: toggleMeetingPanel,
-              },
-              ICONS.meeting,
-            ),
           ),
         ),
         personal,
@@ -3749,7 +3775,12 @@ ${SCOPE_BUTTON_STYLES}
       return h(WorkbenchPage, props);
     }
 
-    exports.__test = { navigateTo, itemReadSignature, filterUnreadItems };
+    exports.__test = {
+      navigateTo,
+      itemReadSignature,
+      filterUnreadItems,
+      dataAgentBriefAttributes,
+    };
     exports.inject = ["slots"];
     exports.apply = (ctx) => {
       ctx.slots.inject("pluginmax.global", () =>

@@ -15,6 +15,7 @@ import {
   type DataAgentConversation,
   type DataAgentHtmlArtifact,
   type DataAgentMessage,
+  type DataAgentQueryEvidence,
   type DataAgentReport,
   type DataAgentReportImage,
   type DataAgentRun,
@@ -164,12 +165,37 @@ function reportSummary(markdown: string): string {
   return (paragraphs[0] ?? "报告已生成，请浏览正文与证据链。").slice(0, 600);
 }
 
+function dataEvidenceMarkdown(
+  evidence: readonly DataAgentQueryEvidence[],
+): string[] {
+  if (evidence.length === 0) return [];
+  return [
+    "## 数据范围与查询证据",
+    ...evidence.map((item) =>
+      [
+        `- QueryRun：\`${item.queryRunId}\``,
+        `  - 数据集：\`${item.datasetId}\``,
+        `  - 指标与版本：${item.metricIds
+          .map(
+            (metricId) =>
+              `\`${metricId}@${item.metricVersionSnapshot[metricId] ?? "unknown"}\``,
+          )
+          .join("、")}`,
+        `  - 数据截止：${item.dataCutoffAt ?? "未返回"}`,
+        `  - 权限覆盖：${item.permissionSummary ?? "未返回"}`,
+        `  - 结果：${item.status} · ${item.rowCount ?? 0} 行返回 · ${item.scannedRows ?? 0} 行扫描${item.truncated === true ? " · 已截断" : ""}`,
+      ].join("\n"),
+    ),
+  ];
+}
+
 function contractMarkdown(input: {
   readonly title: string;
   readonly markdown: string;
   readonly context: readonly DataAgentSelectionContext[];
   readonly cutoffAt: string;
   readonly reportId: string;
+  readonly queryEvidence?: readonly DataAgentQueryEvidence[] | undefined;
 }): string {
   const refs = input.context.map((item, index) => {
     const entity =
@@ -192,6 +218,7 @@ function contractMarkdown(input: {
     `- 页面：${input.context[0]?.source.page ?? "workbench"}`,
     `- 项目：${input.context[0]?.source.projectId ?? "未指定"}`,
     "- 口径：以当前选区和已授权数据源返回的口径为准；未返回的口径不会自行补造。",
+    ...dataEvidenceMarkdown(input.queryEvidence ?? []),
     "",
     "## 主要证据",
     ...(refs.length === 0 ? ["- 当前请求未附带结构化选区。"] : refs.map((ref) => `- ${ref}`)),
@@ -383,6 +410,9 @@ export class DataAgentService {
         dataConnectionIds: [],
         defaultTimeRange: "7d",
         timezone: "Asia/Shanghai",
+        clarificationMode: "hybrid",
+        maxRowsPerQuery: 500,
+        queryTimeoutMs: 15_000,
         preferredMetricIds: [],
         insightSubscriptions: [],
         reportSubscriptions: [],
@@ -406,6 +436,13 @@ export class DataAgentService {
         | "month"
         | undefined;
       readonly timezone?: string | undefined;
+      readonly clarificationMode?:
+        | "hybrid"
+        | "always-ask"
+        | "default-first"
+        | undefined;
+      readonly maxRowsPerQuery?: number | undefined;
+      readonly queryTimeoutMs?: number | undefined;
       readonly preferredMetricIds?: readonly string[] | undefined;
       readonly externalRuntimeId?: string | null | undefined;
     },
@@ -426,6 +463,11 @@ export class DataAgentService {
           : { defaultProjectId: input.defaultProjectId }),
       defaultTimeRange: input.defaultTimeRange ?? current.defaultTimeRange,
       timezone: input.timezone?.trim() || current.timezone,
+      clarificationMode:
+        input.clarificationMode ?? current.clarificationMode,
+      maxRowsPerQuery:
+        input.maxRowsPerQuery ?? current.maxRowsPerQuery,
+      queryTimeoutMs: input.queryTimeoutMs ?? current.queryTimeoutMs,
       preferredMetricIds:
         input.preferredMetricIds === undefined
           ? current.preferredMetricIds
@@ -462,6 +504,9 @@ export class DataAgentService {
       dataConnectionIds: current.dataConnectionIds,
       defaultTimeRange: "7d",
       timezone: "Asia/Shanghai",
+      clarificationMode: "hybrid",
+      maxRowsPerQuery: 500,
+      queryTimeoutMs: 15_000,
       preferredMetricIds: [],
       insightSubscriptions: [],
       reportSubscriptions: [],
@@ -690,6 +735,8 @@ export class DataAgentService {
       readonly conversationId: string;
       readonly prompt: string;
       readonly title: string;
+      readonly mode?: "chat" | "report" | undefined;
+      readonly contextPackId?: string | undefined;
       readonly runtimeProfileId?: string | undefined;
     },
   ): Promise<DataAgentRun> {
@@ -708,6 +755,10 @@ export class DataAgentService {
       ...(input.runtimeProfileId === undefined
         ? {}
         : { runtimeProfileId: input.runtimeProfileId }),
+      ...(input.contextPackId === undefined
+        ? {}
+        : { contextPackId: input.contextPackId }),
+      mode: input.mode ?? "report",
       status: "queued",
       prompt: input.prompt,
       title: input.title,
@@ -727,18 +778,45 @@ export class DataAgentService {
     return run;
   }
 
+  runByRuntimeSessionId(sessionId: string): DataAgentRun | undefined {
+    if (sessionId === "") return undefined;
+    return values(this.tables.runs)
+      .filter((run) => run.runtimeSessionId === sessionId)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+  }
+
+  runForAgentSession(sessionId: string): DataAgentRun | undefined {
+    const exact = this.runByRuntimeSessionId(sessionId);
+    if (exact !== undefined) return exact;
+    // The tool can run before the monitor has copied AgentRun.sessionId onto
+    // the Data Agent Run. Session ids contain the conversation id, so pending
+    // runs remain resolvable during that short window.
+    return values(this.tables.runs)
+      .filter(
+        (run) =>
+          ["queued", "running", "waiting_input"].includes(run.status) &&
+          sessionId.includes(run.conversationId),
+      )
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+  }
+
   async updateRun(
     runId: string,
     patch: Partial<
       Pick<
         DataAgentRun,
         | "agentRunId"
+        | "runtimeSessionId"
+        | "contextPackId"
+        | "contextReceiptId"
         | "runtimeProfileId"
         | "runtimeProfileRevision"
         | "status"
         | "error"
         | "output"
         | "usedTools"
+        | "queryEvidence"
+        | "dataCutoffAt"
         | "startedAt"
         | "endedAt"
       >
@@ -766,6 +844,60 @@ export class DataAgentService {
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
 
+  async completeChatRun(input: {
+    readonly actor: DataAgentActor;
+    readonly runId: string;
+    readonly rawOutput: string;
+    readonly usedTools?: readonly string[] | undefined;
+    readonly queryEvidence?: readonly DataAgentQueryEvidence[] | undefined;
+  }): Promise<{
+    readonly run: DataAgentRun;
+    readonly message: DataAgentMessage;
+  }> {
+    const current = this.run(input.runId);
+    const conversation = this.conversation(current.conversationId);
+    const timestamp = this.now();
+    const content = [
+      input.rawOutput.trim(),
+      ...(input.queryEvidence === undefined
+        ? []
+        : dataEvidenceMarkdown(input.queryEvidence)),
+    ]
+      .filter((item) => item.trim() !== "")
+      .join("\n\n");
+    const message = messageSchema.parse({
+      id: this.id("da-msg"),
+      conversationId: conversation.id,
+      senderType: "ai-partner",
+      senderId: DATA_AGENT_ID,
+      content,
+      contextAttachmentIds: [],
+      runId: current.id,
+      createdAt: timestamp,
+    });
+    await this.tables.messages.put(message.id, message);
+    const run = await this.updateRun(current.id, {
+      status: "succeeded",
+      output: content,
+      usedTools: [...new Set(input.usedTools ?? [])],
+      queryEvidence: [...(input.queryEvidence ?? [])],
+      endedAt: timestamp,
+    });
+    await this.tables.conversations.put(
+      conversation.id,
+      conversationSchema.parse({ ...conversation, updatedAt: timestamp }),
+    );
+    await this.audit({
+      actor: input.actor,
+      action: "data_agent.chat.completed",
+      workspaceId: conversation.workspaceId,
+      conversationId: conversation.id,
+      runId: current.id,
+      detail: { mode: "chat" },
+    });
+    return { run, message };
+  }
+
   report(id: string): DataAgentReport {
     const report = this.tables.reports.get(id);
     if (report === undefined) {
@@ -780,6 +912,7 @@ export class DataAgentService {
     readonly rawOutput: string;
     readonly dataCutoffAt: string;
     readonly usedTools?: readonly string[] | undefined;
+    readonly queryEvidence?: readonly DataAgentQueryEvidence[] | undefined;
   }): Promise<{
     readonly run: DataAgentRun;
     readonly report: DataAgentReport;
@@ -828,6 +961,7 @@ export class DataAgentService {
       context: contexts,
       cutoffAt: input.dataCutoffAt,
       reportId,
+      queryEvidence: input.queryEvidence,
     });
     const entityTypes = [
       ...new Set(
@@ -884,6 +1018,7 @@ export class DataAgentService {
       dataCutoffAt: input.dataCutoffAt,
       metricDefinition:
         "使用当前选区快照和 Runtime Profile 授权范围内的数据口径；未返回的口径不补造。",
+      queryEvidence: [...(input.queryEvidence ?? [])],
       sourceRefs: contexts.map((item) => item.source.entityRef ?? item.title),
       createdAt: timestamp,
     });
@@ -904,6 +1039,8 @@ export class DataAgentService {
       status: "succeeded",
       output: input.rawOutput,
       usedTools: [...new Set(input.usedTools ?? [])],
+      queryEvidence: [...(input.queryEvidence ?? [])],
+      dataCutoffAt: input.dataCutoffAt,
       endedAt: timestamp,
     });
     await this.tables.conversations.put(

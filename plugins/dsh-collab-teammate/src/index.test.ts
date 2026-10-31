@@ -294,6 +294,232 @@ describe("dsh-collab-teammate service", () => {
     expect(activity[0]?.instance.meetingCount).toBe(1);
   });
 
+  it("counts 1:1 AI chat runs and meetings from the default workspace", () => {
+    const now = new Date("2026-10-29T12:00:00.000Z");
+    const iso = (hours: number) =>
+      new Date(now.getTime() + hours * 3_600_000).toISOString();
+    const activity = calculateTeammateActivity({
+      teammates: [
+        {
+          id: "tm-chat",
+          principalId: "principal-ai-chat",
+        },
+        {
+          id: "tm-sibling",
+          employeeId: "employee-shared",
+          principalId: "principal-ai-chat",
+        },
+      ],
+      tasks: [],
+      agents: {
+        runs: ({ workspaceId }) =>
+          workspaceId === "system.default"
+            ? [
+                {
+                  id: "run-chat",
+                  instanceId: "meeting-ai-chat",
+                  principalId: "principal-ai-chat",
+                  status: "succeeded",
+                  nodeId: "meeting-ai-chat",
+                  runSeq: 1,
+                  outputTokens: 240,
+                  payload: {
+                    context: { teammateId: "tm-chat" },
+                  },
+                  startedAt: iso(-1),
+                  endedAt: iso(-0.99),
+                  createdAt: iso(-1),
+                },
+              ]
+            : [],
+      },
+      meetings: {
+        list: (workspaceId) =>
+          workspaceId === "system.default"
+            ? [
+                { id: "meeting-ai-chat", status: "active" },
+                { id: "meeting-sibling", status: "active" },
+              ]
+            : [],
+        participants: (meetingId) => {
+          if (meetingId === "meeting-sibling") {
+            return [
+              {
+                id: "participant-sibling",
+                meetingId,
+                kind: "ai_teammate",
+                refId: "tm-sibling",
+                teammateInstanceId: "tm-sibling",
+                personaId: "persona-chat",
+                status: "active",
+                joinedAt: iso(-1),
+                updatedAt: iso(-0.99),
+              },
+            ];
+          }
+          return meetingId === "meeting-ai-chat"
+            ? [
+                {
+                  id: "participant-ai",
+                  meetingId,
+                  kind: "ai_teammate",
+                  refId: "tm-chat",
+                  teammateInstanceId: "tm-chat",
+                  status: "active",
+                  joinedAt: iso(-1),
+                  updatedAt: iso(-0.99),
+                },
+              ]
+            : [];
+        },
+      },
+      workspaces: { list: () => [{ id: "main" }] },
+      identities: new Map([["tm-chat", { personaId: "persona-chat" }]]),
+      now,
+    });
+
+    expect(activity[0]?.instance).toMatchObject({
+      meetingCount: 1,
+      outputTokens: 240,
+    });
+    expect(activity[0]?.instance.runtimeHours).toBeGreaterThan(0);
+    expect(activity[1]?.instance).toMatchObject({
+      meetingCount: 1,
+      outputTokens: 0,
+      runtimeHours: 0,
+    });
+  });
+
+  it("does not activate sibling instances that share a runtime identity", () => {
+    const now = new Date("2026-10-29T12:00:00.000Z");
+    const iso = (hours: number) =>
+      new Date(now.getTime() + hours * 3_600_000).toISOString();
+    const primary = {
+      ...definition("tm-primary", "personal", "active", "小白 PD"),
+      employeeId: "employee-shared",
+      principalId: "principal-ai-shared",
+    };
+    const sibling = {
+      ...definition("tm-sibling", "platform", "active", "小白 PD (2)"),
+      employeeId: "employee-shared",
+      principalId: "principal-ai-shared",
+    };
+    const snapshot = calculateTeammateWorkload({
+      teammates: [primary, sibling],
+      tasks: [],
+      agents: {
+        runs: ({ workspaceId }) =>
+          workspaceId === "system.default"
+            ? [
+                {
+                  id: "run-chat",
+                  instanceId: "meeting-chat",
+                  employeeId: "employee-shared",
+                  principalId: "principal-ai-shared",
+                  status: "succeeded",
+                  nodeId: "meeting-ai-chat",
+                  runSeq: 1,
+                  payload: {
+                    context: { teammateId: primary.id },
+                  },
+                  startedAt: iso(-1),
+                  endedAt: iso(-0.99),
+                  createdAt: iso(-1),
+                },
+              ]
+            : [],
+      },
+      meetings: {
+        list: (workspaceId) =>
+          workspaceId === "system.default"
+            ? [{ id: "meeting-chat", status: "active" }]
+            : [],
+        participants: () => [
+          {
+            id: "participant-primary",
+            meetingId: "meeting-chat",
+            kind: "ai_teammate",
+            refId: primary.id,
+            teammateInstanceId: primary.id,
+            status: "active",
+            joinedAt: iso(-1),
+            updatedAt: iso(-0.99),
+          },
+        ],
+      },
+      workspaces: { list: () => [{ id: "main" }] },
+      identities: new Map([
+        [primary.id, { profileId: "agent-primary" }],
+        [sibling.id, { profileId: "agent-primary" }],
+      ]),
+      now,
+    });
+    const primaryItem = snapshot.items.find(
+      (item) => item.teammateId === primary.id,
+    );
+    const siblingItem = snapshot.items.find(
+      (item) => item.teammateId === sibling.id,
+    );
+    expect(primaryItem).toMatchObject({
+      hasRunIn72h: true,
+      last24h: { meetingCount: 1, taskCount: 0 },
+    });
+    expect(siblingItem).toMatchObject({
+      hasRunIn72h: false,
+      last24h: { meetingCount: 0, taskCount: 0 },
+    });
+  });
+
+  it("sorts inactive AI partners by their latest meeting activity", () => {
+    const now = new Date("2026-10-29T12:00:00.000Z");
+    const iso = (hours: number) =>
+      new Date(now.getTime() + hours * 3_600_000).toISOString();
+    const idleOld = definition("tm-idle-old", "personal", "active", "旧伙伴");
+    const idleRecent = definition(
+      "tm-idle-new",
+      "personal",
+      "active",
+      "新伙伴",
+    );
+    const snapshot = calculateTeammateWorkload({
+      teammates: [idleOld, idleRecent],
+      tasks: [],
+      agents: { runs: () => [] },
+      meetings: {
+        list: (workspaceId) =>
+          workspaceId === "system.default"
+            ? [
+                { id: "meeting-old", status: "active" },
+                { id: "meeting-new", status: "active" },
+              ]
+            : [],
+        participants: (meetingId) => [
+          {
+            id: `participant-${meetingId}`,
+            meetingId,
+            kind: "ai_teammate",
+            refId:
+              meetingId === "meeting-old" ? idleOld.id : idleRecent.id,
+            teammateInstanceId:
+              meetingId === "meeting-old" ? idleOld.id : idleRecent.id,
+            status: "active",
+            joinedAt: iso(meetingId === "meeting-old" ? -50 : -30),
+            updatedAt: iso(meetingId === "meeting-old" ? -50 : -30),
+          },
+        ],
+      },
+      workspaces: { list: () => [{ id: "main" }] },
+      now,
+    });
+
+    expect(snapshot.items.map((item) => item.teammateId)).toEqual([
+      idleRecent.id,
+      idleOld.id,
+    ]);
+    expect(snapshot.items[0]?.hasRunIn72h).toBe(false);
+    expect(snapshot.items[0]?.lastActivityAt).toBe(iso(-30));
+  });
+
   it("counts the facilitator seat as meeting attendance", () => {
     const meetings = {
       list: () => [{ id: "m-1", status: "active" }],
@@ -728,12 +954,19 @@ describe("dsh-collab-teammate service", () => {
       tools: ["read_file", "mcp"],
     };
     const first = await teammates.ensureSeededPlatformTeammate(legacySeed);
+    const chatFirstSoul =
+      "# Data Agent SOUL\n\n普通问题直接回答；只有明确要求时生成报告。";
     const second = await teammates.ensureSeededPlatformTeammate({
       ...legacySeed,
+      soul: chatFirstSoul,
       tools: [
         "entity.read",
+        "data.catalog.search",
+        "dataset.describe",
+        "query.explain",
         "metric.query",
         "dataset.query.readonly",
+        "ask_user_question",
         "report.render",
         "artifact.write",
       ],
@@ -756,11 +989,16 @@ describe("dsh-collab-teammate service", () => {
       state: "active",
       tools: [
         "entity.read",
+        "data.catalog.search",
+        "dataset.describe",
+        "query.explain",
         "metric.query",
         "dataset.query.readonly",
+        "ask_user_question",
         "report.render",
         "artifact.write",
       ],
+      soul: chatFirstSoul,
       version: "v1.1",
     });
     expect(teammates.listInstances(admin)[0]?.id).toBe("data-agent");

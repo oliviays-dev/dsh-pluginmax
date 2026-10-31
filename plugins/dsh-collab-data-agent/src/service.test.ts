@@ -58,6 +58,40 @@ const actor = {
 };
 
 describe("DataAgentService", () => {
+  it("completes a regular chat run without creating a report", async () => {
+    const dataAgent = service();
+    const conversation = await dataAgent.createConversation(actor, {
+      workspaceId: "ws-main",
+      page: "workbench",
+      title: "指标原因",
+    });
+    await dataAgent.appendUserMessage(actor, {
+      conversationId: conversation.id,
+      content: "这个指标为什么下降？",
+      selections: [],
+    });
+    const run = await dataAgent.createRun(actor, {
+      conversationId: conversation.id,
+      prompt: "这个指标为什么下降？",
+      title: "指标原因",
+      mode: "chat",
+    });
+
+    const completed = await dataAgent.completeChatRun({
+      actor,
+      runId: run.id,
+      rawOutput: "因为交付延迟和库存结构变化共同影响了本期指标。",
+    });
+
+    expect(completed.run.status).toBe("succeeded");
+    expect(completed.message).toMatchObject({
+      senderType: "ai-partner",
+      content: "因为交付延迟和库存结构变化共同影响了本期指标。",
+    });
+    expect(completed.message.reportId).toBeUndefined();
+    expect(dataAgent.reportsForConversation(conversation.id)).toEqual([]);
+  });
+
   it("persists selection snapshots and creates a Markdown report with images", async () => {
     const dataAgent = service();
     const conversation = await dataAgent.createConversation(actor, {
@@ -166,6 +200,75 @@ describe("DataAgentService", () => {
     expect(html.content).toContain("<!doctype html>");
     expect(html.content).toContain("data:image/svg+xml;base64,");
     expect(dataAgent.htmlForReport(completed.report.id)?.id).toBe(html.id);
+  });
+
+  it("persists QueryRun evidence in chat and reports and derives HTML from the report snapshot", async () => {
+    const dataAgent = service();
+    const conversation = await dataAgent.createConversation(actor, {
+      workspaceId: "ws-main",
+      page: "workbench",
+    });
+    await dataAgent.appendUserMessage(actor, {
+      conversationId: conversation.id,
+      content: "今天有没有订单异常？",
+      selections: [],
+    });
+    const evidence = [
+      {
+        queryRunId: "query-order-1",
+        datasetId: "orders-facts",
+        metricIds: ["order_exception_rate", "order_exception_count"],
+        metricVersionSnapshot: {
+          order_exception_rate: "orders-metric-v1",
+          order_exception_count: "orders-metric-v1",
+        },
+        status: "succeeded" as const,
+        rowCount: 1,
+        scannedRows: 540,
+        truncated: false,
+        dataCutoffAt: "2026-10-29T01:55:00.000Z",
+        permissionSummary:
+          "workspaceRole:member · rowScope:region=east|south · policy:orders-policy-v1 · coverage:当前授权：华东、华南",
+      },
+    ];
+    const chat = await dataAgent.createRun(actor, {
+      conversationId: conversation.id,
+      prompt: "今天有没有订单异常？",
+      title: "订单异常",
+      mode: "chat",
+    });
+    const chatResult = await dataAgent.completeChatRun({
+      actor,
+      runId: chat.id,
+      rawOutput: "今天有订单异常。",
+      queryEvidence: evidence,
+    });
+    expect(chatResult.message.content).toContain("QueryRun");
+    expect(chatResult.message.content).toContain("query-order-1");
+    expect(chatResult.message.content).toContain("当前授权");
+    expect(chatResult.run.queryEvidence).toEqual(evidence);
+
+    const reportRun = await dataAgent.createRun(actor, {
+      conversationId: conversation.id,
+      prompt: "生成订单异常正式报告",
+      title: "订单异常报告",
+      mode: "report",
+    });
+    const report = await dataAgent.completeRun({
+      actor,
+      runId: reportRun.id,
+      rawOutput: "# 订单异常报告\n\n异常来自支付失败和履约超时。",
+      dataCutoffAt: "2026-10-29T01:55:00.000Z",
+      queryEvidence: evidence,
+    });
+    expect(report.report.queryEvidence).toEqual(evidence);
+    expect(report.report.markdown).toContain("query-order-1");
+    expect(report.report.markdown).toContain("orders-metric-v1");
+
+    const html = await dataAgent.renderHtml(actor, report.report.id);
+    expect(html.reportVersion).toBe(report.report.version);
+    expect(html.content).toContain("query-order-1");
+    expect(html.content).toContain("orders-metric-v1");
   });
 
   it("reset keeps connections and history while restoring defaults", async () => {

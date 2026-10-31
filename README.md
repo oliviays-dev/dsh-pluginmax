@@ -34,6 +34,10 @@ The Data Agent milestone adds:
   on-demand HTML derivatives, ownership and audit records in `collab_data_agent`
 - reuse of the existing Principal Runtime / Agent Run / external Runtime Profile chain
   for Codex and Codebuddy-compatible execution
+- `dsh-collab-data-fabric`: governed read-only catalog, semantic metrics, RLS-aware
+  queries, QueryRun evidence and versioned data skills
+- `dsh-collab-data-orders`: order connector manifest, certified order metrics,
+  explicit demo/production isolation, partial-region policy and order Skill
 
 Phase 3 delivered canonical `principal:<id>` references, with `employee:` / teammate / account aliases during migration, and mirrored all platform, workspace, and project grants to Principal.
 

@@ -352,10 +352,28 @@ describe("AI Teammate runtime client", () => {
     );
   });
 
+  it("keeps a teammate deep link until the instance list is ready", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain("pendingTeammateIdRef");
+    expect(source).toContain(
+      "pendingTeammateIdRef.current = pending.teammateId",
+    );
+    expect(source).toContain("if (teammates.length === 0) return;");
+  });
+
   it("filters the definition list by the archived view", () => {
     const source = readFileSync(CLIENT_PATH, "utf8");
     expect(source).toMatch(
       /archivedOnly\s*\?\s*item\.state === "archived"\s*:\s*item\.state !== "archived"/,
+    );
+  });
+
+  it("mounts Data Agent workspace settings inside the agent definition", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain('"pluginmax.teammate.data-agent-settings"');
+    expect(source).toContain('selectedTemplate.systemKey === "data-agent"');
+    expect(source).toContain(
+      'identity?.workspaceId ?? workspaces[0]?.id ?? ""',
     );
   });
 
@@ -499,6 +517,18 @@ describe("AI Teammate runtime client", () => {
     expect(source).toContain(
       "onClick: () => openDefinitionForTeammate(teammate)",
     );
+  });
+
+  it("renders the selected runtime as a detail page with four actions", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain("pmtm-runtime-detail-page");
+    expect(source).toContain("runtimeDetailActions");
+    expect(source).toContain("const externalRuntimeDetail =");
+    expect(source).toContain('"编辑"');
+    expect(source).toContain('"探测"');
+    expect(source).toContain('"停用"');
+    expect(source).toContain('"归档"');
+    expect(source).toContain("pmtm-runtime-detail-command");
   });
 
   it("converts runtime args to structured readable configuration", () => {

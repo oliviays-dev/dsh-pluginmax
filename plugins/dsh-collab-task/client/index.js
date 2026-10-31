@@ -147,10 +147,6 @@ window.__ModuleLoader__.load({
       .pmtask-head h1{margin:0;font-size:19px;line-height:1.3;}
       .pmtask-sub{margin-top:4px;color:var(--dsw-alias-label-secondary);font-size:12px;}
       .pmtask-head-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
-      .pmtask-meeting-toggle{width:32px;height:32px;flex:none;display:grid;place-items:center;padding:0;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-secondary);cursor:pointer;}
-      .pmtask-meeting-toggle:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);}
-      .pmtask-meeting-toggle.active{color:var(--dsw-alias-accent-primary,#4f8ef7);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 12%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 50%,transparent);}
-      .pmtask-meeting-toggle svg{width:15px;height:15px;}
       .pmtask-iconbtn{width:28px;height:28px;flex:none;display:grid;place-items:center;padding:0;border:1px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-secondary);cursor:pointer;}
       .pmtask-iconbtn:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);}
       .pmtask-iconbtn svg{width:14px;height:14px;}
@@ -158,6 +154,8 @@ window.__ModuleLoader__.load({
       .pmtask-area{height:auto;padding:8px 9px;resize:vertical;}
       .pmtask-btn{height:34px;display:inline-flex;align-items:center;justify-content:center;gap:6px;border:0;border-radius:6px;padding:0 12px;background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground);font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap;}
       .pmtask-btn.secondary{background:transparent;border:0.5px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-primary);}
+      .pmtask-btn.secondary:hover{background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-border-l4);}
+      .pmtask-btn-count{min-width:18px;height:18px;display:inline-grid;place-items:center;padding:0 4px;border-radius:999px;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-secondary);font-size:10.5px;font-variant-numeric:tabular-nums;line-height:1;}
       .pmtask-btn.danger{background:transparent;border:0.5px solid color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 45%,transparent);color:var(--dsw-alias-state-error-primary,#e5534b);}
       .pmtask-btn:disabled{opacity:.45;cursor:not-allowed;}
       .pmtask-icon-btn:disabled,.pmtask-tool-btn:disabled,.pmtask-assign-trigger:disabled,.pmtask-input:disabled,.pmtask-composer-input:disabled{opacity:.5;cursor:not-allowed;}
@@ -190,6 +188,8 @@ window.__ModuleLoader__.load({
       .pmtask-card.archived{opacity:.72;border-style:dashed;}
       .pmtask-card.highlighted{border-color:var(--dsw-alias-accent-primary,#4f8ef7);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 10%,var(--dsw-alias-bg-layer-2));}
       .pmtask-card-top{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:14px;}
+      .pmtask-detail-btn{height:24px;padding:0 8px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:5px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-secondary);font:inherit;font-size:10.5px;cursor:pointer;}
+      .pmtask-detail-btn:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l4);}
       .pmtask-id{color:var(--dsw-alias-label-tertiary);font-size:10px;}
       .pmtask-spinner{width:14px;height:14px;flex:none;display:inline-block;border-radius:50%;border:2px solid color-mix(in srgb,var(--dsw-alias-label-tertiary) 38%,transparent);border-top-color:var(--dsw-alias-accent-primary,#4f8ef7);animation:pmtask-spin .8s linear infinite;}
       .pmtask-spinner.lg{width:16px;height:16px;}
@@ -1721,6 +1721,7 @@ window.__ModuleLoader__.load({
       const [source, setSource] = react.useState("");
       const [selectedId, setSelectedId] = react.useState("");
       const [highlightedId, setHighlightedId] = react.useState("");
+      const [taskView, setTaskView] = react.useState("board");
       const [archivedOnly, setArchivedOnly] = react.useState(false);
       const [createOpen, setCreateOpen] = react.useState(false);
       const [createStatus, setCreateStatus] = react.useState("todo");
@@ -2082,11 +2083,35 @@ window.__ModuleLoader__.load({
           setPendingAssignee(null);
           setAssignOpen(false);
           setArchivedOnly(false);
+          setTaskView("board");
         };
         window.addEventListener("pluginmax:route-select", onRouteSelect);
         return () =>
           window.removeEventListener("pluginmax:route-select", onRouteSelect);
       }, []);
+      react.useEffect(() => {
+        const openDrafts = (event) => {
+          setTaskView("drafts");
+          setSelectedId("");
+          setHighlightedId("");
+          const workspaceId = event?.detail?.workspaceId;
+          if (typeof workspaceId === "string" && workspaceId !== "") {
+            setWorkspaceFilter(workspaceId);
+          }
+        };
+        window.addEventListener("pluginmax:task-capture-open", openDrafts);
+        return () =>
+          window.removeEventListener("pluginmax:task-capture-open", openDrafts);
+      }, []);
+      react.useEffect(() => {
+        const refreshTasks = () => void load(true);
+        window.addEventListener("pluginmax:task-capture-refresh", refreshTasks);
+        return () =>
+          window.removeEventListener(
+            "pluginmax:task-capture-refresh",
+            refreshTasks,
+          );
+      }, [load]);
       react.useEffect(() => {
         if (highlightedId === "" || selectedId !== "") return undefined;
         const frame = window.requestAnimationFrame(() => {
@@ -2115,6 +2140,57 @@ window.__ModuleLoader__.load({
         );
       }
 
+      if (taskView === "drafts") {
+        return h(
+          "section",
+          { className: "pmtask", "data-task-management": true },
+          h("style", null, styles),
+          error !== ""
+            ? h(
+                "div",
+                { className: "pmtask-filter pmtask-notice" },
+                h(
+                  "span",
+                  {
+                    style: {
+                      color: "var(--dsw-alias-state-error-primary,#e5534b)",
+                    },
+                  },
+                  error,
+                ),
+              )
+            : null,
+          props.renderSlot?.("pluginmax.task.draft-inbox", {
+            projects: workspaces,
+            directory,
+            externalRuntimes,
+            onBack: () => setTaskView("board"),
+            onOpenTask: async (taskId, workspaceId) => {
+              setTaskView("board");
+              setWorkspaceFilter(workspaceId);
+              setSelectedId(taskId);
+              setHighlightedId(taskId);
+              setOwnership("all");
+              setReceiver("all");
+              setArchivedOnly(false);
+              try {
+                const result = await request(
+                  `/api/collab/tasks/bootstrap?workspaceId=${encodeURIComponent(workspaceId)}`,
+                );
+                setTasks((current) => {
+                  const next = current.filter(
+                    (task) => task.workspaceId !== workspaceId,
+                  );
+                  return [...(result.tasks ?? []), ...next];
+                });
+              } catch (cause) {
+                fail(cause);
+              }
+            },
+          }) ?? null,
+        );
+      }
+
       return h(
         "section",
         { className: "pmtask", "data-task-management": true },
@@ -2136,10 +2212,12 @@ window.__ModuleLoader__.load({
           : null,
         h(TaskPageHeader, {
           renderActions: props.renderActions,
+          renderSlot: props.renderSlot,
           workspaces,
           workspaceFilter,
           setWorkspaceFilter,
           onRefresh: () => load(true),
+          onOpenDrafts: () => setTaskView("drafts"),
           onCreate: (status = "todo") => {
             setCreateStatus(status);
             setCreateOpen(true);
@@ -2176,6 +2254,7 @@ window.__ModuleLoader__.load({
               mutate,
               notify,
               fail,
+              renderSlot: props.renderSlot,
             })
           : h(TaskBoard, {
               tasks: visibleTasks,
@@ -2262,30 +2341,21 @@ window.__ModuleLoader__.load({
 
     function TaskPageHeader({
       renderActions,
+      renderSlot,
       workspaces,
       workspaceFilter,
       setWorkspaceFilter,
       onRefresh,
+      onOpenDrafts,
       onCreate,
       currentUser,
       showAllWorkspaces,
       setShowAllProjects,
     }) {
-      const meetingOpen = react.useSyncExternalStore(
-        (listener) =>
-          window.__pluginmaxMeeting?.subscribe(() =>
-            listener(Boolean(window.__pluginmaxMeeting.open)),
-          ) ?? (() => {}),
-        () => Boolean(window.__pluginmaxMeeting?.open),
-      );
       return h(
         "header",
         { className: "pmtask-head" },
-        h(
-          "div",
-          null,
-          h("h1", null, "任务"),
-        ),
+        h("div", null, h("h1", null, "任务")),
         h(
           "div",
           { className: "pmtask-head-actions" },
@@ -2343,6 +2413,10 @@ window.__ModuleLoader__.load({
               ),
             ),
           ),
+          renderSlot?.("pluginmax.task.capture-launcher", {
+            workspaceIds: workspaces.map((workspace) => workspace.id),
+            onOpenDrafts,
+          }) ?? null,
           h(
             "button",
             {
@@ -2370,38 +2444,15 @@ window.__ModuleLoader__.load({
           h(
             "button",
             {
-              className: "pmtask-btn",
+              className: "pmtask-btn pmtask-create-task",
               type: "button",
+              title: "新建任务",
+              "aria-label": "新建任务",
               onClick: () => onCreate("todo"),
             },
             "新建任务",
           ),
           renderActions?.() ?? null,
-          h(
-            "button",
-            {
-              className: `pmtask-meeting-toggle${meetingOpen ? " active" : ""}`,
-              type: "button",
-              "aria-label": meetingOpen ? "收起会议侧边栏" : "展开会议侧边栏",
-              "aria-pressed": meetingOpen,
-              title: meetingOpen ? "收起会议侧边栏" : "展开会议侧边栏",
-              onClick: () => window.__pluginmaxMeeting?.toggle(),
-            },
-            h(
-              "svg",
-              {
-                viewBox: "0 0 24 24",
-                fill: "none",
-                stroke: "currentColor",
-                strokeWidth: 2,
-                strokeLinecap: "round",
-                strokeLinejoin: "round",
-                "aria-hidden": true,
-              },
-              h("path", { d: "m22 8-6 4 6 4V8Z" }),
-              h("rect", { x: 2, y: 6, width: 14, height: 12, rx: 2 }),
-            ),
-          ),
         ),
       );
     }
@@ -2696,8 +2747,7 @@ window.__ModuleLoader__.load({
                 className: `pmtask-card${taskHasActiveRun(task) ? " running" : ""}${isArchived(task) ? " archived" : ""}${task.id === highlightedId ? " highlighted" : ""}`,
                 "data-task-id": task.id,
                 "data-workspace-id": task.workspaceId,
-                "data-data-agent-title": task.title,
-                "data-data-agent-excerpt": task.description,
+                "data-data-agent-exclude": "true",
                 draggable:
                   !isArchived(task) &&
                   task.status !== "cancelled" &&
@@ -2740,6 +2790,20 @@ window.__ModuleLoader__.load({
                     workspaceId: task.workspaceId,
                     workflowInstanceId: task.workflow?.instanceId,
                   }),
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "pmtask-detail-btn",
+                      title: `查看任务 ${task.id} 详情`,
+                      "aria-label": `查看任务 ${task.id} 详情`,
+                      onClick: (event) => {
+                        event.stopPropagation();
+                        onOpen(task.id);
+                      },
+                    },
+                    "详情",
+                  ),
                 ),
               ),
               h("div", { className: "pmtask-title" }, task.title),
@@ -2953,6 +3017,7 @@ window.__ModuleLoader__.load({
         onRestored,
         mutate,
         fail,
+        renderSlot,
       } = props;
       const [editing, setEditing] = react.useState(false);
       const [message, setMessage] = react.useState("");
@@ -4847,6 +4912,14 @@ window.__ModuleLoader__.load({
             h(
               "aside",
               { className: "pmtask-detail-side" },
+              renderSlot?.("pluginmax.task.detail.extension", {
+                taskId: task.id,
+                workspaceId: task.workspaceId,
+              }) ?? null,
+              renderSlot?.("pluginmax.task.detail.capture-origin", {
+                taskId: task.id,
+                workspaceId: task.workspaceId,
+              }) ?? null,
               h(
                 "div",
                 { className: "pmtask-side-section" },
@@ -6424,6 +6497,24 @@ window.__ModuleLoader__.load({
             name: "pluginmax.global",
             id: "pluginmax-task",
             order: 25,
+            children: {
+              "pluginmax.task.capture-launcher": {
+                kind: "single",
+                scope: "root",
+              },
+              "pluginmax.task.draft-inbox": {
+                kind: "single",
+                scope: "root",
+              },
+              "pluginmax.task.detail.capture-origin": {
+                kind: "single",
+                scope: "root",
+              },
+              "pluginmax.task.detail.extension": {
+                kind: "single",
+                scope: "root",
+              },
+            },
           },
           TaskGlobalPage,
         ),

@@ -14,7 +14,7 @@ window.__ModuleLoader__.load({
         // 窄屏（手机）默认收起左侧栏，避免主区被挤到不可用；桌面/平板保持展开。
         leftOpen: typeof window === "undefined" || window.innerWidth >= 600,
         meetingOpen: false,
-        meetingWidth: 500,
+        meetingWidth: 375,
         sidePanelExpanded: false,
         detailsOpen: false,
       },
@@ -228,8 +228,7 @@ window.__ModuleLoader__.load({
         grid-template-columns:264px minmax(0,1fr) 0 0;overflow:hidden;
         background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);
         font-family:-apple-system,BlinkMacSystemFont,
-        "Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
-        transition:grid-template-columns .24s ease;}
+        "Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;}
       .pmx-shell *,.pmx-shell *::before,.pmx-shell *::after{box-sizing:border-box;}
       .pmx-sidebar{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;
         background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));
@@ -350,7 +349,7 @@ window.__ModuleLoader__.load({
       .pmx-shell[data-side-panel-expanded] .pmx-overlay-track{
         background:var(--dsw-alias-bg-base);}
       .pmx-meeting-resize{position:absolute;top:0;bottom:0;left:0;z-index:30;width:10px;
-        transform:translateX(-5px);cursor:col-resize;touch-action:none;}
+        transform:translateX(-5px);cursor:col-resize;touch-action:none;user-select:none;}
       .pmx-meeting-resize::after{content:"";position:absolute;top:50%;left:50%;
         width:12px;height:34px;transform:translate(-50%,-50%);border-radius:8px;
         border:0.5px solid var(--dsw-alias-border-l2);
@@ -471,6 +470,24 @@ window.__ModuleLoader__.load({
         .pmx-shell[data-meeting-open] .pmx-account-wrap{width:42px;flex:none;}
         .pmx-shell[data-meeting-open] .pmx-toggle{position:absolute;opacity:0;pointer-events:none;}
         .pmx-shell[data-meeting-open] .pmx-brand-toggle{display:grid;}
+      }
+
+      @media (max-width:600px){
+        .pmx-shell[data-meeting-open]{
+          grid-template-columns:0 0 0 0 !important;
+        }
+        .pmx-shell[data-meeting-open] > .pmx-sidebar,
+        .pmx-shell[data-meeting-open] > .pmx-main,
+        .pmx-shell[data-meeting-open] > .pmx-details-track{
+          display:none;
+        }
+        .pmx-shell[data-meeting-open] > .pmx-overlay-track{
+          position:fixed;
+          inset:0;
+          z-index:100;
+          display:block;
+        }
+        .pmx-shell[data-meeting-open] .pmx-meeting-resize{display:none;}
       }
     `;
 
@@ -1305,13 +1322,25 @@ window.__ModuleLoader__.load({
       const startX = react.useRef(0);
       const startWidth = react.useRef(width);
       const clampWidth = (nextWidth) => {
-        const available = Math.max(280, window.innerWidth - 420);
-        const minimum = window.innerWidth <= 900 ? 300 : 480;
-        return Math.max(minimum, Math.min(nextWidth, available));
+        const sidebarWidth =
+          document.querySelector(".pmx-sidebar")?.getBoundingClientRect()
+            .width ?? 0;
+        const detailsWidth =
+          document.querySelector(".pmx-details-track")?.getBoundingClientRect()
+            .width ?? 0;
+        const minimum = window.innerWidth <= 900 ? 280 : 320;
+        const minimumMainWidth = window.innerWidth <= 900 ? 280 : 360;
+        const maximum = Math.max(
+          minimum,
+          window.innerWidth - sidebarWidth - detailsWidth - minimumMainWidth,
+        );
+        return Math.round(
+          Math.max(minimum, Math.min(nextWidth, maximum)),
+        );
       };
       return jsxRuntime.jsx("div", {
         role: "separator",
-        "aria-label": "调整会议侧栏宽度",
+        "aria-label": "调整侧边栏宽度",
         "aria-orientation": "vertical",
         tabIndex: 0,
         className: "pmx-meeting-resize",
@@ -1487,7 +1516,7 @@ window.__ModuleLoader__.load({
             className: "pmx-overlay-track",
             "data-shell-overlay": true,
             children: [
-              shell.meetingOpen
+              shell.meetingOpen && !sidePanelExpanded
                 ? jsxRuntime.jsx(MeetingResizeHandle, {
                     width: shell.meetingWidth,
                     onResize: (width) => router.setMeetingWidth(width),

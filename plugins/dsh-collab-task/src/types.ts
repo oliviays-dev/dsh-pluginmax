@@ -175,6 +175,8 @@ export const taskCommentSchema = z.object({
 
 export const taskRecordSchema = z.object({
   id: taskIdSchema,
+  /** Stable idempotency key for tasks materialized from a non-task source. */
+  creationKey: z.string().min(1).max(500).optional(),
   workspaceId: z.string().min(1).max(200),
   title: z.string().min(1).max(500),
   type: z.string().min(1).max(80).default("任务"),

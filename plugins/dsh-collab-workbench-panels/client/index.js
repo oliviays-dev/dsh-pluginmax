@@ -33,6 +33,69 @@ window.__ModuleLoader__.load({
       ["pluginmax.data-agent", "Data Agent"],
     ];
 
+    const AI_LOAD_AVATAR_PRESETS = [
+      {
+        id: "sky",
+        bg: "#d9efff",
+        shirt: "#568fd8",
+        skin: "#f1c5a3",
+        hair: "#244d77",
+        accent: "#ffd166",
+        hairStyle: "wave",
+        glasses: false,
+      },
+      {
+        id: "sunset",
+        bg: "#ffe5d8",
+        shirt: "#db6d65",
+        skin: "#d99a76",
+        hair: "#743d2d",
+        accent: "#ff8d7a",
+        hairStyle: "bun",
+        glasses: false,
+      },
+      {
+        id: "forest",
+        bg: "#def6e8",
+        shirt: "#3f9d73",
+        skin: "#e3b08d",
+        hair: "#245543",
+        accent: "#67d4a1",
+        hairStyle: "side",
+        glasses: false,
+      },
+      {
+        id: "berry",
+        bg: "#f1e2ff",
+        shirt: "#7d59c6",
+        skin: "#efb38f",
+        hair: "#533275",
+        accent: "#c06cff",
+        hairStyle: "bob",
+        glasses: false,
+      },
+      {
+        id: "lemon",
+        bg: "#fff3c9",
+        shirt: "#d7a62e",
+        skin: "#d49974",
+        hair: "#414554",
+        accent: "#f2cb45",
+        hairStyle: "wave",
+        glasses: true,
+      },
+      {
+        id: "ocean",
+        bg: "#d9f4ff",
+        shirt: "#2f84a8",
+        skin: "#ce9874",
+        hair: "#164f6f",
+        accent: "#4fc3e8",
+        hairStyle: "bun",
+        glasses: true,
+      },
+    ];
+
     const styles = `
 .pmwb2-panel{display:grid;gap:9px;min-height:80px;color:var(--dsw-alias-label-primary);}
 .pmwb2-panel *{box-sizing:border-box;}
@@ -42,26 +105,49 @@ window.__ModuleLoader__.load({
 .pmwb2-error{display:grid;gap:7px;padding:10px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 35%,transparent);border-radius:7px;color:var(--dsw-alias-state-error-primary,#e5534b);font-size:11px;line-height:1.5;}
 .pmwb2-error button{justify-self:start;padding:3px 8px;border:1px solid currentColor;border-radius:5px;background:transparent;color:inherit;font:inherit;cursor:pointer;}
 .pmwb2-list{display:grid;gap:6px;}
-.pmwb2-ai-load{display:grid;gap:8px;}
-.pmwb2-ai-load-summary{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:10.5px;}
-.pmwb2-ai-load-summary strong{color:var(--dsw-alias-label-primary);font-size:11px;}
-.pmwb2-ai-load-row{display:grid;grid-template-columns:minmax(118px,1.05fr) minmax(0,2fr);gap:9px;padding:9px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-2);}
-.pmwb2-ai-load-person{display:flex;align-items:flex-start;gap:7px;min-width:0;}
-.pmwb2-ai-load-person img,.pmwb2-ai-load-avatar{width:28px;height:28px;flex:none;border-radius:50%;object-fit:cover;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 18%,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-accent-primary,#4f8ef7);display:grid;place-items:center;font-size:9px;font-weight:700;}
-.pmwb2-ai-load-person strong{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;line-height:1.45;}
-.pmwb2-ai-load-person small{display:block;margin-top:2px;color:var(--dsw-alias-label-tertiary);font-size:9px;line-height:1.4;}
-.pmwb2-ai-load-windows{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;min-width:0;}
-.pmwb2-ai-load-window{padding:6px;border-radius:6px;background:var(--dsw-alias-bg-layer-1);}
-.pmwb2-ai-load-window>strong{display:block;margin-bottom:4px;color:var(--dsw-alias-label-tertiary);font-size:8.5px;font-weight:650;}
-.pmwb2-ai-load-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 6px;}
-.pmwb2-ai-load-metrics span{min-width:0;color:var(--dsw-alias-label-tertiary);font-size:8.5px;white-space:nowrap;}
-.pmwb2-ai-load-metrics b{display:block;color:var(--dsw-alias-label-primary);font-size:10.5px;font-weight:650;}
-.pmwb2-ai-load-blocker{grid-column:1/-1;padding:6px 8px;border-left:2px solid var(--dsw-alias-state-warning-primary,#e2a737);border-radius:0 5px 5px 0;background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#e2a737) 9%,transparent);color:var(--dsw-alias-label-secondary);font-size:9px;line-height:1.45;}
-.pmwb2-ai-load-blocker b{color:var(--dsw-alias-state-warning-primary,#e2a737);}
-.pmwb2-ai-load-inactive{border:1px dashed var(--dsw-alias-border-l3);border-radius:7px;background:var(--dsw-alias-bg-layer-1);}
-.pmwb2-ai-load-inactive summary{padding:7px 9px;color:var(--dsw-alias-label-secondary);font-size:9.5px;cursor:pointer;}
-.pmwb2-ai-load-inactive p{margin:0;padding:0 9px 8px;color:var(--dsw-alias-label-tertiary);font-size:9px;line-height:1.5;}
-@media(max-width:640px){.pmwb2-ai-load-row{grid-template-columns:1fr;}.pmwb2-ai-load-windows{grid-template-columns:1fr;}}
+      .pmwb2-ai-load{display:grid;gap:7px;}
+      .pmwb2-ai-load-table{border:1px solid var(--dsw-alias-border-l2);border-radius:6px;overflow:auto;background:var(--dsw-alias-bg-layer-2);scrollbar-width:thin;}
+      .pmwb2-ai-load-head,.pmwb2-ai-load-row{display:grid;grid-template-columns:20px minmax(80px,1fr) minmax(0,2.6fr);align-items:center;gap:3px;padding:5px 4px;}
+      .pmwb2-ai-load-head{min-height:24px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-tertiary);font-size:7.5px;}
+      .pmwb2-ai-load-head>span:first-child{text-align:center;}
+      .pmwb2-ai-load-head-data{display:grid;gap:1px;min-width:0;}
+      .pmwb2-ai-load-head-data span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+      .pmwb2-ai-load-head-data span:last-child{justify-self:end;text-align:right;}
+      .pmwb2-ai-load-row{position:relative;min-height:34px;border-top:1px solid var(--dsw-alias-border-l2);background:transparent;}
+      .pmwb2-ai-load-row:first-child{border-top:0;}
+      .pmwb2-ai-load-row{cursor:pointer;transition:background-color .12s ease;}
+      .pmwb2-ai-load-row:hover{background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 6%,var(--dsw-alias-bg-layer-2));}
+      .pmwb2-ai-load-row:focus-visible{outline:1px solid var(--dsw-alias-accent-primary,#4f8ef7);outline-offset:-1px;}
+      .pmwb2-ai-load-row.leader{background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 4%,transparent);}
+      .pmwb2-ai-load-row.inactive{background:var(--dsw-alias-bg-base);}
+      .pmwb2-ai-load-row.inactive:hover{background:var(--dsw-alias-bg-layer-1);}
+      .pmwb2-ai-load-row.inactive .pmwb2-ai-avatar{opacity:.62;filter:saturate(.55);}
+      .pmwb2-ai-load-row.inactive .pmwb2-ai-load-person strong{color:var(--dsw-alias-label-tertiary);font-weight:500;}
+      .pmwb2-ai-load-row.inactive .pmwb2-ai-load-person small,
+      .pmwb2-ai-load-row.inactive .pmwb2-ai-load-cell,
+      .pmwb2-ai-load-row.inactive .pmwb2-ai-load-cell.primary{color:var(--dsw-alias-label-tertiary);font-weight:500;}
+      .pmwb2-ai-load-rank{display:grid;place-items:center;width:18px;height:18px;border-radius:4px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-tertiary);font-size:8px;font-weight:700;font-variant-numeric:tabular-nums;}
+      .pmwb2-ai-load-row.leader .pmwb2-ai-load-rank{color:var(--dsw-alias-accent-primary,#4f8ef7);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 12%,var(--dsw-alias-bg-layer-1));}
+      .pmwb2-ai-load-person{display:flex;align-items:center;gap:5px;min-width:0;}
+      .pmwb2-ai-avatar{display:grid;place-items:center;width:24px;height:24px;flex:none;padding:1px;border-radius:50%;background:conic-gradient(from 210deg,#8b6cff,#4f8ef7,#7ed0ff,#ff79c9,#8b6cff);box-shadow:0 0 0 1px rgba(139,108,255,.2);}
+      .pmwb2-ai-avatar.platform{background:#63b8ff;box-shadow:0 0 0 1px rgba(99,184,255,.45);}
+      .pmwb2-ai-avatar-art{display:block;width:100%;height:100%;overflow:hidden;border:1px solid var(--dsw-alias-bg-layer-1);border-radius:50%;object-fit:cover;}
+      .pmwb2-ai-load-person-copy{min-width:0;}
+      .pmwb2-ai-load-person strong{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;line-height:1.35;}
+      .pmwb2-ai-load-person small{display:block;min-width:0;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary);font-size:7.5px;line-height:1.25;}
+      .pmwb2-ai-load-data{display:grid;gap:1px;min-width:0;}
+      .pmwb2-ai-load-cell{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:8.5px;font-variant-numeric:tabular-nums;}
+      .pmwb2-ai-load-cell.primary{color:var(--dsw-alias-label-primary);font-size:9.5px;font-weight:700;}
+      .pmwb2-ai-load-cell.time{justify-self:end;text-align:right;color:var(--dsw-alias-label-tertiary);font-size:7.5px;}
+      .pmwb2-ai-load-runtime{display:flex;align-items:baseline;gap:2px;overflow:visible;color:var(--dsw-alias-label-primary);font-size:9.5px;font-weight:700;}
+      .pmwb2-ai-load-runtime-trend{min-width:0;color:var(--dsw-alias-label-tertiary);font-size:6.5px;font-weight:600;white-space:nowrap;}
+      .pmwb2-ai-load-runtime-trend.up{color:var(--dsw-alias-state-success-primary,#34d47e);}
+      .pmwb2-ai-load-runtime-trend.down{color:var(--dsw-alias-state-error-primary,#e5534b);}
+      .pmwb2-ai-load-row.inactive .pmwb2-ai-load-runtime-trend{color:var(--dsw-alias-label-tertiary);}
+      .pmwb2-ai-load-warning{flex:none;color:var(--dsw-alias-state-warning-primary,#e2a737);font-size:8px;}
+      .pmwb2-ai-load-divider{display:flex;align-items:center;gap:6px;padding:4px 8px;border-top:1px solid var(--dsw-alias-border-l2);border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-tertiary);font-size:8px;line-height:1.3;}
+      .pmwb2-ai-load-divider::before,.pmwb2-ai-load-divider::after{content:"";height:1px;flex:1;background:var(--dsw-alias-border-l2);}
+      @media(max-width:420px){.pmwb2-ai-load-head,.pmwb2-ai-load-row{grid-template-columns:18px minmax(72px,0.95fr) minmax(0,2.6fr);padding-inline:4px;gap:3px;}}
 .pmwb2-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 9px;padding:7px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);}
 .pmwb2-row strong{min-width:0;font-size:11.5px;line-height:1.45;overflow-wrap:anywhere;}
 .pmwb2-row small{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:1.45;}
@@ -130,6 +216,9 @@ window.__ModuleLoader__.load({
 .pmwb-read-state{display:inline-flex;align-items:center;padding:1px 7px;border-radius:999px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-tertiary);font-size:10.5px;line-height:1.8;white-space:nowrap;}
 .pmwb-read-action{height:26px;padding:2px 8px;font-size:10.5px;color:var(--dsw-alias-label-secondary);}
 .pmwb-metrics{display:flex;gap:10px;min-width:0;overflow-x:auto;padding-bottom:2px;}
+.pmwb-metric-source{display:flex;align-items:center;gap:6px;margin-bottom:8px;padding:4px 7px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:1.45;}
+.pmwb-metric-source b{color:var(--dsw-alias-label-secondary);font-weight:650;}
+.pmwb-metric-source span{min-width:0;flex:1;overflow-wrap:anywhere;}
 .pmwb-metric{min-width:132px;flex:1 1 0;padding:11px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2);}
 .pmwb-metric-label{display:flex;align-items:center;gap:6px;justify-content:space-between;color:var(--dsw-alias-label-secondary);font-size:11.5px;}
 .pmwb-metric-trend{font-size:10.5px;font-weight:650;}.pmwb-metric-trend.up{color:var(--dsw-alias-state-success-primary,#3fb950);}.pmwb-metric-trend.down{color:var(--dsw-alias-state-error-primary,#e5534b);}
@@ -461,6 +550,61 @@ window.__ModuleLoader__.load({
       return refs.some((ref) => isFollowed(ref.type, ref.id));
     }
 
+    function dataAgentCardAttributes(item) {
+      return {
+        "data-data-agent-card": "true",
+        "data-workspace-id": item?.workspaceId,
+        "data-data-agent-title": item?.title,
+        "data-data-agent-excerpt":
+          item?.summary ?? item?.summaryText ?? item?.statusLabel,
+      };
+    }
+
+    function dataAgentEntityAttributes(item) {
+      const common = {
+        "data-workspace-id": item?.workspaceId,
+        "data-data-agent-title": item?.title,
+        "data-data-agent-excerpt":
+          item?.summary ?? item?.summaryText ?? item?.statusLabel,
+      };
+      if (item?.kind === "workflow") {
+        return { ...common, "data-workflow-id": item.id };
+      }
+      if (item?.kind === "meeting") {
+        return {
+          ...common,
+          "data-data-agent-entity": "meeting",
+          "data-data-agent-id": item.id,
+        };
+      }
+      if (item?.kind === "task" || item?.kind === undefined) {
+        return { ...common, "data-task-id": item.id };
+      }
+      return dataAgentCardAttributes(item);
+    }
+
+    function dataAgentBriefAttributes(item) {
+      const route = item?.deepLink?.route;
+      const entityId =
+        typeof item?.deepLink?.refId === "string"
+          ? item.deepLink.refId
+          : item?.sourceId;
+      if (
+        (route === "task" || route === "workflow" || route === "meeting") &&
+        typeof entityId === "string" &&
+        entityId !== ""
+      ) {
+        return dataAgentEntityAttributes({
+          ...item,
+          kind: route,
+          id: entityId,
+          workspaceId: item.deepLink?.workspaceId ?? item.workspaceId,
+          summary: item.conclusion ?? item.statusLabel,
+        });
+      }
+      return dataAgentCardAttributes(item);
+    }
+
     function meetingParticipantGroup(item) {
       const agents = item.agents ?? [];
       const seen = new Set();
@@ -573,15 +717,7 @@ window.__ModuleLoader__.load({
         {
           key: item.id,
           className: `pmwb-item${isFocus ? " pmwb-item-focus" : ""}${read ? " read" : ""}`,
-          role: "button",
-          tabIndex: 0,
-          onClick: openItem,
-          onKeyDown: (event) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              openItem();
-            }
-          },
+          ...dataAgentEntityAttributes(item),
         },
         h("div", { className: "pmwb-item-id" }, item.displayId ?? item.id),
         h("div", { className: "pmwb-item-name" }, item.title),
@@ -673,15 +809,7 @@ window.__ModuleLoader__.load({
           {
             key: item.id,
             className: `pmwb-item meeting${read ? " read" : ""}`,
-            role: "button",
-            tabIndex: 0,
-            onClick: openItem,
-            onKeyDown: (event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                openItem();
-              }
-            },
+            ...dataAgentEntityAttributes({ ...item, kind: "meeting" }),
           },
           h("div", { className: "pmwb-item-name" }, item.title),
           h(
@@ -791,6 +919,20 @@ window.__ModuleLoader__.load({
       }
       return h(
         "div",
+        null,
+        data.sourceNote
+          ? h(
+              "div",
+              {
+                className: "pmwb-metric-source",
+                "data-data-mode": data.dataMode,
+              },
+              h("b", null, data.dataMode === "unavailable" ? "数据不可用" : "数据来源"),
+              h("span", null, data.sourceNote),
+            )
+          : null,
+        h(
+        "div",
         { className: "pmwb-metrics" },
         ...items.map((metric) =>
           h(
@@ -834,6 +976,7 @@ window.__ModuleLoader__.load({
               ),
             ),
           ),
+        ),
         ),
       );
     }
@@ -1259,15 +1402,7 @@ window.__ModuleLoader__.load({
                   {
                     key: item.itemId,
                     className: `${item.tag}${item.readState === "read" ? " read" : ""}`,
-                    role: "button",
-                    tabIndex: 0,
-                    onClick: () => onOpen(item),
-                    onKeyDown: (event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        onOpen(item);
-                      }
-                    },
+                    ...dataAgentBriefAttributes(item),
                   },
                   h(
                     "div",
@@ -1366,41 +1501,470 @@ window.__ModuleLoader__.load({
       return String(Math.round(count));
     }
 
-    function workloadWindow(workload, label) {
-      const stats = workload ?? {};
+    function avatarHair(preset) {
+      const fill = preset.hair;
+      if (preset.hairStyle === "bun") {
+        return [
+          h("circle", { key: "bun", cx: 47, cy: 14, r: 6, fill }),
+          h("path", {
+            key: "bun-body",
+            d: "M16 29c0-12 7-19 16-19 9 0 16 7 16 19-5-3-8-8-9-12-5 7-14 11-23 12Z",
+            fill,
+          }),
+        ];
+      }
+      if (preset.hairStyle === "side") {
+        return [
+          h("path", {
+            key: "side",
+            d: "M17 27c1-11 8-17 17-17 8 0 14 5 15 15-7-1-11-5-14-10-4 6-11 10-18 12Z",
+            fill,
+          }),
+        ];
+      }
+      if (preset.hairStyle === "bob") {
+        return [
+          h("path", {
+            key: "bob",
+            d: "M16 28c0-12 7-18 16-18s16 7 16 18v13h-6V30c-7 1-13-1-19-6-1 5-3 8-7 10Z",
+            fill,
+          }),
+        ];
+      }
+      return [
+        h("path", {
+          key: "wave",
+          d: "M16 29c0-12 7-19 17-19 10 0 16 7 16 19-4-2-7-6-9-10-5 6-14 9-24 10Z",
+          fill,
+        }),
+      ];
+    }
+
+    function AiPartnerAvatar({ item }) {
+      const avatar = item?.avatar;
+      const art =
+        typeof avatar === "string" && avatar.startsWith("data:image/")
+          ? h("img", {
+              className: "pmwb2-ai-avatar-art",
+              src: avatar,
+              alt: "",
+            })
+          : (() => {
+              const preset =
+                AI_LOAD_AVATAR_PRESETS.find((entry) => entry.id === avatar) ??
+                AI_LOAD_AVATAR_PRESETS[0];
+              const children = [
+                h("rect", {
+                  key: "bg",
+                  width: 64,
+                  height: 64,
+                  fill: preset.bg,
+                }),
+                h("circle", {
+                  key: "a1",
+                  cx: 52,
+                  cy: 12,
+                  r: 10,
+                  fill: preset.accent,
+                  opacity: 0.28,
+                }),
+                h("circle", {
+                  key: "a2",
+                  cx: 10,
+                  cy: 52,
+                  r: 14,
+                  fill: preset.accent,
+                  opacity: 0.18,
+                }),
+                h("rect", {
+                  key: "neck",
+                  x: 28,
+                  y: 39,
+                  width: 8,
+                  height: 11,
+                  rx: 4,
+                  fill: preset.skin,
+                }),
+                h("path", {
+                  key: "shirt",
+                  d: "M9 64c2-13 11-20 23-20s21 7 23 20Z",
+                  fill: preset.shirt,
+                }),
+                h("circle", {
+                  key: "ear-l",
+                  cx: 18,
+                  cy: 30,
+                  r: 4,
+                  fill: preset.skin,
+                }),
+                h("circle", {
+                  key: "ear-r",
+                  cx: 46,
+                  cy: 30,
+                  r: 4,
+                  fill: preset.skin,
+                }),
+                h("circle", {
+                  key: "face",
+                  cx: 32,
+                  cy: 29,
+                  r: 16,
+                  fill: preset.skin,
+                }),
+                ...avatarHair(preset),
+                h("circle", {
+                  key: "eye-l",
+                  cx: 25.5,
+                  cy: 31,
+                  r: 1.8,
+                  fill: "#20232a",
+                }),
+                h("circle", {
+                  key: "eye-r",
+                  cx: 38.5,
+                  cy: 31,
+                  r: 1.8,
+                  fill: "#20232a",
+                }),
+                h("path", {
+                  key: "mouth",
+                  d: "M27 38c3 3 7 3 10 0",
+                  fill: "none",
+                  stroke: "#9a5c52",
+                  strokeWidth: 1.8,
+                  strokeLinecap: "round",
+                }),
+              ];
+              if (preset.glasses) {
+                children.push(
+                  h(
+                    "g",
+                    {
+                      key: "glasses",
+                      fill: "none",
+                      stroke: preset.hair,
+                      strokeWidth: 1.8,
+                    },
+                    h("circle", { key: "g1", cx: 25.5, cy: 31, r: 4 }),
+                    h("circle", { key: "g2", cx: 38.5, cy: 31, r: 4 }),
+                    h("path", { key: "g3", d: "M29.5 31h5" }),
+                  ),
+                );
+              }
+              return h(
+                "svg",
+                {
+                  className: "pmwb2-ai-avatar-art",
+                  viewBox: "0 0 64 64",
+                  "aria-hidden": "true",
+                },
+                children,
+              );
+            })();
       return h(
-        "div",
-        { className: "pmwb2-ai-load-window" },
-        h("strong", null, label),
-        h(
-          "div",
-          { className: "pmwb2-ai-load-metrics" },
-          h("span", null, "会议", h("b", null, stats.meetingCount ?? 0)),
-          h("span", null, "任务", h("b", null, stats.taskCount ?? 0)),
-          h(
-            "span",
-            null,
-            "Token",
-            h("b", null, formatTokenCount(stats.outputTokens)),
-          ),
-          h(
-            "span",
-            null,
-            "运行",
-            h(
-              "b",
-              null,
-              `${Number(stats.runtimeHours ?? 0).toFixed(1)}h`,
-            ),
-          ),
-        ),
+        "span",
+        {
+          className: `pmwb2-ai-avatar${item?.source === "platform" ? " platform" : ""}`,
+          role: "img",
+          "aria-label": `${item?.name ?? "AI伙伴"} 的头像`,
+        },
+        art,
       );
     }
 
-    function AiPartnerLoadBody({ snapshot }) {
-      const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
-      const active = items.filter((item) => item.hasRunIn72h === true);
-      const inactive = items.filter((item) => item.hasRunIn72h !== true);
+    function formatRuntimeHours(value) {
+      const hours = Number(value ?? 0);
+      const seconds = Math.max(0, hours * 3_600);
+      if (seconds > 0 && seconds < 60) {
+        return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)}s`;
+      }
+      if (seconds >= 60 && seconds < 3_600) {
+        return `${Math.round(seconds / 60)}m`;
+      }
+      return `${hours.toFixed(1)}h`;
+    }
+
+    const AI_LOAD_COLUMN_LABELS = {
+      runtime: "运行时长",
+      task: "任务（个）",
+      token: "Token",
+      lastActivity: "最近运行时间",
+    };
+    const AI_LOAD_METRIC_LABELS = {
+      runtime: "运行时长",
+      task: "任务数",
+      token: "Token",
+    };
+    const AI_LOAD_DEFAULT_COLUMNS = [
+      "runtime",
+      "task",
+      "token",
+      "lastActivity",
+    ];
+
+    function normalizeAiLoadConfig(value) {
+      const source =
+        value !== null && typeof value === "object" ? value : {};
+      const valid = new Set(AI_LOAD_DEFAULT_COLUMNS);
+      const requested = Array.isArray(source.columns)
+        ? source.columns.filter(
+            (item) =>
+              item !== null &&
+              typeof item === "object" &&
+              valid.has(item.key),
+          )
+        : [];
+      const seen = new Set();
+      const columns = [];
+      for (const item of requested) {
+        if (seen.has(item.key)) continue;
+        seen.add(item.key);
+        columns.push({ key: item.key, visible: item.visible !== false });
+      }
+      for (const key of AI_LOAD_DEFAULT_COLUMNS) {
+        if (!seen.has(key)) columns.push({ key, visible: true });
+      }
+      return {
+        primaryMetric: Object.hasOwn(AI_LOAD_METRIC_LABELS, source.primaryMetric)
+          ? source.primaryMetric
+          : "runtime",
+        columns,
+      };
+    }
+
+    function workloadMetricValue(workload, metric) {
+      const stats = workload ?? {};
+      if (metric === "task") return Number(stats.taskCount ?? 0);
+      if (metric === "token") return Number(stats.outputTokens ?? 0);
+      return Number(stats.runtimeHours ?? 0);
+    }
+
+    function workloadMetricDisplay(workload, metric) {
+      const value = workloadMetricValue(workload, metric);
+      if (metric === "runtime") return formatRuntimeHours(value);
+      if (metric === "token") return formatTokenCount(value);
+      return String(Math.round(value));
+    }
+
+    function AiPartnerLoadBody({ snapshot, config, windowKey }) {
+      const items = Array.isArray(snapshot?.items)
+        ? snapshot.items.filter((item) => item?.state !== "archived")
+        : [];
+      const settings = normalizeAiLoadConfig(config);
+      const visibleColumns = settings.columns.filter(
+        (column) => column.visible,
+      );
+      const primaryMetric = settings.primaryMetric;
+      const views = {
+        last24h: { label: "24 小时", hours: 24 },
+        last72h: { label: "72 小时", hours: 72 },
+      };
+      const view = views[windowKey] ?? views.last24h;
+      const generatedAt = new Date(
+        snapshot?.generatedAt ?? Date.now(),
+      ).getTime();
+      const cutoff = generatedAt - view.hours * 60 * 60 * 1_000;
+      const statsOf = (item) => item?.[windowKey] ?? {};
+      const activeInWindow = (item) => {
+        if (item.hasRunIn72h !== true) return false;
+        if (windowKey === "last72h") return true;
+        const lastActivityAt = new Date(item.lastActivityAt ?? "").getTime();
+        if (Number.isFinite(lastActivityAt)) return lastActivityAt >= cutoff;
+        const stats = statsOf(item);
+        return (
+          Number(stats.meetingCount ?? 0) > 0 ||
+          Number(stats.taskCount ?? 0) > 0 ||
+          Number(stats.outputTokens ?? 0) > 0 ||
+          Number(stats.runtimeHours ?? 0) > 0
+        );
+      };
+      const active = items.filter(activeInWindow);
+      const inactive = items.filter((item) => !activeInWindow(item));
+      const sorted = [...active].sort((left, right) => {
+        const metricDelta =
+          workloadMetricValue(statsOf(right), primaryMetric) -
+          workloadMetricValue(statsOf(left), primaryMetric);
+        const recentDelta = String(right.lastActivityAt ?? "").localeCompare(
+          String(left.lastActivityAt ?? ""),
+        );
+        return (
+          metricDelta ||
+          recentDelta ||
+          String(left.name ?? "").localeCompare(String(right.name ?? ""), "zh-Hans-CN")
+        );
+      });
+      const inactiveSorted = [...inactive].sort(
+        (left, right) =>
+          String(right.lastActivityAt ?? "").localeCompare(
+            String(left.lastActivityAt ?? ""),
+          ) ||
+          String(left.name ?? "").localeCompare(
+            String(right.name ?? ""),
+            "zh-Hans-CN",
+          ),
+      );
+      const columnTemplate = visibleColumns
+        .map((column) => {
+          if (column.key === "lastActivity") return "minmax(48px,0.82fr)";
+          if (column.key === "runtime") return "minmax(48px,1.15fr)";
+          if (column.key === "task") return "minmax(39px,0.62fr)";
+          if (column.key === "token") return "minmax(26px,0.55fr)";
+          return "minmax(36px,0.6fr)";
+        })
+        .join(" ");
+      const runtimeTrendOf = (item) => {
+        const current = workloadMetricValue(item.last24h, "runtime");
+        const previous = Math.max(
+          0,
+          workloadMetricValue(item.last72h, "runtime") - current,
+        );
+        const delta = current - previous;
+        const percent =
+          previous > 0
+            ? Math.round((Math.abs(delta) / previous) * 100)
+            : current > 0
+              ? 100
+              : 0;
+        return {
+          direction: delta > 0 ? "up" : delta < 0 ? "down" : "flat",
+          percent,
+        };
+      };
+      const openTeammate = (item) => {
+        if (item?.teammateId === undefined) return;
+        window.__pluginmaxPendingTeammate = {
+          teammateId: item.teammateId,
+          tab: "runtime",
+          returnRuntimeTab: "current",
+        };
+        window.dispatchEvent(
+          new CustomEvent("pluginmax:navigate", {
+            detail: { route: "teammates" },
+          }),
+        );
+      };
+      const renderRow = (item, index, inactive = false) => {
+        const stats = statsOf(item);
+        const itemBlockers = (item.blockers ?? []).filter(
+          (blocker) =>
+            windowKey === "last72h" ||
+            new Date(blocker.updatedAt).getTime() >= cutoff,
+        );
+        const runtimeTrend = runtimeTrendOf(item);
+        return h(
+          "article",
+          {
+            className: `pmwb2-ai-load-row${
+              index === 0 && !inactive ? " leader" : ""
+            }${inactive ? " inactive" : ""}`,
+            key: item.teammateId,
+            "data-data-agent-card": "true",
+            "data-workspace-id": item.workspaceId,
+            "data-data-agent-title": item.name ?? "AI伙伴",
+            "data-data-agent-excerpt": item.role ?? "AI伙伴运行负载",
+            role: "button",
+            tabIndex: 0,
+            "aria-label": `打开 ${item.name ?? "AI伙伴"} 详情`,
+            onClick: () => openTeammate(item),
+            onKeyDown: (event) => {
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              openTeammate(item);
+            },
+          },
+          h(
+            "span",
+            { className: "pmwb2-ai-load-rank" },
+            inactive ? "—" : String(index + 1).padStart(2, "0"),
+          ),
+          h(
+            "div",
+            { className: "pmwb2-ai-load-person" },
+            h(AiPartnerAvatar, { item }),
+            h(
+              "div",
+              { className: "pmwb2-ai-load-person-copy" },
+              h(
+                "strong",
+                { title: item.role || "AI伙伴" },
+                item.name ?? "AI伙伴",
+                itemBlockers.length > 0
+                  ? h(
+                      "span",
+                      {
+                        className: "pmwb2-ai-load-warning",
+                        title: itemBlockers
+                          .map((blocker) => blocker.reason)
+                          .join("；"),
+                      },
+                      " !",
+                    )
+                  : null,
+              ),
+              h("small", null, item.role || "AI伙伴"),
+            ),
+          ),
+          h(
+            "div",
+            {
+              className: "pmwb2-ai-load-data",
+              style: { gridTemplateColumns: columnTemplate },
+            },
+            ...visibleColumns.map((column) => {
+              if (column.key === "lastActivity") {
+                return h(
+                  "span",
+                  {
+                    className: "pmwb2-ai-load-cell time",
+                    key: column.key,
+                    title: item.lastActivityAt
+                      ? formatTime(item.lastActivityAt)
+                      : "暂无记录",
+                  },
+                  item.lastActivityAt
+                    ? formatTime(item.lastActivityAt)
+                    : "暂无",
+                );
+              }
+              if (column.key === "runtime") {
+                return h(
+                  "span",
+                  {
+                    className: "pmwb2-ai-load-cell pmwb2-ai-load-runtime",
+                    key: column.key,
+                    title: "运行时长，括号为近 24 小时相对前 24 小时的变化",
+                  },
+                  workloadMetricDisplay(stats, "runtime"),
+                  h(
+                    "small",
+                    {
+                      className: `pmwb2-ai-load-runtime-trend ${runtimeTrend.direction}`,
+                    },
+                    `${
+                      runtimeTrend.direction === "up"
+                        ? "↑"
+                        : runtimeTrend.direction === "down"
+                          ? "↓"
+                          : "→"
+                    } ${runtimeTrend.percent}%`,
+                  ),
+                );
+              }
+              return h(
+                "span",
+                {
+                  className: `pmwb2-ai-load-cell${
+                    column.key === primaryMetric ? " primary" : ""
+                  }`,
+                  key: column.key,
+                  title: AI_LOAD_COLUMN_LABELS[column.key],
+                },
+                workloadMetricDisplay(stats, column.key),
+              );
+            }),
+          ),
+        );
+      };
       if (snapshot?.unavailable === true) {
         return h(
           "div",
@@ -1411,97 +1975,60 @@ window.__ModuleLoader__.load({
       return h(
         "div",
         { className: "pmwb2-ai-load" },
-        h(
-          "div",
-          { className: "pmwb2-ai-load-summary" },
-          h("strong", null, `${active.length} 个 AI伙伴有运行记录`),
-          h(
-            "span",
-            null,
-            active.some(
-              (item) => (item.last72h?.blockedTaskCount ?? 0) > 0,
-            )
-              ? "存在阻塞"
-              : "运行正常",
-          ),
-        ),
-        active.length === 0
+        active.length === 0 && inactive.length === 0
           ? h(
               "div",
               { className: "pmwb2-empty" },
-              "过去 72 小时暂无 AI伙伴运行记录",
+              `过去 ${view.label}暂无 AI伙伴运行记录`,
             )
           : null,
-        ...active.map((item) =>
+        h(
+          "div",
+          { className: "pmwb2-ai-load-table" },
           h(
-            "article",
-            { className: "pmwb2-ai-load-row", key: item.teammateId },
+            "div",
+            { className: "pmwb2-ai-load-head" },
+            h("span", null, "#"),
+            h("span", null, "AI伙伴"),
             h(
               "div",
-              { className: "pmwb2-ai-load-person" },
-              /^data:image\//.test(item.avatar ?? "")
-                ? h("img", { src: item.avatar, alt: "" })
-                : h(
-                    "span",
-                    { className: "pmwb2-ai-load-avatar" },
-                    String(item.name ?? "AI").slice(0, 1),
-                  ),
-              h(
-                "div",
-                { style: { minWidth: 0 } },
-                h("strong", null, item.name ?? "AI伙伴"),
-                h("small", null, item.role || "AI伙伴"),
+              {
+                className: "pmwb2-ai-load-head-data",
+                style: { gridTemplateColumns: columnTemplate },
+              },
+              ...visibleColumns.map((column) =>
                 h(
-                  "small",
-                  null,
-                  item.lastActivityAt
-                    ? `最近运行 ${formatTime(item.lastActivityAt)}`
-                    : "刚刚运行",
+                  "span",
+                  {
+                    key: column.key,
+                    title:
+                      column.key === primaryMetric
+                        ? "当前主排序指标"
+                        : undefined,
+                  },
+                  `${AI_LOAD_COLUMN_LABELS[column.key]}${
+                    column.key === primaryMetric ? " ↓" : ""
+                  }`,
                 ),
               ),
             ),
-            h(
-              "div",
-              { className: "pmwb2-ai-load-windows" },
-              workloadWindow(item.last24h, "过去 24 小时"),
-              workloadWindow(item.last72h, "过去 72 小时"),
-            ),
-            ...(item.blockers ?? []).slice(0, 4).map((blocker) =>
-              h(
+          ),
+          ...sorted.map((item, index) => renderRow(item, index)),
+          sorted.length > 0 && inactiveSorted.length > 0
+            ? h(
                 "div",
-                {
-                  className: "pmwb2-ai-load-blocker",
-                  key: `${item.teammateId}-${blocker.taskId}`,
-                },
-                h("b", null, blocker.title),
-                ` · ${blocker.reason} · ${formatTime(blocker.updatedAt)}`,
-              ),
-            ),
-            (item.blockers?.length ?? 0) > 4
-              ? h(
-                  "div",
-                  { className: "pmwb2-ai-load-blocker" },
-                  `另有 ${item.blockers.length - 4} 个阻塞任务`,
-                )
-              : null,
+                { className: "pmwb2-ai-load-divider" },
+                h("span", null, `无${view.label}运行记录`),
+              )
+            : null,
+          ...inactiveSorted.map((item, index) =>
+            renderRow(item, index, true),
           ),
         ),
-        inactive.length > 0
-          ? h(
-              "details",
-              { className: "pmwb2-ai-load-inactive" },
-              h(
-                "summary",
-                null,
-                `其余 ${inactive.length} 个 AI伙伴过去 72 小时无运行记录`,
-              ),
-              h("p", null, inactive.map((item) => item.name).join("、")),
-            )
-          : null,
       );
     }
 
-    function NewPanelBody({ pluginId, payload }) {
+    function NewPanelBody({ pluginId, payload, config, windowKey }) {
       const items = payload?.data?.items ?? [];
       if (pluginId === "pluginmax.data-agent") {
         return h(
@@ -1557,7 +2084,11 @@ window.__ModuleLoader__.load({
         );
       }
       if (pluginId === "pluginmax.team-load") {
-        return h(AiPartnerLoadBody, { snapshot: payload?.data ?? {} });
+        return h(AiPartnerLoadBody, {
+          snapshot: payload?.data ?? {},
+          config: config?.aiLoad,
+          windowKey,
+        });
       }
       return h(GenericList, { items });
     }
@@ -1616,6 +2147,7 @@ window.__ModuleLoader__.load({
       const [followTick, setFollowTick] = react.useState(0);
       const [expanded, setExpanded] = react.useState({});
       const [briefTextExpanded, setBriefTextExpanded] = react.useState({});
+      const [aiLoadWindow, setAiLoadWindow] = react.useState("last24h");
       const load = react.useCallback(async () => {
         setState((previous) => ({
           status: previous.payload === undefined ? "loading" : "refreshing",
@@ -1683,7 +2215,8 @@ window.__ModuleLoader__.load({
       react.useEffect(() => {
         void load();
         const refresh = (event) => {
-          if (event?.detail?.instanceId === props.instanceId) void load();
+          const target = event?.detail?.instanceId;
+          if (target === undefined || target === props.instanceId) void load();
         };
         window.addEventListener("pluginmax:workbench-v2-refresh", refresh);
         return () =>
@@ -1781,8 +2314,38 @@ window.__ModuleLoader__.load({
           0,
         all: legacyPayload.data?.views?.all?.length ?? 0,
       };
-      const titleActions = readable
-        ? h(
+      const titleActions =
+        props.pluginId === "pluginmax.team-load"
+          ? h(
+              "div",
+              {
+                className: "pmwb-seg",
+                role: "group",
+                "aria-label": "AI伙伴时间范围",
+              },
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: aiLoadWindow === "last24h" ? "active" : "",
+                  "aria-pressed": aiLoadWindow === "last24h",
+                  onClick: () => setAiLoadWindow("last24h"),
+                },
+                "24 小时",
+              ),
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: aiLoadWindow === "last72h" ? "active" : "",
+                  "aria-pressed": aiLoadWindow === "last72h",
+                  onClick: () => setAiLoadWindow("last72h"),
+                },
+                "72 小时",
+              ),
+            )
+          : readable
+          ? h(
             "div",
             {
               className: "pmwb-seg",
@@ -1862,6 +2425,7 @@ window.__ModuleLoader__.load({
         briefCounts.all,
         isBrief,
         followTick,
+        aiLoadWindow,
       ]);
 
       if (state.status === "loading") {
@@ -1964,7 +2528,12 @@ window.__ModuleLoader__.load({
                       item,
                     ),
                 })
-            : h(NewPanelBody, { pluginId: props.pluginId, payload });
+            : h(NewPanelBody, {
+                pluginId: props.pluginId,
+                payload,
+                config: props.config,
+                windowKey: aiLoadWindow,
+              });
       return h(
         "div",
         { className: "pmwb2-panel", "data-plugin-id": props.pluginId },

@@ -398,7 +398,7 @@ export class ContextService {
     return this.tables.chatChannels.get(channelId);
   }
 
-  async prepare(input: ContextRequest): Promise<ContextPack> {
+  async prepare(input: z.input<typeof contextRequestSchema>): Promise<ContextPack> {
     const request = parse(contextRequestSchema, input);
     const existing = this.tables.packs.get(
       `pack-${sha256(request.requestId).slice(0, 24)}`,
@@ -654,6 +654,10 @@ export class ContextService {
         sourceRefs: [...(facts.sourceRefs ?? [])],
         compression: "extracted" as const,
       },
+      ...request.supplementalSections.map((section) => ({
+        ...section,
+        sourceRefs: uniqSourceRefs(section.sourceRefs),
+      })),
       ...(contributionSection === undefined ? [] : [contributionSection]),
       ...(projectMemory === undefined
         ? []
@@ -693,7 +697,7 @@ export class ContextService {
             {
               id: "references",
               type: "references" as const,
-              authority: "evidence" as const,
+              authority: "mandatory" as const,
               text: refs
                 .map(
                   (ref) =>

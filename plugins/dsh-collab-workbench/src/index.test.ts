@@ -429,6 +429,60 @@ describe("WorkbenchService", () => {
     expect(followKey("olivia", "task", "TSK-1")).toContain("TSK-1");
   });
 
+  it("applies a registered display profile only to its matching workspace", async () => {
+    let prepared = 0;
+    const service = serviceWith();
+    const dispose = service.registerDisplayProfile({
+      id: "order-demo-profile",
+      title: "订单演示",
+      matches: (workspace) => workspace.id === "ws-1",
+      visibleModules: ["metrics", "brief"],
+      metrics: ["otif"],
+      prepare: () => {
+        prepared += 1;
+      },
+      brief: () => ({
+        title: "订单简报",
+        summary: "订单异常 126 单。",
+        items: [
+          {
+            id: "exception",
+            title: "订单异常",
+            body: "支付失败、取消和履约超时。",
+          },
+        ],
+      }),
+    });
+    const scoped = await service.summary(
+      { ...principal, workspaceId: "ws-1" },
+      { tzOffsetMinutes },
+    );
+    expect(scoped.display).toMatchObject({
+      profileId: "order-demo-profile",
+      workspaceId: "ws-1",
+      visibleModules: ["metrics", "brief"],
+    });
+    expect(Object.keys(scoped.modules)).toEqual(["metrics", "brief"]);
+    expect(scoped.modules.metrics?.data).toMatchObject({
+      selected: ["otif"],
+    });
+    expect(scoped.modules.brief).toMatchObject({
+      title: "订单简报",
+      data: {
+        summary: "订单异常 126 单。",
+        unreadCount: 1,
+      },
+    });
+    expect(prepared).toBe(1);
+    dispose();
+    const defaults = await service.summary(
+      { ...principal, workspaceId: "ws-1" },
+      { tzOffsetMinutes },
+    );
+    expect(defaults.display.visibleModules).toContain("supplier");
+    expect(defaults.display.profileId).toBeUndefined();
+  });
+
   it("lists followed meetings in the focus module", async () => {
     // 会议纪要卡片上的星标写的是 type=meeting；重点关注必须能读回来，
     // 否则「关注会议纪要 → 刷新重点关注」永远是空的。
@@ -609,6 +663,45 @@ describe("WorkbenchService", () => {
       "price-achievement",
     ]);
     expect(service.metricsModule(principal).data?.selected).toEqual(selected);
+  });
+
+  it("replaces the order card with a Data Fabric metric while marking other seeds as demo", async () => {
+    const service = serviceWith({
+      dataMetrics: () => ({
+        async workbenchMetric() {
+          return {
+            id: "otif",
+            label: "订单准时履约率",
+            value: "91.7",
+            unit: "%",
+            trend: "+1.2pt",
+            trendClass: "up" as const,
+            target: "近 7 天 · Data Fabric 认证指标",
+            description: "已应履约订单的准时履约情况",
+            spark: [],
+            metricId: "fulfillment_on_time_rate",
+            metricVersion: "orders-metric-v1",
+            queryRunId: "query-orders-1",
+            dataMode: "production" as const,
+            dataCutoffAt: "2026-10-29T02:00:00.000Z",
+          };
+        },
+      }),
+    });
+    const module = await service.metricsModuleLive({
+      ...principal,
+      workspaceId: "ws-1",
+    });
+    const order = module.data?.items.find((item) => item.id === "otif");
+    expect(module.data?.dataMode).toBe("mixed");
+    expect(module.data?.sourceNote).toContain("订单卡来自 Data Fabric 生产指标");
+    expect(order).toMatchObject({
+      value: "91.7",
+      metricId: "fulfillment_on_time_rate",
+      metricVersion: "orders-metric-v1",
+      queryRunId: "query-orders-1",
+      dataMode: "production",
+    });
   });
 
   it("filters Brief types and turns custom prompts into explainable items", async () => {

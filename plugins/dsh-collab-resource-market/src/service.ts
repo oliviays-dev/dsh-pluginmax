@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
   MCPS,
@@ -9,6 +10,7 @@ import {
   type SkillAsset,
   type WorkbenchTemplateAsset,
 } from "./catalog.js";
+import type { McpProviderRegistry } from "./mcp-registry.js";
 
 export const idSchema = z.string().trim().min(1).max(200);
 export const isoTimeSchema = z.string().datetime({ precision: 3 });
@@ -22,6 +24,39 @@ export const installRecordSchema = z.object({
 });
 
 export type InstallRecord = z.infer<typeof installRecordSchema>;
+
+export const customResourceTypeSchema = z.enum([
+  "skill",
+  "mcp",
+  "workbench-template",
+  "panel-plugin",
+]);
+
+export const customResourceSchema = z.object({
+  id: idSchema,
+  ownerId: idSchema,
+  type: customResourceTypeSchema,
+  name: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(1000).default(""),
+  category: z.literal("自定义"),
+  version: z.string().trim().min(1).max(80),
+  publisherName: z.string().trim().min(1).max(120),
+  permissions: z.array(z.string().trim().min(1).max(300)).max(20),
+  manifest: z.record(z.string(), z.unknown()).optional(),
+  createdAt: isoTimeSchema,
+  updatedAt: isoTimeSchema,
+});
+
+export type CustomResourceRecord = z.infer<typeof customResourceSchema>;
+export type CustomResourceInput = {
+  type: CustomAssetType;
+  name: string;
+  description?: string | undefined;
+  version?: string | undefined;
+  publisherName?: string | undefined;
+  permissions?: string[] | undefined;
+  manifest?: Record<string, unknown> | undefined;
+};
 
 export interface KvTableLike<V> {
   get(key: string): V | undefined;
@@ -44,6 +79,7 @@ export interface MarketPrincipal {
 }
 
 export type McpConnectionStatus = "connected" | "pending" | "off";
+export type CustomAssetType = z.infer<typeof customResourceTypeSchema>;
 
 export interface SkillCatalogProvider {
   readonly id: string;
@@ -149,11 +185,16 @@ export interface McpView extends McpAsset {
   connectionMode: "provider" | "request_only";
 }
 
+export interface CustomResourceView extends CustomResourceRecord {
+  source: "user";
+}
+
 export const resourceMarketDomainSpec = {
   name: "collab_resource_market",
   version: 1,
   tables: {
     installs: { valueSchema: installRecordSchema },
+    custom_assets: { valueSchema: customResourceSchema },
   },
 } as const;
 
@@ -211,17 +252,33 @@ export class ResourceMarketService {
   constructor(
     private readonly tables: {
       installs: KvTableLike<InstallRecord>;
+      customAssets: KvTableLike<CustomResourceRecord>;
     },
     private readonly options: {
       workbench: () => WorkbenchV2Port | undefined;
       skillProvider?: () => SkillCatalogProvider | undefined;
       mcpProvider?: () => McpCatalogProvider | undefined;
+      mcpRegistry?: () => McpProviderRegistry | undefined;
       now?: () => Date;
     },
   ) {}
 
   private now(): string {
     return (this.options.now?.() ?? new Date()).toISOString();
+  }
+
+  private marketProviderError(cause: unknown): never {
+    const code =
+      cause !== null && typeof cause === "object" && "code" in cause
+        ? String((cause as { code?: unknown }).code ?? "")
+        : "";
+    if (code === "not_found") {
+      throw new ResourceMarketError("not_found", "MCP 不存在");
+    }
+    throw new ResourceMarketError(
+      "unavailable",
+      cause instanceof Error ? cause.message : "MCP provider is unavailable",
+    );
   }
 
   private requireWorkbench(): WorkbenchV2Port {
@@ -238,6 +295,36 @@ export class ResourceMarketService {
     assetId: string,
   ): InstallRecord | undefined {
     return this.tables.installs.get(installKey(userId, assetType, assetId));
+  }
+
+  private customResourcesFor(
+    principal: MarketPrincipal,
+    input: {
+      type?: CustomAssetType;
+      query?: string;
+      category?: string;
+    },
+  ): CustomResourceView[] {
+    return Array.from(this.tables.customAssets.entries())
+      .map(([, record]) => record)
+      .filter((record) => record.ownerId === principal.userId)
+      .filter((record) => input.type === undefined || record.type === input.type)
+      .filter(
+        (record) =>
+          input.category === undefined ||
+          input.category === "" ||
+          input.category === "全部" ||
+          input.category === record.category,
+      )
+      .filter((record) =>
+        this.matches(
+          `${record.name} ${record.description} ${record.publisherName} ${record.permissions.join(" ")}`,
+          input.query ?? "",
+          "",
+        ),
+      )
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .map((record) => ({ ...record, source: "user" as const }));
   }
 
   private matches(
@@ -581,6 +668,56 @@ export class ResourceMarketService {
       }));
   }
 
+  customResources(
+    principalInput: string | MarketPrincipal,
+    input: {
+      type?: CustomAssetType;
+      query?: string;
+      category?: string;
+    } = {},
+  ): CustomResourceView[] {
+    return this.customResourcesFor(normalizePrincipal(principalInput), input);
+  }
+
+  async registerCustomResource(
+    principalInput: string | MarketPrincipal,
+    input: CustomResourceInput,
+  ): Promise<CustomResourceView> {
+    const principal = normalizePrincipal(principalInput);
+    const now = this.now();
+    const record: CustomResourceRecord = {
+      id: `custom-${randomUUID()}`,
+      ownerId: principal.userId,
+      type: input.type,
+      name: input.name.trim(),
+      description: input.description?.trim() ?? "",
+      category: "自定义",
+      version: input.version?.trim() || "1.0.0",
+      publisherName: input.publisherName?.trim() || principal.userId,
+      permissions: [...new Set(input.permissions ?? [])],
+      ...(input.manifest === undefined ? {} : { manifest: input.manifest }),
+      createdAt: now,
+      updatedAt: now,
+    };
+    await this.tables.customAssets.put(record.id, record);
+    return { ...record, source: "user" };
+  }
+
+  async removeCustomResource(
+    principalInput: string | MarketPrincipal,
+    resourceId: string,
+  ): Promise<void> {
+    const principal = normalizePrincipal(principalInput);
+    const record = this.tables.customAssets.get(resourceId);
+    if (
+      record === undefined ||
+      (record.ownerId !== principal.userId && principal.role !== "admin")
+    ) {
+      throw new ResourceMarketError("not_found", "自定义资源不存在");
+    }
+    await this.tables.customAssets.delete(resourceId);
+  }
+
   async installSkill(
     principalInput: string | MarketPrincipal,
     skillId: string,
@@ -609,19 +746,33 @@ export class ResourceMarketService {
 
   async mcps(
     principalInput: string | MarketPrincipal,
-    input: { query?: string } = {},
+    input: { query?: string; category?: string } = {},
   ): Promise<McpView[]> {
     const principal = normalizePrincipal(principalInput);
-    const provider = this.options.mcpProvider?.();
-    const catalog: readonly (McpAsset & {
+    const registry = this.options.mcpRegistry?.();
+    const provider =
+      registry === undefined || registry.size === 0
+        ? this.options.mcpProvider?.()
+        : undefined;
+    let catalog: readonly (McpAsset & {
       status?: McpConnectionStatus;
-    })[] = provider === undefined ? MCPS : await provider.list(principal);
+    })[];
+    try {
+      catalog =
+        registry !== undefined && registry.size > 0
+          ? await registry.list(principal)
+          : provider === undefined
+            ? MCPS
+            : await provider.list(principal);
+    } catch (cause) {
+      this.marketProviderError(cause);
+    }
     return catalog
       .filter((mcp) =>
         this.matches(
           `${mcp.name} ${mcp.description} ${mcp.protocol} ${mcp.publisher.name} ${mcp.permissions.join(" ")}`,
           input.query ?? "",
-          "",
+        input.category ?? "",
         ),
       )
       .map((mcp) => {
@@ -635,10 +786,17 @@ export class ResourceMarketService {
               (stored?.status === "pending" ? "pending" : "off");
         return {
           ...mcp,
-          source: provider === undefined ? "seed" : "provider",
+          source:
+            (registry !== undefined && registry.size > 0) ||
+            provider !== undefined
+              ? "provider"
+              : "seed",
           status,
           connectionMode:
-            provider?.connect === undefined ? "request_only" : "provider",
+            (registry !== undefined && registry.size > 0) ||
+            provider?.connect !== undefined
+              ? "provider"
+              : "request_only",
         };
       });
   }
@@ -648,15 +806,28 @@ export class ResourceMarketService {
     mcpId: string,
   ): Promise<InstallRecord> {
     const principal = normalizePrincipal(principalInput);
-    const provider = this.options.mcpProvider?.();
-    const catalog: readonly (McpAsset & {
-      status?: McpConnectionStatus;
-    })[] = provider === undefined ? MCPS : await provider.list(principal);
-    const manifest = catalog.find((mcp) => mcp.id === mcpId);
-    if (manifest === undefined) {
-      throw new ResourceMarketError("not_found", "MCP 不存在");
+    const registry = this.options.mcpRegistry?.();
+    const provider =
+      registry === undefined || registry.size === 0
+        ? this.options.mcpProvider?.()
+        : undefined;
+    let connected: { status: "pending" | "connected" } | undefined;
+    if (registry !== undefined && registry.size > 0) {
+      try {
+        connected = await registry.connect(principal, mcpId);
+      } catch (cause) {
+        this.marketProviderError(cause);
+      }
+    } else {
+      const catalog: readonly (McpAsset & {
+        status?: McpConnectionStatus;
+      })[] = provider === undefined ? MCPS : await provider.list(principal);
+      const manifest = catalog.find((mcp) => mcp.id === mcpId);
+      if (manifest === undefined) {
+        throw new ResourceMarketError("not_found", "MCP 不存在");
+      }
+      connected = await provider?.connect?.(principal, mcpId);
     }
-    const connected = await provider?.connect?.(principal, mcpId);
     const record: InstallRecord = {
       userId: principal.userId,
       assetType: "mcp",

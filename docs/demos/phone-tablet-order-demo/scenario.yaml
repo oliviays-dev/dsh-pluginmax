@@ -1,0 +1,186 @@
+schemaVersion: "1.0"
+demoId: "phone-tablet-order-exception-v1"
+title: "华东手机/平板订单异常处置"
+subtitle: "从管理驾驶舱发现异常，到人机协同完成成品仓订单再平衡"
+timezone: "Asia/Shanghai"
+targetDurationMinutes: 9
+
+demoIsolation:
+  pluginId: "dsh-collab-demo-phone-tablet-order"
+  featureFlag: "PLUGINMAX_ENABLE_PHONE_TABLET_DEMO"
+  detachable: true
+  productionDependency: false
+  externalSystemsRegistration: "McpCatalogProvider"
+
+businessContext:
+  industry: "消费电子"
+  products:
+    - "智能手机"
+    - "平板电脑"
+  supplyChainModel: "成品仓 → 区域履约仓 → 承运商 → 用户签收"
+  fulfillmentConstraints:
+    - "按型号、颜色和存储版本管理 SKU"
+    - "手机出库前绑定 IMEI，平板出库前绑定 SN"
+    - "渠道库存与区域成品仓库存分别占用"
+    - "跨仓调拨需要库存归属变更、序列号扫描和高货值运输交接"
+    - "运输需保价，签收需身份核验，发票与售后信息需同步"
+  explicitlyExcluded:
+    - "冷链"
+    - "温控"
+    - "生鲜时效"
+    - "采购到料或生产齐套分析"
+
+dataSource:
+  datasetId: "orders-facts"
+  connector: "orders-readonly"
+  transport: "mcp-orders-mock"
+  mode: "demo"
+  readOnly: true
+  fixture: "./orders-fixture.json"
+  scope:
+    timeRange: "today"
+    region: "华东"
+    canonicalRegion: "east"
+    category: "数码"
+    canonicalCategory: "digital"
+  anomalyDefinition: "支付失败 + 取消 + 履约超时；按订单去重；不含退款和金额异常"
+  permissionSummary: "当前授权：华东、华南；未覆盖：华北、西南"
+
+expectedMetrics:
+  orderCount: 1658
+  exceptionCount: 126
+  exceptionRate: 7.6
+  paymentFailureCount: 52
+  cancelledCount: 31
+  fulfillmentTimeoutCount: 43
+  orderAmount: 8420218
+  exceptionAmount: 642748
+  averageOrderAmount: 5078.54
+  currentSevenDayOnTimeRate: 94.1
+  previousSevenDayOnTimeRate: 95.9
+  onTimeDeltaPt: -1.8
+  totalFixtureRows: 8358
+
+accounts:
+  - userId: "linlan"
+    displayName: "林岚"
+    role: "供应链运营总监"
+    workspaceRole: "owner"
+    demoPassword: "password-123"
+  - userId: "zhouning"
+    displayName: "周宁"
+    role: "订单履约计划员"
+    workspaceRole: "member"
+    demoPassword: "password-123"
+  - userId: "wangong"
+    displayName: "王工"
+    role: "华东成品仓配负责人"
+    workspaceRole: "member"
+    demoPassword: "password-123"
+
+workspace:
+  title: "手机平板订单履约演示"
+  owner: "linlan"
+  members:
+    - "zhouning"
+    - "wangong"
+
+aiPartners:
+  dataAgent:
+    id: "data-agent"
+    displayName: "Data Agent"
+    purpose: "只读查询订单异常、解释口径、输出证据 brief"
+    template: "平台内置 Data Agent"
+  fulfillmentPartner:
+    id: "fulfillment-ai"
+    displayName: "履约 AI 伙伴"
+    owner: "zhouning"
+    template: "流程跟进 / 通用执行型 AI 伙伴"
+    purpose: "整理订单范围、汇总人工核实结果、生成再平衡工单草稿，并在人工确认后执行受控建单"
+    state: "active"
+
+tasks:
+  parent:
+    title: "[PT-ORD-001] 华东手机/平板订单异常处置"
+    type: "任务"
+    project: "手机平板订单履约演示"
+    priority: "P0"
+    initialStatus: "待处理"
+    receiver: "zhouning"
+    due: "today 18:00"
+    description: |
+      管理驾驶舱发现华东手机/平板订单异常率升至 7.6%。
+      请基于 Data Agent 的订单异常 brief 完成处置，聚焦支付失败、取消和履约超时。
+      业务动作应优先考虑成品仓库存再平衡和订单改派，不涉及冷链、采购到料或生产齐套。
+    acceptance:
+      - "126 单全部形成明确处置结论"
+      - "完成受影响 SKU、IMEI/SN、成品仓库存与出库能力核实"
+      - "人工确认后创建成品仓订单再平衡工单"
+      - "输出异常处置复盘，包含口径、证据、结果和剩余风险"
+  humanChild:
+    title: "[PT-ORD-001-A] 核实成品仓 SKU/序列号与跨仓履约"
+    type: "任务"
+    project: "手机平板订单履约演示"
+    priority: "P0"
+    initialStatus: "待处理"
+    receiver: "wangong"
+    due: "today 15:30"
+    description: |
+      核实华东受影响手机/平板订单对应 SKU 的可分配库存、IMEI/SN 状态、出库能力、
+      跨仓库存归属变更、高货值运输交接和签收要求。
+      请给出可转入再平衡的订单范围、不可履约原因和仓配约束。
+    acceptance:
+      - "确认可立即出库、需跨仓调拨和不可履约的订单数量"
+      - "确认序列号扫描及库存归属变更要求"
+      - "确认高货值运输交接、保价和签收约束"
+  aiChild:
+    title: "[PT-ORD-001-B] 生成成品仓订单再平衡工单"
+    type: "任务"
+    project: "手机平板订单履约演示"
+    priority: "P0"
+    initialStatus: "待处理"
+    receiver: "fulfillment-ai"
+    due: "today 16:30"
+    autoSubmitReview: true
+    description: |
+      结合 Data Agent 的订单异常范围和华东成品仓人工核实结果，
+      整理可再平衡订单，生成成品仓订单再平衡工单草稿。
+      提交周宁确认后才可创建业务单据；不得自行修改业务数据。
+    acceptance:
+      - "输出 37 单可再平衡订单范围"
+      - "工单包含 SKU、IMEI/SN、库存归属、跨仓交接和签收约束"
+      - "提交人工确认前状态为草稿"
+      - "人工确认后返回业务工单号 WO-RB-DEMO-1030-017"
+  nightPlan:
+    title: "[PT-ORD-001-C] 完成华东手机/平板订单异常处置复盘"
+    project: "手机平板订单履约演示"
+    priority: "P1"
+    receiver: "fulfillment-ai"
+    due: "tomorrow 08:30"
+    autoSubmitReview: true
+    description: |
+      基于白天的 Data Agent QueryRun、任务回执和 WO-RB-DEMO-1030-017 状态，
+      完成正式复盘报告初稿，提交周宁待确认。
+      不扩大查询范围，不修改业务单据，不对外发送。
+    acceptance:
+      - "报告包含数据口径、截止时间、异常构成和证据链"
+      - "报告包含 126 单处置结果与再平衡工单状态"
+      - "报告明确剩余风险和待人工确认事项"
+
+outcome:
+  recoverableOrders: 83
+  closedWithRefundOrReschedule: 43
+  rebalancedOrders: 37
+  workOrderId: "WO-RB-DEMO-1030-017"
+  finalOwnerSummary: "华东手机/平板订单异常已闭环：126 单全部有结论，83 单恢复履约，37 单通过成品仓再平衡工单处置，复盘报告已归档。"
+
+assets:
+  dataAgentPrompts: "./data-agent-prompts.md"
+  fulfillmentPartnerPrompt: "./fulfillment-partner-prompt.md"
+  workOrderTemplate: "./rebalance-work-order.json"
+  workbenchProfile: "./workbench-profile.yaml"
+  mockMcpAssets: "./mock-mcp-assets.yaml"
+  mockOmsServer: "./mock-oms-mcp-server.mjs"
+  mockWmsServer: "./mock-wms-mcp-server.mjs"
+  developerChangePrompt: "./developer-change-prompt.md"
+  generator: "./generate-orders-fixture.mjs"

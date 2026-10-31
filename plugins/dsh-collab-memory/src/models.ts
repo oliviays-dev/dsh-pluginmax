@@ -7,7 +7,11 @@ export const sceneTypeSchema = z.enum([
   "chat",
   "workflow-node",
 ]);
-export const chatCarrierSchema = z.enum(["native-session", "meeting-ai"]);
+export const chatCarrierSchema = z.enum([
+  "native-session",
+  "meeting-ai",
+  "data-agent",
+]);
 export const memoryKindSchema = z.enum([
   "fact",
   "decision",

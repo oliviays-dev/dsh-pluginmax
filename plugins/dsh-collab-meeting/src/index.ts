@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import {
@@ -7,6 +7,14 @@ import {
   sameOrigin,
   sendJson,
 } from "@pluginmax/shared";
+import {
+  facilitatorActionItemSchema,
+  taskCaptureCandidateDraftSchema,
+  type FacilitatorActionItem,
+  type FacilitatorCandidateBundle,
+  type FacilitatorCandidateReader,
+  type TaskCaptureSourceAdapter,
+} from "@pluginmax/contracts";
 import {
   MeetingDelegateService,
   delegateInstructionInputSchema,
@@ -77,6 +85,12 @@ const meetingSchema = z.object({
   title: titleSchema,
   kind: z.enum(["meeting", "ai"]).default("meeting"),
   teammateInstanceId: idSchema.optional(),
+  /**
+   * Platform AI teammate used for meeting facilitation. Defaults to the
+   * platform Facilitator when omitted; custom meeting Agents use the same
+   * teammate runtime and structured action-item contract.
+   */
+  meetingAgentId: idSchema.optional(),
   agenda: z.string().trim().max(20_000).default(""),
   status: z.enum(["draft", "active", "closed", "archived"]),
   createdBy: idSchema,
@@ -692,10 +706,7 @@ interface ChatAgentInputLike {
   readonly employeeId?: string | undefined;
   readonly principalId?: string | undefined;
   readonly principalType?:
-    | "transitional-agent"
-    | "digital-employee"
-    | "principal-runtime"
-    | undefined;
+    "transitional-agent" | "digital-employee" | "principal-runtime" | undefined;
   readonly contextPackId?: string | undefined;
   readonly sessionBindingId?: string | undefined;
   readonly sessionId?: string | undefined;
@@ -782,9 +793,7 @@ interface MeetingChatContextAdapterLike {
     readonly version: string;
     readonly instructions: string;
     readonly allowedWriteback: readonly (
-      | "agent-private-memory"
-      | "run-evidence"
-      | "memory-candidate"
+      "agent-private-memory" | "run-evidence" | "memory-candidate"
     )[];
   }>;
 }
@@ -799,18 +808,22 @@ interface ContextServiceLike {
     readonly carrier: "meeting-ai";
     readonly carrierRefId: string;
   }): Promise<{ readonly id: string }>;
-  chatChannel?(channelId: string): {
-    readonly id: string;
-    readonly workspaceId: string;
-    readonly userPrincipalId: string;
-    readonly agentPrincipalId: string;
-    readonly activeCarrierRefId: string;
-  } | undefined;
+  chatChannel?(channelId: string):
+    | {
+        readonly id: string;
+        readonly workspaceId: string;
+        readonly userPrincipalId: string;
+        readonly agentPrincipalId: string;
+        readonly activeCarrierRefId: string;
+      }
+    | undefined;
   prepare(input: Record<string, unknown>): Promise<ContextPackLike>;
-  session?(bindingId: string): {
-    readonly sessionId: string;
-    readonly generation: number;
-  } | undefined;
+  session?(bindingId: string):
+    | {
+        readonly sessionId: string;
+        readonly generation: number;
+      }
+    | undefined;
   recordRuntime(input: {
     readonly runId: string;
     readonly contextPackId: string;
@@ -848,9 +861,7 @@ interface MemoryIngestLike {
         readonly version?: string;
         readonly quote?: string;
       }[];
-      readonly metadata?: Readonly<
-        Record<string, string | number | boolean>
-      >;
+      readonly metadata?: Readonly<Record<string, string | number | boolean>>;
     };
   }): Promise<unknown>;
 }
@@ -1585,8 +1596,7 @@ export class MeetingService {
    * MeetingService 直接依赖纪要服务。
    */
   private facilitatorReader:
-    | ((meetingId: string) => readonly MeetingFacilitatorActivity[])
-    | undefined;
+    ((meetingId: string) => readonly MeetingFacilitatorActivity[]) | undefined;
   /**
    * 对话内容变化（发言、worker 回复、散会）时触发一次。
    * 仅由写入路径调用，读取 / 轮询路径绝不触发；实现方负责异步与去重。
@@ -1827,13 +1837,11 @@ export class MeetingService {
         candidate.kind === actorKind(parsedActor) &&
         candidate.refId === parsedActor.id,
     );
-    if (
-      !(
-        caller !== undefined ||
-        meeting.createdBy === parsedActor.id ||
-        managerActor(parsedActor)
-      )
-    ) {
+    if (!(
+      caller !== undefined ||
+      meeting.createdBy === parsedActor.id ||
+      managerActor(parsedActor)
+    )) {
       throw new MeetingError(
         "forbidden",
         "an active meeting participant, creator, or workspace owner role is required",
@@ -2046,12 +2054,10 @@ export class MeetingService {
         candidate.kind === actorKind(parsedActor) &&
         candidate.refId === parsedActor.id,
     );
-    if (
-      !(
-        (parsedActor.kind === "user" && caller !== undefined) ||
-        managerActor(parsedActor)
-      )
-    ) {
+    if (!(
+      (parsedActor.kind === "user" && caller !== undefined) ||
+      managerActor(parsedActor)
+    )) {
       throw new MeetingError(
         "forbidden",
         "an active human participant or workspace owner role is required",
@@ -2829,8 +2835,18 @@ interface MeetingMinutesRunLike {
   readonly id?: string;
   readonly dispatchKey: string;
   readonly status: string;
-  readonly output?: { readonly summary?: string } | undefined;
+  readonly agentProfileId?: string;
+  readonly agentDefinitionId?: string;
+  readonly personaId?: string;
+  readonly output?:
+    | {
+        readonly summary?: string;
+        readonly actionItems?: readonly unknown[];
+      }
+    | undefined;
   readonly error?: string | undefined;
+  readonly createdAt?: string | undefined;
+  readonly updatedAt?: string | undefined;
   readonly endedAt?: string | undefined;
 }
 
@@ -2971,8 +2987,10 @@ export class FacilitatorMinutesService {
       return { dispatchKey };
     const actor = this.actorFor(meeting);
     if (actor === undefined) return;
+    const meetingAgentId =
+      meeting.meetingAgentId ?? MEETING_FACILITATOR_TEAMMATE_ID;
     const ensured = await teammateRuntime.ensureRuntime({
-      teammateId: MEETING_FACILITATOR_TEAMMATE_ID,
+      teammateId: meetingAgentId,
       workspaceId: meeting.workspaceId,
       actor,
     });
@@ -3005,8 +3023,15 @@ export class FacilitatorMinutesService {
         instanceTitle: meeting.title,
         nodeName: "会议纪要",
         nodeDescription: meeting.agenda,
-        profileName: "会议 Facilitator",
+        profileName:
+          meetingAgentId === MEETING_FACILITATOR_TEAMMATE_ID
+            ? "会议 Facilitator"
+            : "会议 Agent",
         context: {
+          meetingId: meeting.id,
+          meetingAgentId,
+          actionItemsInstruction:
+            "生成会议纪要后，把可跟进事项通过 meeting_action_items 工具提交为结构化候选；不要只把待办写在 Markdown 纪要里。",
           transcript: dialogue
             .slice(-MEETING_MINUTES_WINDOW)
             .map((message) => `${message.senderName}: ${message.content}`)
@@ -3222,6 +3247,11 @@ export interface MeetingContext {
   get(key: "workspaceRegistry"): WorkspaceRegistryLike | undefined;
   get(key: "collabContext"): ContextServiceLike | undefined;
   get(key: "collabMemory"): MemoryIngestLike | undefined;
+  get(key: "collabTaskCaptureSources"):
+    | {
+        register(adapter: TaskCaptureSourceAdapter): () => void;
+      }
+    | undefined;
   inject(
     keys: readonly ["collabEmployee"],
     callback: (
@@ -3239,6 +3269,16 @@ export interface MeetingContext {
   inject(
     keys: readonly ["collabContext"],
     callback: () => void,
+  ): { dispose(): void };
+  inject(
+    keys: readonly ["collabTaskCaptureSources"],
+    callback: (
+      child: MeetingContext & {
+        readonly collabTaskCaptureSources?: {
+          register(adapter: TaskCaptureSourceAdapter): () => void;
+        };
+      },
+    ) => void,
   ): { dispose(): void };
 }
 
@@ -5313,6 +5353,511 @@ function registerMeetingInterfaces(
   });
 }
 
+const TASK_ACTION_PATTERN =
+  /(确认|补齐|汇总|复盘|跟进|同步|建立|指定|输出|完成|推进|处理|核实|检查|更新|整理|提交|分析|协调)/;
+
+/**
+ * Reads structured action items emitted by the platform meeting Facilitator.
+ * The default platform Facilitator and a user-selected custom meeting Agent
+ * both use the same Agent Run contract here; task capture never parses the
+ * minutes Markdown.
+ */
+export function createFacilitatorCandidateReader(input: {
+  readonly meetings: MeetingService;
+  readonly agents: () => MeetingMinutesAgentServiceLike | undefined;
+  readonly store?: {
+    get(meetingId: string): FacilitatorCandidateBundle | undefined;
+  };
+}): FacilitatorCandidateReader {
+  return {
+    async latest({ meetingId, sourceMessageIds }) {
+      const stored = input.store?.get(meetingId);
+      if (stored !== undefined) {
+        const selected = new Set(sourceMessageIds ?? []);
+        const items = stored.items.filter(
+          (item) =>
+            selected.size === 0 ||
+            item.sourceMessageIds.length === 0 ||
+            item.sourceMessageIds.some((id) => selected.has(id)),
+        );
+        if (items.length > 0) return { ...stored, items };
+      }
+      const agents = input.agents();
+      if (agents === undefined) return undefined;
+      let meeting: Meeting;
+      try {
+        meeting = input.meetings.get(meetingId);
+      } catch {
+        return undefined;
+      }
+      const runs = agents
+        .runs({
+          workspaceId: meeting.workspaceId,
+          instanceId: meetingId,
+          nodeId: MEETING_MINUTES_NODE_ID,
+        })
+        .filter(
+          (run) =>
+            run.status === "succeeded" &&
+            (run.output?.actionItems?.length ?? 0) > 0,
+        )
+        .sort((left, right) =>
+          String(
+            right.endedAt ??
+              right.updatedAt ??
+              right.createdAt ??
+              "",
+          ).localeCompare(
+            String(
+              left.endedAt ??
+                left.updatedAt ??
+                left.createdAt ??
+                "",
+            ),
+          ),
+        );
+      const run = runs[0];
+      if (run === undefined || run.output?.actionItems === undefined) {
+        return undefined;
+      }
+      const agentDefinitionId =
+        run.agentProfileId ??
+        run.agentDefinitionId ??
+        MEETING_FACILITATOR_TEAMMATE_ID;
+      const agentRunId = run.id ?? run.dispatchKey;
+      const generatedAt =
+        run.endedAt ??
+        run.updatedAt ??
+        run.createdAt ??
+        new Date().toISOString();
+      const selected = new Set(sourceMessageIds ?? []);
+      const items: FacilitatorActionItem[] = [];
+      for (const raw of run.output.actionItems) {
+        const parsed = facilitatorActionItemSchema.safeParse({
+          ...(typeof raw === "object" && raw !== null ? raw : {}),
+          meetingId,
+          agentRunId,
+          agentDefinitionId,
+          ...(run.personaId === undefined
+            ? {}
+            : { personaId: run.personaId }),
+          generatedAt,
+          revision: 1,
+        });
+        if (!parsed.success) continue;
+        if (
+          selected.size > 0 &&
+          parsed.data.sourceMessageIds.length > 0 &&
+          !parsed.data.sourceMessageIds.some((id) => selected.has(id))
+        ) {
+          continue;
+        }
+        items.push(parsed.data);
+      }
+      if (items.length === 0) return undefined;
+      return {
+        meetingId,
+        agentRunId,
+        agentDefinitionId,
+        ...(run.personaId === undefined ? {} : { personaId: run.personaId }),
+        revision: 1,
+        generatedAt,
+        items,
+      } satisfies FacilitatorCandidateBundle;
+    },
+  };
+}
+
+function createFacilitatorCandidateStore() {
+  const bundles = new Map<string, FacilitatorCandidateBundle>();
+  return {
+    get(meetingId: string) {
+      return bundles.get(meetingId);
+    },
+    put(bundle: FacilitatorCandidateBundle) {
+      bundles.set(bundle.meetingId, bundle);
+    },
+  };
+}
+
+export function registerFacilitatorCandidateTool(
+  ctx: MeetingContext,
+  input: {
+    readonly meetings: MeetingService;
+    readonly agents: () => MeetingMinutesAgentServiceLike | undefined;
+    readonly store: ReturnType<typeof createFacilitatorCandidateStore>;
+  },
+): void {
+  ctx.tools.register({
+    name: "meeting_action_items",
+    description:
+      "Publish structured meeting follow-up candidates from the active meeting Agent. Use the platform meeting Facilitator or another user-selected meeting Agent; candidates are consumed by task capture.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        meetingId: { type: "string" },
+        items: {
+          type: "array",
+          minItems: 1,
+          maxItems: 100,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              sourceItemKey: { type: "string" },
+              sourceMessageIds: {
+                type: "array",
+                items: { type: "string" },
+              },
+              title: { type: "string" },
+              description: { type: "string" },
+              receiverHint: { type: "object" },
+              dueHint: { type: "string" },
+              priorityHint: {
+                type: "string",
+                enum: ["P1", "P2", "P3"],
+              },
+              acceptanceHints: {
+                type: "array",
+                items: { type: "string" },
+              },
+              collaboratorHints: {
+                type: "array",
+                items: { type: "object" },
+              },
+              evidenceRefs: {
+                type: "array",
+                items: { type: "string" },
+              },
+              confidence: {
+                type: "string",
+                enum: ["high", "medium", "low"],
+              },
+              sourceExcerpt: { type: "string" },
+            },
+            required: ["sourceItemKey", "title", "description"],
+          },
+        },
+      },
+      required: ["meetingId", "items"],
+    },
+    output: stringToolOutput,
+    execute: async (args, exec) => {
+      exec.signal.throwIfAborted();
+      const parsed = parseOrInvalid(
+        z.object({
+          meetingId: idSchema,
+          items: z
+            .array(
+              taskCaptureCandidateDraftSchema.extend({
+                sourceMessageIds: z.array(idSchema).max(200).default([]),
+              }),
+            )
+            .min(1)
+            .max(100),
+        }),
+        args,
+      );
+      const meeting = input.meetings.get(parsed.meetingId);
+      const agents = input.agents();
+      const runs =
+        agents?.runs({
+          workspaceId: meeting.workspaceId,
+          instanceId: meeting.id,
+          nodeId: MEETING_MINUTES_NODE_ID,
+        }) ?? [];
+      const run = [...runs].sort((left, right) =>
+        String(
+          right.endedAt ??
+            right.updatedAt ??
+            right.createdAt ??
+            "",
+        ).localeCompare(
+          String(
+            left.endedAt ??
+              left.updatedAt ??
+              left.createdAt ??
+              "",
+          ),
+        ),
+      )[0];
+      const agentRunId =
+        run?.id ??
+        `tool:${String(exec.callId ?? `${Date.now().toString(36)}`)}`;
+      const agentDefinitionId =
+        run?.agentProfileId ??
+        run?.agentDefinitionId ??
+        exec.agent?.id ??
+        meeting.meetingAgentId ??
+        MEETING_FACILITATOR_TEAMMATE_ID;
+      const generatedAt =
+        run?.endedAt ??
+        run?.updatedAt ??
+        run?.createdAt ??
+        new Date().toISOString();
+      const previous = input.store.get(meeting.id);
+      const revision = (previous?.revision ?? 0) + 1;
+      const items = parsed.items.map((item, index) =>
+        facilitatorActionItemSchema.parse({
+          ...item,
+          id: `facilitator:${meeting.id}:${revision}:${index + 1}`,
+          meetingId: meeting.id,
+          agentRunId,
+          agentDefinitionId,
+          ...(run?.personaId === undefined ? {} : { personaId: run.personaId }),
+          generatedAt,
+          revision,
+        }),
+      );
+      const bundle = {
+        meetingId: meeting.id,
+        agentRunId,
+        agentDefinitionId,
+        ...(run?.personaId === undefined ? {} : { personaId: run.personaId }),
+        revision,
+        generatedAt,
+        items,
+      } satisfies FacilitatorCandidateBundle;
+      input.store.put(bundle);
+      return `published ${items.length} meeting action items for ${meeting.title}`;
+    },
+  });
+}
+
+export function meetingCaptureTitle(value: string): string {
+  // Transition fallback only. Structured Facilitator action items take priority;
+  // task-capture never invokes this logic or parses minutes Markdown itself.
+  const oneLine = value
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/[#>*_`~-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (oneLine === "") return "会议跟进事项";
+  const segments = oneLine
+    .split(/[，,。；;！!？?]/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  let index = 0;
+  let bestScore = -1;
+  for (const [candidateIndex, segment] of segments.entries()) {
+    const score =
+      (TASK_ACTION_PATTERN.test(segment) ? 4 : 0) +
+      (/^(请|需要|建议|务必|希望|麻烦)/.test(segment) ? 1 : 0) -
+      Math.min(segment.length / 120, 1) +
+      (candidateIndex === 0 ? 0.1 : 0);
+    if (score > bestScore) {
+      bestScore = score;
+      index = candidateIndex;
+    }
+  }
+  let summary = segments[index] ?? oneLine;
+  const next = segments[index + 1];
+  if (
+    next !== undefined &&
+    /^(并|同时|同步|汇总|输出)/.test(next) &&
+    `${summary}，${next}`.length <= 56
+  ) {
+    summary = `${summary}，${next.replace(/^(并|同时)/, "")}`;
+  }
+  summary = summary
+    .replace(/^(请|需要|建议|务必|希望|麻烦)\s*/, "")
+    .replace(
+      /^(?:今天|明天|本周|下周|[0-9一二三四五六七八九十]+月[0-9一二三四五六七八九十]+日)(?:前|内)?\s*/,
+      "",
+    )
+    .replace(/^[^，。；]{1,16}在[^，。；]{1,28}前/, "")
+    .replace(
+      /^([^，。；]{2,14}?)(?:需要|需|应|要)(复盘|确认|补齐|汇总|跟进|同步|建立|指定|输出|完成|推进|处理|核实|检查|更新|整理|提交|分析|协调)/,
+      "$2$1",
+    )
+    .replace(
+      /^([\u4e00-\u9fa5]{2,4})(?=复盘|确认|补齐|汇总|跟进|同步|建立|指定|输出|完成|推进|处理|核实|检查|更新|整理|提交|分析|协调)/,
+      "",
+    )
+    .replace(/^[，,；;\s]+|[，,；;\s]+$/g, "");
+  if (!TASK_ACTION_PATTERN.test(summary)) {
+    const confirmed = summary.match(/^(.+?)的(.+?)确定为(.+)$/);
+    summary =
+      confirmed === null
+        ? `跟进${summary}`
+        : `确认${confirmed[1]}的${confirmed[2]}（${confirmed[3]}）`;
+  }
+  return (summary || "会议跟进事项")
+    .replace(/\s+/g, " ")
+    .replace(/（\s+/g, "（")
+    .replace(/\s+）/g, "）")
+    .slice(0, 64);
+}
+
+function meetingTaskCaptureAdapter(input: {
+  readonly meetings: MeetingService;
+  readonly sourceType: "meeting" | "ai-chat";
+  readonly candidates?: () =>
+    | FacilitatorCandidateReader
+    | undefined;
+}): TaskCaptureSourceAdapter {
+  return {
+    sourceType: input.sourceType,
+    version: "1",
+    async resolve({ actor, sourceRef, selection }) {
+      const meeting = input.meetings.get(sourceRef.sourceId);
+      if (
+        (input.sourceType === "ai-chat" && meeting.kind !== "ai") ||
+        (input.sourceType === "meeting" && meeting.kind === "ai")
+      ) {
+        throw new Error("meeting source type does not match the meeting kind");
+      }
+      const actorCanAccess =
+        actor.role === "admin" ||
+        meeting.createdBy === actor.id ||
+        meeting.ownerUserId === actor.id ||
+        input.meetings
+          .participants(meeting.id)
+          .some(
+            (participant) =>
+              participant.kind === "human" &&
+              participant.status !== "pending" &&
+              (participant.refId === actor.id ||
+                participant.principalUserId === actor.id),
+          );
+      if (!actorCanAccess) {
+        throw new Error("meeting access is required");
+      }
+      const transcript = input.meetings
+        .transcript(meeting.id)
+        .filter((message) => message.senderKind !== "system");
+      const selectedText = selection.text?.trim();
+      const selectedIds = new Set([
+        ...selection.messageIds,
+        ...selection.actionItemIds,
+      ]);
+      const facilitatorBundle = await input.candidates?.()?.latest({
+        meetingId: meeting.id,
+        ...(selectedIds.size === 0
+          ? {}
+          : { sourceMessageIds: [...selectedIds] }),
+      });
+      const facilitatorCandidates = facilitatorBundle?.items.map((item) => ({
+        sourceItemKey: item.sourceItemKey,
+        title: item.title,
+        description: item.description,
+        ...(item.receiverHint === undefined
+          ? {}
+          : { receiverHint: item.receiverHint }),
+        ...(item.priorityHint === undefined
+          ? {}
+          : { priorityHint: item.priorityHint }),
+        ...(item.dueHint === undefined ? {} : { dueHint: item.dueHint }),
+        acceptanceHints: item.acceptanceHints,
+        collaboratorHints: item.collaboratorHints,
+        evidenceRefs: [
+          ...item.evidenceRefs,
+          `agent-run:${facilitatorBundle.agentRunId}`,
+        ],
+        confidence: item.confidence,
+        ...(item.sourceExcerpt === undefined
+          ? {}
+          : { sourceExcerpt: item.sourceExcerpt }),
+      }));
+      const selected =
+        selectedIds.size === 0
+          ? transcript.slice(-12)
+          : transcript.filter((message) => selectedIds.has(message.id));
+      const selectedMessage = transcript.find((message) =>
+        selectedIds.has(message.id),
+      );
+      const selectionKey =
+        selectedText === undefined
+          ? undefined
+          : `selection:${selectedMessage?.id ?? meeting.id}:${createHash("sha1")
+              .update(selectedText)
+              .digest("hex")
+              .slice(0, 16)}`;
+      const sourceMessages =
+        selectedText === undefined
+          ? selected.length === 0 && meeting.agenda.trim() !== ""
+            ? [
+                {
+                  id: `agenda:${meeting.id}`,
+                  content: meeting.agenda,
+                  createdAt: meeting.updatedAt,
+                },
+              ]
+            : selected
+          : [
+              {
+                id: selectionKey as string,
+                content: selectedText,
+                createdAt: selectedMessage?.createdAt ?? meeting.updatedAt,
+              },
+            ];
+      if (sourceMessages.length === 0) {
+        throw new Error("meeting has no capturable transcript");
+      }
+      return {
+        source: {
+          sourceType: input.sourceType,
+          sourceId: meeting.id,
+          sourceTitle: meeting.title,
+          workspaceId: meeting.workspaceId,
+          visibility: meeting.kind === "ai" ? "private" : "source-participants",
+          sourceVersion: meeting.updatedAt,
+          deepLink: `pluginmax://meeting/${meeting.id}`,
+          excerpt: sourceMessages
+            .map((message) => message.content)
+            .join("\n\n")
+            .slice(0, 8_000),
+          messageIds:
+            selectedText === undefined
+              ? sourceMessages.map((message) => message.id)
+              : selection.messageIds.slice(0, 1),
+          actionItemIds: [],
+          reportSectionIds: [],
+          participantIds: [
+            ...new Set([
+              meeting.createdBy,
+              ...(meeting.ownerUserId === undefined
+                ? []
+                : [meeting.ownerUserId]),
+              ...input.meetings
+                .participants(meeting.id)
+                .filter(
+                  (participant) =>
+                    participant.kind === "human" &&
+                    participant.status !== "pending",
+                )
+                .map((participant) => participant.refId),
+            ]),
+          ],
+          ...(selection.timeRange === undefined
+            ? {}
+            : { timeRange: selection.timeRange }),
+        },
+        candidates:
+          facilitatorCandidates !== undefined &&
+          facilitatorCandidates.length > 0
+            ? facilitatorCandidates
+            : sourceMessages.map((message) => ({
+                sourceItemKey: message.id,
+                title: meetingCaptureTitle(message.content),
+                description: message.content,
+                priorityHint: "P2" as const,
+                acceptanceHints: [],
+                collaboratorHints: [],
+                evidenceRefs: [
+                  selectedMessage === undefined
+                    ? `meeting-selection:${meeting.id}:${message.id}`
+                    : `meeting-message:${meeting.id}:${selectedMessage.id}`,
+                ],
+                confidence: "medium" as const,
+                sourceExcerpt: message.content.slice(0, 2_000),
+              })),
+      };
+    },
+  };
+}
+
 export async function apply(ctx: MeetingContext): Promise<void | (() => void)> {
   const domain = await ctx.storageDomain.open(meetingDomainSpec);
   // Mount is the one moment no dispatch can still be live, so the restart sweep
@@ -5426,11 +5971,38 @@ export async function apply(ctx: MeetingContext): Promise<void | (() => void)> {
   const meetingTasks = new MeetingTaskService({
     tasks: domain.table("meeting_tasks"),
   });
+  const facilitatorCandidateStore = createFacilitatorCandidateStore();
+  const facilitatorCandidateReader = createFacilitatorCandidateReader({
+    meetings,
+    agents: () => ctx.get("collabAgent"),
+    store: facilitatorCandidateStore,
+  });
+  registerFacilitatorCandidateTool(ctx, {
+    meetings,
+    agents: () => ctx.get("collabAgent"),
+    store: facilitatorCandidateStore,
+  });
   ctx.provide("collabMeetingMinutes", meetingMinutes);
   ctx.provide("collabMeetingDelegates", meetingDelegates);
   ctx.provide("collabMeetingReads", meetingReads);
   ctx.provide("collabMeetingFiles", meetingFiles);
   ctx.provide("collabMeetingTasks", meetingTasks);
+  ctx.inject(["collabTaskCaptureSources"], (child) => {
+    const registry = child.collabTaskCaptureSources;
+    if (registry === undefined) return;
+    const disposes = (["meeting", "ai-chat"] as const).map((sourceType) =>
+      registry.register(
+        meetingTaskCaptureAdapter({
+          meetings,
+          sourceType,
+          candidates: () => facilitatorCandidateReader,
+        }),
+      ),
+    );
+    child.effect(() => () => {
+      for (const dispose of disposes) dispose();
+    });
+  });
   // 纪要：只在写入事件里触发；读取 / 轮询路径不调模型。
   let teamService: TeamServiceLike | undefined;
   const minutes = new FacilitatorMinutesService({

@@ -81,8 +81,22 @@ describe("workflow client state setters", () => {
     const overview = source.slice(start, end);
 
     expect(overview).toContain('className: "pmwf-overview-select"');
+    expect(overview).toContain('"data-data-agent-select": "workflow_node"');
+    expect(overview).toContain('"data-workflow-id": instanceId');
     expect(overview).toContain('className: "pmwf-overview-delivery"');
     expect(overview).not.toContain('role: "button"');
+  });
+
+  it("only expands workflow details from an explicit detail button", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    const start = source.indexOf("...filtered.map((instance, index) => {");
+    const end = source.indexOf("jsxRuntime.jsxs(\"div\", {\n                                className: \"pmwf-detail open\"", start);
+    const row = source.slice(start, end);
+
+    expect(row).toContain('className: "pmwf-summary"');
+    expect(row).not.toContain('"data-data-agent-select": "workflow"');
+    expect(row).toContain('className:\n                                          "pmwf-btn secondary small pmwf-detail-open"');
+    expect(row).toContain('"aria-label": `查看${instance.title}详情`');
   });
 
   it("reserves a mobile header row for the workflow breadcrumb controls", () => {

@@ -1,0 +1,57 @@
+schemaVersion: "1.0"
+profileId: "phone-tablet-order-v1"
+pluginId: "dsh-collab-demo-phone-tablet-order"
+detachable: true
+title: "手机/平板订单履约"
+dataMode: "demo"
+
+layout:
+  visibleModules:
+    - "metrics"
+    - "brief"
+    - "todo"
+    - "focus"
+  hiddenModules:
+    - "meeting-minutes"
+    - "control"
+    - "supplier"
+
+metrics:
+  selected:
+    - "otif"
+    - "inventory-turn"
+    - "supplier-otd"
+    - "price-achievement"
+  liveMetric:
+    id: "otif"
+    label: "订单准时履约率"
+    expectedValue: "94.1"
+    expectedUnit: "%"
+    expectedTrend: "-1.8pt"
+    dataMode: "demo"
+    sourceNote: "订单卡来自 Data Fabric 演示数据，其余经营卡为演示种子"
+
+brief:
+  title: "每日简报"
+  summary: |
+    华东手机/平板订单异常率升至 7.6%，异常 126 单，预计影响金额约 64.3 万元。
+    请 Data Agent 完成初步判断，并由订单履约计划员跟进支付失败、取消和履约超时。
+  items:
+    - type: "data-exception"
+      title: "华东手机/平板订单异常"
+      body: "支付失败 52 单、取消 31 单、履约超时 43 单；异常集中在数码成品订单。"
+      actionLabel: "询问 Data Agent"
+    - type: "decision"
+      title: "是否需要创建成品仓订单再平衡工单"
+      body: "需要先核实 SKU、IMEI/SN、库存归属和跨仓交接约束。"
+
+supplyExceptionSeed:
+  # 仅在第 4 项工作台显示改造中需要；若采用隐藏模块方案，可忽略。
+  title: "成品仓订单再平衡"
+  item:
+    severity: "high"
+    title: "37 单等待成品仓订单再平衡"
+    recommendation: "人工确认 SKU、IMEI/SN 和库存归属后，由履约 AI 伙伴创建 Mock WMS 工单。"
+    owner: "周宁"
+    deadline: "17:00 前"
+    impact: "影响 37 单高货值手机/平板订单履约"

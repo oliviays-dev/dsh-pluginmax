@@ -7,6 +7,10 @@ import {
   sendJson,
 } from "@pluginmax/shared";
 import {
+  createOrderWorkbenchMetricProvider,
+  type OrderDataFabricQuery,
+} from "dsh-collab-data-orders";
+import {
   briefCustomRuleSchema,
   briefIncludeTypeSchema,
   followTypeSchema,
@@ -31,13 +35,16 @@ export {
 export type {
   ModuleId,
   ModuleOptions,
+  WorkbenchDataMetricProvider,
+  WorkbenchDisplayBriefItem,
+  WorkbenchDisplayProfile,
   WorkbenchDeps,
   WorkbenchModule,
   WorkbenchPrincipal,
 } from "./service.js";
 
 export const name = "dsh-collab-workbench";
-export const inject = ["storageDomain", "webServer"];
+export const inject = ["storageDomain", "webServer", "collabDataFabric"];
 
 interface WebRouteLike {
   readonly kind: "exact";
@@ -71,6 +78,10 @@ interface WorkbenchContext {
   webServer: { register(route: WebRouteLike): unknown };
   provide(key: string, value: unknown): void;
   effect(operation: () => () => void): void;
+  inject?(
+    keys: readonly string[],
+    callback: (child: WorkbenchContext) => void,
+  ): { dispose(): void };
   get(key: string, strict?: boolean): unknown;
   on?(name: string, listener: (payload: unknown) => void): (() => void) | undefined;
   root?: { get(key: string, strict?: boolean): unknown };
@@ -158,10 +169,14 @@ function principalFor(
   const user = team
     .users()
     .find((candidate) => candidate.id === resolved.userId);
+  const workspaceId = query(request).get("workspaceId");
   return {
     userId: resolved.userId,
     ...(user?.name === undefined ? {} : { name: user.name }),
     ...(resolved.role === undefined ? {} : { role: resolved.role }),
+    ...(workspaceId === null || workspaceId.trim() === ""
+      ? {}
+      : { workspaceId }),
   };
 }
 
@@ -397,7 +412,7 @@ function createWorkbenchRoutes(
             principal,
             parsed.data.selected,
           );
-          const module = service.metricsModule(principal);
+          const module = await service.metricsModuleLive(principal);
           sendJson(response, 200, { ok: true, selected, module });
         } catch (cause) {
           routeError(response, cause);
@@ -456,6 +471,15 @@ export async function apply(ctx: WorkbenchContext): Promise<void> {
       employees: () => lookup(ctx, "collabEmployee") as never,
       assignments: () => lookup(ctx, "collabAssignment") as never,
       teammates: () => lookup(ctx, "collabTeammates") as never,
+      dataMetrics: () => {
+        const fabric = lookup<OrderDataFabricQuery>(
+          ctx,
+          "collabDataFabric",
+        );
+        return fabric === undefined
+          ? undefined
+          : createOrderWorkbenchMetricProvider(fabric);
+      },
     },
   );
   const hub = new BriefPushHub({

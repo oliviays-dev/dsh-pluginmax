@@ -28,6 +28,7 @@ import {
   SUPPLIER_RESILIENCE_NOTE,
   SUPPLIER_RISKS,
   SUPPLY_EXCEPTIONS,
+  type MetricDefinition,
 } from "./seed.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -76,6 +77,7 @@ export interface WorkbenchPrincipal {
   userId: string;
   name?: string;
   role?: "admin" | "owner" | "member" | "guest";
+  workspaceId?: string;
   /**
    * 方案 B：平台管理员的"全量项目"视图开关。默认（false/缺省）与普通成员一致，
    * 只看自己已加入的工作区；只有显式打开时才聚合全部宿主工作区。
@@ -114,10 +116,14 @@ interface TeamServiceLike {
   users(): readonly { readonly id: string; readonly name: string }[];
   members(
     workspaceId: string,
-  ): readonly { readonly userId: string; readonly role?: string }[];
+  ): readonly {
+    readonly userId: string;
+    readonly role?: string;
+    readonly memberRole?: "owner" | "member" | "guest";
+  }[];
 }
 
-interface WorkspaceLike {
+export interface WorkspaceLike {
   readonly id: string;
   readonly path: string;
   readonly title?: string;
@@ -348,6 +354,82 @@ export interface WorkbenchDeps {
   readonly employees?: () => EmployeeServiceLike | undefined;
   readonly assignments?: () => AssignmentServiceLike | undefined;
   readonly teammates?: () => TeammateServiceLike | undefined;
+  readonly dataMetrics?: () => WorkbenchDataMetricProvider | undefined;
+}
+
+export interface WorkbenchDataMetricProvider {
+  workbenchMetric(input: {
+    readonly workspaceId: string;
+    readonly actor: {
+      readonly userId: string;
+      readonly name?: string | undefined;
+      readonly workspaceRole: "owner" | "member" | "guest";
+    };
+  }): Promise<{
+    readonly id: string;
+    readonly label: string;
+    readonly value: string;
+    readonly unit: string;
+    readonly trend: string;
+    readonly trendClass: "up" | "down";
+    readonly target: string;
+    readonly description: string;
+    readonly spark: readonly number[];
+    readonly metricId: string;
+    readonly metricVersion: string;
+    readonly queryRunId?: string | undefined;
+    readonly dataMode: "demo" | "production" | "unavailable";
+    readonly dataCutoffAt?: string | undefined;
+  }>;
+}
+
+export interface WorkbenchDisplayBriefItem {
+  readonly id: string;
+  readonly title: string;
+  readonly body: string;
+  readonly statusLabel?: string | undefined;
+  readonly actionLabel?: string | undefined;
+  readonly deepLink?: {
+    readonly route: "task" | "workflow" | "meeting";
+    readonly refId: string;
+    readonly workspaceId?: string | undefined;
+    readonly label?: string | undefined;
+  };
+}
+
+export interface WorkbenchDisplayProfile {
+  readonly id: string;
+  readonly title: string;
+  matches(workspace: WorkspaceLike): boolean;
+  readonly visibleModules: readonly ModuleId[];
+  readonly metrics?: readonly string[];
+  metric?: WorkbenchDataMetricProvider["workbenchMetric"];
+  prepare?(input: {
+    readonly workspace: WorkspaceLike;
+    readonly principal: WorkbenchPrincipal;
+  }): Promise<void> | void;
+  brief?(input: {
+    readonly workspace: WorkspaceLike;
+    readonly principal: WorkbenchPrincipal;
+  }):
+    | {
+        readonly title: string;
+        readonly summary: string;
+        readonly items: readonly WorkbenchDisplayBriefItem[];
+      }
+    | Promise<{
+        readonly title: string;
+        readonly summary: string;
+        readonly items: readonly WorkbenchDisplayBriefItem[];
+      }>;
+}
+
+export interface WorkbenchMetricItem extends MetricDefinition {
+  readonly metricId?: string | undefined;
+  readonly metricVersion?: string | undefined;
+  readonly queryRunId?: string | undefined;
+  readonly dataMode?: "demo" | "production" | "unavailable" | undefined;
+  readonly dataCutoffAt?: string | undefined;
 }
 
 export interface WorkbenchModule<T> {
@@ -486,6 +568,10 @@ function summarizeSentences(text: string, max = 3): string[] {
 }
 
 export class WorkbenchService {
+  private dataMetricProvider: WorkbenchDataMetricProvider | undefined;
+  private readonly displayProfiles = new Map<string, WorkbenchDisplayProfile>();
+  private readonly preparedDisplayProfiles = new Set<string>();
+
   constructor(
     private readonly tables: WorkbenchTables,
     private readonly deps: WorkbenchDeps = {},
@@ -493,6 +579,37 @@ export class WorkbenchService {
 
   private now(): Date {
     return this.deps.now?.() ?? new Date();
+  }
+
+  registerDataMetricProvider(
+    provider: WorkbenchDataMetricProvider,
+  ): () => void {
+    this.dataMetricProvider = provider;
+    return () => {
+      if (this.dataMetricProvider === provider) {
+        this.dataMetricProvider = undefined;
+      }
+    };
+  }
+
+  registerDisplayProfile(profile: WorkbenchDisplayProfile): () => void {
+    if (profile.id.trim() === "") {
+      throw new WorkbenchError(
+        "invalid_input",
+        "工作台显示 Profile ID 不能为空",
+      );
+    }
+    this.displayProfiles.set(profile.id, profile);
+    return () => {
+      if (this.displayProfiles.get(profile.id) === profile) {
+        this.displayProfiles.delete(profile.id);
+      }
+      for (const key of this.preparedDisplayProfiles) {
+        if (key.startsWith(`${profile.id}\u0000`)) {
+          this.preparedDisplayProfiles.delete(key);
+        }
+      }
+    };
   }
 
   private workspaceName(workspace: WorkspaceLike | undefined): string {
@@ -532,6 +649,38 @@ export class WorkbenchService {
       workspaces,
       byId: new Map(workspaces.map((workspace) => [workspace.id, workspace])),
     };
+  }
+
+  private async activeDisplayProfile(
+    principal: WorkbenchPrincipal,
+  ): Promise<
+    | {
+        readonly profile: WorkbenchDisplayProfile;
+        readonly workspace: WorkspaceLike;
+      }
+    | undefined
+  > {
+    const workspaces = this.accessibleWorkspaces(principal);
+    const scoped =
+      principal.workspaceId === undefined
+        ? workspaces
+        : workspaces.filter(
+            (workspace) => workspace.id === principal.workspaceId,
+          );
+    for (const profile of this.displayProfiles.values()) {
+      const matches = scoped.filter((workspace) => profile.matches(workspace));
+      // An unscoped workbench can aggregate several projects. A profile only
+      // applies when its target workspace is unambiguous.
+      if (matches.length !== 1) continue;
+      const workspace = matches[0]!;
+      const prepareKey = `${profile.id}\u0000${workspace.id}`;
+      if (!this.preparedDisplayProfiles.has(prepareKey)) {
+        await profile.prepare?.({ workspace, principal });
+        this.preparedDisplayProfiles.add(prepareKey);
+      }
+      return { profile, workspace };
+    }
+    return undefined;
   }
 
   private myAgentIds(principal: WorkbenchPrincipal): Set<string> {
@@ -803,6 +952,116 @@ export class WorkbenchService {
       refreshable: true,
       sourceCount: 1,
       data: { selected, items: METRIC_DEFINITIONS },
+    };
+  }
+
+  async metricsModuleLive(principal: WorkbenchPrincipal): Promise<
+    WorkbenchModule<{
+      selected: string[];
+      items: WorkbenchMetricItem[];
+      dataMode: "demo" | "production" | "mixed" | "unavailable";
+      sourceNote: string;
+    }>
+  > {
+    const display = await this.activeDisplayProfile(principal);
+    const profileMetrics = (display?.profile.metrics ?? []).filter((metric) =>
+      METRIC_DEFINITIONS.some((definition) => definition.id === metric),
+    );
+    const selected =
+      profileMetrics.length > 0
+        ? [...new Set(profileMetrics)].slice(0, 5)
+        : this.metricPreference(principal);
+    let items: WorkbenchMetricItem[] = METRIC_DEFINITIONS.map((metric) => ({
+      ...metric,
+      dataMode: "demo",
+    }));
+    let dataMode: "demo" | "production" | "mixed" | "unavailable" = "demo";
+    let sourceNote = "演示种子 · 非生产";
+    const provider =
+      display?.profile.metric === undefined
+        ? this.dataMetricProvider ?? this.deps.dataMetrics?.()
+        : { workbenchMetric: display.profile.metric };
+    if (provider !== undefined) {
+      const workspaces = this.accessibleWorkspaces(principal);
+      const workspace =
+        workspaces.find((item) => item.id === principal.workspaceId) ??
+        workspaces[0];
+      const team = this.deps.team?.();
+      const member =
+        workspace === undefined || team === undefined
+          ? undefined
+          : team
+              .members(workspace.id)
+              .find((item) => item.userId === principal.userId);
+      if (workspace !== undefined && member !== undefined) {
+        try {
+          const live = await provider.workbenchMetric({
+            workspaceId: workspace.id,
+            actor: {
+              userId: principal.userId,
+              ...(principal.name === undefined ? {} : { name: principal.name }),
+              workspaceRole:
+                (member.memberRole ?? member.role) === "owner" ||
+                (member.memberRole ?? member.role) === "member" ||
+                (member.memberRole ?? member.role) === "guest"
+                  ? ((member.memberRole ?? member.role) as
+                      | "owner"
+                      | "member"
+                      | "guest")
+                  : "guest",
+            },
+          });
+          items = items.map((item) =>
+            item.id === live.id
+              ? {
+                  ...item,
+                  label: live.label,
+                  value: live.value,
+                  unit: live.unit,
+                  trend: live.trend,
+                  trendClass: live.trendClass,
+                  target: live.target,
+                  description: live.description,
+                  spark: [...live.spark],
+                  metricId: live.metricId,
+                  metricVersion: live.metricVersion,
+                  ...(live.queryRunId === undefined
+                    ? {}
+                    : { queryRunId: live.queryRunId }),
+                  dataMode: live.dataMode,
+                  ...(live.dataCutoffAt === undefined
+                    ? {}
+                    : { dataCutoffAt: live.dataCutoffAt }),
+                }
+              : item,
+          );
+          const orderMetric = items.find((item) => item.id === live.id);
+          dataMode =
+            live.dataMode === "unavailable"
+              ? "unavailable"
+              : live.dataMode === "production"
+                ? "mixed"
+                : "demo";
+          sourceNote =
+            live.dataMode === "demo"
+              ? "订单卡来自 Data Fabric 演示数据，其余经营卡为演示种子"
+              : live.dataMode === "production"
+                ? "订单卡来自 Data Fabric 生产指标，其余经营卡仍为演示种子"
+                : "订单指标暂不可用，经营演示种子未混入生产结果";
+          if (orderMetric === undefined) dataMode = "unavailable";
+        } catch {
+          dataMode = "unavailable";
+          sourceNote = "订单指标查询失败；未用演示值替代生产结果";
+        }
+      }
+    }
+    return {
+      id: "metrics",
+      title: MODULE_TITLES.metrics,
+      updatedAt: nowIso(() => this.now()),
+      refreshable: true,
+      sourceCount: 2,
+      data: { selected, items, dataMode, sourceNote },
     };
   }
 
@@ -2336,6 +2595,111 @@ export class WorkbenchService {
     }>
   > {
     const now = this.now();
+    const display = await this.activeDisplayProfile(principal);
+    if (display?.profile.brief !== undefined) {
+      const copy = await display.profile.brief({
+        workspace: display.workspace,
+        principal,
+      });
+      const candidates: BriefCandidate[] = copy.items.map((item) => {
+        const refId = item.deepLink?.refId ?? item.id;
+        const route = item.deepLink?.route ?? "task";
+        return {
+          itemId: `${display.profile.id}:${item.id}`,
+          section: "risk",
+          tag: "data",
+          title: item.title,
+          conclusion: item.body,
+          reason: `来自工作台显示 Profile：${display.profile.title}`,
+          executorName: principal.name ?? principal.userId,
+          executorRole: "工作台 Profile",
+          sourceDomain:
+            route === "workflow"
+              ? "workflow"
+              : "task",
+          sourceId: refId,
+          statusLabel: item.statusLabel ?? "待处理",
+          actionLabel: item.actionLabel ?? "查看明细",
+          priorityScore: 8,
+          occurredAt: now.toISOString(),
+          deepLink: {
+            route,
+            refId,
+            workspaceId: item.deepLink?.workspaceId ?? display.workspace.id,
+            label: item.deepLink?.label ?? "",
+          },
+          workspaceId: display.workspace.id,
+          workspaceName: this.workspaceName(display.workspace),
+          condition: { kind: "task-escalation", refId },
+        };
+      });
+      const existing = this.readerItems(principal.userId);
+      const merged = mergeBriefItems({
+        readerId: principal.userId,
+        existing,
+        candidates,
+        liveState: new Map(
+          candidates.map((candidate) => [
+            candidate.itemId,
+            { active: true, resolved: false } satisfies BriefLiveState,
+          ]),
+        ),
+        now,
+        tzOffsetMinutes: options.tzOffsetMinutes,
+      });
+      const retained = new Set(merged.stored.map((item) => item.itemId));
+      for (const item of existing) {
+        if (retained.has(item.itemId)) continue;
+        await this.tables.briefItems.delete(
+          briefItemKey(principal.userId, item.itemId),
+        );
+      }
+      for (const item of merged.stored) {
+        await this.tables.briefItems.put(
+          briefItemKey(principal.userId, item.itemId),
+          item,
+        );
+      }
+      const reader = this.tables.briefReaders.get(principal.userId);
+      await this.tables.briefReaders.put(principal.userId, {
+        ...(reader ?? { readerId: principal.userId }),
+        lastMergeAt: now.toISOString(),
+        ...(reader?.lastSeenAt === undefined
+          ? {}
+          : { lastSeenAt: reader.lastSeenAt }),
+        includeTypes:
+          reader?.includeTypes ?? [...DEFAULT_BRIEF_INCLUDE_TYPES],
+        customRules: reader?.customRules ?? [],
+        updatedAt: now.toISOString(),
+      });
+      return {
+        id: "brief",
+        title: copy.title,
+        updatedAt: now.toISOString(),
+        refreshable: true,
+        sourceCount: merged.stored.length,
+        staleAt: new Date(now.getTime() + 6 * 60 * 60 * 1000).toISOString(),
+        data: {
+          awayWindow: computeAwayWindow({
+            lastMergeAt: reader?.lastMergeAt,
+            lastSeenAt: reader?.lastSeenAt,
+            manualFrom: reader?.manualWindowFrom,
+            now,
+            tzOffsetMinutes: options.tzOffsetMinutes,
+          }),
+          unreadCount: merged.unreadCount,
+          summary: copy.summary,
+          views: { unread: merged.unread, all: merged.all },
+          settings: {
+            mode: reader?.briefMode ?? "lastLeave",
+            manualWindowFrom: reader?.manualWindowFrom,
+            includeTypes:
+              reader?.includeTypes ?? [...DEFAULT_BRIEF_INCLUDE_TYPES],
+            customRules: reader?.customRules ?? [],
+          },
+        },
+      };
+    }
     const reader = this.tables.briefReaders.get(principal.userId);
     const window = computeAwayWindow({
       lastMergeAt: reader?.lastMergeAt,
@@ -2544,7 +2908,7 @@ export class WorkbenchService {
     try {
       switch (moduleId) {
         case "metrics":
-          return this.metricsModule(principal) as WorkbenchModule<T>;
+          return (await this.metricsModuleLive(principal)) as WorkbenchModule<T>;
         case "brief":
           return (await this.briefModule(
             principal,
@@ -2586,16 +2950,34 @@ export class WorkbenchService {
   ): Promise<{
     userId: string;
     generatedAt: string;
+    display: {
+      profileId?: string | undefined;
+      title?: string | undefined;
+      workspaceId?: string | undefined;
+      visibleModules: ModuleId[];
+    };
     modules: Record<ModuleId, WorkbenchModule<unknown>>;
   }> {
     this.touchReader(principal);
+    const display = await this.activeDisplayProfile(principal);
+    const visibleModules = display?.profile.visibleModules ?? MODULE_IDS;
     const modules = {} as Record<ModuleId, WorkbenchModule<unknown>>;
-    for (const moduleId of MODULE_IDS) {
+    for (const moduleId of visibleModules) {
       modules[moduleId] = await this.module(principal, moduleId, options);
     }
     return {
       userId: principal.userId,
       generatedAt: nowIso(() => this.now()),
+      display: {
+        ...(display === undefined
+          ? {}
+          : {
+              profileId: display.profile.id,
+              title: display.profile.title,
+              workspaceId: display.workspace.id,
+            }),
+        visibleModules: [...visibleModules],
+      },
       modules,
     };
   }

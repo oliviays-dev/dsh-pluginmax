@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { taskExecutionPolicySchema } from "@pluginmax/contracts";
+import {
+  taskDraftForCreationSchema,
+  taskExecutionPolicySchema,
+  type TaskCreationFromDraftResult,
+  type TaskDraftForCreation,
+} from "@pluginmax/contracts";
 import {
   taskCommentSchema,
   taskEventSchema,
@@ -152,6 +157,7 @@ const createInputSchema = z.object({
   autoApproveReview: z.boolean().optional(),
   workflow: taskWorkflowRefSchema.optional(),
 });
+type CreateInput = z.infer<typeof createInputSchema>;
 
 const updateInputSchema = z.object({
   taskId: z.string().min(1).max(160),
@@ -236,6 +242,32 @@ const stepInputSchema = z.object({
   taskId: z.string().min(1).max(160),
   stepId: z.string().min(1).max(160),
   done: z.boolean(),
+});
+const progressReportInputSchema = z.object({
+  taskId: z.string().min(1).max(160),
+  progress: z.number().int().min(0).max(100),
+  summary: z.string().trim().min(1).max(20_000),
+  completedStepIds: z.array(z.string().min(1).max(160)).max(30).default([]),
+});
+const inputRequestSchema = z.object({
+  taskId: z.string().min(1).max(160),
+  question: z.string().trim().min(1).max(20_000),
+});
+const deliverableInputSchema = z.object({
+  taskId: z.string().min(1).max(160),
+  summary: z.string().trim().min(1).max(20_000),
+  completedStepIds: z.array(z.string().min(1).max(160)).max(30).default([]),
+  attachments: z
+    .array(
+      z.object({
+        name: z.string().min(1).max(300),
+        size: z.number().int().nonnegative().optional(),
+        mimeType: z.string().max(200).optional(),
+        storedPath: z.string().max(500).optional(),
+      }),
+    )
+    .max(50)
+    .default([]),
 });
 
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
@@ -451,6 +483,42 @@ export class TaskService {
       );
     }
     return undefined;
+  }
+
+  private requireExecutor(task: TaskRecord, actor: TaskActor): TaskRecord {
+    if (task.workflow !== undefined) {
+      throw new TaskError("conflict", "工作流任务的执行反馈由工作流节点处理");
+    }
+    if (task.status !== "todo" && task.status !== "progress") {
+      throw new TaskError("conflict", "任务当前不可执行反馈");
+    }
+    const principalId = actor.principalId ?? this.principalForActor(actor)?.id;
+    const matchesPrincipal =
+      principalId !== undefined &&
+      task.receiverPrincipalId !== undefined &&
+      principalId === task.receiverPrincipalId;
+    const matchesReceiver =
+      task.receiverId !== undefined &&
+      (task.receiverId === actor.id ||
+        (principalId !== undefined && task.receiverId === principalId));
+    if (!matchesPrincipal && !matchesReceiver) {
+      throw new TaskError("forbidden", "只有当前任务执行者可以反馈进展");
+    }
+    return task;
+  }
+
+  private completedSteps(
+    task: TaskRecord,
+    completedStepIds: readonly string[],
+  ): TaskRecord["steps"] {
+    const stepIds = new Set(task.steps.map((step) => step.id));
+    if (completedStepIds.some((stepId) => !stepIds.has(stepId))) {
+      throw new TaskError("invalid_input", "completedStepIds 包含未知验收项");
+    }
+    const completed = new Set(completedStepIds);
+    return task.steps.map((step) =>
+      completed.has(step.id) ? { ...step, done: true } : step,
+    );
   }
 
   private normalizeReceiver(input: {
@@ -745,6 +813,92 @@ export class TaskService {
 
   async create(actor: TaskActor, input: unknown): Promise<TaskRecord> {
     const parsed = parse(createInputSchema, input);
+    return this.insertTask(actor, parsed);
+  }
+
+  async createFromDraft(
+    actor: TaskActor,
+    input: {
+      readonly draft: TaskDraftForCreation;
+      readonly creationKey: string;
+      readonly executionPolicy?: unknown;
+      readonly autoSubmitReview?: boolean | undefined;
+    },
+  ): Promise<TaskCreationFromDraftResult> {
+    const draft = parse(taskDraftForCreationSchema, input.draft);
+    const executionPolicy =
+      input.executionPolicy === undefined
+        ? undefined
+        : parse(taskExecutionPolicySchema, input.executionPolicy);
+    const creationKey = z
+      .string()
+      .trim()
+      .min(1)
+      .max(500)
+      .parse(input.creationKey);
+    const existing = this.list(draft.workspaceId).find(
+      (task) => task.creationKey === creationKey,
+    );
+    if (existing !== undefined) {
+      return {
+        taskId: existing.id,
+        workspaceId: existing.workspaceId,
+        title: existing.title,
+        status: existing.status,
+        creationKey,
+        deduplicated: true,
+        updatedAt: existing.updatedAt,
+      };
+    }
+    const created = await this.insertTask(
+      actor,
+      {
+        workspaceId: draft.workspaceId,
+        title: draft.title,
+        type: "任务",
+        priority: draft.priority,
+        status: "todo",
+        receiverType: draft.receiverType,
+        ...(draft.receiverId === undefined
+          ? {}
+          : { receiverId: draft.receiverId }),
+        ...(draft.receiverName === undefined
+          ? {}
+          : { receiverName: draft.receiverName }),
+        description: draft.description,
+        acceptance: draft.acceptance,
+        ...(draft.due === undefined ? {} : { due: draft.due }),
+        links: [],
+        autoSubmitReview:
+          draft.receiverType === "agent"
+            ? (input.autoSubmitReview ?? true)
+            : false,
+        ...(executionPolicy === undefined ? {} : { executionPolicy }),
+      },
+      {
+        creationKey,
+        eventMessage: `${actor.name} 从任务草稿创建任务`,
+      },
+    );
+    return {
+      taskId: created.id,
+      workspaceId: created.workspaceId,
+      title: created.title,
+      status: created.status,
+      creationKey,
+      deduplicated: false,
+      updatedAt: created.updatedAt,
+    };
+  }
+
+  private async insertTask(
+    actor: TaskActor,
+    parsed: CreateInput,
+    options: {
+      readonly creationKey?: string | undefined;
+      readonly eventMessage?: string | undefined;
+    } = {},
+  ): Promise<TaskRecord> {
     const receiver = this.normalizeReceiver(parsed);
     const at = this.now();
     const steps = parsed.acceptance.map((label) =>
@@ -752,6 +906,9 @@ export class TaskService {
     );
     const task = taskRecordSchema.parse({
       id: taskId(),
+      ...(options.creationKey === undefined
+        ? {}
+        : { creationKey: options.creationKey }),
       workspaceId: parsed.workspaceId,
       title: parsed.title,
       type: parsed.type,
@@ -793,7 +950,7 @@ export class TaskService {
       task,
       actor,
       "created",
-      `${actor.name} 创建并派发任务`,
+      options.eventMessage ?? `${actor.name} 创建任务`,
     );
     return this.put(withEvent);
   }
@@ -1617,6 +1774,118 @@ export class TaskService {
           : `${actor.name} 添加了执行消息`,
     );
     return this.put(updated);
+  }
+
+  async reportProgress(actor: TaskActor, input: unknown): Promise<TaskRecord> {
+    const parsed = parse(progressReportInputSchema, input);
+    const task = this.requireExecutor(this.require(parsed.taskId), actor);
+    const steps = this.completedSteps(task, parsed.completedStepIds);
+    const message = taskMessageSchema.parse({
+      id: randomUUID(),
+      at: this.now(),
+      authorId: actor.id,
+      authorName: actor.name,
+      kind: "agent",
+      content: parsed.summary,
+      attachments: [],
+      mentions: [],
+      deliveryTarget: "receiver",
+      state: "running",
+    });
+    const updated = this.event(
+      {
+        ...task,
+        status: "progress",
+        progress: Math.max(
+          task.progress,
+          parsed.progress,
+          progressForSteps(steps),
+        ),
+        steps,
+        needsInput: false,
+        messages: [...task.messages, message],
+        updatedAt: this.now(),
+      },
+      actor,
+      parsed.completedStepIds.length > 0 ? "step" : "message",
+      `${actor.name} 上报进展：${parsed.progress}%`,
+    );
+    return this.put(updated);
+  }
+
+  async requestInput(actor: TaskActor, input: unknown): Promise<TaskRecord> {
+    const parsed = parse(inputRequestSchema, input);
+    const task = this.requireExecutor(this.require(parsed.taskId), actor);
+    const message = taskMessageSchema.parse({
+      id: randomUUID(),
+      at: this.now(),
+      authorId: actor.id,
+      authorName: actor.name,
+      kind: "agent",
+      content: parsed.question,
+      attachments: [],
+      mentions: [],
+      deliveryTarget: "receiver",
+      state: "waiting_input",
+    });
+    return this.put(
+      this.event(
+        {
+          ...task,
+          status: "progress",
+          needsInput: true,
+          messages: [...task.messages, message],
+          updatedAt: this.now(),
+        },
+        actor,
+        "message",
+        `${actor.name} 请求补充信息`,
+      ),
+    );
+  }
+
+  async submitDeliverable(
+    actor: TaskActor,
+    input: unknown,
+  ): Promise<TaskRecord> {
+    const parsed = parse(deliverableInputSchema, input);
+    let task = this.requireExecutor(this.require(parsed.taskId), actor);
+    const steps = this.completedSteps(task, parsed.completedStepIds);
+    if (!steps.some((step) => step.done)) {
+      throw new TaskError(
+        "invalid_input",
+        "提交交付物前至少需要完成一项验收标准",
+      );
+    }
+    const message = taskMessageSchema.parse({
+      id: randomUUID(),
+      at: this.now(),
+      authorId: actor.id,
+      authorName: actor.name,
+      kind: "agent",
+      content: parsed.summary,
+      attachments: parsed.attachments,
+      mentions: [],
+      deliveryTarget: "receiver",
+      state: "succeeded",
+    });
+    task = await this.put(
+      this.event(
+        {
+          ...task,
+          status: "progress",
+          progress: Math.max(task.progress, progressForSteps(steps), 86),
+          steps,
+          needsInput: false,
+          messages: [...task.messages, message],
+          updatedAt: this.now(),
+        },
+        actor,
+        "message",
+        `${actor.name} 提交交付物`,
+      ),
+    );
+    return this.submit(actor, task.id);
   }
 
   /** 重置执行会话：下一次执行换新会话，并重新注入完整上下文。 */

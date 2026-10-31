@@ -118,6 +118,82 @@ describe("task execution policy", () => {
     });
     expect(updated.executionPolicy?.evidence.requireToolEvents).toBe(false);
   });
+
+  it("applies draft creation policy without enabling review for human owners", async () => {
+    const table = memoryTable();
+    const tasks = new TaskService({ tasks: table });
+    const executionPolicy = {
+      schemaVersion: 1 as const,
+      runtime: {
+        selection: "recommended" as const,
+        allowedRuntimeIds: [],
+        requiredCapabilities: [],
+      },
+      sourcePolicy: {
+        allow: ["workspace"] as const,
+        deny: ["private-local-data"] as const,
+        citation: "none" as const,
+        requirePublishedAt: false,
+        requireAccessedAt: false,
+      },
+      toolPolicy: {
+        allow: [],
+        deny: [],
+        requireApproval: ["fs.write"],
+      },
+      evidence: {
+        requirePlan: true,
+        requireToolEvents: true,
+        requireCitations: false,
+        requireStructuredSubagents: false,
+      },
+      humanGates: [],
+      budget: {},
+    };
+    const result = await tasks.createFromDraft(actor, {
+      draft: {
+        workspaceId: "workspace-1",
+        title: "Human draft task",
+        description: "Created without opening the editor.",
+        priority: "P2",
+        receiverType: "human",
+        receiverId: "admin",
+        receiverName: "Admin",
+        acceptance: ["Done"],
+        collaboratorHints: [],
+      },
+      creationKey: "draft-human-1",
+      executionPolicy,
+      autoSubmitReview: true,
+    });
+    const task = tasks.get(result.taskId);
+    expect(task).toMatchObject({
+      status: "todo",
+      autoSubmitReview: false,
+      executionPolicy,
+    });
+  });
+
+  it("keeps auto-submit review for draft tasks owned by an AI partner", async () => {
+    const tasks = new TaskService({ tasks: memoryTable() });
+    const result = await tasks.createFromDraft(actor, {
+      draft: {
+        workspaceId: "workspace-1",
+        title: "Agent draft task",
+        description: "Created without opening the editor.",
+        priority: "P2",
+        receiverType: "agent",
+        receiverId: "agent-1",
+        receiverName: "Data Agent",
+        acceptance: ["Done"],
+        collaboratorHints: [],
+      },
+      creationKey: "draft-agent-1",
+      autoSubmitReview: true,
+    });
+    expect(tasks.get(result.taskId).autoSubmitReview).toBe(true);
+    expect(tasks.get(result.taskId).autoApproveReview).toBe(false);
+  });
 });
 
 describe("legacy task compatibility", () => {

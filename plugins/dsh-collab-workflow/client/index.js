@@ -60,10 +60,6 @@ window.__ModuleLoader__.load({
 .pmwf-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin:0 0 14px}
 .pmwf-heading h1{margin:0;font-size:19px;line-height:1.25;white-space:nowrap}
 .pmwf-heading-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.pmwf-meeting-toggle{width:32px;height:32px;flex:none;display:grid;place-items:center;padding:0;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-secondary);cursor:pointer}
-.pmwf-meeting-toggle:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2)}
-.pmwf-meeting-toggle.active{color:var(--dsw-alias-accent-primary,#4f8ef7);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 12%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 50%,transparent)}
-.pmwf-meeting-toggle svg{width:15px;height:15px}
 .pmwf-filter{flex:none;border:0.5px solid color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 34%,transparent);border-radius:999px;padding:4px 8px;color:var(--dsw-alias-accent-primary,#4f8ef7);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 10%,transparent);font-size:11px;white-space:nowrap}
 .pmwf-inline-feedback{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-state-success-primary,#1f8f53);font-size:11.5px}
 .pmwf-inline-feedback.error{color:var(--dsw-alias-state-error-primary,#e5534b)}
@@ -253,9 +249,10 @@ window.__ModuleLoader__.load({
 .pmwf-summary-row:hover{border-color:var(--dsw-alias-border-l4,var(--dsw-alias-border-l3))}
 .pmwf-summary-row.active{border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 55%,transparent);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 8%,var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base)))}
 .pmwf-summary-row>.pmwf-summary{flex:1 1 auto;min-width:0}
-.pmwf-summary{display:grid;grid-template-columns:auto minmax(240px,.8fr) minmax(280px,1.2fr) 160px;gap:10px;align-items:center;width:100%;min-height:56px;padding:9px 12px;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.pmwf-summary{display:grid;grid-template-columns:auto minmax(240px,.8fr) minmax(280px,1.2fr) 160px auto;gap:10px;align-items:center;width:100%;min-height:56px;padding:9px 12px;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .pmwf-summary:hover{background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base))}
 .pmwf-chevron{display:none}
+.pmwf-detail-open{white-space:nowrap;}
 .pmwf-dot{width:8px;height:8px;border-radius:50%;flex:none}
 .pmwf-dot.running{background:#37b76a}.pmwf-dot.blocked,.pmwf-dot.failed{background:#e26d6d}.pmwf-dot.waiting{background:#d99a26}.pmwf-dot.completed{background:#4c9aff}
 .pmwf-name{display:grid;min-width:0;gap:3px}
@@ -409,7 +406,7 @@ window.__ModuleLoader__.load({
 .pmwf-definition-main{min-width:0}.pmwf-definition-main>div{margin-top:3px;line-height:1.45;overflow-wrap:anywhere}.pmwf-actions-right{display:flex;justify-content:flex-end;gap:6px;flex-wrap:wrap}
 @media(max-width:900px){.pmwf-toolbar{flex-wrap:wrap}.pmwf-project-filter,.pmwf-status-multi,.pmwf-owner-filter{flex:1 1 calc(33.333% - 6px);width:auto}.pmwf-search{flex-basis:100%}.pmwf-search-submit{flex:1 1 100%;margin-left:0;}}
 @media(max-width:760px){.pmwf-template-layout,.pmwf-template-inline-body{grid-template-columns:1fr}.pmwf-template-sidebar{border-right:0;border-bottom:1px solid var(--dsw-alias-border-l2)}}
-@media(max-width:760px){.pmwf-summary{grid-template-columns:auto minmax(0,1fr) auto;align-items:start}.pmwf-name{grid-column:2;grid-row:1}.pmwf-row-meta{grid-column:2 / 4;grid-row:2;display:grid;gap:2px;justify-items:start;text-align:left}.pmwf-status-note{grid-column:3;grid-row:1;width:auto;max-width:140px}.pmwf-node-facts{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:760px){.pmwf-summary{grid-template-columns:auto minmax(0,1fr) auto;align-items:start}.pmwf-name{grid-column:2;grid-row:1}.pmwf-row-meta{grid-column:2 / 4;grid-row:2;display:grid;gap:2px;justify-items:start;text-align:left}.pmwf-status-note{grid-column:3;grid-row:1;width:auto;max-width:140px}.pmwf-detail-open{grid-column:1 / -1;grid-row:3;justify-self:end}.pmwf-node-facts{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:560px){.pmwf-heading{flex-direction:column;gap:8px}.pmwf-name span{white-space:normal}.pmwf-select{width:100%}.pmwf-detail-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:6px 10px}.pmwf-detail-title{grid-column:1/-1;flex-wrap:nowrap;gap:6px}.pmwf-crumb{flex:1 1 auto}.pmwf-detail-head>.pmwf-time{grid-column:2;grid-row:2;justify-self:end;max-width:none}.pmwf-detail-meta-right{margin-left:0;justify-content:flex-start}}
 @media(max-width:960px){.pmwf-list{grid-template-columns:1fr}.pmwf-placeholder{grid-column:1;grid-row:auto !important}.pmwf-detail{grid-column:1;grid-row:auto !important}.pmwf-detail-inner{position:static;max-height:none;overflow:visible}}
 @container (max-width:780px){.pmwf-list{grid-template-columns:1fr}.pmwf-placeholder{grid-column:1;grid-row:auto !important}.pmwf-detail{grid-column:1;grid-row:auto !important}.pmwf-detail-inner{position:static;max-height:none;overflow:visible}}
@@ -2532,6 +2529,7 @@ window.__ModuleLoader__.load({
      * 点击节点会滚动到下方节点卡片；交付物按钮打开只读清单浮层。
      */
     function WorkflowFlowOverview({
+      instanceId,
       definition,
       workspaceId,
       states,
@@ -2574,7 +2572,7 @@ window.__ModuleLoader__.load({
           {
             className: `pmwf-overview-node ${node.type} ${nodeClass(state)}`,
             title: `${node.name} · ${statusLabel}`,
-            "data-workflow-id": definition?.id,
+            "data-workflow-id": instanceId,
             "data-workflow-node-id": node.id,
             "data-workspace-id": workspaceId,
             "data-data-agent-title": node.name,
@@ -2583,6 +2581,7 @@ window.__ModuleLoader__.load({
               jsxRuntime.jsxs("button", {
                 type: "button",
                 className: "pmwf-overview-select",
+                "data-data-agent-select": "workflow_node",
                 "aria-label": `${node.name} · ${statusLabel}`,
                 onClick: selectNode,
                 children: [
@@ -4818,7 +4817,6 @@ window.__ModuleLoader__.load({
                         children: "新建工作流",
                       }),
                       props.renderActions?.() ?? null,
-                      jsxRuntime.jsx(MeetingPanelToggle, {}),
                     ],
                   }),
                 ],
@@ -5418,11 +5416,8 @@ window.__ModuleLoader__.load({
                                 "data-data-agent-title": instance.title,
                                 "data-data-agent-excerpt": `${currentState?.nodeId ?? ""} · ${instance.status ?? ""}`,
                                 children: [
-                                  jsxRuntime.jsxs("button", {
-                                    type: "button",
+                                  jsxRuntime.jsxs("div", {
                                     className: "pmwf-summary",
-                                    "aria-expanded": isOpen,
-                                    onClick: () => expand(instance.id),
                                     children: [
                                       jsxRuntime.jsx("span", {
                                         className: `pmwf-dot ${pillClass(instance.status)}`,
@@ -5500,9 +5495,16 @@ window.__ModuleLoader__.load({
                                           }),
                                         ],
                                       }),
-                                      jsxRuntime.jsx("span", {
-                                        className: "pmwf-chevron",
-                                        "aria-hidden": true,
+                                      jsxRuntime.jsx("button", {
+                                        type: "button",
+                                        className:
+                                          "pmwf-btn secondary small pmwf-detail-open",
+                                        "aria-expanded": isOpen,
+                                        "aria-label": `查看${instance.title}详情`,
+                                        onClick: () => expand(instance.id),
+                                        children: isOpen
+                                          ? "收起详情"
+                                          : "查看详情",
                                       }),
                                     ],
                                   }),
@@ -5616,6 +5618,7 @@ window.__ModuleLoader__.load({
                                               jsxRuntime.jsx(
                                                 WorkflowFlowOverview,
                                                 {
+                                                  instanceId: instance.id,
                                                   definition,
                                                   workspaceId:
                                                     instance.workspaceId,
@@ -7481,43 +7484,6 @@ window.__ModuleLoader__.load({
           compact: true,
           iconOnly: true,
           workspaceId: props.workspaceId,
-        }),
-      });
-    }
-
-    function MeetingPanelToggle() {
-      const meetingOpen = react.useSyncExternalStore(
-        (listener) =>
-          window.__pluginmaxMeeting?.subscribe(() =>
-            listener(Boolean(window.__pluginmaxMeeting.open)),
-          ) ?? (() => {}),
-        () => Boolean(window.__pluginmaxMeeting?.open),
-      );
-      return jsxRuntime.jsx("button", {
-        type: "button",
-        className: `pmwf-meeting-toggle${meetingOpen ? " active" : ""}`,
-        "aria-label": meetingOpen ? "收起会议侧边栏" : "展开会议侧边栏",
-        "aria-pressed": meetingOpen,
-        title: meetingOpen ? "收起会议侧边栏" : "展开会议侧边栏",
-        onClick: () => window.__pluginmaxMeeting?.toggle(),
-        children: jsxRuntime.jsxs("svg", {
-          viewBox: "0 0 24 24",
-          fill: "none",
-          stroke: "currentColor",
-          strokeWidth: 2,
-          strokeLinecap: "round",
-          strokeLinejoin: "round",
-          "aria-hidden": true,
-          children: [
-            jsxRuntime.jsx("path", { d: "m22 8-6 4 6 4V8Z" }),
-            jsxRuntime.jsx("rect", {
-              x: 2,
-              y: 6,
-              width: 14,
-              height: 12,
-              rx: 2,
-            }),
-          ],
         }),
       });
     }

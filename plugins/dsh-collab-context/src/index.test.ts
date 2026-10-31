@@ -206,6 +206,52 @@ describe("ContextService", () => {
     );
   });
 
+  it("renders shared object and mode sections as ContextPack evidence", async () => {
+    const context = service();
+    const pack = await context.prepare({
+      ...request,
+      requestId: "request-shared-object",
+      supplementalSections: [
+        {
+          id: "data-agent-mode-chat",
+          type: "mode-policy",
+          authority: "instruction",
+          text: "本轮按常规对话回答。",
+          sourceRefs: [],
+          compression: "full",
+        },
+        {
+          id: "shared-object-task-1",
+          type: "shared-object-context",
+          authority: "evidence",
+          text: "task:TSK-1\nAgent Run run-1 interrupted",
+          sourceRefs: [{ type: "task", id: "TSK-1" }],
+          compression: "extracted",
+        },
+        {
+          id: "data-capability",
+          type: "data-capability",
+          authority: "instruction",
+          text: "dataQueryAvailable: true",
+          sourceRefs: [],
+          compression: "full",
+        },
+      ],
+    });
+
+    expect(pack.rendered.userText).toContain("本轮按常规对话回答。");
+    expect(pack.rendered.userText).toContain("task:TSK-1");
+    expect(pack.rendered.userText).toContain("dataQueryAvailable: true");
+    expect(pack.sections).toContainEqual(
+      expect.objectContaining({
+        id: "shared-object-task-1",
+        authority: "evidence",
+        compression: "extracted",
+      }),
+    );
+    expect(pack.sections[0]?.authority).toBe("mandatory");
+  });
+
   it("delivers scene consensus incrementally and records delivered versions", async () => {
     const contributions: SceneContextContribution[] = [
       {

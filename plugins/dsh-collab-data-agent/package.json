@@ -22,6 +22,7 @@
     "build": "tsdown && cp client/index.js lib/client.js"
   },
   "dependencies": {
+    "@pluginmax/contracts": "workspace:*",
     "@pluginmax/shared": "workspace:*",
     "zod": "4.4.3"
   },

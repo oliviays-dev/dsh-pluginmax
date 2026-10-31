@@ -333,6 +333,14 @@ function taskUserMessage(text: string): unknown {
 }
 
 /**
+ * Runtime Profile keeps product-level tool names such as `entity.read`, while
+ * model providers require function names to match `^[a-zA-Z0-9_-]+$`.
+ */
+function runtimeToolName(name: string): string {
+  return name.trim().replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
+/**
  * 会话产物已经不在磁盘上时的失败特征。
  * DSH 的 jsonl 持久化只在创建会话时建目录，之后是 `open(path, 'a')`：
  * 目录/文件被外部清掉后，恢复会话与后续落盘都会以 ENOENT / not-found 失败。
@@ -1666,22 +1674,37 @@ export class AgentTaskRuntime {
         if (systemPrompt !== undefined) {
           const order =
             systemPrompt.getSectionOrder?.("DEPLOYMENT_PERSONA") ?? 0;
+          const contextSystemText =
+            typeof run.payload.context.systemText === "string"
+              ? run.payload.context.systemText.trim()
+              : "";
           systemPrompt.section({
-            name: "dsh-collab:teammate-soul",
+            name:
+              contextSystemText === ""
+                ? "dsh-collab:teammate-soul"
+                : "dsh-collab:contextpack-system",
             order,
-            text: `# 你的人设（AI伙伴）\n\n${personaSoul}`,
+            text:
+              contextSystemText === ""
+                ? `# 你的人设（AI伙伴）\n\n${personaSoul}`
+                : personaSoul,
           });
         }
       }
       const tools = agentCtx.tools;
       // 空清单 = 不限制（与「未限制工具清单」的语义一致）：只有显式配置了工具
       // 才收窄，否则保持挂载预设后的默认工具集。
-      const configured = [...new Set(profile.allowedTools)].filter(
-        (name) => name.trim() !== "",
-      );
+      const configured = [
+        ...new Set(profile.allowedTools.map(runtimeToolName)),
+      ].filter((name) => name !== "");
       if (tools !== undefined && configured.length > 0) {
         const allow = configured.filter(
-          (name) => tools.get(name) !== undefined,
+          // Native clarification is registered by the standard preset after
+          // the teammate setup starts. Keep it in the allow-list even if the
+          // registry has not surfaced it yet, while still filtering stale
+          // custom tool names.
+          (name) =>
+            name === "ask_user_question" || tools.get(name) !== undefined,
         );
         tools.restrict({ allow });
       }
@@ -2064,7 +2087,12 @@ export class AgentTaskRuntime {
     ) {
       // 会话必须先可见，再进入全局并发/执行队列；否则排队期间左侧清单
       // 会缺项，服务重启后也可能留下「有任务、无 session」的断档。
-      reservedPersonaSoul = await this.resolvePersonaSoul(claimed.personaId);
+      reservedPersonaSoul =
+        claimed.contextPackId !== undefined
+          ? typeof claimed.payload.context.systemText === "string"
+            ? claimed.payload.context.systemText.trim()
+            : ""
+          : await this.resolvePersonaSoul(claimed.personaId);
       claimed = await this.reserveHomeSession(
         claimed,
         profile,
@@ -2108,10 +2136,16 @@ export class AgentTaskRuntime {
     try {
       await this.acquire(current.workspaceId);
       const signal = task.controller.signal;
+      // ContextPack renders platform policy, identity, and scene policy into
+      // systemText. Inject it at the same precedence boundary as persona SOUL.
+      const contextSystemText =
+        typeof current.payload.context.systemText === "string"
+          ? current.payload.context.systemText.trim()
+          : "";
       // 人设文本在启动前解析一次：内置会话与 subagent 两条路径共用。
       const personaSoul =
         current.contextPackId !== undefined
-          ? ""
+          ? contextSystemText
           : reservedPersonaSoul !== "" || current.personaId === undefined
             ? reservedPersonaSoul
             : await this.resolvePersonaSoul(current.personaId);

@@ -160,7 +160,10 @@ const DATA_AGENT_SEED = {
     "你是一名长期在线的高级数据分析师，只在授权范围内使用只读数据。",
     "",
     "## 分析原则",
-    "- 先确认指标口径、时间范围和业务对象，再给结论。",
+    "- 先判断用户是在普通对话还是在明确要求生成报告。",
+    "- 普通问题直接回答；只有用户明确要求报告时才进入报告生成链路。",
+    "- 用户没有分享卡片但在询问业务数据时，先发现有权访问的数据集和认证指标，再查询或澄清；不要把没有选区等同于没有数据。",
+    "- 缺少必要信息时，优先使用 ask_user_question 获取结构化补充；能合理处理时不要为了澄清而澄清。",
     "- 明确区分数据事实、推断原因和建议动作。",
     "- 不编造数据，不用示例值代替真实结果。",
     "- 查询失败或字段缺失时，说明具体数据源、失败步骤和可执行的下一步。",
@@ -168,10 +171,10 @@ const DATA_AGENT_SEED = {
     "- 跨项目、跨工作区数据必须重新校验权限。",
     "",
     "## 输出契约",
-    "- 使用中文 Markdown。",
-    "- 报告至少包含：结论、分析范围、口径、证据链、不确定性、建议下一步。",
-    "- 先给业务影响，再给证据；不要用长段落替代结论。",
-    "- 默认交付 Markdown 报告，不主动生成 HTML。",
+    "- 常规对话使用简洁中文直接回答，不套用报告结构。",
+    "- 报告请求使用中文 Markdown，至少包含：结论、分析范围、口径、证据链、不确定性、建议下一步。",
+    "- 报告先给业务影响，再给证据；不要用长段落替代结论。",
+    "- 默认不生成 HTML；只有用户显式请求时才生成 HTML 派生版本。",
   ].join("\n"),
   scenarios: ["即时查数", "异常诊断", "定期报告", "数据准备度治理"],
   goals: [
@@ -182,8 +185,12 @@ const DATA_AGENT_SEED = {
   // 真实 MCP Connector 必须由 Runtime Profile 暴露对应的最小工具。
   tools: [
     "entity.read",
+    "data.catalog.search",
+    "dataset.describe",
+    "query.explain",
     "metric.query",
     "dataset.query.readonly",
+    "ask_user_question",
     "report.render",
     "artifact.write",
   ],
@@ -359,6 +366,22 @@ interface WorkspaceRegistryLike {
   }[];
 }
 
+const SYSTEM_DEFAULT_WORKSPACE_ID = "system.default";
+
+function activityWorkspaceIds(input: {
+  readonly workspaces?: WorkspaceRegistryLike | undefined;
+  readonly tasks: readonly TaskRecordLike[];
+}): readonly string[] {
+  const workspaceIds = new Set<string>([SYSTEM_DEFAULT_WORKSPACE_ID]);
+  for (const workspace of input.workspaces?.list() ?? []) {
+    workspaceIds.add(workspace.id);
+  }
+  for (const task of input.tasks) {
+    workspaceIds.add(task.workspaceId);
+  }
+  return [...workspaceIds];
+}
+
 /**
  * 任务模块提供的派发入口（`collabTaskDispatch`）。
  * 工作计划创建后必须复用这条链路，否则任务只会落库、不会唤起 Agent。
@@ -494,6 +517,16 @@ interface ActivityRun {
   readonly instanceId: string;
   readonly agentProfileId?: string | undefined;
   readonly employeeId?: string | undefined;
+  readonly principalId?: string | undefined;
+  readonly payload?:
+    | {
+        readonly context?:
+          | {
+              readonly teammateId?: string | undefined;
+            }
+          | undefined;
+      }
+    | undefined;
   readonly status: string;
   readonly nodeId: string;
   readonly outputTokens?: number | undefined;
@@ -541,11 +574,8 @@ export function calculateTeammateActivity(input: {
   const windowStart = new Date(
     now.getTime() - windowHours * 60 * 60 * 1_000,
   );
-  const workspaces = input.workspaces?.list() ?? [];
-
   // 每个工作区只拉一次运行列表，两套口径复用。
-  const workspaceIds = new Set<string>(workspaces.map((item) => item.id));
-  for (const task of input.tasks) workspaceIds.add(task.workspaceId);
+  const workspaceIds = activityWorkspaceIds(input);
   const runsByWorkspace = new Map<string, readonly ActivityRun[]>();
   for (const workspaceId of workspaceIds) {
     runsByWorkspace.set(
@@ -574,9 +604,8 @@ export function calculateTeammateActivity(input: {
     const collected: ActivityRunRef[] = [];
     const seen = new Set<string>();
     const push = (workspaceId: string, run: ActivityRun) => {
-      const key = `${workspaceId}:${run.id}`;
-      if (seen.has(key)) return;
-      seen.add(key);
+      if (seen.has(run.id)) return;
+      seen.add(run.id);
       collected.push({ workspaceId, run });
     };
     const receiverIds = new Set<string>([teammate.id]);
@@ -614,10 +643,19 @@ export function calculateTeammateActivity(input: {
     for (const [workspaceId, runs] of runsByWorkspace) {
       for (const run of runs) {
         if (scope === "instance") {
-          if (
-            teammate.employeeId === undefined ||
-            run.employeeId !== teammate.employeeId
-          ) {
+          const explicitTeammateId = run.payload?.context?.teammateId;
+          const matchesExplicit =
+            explicitTeammateId !== undefined &&
+            explicitTeammateId === teammate.id;
+          const matchesEmployee =
+            explicitTeammateId === undefined &&
+            teammate.employeeId !== undefined &&
+            run.employeeId === teammate.employeeId;
+          const matchesPrincipal =
+            explicitTeammateId === undefined &&
+            teammate.principalId !== undefined &&
+            run.principalId === teammate.principalId;
+          if (!matchesExplicit && !matchesEmployee && !matchesPrincipal) {
             continue;
           }
         } else if (
@@ -671,8 +709,8 @@ export function calculateTeammateActivity(input: {
     // 两种口径都要能认出来，否则「实际参加过会议」会显示成 0 次。
     const personaId = identity?.personaId;
     const meetingIds = new Set<string>();
-    for (const workspace of workspaces) {
-      for (const meeting of input.meetings?.list(workspace.id) ?? []) {
+    for (const workspaceId of workspaceIds) {
+      for (const meeting of input.meetings?.list(workspaceId) ?? []) {
         if (meetingIds.has(meeting.id)) continue;
         const participates = input.meetings
           ?.participants(meeting.id)
@@ -686,7 +724,10 @@ export function calculateTeammateActivity(input: {
             const ownerId = participant.teammateInstanceId ?? participant.refId;
             const matched =
               receiverIds.has(ownerId) ||
-              (personaId !== undefined && participant.personaId === personaId);
+              ((scope === "template" ||
+                participant.teammateInstanceId === undefined) &&
+                personaId !== undefined &&
+                participant.personaId === personaId);
             return (
               matched &&
               participationOverlapsWindow({
@@ -793,6 +834,8 @@ export interface TeammateWorkloadItem {
   readonly teammateId: string;
   readonly name: string;
   readonly role: string;
+  readonly source: string;
+  readonly systemKey?: string;
   readonly state: string;
   readonly avatar: string;
   readonly hasRunIn72h: boolean;
@@ -863,16 +906,12 @@ export function calculateTeammateWorkload(input: {
   );
   const start24h = new Date(now.getTime() - 24 * 60 * 60 * 1_000);
   const start72h = new Date(now.getTime() - 72 * 60 * 60 * 1_000);
-  const runsByWorkspace = new Map<
-    string,
-    readonly (ActivityRun & { readonly principalId?: string | undefined })[]
-  >();
-  for (const workspace of input.workspaces?.list() ?? []) {
+  const workspaceIds = activityWorkspaceIds(input);
+  const runsByWorkspace = new Map<string, readonly ActivityRun[]>();
+  for (const workspaceId of workspaceIds) {
     runsByWorkspace.set(
-      workspace.id,
-      (input.agents?.runs?.({ workspaceId: workspace.id }) ?? []) as readonly (
-        ActivityRun & { readonly principalId?: string | undefined }
-      )[],
+      workspaceId,
+      input.agents?.runs?.({ workspaceId }) ?? [],
     );
   }
   const allRuns = [...runsByWorkspace.values()].flat();
@@ -886,6 +925,61 @@ export function calculateTeammateWorkload(input: {
       started.getTime() < now.getTime() &&
       ended.getTime() > start.getTime()
     );
+  };
+  const latestMeetingActivity = (
+    teammate: Teammate,
+    identity:
+      | {
+          readonly profileId?: string | undefined;
+          readonly personaId?: string | undefined;
+        }
+      | undefined,
+  ): string | undefined => {
+    const receiverIds = new Set<string>([teammate.id]);
+    if (teammate.employeeId !== undefined) {
+      receiverIds.add(teammate.employeeId);
+    }
+    let latest: string | undefined;
+    for (const workspaceId of workspaceIds) {
+      for (const meeting of input.meetings?.list(workspaceId) ?? []) {
+        for (const participant of input.meetings?.participants(meeting.id) ??
+          []) {
+          if (
+            participant.kind !== "agent" &&
+            participant.kind !== "ai_teammate"
+          ) {
+            continue;
+          }
+          const ownerId =
+            participant.teammateInstanceId ?? participant.refId;
+          const matched =
+            receiverIds.has(ownerId) ||
+            ((participant.teammateInstanceId === undefined ||
+              participant.teammateInstanceId === teammate.id) &&
+              identity?.personaId !== undefined &&
+              participant.personaId === identity.personaId);
+          if (!matched) continue;
+          latest = laterTimestamp(
+            latest,
+            participant.leftAt ??
+              participant.updatedAt ??
+              participant.joinedAt,
+          );
+        }
+        for (const facilitator of input.meetings?.facilitators?.(
+          meeting.id,
+        ) ?? []) {
+          if (!receiverIds.has(facilitator.teammateId)) continue;
+          latest = laterTimestamp(
+            latest,
+            facilitator.deactivatedAt ??
+              facilitator.updatedAt ??
+              facilitator.createdAt,
+          );
+        }
+      }
+    }
+    return latest;
   };
   const items = input.teammates.map((teammate) => {
     const receiverIds = new Set([teammate.id]);
@@ -920,13 +1014,21 @@ export function calculateTeammateWorkload(input: {
     }
     const assignedRunIds = new Set(taskByRun.keys());
     const personalRuns = allRuns.filter(
-      (run) =>
-        assignedRunIds.has(run.id) ||
-        run.instanceId === teammate.id ||
-        (teammate.employeeId !== undefined &&
-          run.employeeId === teammate.employeeId) ||
-        (teammate.principalId !== undefined &&
-          run.principalId === teammate.principalId),
+      (run) => {
+        if (assignedRunIds.has(run.id) || run.instanceId === teammate.id) {
+          return true;
+        }
+        const explicitTeammateId = run.payload?.context?.teammateId;
+        if (explicitTeammateId !== undefined) {
+          return explicitTeammateId === teammate.id;
+        }
+        return (
+          (teammate.employeeId !== undefined &&
+            run.employeeId === teammate.employeeId) ||
+          (teammate.principalId !== undefined &&
+            run.principalId === teammate.principalId)
+        );
+      },
     );
     const runs72h = personalRuns.filter((run) => overlaps(run, start72h));
     const runs24h = runs72h.filter((run) => overlaps(run, start24h));
@@ -936,8 +1038,9 @@ export function calculateTeammateWorkload(input: {
     ): number => {
       const ids = new Set(
         runs
-          .filter((run) => overlaps(run, start))
-          .map((run) => taskByRun.get(run.id)?.id ?? run.instanceId),
+          .filter((run) => overlaps(run, start) && taskByRun.has(run.id))
+          .map((run) => taskByRun.get(run.id)?.id)
+          .filter((taskId): taskId is string => taskId !== undefined),
       );
       return ids.size;
     };
@@ -968,14 +1071,19 @@ export function calculateTeammateWorkload(input: {
       }));
     const activity24 = activity24hById.get(teammate.id);
     const activity72 = activity72hById.get(teammate.id);
-    const lastActivityAt = runs72h
-      .map((run) => runActivityAt(run))
-      .sort()
-      .at(-1);
+    const identity = input.identities?.get(teammate.id);
+    const lastActivityAt = laterTimestamp(
+      runs72h.map((run) => runActivityAt(run)).sort().at(-1),
+      latestMeetingActivity(teammate, identity),
+    );
     return {
       teammateId: teammate.id,
       name: teammate.name,
       role: teammate.role,
+      source: teammate.source,
+      ...(teammate.systemKey === undefined
+        ? {}
+        : { systemKey: teammate.systemKey }),
       state: teammate.state,
       avatar: teammate.avatar,
       hasRunIn72h: runs72h.length > 0,

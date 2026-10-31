@@ -1,0 +1,102 @@
+schemaVersion: "1.0"
+pluginId: "dsh-collab-demo-phone-tablet-order"
+providerId: "phone-tablet-demo-mcp-provider"
+featureFlag: "PLUGINMAX_ENABLE_PHONE_TABLET_DEMO"
+registrationMode: "McpCatalogProvider"
+productionEnabled: false
+detachable: true
+
+assets:
+  - id: "mcp-orders-phone-tablet-demo"
+    name: "Mock 手机平板订单管理系统"
+    description: "手机/平板成品供应链 Demo 的只读 OMS，通过标准 MCP 工具返回订单事实。"
+    category: "履约"
+    protocol: "MCP · stdio"
+    publisher:
+      id: "phone-tablet-demo"
+      name: "Phone Tablet Demo"
+      verified: false
+      kind: "community"
+    version: "1.0.0"
+    icon: "database"
+    permissions:
+      - "orders.read"
+      - "payments.read"
+      - "fulfillment.read"
+    transport:
+      command: "node"
+      args:
+        - "docs/demos/phone-tablet-order-demo/mock-oms-mcp-server.mjs"
+      env:
+        ORDERS_DEMO_FIXTURE_PATH: "docs/demos/phone-tablet-order-demo/orders-fixture.json"
+    tools:
+      - name: "orders_health"
+        access: "read"
+      - name: "orders_query"
+        access: "read"
+    consumers:
+      - "dsh-collab-data-orders"
+      - "data-agent"
+
+  - id: "mcp-wms-phone-tablet-demo"
+    name: "Mock 手机平板成品仓 WMS"
+    description: "手机/平板成品仓 Demo 的 Mock WMS，通过标准 MCP 工具生成可追溯的再平衡工单回执。"
+    category: "仓配"
+    protocol: "MCP · stdio"
+    publisher:
+      id: "phone-tablet-demo"
+      name: "Phone Tablet Demo"
+      verified: false
+      kind: "community"
+    version: "1.0.0"
+    icon: "warehouse"
+    permissions:
+      - "inventory.read"
+      - "fulfillment.read"
+      - "business_document.write"
+    transport:
+      command: "node"
+      args:
+        - "docs/demos/phone-tablet-order-demo/mock-wms-mcp-server.mjs"
+    tools:
+      - name: "wms_health"
+        access: "read"
+      - name: "wms_rebalance_work_order_get"
+        access: "read"
+      - name: "wms_rebalance_work_order_create"
+        access: "write"
+        humanConfirmationRequired: true
+        actionTicketRequired: true
+        idempotencyField: "idempotencyKey"
+        allowedConsumers:
+          - "fulfillment-ai"
+        deniedConsumers:
+          - "data-agent"
+
+registration:
+  resourceMarket:
+    visible: true
+    categoryTabs:
+      - "MCP"
+      - "履约"
+      - "仓配"
+  providerLifecycle:
+    connect:
+      - "initialize"
+      - "tools/list"
+    disconnect:
+      - "close stdio transport"
+      - "clear per-user client cache"
+  failurePolicy: "fail_closed"
+  productionFallback: false
+
+removal:
+  steps:
+    - "remove dsh-collab-demo-phone-tablet-order from the optional demo profile"
+    - "unset PLUGINMAX_ENABLE_PHONE_TABLET_DEMO"
+    - "remove both MCP assets from the resource market provider list"
+    - "delete demo fixture, prompts, workbench profile, and generated work order"
+  residualProductionData: "none"
+  sharedCoreChangesAllowedOnly:
+    - "generic MCP provider registry and provider routing by asset ID"
+    - "generic feature-flag loading mechanism"

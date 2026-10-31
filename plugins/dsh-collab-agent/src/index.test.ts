@@ -109,9 +109,13 @@ function fakeSubagents() {
 
 interface PromptSectionSink {
   readonly sections: Array<{ name: string; order: number; text: string }>;
+  restricted?: readonly string[];
 }
 
-function fakeAgents(sink?: PromptSectionSink) {
+function fakeAgents(
+  sink?: PromptSectionSink,
+  availableTools: ReadonlySet<string> = new Set(),
+) {
   return {
     create: async ({
       sessionId,
@@ -122,7 +126,13 @@ function fakeAgents(sink?: PromptSectionSink) {
     }) => {
       if (setup !== undefined) {
         const ctx = {
-          tools: { restrict: () => undefined, get: () => undefined },
+          tools: {
+            restrict: (input: { allow: readonly string[] }) => {
+              if (sink !== undefined) sink.restricted = [...input.allow];
+            },
+            get: (name: string) =>
+              availableTools.has(name) ? { name } : undefined,
+          },
           get: (key: string) => {
             if (key === "agentPresets") {
               return { mount: async () => undefined };
@@ -2011,6 +2021,71 @@ describe("agent task runtime", () => {
     );
     expect(soul?.text).toContain("SOUL-BODY-XYZ");
     expect(soul?.order).toBe(7);
+  });
+
+  it("maps product-level tool names to provider-safe runtime names", async () => {
+    const sink: PromptSectionSink = { sections: [] };
+    const { service, runtime } = harness({
+      agents: () =>
+        fakeAgents(sink, new Set(["entity_read", "ask_user_question"])),
+    });
+    await createProfile(service, {
+      allowedTools: ["entity.read", "ask_user_question"],
+    });
+    await service.dispatch(
+      dispatchInput({
+        source: "task",
+        workspacePath: "/tmp/pluginmax-workspace",
+        instanceId: "TSK-TOOLS",
+        nodeId: "task",
+        dispatchKey: "task:TSK-TOOLS:1",
+      }),
+    );
+    await runtime.waitIdle();
+    expect(sink.restricted).toEqual(["entity_read", "ask_user_question"]);
+  });
+
+  it("injects ContextPack system text ahead of the persona fallback", async () => {
+    const sink: PromptSectionSink = { sections: [] };
+    let personaReads = 0;
+    const { service, runtime } = harness({
+      agents: () => fakeAgents(sink),
+      personas: () => ({
+        get: async () => {
+          personaReads += 1;
+          return { soul: "FALLBACK-SOUL" };
+        },
+      }),
+    });
+    await createProfile(service);
+    const input = dispatchInput({
+      contextPackId: "pack-system-1",
+      source: "task",
+      personaId: "persona-ignored",
+      workspacePath: "/tmp/pluginmax-workspace",
+      instanceId: "TSK-CONTEXT-SYSTEM",
+      nodeId: "task",
+      dispatchKey: "task:TSK-CONTEXT-SYSTEM:1",
+      payload: {
+        instanceTitle: "Context system",
+        nodeName: "任务执行",
+        nodeDescription: "验证系统上下文",
+        profileName: "Backend Agent",
+        deliverables: [],
+        context: {
+          systemText:
+            "[agent-identity]\n# Data Agent SOUL\n\nSYSTEM-CONTRACT",
+        },
+      },
+    });
+    await service.dispatch(input);
+    await runtime.waitIdle();
+    const section = sink.sections.find(
+      (item) => item.name === "dsh-collab:contextpack-system",
+    );
+    expect(section?.text).toContain("SYSTEM-CONTRACT");
+    expect(section?.text).not.toContain("FALLBACK-SOUL");
+    expect(personaReads).toBe(0);
   });
 
   it("runs meeting minutes with the fixed Chinese conclusion prompt", async () => {

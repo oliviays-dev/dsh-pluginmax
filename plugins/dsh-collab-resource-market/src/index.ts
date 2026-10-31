@@ -9,14 +9,17 @@ import { z } from "zod";
 import {
   ResourceMarketError,
   ResourceMarketService,
+  customResourceTypeSchema,
   resourceMarketDomainSpec,
   type KvTableLike,
   type InstallRecord,
+  type CustomResourceRecord,
   type MarketListInput,
   type McpCatalogProvider,
   type SkillCatalogProvider,
   type WorkbenchV2Port,
 } from "./service.js";
+import { McpProviderRegistry } from "./mcp-registry.js";
 
 export const name = "dsh-collab-resource-market";
 export const inject = ["storageDomain", "webServer"];
@@ -26,6 +29,19 @@ export {
   ResourceMarketService,
   resourceMarketDomainSpec,
 };
+export type {
+  MarketPrincipal,
+  McpCatalogProvider,
+  McpProviderAsset,
+} from "./service.js";
+export {
+  McpProviderRegistry,
+  McpRegistryError,
+} from "./mcp-registry.js";
+export type {
+  McpToolCallInput,
+  McpToolProvider,
+} from "./mcp-registry.js";
 
 interface WebRouteLike {
   readonly kind: "exact";
@@ -130,6 +146,15 @@ function routeError(response: ServerResponse, cause: unknown): void {
 const pluginInstallSchema = z.object({ pluginId: z.string().min(1).max(200) });
 const skillInstallSchema = z.object({ skillId: z.string().min(1).max(200) });
 const mcpInputSchema = z.object({ mcpId: z.string().min(1).max(200) });
+const customResourceInputSchema = z.object({
+  type: customResourceTypeSchema,
+  name: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(1000).optional(),
+  version: z.string().trim().min(1).max(80).optional(),
+  publisherName: z.string().trim().min(1).max(120).optional(),
+  permissions: z.array(z.string().trim().min(1).max(300)).max(20).optional(),
+  manifest: z.record(z.string(), z.unknown()).optional(),
+});
 const publisherSchema = z.enum(["official", "certified", "community"]);
 const compatibilitySchema = z.enum(["compatible", "incompatible"]);
 const sortSchema = z.enum(["recommended", "updated", "name"]);
@@ -345,11 +370,17 @@ export function createResourceMarketRoutes(
           }
           const params = query(request);
           const queryValue = params.get("q");
+          const categoryValue = params.get("category");
           const input: { query?: string } = {};
           if (queryValue !== null) input.query = queryValue;
           sendJson(response, 200, {
             ok: true,
-            mcps: await service.mcps(user, input),
+            mcps: await service.mcps(user, {
+              ...input,
+              ...(categoryValue === null
+                ? {}
+                : { category: categoryValue }),
+            }),
           });
         } catch (cause) {
           routeError(response, cause);
@@ -376,24 +407,78 @@ export function createResourceMarketRoutes(
         }
       },
     },
+    {
+      kind: "exact",
+      path: "/api/collab/resources/custom",
+      handler: async (request, response) => {
+        try {
+          assertSameOrigin(request);
+          const user = principal(request);
+          if (request.method === "GET") {
+            const params = query(request);
+            const type = enumParam(
+              customResourceTypeSchema,
+              params.get("type"),
+            );
+            sendJson(response, 200, {
+              ok: true,
+              resources: service.customResources(user, {
+                ...(type === undefined ? {} : { type }),
+                ...(params.get("q") === null
+                  ? {}
+                  : { query: params.get("q") ?? "" }),
+                ...(params.get("category") === null
+                  ? {}
+                  : { category: params.get("category") ?? "" }),
+              }),
+            });
+            return;
+          }
+          if (request.method === "DELETE") {
+            const id = query(request).get("id") ?? "";
+            await service.removeCustomResource(user, id);
+            sendJson(response, 200, { ok: true });
+            return;
+          }
+          if (request.method !== "POST") {
+            throw new ResourceMarketError("invalid_input", "method not allowed");
+          }
+          const input = await body(request, customResourceInputSchema);
+          sendJson(response, 201, {
+            ok: true,
+            resource: await service.registerCustomResource(user, input),
+          });
+        } catch (cause) {
+          routeError(response, cause);
+        }
+      },
+    },
   ];
 }
 
 export async function apply(ctx: MarketContext): Promise<void> {
   const domain = await ctx.storageDomain.open(resourceMarketDomainSpec);
+  const mcpRegistry = new McpProviderRegistry();
   const service = new ResourceMarketService(
     {
       installs: domain.table("installs") as KvTableLike<InstallRecord>,
+      customAssets: domain.table("custom_assets") as KvTableLike<
+        CustomResourceRecord
+      >,
     },
     {
       workbench: () => lookup<WorkbenchV2Port>(ctx, "collabWorkbenchV2"),
       skillProvider: () =>
         lookup<SkillCatalogProvider>(ctx, "collabSkillCatalog"),
       mcpProvider: () => lookup<McpCatalogProvider>(ctx, "collabMcpCatalog"),
+      mcpRegistry: () =>
+        lookup<McpProviderRegistry>(ctx, "collabMcpProviderRegistry"),
     },
   );
   ctx.provide("collabResourceMarket", service);
+  ctx.provide("collabMcpProviderRegistry", mcpRegistry);
   ctx.effect(() => () => void domain.close());
+  ctx.effect(() => () => void mcpRegistry.dispose());
   ctx.effect(() => {
     const disposers = createResourceMarketRoutes(service, (key) =>
       lookup(ctx, key),

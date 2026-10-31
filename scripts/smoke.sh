@@ -27,7 +27,8 @@ if [[ "$DSH_HOME" == "$ROOT/.tmp/dsh-home" && "${PLUGINMAX_SMOKE_ALLOW_SHARED_HO
 fi
 
 if [[ ! -d "$DSH_HOME/profiles/pluginmax" ]]; then
-  DSH_HOME="$DSH_HOME" "$ROOT/scripts/install-profile.sh"
+  PLUGINMAX_ENABLE_PHONE_TABLET_DEMO="${PLUGINMAX_EXPECT_PHONE_TABLET_DEMO:-}" \
+    DSH_HOME="$DSH_HOME" "$ROOT/scripts/install-profile.sh"
 fi
 
 mkdir -p "$ROOT/.tmp"
@@ -55,6 +56,8 @@ rm -f "$DSH_HOME/storages/collab_workbench.json"
 rm -f "$DSH_HOME/storages/collab_workbench_v2.json"
 rm -f "$DSH_HOME/storages/collab_resource_market.json"
 rm -f "$DSH_HOME/storages/collab_data_agent.json"
+rm -f "$DSH_HOME/storages/collab_data_fabric.json"
+rm -f "$DSH_HOME/storages/collab_data_orders.json"
 rm -f "$DSH_HOME/storages/workspace.json"
 rm -rf "$DSH_HOME/pluginmax/shared"
 rm -rf "$DSH_HOME/pluginmax/personas"
@@ -95,7 +98,9 @@ fs.writeFileSync(
 );
 NODE
 
-DSH_HOME="$DSH_HOME" node "$DSH_BIN" --profile pluginmax --no-open --port "$PORT" >"$LOG" 2>&1 &
+PLUGINMAX_ENABLE_PHONE_TABLET_DEMO="${PLUGINMAX_EXPECT_PHONE_TABLET_DEMO:-}" \
+  DSH_HOME="$DSH_HOME" \
+  node "$DSH_BIN" --profile pluginmax --no-open --port "$PORT" >"$LOG" 2>&1 &
 pid=$!
 cleanup() {
   kill "$pid" >/dev/null 2>&1 || true
@@ -559,16 +564,61 @@ code="$(api GET /resources/skills "$TOKEN")"
 expect_code 200 "$code" "skill catalog"
 code="$(api GET /resources/mcps "$TOKEN")"
 expect_code 200 "$code" "mcp catalog"
-grep -q '"source":"seed"' "$BODY" || {
-  echo "seed MCP catalog is missing its source marker" >&2
+grep -qE '"source":"(seed|provider)"' "$BODY" || {
+  echo "MCP catalog is missing its source marker" >&2
   cat "$BODY" >&2
   exit 1
 }
 if grep -q '"status":"connected"' "$BODY"; then
-  echo "seed MCP catalog must not report a connected state" >&2
+  echo "MCP catalog must not report a connected state before provider connect" >&2
   cat "$BODY" >&2
   exit 1
 fi
+if [[ "${PLUGINMAX_EXPECT_PHONE_TABLET_DEMO:-}" == "1" ]]; then
+  grep -q 'mcp-orders-phone-tablet-demo' "$BODY" || {
+    echo "demo OMS MCP asset is missing" >&2
+    cat "$BODY" >&2
+    exit 1
+  }
+  grep -q 'mcp-wms-phone-tablet-demo' "$BODY" || {
+    echo "demo WMS MCP asset is missing" >&2
+    cat "$BODY" >&2
+    exit 1
+  }
+  for demo_mcp in \
+    mcp-orders-phone-tablet-demo \
+    mcp-wms-phone-tablet-demo; do
+    code="$(api POST /resources/mcps/connect "$TOKEN" \
+      "{\"mcpId\":\"$demo_mcp\"}" \
+      "http://127.0.0.1:$PORT")"
+    expect_code 200 "$code" "connect $demo_mcp"
+    grep -q '"status":"connected"' "$BODY" || {
+      echo "$demo_mcp did not complete MCP initialize and tools/list" >&2
+      cat "$BODY" >&2
+      exit 1
+    }
+  done
+elif grep -q 'phone-tablet' "$BODY"; then
+  echo "default profile must not load the phone/tablet demo MCP assets" >&2
+  cat "$BODY" >&2
+  exit 1
+fi
+
+code="$(api POST /resources/custom "$TOKEN" '{"type":"skill","name":"Smoke 自定义 Skill","description":"metadata only","version":"0.1.0","publisherName":"Smoke","permissions":["只读摘要"],"manifest":{"schemaVersion":1}}' "http://127.0.0.1:$PORT")"
+expect_code 201 "$code" "custom resource registration"
+grep -q '"source":"user"' "$BODY" || {
+  echo "custom resource registration did not return a user asset" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+
+code="$(api GET "/resources/custom?type=skill&category=%E8%87%AA%E5%AE%9A%E4%B9%89" "$TOKEN")"
+expect_code 200 "$code" "custom resource catalog"
+grep -q 'Smoke 自定义 Skill' "$BODY" || {
+  echo "custom resource catalog is missing the registered asset" >&2
+  cat "$BODY" >&2
+  exit 1
+}
 
 code="$(api GET "/data-agent?workspaceId=$WORKSPACE_ID" "$TOKEN")"
 expect_code 200 "$code" "data agent bootstrap"

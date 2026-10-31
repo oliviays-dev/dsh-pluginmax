@@ -70,6 +70,7 @@ export interface McpAsset {
   id: string;
   name: string;
   description: string;
+  category: string;
   protocol: string;
   toolCount: number;
   publisher: Publisher;
@@ -79,6 +80,19 @@ export interface McpAsset {
   /** Seed assets never claim a live connection. */
   initialStatus: "pending" | "off";
 }
+
+export const RESOURCE_CATEGORIES = [
+  "全部",
+  "AI办公",
+  "计划",
+  "采购",
+  "生产",
+  "质量",
+  "仓配",
+  "供应商",
+  "履约",
+  "自定义",
+] as const;
 
 const official: Publisher = {
   id: "pluginmax",
@@ -118,7 +132,7 @@ export const PANEL_MANIFESTS: readonly PanelManifest[] = [
   panel(
     "pluginmax.daily-brief",
     "每日简报",
-    "AI",
+    "AI办公",
     "sparkles",
     "聚合与你相关的风险、进展和待决策事项。",
     4,
@@ -127,7 +141,7 @@ export const PANEL_MANIFESTS: readonly PanelManifest[] = [
   panel(
     "pluginmax.task-focus",
     "我的待办",
-    "任务",
+    "计划",
     "list-checks",
     "集中处理待处理、待验收和逾期任务。",
     2,
@@ -136,7 +150,7 @@ export const PANEL_MANIFESTS: readonly PanelManifest[] = [
   panel(
     "pluginmax.kpi-overview",
     "核心指标",
-    "数据",
+    "计划",
     "chart",
     "用一屏内的关键指标判断业务是否正常。",
     3,
@@ -145,7 +159,7 @@ export const PANEL_MANIFESTS: readonly PanelManifest[] = [
   panel(
     "pluginmax.following",
     "重点关注",
-    "任务",
+    "计划",
     "star",
     "展示主动关注的任务、工作流和会议。",
     3,
@@ -154,7 +168,7 @@ export const PANEL_MANIFESTS: readonly PanelManifest[] = [
   panel(
     "pluginmax.meeting-insights",
     "会议纪要",
-    "协作",
+    "AI办公",
     "message",
     "把会议结论和待确认事项转为下一步行动。",
     2,
@@ -163,7 +177,7 @@ export const PANEL_MANIFESTS: readonly PanelManifest[] = [
   panel(
     "pluginmax.supply-exceptions",
     "供给例外",
-    "供应链",
+    "供应商",
     "alert",
     "跟踪供应异常、影响范围与承诺日期。",
     2,
@@ -172,7 +186,7 @@ export const PANEL_MANIFESTS: readonly PanelManifest[] = [
   panel(
     "pluginmax.supplier-risk",
     "供应商风险",
-    "供应链",
+    "供应商",
     "shield",
     "按影响和紧迫度聚合供应商风险。",
     4,
@@ -181,7 +195,7 @@ export const PANEL_MANIFESTS: readonly PanelManifest[] = [
   panel(
     "pluginmax.workflow-runs",
     "工作流运行",
-    "流程",
+    "履约",
     "workflow",
     "查看运行、等待和阻塞中的流程实例。",
     3,
@@ -190,7 +204,7 @@ export const PANEL_MANIFESTS: readonly PanelManifest[] = [
   panel(
     "pluginmax.team-load",
     "AI伙伴负载",
-    "管理",
+    "AI办公",
     "users",
     "查看 AI 伙伴过去 24/72 小时的会议、任务、Token 用量与阻塞异常。",
     3,
@@ -199,7 +213,7 @@ export const PANEL_MANIFESTS: readonly PanelManifest[] = [
   panel(
     "pluginmax.industry-radar",
     "行业雷达",
-    "研究",
+    "采购",
     "radar",
     "汇总竞品、政策和市场变化的外部信号。",
     4,
@@ -208,7 +222,7 @@ export const PANEL_MANIFESTS: readonly PanelManifest[] = [
   panel(
     "pluginmax.data-agent",
     "Data Agent",
-    "AI",
+    "AI办公",
     "sparkles",
     "查看平台内置 Data Agent 的最近配置与入口。",
     3,
@@ -259,7 +273,7 @@ export const TEMPLATES: readonly WorkbenchTemplateAsset[] = [
   tpl(
     "tpl-legacy",
     "经典工作台（旧版）",
-    "运营",
+    "AI办公",
     "完整保留原工作台的七个固定模块、信息优先级和执行视角。",
     "legacy",
     "layout",
@@ -278,7 +292,7 @@ export const TEMPLATES: readonly WorkbenchTemplateAsset[] = [
   tpl(
     "tpl-supply",
     "供应链作战台",
-    "运营",
+    "供应商",
     "把供应异常、承诺日期、任务和会议决策放在同一张桌面上。",
     "supply",
     "box",
@@ -296,7 +310,7 @@ export const TEMPLATES: readonly WorkbenchTemplateAsset[] = [
   tpl(
     "tpl-review",
     "经营周复盘",
-    "管理",
+    "计划",
     "按指标、流程、资源和结论组织每周复盘。",
     "review",
     "chart",
@@ -313,7 +327,7 @@ export const TEMPLATES: readonly WorkbenchTemplateAsset[] = [
   tpl(
     "tpl-radar",
     "产品发现台",
-    "情报",
+    "采购",
     "把外部情报、待办和项目会议放到同一上下文。",
     "radar",
     "radar",
@@ -329,7 +343,7 @@ export const TEMPLATES: readonly WorkbenchTemplateAsset[] = [
   tpl(
     "tpl-launch",
     "项目上线指挥台",
-    "项目",
+    "履约",
     "围绕上线窗口管理发布任务、阻塞项和跨团队依赖。",
     "launch",
     "layout",
@@ -348,7 +362,7 @@ export const SKILLS: readonly SkillAsset[] = [
   {
     id: "skill-supplier-risk",
     name: "供应商交期风险评估",
-    category: "供应链",
+    category: "供应商",
     description: "结合订单、承诺日期和履约记录输出风险与处置建议。",
     publisher: official,
     version: "2.1.0",
@@ -391,7 +405,7 @@ export const SKILLS: readonly SkillAsset[] = [
   {
     id: "skill-meeting-actions",
     name: "会议行动项提取",
-    category: "协作",
+    category: "AI办公",
     description: "从会议记录中提取决策、负责人和截止时间。",
     publisher: official,
     version: "3.0.1",
@@ -406,6 +420,7 @@ export const MCPS: readonly McpAsset[] = [
     id: "mcp-sap-mm",
     name: "SAP MM 采购订单",
     description: "查询采购订单、收货状态和供应商承诺日期。",
+    category: "采购",
     protocol: "HTTP / OAuth 2.0",
     toolCount: 8,
     publisher: official,
@@ -418,6 +433,7 @@ export const MCPS: readonly McpAsset[] = [
     id: "mcp-feishu",
     name: "飞书项目空间",
     description: "读取项目群消息、任务、文档和会议纪要。",
+    category: "AI办公",
     protocol: "SSE / App Token",
     toolCount: 12,
     publisher: official,
@@ -430,6 +446,7 @@ export const MCPS: readonly McpAsset[] = [
     id: "mcp-wecom",
     name: "企业微信通讯录",
     description: "按权限查询成员、组织关系和值班信息。",
+    category: "AI办公",
     protocol: "HTTP / OAuth 2.0",
     toolCount: 5,
     publisher: official,
@@ -442,6 +459,7 @@ export const MCPS: readonly McpAsset[] = [
     id: "mcp-qcc",
     name: "企查查企业风险",
     description: "查询供应商工商、司法和经营异常信号。",
+    category: "供应商",
     protocol: "HTTP / API Key",
     toolCount: 4,
     publisher: official,

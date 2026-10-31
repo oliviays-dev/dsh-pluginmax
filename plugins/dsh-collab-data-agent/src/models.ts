@@ -62,6 +62,11 @@ export const workspaceConfigSchema = z.object({
   defaultProjectId: idSchema.optional(),
   defaultTimeRange: timeRangeSchema.default("7d"),
   timezone: z.string().trim().min(1).max(80).default("Asia/Shanghai"),
+  clarificationMode: z
+    .enum(["hybrid", "always-ask", "default-first"])
+    .default("hybrid"),
+  maxRowsPerQuery: z.number().int().min(1).max(100_000).default(500),
+  queryTimeoutMs: z.number().int().min(1_000).max(300_000).default(15_000),
   preferredMetricIds: z.array(idSchema).max(50).default([]),
   insightSubscriptions: z.array(jsonObjectSchema).max(20).default([]),
   reportSubscriptions: z.array(jsonObjectSchema).max(20).default([]),
@@ -147,20 +152,49 @@ export const runStatusSchema = z.enum([
   "interrupted",
 ]);
 
+export const runModeSchema = z.enum(["chat", "report"]);
+
+export const queryEvidenceSchema = z.object({
+  queryRunId: idSchema,
+  datasetId: idSchema,
+  metricIds: z.array(idSchema).max(20),
+  metricVersionSnapshot: z.record(z.string(), z.string()),
+  status: z.enum([
+    "planned",
+    "running",
+    "succeeded",
+    "failed",
+    "timeout",
+    "cancelled",
+  ]),
+  rowCount: z.number().int().nonnegative().optional(),
+  scannedRows: z.number().int().nonnegative().optional(),
+  truncated: z.boolean().optional(),
+  dataCutoffAt: isoTimeSchema.optional(),
+  permissionSummary: z.string().trim().max(2_000).optional(),
+});
+export type DataAgentQueryEvidence = z.infer<typeof queryEvidenceSchema>;
+
 export const runSchema = z.object({
   id: idSchema,
   conversationId: idSchema,
   workspaceId: idSchema,
   projectId: idSchema.optional(),
   agentRunId: idSchema.optional(),
+  runtimeSessionId: idSchema.optional(),
+  contextPackId: idSchema.optional(),
+  contextReceiptId: idSchema.optional(),
   runtimeProfileId: idSchema.optional(),
   runtimeProfileRevision: z.string().trim().max(200).optional(),
+  mode: runModeSchema.default("report"),
   status: runStatusSchema,
   prompt: z.string().max(120_000),
   title: z.string().trim().min(1).max(240),
   error: z.string().max(4_000).optional(),
   output: z.string().max(120_000).optional(),
   usedTools: z.array(z.string().max(120)).max(100).default([]),
+  queryEvidence: z.array(queryEvidenceSchema).max(50).default([]),
+  dataCutoffAt: isoTimeSchema.optional(),
   startedAt: isoTimeSchema.optional(),
   endedAt: isoTimeSchema.optional(),
   createdAt: isoTimeSchema,
@@ -188,6 +222,7 @@ export const reportSchema = z.object({
   visibility: conversationVisibilitySchema,
   dataCutoffAt: isoTimeSchema,
   metricDefinition: z.string().max(4_000),
+  queryEvidence: z.array(queryEvidenceSchema).max(50).default([]),
   sourceRefs: z.array(z.string().max(1_000)).max(100).default([]),
   createdAt: isoTimeSchema,
 });

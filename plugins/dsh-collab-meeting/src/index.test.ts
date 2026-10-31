@@ -10,6 +10,7 @@ import {
   meetingDomainSpec,
   MeetingService,
   MeetingRuntime,
+  meetingCaptureTitle,
   migrateMeetingOwnership,
   reapRestartedDispatchParticipants,
   SYSTEM_DEFAULT_WORKSPACE_ID,
@@ -485,7 +486,8 @@ describe("dsh-collab-meeting", () => {
           preparedRequests.push(request);
           return {
             id: "pack-chat-1",
-            sessionBindingId: "chat:chat-channel-main-alice:principal-tm-research:g0",
+            sessionBindingId:
+              "chat:chat-channel-main-alice:principal-tm-research:g0",
             rendered: {
               systemText: "system",
               userText: "已装配的聊天上下文",
@@ -538,10 +540,8 @@ describe("dsh-collab-meeting", () => {
       instanceId: meeting.id,
       principalId: "principal-tm-research",
       contextPackId: "pack-chat-1",
-      sessionBindingId:
-        "chat:chat-channel-main-alice:principal-tm-research:g0",
-      sessionId:
-        "de-chat-main-chat-channel-main-alice-principal-tm-research",
+      sessionBindingId: "chat:chat-channel-main-alice:principal-tm-research:g0",
+      sessionId: "de-chat-main-chat-channel-main-alice-principal-tm-research",
       payload: {
         context: {
           instruction: "已装配的聊天上下文",
@@ -1213,6 +1213,7 @@ describe("dsh-collab-meeting", () => {
 
   it("拒绝 AI 通过会议工具把参会者拉进会议（只允许 list/read/say）", async () => {
     const tools: Array<{
+      name: string;
       execute: (args: unknown, exec: unknown) => Promise<unknown>;
     }> = [];
     const ctx: MeetingContext = {
@@ -1234,7 +1235,9 @@ describe("dsh-collab-meeting", () => {
       },
     } as unknown as MeetingContext;
     await apply(ctx);
-    expect(tools).toHaveLength(1);
+    const meetingTool = tools.find((tool) => tool.name === "collab_meeting");
+    expect(meetingTool).toBeDefined();
+    expect(tools.map((tool) => tool.name)).toContain("meeting_action_items");
 
     const agentExec = {
       signal: { throwIfAborted: () => undefined },
@@ -1242,7 +1245,7 @@ describe("dsh-collab-meeting", () => {
     };
     for (const operation of ["join", "spawn", "create", "leave", "close"]) {
       await expect(
-        tools[0]!.execute(
+        meetingTool!.execute(
           { operation, meetingId: "m-1", workspaceId: "main", title: "T" },
           agentExec,
         ),
@@ -1250,7 +1253,10 @@ describe("dsh-collab-meeting", () => {
     }
     // 只读与发言仍然放行（这里只验证没被权限挡住：list 会正常返回文本）。
     await expect(
-      tools[0]!.execute({ operation: "list", workspaceId: "main" }, agentExec),
+      meetingTool!.execute(
+        { operation: "list", workspaceId: "main" },
+        agentExec,
+      ),
     ).resolves.toBeDefined();
   });
 
@@ -1305,7 +1311,10 @@ describe("dsh-collab-meeting", () => {
       "collabMeetingMinutesRuntime",
     ]);
     expect(commands).toHaveLength(1);
-    expect(tools).toHaveLength(1);
+    expect(tools).toHaveLength(2);
+    expect(
+      (tools as Array<{ readonly name?: string }>).map((tool) => tool.name),
+    ).toEqual(expect.arrayContaining(["collab_meeting", "meeting_action_items"]));
     expect(registeredAdapters).toEqual([
       expect.objectContaining({
         scene: "chat",
@@ -1877,5 +1886,26 @@ describe("dsh-collab-meeting", () => {
     minutes.schedule(meeting.id);
     await minutes.waitIdle();
     expect(dispatchCount).toBe(0);
+  });
+
+  it("summarizes actionable meeting text into concise task titles", () => {
+    expect(
+      meetingCaptureTitle(
+        "供应商 G 的返工窗口确定为 10 月 31 日，请林威确认恢复排期和影响订单。",
+      ),
+    ).toBe("确认恢复排期和影响订单");
+    expect(
+      meetingCaptureTitle(
+        "请采购在 11 月 1 日前确认关键连接器最新交期，并同步到协同群。",
+      ),
+    ).toBe("确认关键连接器最新交期，同步到协同群");
+    expect(
+      meetingCaptureTitle(
+        "华东延迟订单需要复盘，汇总安全库存、承诺日期和受影响订单。",
+      ),
+    ).toContain("复盘华东延迟订单");
+    expect(meetingCaptureTitle("供应商 G 的返工窗口确定为 10 月 31 日")).toBe(
+      "确认供应商 G 的返工窗口（10 月 31 日）",
+    );
   });
 });

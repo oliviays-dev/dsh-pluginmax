@@ -90,4 +90,38 @@ describe("shell client navigation", () => {
     expect(source).toContain("renderActions: () =>");
     expect(source).toContain('"data-side-panel-expanded"');
   });
+
+  it("uses three quarters of the previous shared side-panel width", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain("meetingWidth: 375");
+    expect(source).not.toContain("meetingWidth: 500");
+  });
+
+  it("resizes the side panel without a width floor larger than its default", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain(
+      "const minimum = window.innerWidth <= 900 ? 280 : 320",
+    );
+    expect(source).toContain(
+      "const minimumMainWidth = window.innerWidth <= 900 ? 280 : 360",
+    );
+    expect(source).toContain(
+      "window.innerWidth - sidebarWidth - detailsWidth - minimumMainWidth",
+    );
+    expect(source).not.toContain("transition:grid-template-columns");
+    expect(source).toContain('"aria-label": "调整侧边栏宽度"');
+    expect(source).toContain(
+      ".pmx-shell[data-meeting-open] .pmx-meeting-resize{display:none;}",
+    );
+  });
+
+  it("uses the full viewport for an open side panel on mobile", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain(".pmx-shell[data-meeting-open]{");
+    expect(source).toContain("grid-template-columns:0 0 0 0 !important");
+    expect(source).toContain(
+      ".pmx-shell[data-meeting-open] > .pmx-overlay-track{",
+    );
+    expect(source).toContain("shell.meetingOpen && !sidePanelExpanded");
+  });
 });

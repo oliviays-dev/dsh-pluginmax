@@ -8,7 +8,11 @@ export const sceneTypeSchema = z.enum([
   "workflow-node",
 ]);
 export type SceneType = z.infer<typeof sceneTypeSchema>;
-export const chatCarrierSchema = z.enum(["native-session", "meeting-ai"]);
+export const chatCarrierSchema = z.enum([
+  "native-session",
+  "meeting-ai",
+  "data-agent",
+]);
 export type ChatCarrier = z.infer<typeof chatCarrierSchema>;
 
 export const sourceRefSchema = z.object({
@@ -21,6 +25,11 @@ export const sourceRefSchema = z.object({
     "chat",
     "task-comment",
     "human-edit",
+    "workflow_node",
+    "metric_card",
+    "chart",
+    "media",
+    "text",
   ]),
   id: z.string().trim().min(1).max(240),
   version: z.string().trim().max(120).optional(),
@@ -136,6 +145,23 @@ export const contextRequestSchema = z.object({
     supportsSystemSections: z.boolean(),
     isStateless: z.boolean(),
   }),
+  supplementalSections: z
+    .array(
+      z.object({
+        id: z.string().trim().min(1).max(200),
+        type: z.enum([
+          "shared-object-context",
+          "mode-policy",
+          "data-capability",
+        ]),
+        authority: z.enum(["instruction", "evidence"]),
+        text: z.string().trim().min(1).max(100_000),
+        sourceRefs: z.array(sourceRefSchema).max(200).default([]),
+        compression: z.enum(["full", "extracted", "referenced"]),
+      }),
+    )
+    .max(20)
+    .default([]),
   asOf: z.string().datetime({ precision: 3 }).optional(),
 });
 export type ContextRequest = z.infer<typeof contextRequestSchema>;
@@ -154,6 +180,9 @@ export const contextSectionSchema = z.object({
     "current-truth",
     "agent-private-memory",
     "references",
+    "shared-object-context",
+    "mode-policy",
+    "data-capability",
     "current-input",
   ]),
   authority: z.enum(["mandatory", "instruction", "evidence"]),

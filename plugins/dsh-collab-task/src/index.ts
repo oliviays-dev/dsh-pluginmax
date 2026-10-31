@@ -17,6 +17,8 @@ import {
   legacyTaskExecutionPolicy,
   type ExecutionGate,
   type ExecutionPreflightResult,
+  type TaskCreationFromDraftResult,
+  type TaskDraftForCreation,
   type TaskExecutionPolicy,
   type TaskExecutionProjection,
 } from "@pluginmax/contracts";
@@ -580,7 +582,29 @@ interface TaskContext {
   };
   effect(register: () => () => void): void;
   provide(key: "collabTasks", value: TaskService): unknown;
+  provide(
+    key: "collabTaskCreation",
+    value: {
+      createFromDraft(
+        actor: TaskActor,
+        input: {
+          readonly draft: TaskDraftForCreation;
+          readonly creationKey: string;
+        },
+      ): Promise<TaskCreationFromDraftResult>;
+    },
+  ): unknown;
   provide(key: "collabTaskDispatch", value: TaskDispatchService): unknown;
+  provide(
+    key: "collabTaskExecution",
+    value: {
+      reportProgress(actor: TaskActor, input: unknown): Promise<TaskRecord>;
+      requestInput(actor: TaskActor, input: unknown): Promise<TaskRecord>;
+      submitDeliverable(actor: TaskActor, input: unknown): Promise<TaskRecord>;
+      addComment(actor: TaskActor, input: unknown): Promise<TaskRecord>;
+      dispatch(actor: TaskActor, taskId: string): Promise<TaskDispatchOutcome>;
+    },
+  ): unknown;
   provide(key: "collabTaskDocuments", value: TaskDocumentQueryService): unknown;
   webServer: { register(route: WebRouteLike): unknown };
   get(key: string): unknown;
@@ -1814,17 +1838,22 @@ export function canReviewTask(input: {
     return true;
   }
   if (assignments?.members === undefined) return false;
-  return assignments
-    .config(task.workspaceId)
-    .seats.filter((seat) => seat.permissions?.includes("approve") === true)
-    .some((seat) =>
-      assignments.members!(task.workspaceId, seat.id).some(
-        (member) =>
-          member.assigneeKind === "user" &&
-          member.assigneeId === actor.id &&
-          member.status !== "released",
-      ),
-    );
+  try {
+    return assignments
+      .config(task.workspaceId)
+      .seats.filter((seat) => seat.permissions?.includes("approve") === true)
+      .some((seat) =>
+        assignments.members!(task.workspaceId, seat.id).some(
+          (member) =>
+            member.assigneeKind === "user" &&
+            member.assigneeId === actor.id &&
+            member.status !== "released",
+        ),
+      );
+  } catch {
+    // Older workspaces can exist before project roles are materialized.
+    return false;
+  }
 }
 
 /**
@@ -2879,6 +2908,23 @@ export async function apply(ctx: TaskContext): Promise<void> {
     },
   );
   ctx.provide("collabTasks", service);
+  ctx.provide("collabTaskCreation", {
+    createFromDraft: (actor, input) => service.createFromDraft(actor, input),
+  });
+  let taskDispatchService: TaskDispatchService | undefined;
+  ctx.provide("collabTaskExecution", {
+    reportProgress: (actor, input) => service.reportProgress(actor, input),
+    requestInput: (actor, input) => service.requestInput(actor, input),
+    submitDeliverable: (actor, input) =>
+      service.submitDeliverable(actor, input),
+    addComment: (actor, input) => service.addComment(actor, input),
+    dispatch: async (actor, taskId) => {
+      if (taskDispatchService === undefined) {
+        throw new TaskError("conflict", "task dispatch is not ready");
+      }
+      return taskDispatchService.dispatch(service.get(taskId), actor);
+    },
+  });
   ctx.effect(() => () => void domain.close());
   ctx.inject(["collabContext"], (child) => {
     const dispose = child.collabContext.registerAdapter({
@@ -2999,6 +3045,12 @@ export async function apply(ctx: TaskContext): Promise<void> {
       }),
     };
     child.provide("collabTaskDispatch", dispatchService);
+    taskDispatchService = dispatchService;
+    child.effect(() => () => {
+      if (taskDispatchService === dispatchService) {
+        taskDispatchService = undefined;
+      }
+    });
     const disposers = createTaskRoutes(
       service,
       child.collabTeam,

@@ -105,6 +105,15 @@ export const agentRunSchema = z.object({
   output: z
     .object({
       summary: z.string().max(60_000),
+      /**
+       * Structured artifacts emitted by an Agent tool or runtime adapter.
+       * Meetings use this for Facilitator action items without parsing the
+       * Markdown summary.
+       */
+      actionItems: z
+        .array(z.record(z.string(), z.unknown()))
+        .max(100)
+        .optional(),
       /** Original reply retained when the output contract triggered repair. */
       rawOutput: z.string().max(60_000).optional(),
       repairAttempt: z.number().int().positive().optional(),

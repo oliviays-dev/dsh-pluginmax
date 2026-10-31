@@ -8,6 +8,7 @@
 > 报告修订：默认 Markdown + 图片，HTML 仅在用户指定后生成  
 > 关联交互：[data-agent-workbench-demo.html](./demos/data-agent-workbench-demo.html)  
 > 关联设计：[AI Teammate 模版 / 实例模型](./teammate-template-instance-split-design.md)、[工作台 2.0 PRD](./workbench-plugin-market-prd.md)、[平台交互与视觉设计规范](./platform-interaction-design-guide.md)
+> 通用数据问询扩展：[产品 PRD](./data-agent-general-query-prd.md)、[技术设计](./data-agent-general-query-technical-design.md)
 
 ---
 

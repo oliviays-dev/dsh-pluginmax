@@ -13,6 +13,14 @@ describe("Workbench V2 client contract", () => {
     expect(source).toContain('route === "workbench-new"');
   });
 
+  it("uses a compact primary page header", () => {
+    const source = readFileSync(CLIENT, "utf8");
+    expect(source).toContain("padding:10px 20px 8px");
+    expect(source).toContain(
+      ".pmwb2-head h1{margin:0;overflow:hidden;text-overflow:ellipsis;font-size:20px;line-height:1.25;white-space:nowrap;}",
+    );
+  });
+
   it("keeps old workbench state and routes out of the client", () => {
     const source = readFileSync(CLIENT, "utf8");
     expect(source).not.toContain("dsh-workbench-layouts-v1");
@@ -53,5 +61,17 @@ describe("Workbench V2 client contract", () => {
     expect(source).toContain("setDraftPanels(clone(active.panels))");
     expect(source).toContain("已重置到最近保存版本");
     expect(source).not.toContain('"重做"');
+    expect(source).toContain("AI_LOAD_COLUMN_OPTIONS");
+    expect(source).toContain("AI_LOAD_METRIC_OPTIONS");
+    expect(source).toContain("normalizeAiLoadSettings");
+    expect(source).toContain('["task", "任务（个）"]');
+    expect(source).not.toContain('["communication", "沟通（次）"]');
+    expect(source).not.toContain('["trend", "趋势"]');
+    expect(source).toContain("显示列与顺序");
+    expect(source).toContain("主指标");
+    expect(source).toContain("pluginmax.team-load");
+    expect(source).toContain(
+      "aiLoad: normalizeAiLoadSettings(panelSettings.aiLoad)",
+    );
   });
 });

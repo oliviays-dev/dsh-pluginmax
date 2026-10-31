@@ -32,6 +32,61 @@ window.__ModuleLoader__.load({
     const DEFAULT_BRIEF_INCLUDE_TYPES = BRIEF_INCLUDE_OPTIONS.map(
       ([id]) => id,
     );
+    const AI_LOAD_COLUMN_OPTIONS = [
+      ["runtime", "运行时长"],
+      ["task", "任务（个）"],
+      ["token", "Token"],
+      ["lastActivity", "最近运行时间"],
+    ];
+    const AI_LOAD_METRIC_OPTIONS = [
+      ["runtime", "运行时长"],
+      ["task", "任务数"],
+      ["token", "Token"],
+    ];
+    const DEFAULT_AI_LOAD_SETTINGS = {
+      primaryMetric: "runtime",
+      columns: AI_LOAD_COLUMN_OPTIONS.map(([key]) => ({
+        key,
+        visible: true,
+      })),
+    };
+
+    function normalizeAiLoadSettings(value) {
+      const source =
+        value !== null && typeof value === "object" ? value : {};
+      const validKeys = new Set(AI_LOAD_COLUMN_OPTIONS.map(([key]) => key));
+      const requested = Array.isArray(source.columns)
+        ? source.columns.filter(
+            (item) =>
+              item !== null &&
+              typeof item === "object" &&
+              validKeys.has(item.key),
+          )
+        : [];
+      const seen = new Set();
+      const columns = [];
+      for (const item of requested) {
+        if (seen.has(item.key)) continue;
+        seen.add(item.key);
+        columns.push({ key: item.key, visible: item.visible !== false });
+      }
+      for (const [key] of AI_LOAD_COLUMN_OPTIONS) {
+        if (!seen.has(key)) columns.push({ key, visible: true });
+      }
+      const primaryMetric = AI_LOAD_METRIC_OPTIONS.some(
+        ([key]) => key === source.primaryMetric,
+      )
+        ? source.primaryMetric
+        : "runtime";
+      return { primaryMetric, columns };
+    }
+
+    function aiLoadColumnLabel(key) {
+      return (
+        AI_LOAD_COLUMN_OPTIONS.find(([candidate]) => candidate === key)?.[1] ??
+        key
+      );
+    }
     const BRIEF_RULE_TEMPLATE = `请将同时满足以下条件的事项纳入每日简报：
 1. 在本次 Brief 时间窗口内发生变化
 2. 事项标题、结论或原因包含关键词：交付风险、验收、供应商
@@ -52,6 +107,8 @@ window.__ModuleLoader__.load({
         "M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5ZM19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z",
       ),
       chevron: pathIcon("m6 9 6 6 6-6"),
+      arrowUp: pathIcon("m18 15-6-6-6 6"),
+      arrowDown: pathIcon("m6 9 6 6 6-6"),
       check: pathIcon("m5 12 4 4L19 6"),
       star: pathIcon("m12 3 2.7 5.7 6.3.8-4.6 4.3 1.2 6.2L12 17.1 6.4 20l1.2-6.2L3 9.5l6.3-.8L12 3Z"),
       grid: pathIcon("M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"),
@@ -76,9 +133,9 @@ window.__ModuleLoader__.load({
     const styles = `
 .pmwb2{display:grid;gap:14px;min-height:100%;margin-top:-4px;color:var(--dsw-alias-label-primary);}
 .pmwb2 *,.pmwb2 *::before,.pmwb2 *::after{box-sizing:border-box;}
-.pmwb2-head{position:sticky;top:0;z-index:22;display:flex;align-items:flex-end;justify-content:space-between;gap:14px;flex-wrap:wrap;margin:-18px -20px 0;padding:14px 20px 12px;background:color-mix(in srgb,var(--dsw-alias-bg-base) 94%,transparent);border-bottom:1px solid var(--dsw-alias-border-l2);backdrop-filter:blur(16px);}
+.pmwb2-head{position:sticky;top:0;z-index:22;display:flex;align-items:flex-end;justify-content:space-between;gap:14px;flex-wrap:wrap;margin:-18px -20px 0;padding:10px 20px 8px;background:color-mix(in srgb,var(--dsw-alias-bg-base) 94%,transparent);border-bottom:1px solid var(--dsw-alias-border-l2);backdrop-filter:blur(16px);}
 .pmwb2-head-copy{min-width:0;}
-.pmwb2-head h1{margin:0;overflow:hidden;text-overflow:ellipsis;font-size:22px;line-height:1.25;white-space:nowrap;}
+.pmwb2-head h1{margin:0;overflow:hidden;text-overflow:ellipsis;font-size:20px;line-height:1.25;white-space:nowrap;}
 .pmwb2-title-trigger{display:flex;align-items:center;gap:7px;max-width:min(430px,42vw);padding:0;border:0;background:transparent;color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;}
 .pmwb2-title-trigger h1{min-width:0;}
 .pmwb2-title-trigger svg{width:15px;height:15px;flex:none;color:var(--dsw-alias-label-tertiary);}
@@ -142,6 +199,15 @@ window.__ModuleLoader__.load({
 .pmwb2-input,.pmwb2-select{width:100%;min-height:32px;padding:5px 8px;border:1px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:11.5px;}
 .pmwb2-textarea{width:100%;min-height:92px;resize:vertical;padding:8px;border:1px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:11.5px;line-height:1.6;}
 .pmwb2-field-hint{margin:0;color:var(--dsw-alias-label-tertiary);font-size:9.5px;line-height:1.55;}
+.pmwb2-ai-settings{display:grid;gap:12px;margin-top:14px;padding-top:14px;border-top:1px solid var(--dsw-alias-border-l2);}
+.pmwb2-ai-settings .pmwb2-field{margin-bottom:0;}
+.pmwb2-ai-settings-columns{display:grid;gap:5px;margin-top:7px;}
+.pmwb2-ai-settings-column{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;padding:5px 7px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);}
+.pmwb2-ai-settings-column>label{display:flex;align-items:center;gap:7px;min-width:0;color:var(--dsw-alias-label-secondary);font-size:10.5px;cursor:pointer;}
+.pmwb2-ai-settings-column input{width:14px;height:14px;accent-color:var(--dsw-alias-accent-primary,#4f8ef7);}
+.pmwb2-ai-settings-order{display:flex;gap:3px;}
+.pmwb2-ai-settings-order .pmwb2-iconbtn{width:24px;min-height:24px;}
+.pmwb2-ai-settings-order svg{width:12px;height:12px;}
 .pmwb2-form-section{display:grid;gap:9px;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--dsw-alias-border-l2);}
 .pmwb2-form-section:last-child{margin-bottom:0;padding-bottom:0;border-bottom:0;}
 .pmwb2-section-title{margin:0;font-size:11.5px;line-height:1.45;}
@@ -209,7 +275,7 @@ window.__ModuleLoader__.load({
 .pmwb2-preview-progress span{display:block;height:100%;background:var(--dsw-alias-accent-primary,#4f8ef7);}
 .pmwb2-toast{position:fixed;left:50%;bottom:28px;z-index:90;transform:translateX(-50%);padding:8px 12px;border:1px solid var(--dsw-alias-border-l3);border-radius:8px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 12px 30px rgba(0,0,0,.24);color:var(--dsw-alias-label-primary);font-size:11.5px;}
 @media(max-width:900px){.pmwb2-canvas{grid-template-columns:repeat(2,minmax(0,1fr));}.pmwb2-card{grid-column:span min(var(--cols,2),2);}}
-@media(max-width:640px){.pmwb2-canvas{grid-template-columns:1fr;}.pmwb2-card{grid-column:span 1;}.pmwb2-head h1{white-space:normal;}.pmwb2-actions{width:100%;justify-content:flex-start;}.pmwb2-starter-grid{grid-template-columns:1fr;}.pmwb2-head{margin:-14px -14px 0;padding:12px 14px;}.pmwb2-card-body{max-height:none;}}
+@media(max-width:640px){.pmwb2-canvas{grid-template-columns:1fr;}.pmwb2-card{grid-column:span 1;}.pmwb2-head h1{white-space:normal;}.pmwb2-actions{width:100%;justify-content:flex-start;}.pmwb2-starter-grid{grid-template-columns:1fr;}.pmwb2-head{margin:-14px -14px 0;padding:8px 14px;}.pmwb2-card-body{max-height:none;}}
 `;
 
     function token() {
@@ -541,7 +607,6 @@ window.__ModuleLoader__.load({
       const [currentUserId, setCurrentUserId] = react.useState("");
       const [currentRole, setCurrentRole] = react.useState(null);
       const [scopeAll, setScopeAll] = react.useState(false);
-      const [meetingOpen, setMeetingOpen] = react.useState(false);
       const [runtimeMeta, setRuntimeMeta] = react.useState({});
       const [managerOpen, setManagerOpen] = react.useState(false);
       const [renameTarget, setRenameTarget] = react.useState(null);
@@ -616,13 +681,6 @@ window.__ModuleLoader__.load({
         if (scope === undefined) return undefined;
         setScopeAll(scope.getSnapshot());
         return scope.subscribe(() => setScopeAll(scope.getSnapshot()));
-      }, []);
-
-      react.useEffect(() => {
-        const meeting = window.__pluginmaxMeeting;
-        if (meeting === undefined) return undefined;
-        setMeetingOpen(Boolean(meeting.open));
-        return meeting.subscribe((open) => setMeetingOpen(Boolean(open)));
       }, []);
 
       const commit = react.useCallback(
@@ -999,9 +1057,20 @@ window.__ModuleLoader__.load({
       }, []);
 
       const openPanelSettings = (panel) => {
+        if (panel.pluginId === "pluginmax.team-load") {
+          setPanelSettings({
+            id: panel.id,
+            pluginId: panel.pluginId,
+            title: panel.title || pluginName(plugins, panel.pluginId),
+            span: panel.span,
+            aiLoad: normalizeAiLoadSettings(panel.config?.aiLoad),
+          });
+          return;
+        }
         if (panel.pluginId !== "pluginmax.daily-brief") {
           setPanelSettings({
             id: panel.id,
+            pluginId: panel.pluginId,
             title: panel.title || pluginName(plugins, panel.pluginId),
             span: panel.span,
           });
@@ -1150,6 +1219,13 @@ window.__ModuleLoader__.load({
 
       const applyPanelSettings = () => {
         if (panelSettings === null) return;
+        if (
+          panelSettings.pluginId === "pluginmax.team-load" &&
+          !panelSettings.aiLoad.columns.some((column) => column.visible)
+        ) {
+          showToast("请至少保留一列 AI伙伴指标");
+          return;
+        }
         commit(
           draftPanels.map((panel) =>
             panel.id === panelSettings.id
@@ -1157,6 +1233,14 @@ window.__ModuleLoader__.load({
                   ...panel,
                   title: panelSettings.title.trim(),
                   span: panelSettings.span,
+                  ...(panelSettings.pluginId === "pluginmax.team-load"
+                    ? {
+                        config: {
+                          ...panel.config,
+                          aiLoad: normalizeAiLoadSettings(panelSettings.aiLoad),
+                        },
+                      }
+                    : {}),
                 }
               : panel,
           ),
@@ -1506,34 +1590,22 @@ window.__ModuleLoader__.load({
               {
                 type: "button",
                 className: "pmwb2-iconbtn",
-                title: "刷新",
-                onClick: () => void load(),
+                title: "管理工作台",
+                onClick: () => setManagerOpen(true),
               },
-              ICONS.refresh,
+              ICONS.grid,
             ),
             h(
               "button",
               {
                 type: "button",
                 className: "pmwb2-iconbtn",
-                title: "管理工作台",
-                onClick: () => setManagerOpen(true),
+                title: "刷新",
+                onClick: () => void load(),
               },
-              ICONS.grid,
+              ICONS.refresh,
             ),
             props.renderActions?.() ?? null,
-            h(
-              "button",
-              {
-                type: "button",
-                className: `pmwb2-iconbtn${meetingOpen ? " active" : ""}`,
-                title: meetingOpen ? "收起会议侧栏" : "展开会议侧栏",
-                "aria-label": meetingOpen ? "收起会议侧栏" : "展开会议侧栏",
-                "aria-pressed": meetingOpen,
-                onClick: () => window.__pluginmaxMeeting?.toggle?.(),
-              },
-              ICONS.meeting,
-            ),
           ),
         ),
         editing
@@ -2400,6 +2472,147 @@ window.__ModuleLoader__.load({
                       ),
                     ),
                   ),
+                  panelSettings.pluginId === "pluginmax.team-load"
+                    ? h(
+                        "div",
+                        { className: "pmwb2-ai-settings" },
+                        h(
+                          "div",
+                          { className: "pmwb2-field" },
+                          h("label", null, "主指标"),
+                          h(
+                            "select",
+                            {
+                              className: "pmwb2-input",
+                              value: panelSettings.aiLoad.primaryMetric,
+                              onChange: (event) =>
+                                setPanelSettings((current) => ({
+                                  ...current,
+                                  aiLoad: {
+                                    ...current.aiLoad,
+                                    primaryMetric: event.target.value,
+                                  },
+                                })),
+                            },
+                            ...AI_LOAD_METRIC_OPTIONS.map(([key, label]) =>
+                              h(
+                                "option",
+                                { key, value: key },
+                                label,
+                              ),
+                            ),
+                          ),
+                        ),
+                        h(
+                          "div",
+                          null,
+                          h("div", { className: "pmwb2-label" }, "显示列与顺序"),
+                          h(
+                            "div",
+                            { className: "pmwb2-ai-settings-columns" },
+                            ...panelSettings.aiLoad.columns.map(
+                              (column, index) =>
+                                h(
+                                  "div",
+                                  {
+                                    className: "pmwb2-ai-settings-column",
+                                    key: column.key,
+                                  },
+                                  h(
+                                    "label",
+                                    null,
+                                    h("input", {
+                                      type: "checkbox",
+                                      checked: column.visible,
+                                      onChange: () =>
+                                        setPanelSettings((current) => ({
+                                          ...current,
+                                          aiLoad: {
+                                            ...current.aiLoad,
+                                            columns: current.aiLoad.columns.map(
+                                              (item) =>
+                                                item.key === column.key
+                                                  ? {
+                                                      ...item,
+                                                      visible: !item.visible,
+                                                    }
+                                                  : item,
+                                            ),
+                                          },
+                                        })),
+                                    }),
+                                    aiLoadColumnLabel(column.key),
+                                  ),
+                                  h(
+                                    "div",
+                                    { className: "pmwb2-ai-settings-order" },
+                                    h(
+                                      "button",
+                                      {
+                                        type: "button",
+                                        className: "pmwb2-iconbtn",
+                                        title: "上移",
+                                        "aria-label": "上移",
+                                        disabled: index === 0,
+                                        onClick: () =>
+                                          setPanelSettings((current) => {
+                                            const columns = [
+                                              ...current.aiLoad.columns,
+                                            ];
+                                            [columns[index - 1], columns[index]] =
+                                              [
+                                                columns[index],
+                                                columns[index - 1],
+                                              ];
+                                            return {
+                                              ...current,
+                                              aiLoad: {
+                                                ...current.aiLoad,
+                                                columns,
+                                              },
+                                            };
+                                          }),
+                                      },
+                                      ICONS.arrowUp,
+                                    ),
+                                    h(
+                                      "button",
+                                      {
+                                        type: "button",
+                                        className: "pmwb2-iconbtn",
+                                        title: "下移",
+                                        "aria-label": "下移",
+                                        disabled:
+                                          index ===
+                                          panelSettings.aiLoad.columns.length - 1,
+                                        onClick: () =>
+                                          setPanelSettings((current) => {
+                                            const columns = [
+                                              ...current.aiLoad.columns,
+                                            ];
+                                            [columns[index], columns[index + 1]] =
+                                              [
+                                                columns[index + 1],
+                                                columns[index],
+                                              ];
+                                            return {
+                                              ...current,
+                                              aiLoad: {
+                                                ...current.aiLoad,
+                                                columns,
+                                              },
+                                            };
+                                          }),
+                                      },
+                                      ICONS.arrowDown,
+                                    ),
+                                  ),
+                                ),
+                            ),
+                          ),
+                        ),
+                      )
+                    : null,
                 ),
                 h(
                   "div",

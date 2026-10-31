@@ -559,6 +559,18 @@ function titleNode(tree: unknown, title: string): TreeNode | undefined {
 }
 
 describe("task client", () => {
+  it("opens task cards in detail without Data Agent selection", () => {
+    const source = readFileSync(
+      resolve(import.meta.dirname, "../client/index.js"),
+      "utf8",
+    );
+    expect(source).toContain('"data-task-id": task.id');
+    expect(source).toContain('"data-data-agent-exclude": "true"');
+    expect(source).toContain("onClick: () => onOpen(task.id),");
+    expect(source).toContain('"aria-label": `查看任务 ${task.id} 详情`');
+    expect(source).toContain("event.stopPropagation();");
+  });
+
   it("clears task data and edit state when the login token changes", () => {
     const source = readFileSync(CLIENT_PATH, "utf8");
     const listenerStart = source.indexOf(
@@ -3081,6 +3093,16 @@ describe("task client", () => {
     expect(source).toContain("@container (max-width:900px)");
     expect(source).toContain("grid-template-columns:repeat(4,220px)");
     expect(source).not.toContain("grid-auto-columns:260px");
+  });
+
+  it("keeps the draft and create actions on shared header button styles", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain('className: "pmtask-btn pmtask-create-task"');
+    expect(source).toContain('"aria-label": "新建任务"');
+    expect(source).toContain(".pmtask-btn.secondary:hover");
+    expect(source).toContain(
+      ".pmtask-btn-count{min-width:18px;height:18px;",
+    );
   });
 
   it("lets users define the phase-one execution policy when creating a task", () => {

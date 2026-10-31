@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@pluginmax/shared": "workspace:*",
+    "dsh-collab-data-orders": "workspace:*",
     "zod": "4.4.3"
   },
   "engines": {

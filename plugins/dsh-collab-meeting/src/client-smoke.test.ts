@@ -3,6 +3,10 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const CLIENT_PATH = resolve(import.meta.dirname, "../client/index.js");
+const SIDE_PANEL_CLIENT_PATH = resolve(
+  import.meta.dirname,
+  "../../dsh-collab-side-panel/client/index.js",
+);
 
 interface SlotSpec {
   readonly id: string;
@@ -122,6 +126,11 @@ function loadClientExports(options: ClientHarnessOptions = {}): {
     fetch: fakeFetch,
   };
   const source = readFileSync(CLIENT_PATH, "utf8");
+  const sidePanelSource = readFileSync(SIDE_PANEL_CLIENT_PATH, "utf8");
+  const loadSidePanel = new Function("window", sidePanelSource) as (
+    window: unknown,
+  ) => void;
+  loadSidePanel(windowStub);
   const factory = new Function(
     "window",
     "module",
@@ -351,6 +360,12 @@ function renderTree(node: unknown, runtime: Runtime): unknown {
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe("meeting client", () => {
+  it("fills the shared side-panel track at every width", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).not.toContain("const PANEL_WIDTH");
+    expect(source).toContain('width: "100%",');
+  });
+
   it("registers the meetings page and the meeting overlay", () => {
     const { exports: exported } = loadClientExports();
     expect(exported.inject).toEqual(["slots"]);
@@ -450,8 +465,7 @@ describe("meeting client", () => {
                 lastActivityAt: "2026-03-02T00:00:00.000Z",
               }
             : activeConversation;
-        const content =
-          meetingId === "m-closed" ? "会议历史消息" : "历史消息";
+        const content = meetingId === "m-closed" ? "会议历史消息" : "历史消息";
         return payload({
           meeting,
           participants: [],
@@ -462,8 +476,7 @@ describe("meeting client", () => {
               sequence: 1,
               senderKind: meetingId === "m-closed" ? "human" : "agent",
               senderId: meetingId === "m-closed" ? "admin" : "tm-1",
-              senderName:
-                meetingId === "m-closed" ? "Admin" : "AI伙伴一",
+              senderName: meetingId === "m-closed" ? "Admin" : "AI伙伴一",
               content,
               mentions: [],
               deliveries: [],
@@ -575,11 +588,8 @@ describe("meeting client", () => {
     );
     expect(initialPanelSearch, "每次打开侧栏应先展示沟通列表").toBeDefined();
     expect(
-      (
-        initialPanelSearch?.props?.style as
-          | Record<string, unknown>
-          | undefined
-      )?.height,
+      (initialPanelSearch?.props?.style as Record<string, unknown> | undefined)
+        ?.height,
       "搜索框应保持固定单行高度，不能被纵向 flex 拉伸",
     ).toBe(34);
     const communicationLabels = findAllInOrder(
@@ -592,10 +602,9 @@ describe("meeting client", () => {
       "打开沟通 有历史的 AI 对话",
       "打开沟通 有历史的已结束会议",
     ]);
-    expect(
-      containsText(tree, "进行中"),
-      "右侧沟通列表不再显示进行中状态",
-    ).toBe(false);
+    expect(containsText(tree, "进行中"), "右侧沟通列表不再显示进行中状态").toBe(
+      false,
+    );
     expect(
       findAll(tree, (node) => node.type === "time").length,
       "右侧沟通列表应在状态位置显示更新时间",
@@ -603,8 +612,7 @@ describe("meeting client", () => {
     expect(
       findNode(
         tree,
-        (node) =>
-          node.props?.["aria-label"] === "有历史的 AI 对话 头像",
+        (node) => node.props?.["aria-label"] === "有历史的 AI 对话 头像",
       ),
       "列表项应显示头像",
     ).toBeDefined();
@@ -614,8 +622,7 @@ describe("meeting client", () => {
     expect(
       findNode(
         tree,
-        (node) =>
-          node.props?.children === "AUTO-REVIEW 会议 1792669878255",
+        (node) => node.props?.children === "AUTO-REVIEW 会议 1792669878255",
       ),
       "自动化验收生成的会话不应出现在侧栏",
     ).toBeUndefined();
@@ -629,8 +636,7 @@ describe("meeting client", () => {
     );
     (
       panelSearch?.props?.onChange as
-        | ((event: { target: { value: string } }) => void)
-        | undefined
+        ((event: { target: { value: string } }) => void) | undefined
     )?.({ target: { value: "项目一" } });
     tree = await settle(2);
     expect(
@@ -644,12 +650,9 @@ describe("meeting client", () => {
     ).toEqual(["打开沟通 有历史的已结束会议"]);
 
     (
-      findNode(
-        tree,
-        (node) => node.props?.["aria-label"] === "搜索沟通",
-      )?.props?.onChange as
-        | ((event: { target: { value: string } }) => void)
-        | undefined
+      findNode(tree, (node) => node.props?.["aria-label"] === "搜索沟通")?.props
+        ?.onChange as
+        ((event: { target: { value: string } }) => void) | undefined
     )?.({ target: { value: "Admin" } });
     tree = await settle(2);
     expect(
@@ -663,12 +666,9 @@ describe("meeting client", () => {
     ).toEqual(["打开沟通 有历史的 AI 对话"]);
 
     (
-      findNode(
-        tree,
-        (node) => node.props?.["aria-label"] === "搜索沟通",
-      )?.props?.onChange as
-        | ((event: { target: { value: string } }) => void)
-        | undefined
+      findNode(tree, (node) => node.props?.["aria-label"] === "搜索沟通")?.props
+        ?.onChange as
+        ((event: { target: { value: string } }) => void) | undefined
     )?.({ target: { value: "" } });
     tree = await settle(2);
     const aiItem = findNode(
@@ -685,8 +685,7 @@ describe("meeting client", () => {
     const switcherButton = findNode(
       tree,
       (node) =>
-        node.type === "button" &&
-        node.props?.["aria-label"] === "切换沟通",
+        node.type === "button" && node.props?.["aria-label"] === "切换沟通",
     );
     expect(switcherButton, "详情页应提供快速切换沟通入口").toBeDefined();
     (switcherButton?.props?.onClick as (() => void) | undefined)?.();
@@ -699,19 +698,13 @@ describe("meeting client", () => {
     );
     expect(switcherPanel, "切换沟通应显示为浮层下拉").toBeDefined();
     expect(
-      (
-        switcherPanel?.props?.style as
-          | Record<string, unknown>
-          | undefined
-      )?.background,
+      (switcherPanel?.props?.style as Record<string, unknown> | undefined)
+        ?.background,
       "下拉层应使用更深的背景与前景区分",
     ).toContain("bg-layer-2");
     expect(
-      (
-        switcherPanel?.props?.style as
-          | Record<string, unknown>
-          | undefined
-      )?.boxShadow,
+      (switcherPanel?.props?.style as Record<string, unknown> | undefined)
+        ?.boxShadow,
       "下拉层应提供明显阴影",
     ).toContain("rgba(0,0,0,0.58)");
     expect(
@@ -724,8 +717,7 @@ describe("meeting client", () => {
       findNode(
         tree,
         (node) =>
-          node.type === "button" &&
-          node.props?.["aria-label"] === "切换沟通",
+          node.type === "button" && node.props?.["aria-label"] === "切换沟通",
       )?.props?.onClick as (() => void) | undefined
     )?.();
     tree = await settle(2);
@@ -740,8 +732,7 @@ describe("meeting client", () => {
     const backButton = findNode(
       tree,
       (node) =>
-        node.type === "button" &&
-        node.props?.["aria-label"] === "返回沟通列表",
+        node.type === "button" && node.props?.["aria-label"] === "返回沟通列表",
     );
     expect(backButton, "具体沟通页应提供返回按钮").toBeDefined();
     (backButton?.props?.onClick as (() => void) | undefined)?.();
@@ -753,32 +744,25 @@ describe("meeting client", () => {
     const newButton = findNode(
       tree,
       (node) =>
-        node.type === "button" &&
-        node.props?.["aria-label"] === "新建沟通",
+        node.type === "button" && node.props?.["aria-label"] === "新建沟通",
     );
     expect(newButton, "侧栏应提供圆形加号新建入口").toBeDefined();
     (newButton?.props?.onClick as (() => void) | undefined)?.();
     tree = await settle(2);
     expect(
-      findNode(
-        tree,
-        (node) =>
-          node.props?.["aria-label"] === "新沟通会议主题",
-      ),
+      findNode(tree, (node) => node.props?.["aria-label"] === "新沟通会议主题"),
     ).toBeDefined();
     expect(
       findNode(
         tree,
-        (node) =>
-          node.props?.["aria-label"] === "与 AI伙伴一 开始对话",
+        (node) => node.props?.["aria-label"] === "与 AI伙伴一 开始对话",
       ),
     ).toBeDefined();
 
     const backFromNew = findNode(
       tree,
       (node) =>
-        node.type === "button" &&
-        node.props?.["aria-label"] === "返回沟通列表",
+        node.type === "button" && node.props?.["aria-label"] === "返回沟通列表",
     );
     (backFromNew?.props?.onClick as (() => void) | undefined)?.();
     tree = await settle(2);
@@ -801,10 +785,7 @@ describe("meeting client", () => {
     harness.window.__pluginmaxMeeting?.openPanel();
     tree = await settle(4);
     expect(
-      findNode(
-        tree,
-        (node) => node.props?.["aria-label"] === "搜索沟通",
-      ),
+      findNode(tree, (node) => node.props?.["aria-label"] === "搜索沟通"),
       "重新打开侧栏应回到沟通列表",
     ).toBeDefined();
     expect(
@@ -822,11 +803,8 @@ describe("meeting client", () => {
         node.props?.["aria-label"] === "打开沟通 有历史的已结束会议",
     );
     expect(
-      (
-        restoredClosed?.props?.style as
-          | Record<string, unknown>
-          | undefined
-      )?.border,
+      (restoredClosed?.props?.style as Record<string, unknown> | undefined)
+        ?.border,
       "列表应保留上次选择的会话高亮",
     ).toContain("accent-primary");
   });
@@ -1390,12 +1368,11 @@ describe("meeting client", () => {
     const meetingItem = findNode(
       tree,
       (node) =>
-        node.type === "button" &&
-        typeof node.props?.onMouseDown === "function" &&
+        node.type === "div" &&
+        node.props?.["data-data-agent-entity"] === "meeting" &&
         containsText(node.props?.children, "评审会"),
     );
     expect(meetingItem, "会议列表应有可点选的会议项").toBeDefined();
-    (meetingItem?.props?.onMouseDown as (() => void) | undefined)?.();
     (meetingItem?.props?.onClick as (() => void) | undefined)?.();
     tree = await settle();
     const settingsTab = findNode(
@@ -1609,10 +1586,12 @@ describe("meeting client", () => {
     let tree = await settle();
     const meetingItem = findNode(
       tree,
-      (node) => node.type === "button" && node.props?.key === "m-1",
+      (node) =>
+        node.type === "div" &&
+        node.props?.key === "m-1" &&
+        node.props?.["data-data-agent-entity"] === "meeting",
     );
     expect(meetingItem, "会议列表应有可点选的会议项").toBeDefined();
-    (meetingItem?.props?.onMouseDown as (() => void) | undefined)?.();
     (meetingItem?.props?.onClick as (() => void) | undefined)?.();
     tree = await settle();
     const texts = findAll(
@@ -2014,87 +1993,58 @@ describe("meeting client", () => {
       ),
       "顶部不应再出现 AI 对话按钮",
     ).toHaveLength(0);
-    expect(containsText(tree, "筛选 / 搜索"), "应移除列表头部文案").toBe(
-      false,
-    );
+    expect(containsText(tree, "筛选 / 搜索"), "应移除列表头部文案").toBe(false);
     expect(containsText(tree, "2 场"), "应移除列表数量文案").toBe(false);
-    const sidebarToggle = findNode(
-      tree,
-      (node) => node.props?.["aria-label"] === "会议侧边栏",
-    );
-    expect(sidebarToggle?.props?.["aria-pressed"]).toBe(false);
-    (sidebarToggle?.props?.onClick as (() => void) | undefined)?.();
-    tree = await settle(1);
-    const activeSidebarToggle = findNode(
-      tree,
-      (node) => node.props?.["aria-label"] === "会议侧边栏",
-    );
-    expect(activeSidebarToggle?.props?.["aria-pressed"]).toBe(true);
-    expect(
-      (
-        activeSidebarToggle?.props?.style as
-          | Record<string, unknown>
-          | undefined
-      )?.borderColor,
-    ).toContain("accent-primary");
-    (activeSidebarToggle?.props?.onClick as (() => void) | undefined)?.();
-    tree = await settle(1);
     expect(
       findNode(
         tree,
-        (node) =>
-          node.props?.["aria-label"] === "打开与 Codex 助手 的默认对话",
+        (node) => node.props?.["aria-label"] === "会议侧边栏",
+      ),
+      "沟通入口应由全局三点按钮统一承载",
+    ).toBeUndefined();
+    expect(
+      findNode(
+        tree,
+        (node) => node.props?.["aria-label"] === "打开与 Codex 助手 的默认对话",
       ),
       "每个 AI伙伴都应有默认对话入口",
     ).toBeDefined();
     expect(
       findNode(
         tree,
-        (node) =>
-          node.props?.["aria-label"] === "打开与 设计伙伴 的默认对话",
+        (node) => node.props?.["aria-label"] === "打开与 设计伙伴 的默认对话",
       ),
     ).toBeDefined();
     expect(
       findNode(
         tree,
         (node) =>
-          node.type === "button" &&
+          node.type === "div" &&
           node.props?.["aria-label"] === "打开会议 Atlas 周会" &&
-          typeof (
-            node.props?.style as Record<string, unknown> | undefined
-          )?.borderColor === "string",
+          typeof (node.props?.style as Record<string, unknown> | undefined)
+            ?.borderColor === "string",
       ),
       "列表加载后应自动选中最新有消息的会议",
     ).toBeDefined();
     const selectableMeeting = findNode(
       tree,
       (node) =>
-        node.type === "button" &&
+        node.type === "div" &&
         node.props?.["aria-label"] === "打开会议 Atlas 周会",
     );
     expect(selectableMeeting, "应存在可选择的会议卡片").toBeDefined();
     (selectableMeeting?.props?.onClick as (() => void) | undefined)?.();
     tree = await settle(2);
-    const workspaceGrid = findNode(
-      tree,
-      (node) => {
-        const style = node.props?.style as
-          | Record<string, unknown>
-          | undefined;
-        return (
-          style?.display === "grid" &&
-          String(style.gridTemplateColumns ?? "").includes(
-            "minmax(270px,320px)",
-          )
-        );
-      },
-    );
+    const workspaceGrid = findNode(tree, (node) => {
+      const style = node.props?.style as Record<string, unknown> | undefined;
+      return (
+        style?.display === "grid" &&
+        String(style.gridTemplateColumns ?? "").includes("minmax(270px,320px)")
+      );
+    });
     expect(
-      (
-        workspaceGrid?.props?.style as
-          | Record<string, unknown>
-          | undefined
-      )?.gridTemplateColumns,
+      (workspaceGrid?.props?.style as Record<string, unknown> | undefined)
+        ?.gridTemplateColumns,
       "主页面使用左侧会话与中间详情双栏布局",
     ).toBe("minmax(270px,320px) minmax(0,1fr)");
     expect(
@@ -2112,15 +2062,12 @@ describe("meeting client", () => {
     const meetingThreadCard = findNode(
       tree,
       (node) =>
-        node.type === "button" &&
+        node.type === "div" &&
         node.props?.["aria-label"] === "打开会议 Atlas 周会",
     );
     expect(
-      (
-        meetingThreadCard?.props?.style as
-          | Record<string, unknown>
-          | undefined
-      )?.borderRadius,
+      (meetingThreadCard?.props?.style as Record<string, unknown> | undefined)
+        ?.borderRadius,
     ).toBe(7);
     expect(
       containsText(meetingThreadCard, "进行中"),
@@ -2141,11 +2088,9 @@ describe("meeting client", () => {
         node.props?.["aria-label"] === "打开与 Codex 助手 的默认对话",
     );
     const selectedStyle = meetingThreadCard?.props?.style as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     const unselectedStyle = aiThreadCard?.props?.style as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     expect(selectedStyle?.outline).toBe("none");
     expect(unselectedStyle?.outline).toBe("none");
     expect(selectedStyle?.border).toBe(unselectedStyle?.border);
@@ -2172,7 +2117,10 @@ describe("meeting client", () => {
       aiThreadCard,
       (node) => node.props?.children === "不可用",
     );
-    expect(unavailableListTag, "不可用 AI伙伴应在左侧列表显示标签").toBeDefined();
+    expect(
+      unavailableListTag,
+      "不可用 AI伙伴应在左侧列表显示标签",
+    ).toBeDefined();
     expect(unavailableListTag?.props?.title).toBe("Agent Profile 已停用");
     const availableDesignCard = findNode(
       tree,
@@ -2194,12 +2142,9 @@ describe("meeting client", () => {
       "主页面不应渲染内嵌会议右侧栏",
     ).toBeUndefined();
     expect(
-      findNode(
-        tree,
-        (node) => node.props?.["aria-label"] === "会议侧边栏",
-      ),
-      "主页面应保留全局会议侧栏入口",
-    ).toBeDefined();
+      findNode(tree, (node) => node.props?.["aria-label"] === "会议侧边栏"),
+      "页面内不应重复渲染沟通入口",
+    ).toBeUndefined();
     expect(
       findNode(
         tree,
@@ -2240,12 +2185,9 @@ describe("meeting client", () => {
       "AI 伙伴对话不应渲染右侧栏",
     ).toBeUndefined();
     expect(
-      findNode(
-        tree,
-        (node) => node.props?.["aria-label"] === "会议侧边栏",
-      ),
-      "AI 伙伴对话仍应保留全局会议侧栏入口",
-    ).toBeDefined();
+      findNode(tree, (node) => node.props?.["aria-label"] === "会议侧边栏"),
+      "AI 对话也不应重复渲染沟通入口",
+    ).toBeUndefined();
     const aiConversationHeader = findNode(
       tree,
       (node) =>
@@ -2269,27 +2211,25 @@ describe("meeting client", () => {
       (node) => node.props?.children === "AI伙伴",
     );
     expect(
-      (
-        aiPartnerTag?.props?.style as
-          | Record<string, unknown>
-          | undefined
-      )?.background,
+      (aiPartnerTag?.props?.style as Record<string, unknown> | undefined)
+        ?.background,
       "AI伙伴标签应复用右侧栏标签样式",
     ).toBe("linear-gradient(135deg,#6f53d6,#2f6feb)");
     const unavailableHeaderTag = findNode(
       aiConversationHeader,
       (node) => node.props?.children === "不可用",
     );
-    expect(unavailableHeaderTag, "不可用 AI伙伴应在对话标题显示标签").toBeDefined();
+    expect(
+      unavailableHeaderTag,
+      "不可用 AI伙伴应在对话标题显示标签",
+    ).toBeDefined();
     expect(unavailableHeaderTag?.props?.title).toBe("Agent Profile 已停用");
     expect(
       findNode(
         aiConversationHeader,
         (node) =>
           node.type === "time" &&
-          String(node.props?.["aria-label"] ?? "").startsWith(
-            "最近更新时间",
-          ),
+          String(node.props?.["aria-label"] ?? "").startsWith("最近更新时间"),
       ),
       "AI 对话头部右侧应显示最近更新时间",
     ).toBeDefined();
@@ -2313,8 +2253,7 @@ describe("meeting client", () => {
     );
     (
       composer?.props?.onChange as
-        | ((event: { target: { value: string } }) => void)
-        | undefined
+        ((event: { target: { value: string } }) => void) | undefined
     )?.({ target: { value: "对话恢复测试" } });
     tree = await settle(2);
     const composerForm = findNode(
@@ -2332,8 +2271,7 @@ describe("meeting client", () => {
     expect(composerForm, "应找到中间对话发送表单").toBeDefined();
     await (
       composerForm?.props?.onSubmit as
-        | ((event: unknown) => Promise<void>)
-        | undefined
+        ((event: unknown) => Promise<void>) | undefined
     )?.({ preventDefault: () => undefined });
     tree = await settle(6);
     expect(
@@ -2396,8 +2334,7 @@ describe("meeting client", () => {
     expect(
       findNode(
         tree,
-        (node) =>
-          node.props?.["aria-label"] === "打开与 Codex 助手 的默认对话",
+        (node) => node.props?.["aria-label"] === "打开与 Codex 助手 的默认对话",
       ),
       "会议筛选下不应显示 AI伙伴",
     ).toBeUndefined();
@@ -2405,7 +2342,7 @@ describe("meeting client", () => {
       findNode(
         tree,
         (node) =>
-          node.type === "button" &&
+          node.type === "div" &&
           node.props?.["aria-label"] === "打开会议 Atlas 周会",
       ),
     ).toBeDefined();
@@ -2414,7 +2351,7 @@ describe("meeting client", () => {
       findNode(
         tree,
         (node) =>
-          node.type === "button" &&
+          node.type === "div" &&
           node.props?.["aria-label"] === "打开会议 Atlas 周会",
       ),
       "AI伙伴筛选下不应显示会议",
@@ -2422,15 +2359,13 @@ describe("meeting client", () => {
     expect(
       findNode(
         tree,
-        (node) =>
-          node.props?.["aria-label"] === "打开与 Codex 助手 的默认对话",
+        (node) => node.props?.["aria-label"] === "打开与 Codex 助手 的默认对话",
       ),
     ).toBeDefined();
     expect(
       findNode(
         tree,
-        (node) =>
-          node.props?.["aria-label"] === "打开与 新建伙伴 的默认对话",
+        (node) => node.props?.["aria-label"] === "打开与 新建伙伴 的默认对话",
       ),
       "AI伙伴筛选应提供尚无历史消息的新会话入口",
     ).toBeDefined();
@@ -2438,23 +2373,19 @@ describe("meeting client", () => {
     expect(
       findNode(
         tree,
-        (node) =>
-          node.props?.["aria-label"] === "打开与 新建伙伴 的默认对话",
+        (node) => node.props?.["aria-label"] === "打开与 新建伙伴 的默认对话",
       ),
       "全部列表只应展示已有 1:1 沟通，不应展示尚无会话的 AI伙伴",
     ).toBeUndefined();
     const sortedConversationLabels = findAllInOrder(
       tree,
       (node) =>
-        node.type === "button" &&
+        (node.type === "button" || node.type === "div") &&
         String(node.props?.["aria-label"] ?? "").startsWith("打开"),
     )
       .map((node) => node.props?.["aria-label"])
       .slice(0, 4);
-    expect(
-      sortedConversationLabels,
-      "全部列表应按更新时间倒序排列",
-    ).toEqual([
+    expect(sortedConversationLabels, "全部列表应按更新时间倒序排列").toEqual([
       "打开会议 Atlas 周会",
       "打开与 Codex 助手 的默认对话",
       "打开与 设计伙伴 的默认对话",
@@ -2479,8 +2410,7 @@ describe("meeting client", () => {
     const searchFor = async (value: string) => {
       (
         searchInput()?.props?.onChange as
-          | ((event: { target: { value: string } }) => void)
-          | undefined
+          ((event: { target: { value: string } }) => void) | undefined
       )?.({ target: { value } });
       tree = await settle(2);
     };
@@ -2489,16 +2419,14 @@ describe("meeting client", () => {
     expect(
       findNode(
         tree,
-        (node) =>
-          node.props?.["aria-label"] === "打开与 Codex 助手 的默认对话",
+        (node) => node.props?.["aria-label"] === "打开与 Codex 助手 的默认对话",
       ),
       "应支持按 Owner 名称搜索 AI伙伴",
     ).toBeDefined();
     expect(
       findNode(
         tree,
-        (node) =>
-          node.props?.["aria-label"] === "打开与 设计伙伴 的默认对话",
+        (node) => node.props?.["aria-label"] === "打开与 设计伙伴 的默认对话",
       ),
       "未命中的 AI伙伴应隐藏",
     ).toBeUndefined();
@@ -2506,7 +2434,7 @@ describe("meeting client", () => {
       findNode(
         tree,
         (node) =>
-          node.type === "button" &&
+          node.type === "div" &&
           node.props?.["aria-label"] === "打开会议 Atlas 周会",
       ),
       "未命中的会议应从结果列表隐藏",
@@ -2521,7 +2449,7 @@ describe("meeting client", () => {
       findAll(
         tree,
         (node) =>
-          node.type === "button" &&
+          (node.type === "button" || node.type === "div") &&
           String(node.props?.["aria-label"] ?? "").startsWith("打开会议"),
       ),
       "没有会议命中项目关键词时不应展示会议结果",
@@ -2531,7 +2459,7 @@ describe("meeting client", () => {
     const rankedMeetingLabels = findAllInOrder(
       tree,
       (node) =>
-        node.type === "button" &&
+        (node.type === "button" || node.type === "div") &&
         String(node.props?.["aria-label"] ?? "").startsWith("打开会议"),
     ).map((node) => node.props?.["aria-label"]);
     expect(rankedMeetingLabels).toEqual([
@@ -2559,8 +2487,7 @@ describe("meeting client", () => {
     await clickTypeTag("AI伙伴");
     const newPartner = findNode(
       tree,
-      (node) =>
-        node.props?.["aria-label"] === "打开与 新建伙伴 的默认对话",
+      (node) => node.props?.["aria-label"] === "打开与 新建伙伴 的默认对话",
     );
     (newPartner?.props?.onClick as (() => void) | undefined)?.();
     tree = await settle(4);
@@ -2739,31 +2666,20 @@ describe("meeting client", () => {
     expect(
       findNode(
         tree,
-        (node) =>
-          node.props?.["aria-label"] === "右侧栏 AI 对话输入",
+        (node) => node.props?.["aria-label"] === "右侧栏 AI 对话输入",
       ),
       "AI 伙伴对话不应出现右侧栏输入框",
     ).toBeUndefined();
-    const aiConversationGrid = findNode(
-      tree,
-      (node) => {
-        const style = node.props?.style as
-          | Record<string, unknown>
-          | undefined;
-        return (
-          style?.display === "grid" &&
-          String(style.gridTemplateColumns ?? "").includes(
-            "minmax(270px,320px)",
-          )
-        );
-      },
-    );
+    const aiConversationGrid = findNode(tree, (node) => {
+      const style = node.props?.style as Record<string, unknown> | undefined;
+      return (
+        style?.display === "grid" &&
+        String(style.gridTemplateColumns ?? "").includes("minmax(270px,320px)")
+      );
+    });
     expect(
-      (
-        aiConversationGrid?.props?.style as
-          | Record<string, unknown>
-          | undefined
-      )?.gridTemplateColumns,
+      (aiConversationGrid?.props?.style as Record<string, unknown> | undefined)
+        ?.gridTemplateColumns,
       "AI 伙伴对话应只保留列表与对话双栏",
     ).toBe("minmax(270px,320px) minmax(0,1fr)");
     expect(
@@ -2794,7 +2710,84 @@ describe("meeting client", () => {
   it("supports pointer and keyboard activation for structured AI mentions", () => {
     const source = readFileSync(CLIENT_PATH, "utf8");
     expect(source).toContain("onClick: () => pickMention(participant)");
-    expect(source).toContain("pickPanelMention(participant)");
+    expect(source).toMatch(/pickPanelMention\(\s*participant,?\s*\)/);
     expect(source).not.toContain("onMouseDown: (event) =>");
+  });
+
+  it("expands the communication panel to the shared workspace width", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain('"data-side-panel-expanded":');
+    expect(source).toContain("style: sharedPanel.expanded");
+    expect(source).toContain('width: "100%"');
+    expect(source).toContain("borderLeft: 0");
+    expect(source).toContain('window.__pluginmaxSidePanel?.registerType?.({');
+    expect(source).toContain('type: "communication"');
+  });
+
+  it("separates meeting selection from explicit detail navigation", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain('"data-data-agent-entity": "meeting"');
+    expect(source).toContain('"aria-label": `查看会议 ${item.title} 详情`');
+    expect(source).not.toContain('"data-data-agent-select": "meeting"');
+  });
+
+  it("includes accessible workspaces for platform admins in the meeting panel", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain('const platformAdmin = me.user?.role === "admin"');
+    expect(source).toContain("(platformAdmin || workspace.isMember === true)");
+  });
+
+  it("keeps task capture behind the composer tool without a prompt banner", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).not.toContain("整理本次沟通中的待跟进事项");
+    expect(source).not.toContain("未确认的负责人、日期和验收标准会保持空缺");
+    expect(source).toContain('"aria-label": "整理任务草稿"');
+  });
+
+  it("passes selectable transcript messages into task capture", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain("messageOptions: transcript.map((message) => ({");
+    expect(source).toContain('"data-meeting-message-id": message.id');
+    expect(source).toContain('"data-meeting-surface": "center"');
+    expect(source).toContain('"data-meeting-surface": "rail"');
+    expect(source).toContain('"pluginmax:task-capture-selection"');
+  });
+
+  it("opens task drafts as a side-panel tab beside communication and Data Agent", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain('"task-drafts": "task"');
+    expect(source).toContain('openTab("task-drafts")');
+    expect(source).toContain("pluginmax:task-draft-open");
+    expect(source).toContain("openNewTab(type)");
+    expect(source).toContain("新建侧栏标签");
+    expect(source).toContain("reorderTab(sourceTab, targetTab)");
+    expect(source).toContain("draggable: true");
+    expect(source).toContain("sidePanelTabsStyle.actionWrap");
+    expect(source).toContain("height: 49");
+    expect(source).toContain('padding: "6px 8px 0 6px"');
+    expect(source).toContain("sidePanelTabsStyle.panelToggle");
+    expect(source).toContain('flex: "0 0 100px"');
+    expect(source).toContain('["data-agent", "数据洞察"]');
+    expect(source).toContain('? "数据洞察"');
+    expect(source).toContain("sidePanelTabIcon(type, 12)");
+    expect(source).toContain("fontSize: 11");
+    expect(source).toContain("title: item.title");
+    expect(source).toContain("title: created.title");
+    expect(source).toContain("fontWeight: 600");
+    expect(source).toContain('"data-tab-indicator": "true"');
+    expect(source).toContain(
+      'title: snapshot.expanded ? "还原侧边栏" : "展开侧边栏"',
+    );
+    expect(source).toContain('"aria-label": "关闭侧边栏"');
+    expect(source).toContain("activeTabRef.current?.scrollIntoView?.(");
+    expect(source).toContain('"ArrowLeft", "ArrowRight", "Home", "End"');
+    expect(source).toContain("closeOnOutsidePointer");
+    expect(source).toContain(
+      "openTabs[Math.min(closingIndex, openTabs.length - 1)]",
+    );
+    expect(source).toContain(
+      "state.openTabs.length > 0 ? state.openTabs : requestedTabs",
+    );
+    expect(source).toContain("open: false,\n              expanded: false");
   });
 });

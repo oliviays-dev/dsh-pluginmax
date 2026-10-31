@@ -11,6 +11,9 @@
   "references": [
     {
       "path": "../../packages/shared"
+    },
+    {
+      "path": "../dsh-collab-data-orders"
     }
   ]
 }

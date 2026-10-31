@@ -499,10 +499,6 @@ window.__ModuleLoader__.load({
       .pmproj-btn.subtle:not(:disabled):hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);}
       .pmproj-btn.small{height:28px;padding:0 10px;font-size:12px;}
       .pmproj-btn:disabled{opacity:.5;cursor:not-allowed;}
-      .pmproj-meeting-toggle{width:32px;height:32px;flex:none;display:grid;place-items:center;padding:0;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-secondary);cursor:pointer;}
-      .pmproj-meeting-toggle:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);}
-      .pmproj-meeting-toggle.active{color:var(--dsw-alias-accent-primary,#4f8ef7);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 12%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 50%,transparent);}
-      .pmproj-meeting-toggle svg{width:15px;height:15px;}
       .pmproj-follow-star{width:32px;height:32px;flex:none;padding:0;border-radius:999px;color:var(--dsw-alias-label-secondary);}
       .pmproj-follow-star.active{border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 10%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7);}
       .pmproj-layout{display:grid;grid-template-columns:minmax(230px,290px) minmax(0,1fr);gap:12px;align-items:start;}
@@ -946,14 +942,6 @@ window.__ModuleLoader__.load({
       const [outputType, setOutputType] = react.useState("all");
       const [outputFrom, setOutputFrom] = react.useState("");
       const [outputTo, setOutputTo] = react.useState("");
-      const meetingOpen = react.useSyncExternalStore(
-        (listener) =>
-          window.__pluginmaxMeeting?.subscribe(() =>
-            listener(Boolean(window.__pluginmaxMeeting.open)),
-          ) ?? (() => {}),
-        () => Boolean(window.__pluginmaxMeeting?.open),
-      );
-
       const fail = (cause) => {
         const message = cause instanceof Error ? cause.message : String(cause);
         setError(message);
@@ -5900,31 +5888,6 @@ window.__ModuleLoader__.load({
               "新建项目",
             ),
             props.renderActions?.() ?? null,
-            h(
-              "button",
-              {
-                className: `pmproj-meeting-toggle${meetingOpen ? " active" : ""}`,
-                type: "button",
-                "aria-label": meetingOpen ? "收起沟通侧边栏" : "展开沟通侧边栏",
-                "aria-pressed": meetingOpen,
-                title: meetingOpen ? "收起沟通侧边栏" : "展开沟通侧边栏",
-                onClick: () => window.__pluginmaxMeeting?.toggle(),
-              },
-              h(
-                "svg",
-                {
-                  viewBox: "0 0 24 24",
-                  fill: "none",
-                  stroke: "currentColor",
-                  strokeWidth: 2,
-                  strokeLinecap: "round",
-                  strokeLinejoin: "round",
-                  "aria-hidden": true,
-                },
-                h("path", { d: "m22 8-6 4 6 4V8Z" }),
-                h("rect", { x: 2, y: 6, width: 14, height: 12, rx: 2 }),
-              ),
-            ),
           ),
         ),
         renderError(),

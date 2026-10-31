@@ -21,6 +21,17 @@ interface ClientExports {
       view: "unread" | "all",
       isRead: (item: T) => boolean,
     ): readonly T[];
+    dataAgentBriefAttributes(item: {
+      title?: string;
+      conclusion?: string;
+      sourceId?: string;
+      workspaceId?: string;
+      deepLink?: {
+        route?: string;
+        refId?: string;
+        workspaceId?: string;
+      };
+    }): Record<string, string | undefined>;
   };
 }
 
@@ -204,5 +215,49 @@ describe("workbench client navigation", () => {
     );
     expect(source).toContain("ctx.markItemRead(moduleId, item)");
     expect(source).toContain('ctx.markItemRead("meeting-minutes", item)');
+  });
+
+  it("uses workbench cards for selection and explicit buttons for details", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain("...dataAgentEntityAttributes(item)");
+    expect(source).toContain(
+      '...dataAgentEntityAttributes({ ...item, kind: "meeting" })',
+    );
+    expect(source).toContain('"data-data-agent-card": "true"');
+    expect(source).not.toContain("onClick: openItem");
+    expect(source).not.toContain("onClick: () => ctx.openBriefItem(item)");
+    expect(source).toContain('item.actionLabel || "查看明细"');
+    expect(source).toContain('"详情"');
+  });
+
+  it("resolves daily brief deep links to standard Data Agent entities", () => {
+    const harness = createHarness();
+    loadClient(harness);
+    const task = harness.exports.__test?.dataAgentBriefAttributes({
+      title: "切西瓜-产品PRD设计 · Agent Run 被中断",
+      conclusion: "Agent Run 被中断",
+      sourceId: "TSK-MV91RFMO-0492",
+      workspaceId: "WS-1",
+      deepLink: {
+        route: "task",
+        refId: "TSK-MV91RFMO-0492",
+        workspaceId: "WS-1",
+      },
+    });
+    const pageFragment = harness.exports.__test?.dataAgentBriefAttributes({
+      title: "自由页面片段",
+      conclusion: "没有标准对象",
+      workspaceId: "WS-1",
+    });
+
+    expect(task).toMatchObject({
+      "data-task-id": "TSK-MV91RFMO-0492",
+      "data-workspace-id": "WS-1",
+    });
+    expect(task).not.toHaveProperty("data-data-agent-card");
+    expect(pageFragment).toMatchObject({
+      "data-data-agent-card": "true",
+      "data-workspace-id": "WS-1",
+    });
   });
 });
