@@ -1,0 +1,52 @@
+{
+  "name": "dsh-collab-demo-phone-tablet-order",
+  "version": "0.1.0",
+  "description": "Optional phone and tablet finished-goods order collaboration demo",
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/**/*",
+    "mock/**/*",
+    "data/**/*",
+    "config/**/*",
+    "prompts/**/*",
+    "scripts/**/*",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsdown && cp client/index.js lib/client.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "@pluginmax/shared": "workspace:*",
+    "dsh-collab-data-fabric": "workspace:*",
+    "dsh-collab-data-orders": "workspace:*",
+    "dsh-collab-resource-market": "workspace:*",
+    "dsh-collab-task": "workspace:*",
+    "dsh-collab-workbench": "workspace:*",
+    "zod": "4.4.3"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [],
+      "immediately": true
+    }
+  }
+}

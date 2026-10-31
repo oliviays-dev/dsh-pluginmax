@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>DSH Enterprise+ · 计划执行工作台</title>
+  <link rel="stylesheet" href="./supply-chain-plan-workbench.css">
+</head>
+<body>
+  <svg class="sprite" aria-hidden="true">
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v8A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z"/></symbol>
+    <symbol id="i-check-square" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m7 12 3 3 7-7"/></symbol>
+    <symbol id="i-workflow" viewBox="0 0 24 24"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="15" width="6" height="6" rx="1"/><path d="M9 6h5a4 4 0 0 1 4 4v5M6 9v5a4 4 0 0 0 4 4h5"/></symbol>
+    <symbol id="i-message" viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+    <symbol id="i-store" viewBox="0 0 24 24"><path d="m3 9 2-5h14l2 5"/><path d="M5 13v7h14v-7"/><path d="M9 20v-5h6v5"/><path d="M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0"/></symbol>
+    <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="m12 3 1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z"/><path d="m19 16 .8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/><path d="m5 2 .7 1.8L7.5 4.5l-1.8.7L5 7l-.7-1.8L2.5 4.5l1.8-.7z"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-truck" viewBox="0 0 24 24"><path d="M1 4h13v13H1z"/><path d="M14 8h4l4 4v5h-8z"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="19" r="2"/></symbol>
+    <symbol id="i-warehouse" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v11H3z"/><path d="M7 21v-7h10v7"/><path d="M7 17h10"/></symbol>
+    <symbol id="i-factory" viewBox="0 0 24 24"><path d="M3 21V9l6 3V9l6 3V7l6 3v11z"/><path d="M7 17h1M12 17h1M17 17h1"/><path d="M6 21v-4h4v4"/></symbol>
+    <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v6c0 1.7 4 3 9 3s9-1.3 9-3V5"/><path d="M3 11v6c0 1.7 4 3 9 3s9-1.3 9-3v-6"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-.8 4.2"/><path d="M20 4v7h-7"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h6"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.2 1.2"/><path d="M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.2-1.2"/></symbol>
+    <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  </svg>
+
+  <div class="app">
+    <aside class="sidebar" aria-label="主导航">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+        <div class="brand-copy"><strong>DSH Enterprise+</strong><small>Pluginmax 工作空间</small></div>
+      </div>
+      <div class="side-scroll">
+        <nav class="nav" aria-label="平台功能">
+          <button class="nav-item active" type="button"><svg class="i"><use href="#i-grid"></use></svg><span>工作台</span></button>
+          <button class="nav-item" type="button"><svg class="i"><use href="#i-folder"></use></svg><span>项目</span></button>
+          <button class="nav-item" type="button"><svg class="i"><use href="#i-check-square"></use></svg><span>任务</span><b class="nav-count">3</b></button>
+          <button class="nav-item" type="button"><svg class="i"><use href="#i-workflow"></use></svg><span>工作流</span></button>
+          <button class="nav-item" type="button"><svg class="i"><use href="#i-message"></use></svg><span>沟通</span></button>
+          <button class="nav-item" type="button"><svg class="i"><use href="#i-users"></use></svg><span>AI 伙伴</span></button>
+          <button class="nav-item" type="button"><svg class="i"><use href="#i-store"></use></svg><span>资源市场</span></button>
+        </nav>
+        <div class="side-gap"></div>
+        <div class="side-label">工作台</div>
+        <button class="side-switch" type="button">
+          <svg class="i i-sm"><use href="#i-chevron-down"></use></svg>
+          <strong>计划执行台</strong>
+        </button>
+        <div class="side-gap"></div>
+        <div class="side-label">我的计划项目</div>
+        <div class="project-list">
+          <button class="project-item active" type="button">
+            <span class="project-icon"><svg class="i i-sm"><use href="#i-alert"></use></svg></span>
+            <span class="project-copy"><strong>关键物料缺口处置</strong><small>EXC-W45-C4821 · 进行中</small></span>
+            <span class="project-meta danger">1</span>
+          </button>
+          <button class="project-item" type="button">
+            <span class="project-icon"><svg class="i i-sm"><use href="#i-factory"></use></svg></span>
+            <span class="project-copy"><strong>W46 排产版本</strong><small>待发布 · 2 条线</small></span>
+          </button>
+          <button class="project-item" type="button">
+            <span class="project-icon"><svg class="i i-sm"><use href="#i-file"></use></svg></span>
+            <span class="project-copy"><strong>今日已闭环</strong><small>2 个异常 · 0 停线</small></span>
+          </button>
+        </div>
+      </div>
+      <div class="side-foot">
+        <div class="avatar">周</div>
+        <div class="account"><strong>小周</strong><small>华东工厂 · 物料计划员</small></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="crumb"><strong>工作台</strong><svg class="i i-sm"><use href="#i-chevron-right"></use></svg><span>计划执行台</span></div>
+        <div class="topbar-center">
+          <div class="top-context"><span class="live-dot"></span><span>华东工厂 · 早班</span><span>|</span><code>EXC-W45-C4821</code><span>|</span><span>数据截止 09:45</span></div>
+        </div>
+        <div class="topbar-actions">
+          <button class="agent-entry" type="button" id="topDataAgentBtn"><svg class="i i-sm"><use href="#i-sparkles"></use></svg>Data Agent</button>
+          <button class="icon-btn" type="button" title="搜索"><svg class="i"><use href="#i-search"></use></svg></button>
+          <button class="icon-btn" type="button" title="通知"><svg class="i"><use href="#i-alert"></use></svg></button>
+          <div class="avatar">周</div>
+        </div>
+      </header>
+
+      <div class="page">
+        <div class="page-head">
+          <div>
+            <div class="eyebrow">2026 W45 · 11 月 2 日 · 华东工厂 · 08:00–17:00</div>
+            <div class="title-row"><h1>我的计划执行</h1><span class="plan-badge"><svg class="i" style="width:9px;height:9px"><use href="#i-check"></use></svg>计划已下发</span></div>
+            <p class="page-sub">小周 · 物料计划员 · 管理 3 个 AI 助手 · 今日 3 项待处理，1 项 P0</p>
+          </div>
+          <div class="page-actions">
+            <button class="btn ghost" type="button" id="refreshBtn"><svg class="i i-sm"><use href="#i-refresh"></use></svg>刷新</button>
+            <button class="btn" type="button" id="handoffBtn">交接记录</button>
+            <button class="btn" type="button" id="nightBtn"><svg class="i i-sm"><use href="#i-clock"></use></svg>安排夜间工作</button>
+          </div>
+        </div>
+
+        <div class="tabs" role="tablist" aria-label="执行视图">
+          <button class="tab active" type="button" role="tab" aria-selected="true">今日执行<span class="tab-count">3</span></button>
+          <button class="tab" type="button" role="tab">已处理</button>
+          <button class="tab" type="button" role="tab">本周工作</button>
+        </div>
+
+        <section class="summary-bar" aria-label="今日执行摘要">
+          <div class="summary-cell"><span class="summary-label">今日待办</span><div class="summary-value"><strong>3</strong><span>项</span></div></div>
+          <div class="summary-cell"><span class="summary-label">P0 异常</span><div class="summary-value danger"><strong>1</strong><span>项</span></div></div>
+          <div class="summary-cell"><span class="summary-label">SLA 剩余</span><div class="summary-value warning"><strong>4h 14m</strong><span>最早截止</span></div></div>
+          <div class="summary-cell"><span class="summary-label">今日已闭环</span><div class="summary-value"><strong>2</strong><span>个异常</span></div></div>
+          <div class="summary-cell">
+            <div class="summary-agent">
+              <span class="agent-mark">AI</span>
+              <div class="summary-agent-copy"><strong>3 个 AI 助手 · 8 项前置核查完成</strong><small>2 个动作在你权限内 · 0 场会议</small></div>
+            </div>
+          </div>
+        </section>
+
+        <div class="night-banner" id="nightBanner">
+          <span class="live-dot"></span>
+          <strong>今日工作已交班</strong>
+          <span>3 个 AI 伙伴夜间执行 3 项分析，明早 08:30 自动汇总到你的工作台。</span>
+          <button class="btn sm" type="button" id="viewNightBtn">查看交班</button>
+        </div>
+
+        <div class="planner-layout">
+          <section class="panel queue-panel" aria-labelledby="queueTitle">
+            <div class="panel-head">
+              <div class="panel-title"><svg class="i"><use href="#i-check-square"></use></svg><h2 id="queueTitle">我的异常</h2></div>
+              <div class="panel-tools"><span class="tag">3 待处理</span></div>
+            </div>
+            <div class="queue-panel-body">
+              <div class="filter-row">
+                <button class="filter-chip active" type="button">待处理<span class="filter-count">3</span></button>
+                <button class="filter-chip" type="button">进行中<span class="filter-count">1</span></button>
+                <button class="filter-chip" type="button">已闭环<span class="filter-count">2</span></button>
+              </div>
+              <div class="work-list">
+                <button class="work-item active" type="button">
+                  <span class="work-priority">P0</span>
+                  <span class="work-copy">
+                    <strong>C-4821 连接器缺口 1,760 件</strong>
+                    <small>2 号线 · WO-2317 · 14:00 前需到料</small>
+                    <span class="work-meta"><span>来自 Olivia · 保承诺</span><span class="danger">剩 4h 14m</span></span>
+                  </span>
+                </button>
+                <button class="work-item" type="button">
+                  <span class="work-priority p1">P1</span>
+                  <span class="work-copy">
+                    <strong>H 供应商产能恢复证明</strong>
+                    <small>采购已催办 · 待补维修工单</small>
+                    <span class="work-meta"><span>供应商协同</span><span>今天 16:00</span></span>
+                  </span>
+                </button>
+                <button class="work-item" type="button">
+                  <span class="work-priority p1">P1</span>
+                  <span class="work-copy">
+                    <strong>W46 排产版本确认</strong>
+                    <small>2 条产线 · 2 小时切换窗口</small>
+                    <span class="work-meta"><span>生产计划</span><span>明天 09:00</span></span>
+                  </span>
+                </button>
+                <button class="work-item" type="button">
+                  <span class="work-priority p1">P2</span>
+                  <span class="work-copy">
+                    <strong>华南仓安全库存复核</strong>
+                    <small>AI 检查发现 2 个批次库龄偏高</small>
+                    <span class="work-meta"><span>库存优化</span><span>本周五</span></span>
+                  </span>
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel execution-panel" aria-labelledby="executionTitle">
+            <div class="panel-head">
+              <div class="panel-title"><svg class="i"><use href="#i-alert"></use></svg><h2 id="executionTitle">异常详情</h2><span class="panel-sub">EXC-W45-C4821</span></div>
+              <div class="panel-tools"><span class="tag danger">P0 · 停线风险</span><span class="tag">2 号线</span></div>
+            </div>
+            <div class="execution-head-summary">
+              <div class="execution-summary-copy">
+                <h3>C-4821 可用库存只能撑到 14:00</h3>
+                <p>14:00 前需要 3,600 件，当前可用 1,840 件；方案 A + C 覆盖 1,800 件。影响范围：2 号线 · WO-2317/2321 · 3 客户承诺。</p>
+              </div>
+              <div class="deadline-countdown"><small>距截止</small><strong>4h 14m</strong></div>
+            </div>
+
+            <div class="alert-banner">
+              <span class="alert-icon"><svg class="i"><use href="#i-clock"></use></svg></span>
+              <div class="alert-copy"><strong>Olivia 已批准“保承诺”，并留下执行约束</strong><small>“优先保 P0/P1 客户；调拨优先，工单后移只在运输晚点时执行；任何承诺变更回我确认。” · v49 草案 · 09:44</small></div>
+            </div>
+
+            <div class="execution-block">
+              <div class="block-label">执行动作 <span>已由管理层决定预选</span></div>
+              <div class="action-list">
+                <div class="action-row selected">
+                  <span class="action-check"><svg class="i"><use href="#i-check"></use></svg></span>
+                  <span class="action-copy"><strong><span>A. 华南仓专车调拨 1,200 件</span></strong><small>执行人：仓配助手（归属你）· 无需人工确认</small></span>
+                  <span class="action-eta">预计 11:30 到厂</span>
+                  <span class="authority allowed">权限内</span>
+                </div>
+                <div class="action-row selected">
+                  <span class="action-check"><svg class="i"><use href="#i-check"></use></svg></span>
+                  <span class="action-copy"><strong><span>C. WO-2317 后移 4 小时</span></strong><small>执行人：排产助手（归属你）+ 王工（生产计划）· 需人工确认</small></span>
+                  <span class="action-eta">需生产确认</span>
+                  <span class="authority approval">待确认</span>
+                </div>
+                <div class="action-row muted">
+                  <span class="action-check"></span>
+                  <span class="action-copy"><strong><span>B. H 供应商今日自提 800 件</span></strong><small>执行人：供应商助手（归属你）+ 林峻（采购）· 仅备用</small></span>
+                  <span class="action-eta">+¥0.6 万</span>
+                  <span class="authority outside">超出权限</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="execution-actions">
+              <span class="execution-note">执行后由 3 个 AI 助手分工，回执统一回到本卡，不拉群、不开会。</span>
+              <button class="btn ghost" type="button" id="escalateBtn">申请升级</button>
+              <button class="btn primary" type="button" id="executeBtn">执行 A + C</button>
+            </div>
+
+            <div class="event-card" id="eventCard">
+              <div class="event-head"><svg class="i i-sm"><use href="#i-alert"></use></svg>13:40 · 计划变化</div>
+              <p>华南仓车辆预计 14:10 到厂，缓冲只剩 20 分钟。AI 已重算：现在提前执行 C，可以守住 14:00。</p>
+              <div class="event-actions">
+                <button class="btn primary" type="button" id="confirmCBtn">提前执行 C</button>
+                <button class="btn ghost" type="button" id="waitBtn">等到 13:50 再判断</button>
+              </div>
+            </div>
+
+            <div class="outcome-card" id="outcomeCard">
+              <div class="outcome-head"><svg class="i"><use href="#i-check"></use></svg>14:00 产线未停，异常已关闭</div>
+              <div class="outcome-stats">
+                <div class="outcome-stat"><strong>0h</strong><small>停线时间</small></div>
+                <div class="outcome-stat"><strong>0</strong><small>会议</small></div>
+                <div class="outcome-stat"><strong>3</strong><small>动作已闭环</small></div>
+                <div class="outcome-stat"><strong>¥1.2 万</strong><small>调拨成本</small></div>
+              </div>
+              <div class="outcome-note"><strong>16:30 复盘：</strong>H 供应商同类承诺应提前 24 小时校验；系统已将这条规则加入下一周期模板。</div>
+              <div class="outcome-actions"><button class="btn sm primary" type="button" id="reportBtn">回报 Olivia</button></div>
+            </div>
+          </section>
+
+          <aside class="side-stack" aria-label="AI 助手与协作">
+            <section class="panel">
+              <div class="panel-head">
+                <div class="panel-title"><svg class="i"><use href="#i-sparkles"></use></svg><h2>我的 AI 助手</h2><span class="panel-sub">3 个 · 归属小周</span></div>
+                <div class="panel-tools"><span class="tag success">已就绪</span></div>
+              </div>
+              <div class="agent-list">
+                <div class="agent-row">
+                  <span class="agent-avatar ai">R</span>
+                  <span class="agent-copy"><strong><span>仓配助手</span><i class="role-chip">执行</i></strong><small>锁定华南仓批次，安排专车与到厂回执</small></span>
+                  <span class="agent-state waiting" id="inventoryAgentState">待分派</span>
+                </div>
+                <div class="agent-row">
+                  <span class="agent-avatar ai">P</span>
+                  <span class="agent-copy"><strong><span>排产助手</span><i class="role-chip">执行</i></strong><small>准备 WO-2317 后移申请，等待生产确认</small></span>
+                  <span class="agent-state waiting" id="scheduleAgentState">待分派</span>
+                </div>
+                <div class="agent-row">
+                  <span class="agent-avatar ai">S</span>
+                  <span class="agent-copy"><strong><span>供应商助手</span><i class="role-chip">备用</i></strong><small>准备 H 供应商自提预案，不直接对外承诺</small></span>
+                  <span class="agent-state waiting" id="supplierAgentState">待命</span>
+                </div>
+              </div>
+              <div class="block-label" style="padding:0 10px;margin:5px 0 2px">AI 核查 <span>8 / 8 完成</span></div>
+              <ul class="checklist">
+                <li><svg class="i i-sm"><use href="#i-check"></use></svg><span>华南仓 1,200 件可用，未被其他订单锁定</span></li>
+                <li><svg class="i i-sm"><use href="#i-check"></use></svg><span>WO-2317 后移 4h 不影响客户承诺</span></li>
+                <li><svg class="i i-sm"><use href="#i-check"></use></svg><span>H 供应商 800 件自提可作为备用</span></li>
+                <li><svg class="i i-sm"><use href="#i-check"></use></svg><span>当前安全库存与运输时效均支持 A + C</span></li>
+              </ul>
+              <div class="rule-box"><strong>你的权限边界</strong>仓储调拨 ≤ ¥2 万可直接执行；工单后移 4h 需生产确认；客户承诺不可变更。</div>
+              <div class="agent-foot"><span>AI 只向执行负责人回执，不直接向总监越级汇报。</span><button class="text-link" type="button" id="viewEvidenceBtn">查看证据 <svg class="i" style="width:9px;height:9px"><use href="#i-arrow-right"></use></svg></button></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-head">
+                <div class="panel-title"><svg class="i"><use href="#i-clock"></use></svg><h2>协作时间线</h2><span class="panel-sub">同一异常</span></div>
+              </div>
+              <div class="timeline">
+                <div class="timeline-item done"><span class="timeline-time">09:44</span><span class="timeline-copy"><strong>Olivia 批准“保承诺”</strong><small>生成 v49 草案 · 4 个任务</small></span></div>
+                <div class="timeline-item current"><span class="timeline-time">09:46</span><span class="timeline-copy"><strong>你已接手</strong><small>核对 A + C，准备派发</small></span></div>
+                <div class="timeline-item hidden" id="timelineDispatch"><span class="timeline-time">09:48</span><span class="timeline-copy"><strong>你已分派给 3 个 AI 助手</strong><small>仓配 / 排产 / 供应商分工执行</small></span></div>
+                <div class="timeline-item" id="timelineHuman"><span class="timeline-time">10:20</span><span class="timeline-copy"><strong>王工确认 C 动作</strong><small>人类协同 · 生产计划确认工单后移</small></span></div>
+                <div class="timeline-item hidden" id="timelineReceipt"><span class="timeline-time">11:28</span><span class="timeline-copy"><strong>仓配助手回执</strong><small>1,200 件已到厂，批次核对通过</small></span></div>
+                <div class="timeline-item"><span class="timeline-time">13:40</span><span class="timeline-copy"><strong>运输缓冲检查点</strong><small>异常时只回来找一次人</small></span></div>
+                <div class="timeline-item hidden" id="timelineOutcome"><span class="timeline-time">14:00</span><span class="timeline-copy"><strong>产线未停</strong><small>缺口解除 · 异常关闭</small></span></div>
+                <div class="timeline-item hidden" id="timelineReport"><span class="timeline-time">14:05</span><span class="timeline-copy"><strong>已回报 Olivia</strong><small>结果、成本与复盘自动汇总</small></span></div>
+                <div class="timeline-item"><span class="timeline-time">16:30</span><span class="timeline-copy"><strong>当班复盘</strong><small>自动生成规则与改进项</small></span></div>
+                <div class="timeline-item hidden" id="timelineNight"><span class="timeline-time">17:10</span><span class="timeline-copy"><strong>夜间工作已交班</strong><small>3 个 AI 伙伴接手 · 明早 08:30 收作业</small></span></div>
+              </div>
+            </section>
+          </aside>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div class="drawer-scrim" id="drawerScrim"></div>
+  <aside class="drawer" id="dataAgentDrawer" aria-hidden="true" aria-labelledby="dataAgentTitle">
+    <div class="drawer-head">
+      <span class="agent-mark">AI</span>
+      <div class="drawer-title">
+        <div class="drawer-kicker"><svg class="i i-sm"><use href="#i-sparkles"></use></svg>DATA AGENT · 当前执行上下文</div>
+        <h2 id="dataAgentTitle">C-4821 的 8 项核查证据</h2>
+        <p>基于 09:45 数据快照 · 入库、排产、运输与供应商记录</p>
+      </div>
+      <button class="icon-btn" type="button" id="closeDataAgentBtn" title="关闭"><svg class="i"><use href="#i-x"></use></svg></button>
+    </div>
+    <div class="drawer-body">
+      <div class="context-tag"><svg class="i i-sm"><use href="#i-link"></use></svg><code>EXC-W45-C4821</code><span>·</span><span>C-4821</span><span>·</span><span>2 号线</span></div>
+      <div class="question-bubble">为什么 A + C 能在 14:00 前覆盖缺口，而且不需要改变客户承诺？</div>
+      <div class="answer">
+        <div class="answer-head">两段供给刚好覆盖 1,760 件缺口</div>
+        <p>华南仓可调拨 1,200 件，11:30 到厂；WO-2317 后移释放 600 件需求，合计 1,800 件，仍有 40 件缓冲。两个动作都不触碰客户承诺。</p>
+      </div>
+      <div class="evidence-list">
+        <div class="evidence-item">
+          <span class="evidence-icon"><svg class="i i-sm"><use href="#i-warehouse"></use></svg></span>
+          <div class="evidence-copy"><strong>WMS：华南仓可用 1,200 件</strong><small>未被锁定，库龄 21 天</small></div>
+          <span class="evidence-time">09:45</span>
+        </div>
+        <div class="evidence-item">
+          <span class="evidence-icon"><svg class="i i-sm"><use href="#i-factory"></use></svg></span>
+          <div class="evidence-copy"><strong>APS：WO-2317 后移 4h 释放 600 件</strong><small>不影响 P0/P1 客户承诺，换型不增加</small></div>
+          <span class="evidence-time">09:43</span>
+        </div>
+        <div class="evidence-item">
+          <span class="evidence-icon"><svg class="i i-sm"><use href="#i-truck"></use></svg></span>
+          <div class="evidence-copy"><strong>TMS：11:30 前到厂概率 92%</strong><small>若晚于 14:10，触发工单后移提前执行</small></div>
+          <span class="evidence-time">09:41</span>
+        </div>
+      </div>
+      <div class="fact-grid">
+        <div class="fact"><strong>1,800</strong>覆盖数量</div>
+        <div class="fact"><strong>+40</strong>剩余缓冲（件）</div>
+        <div class="fact"><strong>¥1.2 万</strong>调拨成本</div>
+        <div class="fact"><strong>0</strong>客户承诺变更</div>
+      </div>
+    </div>
+    <div class="drawer-foot">
+      <button class="btn" type="button" id="closeDataAgentSecondary">收起</button>
+      <button class="btn primary" type="button" id="useEvidenceBtn">返回执行</button>
+    </div>
+  </aside>
+
+  <aside class="drawer" id="nightDrawer" aria-hidden="true" aria-labelledby="nightDrawerTitle">
+    <div class="drawer-head">
+      <span class="agent-mark">AI</span>
+      <div class="drawer-title">
+        <div class="drawer-kicker"><svg class="i i-sm"><use href="#i-clock"></use></svg>17:10 · 今日收尾</div>
+        <h2 id="nightDrawerTitle">把夜间工作交给 AI 伙伴</h2>
+        <p>3 个归属你的 AI 助手 · 明早 08:30 前统一回执</p>
+      </div>
+      <button class="icon-btn" type="button" id="closeNightDrawerBtn" title="关闭"><svg class="i"><use href="#i-x"></use></svg></button>
+    </div>
+    <div class="drawer-body">
+      <div class="context-tag"><svg class="i i-sm"><use href="#i-link"></use></svg><code>EXC-W45-C4821</code><span>·</span><span>已关闭</span><span>·</span><span>今日已闭环 2 项</span></div>
+      <p class="night-intro">把明天早上前能跑完的分析留在工作台。AI 伙伴只做只读分析、证据核对和草稿，明早你验收后再对外。</p>
+      <div class="night-tasks">
+        <div class="night-task">
+          <span class="night-check"><svg class="i"><use href="#i-check"></use></svg></span>
+          <span class="night-task-copy"><strong><span>供应商助手 · H 供应商恢复证据</span></strong><small>核对维修工单、产能承诺与历史兑现率，生成明早决策摘要</small></span>
+          <span class="night-task-time">08:30</span>
+        </div>
+        <div class="night-task">
+          <span class="night-check"><svg class="i"><use href="#i-check"></use></svg></span>
+          <span class="night-task-copy"><strong><span>排产助手 · W46 切换影响</span></strong><small>对比当前排产与两套切换方案，标注客户承诺影响</small></span>
+          <span class="night-task-time">08:45</span>
+        </div>
+        <div class="night-task">
+          <span class="night-check"><svg class="i"><use href="#i-check"></use></svg></span>
+          <span class="night-task-copy"><strong><span>仓配助手 · 库存与替代料余量</span></strong><small>复核华南仓安全库存、批次库龄与替代料可用量</small></span>
+          <span class="night-task-time">08:30</span>
+        </div>
+      </div>
+      <div class="night-foot-note"><strong>边界：</strong>AI 夜间不发送供应商邮件、不改变客户承诺、不发布生产计划；所有结果明早进入你的待验收列表。</div>
+    </div>
+    <div class="drawer-foot">
+      <button class="btn" type="button" id="cancelNightBtn">取消</button>
+      <button class="btn primary" type="button" id="confirmNightBtn">确认交班，明早收作业</button>
+    </div>
+  </aside>
+
+  <div class="toast" id="toast" role="status" aria-live="polite">
+    <svg class="i"><use href="#i-check"></use></svg><span id="toastText"></span>
+  </div>
+
+  <script>
+    const executeBtn = document.getElementById("executeBtn");
+    const eventCard = document.getElementById("eventCard");
+    const outcomeCard = document.getElementById("outcomeCard");
+    const dataAgentDrawer = document.getElementById("dataAgentDrawer");
+    const nightDrawer = document.getElementById("nightDrawer");
+    const drawerScrim = document.getElementById("drawerScrim");
+    const toast = document.getElementById("toast");
+    const toastText = document.getElementById("toastText");
+    let executing = false;
+    let toastTimer = null;
+
+    function showToast(message) {
+      toastText.textContent = message;
+      toast.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove("show"), 3400);
+    }
+
+    function openDataAgent() {
+      nightDrawer.classList.remove("open");
+      nightDrawer.setAttribute("aria-hidden", "true");
+      dataAgentDrawer.classList.add("open");
+      dataAgentDrawer.setAttribute("aria-hidden", "false");
+      drawerScrim.classList.add("open");
+    }
+
+    function closeDataAgent() {
+      dataAgentDrawer.classList.remove("open");
+      dataAgentDrawer.setAttribute("aria-hidden", "true");
+      drawerScrim.classList.remove("open");
+    }
+
+    function openNightDrawer() {
+      dataAgentDrawer.classList.remove("open");
+      dataAgentDrawer.setAttribute("aria-hidden", "true");
+      nightDrawer.classList.add("open");
+      nightDrawer.setAttribute("aria-hidden", "false");
+      drawerScrim.classList.add("open");
+    }
+
+    function closeNightDrawer() {
+      nightDrawer.classList.remove("open");
+      nightDrawer.setAttribute("aria-hidden", "true");
+      drawerScrim.classList.remove("open");
+    }
+
+    function closeAllDrawers() {
+      closeDataAgent();
+      closeNightDrawer();
+    }
+
+    function setAgentState(id, text, stateClass) {
+      const node = document.getElementById(id);
+      node.textContent = text;
+      node.className = `agent-state ${stateClass}`;
+    }
+
+    executeBtn.addEventListener("click", () => {
+      if (executing) return;
+      executing = true;
+      executeBtn.disabled = true;
+      executeBtn.textContent = "已派发 · 执行中";
+      document.querySelectorAll(".action-row.selected").forEach(row => { row.style.opacity = ".72"; });
+      setAgentState("inventoryAgentState", "执行中", "working");
+      setAgentState("scheduleAgentState", "待确认", "waiting");
+      setAgentState("supplierAgentState", "待命", "waiting");
+      document.getElementById("timelineDispatch").classList.remove("hidden");
+      showToast("你已把 3 个动作分派给归属自己的 AI 助手。它们只向你回执，不越级汇报。");
+      setTimeout(() => {
+        document.getElementById("timelineReceipt").classList.remove("hidden");
+        eventCard.classList.add("show");
+      }, 700);
+    });
+
+    document.getElementById("confirmCBtn").addEventListener("click", () => {
+      eventCard.classList.remove("show");
+      outcomeCard.classList.add("show");
+      setAgentState("inventoryAgentState", "已到厂", "done");
+      setAgentState("scheduleAgentState", "已执行", "done");
+      setAgentState("supplierAgentState", "监控中", "working");
+      document.getElementById("timelineOutcome").classList.remove("hidden");
+      showToast("你已确认提前执行 C。仓配与排产助手完成回执，14:00 产线未停。");
+    });
+
+    document.getElementById("waitBtn").addEventListener("click", () => {
+      showToast("已设置 13:50 自动复核。若车辆仍未到厂，系统会再次回来找你。");
+    });
+
+    document.getElementById("escalateBtn").addEventListener("click", () => {
+      showToast("已生成升级请求：附 8 项核查、3 个动作和完整证据链，交计划经理决定。");
+    });
+
+    document.getElementById("reportBtn").addEventListener("click", event => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      button.textContent = "已回报 Olivia";
+      document.getElementById("timelineReport").classList.remove("hidden");
+      showToast("执行结果已汇总回报给 Olivia：0 小时停线、¥1.2 万调拨、3 个动作闭环。");
+    });
+
+    document.getElementById("topDataAgentBtn").addEventListener("click", openDataAgent);
+    document.getElementById("viewEvidenceBtn").addEventListener("click", openDataAgent);
+    document.getElementById("closeDataAgentBtn").addEventListener("click", closeDataAgent);
+    document.getElementById("closeDataAgentSecondary").addEventListener("click", closeDataAgent);
+    document.getElementById("useEvidenceBtn").addEventListener("click", closeDataAgent);
+    document.getElementById("nightBtn").addEventListener("click", openNightDrawer);
+    document.getElementById("viewNightBtn").addEventListener("click", openNightDrawer);
+    document.getElementById("closeNightDrawerBtn").addEventListener("click", closeNightDrawer);
+    document.getElementById("cancelNightBtn").addEventListener("click", closeNightDrawer);
+    drawerScrim.addEventListener("click", closeAllDrawers);
+
+    document.getElementById("confirmNightBtn").addEventListener("click", () => {
+      closeNightDrawer();
+      document.getElementById("nightBanner").classList.add("show");
+      document.getElementById("timelineNight").classList.remove("hidden");
+      setAgentState("inventoryAgentState", "夜间执行中", "working");
+      setAgentState("scheduleAgentState", "夜间执行中", "working");
+      setAgentState("supplierAgentState", "夜间执行中", "working");
+      const nightBtn = document.getElementById("nightBtn");
+      nightBtn.disabled = true;
+      nightBtn.textContent = "已交班 · 明早收作业";
+      const confirmBtn = document.getElementById("confirmNightBtn");
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = "已交班";
+      showToast("今日工作已交班。3 个 AI 伙伴夜间执行，明早 08:30 自动汇总到你的工作台。");
+    });
+
+    document.getElementById("refreshBtn").addEventListener("click", () => {
+      showToast("执行信号已刷新：当前无新增缺口，数据截止 09:45。");
+    });
+    document.getElementById("handoffBtn").addEventListener("click", () => {
+      showToast("已打开交接记录：09:44 Olivia 决策、09:46 小周接手、09:48 动作派发。");
+    });
+
+    document.querySelectorAll(".work-item").forEach(item => {
+      item.addEventListener("click", () => {
+        if (item.classList.contains("active")) return;
+        showToast("当前演示聚焦 C-4821，其他异常可在正式工作台中打开。");
+      });
+    });
+    document.querySelectorAll(".filter-chip").forEach(chip => {
+      chip.addEventListener("click", () => {
+        document.querySelectorAll(".filter-chip").forEach(item => item.classList.toggle("active", item === chip));
+      });
+    });
+
+    toast.addEventListener("click", () => toast.classList.remove("show"));
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape") closeAllDrawers();
+    });
+  </script>
+</body>
+</html>

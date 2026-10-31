@@ -1,0 +1,31 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "outDir": "lib",
+    "rootDir": "src",
+    "emitDeclarationOnly": true
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts"],
+  "references": [
+    {
+      "path": "../../packages/shared"
+    },
+    {
+      "path": "../dsh-collab-data-fabric"
+    },
+    {
+      "path": "../dsh-collab-data-orders"
+    },
+    {
+      "path": "../dsh-collab-resource-market"
+    },
+    {
+      "path": "../dsh-collab-task"
+    },
+    {
+      "path": "../dsh-collab-workbench"
+    }
+  ]
+}

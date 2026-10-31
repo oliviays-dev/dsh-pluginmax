@@ -1,0 +1,108 @@
+{
+  "templateVersion": "1.0.0",
+  "businessSystem": {
+    "name": "Mock WMS · 成品仓履约",
+    "mode": "demo",
+    "writeEnabled": true,
+    "registrationMode": "McpCatalogProvider",
+    "mcpAssetId": "mcp-wms-phone-tablet-demo",
+    "mcpTool": "wms_rebalance_work_order_create",
+    "integrationNote": "通过平台资源市场注册的标准 Mock WMS MCP 工具返回演示回执；非生产"
+  },
+  "draft": {
+    "workOrderType": "FINISHED_GOODS_INVENTORY_REBALANCE",
+    "title": "华东手机/平板成品仓订单再平衡",
+    "sourceTask": "PT-ORD-001-B",
+    "reason": "华东数码订单中 43 单履约超时；经成品仓核实，其中 37 单可通过备用成品仓库存调拨和订单改派恢复履约。",
+    "scope": {
+      "region": "华东",
+      "category": "数码",
+      "orderCount": 37,
+      "orderAmount": 194125,
+      "orderIds": [
+        "PT-DEMO-0006594",
+        "PT-DEMO-0006595",
+        "PT-DEMO-0006596",
+        "PT-DEMO-0006597",
+        "PT-DEMO-0006598",
+        "PT-DEMO-0006599",
+        "PT-DEMO-0006600",
+        "PT-DEMO-0006601",
+        "PT-DEMO-0006602",
+        "PT-DEMO-0006603",
+        "PT-DEMO-0006604",
+        "PT-DEMO-0006605",
+        "PT-DEMO-0006606",
+        "PT-DEMO-0006608",
+        "PT-DEMO-0006609",
+        "PT-DEMO-0006610",
+        "PT-DEMO-0006611",
+        "PT-DEMO-0006612",
+        "PT-DEMO-0006613",
+        "PT-DEMO-0006614",
+        "PT-DEMO-0006616",
+        "PT-DEMO-0006617",
+        "PT-DEMO-0006618",
+        "PT-DEMO-0006619",
+        "PT-DEMO-0006620",
+        "PT-DEMO-0006621",
+        "PT-DEMO-0006622",
+        "PT-DEMO-0006624",
+        "PT-DEMO-0006625",
+        "PT-DEMO-0006626",
+        "PT-DEMO-0006627",
+        "PT-DEMO-0006628",
+        "PT-DEMO-0006629",
+        "PT-DEMO-0006630",
+        "PT-DEMO-0006631",
+        "PT-DEMO-0006632",
+        "PT-DEMO-0006633"
+      ]
+    },
+    "fulfillmentChange": {
+      "sourceWarehouse": "华东备用成品仓",
+      "targetWarehouse": "华东履约仓",
+      "action": "完成库存归属变更、仓间调拨和订单改派",
+      "cutoff": "当日 17:00",
+      "skuScope": [
+        "手机 SKU · 演示占位",
+        "平板 SKU · 演示占位"
+      ],
+      "serialBindingRequired": true,
+      "serialBindingRule": "出库前由 WMS 绑定 IMEI/SN；Data Agent 不生成或推断序列号",
+      "inventoryOwnershipChangeRequired": true
+    },
+    "deliveryConstraints": {
+      "insuredTransport": true,
+      "identityVerifiedSignature": true,
+      "invoiceSyncRequired": true,
+      "afterSalesRegistrationRequired": true
+    },
+    "approval": {
+      "draftOwner": "履约 AI 伙伴",
+      "requiredApprover": "周宁",
+      "warehouseConfirmation": "王工",
+      "status": "draft",
+      "humanConfirmed": false
+    }
+  },
+  "created": {
+    "workOrderId": "WO-RB-DEMO-1030-017",
+    "status": "created",
+    "statusLabel": "已创建",
+    "createdAt": "2026-10-30T09:10:00.000Z",
+    "createdBy": {
+      "type": "ai-teammate",
+      "id": "fulfillment-ai",
+      "name": "履约 AI 伙伴"
+    },
+    "confirmedBy": {
+      "type": "human",
+      "id": "zhouning",
+      "name": "周宁"
+    },
+    "actionTicketId": "AT-PT-ORD-001-B",
+    "idempotencyKey": "PT-ORD-001-B",
+    "auditNote": "仅演示数据；业务单据由标准 MCP 工具 wms_rebalance_work_order_create 返回，不写入真实生产系统。"
+  }
+}

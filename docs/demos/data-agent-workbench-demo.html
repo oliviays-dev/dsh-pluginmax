@@ -1,0 +1,5046 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Data Agent · 工作台产品 Demo</title>
+    <style>
+      :root {
+        --bg: #0e1117;
+        --bg-elev: #131821;
+        --panel: #171d27;
+        --panel-2: #1c2330;
+        --panel-3: #232b39;
+        --line: #293140;
+        --line-strong: #384255;
+        --text: #eef2f8;
+        --muted: #96a0af;
+        --faint: #687385;
+        --blue: #5d8fff;
+        --blue-soft: rgba(93, 143, 255, 0.13);
+        --violet: #9177ff;
+        --violet-soft: rgba(145, 119, 255, 0.13);
+        --teal: #45c7ad;
+        --teal-soft: rgba(69, 199, 173, 0.12);
+        --green: #54c985;
+        --green-soft: rgba(84, 201, 133, 0.12);
+        --amber: #e8b255;
+        --amber-soft: rgba(232, 178, 85, 0.13);
+        --red: #ef7168;
+        --red-soft: rgba(239, 113, 104, 0.13);
+        --sidebar: #11151d;
+        --shadow: 0 20px 56px rgba(0, 0, 0, 0.36);
+        --font:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+      }
+      body {
+        margin: 0;
+        overflow: hidden;
+        background: var(--bg);
+        color: var(--text);
+        font: 13px/1.55 var(--font);
+        -webkit-font-smoothing: antialiased;
+      }
+      button,
+      input,
+      textarea,
+      select {
+        font: inherit;
+        color: inherit;
+      }
+      button {
+        cursor: pointer;
+      }
+      button:focus-visible,
+      input:focus-visible,
+      textarea:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--blue) 55%, transparent);
+        outline-offset: 2px;
+      }
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+      }
+      svg {
+        display: block;
+      }
+      .icon {
+        width: 16px;
+        height: 16px;
+        flex: none;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.9;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .icon-sm {
+        width: 14px;
+        height: 14px;
+      }
+      .icon-lg {
+        width: 20px;
+        height: 20px;
+      }
+      .sprite {
+        position: absolute;
+        width: 0;
+        height: 0;
+        overflow: hidden;
+      }
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-thumb {
+        border: 2px solid transparent;
+        border-radius: 999px;
+        background: #394354;
+        background-clip: padding-box;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      .app {
+        height: 100%;
+        display: grid;
+        grid-template-columns: 248px minmax(0, 1fr);
+      }
+
+      .sidebar {
+        position: relative;
+        z-index: 20;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        border-right: 1px solid var(--line);
+        background: var(--sidebar);
+      }
+      .brand {
+        height: 64px;
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 17px;
+        border-bottom: 1px solid var(--line);
+      }
+      .brand-mark {
+        width: 30px;
+        height: 30px;
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 3px;
+        padding: 6px;
+        border-radius: 8px;
+        background: linear-gradient(145deg, #477bf1, #315dc6);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15);
+      }
+      .brand-mark span {
+        border-radius: 2px;
+        background: #fff;
+        opacity: 0.92;
+      }
+      .brand-copy {
+        min-width: 0;
+      }
+      .brand-copy strong {
+        display: block;
+        overflow: hidden;
+        font-size: 14px;
+        line-height: 1.2;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .brand-copy small {
+        display: block;
+        margin-top: 2px;
+        color: var(--faint);
+        font-size: 10px;
+      }
+      .sidebar-scroll {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: 12px 10px 18px;
+      }
+      .nav {
+        display: grid;
+        gap: 3px;
+      }
+      .nav-item {
+        width: 100%;
+        min-height: 38px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 7px 9px;
+        border: 0;
+        border-radius: 7px;
+        background: transparent;
+        color: var(--muted);
+        text-align: left;
+      }
+      .nav-item:hover {
+        background: rgba(255, 255, 255, 0.045);
+        color: var(--text);
+      }
+      .nav-item.active {
+        background: rgba(93, 143, 255, 0.12);
+        color: var(--text);
+        box-shadow: inset 2px 0 0 var(--blue);
+      }
+      .nav-item.active > .icon {
+        color: #83aaff;
+      }
+      .nav-item span:not(.nav-badge) {
+        min-width: 0;
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .nav-badge {
+        min-width: 20px;
+        height: 18px;
+        display: grid;
+        place-items: center;
+        padding: 0 6px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+        color: #c7d0df;
+        font-size: 10px;
+        font-weight: 700;
+      }
+      .ai-nav-wrap {
+        position: relative;
+      }
+      .agent-nav {
+        min-height: 42px;
+        margin: 3px 0 0 24px;
+        padding: 6px 8px;
+        border-radius: 7px;
+        border: 1px solid rgba(145, 119, 255, 0.16);
+        background: rgba(145, 119, 255, 0.065);
+        color: var(--text);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        text-align: left;
+        width: calc(100% - 24px);
+      }
+      .agent-nav:hover {
+        background: rgba(145, 119, 255, 0.11);
+      }
+      .mini-avatar {
+        width: 25px;
+        height: 25px;
+        flex: none;
+        display: grid;
+        place-items: center;
+        border-radius: 8px;
+        color: #fff;
+        background:
+          radial-gradient(
+            circle at 30% 20%,
+            rgba(255, 255, 255, 0.35),
+            transparent 30%
+          ),
+          linear-gradient(145deg, #a27fff, #6765f3 55%, #4f8fff);
+        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+      }
+      .agent-nav-copy {
+        min-width: 0;
+        flex: 1;
+      }
+      .agent-nav-copy strong {
+        display: block;
+        overflow: hidden;
+        font-size: 11.5px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .agent-nav-copy small {
+        display: block;
+        margin-top: 1px;
+        color: #9b93ba;
+        font-size: 9.5px;
+      }
+      .built-in-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        padding: 1px 6px;
+        border-radius: 4px;
+        background: var(--violet-soft);
+        color: #b6a6ff;
+        font-size: 9px;
+        line-height: 1.7;
+        white-space: nowrap;
+      }
+      .sidebar-divider {
+        height: 1px;
+        margin: 13px 7px 11px;
+        background: var(--line);
+      }
+      .sidebar-label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 26px;
+        padding: 0 8px;
+        color: var(--faint);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+      .sidebar-label-actions {
+        display: flex;
+        gap: 2px;
+      }
+      .sidebar-label button {
+        width: 22px;
+        height: 22px;
+        display: grid;
+        place-items: center;
+        padding: 0;
+        border: 0;
+        border-radius: 5px;
+        background: transparent;
+        color: var(--faint);
+      }
+      .sidebar-label button:hover {
+        color: var(--text);
+        background: rgba(255, 255, 255, 0.06);
+      }
+      .project-row {
+        width: 100%;
+        min-height: 38px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 8px;
+        border: 0;
+        border-radius: 7px;
+        background: transparent;
+        color: #b6c0cf;
+        text-align: left;
+      }
+      .project-row.active {
+        background: rgba(255, 255, 255, 0.045);
+        color: var(--text);
+      }
+      .project-row:hover {
+        background: rgba(255, 255, 255, 0.045);
+      }
+      .project-row span {
+        min-width: 0;
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 12px;
+      }
+      .session-row {
+        width: 100%;
+        min-height: 32px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-left: 25px;
+        width: calc(100% - 25px);
+        padding: 5px 8px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--muted);
+        text-align: left;
+      }
+      .session-row:hover {
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--text);
+      }
+      .session-row span {
+        min-width: 0;
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 11px;
+      }
+      .session-row small {
+        color: var(--faint);
+        font-size: 9px;
+      }
+      .sidebar-footer {
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 11px 13px;
+        border-top: 1px solid var(--line);
+      }
+      .user-avatar {
+        width: 30px;
+        height: 30px;
+        flex: none;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        background: #d5b772;
+        color: #35280e;
+        font-size: 10px;
+        font-weight: 800;
+      }
+      .user-copy {
+        min-width: 0;
+        flex: 1;
+      }
+      .user-copy strong {
+        display: block;
+        overflow: hidden;
+        font-size: 11.5px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .user-copy small {
+        display: block;
+        color: var(--faint);
+        font-size: 9.5px;
+      }
+      .sidebar-settings {
+        width: 28px;
+        height: 28px;
+        display: grid;
+        place-items: center;
+        padding: 0;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--faint);
+      }
+      .sidebar-settings:hover {
+        color: var(--text);
+        background: rgba(255, 255, 255, 0.06);
+      }
+
+      .main {
+        min-width: 0;
+        min-height: 0;
+        overflow: auto;
+        background:
+          linear-gradient(
+            180deg,
+            rgba(255, 255, 255, 0.014),
+            transparent 240px
+          ),
+          var(--bg);
+      }
+      .page {
+        min-height: 100%;
+        padding: 18px 22px 28px;
+      }
+      .page-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+      }
+      .page-head-copy {
+        min-width: 0;
+      }
+      .eyebrow {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin: 0 0 4px;
+        color: var(--muted);
+        font-size: 10.5px;
+      }
+      .live-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--green);
+        box-shadow: 0 0 0 3px var(--green-soft);
+      }
+      .page-head h1 {
+        margin: 0;
+        font-size: 22px;
+        line-height: 1.25;
+        letter-spacing: 0;
+      }
+      .page-sub {
+        margin: 5px 0 0;
+        color: var(--muted);
+        font-size: 11.5px;
+      }
+      .head-actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .btn {
+        min-height: 31px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 2px 10px;
+        border: 1px solid var(--line-strong);
+        border-radius: 6px;
+        background: var(--panel);
+        color: var(--text);
+        font-size: 11.5px;
+        white-space: nowrap;
+      }
+      .btn:hover {
+        border-color: #4a566a;
+        background: var(--panel-2);
+      }
+      .btn.primary {
+        border-color: transparent;
+        background: #4879e8;
+        color: #fff;
+        font-weight: 650;
+      }
+      .btn.primary:hover {
+        background: #5687f4;
+      }
+      .btn.soft {
+        border-color: rgba(145, 119, 255, 0.34);
+        background: var(--violet-soft);
+        color: #c7bcff;
+      }
+      .btn.soft:hover {
+        background: rgba(145, 119, 255, 0.18);
+      }
+      .btn.plain {
+        border-color: transparent;
+        background: transparent;
+        color: var(--muted);
+      }
+      .btn.plain:hover {
+        background: var(--panel-2);
+        color: var(--text);
+      }
+      .btn.danger {
+        border-color: rgba(239, 113, 104, 0.38);
+        background: var(--red-soft);
+        color: #ffaaa4;
+      }
+      .btn.small {
+        min-height: 27px;
+        padding: 1px 8px;
+        font-size: 10.5px;
+      }
+      .icon-btn {
+        width: 31px;
+        height: 31px;
+        display: grid;
+        place-items: center;
+        padding: 0;
+        border: 1px solid var(--line-strong);
+        border-radius: 6px;
+        background: var(--panel);
+        color: var(--muted);
+      }
+      .icon-btn:hover {
+        background: var(--panel-2);
+        color: var(--text);
+      }
+      .icon-btn.plain {
+        border-color: transparent;
+        background: transparent;
+      }
+
+      .data-desk {
+        position: relative;
+        z-index: 8;
+        display: grid;
+        grid-template-columns: minmax(178px, 220px) minmax(280px, 1fr) auto;
+        gap: 12px;
+        align-items: center;
+        min-height: 86px;
+        margin-bottom: 12px;
+        padding: 12px 14px;
+        border: 1px solid rgba(145, 119, 255, 0.28);
+        border-left: 3px solid var(--violet);
+        border-radius: 8px;
+        background:
+          linear-gradient(
+            100deg,
+            rgba(145, 119, 255, 0.095),
+            rgba(145, 119, 255, 0.025) 36%,
+            rgba(93, 143, 255, 0.025)
+          ),
+          var(--panel);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+      }
+      .desk-identity {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .agent-avatar {
+        position: relative;
+        width: 40px;
+        height: 40px;
+        flex: none;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        border-radius: 12px;
+        background:
+          radial-gradient(
+            circle at 28% 20%,
+            rgba(255, 255, 255, 0.45),
+            transparent 28%
+          ),
+          linear-gradient(145deg, #a984ff, #6b67f4 52%, #4e8df5);
+        color: #fff;
+        font-size: 10px;
+        font-weight: 850;
+        letter-spacing: 0.03em;
+        box-shadow:
+          inset 0 0 0 1px rgba(255, 255, 255, 0.14),
+          0 6px 18px rgba(96, 90, 235, 0.22);
+      }
+      .agent-avatar::after {
+        content: "";
+        position: absolute;
+        width: 20px;
+        height: 1px;
+        right: -4px;
+        bottom: 7px;
+        background: rgba(255, 255, 255, 0.42);
+        transform: rotate(-40deg);
+      }
+      .desk-identity-copy {
+        min-width: 0;
+      }
+      .desk-identity-title {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+      }
+      .desk-identity-title strong {
+        overflow: hidden;
+        font-size: 14px;
+        line-height: 1.3;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .desk-status {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        margin-top: 5px;
+        color: var(--muted);
+        font-size: 10px;
+        white-space: nowrap;
+      }
+      .status-dot {
+        width: 6px;
+        height: 6px;
+        flex: none;
+        border-radius: 50%;
+        background: var(--green);
+        box-shadow: 0 0 0 3px var(--green-soft);
+      }
+      .desk-main {
+        min-width: 0;
+      }
+      .desk-form {
+        min-height: 37px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 4px 5px 4px 10px;
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        background: rgba(9, 12, 18, 0.46);
+        transition:
+          border-color 0.15s ease,
+          box-shadow 0.15s ease;
+      }
+      .desk-form:focus-within {
+        border-color: rgba(145, 119, 255, 0.65);
+        box-shadow: 0 0 0 3px rgba(145, 119, 255, 0.09);
+      }
+      .desk-form > .icon {
+        color: #9b90c7;
+      }
+      .desk-form input {
+        width: 100%;
+        min-width: 0;
+        padding: 0;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: var(--text);
+        font-size: 12px;
+      }
+      .desk-form input::placeholder {
+        color: #727d90;
+      }
+      .send-btn {
+        width: 28px;
+        height: 28px;
+        flex: none;
+        display: grid;
+        place-items: center;
+        padding: 0;
+        border: 0;
+        border-radius: 6px;
+        background: #695ee5;
+        color: #fff;
+      }
+      .send-btn:hover {
+        background: #7b70f0;
+      }
+      .desk-shortcuts {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        margin-top: 6px;
+        overflow: hidden;
+      }
+      .shortcut {
+        min-width: 0;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 1px 7px;
+        border: 0;
+        border-radius: 5px;
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--muted);
+        font-size: 9.5px;
+        white-space: nowrap;
+      }
+      .shortcut:hover {
+        color: var(--text);
+        background: rgba(255, 255, 255, 0.075);
+      }
+      .desk-aside {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 6px;
+      }
+      .source-button,
+      .insight-button {
+        min-height: 34px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 2px 9px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.025);
+        color: var(--muted);
+        font-size: 10px;
+        white-space: nowrap;
+      }
+      .source-button:hover,
+      .insight-button:hover {
+        border-color: var(--line-strong);
+        color: var(--text);
+      }
+      .insight-button {
+        color: #c7bcff;
+        border-color: rgba(145, 119, 255, 0.25);
+      }
+      .insight-count {
+        min-width: 17px;
+        height: 17px;
+        display: grid;
+        place-items: center;
+        border-radius: 999px;
+        background: rgba(145, 119, 255, 0.22);
+        color: #cfc4ff;
+        font-size: 9px;
+        font-weight: 800;
+      }
+
+      .source-popover {
+        position: absolute;
+        z-index: 40;
+        top: 78px;
+        right: 14px;
+        width: 310px;
+        overflow: hidden;
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        background: var(--bg-elev);
+        box-shadow: var(--shadow);
+      }
+      .popover-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--line);
+      }
+      .popover-head strong {
+        font-size: 11.5px;
+      }
+      .popover-head span {
+        color: var(--muted);
+        font-size: 9.5px;
+      }
+      .source-list {
+        display: grid;
+        gap: 0;
+        padding: 5px;
+      }
+      .source-row {
+        display: grid;
+        grid-template-columns: 8px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 8px;
+        border-radius: 6px;
+        color: var(--muted);
+        font-size: 10.5px;
+      }
+      .source-row:hover {
+        background: var(--panel-2);
+      }
+      .source-row i {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--green);
+      }
+      .source-row.warn i {
+        background: var(--amber);
+      }
+      .source-row em {
+        color: var(--faint);
+        font-size: 9px;
+        font-style: normal;
+      }
+
+      .workbench-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin: 3px 0 9px;
+        color: var(--muted);
+        font-size: 10.5px;
+      }
+      .workbench-bar-left,
+      .workbench-bar-right {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .meta-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 1px 7px;
+        border-radius: 999px;
+        background: var(--panel-2);
+        color: var(--muted);
+        font-size: 9.5px;
+        white-space: nowrap;
+      }
+      .view-switch {
+        display: inline-flex;
+        gap: 2px;
+        padding: 2px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel);
+      }
+      .view-switch button {
+        min-height: 22px;
+        padding: 1px 8px;
+        border: 0;
+        border-radius: 4px;
+        background: transparent;
+        color: var(--faint);
+        font-size: 9.5px;
+      }
+      .view-switch button.active {
+        background: var(--panel-3);
+        color: var(--text);
+      }
+
+      .workbench-grid {
+        display: grid;
+        grid-template-columns: repeat(12, minmax(0, 1fr));
+        gap: 12px;
+        align-items: start;
+      }
+      .panel {
+        min-width: 0;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+      }
+      .span-7 {
+        grid-column: span 7;
+      }
+      .span-5 {
+        grid-column: span 5;
+      }
+      .span-4 {
+        grid-column: span 4;
+      }
+      .span-6 {
+        grid-column: span 6;
+      }
+      .panel-head {
+        min-height: 51px;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 9px 11px;
+        border-bottom: 1px solid var(--line);
+      }
+      .panel-icon {
+        width: 27px;
+        height: 27px;
+        flex: none;
+        display: grid;
+        place-items: center;
+        border-radius: 7px;
+        background: var(--blue-soft);
+        color: #8db1ff;
+      }
+      .panel-icon.violet {
+        background: var(--violet-soft);
+        color: #bdacff;
+      }
+      .panel-icon.teal {
+        background: var(--teal-soft);
+        color: #75dbc8;
+      }
+      .panel-icon.amber {
+        background: var(--amber-soft);
+        color: #efc477;
+      }
+      .panel-icon.red {
+        background: var(--red-soft);
+        color: #ff9e97;
+      }
+      .panel-title {
+        min-width: 0;
+        flex: 1;
+      }
+      .panel-title strong {
+        display: block;
+        overflow: hidden;
+        font-size: 12.5px;
+        line-height: 1.35;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .panel-title small {
+        display: block;
+        overflow: hidden;
+        margin-top: 1px;
+        color: var(--faint);
+        font-size: 9px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .panel-tools {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+      }
+      .panel-tool {
+        min-height: 25px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 1px 6px;
+        border: 0;
+        border-radius: 5px;
+        background: transparent;
+        color: var(--faint);
+        font-size: 9px;
+      }
+      .panel-tool:hover {
+        color: var(--text);
+        background: var(--panel-2);
+      }
+      .panel-tool.agent {
+        color: #c5baff;
+        background: rgba(145, 119, 255, 0.08);
+      }
+      .panel-body {
+        padding: 11px;
+      }
+
+      .metric-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 7px;
+      }
+      .metric {
+        min-width: 0;
+        padding: 9px 10px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--panel-2);
+      }
+      .metric-label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 5px;
+        color: var(--muted);
+        font-size: 9.5px;
+      }
+      .metric-label em {
+        color: var(--green);
+        font-size: 9px;
+        font-style: normal;
+        white-space: nowrap;
+      }
+      .metric-label em.bad {
+        color: var(--red);
+      }
+      .metric-value {
+        margin-top: 5px;
+        font-size: 22px;
+        font-weight: 680;
+        line-height: 1.15;
+        letter-spacing: 0;
+      }
+      .metric-value small {
+        margin-left: 2px;
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 500;
+      }
+      .sparkline {
+        width: 100%;
+        height: 30px;
+        margin-top: 7px;
+        overflow: visible;
+      }
+      .metric-note {
+        margin-top: 5px;
+        color: var(--faint);
+        font-size: 8.5px;
+      }
+      .panel-footline {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-top: 9px;
+        padding-top: 8px;
+        border-top: 1px solid var(--line);
+        color: var(--faint);
+        font-size: 9px;
+      }
+      .text-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: #9cb8ff;
+        font-size: 9.5px;
+      }
+      .text-link:hover {
+        color: #c4d5ff;
+      }
+
+      .insight-card {
+        padding: 10px;
+        border: 1px solid rgba(239, 113, 104, 0.24);
+        border-radius: 7px;
+        background:
+          linear-gradient(135deg, rgba(239, 113, 104, 0.08), transparent 70%),
+          var(--panel-2);
+      }
+      .insight-top {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        color: #ffaaa3;
+        font-size: 9.5px;
+        font-weight: 650;
+      }
+      .insight-card h3 {
+        margin: 6px 0 0;
+        font-size: 13px;
+        line-height: 1.45;
+      }
+      .insight-card p {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 10.5px;
+        line-height: 1.55;
+      }
+      .insight-chart {
+        width: 100%;
+        height: 86px;
+        margin-top: 7px;
+        overflow: visible;
+      }
+      .insight-signals {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+        margin-top: 7px;
+      }
+      .signal {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 1px 6px;
+        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--muted);
+        font-size: 8.5px;
+      }
+      .insight-actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .insight-actions-group {
+        display: flex;
+        gap: 5px;
+        flex-wrap: wrap;
+      }
+
+      .row-list {
+        display: grid;
+        gap: 6px;
+      }
+      .task-row {
+        display: grid;
+        grid-template-columns: 17px minmax(0, 1fr) auto;
+        gap: 7px;
+        align-items: start;
+        padding: 7px 8px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel-2);
+      }
+      .task-check {
+        width: 15px;
+        height: 15px;
+        margin-top: 1px;
+        display: grid;
+        place-items: center;
+        border: 1px solid var(--line-strong);
+        border-radius: 4px;
+        color: transparent;
+      }
+      .task-check:hover {
+        color: var(--teal);
+        border-color: var(--teal);
+      }
+      .task-copy {
+        min-width: 0;
+      }
+      .task-copy strong {
+        display: block;
+        overflow: hidden;
+        font-size: 10.5px;
+        font-weight: 600;
+        line-height: 1.45;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .task-copy small {
+        display: block;
+        margin-top: 2px;
+        color: var(--faint);
+        font-size: 8.5px;
+      }
+      .priority {
+        padding: 0 5px;
+        border-radius: 4px;
+        background: var(--red-soft);
+        color: #ff9e97;
+        font-size: 8px;
+        line-height: 1.8;
+      }
+      .priority.p1 {
+        background: var(--amber-soft);
+        color: #efc578;
+      }
+      .priority.p2 {
+        background: var(--blue-soft);
+        color: #9db9ff;
+      }
+      .risk-list {
+        display: grid;
+        gap: 6px;
+      }
+      .risk-row {
+        display: grid;
+        grid-template-columns: 34px minmax(0, 1fr) auto;
+        gap: 8px;
+        align-items: center;
+        padding: 7px 8px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel-2);
+      }
+      .risk-score {
+        height: 23px;
+        display: grid;
+        place-items: center;
+        border-radius: 5px;
+        background: var(--red-soft);
+        color: #ff9e97;
+        font-size: 9px;
+        font-weight: 750;
+      }
+      .risk-score.medium {
+        background: var(--amber-soft);
+        color: #efc578;
+      }
+      .risk-copy {
+        min-width: 0;
+      }
+      .risk-copy strong {
+        display: block;
+        overflow: hidden;
+        font-size: 10.5px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .risk-copy small {
+        display: block;
+        overflow: hidden;
+        margin-top: 1px;
+        color: var(--faint);
+        font-size: 8.5px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .risk-time {
+        color: var(--faint);
+        font-size: 8.5px;
+        white-space: nowrap;
+      }
+
+      .run-list {
+        display: grid;
+        gap: 1px;
+      }
+      .run-row {
+        display: grid;
+        grid-template-columns: 7px minmax(0, 1fr) auto;
+        gap: 8px;
+        align-items: center;
+        padding: 7px 2px;
+        border-bottom: 1px solid var(--line);
+      }
+      .run-row:last-child {
+        border-bottom: 0;
+      }
+      .run-row i {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--green);
+      }
+      .run-row i.running {
+        background: var(--blue);
+        box-shadow: 0 0 0 3px var(--blue-soft);
+      }
+      .run-row i.waiting {
+        background: var(--amber);
+      }
+      .run-copy {
+        min-width: 0;
+      }
+      .run-copy strong {
+        display: block;
+        overflow: hidden;
+        font-size: 10px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .run-copy small {
+        display: block;
+        color: var(--faint);
+        font-size: 8.5px;
+      }
+      .run-time {
+        color: var(--faint);
+        font-size: 8.5px;
+        white-space: nowrap;
+      }
+
+      .scrim {
+        position: fixed;
+        inset: 0;
+        z-index: 48;
+        background: rgba(3, 6, 10, 0.42);
+        backdrop-filter: blur(1px);
+      }
+      .agent-drawer {
+        position: fixed;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 50;
+        width: min(480px, 96vw);
+        display: flex;
+        flex-direction: column;
+        border-left: 1px solid var(--line-strong);
+        background: #11161f;
+        box-shadow: -22px 0 64px rgba(0, 0, 0, 0.38);
+      }
+      .drawer-head {
+        flex: none;
+        padding: 13px 14px 0;
+        border-bottom: 1px solid var(--line);
+        background: #121821;
+      }
+      .drawer-title-row {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+      }
+      .drawer-title-row .agent-avatar {
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+      }
+      .drawer-title-copy {
+        min-width: 0;
+        flex: 1;
+      }
+      .drawer-title-copy strong {
+        display: block;
+        font-size: 13px;
+        line-height: 1.3;
+      }
+      .drawer-title-copy small {
+        display: block;
+        margin-top: 2px;
+        color: var(--faint);
+        font-size: 9px;
+      }
+      .drawer-tabs {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        margin-top: 10px;
+      }
+      .drawer-tab {
+        min-height: 29px;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 10px;
+        border: 0;
+        border-radius: 5px 5px 0 0;
+        background: transparent;
+        color: var(--faint);
+        font-size: 10.5px;
+      }
+      .drawer-tab:hover {
+        color: var(--text);
+        background: var(--panel);
+      }
+      .drawer-tab.active {
+        color: var(--text);
+        background: var(--panel-2);
+        box-shadow: inset 0 -2px 0 var(--violet);
+      }
+      .drawer-body {
+        min-height: 0;
+        flex: 1;
+        overflow: auto;
+        padding: 12px 14px 20px;
+      }
+      .context-strip {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        flex-wrap: wrap;
+        padding: 7px 8px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel);
+        color: var(--faint);
+        font-size: 9px;
+      }
+      .context-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 1px 6px;
+        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.045);
+        color: var(--muted);
+        white-space: nowrap;
+      }
+      .context-chip strong {
+        color: var(--text);
+        font-weight: 600;
+      }
+      .messages {
+        display: grid;
+        gap: 12px;
+        margin-top: 12px;
+      }
+      .user-message {
+        justify-self: end;
+        max-width: 88%;
+        padding: 7px 9px;
+        border-radius: 7px 7px 2px 7px;
+        background: rgba(93, 143, 255, 0.15);
+        color: #dce6ff;
+        font-size: 10.5px;
+        line-height: 1.5;
+      }
+      .assistant-message {
+        min-width: 0;
+        padding-top: 2px;
+      }
+      .assistant-meta {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--faint);
+        font-size: 8.5px;
+      }
+      .assistant-meta strong {
+        color: #c8bcff;
+        font-size: 9px;
+        font-weight: 600;
+      }
+      .answer-title {
+        margin: 7px 0 0;
+        font-size: 15px;
+        line-height: 1.45;
+        font-weight: 680;
+      }
+      .answer-sub {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 10.5px;
+        line-height: 1.6;
+      }
+      .answer-metrics {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+        margin-top: 9px;
+      }
+      .answer-metric {
+        min-width: 0;
+        padding: 7px 8px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel);
+      }
+      .answer-metric span {
+        display: block;
+        color: var(--faint);
+        font-size: 8px;
+      }
+      .answer-metric strong {
+        display: block;
+        margin-top: 2px;
+        font-size: 15px;
+        line-height: 1.3;
+      }
+      .answer-metric strong.bad {
+        color: #ff9f98;
+      }
+      .answer-metric strong.good {
+        color: #73dbaf;
+      }
+      .answer-metric small {
+        color: var(--faint);
+        font-size: 8px;
+      }
+      .answer-section {
+        margin-top: 11px;
+        padding-top: 9px;
+        border-top: 1px solid var(--line);
+      }
+      .answer-section-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        color: var(--muted);
+        font-size: 9px;
+        font-weight: 650;
+      }
+      .answer-section-title span {
+        color: var(--faint);
+        font-weight: 400;
+      }
+      .trend-chart {
+        width: 100%;
+        height: 118px;
+        margin-top: 6px;
+        overflow: visible;
+      }
+      .driver-list {
+        display: grid;
+        gap: 5px;
+        margin-top: 7px;
+      }
+      .driver-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 86px 44px;
+        gap: 7px;
+        align-items: center;
+        font-size: 9px;
+        color: var(--muted);
+      }
+      .driver-row > span:first-child {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .driver-track {
+        height: 4px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: var(--panel-3);
+      }
+      .driver-track i {
+        display: block;
+        height: 100%;
+        border-radius: inherit;
+        background: var(--red);
+      }
+      .driver-row em {
+        text-align: right;
+        color: #ff9f98;
+        font-size: 8.5px;
+        font-style: normal;
+      }
+      .evidence-list {
+        display: grid;
+        gap: 5px;
+        margin-top: 7px;
+      }
+      .evidence-row {
+        display: grid;
+        grid-template-columns: 16px minmax(0, 1fr) auto;
+        gap: 6px;
+        align-items: center;
+        padding: 6px 7px;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        background: var(--panel);
+        color: var(--muted);
+        font-size: 9px;
+      }
+      .evidence-row .icon {
+        color: var(--teal);
+        width: 13px;
+        height: 13px;
+      }
+      .evidence-row small {
+        color: var(--faint);
+        font-size: 8px;
+      }
+      .answer-actions {
+        display: flex;
+        gap: 5px;
+        flex-wrap: wrap;
+        margin-top: 10px;
+      }
+      .answer-note {
+        margin-top: 8px;
+        padding: 7px 8px;
+        border-left: 2px solid var(--amber);
+        background: rgba(232, 178, 85, 0.06);
+        color: #b8a27e;
+        font-size: 8.5px;
+        line-height: 1.55;
+      }
+      .report-outline {
+        display: grid;
+        gap: 6px;
+        margin-top: 8px;
+      }
+      .report-item {
+        display: grid;
+        grid-template-columns: 22px minmax(0, 1fr) auto;
+        gap: 7px;
+        align-items: center;
+        padding: 7px 8px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel);
+      }
+      .report-number {
+        width: 20px;
+        height: 20px;
+        display: grid;
+        place-items: center;
+        border-radius: 5px;
+        background: var(--blue-soft);
+        color: #9fbaff;
+        font-size: 8px;
+        font-weight: 750;
+      }
+      .report-item strong {
+        display: block;
+        font-size: 9.5px;
+      }
+      .report-item small {
+        display: block;
+        color: var(--faint);
+        font-size: 8px;
+      }
+      .report-item em {
+        color: var(--green);
+        font-size: 8px;
+        font-style: normal;
+      }
+      .data-table {
+        width: 100%;
+        margin-top: 7px;
+        border-collapse: collapse;
+        font-size: 8.5px;
+      }
+      .data-table th,
+      .data-table td {
+        padding: 6px 5px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        white-space: nowrap;
+      }
+      .data-table th {
+        color: var(--faint);
+        font-weight: 500;
+      }
+      .data-table td {
+        color: var(--muted);
+      }
+      .data-table td strong {
+        color: var(--text);
+        font-weight: 600;
+      }
+      .data-table .bad {
+        color: #ff9f98;
+      }
+      .gap-row {
+        display: grid;
+        grid-template-columns: 24px minmax(0, 1fr);
+        gap: 7px;
+        padding: 7px 8px;
+        border: 1px solid rgba(232, 178, 85, 0.24);
+        border-radius: 6px;
+        background: rgba(232, 178, 85, 0.055);
+      }
+      .gap-row > .icon {
+        color: var(--amber);
+        margin-top: 1px;
+      }
+      .gap-row strong {
+        display: block;
+        font-size: 9.5px;
+      }
+      .gap-row p {
+        margin: 2px 0 0;
+        color: var(--muted);
+        font-size: 8.5px;
+        line-height: 1.55;
+      }
+      .processing {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 8px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel);
+        color: var(--muted);
+        font-size: 9px;
+      }
+      .processing-spinner {
+        width: 12px;
+        height: 12px;
+        border: 1.5px solid rgba(145, 119, 255, 0.25);
+        border-top-color: var(--violet);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .drawer-composer {
+        flex: none;
+        padding: 9px 12px 11px;
+        border-top: 1px solid var(--line);
+        background: #10151d;
+      }
+      .composer-box {
+        display: flex;
+        align-items: flex-end;
+        gap: 6px;
+        padding: 6px 6px 6px 9px;
+        border: 1px solid var(--line-strong);
+        border-radius: 7px;
+        background: var(--panel);
+      }
+      .composer-box:focus-within {
+        border-color: rgba(145, 119, 255, 0.55);
+      }
+      .composer-box textarea {
+        width: 100%;
+        min-width: 0;
+        max-height: 90px;
+        resize: none;
+        padding: 2px 0;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: var(--text);
+        font-size: 10.5px;
+        line-height: 1.5;
+      }
+      .composer-box textarea::placeholder {
+        color: var(--faint);
+      }
+      .composer-note {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-top: 5px;
+        color: var(--faint);
+        font-size: 8px;
+      }
+      .composer-note span {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .task-view {
+        display: grid;
+        gap: 8px;
+      }
+      .settings-section {
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--panel);
+      }
+      .settings-section + .settings-section {
+        margin-top: 8px;
+      }
+      .settings-section h3 {
+        margin: 0 0 7px;
+        font-size: 10.5px;
+        line-height: 1.4;
+      }
+      .settings-section p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 9px;
+        line-height: 1.6;
+      }
+      .setting-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 6px 0;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 9px;
+      }
+      .setting-row:first-of-type {
+        border-top: 0;
+      }
+      .setting-row strong {
+        color: var(--text);
+        font-weight: 600;
+      }
+      .setting-actions {
+        display: flex;
+        gap: 5px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+      }
+      .protected-note {
+        display: grid;
+        grid-template-columns: 20px minmax(0, 1fr);
+        gap: 7px;
+        padding: 8px;
+        border: 1px solid rgba(145, 119, 255, 0.24);
+        border-radius: 6px;
+        background: rgba(145, 119, 255, 0.055);
+        color: #a99dcb;
+        font-size: 8.5px;
+        line-height: 1.55;
+      }
+      .protected-note .icon {
+        color: #b8a8ff;
+      }
+      .connection-row {
+        display: grid;
+        grid-template-columns: 8px minmax(0, 1fr) auto;
+        gap: 7px;
+        align-items: center;
+        padding: 6px 0;
+        border-top: 1px solid var(--line);
+        font-size: 9px;
+        color: var(--muted);
+      }
+      .connection-row:first-of-type {
+        border-top: 0;
+      }
+      .connection-row i {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--green);
+      }
+      .connection-row i.warn {
+        background: var(--amber);
+      }
+      .connection-row em {
+        color: var(--faint);
+        font-size: 8px;
+        font-style: normal;
+      }
+      .switch {
+        position: relative;
+        width: 29px;
+        height: 16px;
+        flex: none;
+        padding: 0;
+        border: 1px solid var(--line-strong);
+        border-radius: 999px;
+        background: var(--panel-3);
+      }
+      .switch::after {
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--muted);
+        transition: transform 0.15s ease;
+      }
+      .switch.on {
+        border-color: rgba(84, 201, 133, 0.45);
+        background: rgba(84, 201, 133, 0.18);
+      }
+      .switch.on::after {
+        transform: translateX(13px);
+        background: var(--green);
+      }
+
+      .modal-layer {
+        position: fixed;
+        inset: 0;
+        z-index: 80;
+        display: grid;
+        place-items: center;
+        padding: 20px;
+        background: rgba(3, 6, 10, 0.68);
+        backdrop-filter: blur(4px);
+      }
+      .modal {
+        width: min(440px, 100%);
+        overflow: hidden;
+        border: 1px solid var(--line-strong);
+        border-radius: 9px;
+        background: #151b24;
+        box-shadow: var(--shadow);
+      }
+      .modal-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 13px 15px 11px;
+        border-bottom: 1px solid var(--line);
+      }
+      .modal-head h2 {
+        margin: 0;
+        font-size: 14px;
+        line-height: 1.4;
+      }
+      .modal-head p {
+        margin: 3px 0 0;
+        color: var(--muted);
+        font-size: 9.5px;
+        line-height: 1.5;
+      }
+      .modal-body {
+        padding: 12px 15px;
+      }
+      .scope-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 7px;
+      }
+      .scope-box {
+        padding: 8px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel);
+      }
+      .scope-box strong {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 9.5px;
+      }
+      .scope-box strong .icon {
+        width: 12px;
+        height: 12px;
+      }
+      .scope-box.will strong {
+        color: #9fbaff;
+      }
+      .scope-box.keep strong {
+        color: #7bd9b6;
+      }
+      .scope-box ul {
+        margin: 5px 0 0;
+        padding-left: 14px;
+        color: var(--muted);
+        font-size: 8.5px;
+        line-height: 1.65;
+      }
+      .modal-warning {
+        margin-top: 8px;
+        padding: 7px 8px;
+        border-left: 2px solid var(--amber);
+        background: rgba(232, 178, 85, 0.06);
+        color: #b6a17f;
+        font-size: 8.5px;
+        line-height: 1.55;
+      }
+      .modal-foot {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 10px 15px;
+        border-top: 1px solid var(--line);
+      }
+      .modal-foot small {
+        color: var(--faint);
+        font-size: 8.5px;
+      }
+      .modal-actions {
+        display: flex;
+        gap: 6px;
+      }
+      .toast-stack {
+        position: fixed;
+        left: 50%;
+        bottom: 24px;
+        z-index: 100;
+        display: grid;
+        gap: 7px;
+        transform: translateX(-50%);
+        pointer-events: none;
+      }
+      .toast {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 8px 11px;
+        border: 1px solid var(--line-strong);
+        border-radius: 7px;
+        background: #1b222c;
+        box-shadow: var(--shadow);
+        color: var(--text);
+        font-size: 10px;
+        animation: toast-in 0.18s ease both;
+      }
+      .toast .icon {
+        color: var(--green);
+      }
+      @keyframes toast-in {
+        from {
+          opacity: 0;
+          transform: translateY(7px);
+        }
+      }
+      [hidden] {
+        display: none !important;
+      }
+
+      @media (max-width: 1180px) {
+        .app {
+          grid-template-columns: 218px minmax(0, 1fr);
+        }
+        .data-desk {
+          grid-template-columns: minmax(165px, 200px) minmax(220px, 1fr) auto;
+        }
+        .source-button span {
+          display: none;
+        }
+        .span-7,
+        .span-5 {
+          grid-column: span 6;
+        }
+        .metric-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 900px) {
+        body {
+          overflow: auto;
+        }
+        .app {
+          min-height: 100%;
+          height: auto;
+          display: block;
+        }
+        .sidebar {
+          position: fixed;
+          inset: 0 auto 0 0;
+          width: 248px;
+          transform: translateX(-100%);
+          transition: transform 0.2s ease;
+        }
+        .sidebar.open {
+          transform: translateX(0);
+          box-shadow: var(--shadow);
+        }
+        .main {
+          min-height: 100vh;
+          overflow: visible;
+        }
+        .page {
+          padding: 14px;
+        }
+        .mobile-menu {
+          display: grid !important;
+        }
+        .data-desk {
+          grid-template-columns: minmax(160px, 200px) minmax(220px, 1fr);
+        }
+        .desk-aside {
+          grid-column: 1 / -1;
+          justify-content: flex-start;
+          padding-top: 2px;
+        }
+        .source-popover {
+          top: 118px;
+          left: 14px;
+          right: auto;
+        }
+        .span-7,
+        .span-5,
+        .span-4,
+        .span-6 {
+          grid-column: span 12;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .page-head h1 {
+          font-size: 20px;
+        }
+        .head-actions {
+          width: 100%;
+          justify-content: flex-start;
+        }
+        .head-actions .btn span {
+          display: none;
+        }
+        .head-actions .btn {
+          width: 31px;
+          padding: 0;
+        }
+        .data-desk {
+          display: flex;
+          flex-direction: column;
+          align-items: stretch;
+          gap: 9px;
+          padding: 11px;
+        }
+        .desk-identity {
+          justify-content: space-between;
+        }
+        .desk-identity-copy {
+          flex: 1;
+        }
+        .desk-shortcuts {
+          overflow-x: auto;
+          padding-bottom: 2px;
+        }
+        .desk-aside {
+          padding-top: 0;
+        }
+        .insight-button {
+          margin-left: auto;
+        }
+        .source-popover {
+          left: 14px;
+          right: 14px;
+          width: auto;
+        }
+        .metric-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .panel-head {
+          align-items: flex-start;
+        }
+        .panel-tool.agent span {
+          display: none;
+        }
+        .workbench-bar {
+          align-items: flex-start;
+        }
+        .workbench-bar-right {
+          width: 100%;
+          justify-content: space-between;
+        }
+        .agent-drawer {
+          width: 100%;
+        }
+        .answer-metrics {
+          grid-template-columns: 1fr 1fr;
+        }
+        .scope-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      /* Selection-first Data Agent interaction */
+      [data-selectable] {
+        position: relative;
+        transition:
+          border-color 0.15s ease,
+          box-shadow 0.15s ease;
+      }
+      [data-selectable]:hover {
+        border-color: color-mix(in srgb, var(--blue) 55%, var(--line));
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--blue) 22%, transparent);
+      }
+      .context-selected {
+        border-color: #7099ff !important;
+        box-shadow:
+          0 0 0 2px color-mix(in srgb, #7099ff 52%, transparent),
+          0 0 0 5px color-mix(in srgb, #7099ff 9%, transparent) !important;
+      }
+      .selection-action {
+        position: fixed;
+        z-index: 47;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 31px;
+        padding: 3px 10px;
+        border: 1px solid rgba(145, 119, 255, 0.55);
+        border-radius: 7px;
+        background: #24213a;
+        box-shadow:
+          0 10px 28px rgba(0, 0, 0, 0.38),
+          inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        color: #e6e1ff;
+        font-size: 10.5px;
+        font-weight: 620;
+        white-space: nowrap;
+        transform: translate(-50%, -100%);
+      }
+      .selection-action::after {
+        content: "";
+        position: absolute;
+        left: 50%;
+        bottom: -5px;
+        width: 8px;
+        height: 8px;
+        border-right: 1px solid rgba(145, 119, 255, 0.55);
+        border-bottom: 1px solid rgba(145, 119, 255, 0.55);
+        background: #24213a;
+        transform: translateX(-50%) rotate(45deg);
+      }
+      .selection-action:hover {
+        background: #302a4c;
+      }
+      .selection-action .icon {
+        width: 13px;
+        height: 13px;
+        color: #b8a8ff;
+      }
+
+      .data-desk.compact {
+        grid-template-columns: minmax(185px, 235px) minmax(180px, 1fr) auto;
+        min-height: 54px;
+        padding: 7px 10px;
+      }
+      .data-desk.compact .agent-avatar {
+        width: 31px;
+        height: 31px;
+        border-radius: 9px;
+        font-size: 9px;
+      }
+      .data-desk.compact .desk-identity-title strong {
+        font-size: 12.5px;
+      }
+      .data-desk.compact .desk-status {
+        margin-top: 1px;
+        font-size: 9px;
+      }
+      .desk-context {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        flex-wrap: wrap;
+        color: var(--faint);
+        font-size: 9px;
+      }
+      .desk-context .context-chip {
+        font-size: 9px;
+      }
+      .data-desk.compact .source-button,
+      .data-desk.compact .insight-button {
+        min-height: 29px;
+      }
+      .agent-nav {
+        cursor: default;
+      }
+
+      /* Side chat */
+      body.chat-expanded {
+        overflow: hidden;
+      }
+      body.chat-expanded .agent-drawer {
+        left: 248px;
+        width: auto;
+      }
+      .agent-drawer {
+        width: min(520px, calc(100vw - 24px));
+        transition:
+          left 0.18s ease,
+          width 0.18s ease;
+      }
+      .drawer-head {
+        padding: 11px 12px;
+      }
+      .drawer-title-row {
+        gap: 8px;
+      }
+      .drawer-title-row .agent-avatar {
+        width: 31px;
+        height: 31px;
+      }
+      .drawer-title-copy strong {
+        font-size: 12.5px;
+      }
+      .drawer-title-copy small {
+        max-width: 240px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .drawer-actions {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        margin-left: 2px;
+      }
+      .drawer-action {
+        width: 28px;
+        height: 28px;
+        display: grid;
+        place-items: center;
+        padding: 0;
+        border: 0;
+        border-radius: 5px;
+        background: transparent;
+        color: var(--faint);
+      }
+      .drawer-action:hover {
+        color: var(--text);
+        background: var(--panel-2);
+      }
+      .drawer-body.chat-thread {
+        padding: 12px 14px 22px;
+      }
+      body.chat-expanded .drawer-body.chat-thread {
+        padding: 18px max(22px, calc((100vw - 248px - 860px) / 2)) 32px;
+      }
+      .chat-intro {
+        display: grid;
+        justify-items: start;
+        gap: 5px;
+        padding: 8px 1px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+      .chat-intro .agent-avatar {
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        margin-bottom: 2px;
+      }
+      .chat-intro h2 {
+        margin: 0;
+        font-size: 15px;
+        line-height: 1.4;
+      }
+      .chat-intro p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 10.5px;
+        line-height: 1.6;
+      }
+      .chat-messages {
+        display: grid;
+        gap: 14px;
+        margin-top: 12px;
+      }
+      .chat-user-message {
+        justify-self: end;
+        width: min(88%, 680px);
+        display: grid;
+        gap: 6px;
+      }
+      .chat-user-bubble {
+        justify-self: end;
+        padding: 8px 10px;
+        border-radius: 8px 8px 2px 8px;
+        background: rgba(93, 143, 255, 0.16);
+        color: #e0e9ff;
+        font-size: 10.5px;
+        line-height: 1.55;
+      }
+      .context-attachment {
+        min-width: 0;
+        display: grid;
+        gap: 5px;
+        padding: 8px 9px;
+        border: 1px solid rgba(93, 143, 255, 0.28);
+        border-radius: 7px;
+        background:
+          linear-gradient(135deg, rgba(93, 143, 255, 0.07), transparent 72%),
+          var(--panel);
+      }
+      .context-attachment.type-text {
+        border-left: 2px solid var(--blue);
+      }
+      .context-attachment.type-chart {
+        border-left: 2px solid var(--teal);
+      }
+      .attachment-head {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        color: var(--faint);
+        font-size: 8.5px;
+      }
+      .attachment-kind {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0 5px;
+        border-radius: 4px;
+        background: var(--blue-soft);
+        color: #a8c0ff;
+        font-size: 8px;
+        line-height: 1.75;
+      }
+      .attachment-head small {
+        min-width: 0;
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .attachment-remove {
+        width: 20px;
+        height: 20px;
+        display: grid;
+        place-items: center;
+        padding: 0;
+        border: 0;
+        border-radius: 4px;
+        background: transparent;
+        color: var(--faint);
+      }
+      .attachment-remove:hover {
+        color: var(--text);
+        background: var(--panel-2);
+      }
+      .context-attachment strong {
+        overflow: hidden;
+        font-size: 10px;
+        line-height: 1.45;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .context-attachment p {
+        display: -webkit-box;
+        overflow: hidden;
+        margin: 0;
+        color: var(--muted);
+        font-size: 8.5px;
+        line-height: 1.55;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+      }
+      .chat-assistant-message {
+        min-width: 0;
+        max-width: 760px;
+      }
+      .chat-suggestions {
+        display: flex;
+        gap: 5px;
+        flex-wrap: wrap;
+        margin-bottom: 7px;
+      }
+      .chat-suggestion {
+        min-height: 24px;
+        padding: 1px 7px;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        background: var(--panel);
+        color: var(--muted);
+        font-size: 8.5px;
+      }
+      .chat-suggestion:hover {
+        border-color: var(--line-strong);
+        color: var(--text);
+        background: var(--panel-2);
+      }
+      .report-result {
+        display: grid;
+        gap: 8px;
+        padding: 10px;
+        border: 1px solid rgba(145, 119, 255, 0.28);
+        border-radius: 8px;
+        background:
+          linear-gradient(135deg, rgba(145, 119, 255, 0.08), transparent 72%),
+          var(--panel);
+      }
+      .report-result-head {
+        display: grid;
+        grid-template-columns: 33px minmax(0, 1fr);
+        gap: 8px;
+        align-items: start;
+      }
+      .report-result-icon {
+        width: 33px;
+        height: 38px;
+        display: grid;
+        place-items: center;
+        border: 1px solid rgba(145, 119, 255, 0.25);
+        border-radius: 6px;
+        background: var(--violet-soft);
+        color: #c5b8ff;
+      }
+      .report-result h3 {
+        margin: 1px 0 0;
+        font-size: 12.5px;
+        line-height: 1.4;
+      }
+      .report-result p {
+        margin: 3px 0 0;
+        color: var(--muted);
+        font-size: 9px;
+        line-height: 1.55;
+      }
+      .report-result-tags {
+        display: flex;
+        gap: 4px;
+        flex-wrap: wrap;
+        margin-top: 6px;
+      }
+      .report-result-tags span {
+        padding: 0 5px;
+        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.045);
+        color: var(--faint);
+        font-size: 8px;
+        line-height: 1.8;
+      }
+      .report-result-actions {
+        display: flex;
+        gap: 5px;
+        flex-wrap: wrap;
+        padding-top: 8px;
+        border-top: 1px solid var(--line);
+      }
+      .drawer-composer {
+        padding: 8px 12px 10px;
+      }
+      .composer-context {
+        margin-bottom: 6px;
+      }
+      .composer-box {
+        align-items: center;
+        padding: 5px 5px 5px 9px;
+      }
+      .composer-box textarea {
+        min-height: 24px;
+        padding: 4px 0;
+      }
+      .composer-note {
+        margin-top: 4px;
+      }
+      .report-view {
+        min-height: 100%;
+      }
+      .report-view-head {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid var(--line);
+      }
+      .report-view-head h2 {
+        min-width: 0;
+        flex: 1;
+        overflow: hidden;
+        margin: 0;
+        font-size: 13px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .report-document {
+        max-width: 900px;
+        margin: 0 auto;
+        padding-top: 13px;
+      }
+      body.chat-expanded .report-document {
+        padding-top: 22px;
+      }
+      .report-cover {
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background:
+          linear-gradient(135deg, rgba(93, 143, 255, 0.07), transparent 64%),
+          var(--panel);
+      }
+      .report-cover-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        color: #9fbaff;
+        font-size: 8px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .report-cover h1 {
+        margin: 7px 0 0;
+        font-size: 20px;
+        line-height: 1.35;
+      }
+      .report-cover p {
+        max-width: 720px;
+        margin: 5px 0 0;
+        color: var(--muted);
+        font-size: 10.5px;
+        line-height: 1.65;
+      }
+      .report-cover-meta {
+        display: flex;
+        gap: 5px;
+        flex-wrap: wrap;
+        margin-top: 9px;
+      }
+      .report-cover-meta span {
+        padding: 1px 6px;
+        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.045);
+        color: var(--faint);
+        font-size: 8px;
+      }
+      .report-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 7px;
+        margin-top: 10px;
+      }
+      .report-grid-card {
+        padding: 9px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--panel);
+      }
+      .report-grid-card span {
+        display: block;
+        color: var(--faint);
+        font-size: 8px;
+      }
+      .report-grid-card strong {
+        display: block;
+        margin-top: 2px;
+        font-size: 19px;
+        line-height: 1.2;
+      }
+      .report-grid-card small {
+        color: var(--faint);
+        font-size: 8px;
+      }
+      .report-section {
+        margin-top: 12px;
+        padding-top: 11px;
+        border-top: 1px solid var(--line);
+      }
+      .report-section h2 {
+        margin: 0;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+      .report-section p {
+        margin: 5px 0 0;
+        color: var(--muted);
+        font-size: 10px;
+        line-height: 1.65;
+      }
+      .report-findings {
+        display: grid;
+        gap: 6px;
+        margin-top: 7px;
+      }
+      .report-finding {
+        display: grid;
+        grid-template-columns: 24px minmax(0, 1fr);
+        gap: 7px;
+        padding: 8px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel);
+      }
+      .report-finding > span {
+        width: 22px;
+        height: 22px;
+        display: grid;
+        place-items: center;
+        border-radius: 5px;
+        background: var(--red-soft);
+        color: #ff9f98;
+        font-size: 8px;
+        font-weight: 750;
+      }
+      .report-finding strong {
+        display: block;
+        font-size: 10px;
+      }
+      .report-finding p {
+        margin: 2px 0 0;
+        font-size: 9px;
+      }
+      .report-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-top: 13px;
+        padding-top: 9px;
+        border-top: 1px solid var(--line);
+        color: var(--faint);
+        font-size: 8px;
+      }
+      .report-view-actions {
+        display: flex;
+        gap: 4px;
+        flex-wrap: wrap;
+      }
+
+      @media (max-width: 1180px) {
+        body.chat-expanded .agent-drawer {
+          left: 218px;
+        }
+        .data-desk.compact {
+          grid-template-columns: minmax(170px, 210px) minmax(130px, 1fr) auto;
+        }
+      }
+      @media (max-width: 900px) {
+        body.chat-expanded .agent-drawer {
+          left: 0;
+        }
+        .data-desk.compact {
+          grid-template-columns: minmax(170px, 210px) minmax(0, 1fr);
+        }
+        .data-desk.compact .desk-aside {
+          grid-column: 1 / -1;
+        }
+      }
+      @media (max-width: 640px) {
+        .data-desk.compact {
+          display: flex;
+          flex-direction: column;
+          align-items: stretch;
+          gap: 7px;
+        }
+        .data-desk.compact .desk-context {
+          display: none;
+        }
+        .data-desk.compact .desk-aside {
+          padding-top: 0;
+        }
+        .data-desk.compact .insight-button {
+          margin-left: auto;
+        }
+        .agent-drawer {
+          width: 100%;
+        }
+        body.chat-expanded .drawer-body.chat-thread {
+          padding: 12px 14px 22px;
+        }
+        .report-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .report-cover h1 {
+          font-size: 18px;
+        }
+        .selection-action {
+          font-size: 10px;
+        }
+      }
+      .head-action-divider {
+        width: 1px;
+        height: 20px;
+        margin: 0 1px;
+        background: var(--line);
+      }
+      .global-agent-button {
+        color: #c7bcff;
+        border-color: rgba(145, 119, 255, 0.3);
+        background: rgba(145, 119, 255, 0.075);
+      }
+      .global-agent-button:hover,
+      .global-agent-button.active {
+        color: #e0d9ff;
+        border-color: rgba(145, 119, 255, 0.55);
+        background: rgba(145, 119, 255, 0.14);
+      }
+      .global-message-button.active {
+        color: #a9c2ff;
+        border-color: rgba(93, 143, 255, 0.45);
+        background: rgba(93, 143, 255, 0.12);
+      }
+      .comm-header-avatar {
+        background:
+          radial-gradient(
+            circle at 28% 20%,
+            rgba(255, 255, 255, 0.28),
+            transparent 30%
+          ),
+          linear-gradient(145deg, #4c87e8, #3567be);
+        color: #fff;
+      }
+      .side-tabs {
+        flex: none;
+        min-height: 38px;
+        display: flex;
+        align-items: stretch;
+        gap: 1px;
+        padding: 5px 8px 0;
+        overflow-x: auto;
+        border-bottom: 1px solid var(--line);
+        background: #0f141c;
+      }
+      .side-tab {
+        min-width: 120px;
+        max-width: 190px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 5px 7px 6px;
+        border: 1px solid transparent;
+        border-bottom: 0;
+        border-radius: 6px 6px 0 0;
+        background: transparent;
+        color: var(--faint);
+        font-size: 10px;
+        cursor: pointer;
+      }
+      .side-tab:hover {
+        color: var(--text);
+        background: var(--panel);
+      }
+      .side-tab.active {
+        border-color: var(--line);
+        background: var(--panel-2);
+        color: var(--text);
+      }
+      .side-tab.active::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: -1px;
+        height: 1px;
+        background: var(--panel-2);
+      }
+      .side-tab {
+        position: relative;
+      }
+      .side-tab > .icon {
+        width: 13px;
+        height: 13px;
+        flex: none;
+      }
+      .side-tab-label {
+        min-width: 0;
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        text-align: left;
+      }
+      .side-tab-close {
+        width: 18px;
+        height: 18px;
+        flex: none;
+        display: grid;
+        place-items: center;
+        padding: 0;
+        border: 0;
+        border-radius: 4px;
+        background: transparent;
+        color: var(--faint);
+      }
+      .side-tab-close:hover {
+        color: var(--text);
+        background: rgba(255, 255, 255, 0.07);
+      }
+      .side-pane {
+        min-height: 0;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+      }
+      .communication-pane {
+        background: #11161f;
+      }
+      .comm-context-strip {
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 9px 12px;
+        border-bottom: 1px solid var(--line);
+        background: var(--panel);
+      }
+      .comm-channel-mark {
+        width: 30px;
+        height: 30px;
+        flex: none;
+        display: grid;
+        place-items: center;
+        border-radius: 8px;
+        background: var(--blue-soft);
+        color: #9db9ff;
+      }
+      .comm-context-strip > div {
+        min-width: 0;
+        flex: 1;
+      }
+      .comm-context-strip strong {
+        display: block;
+        overflow: hidden;
+        font-size: 11px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .comm-context-strip small {
+        display: block;
+        margin-top: 1px;
+        color: var(--faint);
+        font-size: 8.5px;
+      }
+      .comm-count {
+        flex: none;
+        padding: 1px 6px;
+        border-radius: 999px;
+        background: rgba(93, 143, 255, 0.12);
+        color: #a9c2ff;
+        font-size: 8px;
+      }
+      .comm-body {
+        min-height: 0;
+        flex: 1;
+        overflow: auto;
+        padding: 12px 13px 20px;
+      }
+      .comm-date {
+        margin: 2px 0 10px;
+        color: var(--faint);
+        font-size: 8px;
+        text-align: center;
+      }
+      .comm-message {
+        display: grid;
+        grid-template-columns: 28px minmax(0, 1fr);
+        gap: 7px;
+        margin-bottom: 11px;
+      }
+      .comm-message.ai {
+        padding: 8px;
+        border: 1px solid rgba(145, 119, 255, 0.2);
+        border-radius: 7px;
+        background: rgba(145, 119, 255, 0.04);
+      }
+      .comm-avatar {
+        width: 27px;
+        height: 27px;
+        display: grid;
+        place-items: center;
+        border-radius: 8px;
+        color: #fff;
+        font-size: 8px;
+        font-weight: 750;
+      }
+      .comm-avatar.human {
+        border-radius: 50%;
+        background: #3f7968;
+      }
+      .comm-avatar.ai {
+        background:
+          radial-gradient(
+            circle at 30% 20%,
+            rgba(255, 255, 255, 0.35),
+            transparent 30%
+          ),
+          linear-gradient(145deg, #a27fff, #6765f3 55%, #4f8fff);
+      }
+      .comm-message-copy {
+        min-width: 0;
+      }
+      .comm-message-head {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        color: var(--faint);
+        font-size: 8px;
+      }
+      .comm-message-head strong {
+        color: var(--text);
+        font-size: 9.5px;
+      }
+      .ai-tag {
+        padding: 0 4px;
+        border-radius: 3px;
+        background: var(--violet-soft);
+        color: #c1b3ff;
+        line-height: 1.6;
+      }
+      .comm-message p {
+        margin: 3px 0 0;
+        color: var(--muted);
+        font-size: 9.5px;
+        line-height: 1.6;
+      }
+      .comm-reference {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        width: 100%;
+        margin-top: 6px;
+        padding: 6px 7px;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        background: var(--panel);
+        color: #a9c2ff;
+        font-size: 8.5px;
+        text-align: left;
+      }
+      .comm-system-message {
+        margin: 10px 0 0 35px;
+        padding: 5px 7px;
+        border-radius: 5px;
+        background: var(--panel);
+        color: var(--faint);
+        font-size: 8px;
+        text-align: center;
+      }
+      .comm-composer {
+        flex: none;
+        padding: 8px 12px 10px;
+        border-top: 1px solid var(--line);
+        background: #10151d;
+      }
+      .comm-composer .composer-box textarea {
+        min-height: 24px;
+      }
+      @media (max-width: 640px) {
+        .head-action-divider {
+          display: none;
+        }
+        .global-agent-button {
+          margin-left: auto;
+        }
+        .side-tab {
+          min-width: 108px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <svg class="sprite" aria-hidden="true">
+      <symbol id="i-layout" viewBox="0 0 24 24">
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <path d="M3 9h18M9 9v12" />
+      </symbol>
+      <symbol id="i-briefcase" viewBox="0 0 24 24">
+        <rect x="3" y="7" width="18" height="13" rx="2" />
+        <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18M10 12v2h4v-2" />
+      </symbol>
+      <symbol id="i-tasks" viewBox="0 0 24 24">
+        <path
+          d="M9 6h11M9 12h11M9 18h11M4 6l1 1 2-3M4 12l1 1 2-3M4 18l1 1 2-3"
+        />
+      </symbol>
+      <symbol id="i-workflow" viewBox="0 0 24 24">
+        <circle cx="6" cy="6" r="2" />
+        <circle cx="18" cy="6" r="2" />
+        <circle cx="12" cy="18" r="2" />
+        <path d="M8 6h8M7 8l4 8M17 8l-4 8" />
+      </symbol>
+      <symbol id="i-message" viewBox="0 0 24 24">
+        <path
+          d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"
+        />
+      </symbol>
+      <symbol id="i-agents" viewBox="0 0 24 24">
+        <circle cx="9" cy="8" r="3" />
+        <path d="M3 20a6 6 0 0 1 12 0M16 5a3 3 0 0 1 0 6M18 14a5 5 0 0 1 3 6" />
+      </symbol>
+      <symbol id="i-market" viewBox="0 0 24 24">
+        <path d="M3 9l2-5h14l2 5M4 9v11h16V9M9 20v-6h6v6" />
+      </symbol>
+      <symbol id="i-search" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="7" />
+        <path d="m20 20-4-4" />
+      </symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24">
+        <path d="M12 5v14M5 12h14" />
+      </symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="3" />
+        <path
+          d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"
+        />
+      </symbol>
+      <symbol id="i-more" viewBox="0 0 24 24">
+        <circle cx="5" cy="12" r="1" />
+        <circle cx="12" cy="12" r="1" />
+        <circle cx="19" cy="12" r="1" />
+      </symbol>
+      <symbol id="i-calendar" viewBox="0 0 24 24">
+        <rect x="3" y="5" width="18" height="16" rx="2" />
+        <path d="M16 3v4M8 3v4M3 10h18" />
+      </symbol>
+      <symbol id="i-spark" viewBox="0 0 24 24">
+        <path
+          d="m12 3 1.5 5.5L19 10l-5.5 1.5L12 17l-1.5-5.5L5 10l5.5-1.5ZM19 16l.7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7Z"
+        />
+      </symbol>
+      <symbol id="i-send" viewBox="0 0 24 24">
+        <path d="m22 2-7 20-4-9-9-4Z" />
+        <path d="M22 2 11 13" />
+      </symbol>
+      <symbol id="i-database" viewBox="0 0 24 24">
+        <ellipse cx="12" cy="5" rx="8" ry="3" />
+        <path
+          d="M4 5v7c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12v7c0 1.7 3.6 3 8 3s8-1.3 8-3v-7"
+        />
+      </symbol>
+      <symbol id="i-chart" viewBox="0 0 24 24">
+        <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
+      </symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24">
+        <path d="m12 3 10 18H2Z" />
+        <path d="M12 9v5M12 17h.01" />
+      </symbol>
+      <symbol id="i-check" viewBox="0 0 24 24">
+        <path d="m5 12 4 4L19 6" />
+      </symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7v5l3 2" />
+      </symbol>
+      <symbol id="i-arrow" viewBox="0 0 24 24">
+        <path d="M5 12h14M13 6l6 6-6 6" />
+      </symbol>
+      <symbol id="i-chevron" viewBox="0 0 24 24">
+        <path d="m9 6 6 6-6 6" />
+      </symbol>
+      <symbol id="i-close" viewBox="0 0 24 24">
+        <path d="m6 6 12 12M18 6 6 18" />
+      </symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24">
+        <path d="M21 12a9 9 0 1 1-3-6.7M21 3v6h-6" />
+      </symbol>
+      <symbol id="i-book" viewBox="0 0 24 24">
+        <path
+          d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V4H6.5A2.5 2.5 0 0 0 4 6.5ZM4 6.5v13A2.5 2.5 0 0 0 6.5 22H20v-5"
+        />
+      </symbol>
+      <symbol id="i-file" viewBox="0 0 24 24">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+        <path d="M14 2v6h6M8 13h8M8 17h6" />
+      </symbol>
+      <symbol id="i-table" viewBox="0 0 24 24">
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <path d="M3 9h18M3 15h18M9 3v18" />
+      </symbol>
+      <symbol id="i-reset" viewBox="0 0 24 24">
+        <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+        <path d="M3 3v5h5" />
+      </symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24">
+        <rect x="4" y="10" width="16" height="11" rx="2" />
+        <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+      </symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
+        <path d="m9 12 2 2 4-5" />
+      </symbol>
+      <symbol id="i-play" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="m10 8 6 4-6 4Z" />
+      </symbol>
+      <symbol id="i-pause" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M10 8v8M14 8v8" />
+      </symbol>
+      <symbol id="i-menu" viewBox="0 0 24 24">
+        <path d="M4 6h16M4 12h16M4 18h16" />
+      </symbol>
+      <symbol id="i-sliders" viewBox="0 0 24 24">
+        <path d="M4 6h10M18 6h2M4 12h3M11 12h9M4 18h7M15 18h5" />
+        <circle cx="16" cy="6" r="2" />
+        <circle cx="9" cy="12" r="2" />
+        <circle cx="13" cy="18" r="2" />
+      </symbol>
+      <symbol id="i-trend" viewBox="0 0 24 24">
+        <path d="m3 17 6-6 4 4 8-9M15 6h6v6" />
+      </symbol>
+      <symbol id="i-link" viewBox="0 0 24 24">
+        <path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-2 2" />
+        <path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l2-2" />
+      </symbol>
+      <symbol id="i-download" viewBox="0 0 24 24">
+        <path d="M12 3v12M7 10l5 5 5-5M4 21h16" />
+      </symbol>
+      <symbol id="i-expand" viewBox="0 0 24 24">
+        <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" />
+      </symbol>
+      <symbol id="i-collapse" viewBox="0 0 24 24">
+        <path d="M3 8h5V3M21 8h-5V3M3 16h5v5M21 16h-5v5" />
+      </symbol>
+      <symbol id="i-selection" viewBox="0 0 24 24">
+        <path d="M4 4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" />
+        <path d="m10 9 5 2-2 1-1 2Z" />
+      </symbol>
+    </svg>
+
+    <div class="app">
+      <aside class="sidebar" id="sidebar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">
+            <span></span><span></span><span></span><span></span>
+          </div>
+          <div class="brand-copy">
+            <strong>DSH Enterprise+</strong>
+            <small>Pluginmax 工作空间</small>
+          </div>
+        </div>
+        <div class="sidebar-scroll">
+          <nav class="nav" aria-label="主导航">
+            <button class="nav-item active" type="button">
+              <svg class="icon"><use href="#i-layout"></use></svg>
+              <span>工作台</span>
+              <span class="nav-badge">供应链作战台</span>
+            </button>
+            <button class="nav-item" type="button">
+              <svg class="icon"><use href="#i-briefcase"></use></svg>
+              <span>项目</span>
+            </button>
+            <button class="nav-item" type="button">
+              <svg class="icon"><use href="#i-tasks"></use></svg>
+              <span>任务</span>
+              <span class="nav-badge">12</span>
+            </button>
+            <button class="nav-item" type="button">
+              <svg class="icon"><use href="#i-workflow"></use></svg>
+              <span>工作流</span>
+            </button>
+            <button class="nav-item" type="button">
+              <svg class="icon"><use href="#i-message"></use></svg>
+              <span>沟通</span>
+            </button>
+            <div class="ai-nav-wrap">
+              <button class="nav-item" type="button">
+                <svg class="icon"><use href="#i-agents"></use></svg>
+                <span>AI伙伴</span>
+                <span class="nav-badge">6</span>
+              </button>
+              <button
+                class="agent-nav"
+                id="agentIdentity"
+                type="button"
+                aria-label="打开 Data Agent"
+              >
+                <span class="mini-avatar">DA</span>
+                <span class="agent-nav-copy">
+                  <strong>Data Agent</strong>
+                  <small>数据分析师</small>
+                </span>
+                <span class="built-in-chip">内置</span>
+              </button>
+            </div>
+            <button class="nav-item" type="button">
+              <svg class="icon"><use href="#i-market"></use></svg>
+              <span>资源市场</span>
+              <span class="nav-badge">24</span>
+            </button>
+          </nav>
+          <div class="sidebar-divider"></div>
+          <div class="sidebar-label">
+            <span>项目</span>
+            <span class="sidebar-label-actions">
+              <button type="button" aria-label="搜索项目">
+                <svg class="icon icon-sm"><use href="#i-search"></use></svg>
+              </button>
+              <button type="button" aria-label="新建项目">
+                <svg class="icon icon-sm"><use href="#i-plus"></use></svg>
+              </button>
+            </span>
+          </div>
+          <button class="project-row active" type="button">
+            <svg class="icon icon-sm"><use href="#i-briefcase"></use></svg>
+            <span>Pluginmax smoke</span>
+          </button>
+          <button class="session-row" type="button">
+            <span>供应链周会准备</span>
+            <small>16 天</small>
+          </button>
+          <button class="session-row" type="button">
+            <span>供应风险指标复盘</span>
+            <small>18 天</small>
+          </button>
+          <button class="session-row" type="button">
+            <span>项目上线检查清单</span>
+            <small>18 天</small>
+          </button>
+          <button class="project-row" type="button">
+            <svg class="icon icon-sm"><use href="#i-briefcase"></use></svg>
+            <span>1015-Demo 演示</span>
+          </button>
+        </div>
+        <div class="sidebar-footer">
+          <div class="user-avatar">OY</div>
+          <div class="user-copy">
+            <strong>Olivia Yang</strong>
+            <small>产品与供应链</small>
+          </div>
+          <button class="sidebar-settings" type="button" aria-label="设置">
+            <svg class="icon icon-sm"><use href="#i-settings"></use></svg>
+          </button>
+        </div>
+      </aside>
+
+      <main class="main" id="main">
+        <section class="page">
+          <header class="page-head">
+            <div class="page-head-copy">
+              <p class="eyebrow">
+                <span class="live-dot"></span><span>10 月 29 日，星期四</span
+                ><span>·</span><span>过去 7 天</span>
+              </p>
+              <h1>供应链作战台</h1>
+              <p class="page-sub">
+                把今天需要判断、推进和追溯的数据放在同一个工作面上。
+              </p>
+            </div>
+            <div class="head-actions">
+              <button
+                class="icon-btn plain mobile-menu"
+                id="menuButton"
+                type="button"
+                aria-label="打开导航"
+                style="display: none"
+              >
+                <svg class="icon"><use href="#i-menu"></use></svg>
+              </button>
+              <button class="btn" type="button">
+                <svg class="icon icon-sm"><use href="#i-sliders"></use></svg
+                ><span>编辑布局</span>
+              </button>
+              <button class="btn primary" type="button">
+                <svg class="icon icon-sm"><use href="#i-plus"></use></svg
+                ><span>添加插件</span>
+              </button>
+              <button class="icon-btn" type="button" aria-label="刷新工作台">
+                <svg class="icon"><use href="#i-refresh"></use></svg>
+              </button>
+              <button
+                class="icon-btn plain"
+                type="button"
+                aria-label="更多工作台操作"
+              >
+                <svg class="icon"><use href="#i-more"></use></svg>
+              </button>
+              <span class="head-action-divider" aria-hidden="true"></span>
+              <button
+                class="icon-btn global-agent-button"
+                id="openDataAgentTop"
+                type="button"
+                aria-label="打开 Data Agent"
+                title="Data Agent"
+              >
+                <svg class="icon"><use href="#i-spark"></use></svg>
+              </button>
+              <button
+                class="icon-btn global-message-button"
+                id="openCommunicationTop"
+                type="button"
+                aria-label="打开沟通"
+                title="沟通"
+              >
+                <svg class="icon"><use href="#i-message"></use></svg>
+              </button>
+            </div>
+          </header>
+
+          <div class="workbench-bar">
+            <div class="workbench-bar-left">
+              <span class="meta-chip">
+                <svg class="icon icon-sm"><use href="#i-layout"></use></svg>
+                5 个插件
+              </span>
+              <span class="meta-chip">
+                <svg class="icon icon-sm"><use href="#i-clock"></use></svg>
+                09:42 更新
+              </span>
+              <span class="meta-chip">
+                <svg class="icon icon-sm"><use href="#i-shield"></use></svg>
+                项目数据权限
+              </span>
+            </div>
+            <div class="workbench-bar-right">
+              <div class="view-switch" aria-label="工作台模式">
+                <button class="active" type="button">我的工作台</button>
+                <button type="button">管理驾驶舱</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="workbench-grid">
+            <article class="panel span-7">
+              <header class="panel-head">
+                <div class="panel-icon">
+                  <svg class="icon icon-sm"><use href="#i-chart"></use></svg>
+                </div>
+                <div class="panel-title">
+                  <strong>核心指标</strong>
+                  <small>供应链 · 过去 7 天 · 8 个数据源</small>
+                </div>
+                <div class="panel-tools">
+                  <button
+                    class="panel-tool"
+                    type="button"
+                    aria-label="刷新核心指标"
+                  >
+                    <svg class="icon icon-sm">
+                      <use href="#i-refresh"></use>
+                    </svg>
+                  </button>
+                </div>
+              </header>
+              <div class="panel-body">
+                <div class="metric-grid">
+                  <div class="metric">
+                    <div class="metric-label">
+                      <span>OTIF</span><em class="bad">-3.1pp</em>
+                    </div>
+                    <div class="metric-value">93.7<small>%</small></div>
+                    <svg
+                      class="sparkline"
+                      viewBox="0 0 100 30"
+                      preserveAspectRatio="none"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M2 8 L16 9 L30 7 L44 11 L58 10 L72 15 L86 18 L98 22"
+                        fill="none"
+                        stroke="#ef7168"
+                        stroke-width="2"
+                      />
+                      <path
+                        d="M2 8 L16 9 L30 7 L44 11 L58 10 L72 15 L86 18 L98 22 L98 30 L2 30Z"
+                        fill="rgba(239,113,104,.08)"
+                      />
+                    </svg>
+                    <div class="metric-note">承诺日期口径 · 不含客户自提</div>
+                  </div>
+                  <div class="metric">
+                    <div class="metric-label">
+                      <span>库存天数</span><em class="bad">+1.8 天</em>
+                    </div>
+                    <div class="metric-value">18.2<small>天</small></div>
+                    <svg
+                      class="sparkline"
+                      viewBox="0 0 100 30"
+                      preserveAspectRatio="none"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M2 20 L16 18 L30 19 L44 15 L58 14 L72 11 L86 10 L98 7"
+                        fill="none"
+                        stroke="#e8b255"
+                        stroke-width="2"
+                      />
+                      <path
+                        d="M2 20 L16 18 L30 19 L44 15 L58 14 L72 11 L86 10 L98 7 L98 30 L2 30Z"
+                        fill="rgba(232,178,85,.07)"
+                      />
+                    </svg>
+                    <div class="metric-note">含在途 · 取 30 天日均消耗</div>
+                  </div>
+                  <div class="metric">
+                    <div class="metric-label">
+                      <span>准时交付率</span><em>-0.9pp</em>
+                    </div>
+                    <div class="metric-value">96.1<small>%</small></div>
+                    <svg
+                      class="sparkline"
+                      viewBox="0 0 100 30"
+                      preserveAspectRatio="none"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M2 11 L16 10 L30 12 L44 9 L58 12 L72 10 L86 13 L98 14"
+                        fill="none"
+                        stroke="#5d8fff"
+                        stroke-width="2"
+                      />
+                      <path
+                        d="M2 11 L16 10 L30 12 L44 9 L58 12 L72 10 L86 13 L98 14 L98 30 L2 30Z"
+                        fill="rgba(93,143,255,.07)"
+                      />
+                    </svg>
+                    <div class="metric-note">按发货批次统计</div>
+                  </div>
+                  <div class="metric">
+                    <div class="metric-label">
+                      <span>供应风险指数</span><em class="bad">+0.4</em>
+                    </div>
+                    <div class="metric-value">2.8<small>/5</small></div>
+                    <svg
+                      class="sparkline"
+                      viewBox="0 0 100 30"
+                      preserveAspectRatio="none"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M2 22 L16 20 L30 21 L44 17 L58 18 L72 13 L86 12 L98 8"
+                        fill="none"
+                        stroke="#ef7168"
+                        stroke-width="2"
+                      />
+                      <path
+                        d="M2 22 L16 20 L30 21 L44 17 L58 18 L72 13 L86 12 L98 8 L98 30 L2 30Z"
+                        fill="rgba(239,113,104,.07)"
+                      />
+                    </svg>
+                    <div class="metric-note">供应商交付、质量与集中度</div>
+                  </div>
+                </div>
+                <div class="panel-footline">
+                  <span>指标服务口径 v2.4 · 数据截至 10 月 29 日 09:40</span>
+                  <button
+                    class="text-link"
+                    type="button"
+                    data-query="解释 OTIF 下降"
+                  >
+                    查看口径与证据
+                    <svg class="icon icon-sm"><use href="#i-arrow"></use></svg>
+                  </button>
+                </div>
+              </div>
+            </article>
+
+            <article class="panel span-5">
+              <header class="panel-head">
+                <div class="panel-icon violet">
+                  <svg class="icon icon-sm"><use href="#i-spark"></use></svg>
+                </div>
+                <div class="panel-title">
+                  <strong>Data Agent 洞察</strong>
+                  <small>主动分析 · 2 条待确认</small>
+                </div>
+                <div class="panel-tools">
+                  <button
+                    class="panel-tool"
+                    type="button"
+                    data-open-agent="settings"
+                    aria-label="Data Agent 设置"
+                  >
+                    <svg class="icon icon-sm"><use href="#i-more"></use></svg>
+                  </button>
+                </div>
+              </header>
+              <div class="panel-body">
+                <div class="insight-card">
+                  <div class="insight-top">
+                    <svg class="icon icon-sm"><use href="#i-alert"></use></svg>
+                    交付风险 · 影响 2 个项目
+                  </div>
+                  <h3>
+                    华东 OTIF 下降集中在两家供应商，缺口影响 10 月 31 日承诺
+                  </h3>
+                  <p>
+                    供应商 G 的质检返工与供应商 H 的调拨延迟合计贡献 2.7pp。
+                  </p>
+                  <svg
+                    class="insight-chart"
+                    viewBox="0 0 360 86"
+                    preserveAspectRatio="none"
+                    aria-hidden="true"
+                  >
+                    <g stroke="rgba(255,255,255,.055)" stroke-width="1">
+                      <path d="M0 20h360M0 43h360M0 66h360" />
+                    </g>
+                    <path
+                      d="M2 31 L55 29 L108 33 L161 38 L214 42 L267 41 L320 52 L358 61"
+                      fill="none"
+                      stroke="#ef7168"
+                      stroke-width="2.5"
+                    />
+                    <path
+                      d="M2 31 L55 29 L108 33 L161 38 L214 42 L267 41 L320 52 L358 61 L358 86 L2 86Z"
+                      fill="rgba(239,113,104,.08)"
+                    />
+                    <circle cx="320" cy="52" r="3.5" fill="#ef7168" />
+                    <circle cx="358" cy="61" r="3.5" fill="#ef7168" />
+                  </svg>
+                  <div class="insight-signals">
+                    <span class="signal">供应商 G -1.6pp</span>
+                    <span class="signal">供应商 H -1.1pp</span>
+                    <span class="signal">已核对订单 186 行</span>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article class="panel span-4">
+              <header class="panel-head">
+                <div class="panel-icon">
+                  <svg class="icon icon-sm"><use href="#i-tasks"></use></svg>
+                </div>
+                <div class="panel-title">
+                  <strong>我的待办</strong>
+                  <small>4 项待处理 · 1 项已由 Agent 跟进</small>
+                </div>
+                <div class="panel-tools">
+                  <button
+                    class="panel-tool"
+                    type="button"
+                    aria-label="更多待办"
+                  >
+                    <svg class="icon icon-sm"><use href="#i-more"></use></svg>
+                  </button>
+                </div>
+              </header>
+              <div class="panel-body">
+                <div class="row-list">
+                  <div class="task-row">
+                    <button
+                      class="task-check"
+                      type="button"
+                      aria-label="标记完成"
+                    >
+                      <svg class="icon icon-sm">
+                        <use href="#i-check"></use>
+                      </svg>
+                    </button>
+                    <div class="task-copy">
+                      <strong>确认供应商 G 的返工恢复计划</strong
+                      ><small>供应风险 · 今天 14:00</small>
+                    </div>
+                    <span class="priority">P0</span>
+                  </div>
+                  <div class="task-row">
+                    <button
+                      class="task-check"
+                      type="button"
+                      aria-label="标记完成"
+                    >
+                      <svg class="icon icon-sm">
+                        <use href="#i-check"></use>
+                      </svg>
+                    </button>
+                    <div class="task-copy">
+                      <strong>补齐客户行业维度字段</strong
+                      ><small>Data Agent 已生成任务草稿</small>
+                    </div>
+                    <span class="priority p1">P1</span>
+                  </div>
+                  <div class="task-row">
+                    <button
+                      class="task-check"
+                      type="button"
+                      aria-label="标记完成"
+                    >
+                      <svg class="icon icon-sm">
+                        <use href="#i-check"></use>
+                      </svg>
+                    </button>
+                    <div class="task-copy">
+                      <strong>审阅本周供应链周报</strong
+                      ><small>Data Agent 草稿 · 10:15</small>
+                    </div>
+                    <span class="priority p2">P2</span>
+                  </div>
+                  <div class="task-row">
+                    <button
+                      class="task-check"
+                      type="button"
+                      aria-label="标记完成"
+                    >
+                      <svg class="icon icon-sm">
+                        <use href="#i-check"></use>
+                      </svg>
+                    </button>
+                    <div class="task-copy">
+                      <strong>更新 Q4 价格达成口径</strong
+                      ><small>指标治理 · 明天</small>
+                    </div>
+                    <span class="priority p2">P2</span>
+                  </div>
+                </div>
+                <div class="panel-footline">
+                  <span>另有 8 项非本人处理事项</span>
+                  <button class="text-link" type="button">
+                    查看全部
+                    <svg class="icon icon-sm"><use href="#i-arrow"></use></svg>
+                  </button>
+                </div>
+              </div>
+            </article>
+
+            <article class="panel span-4">
+              <header class="panel-head">
+                <div class="panel-icon red">
+                  <svg class="icon icon-sm"><use href="#i-alert"></use></svg>
+                </div>
+                <div class="panel-title">
+                  <strong>供应风险</strong>
+                  <small>7 项需关注 · 2 项已有分析</small>
+                </div>
+              </header>
+              <div class="panel-body">
+                <div class="risk-list">
+                  <div class="risk-row">
+                    <span class="risk-score">高</span>
+                    <div class="risk-copy">
+                      <strong>关键连接器缺料 1,200 件</strong
+                      ><small>供应商 G · 影响 2 个客户订单</small>
+                    </div>
+                    <span class="risk-time">10-31</span>
+                  </div>
+                  <div class="risk-row">
+                    <span class="risk-score">高</span>
+                    <div class="risk-copy">
+                      <strong>华南调拨延迟 18 小时</strong
+                      ><small>供应商 H · 预计阻断发运</small>
+                    </div>
+                    <span class="risk-time">今天</span>
+                  </div>
+                  <div class="risk-row">
+                    <span class="risk-score medium">中</span>
+                    <div class="risk-copy">
+                      <strong>Q4 价格达成率低于目标</strong
+                      ><small>采购合同差异项待复核</small>
+                    </div>
+                    <span class="risk-time">本周</span>
+                  </div>
+                  <div class="risk-row">
+                    <span class="risk-score medium">中</span>
+                    <div class="risk-copy">
+                      <strong>单一来源物料覆盖不足</strong
+                      ><small>库存天数低于安全线</small>
+                    </div>
+                    <span class="risk-time">11-02</span>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article class="panel span-4">
+              <header class="panel-head">
+                <div class="panel-icon teal">
+                  <svg class="icon icon-sm"><use href="#i-play"></use></svg>
+                </div>
+                <div class="panel-title">
+                  <strong>Data Agent 运行</strong>
+                  <small>今天 6 次运行 · 1 个定期报告</small>
+                </div>
+                <div class="panel-tools">
+                  <button
+                    class="panel-tool"
+                    type="button"
+                    data-open-agent="task"
+                    aria-label="打开任务"
+                  >
+                    <svg class="icon icon-sm"><use href="#i-arrow"></use></svg>
+                  </button>
+                </div>
+              </header>
+              <div class="panel-body">
+                <div class="run-list">
+                  <div class="run-row">
+                    <i class="running"></i>
+                    <div class="run-copy">
+                      <strong>供应链晨报生成</strong
+                      ><small>8 个数据源 · 43 秒</small>
+                    </div>
+                    <span class="run-time">09:38</span>
+                  </div>
+                  <div class="run-row">
+                    <i></i>
+                    <div class="run-copy">
+                      <strong>OTIF 异常归因</strong
+                      ><small>已完成 · 12 条证据</small>
+                    </div>
+                    <span class="run-time">09:31</span>
+                  </div>
+                  <div class="run-row">
+                    <i></i>
+                    <div class="run-copy">
+                      <strong>周度库存周转分析</strong
+                      ><small>已保存到项目文件</small>
+                    </div>
+                    <span class="run-time">08:56</span>
+                  </div>
+                  <div class="run-row">
+                    <i class="waiting"></i>
+                    <div class="run-copy">
+                      <strong>客户行业维度诊断</strong
+                      ><small>等待字段补充</small>
+                    </div>
+                    <span class="run-time">昨天</span>
+                  </div>
+                </div>
+                <div class="panel-footline">
+                  <span>平台定义 v1.3 · Skill 口径 v2.4</span>
+                  <span>平台内置 · 不可删除</span>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <button class="selection-action" id="selectionAction" type="button" hidden>
+      <svg class="icon"><use href="#i-selection"></use></svg>
+      <span>让DataAgent分析</span>
+    </button>
+
+    <div class="scrim" id="scrim" hidden></div>
+    <aside class="agent-drawer" id="agentDrawer" aria-label="侧边工作区" hidden>
+      <div
+        class="side-tabs"
+        id="sideTabs"
+        role="tablist"
+        aria-label="侧边工作区"
+      ></div>
+      <header class="drawer-head">
+        <div class="drawer-title-row">
+          <div class="agent-avatar" id="drawerAvatar" aria-hidden="true">
+            DA
+          </div>
+          <div class="drawer-title-copy">
+            <strong id="drawerTitle">Data Agent</strong>
+            <small id="drawerSubtitle">平台内置 · 供应链作战台 · 新对话</small>
+          </div>
+          <span class="built-in-chip" id="drawerProtected">
+            <svg class="icon" style="width: 10px; height: 10px">
+              <use href="#i-shield"></use>
+            </svg>
+            受保护
+          </span>
+          <div class="drawer-actions">
+            <button
+              class="drawer-action"
+              id="agentSettingsButton"
+              type="button"
+              aria-label="Data Agent 设置"
+              title="Data Agent 设置"
+            >
+              <svg class="icon icon-sm"><use href="#i-sliders"></use></svg>
+            </button>
+            <button
+              class="drawer-action"
+              id="expandDrawer"
+              type="button"
+              aria-label="展开对话"
+              title="展开对话"
+            >
+              <svg class="icon icon-sm"><use href="#i-expand"></use></svg>
+            </button>
+            <button
+              class="drawer-action"
+              id="closeDrawer"
+              type="button"
+              aria-label="关闭 Data Agent"
+            >
+              <svg class="icon icon-sm"><use href="#i-close"></use></svg>
+            </button>
+          </div>
+        </div>
+      </header>
+      <section class="side-pane data-agent-pane" id="dataAgentPane">
+        <div
+          class="drawer-body chat-thread"
+          id="drawerBody"
+          aria-live="polite"
+        ></div>
+        <div class="drawer-composer" id="drawerComposer">
+          <div class="composer-context" id="composerContext"></div>
+          <div class="chat-suggestions" id="chatSuggestions"></div>
+          <form class="composer-box" id="drawerForm">
+            <textarea
+              id="drawerInput"
+              rows="2"
+              aria-label="继续向 Data Agent 提问"
+              placeholder="补充你想分析的问题，例如：找出主要原因并生成报告…"
+            ></textarea>
+            <button class="send-btn" type="submit" aria-label="发送">
+              <svg class="icon icon-sm"><use href="#i-send"></use></svg>
+            </button>
+          </form>
+          <div class="composer-note">
+            <span
+              ><svg class="icon" style="width: 10px; height: 10px">
+                <use href="#i-shield"></use></svg
+              >只读查询 · 行级权限校验</span
+            >
+            <span>口径 Skill v2.4</span>
+          </div>
+        </div>
+      </section>
+      <section
+        class="side-pane communication-pane"
+        id="communicationPane"
+        hidden
+      >
+        <div class="comm-context-strip">
+          <span class="comm-channel-mark">
+            <svg class="icon icon-sm"><use href="#i-message"></use></svg>
+          </span>
+          <div>
+            <strong>供应链协同群</strong>
+            <small>4 位成员 · 2 个 AI 伙伴 · 记录自动归档</small>
+          </div>
+          <span class="comm-count">2 条未读</span>
+        </div>
+        <div class="comm-body" id="communicationBody">
+          <div class="comm-date">今天 09:18</div>
+          <div class="comm-message">
+            <span class="comm-avatar human">LW</span>
+            <div class="comm-message-copy">
+              <div class="comm-message-head">
+                <strong>Lin Wei</strong><span>09:18</span>
+              </div>
+              <p>
+                供应商 G
+                的返工完成时间确认了吗？华东这两个订单今天需要回复客户。
+              </p>
+            </div>
+          </div>
+          <div class="comm-message ai">
+            <span class="comm-avatar ai">DA</span>
+            <div class="comm-message-copy">
+              <div class="comm-message-head">
+                <strong>Data Agent</strong><span class="ai-tag">AI</span
+                ><span>09:24</span>
+              </div>
+              <p>
+                已核对订单与供应商事件记录。8 个可恢复订单中最晚承诺日为 10 月
+                31 日，返工计划预计 14:00 前更新。
+              </p>
+              <button class="comm-reference" type="button">
+                <svg class="icon icon-sm"><use href="#i-file"></use></svg>
+                OTIF 异常归因报告
+              </button>
+            </div>
+          </div>
+          <div class="comm-message">
+            <span class="comm-avatar human">OY</span>
+            <div class="comm-message-copy">
+              <div class="comm-message-head">
+                <strong>Olivia Yang</strong><span>09:31</span>
+              </div>
+              <p>收到，我会在周会前确认替代产线，报告先留在项目里。</p>
+            </div>
+          </div>
+          <div class="comm-system-message">
+            Data Agent 报告已归档到 Pluginmax smoke 项目
+          </div>
+        </div>
+        <div class="comm-composer">
+          <form class="composer-box" id="communicationForm">
+            <textarea
+              id="communicationInput"
+              rows="2"
+              aria-label="发送沟通消息"
+              placeholder="回复供应链协同群…"
+            ></textarea>
+            <button class="send-btn" type="submit" aria-label="发送消息">
+              <svg class="icon icon-sm"><use href="#i-send"></use></svg>
+            </button>
+          </form>
+          <div class="composer-note">
+            <span>消息、引用和文件沿用现有沟通归档规则</span>
+            <span>供应链协同群</span>
+          </div>
+        </div>
+      </section>
+    </aside>
+
+    <div
+      class="modal-layer"
+      id="resetModal"
+      hidden
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="resetTitle"
+    >
+      <div class="modal">
+        <div class="modal-head">
+          <div>
+            <h2 id="resetTitle">恢复 Data Agent 默认配置</h2>
+            <p>仅重置当前工作区中的可恢复配置，不删除数据和历史。</p>
+          </div>
+          <button
+            class="icon-btn plain"
+            id="closeReset"
+            type="button"
+            aria-label="关闭"
+          >
+            <svg class="icon"><use href="#i-close"></use></svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="scope-grid">
+            <div class="scope-box will">
+              <strong
+                ><svg class="icon"><use href="#i-reset"></use></svg
+                >将重置</strong
+              >
+              <ul>
+                <li>补充指令与默认偏好</li>
+                <li>项目与数据源优先级</li>
+                <li>洞察阈值与通知偏好</li>
+                <li>缓存的分析记忆</li>
+              </ul>
+            </div>
+            <div class="scope-box keep">
+              <strong
+                ><svg class="icon"><use href="#i-shield"></use></svg
+                >将保留</strong
+              >
+              <ul>
+                <li>数据连接与授权</li>
+                <li>历史报告与 Agent Run</li>
+                <li>已创建任务和文件</li>
+                <li>工作区指标 Skill 版本</li>
+              </ul>
+            </div>
+          </div>
+          <div class="modal-warning">
+            定期报告不会删除。下一次触发将暂停，需在工作区管理员确认后恢复。
+          </div>
+        </div>
+        <div class="modal-foot">
+          <small>平台内置身份不会改变</small>
+          <div class="modal-actions">
+            <button class="btn" id="cancelReset" type="button">取消</button>
+            <button class="btn danger" id="confirmReset" type="button">
+              <svg class="icon icon-sm"><use href="#i-reset"></use></svg
+              >恢复默认
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast-stack" id="toastStack" aria-live="polite"></div>
+
+    <script>
+      const $ = (selector, root = document) => root.querySelector(selector);
+      const $$ = (selector, root = document) => [
+        ...root.querySelectorAll(selector),
+      ];
+      const escapeHtml = (value) =>
+        String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+
+      const compactText = (value, limit = 260) => {
+        const text = String(value ?? "")
+          .replace(/\s+/g, " ")
+          .trim();
+        return text.length > limit ? `${text.slice(0, limit)}…` : text;
+      };
+
+      const state = {
+        selection: null,
+        selectedElement: null,
+        drawerOpen: false,
+        expanded: false,
+        view: "chat",
+        pendingContext: null,
+        messages: [],
+        processing: false,
+        report: null,
+        openTabs: [],
+        activeTab: "data-agent",
+        communicationMessages: 0,
+      };
+
+      const selectableSelector = [
+        ".panel",
+        ".metric",
+        ".task-row",
+        ".risk-row",
+        ".run-row",
+        ".insight-card",
+      ].join(",");
+
+      $$(selectableSelector).forEach((element) => {
+        if (!element.closest("#agentDrawer")) {
+          element.dataset.selectable = "true";
+        }
+      });
+
+      const outlineSvg = `
+        <svg class="trend-chart" viewBox="0 0 430 118" preserveAspectRatio="none" aria-hidden="true">
+          <g stroke="rgba(255,255,255,.06)" stroke-width="1">
+            <path d="M0 20h430M0 49h430M0 78h430M0 107h430"/>
+          </g>
+          <g fill="#687385" font-size="9">
+            <text x="2" y="17">96%</text>
+            <text x="2" y="46">94%</text>
+            <text x="2" y="75">92%</text>
+            <text x="2" y="104">90%</text>
+          </g>
+          <path d="M32 34 L87 30 L142 35 L197 31 L252 43 L307 49 L362 45 L420 67" fill="none" stroke="#5d8fff" stroke-width="2"/>
+          <path d="M32 34 L87 30 L142 35 L197 31 L252 43 L307 49 L362 45 L420 67 L420 107 L32 107Z" fill="rgba(93,143,255,.07)"/>
+          <path d="M32 27 L87 26 L142 30 L197 28 L252 31 L307 35 L362 33 L420 42" fill="none" stroke="#4a566a" stroke-width="1.6" stroke-dasharray="4 4"/>
+          <circle cx="420" cy="67" r="3.5" fill="#ef7168"/>
+          <circle cx="420" cy="42" r="3" fill="#4a566a"/>
+          <g fill="#687385" font-size="8">
+            <text x="28" y="116">10/20</text>
+            <text x="125" y="116">10/22</text>
+            <text x="229" y="116">10/24</text>
+            <text x="332" y="116">10/26</text>
+            <text x="400" y="116">今天</text>
+          </g>
+        </svg>`;
+
+      function labelForKind(kind) {
+        if (kind === "text") return "选中文本";
+        if (kind === "chart") return "图表";
+        if (kind === "metric") return "指标";
+        return "页面内容";
+      }
+
+      function iconForKind(kind) {
+        if (kind === "text") return "i-file";
+        if (kind === "chart" || kind === "metric") return "i-chart";
+        return "i-layout";
+      }
+
+      function describeElement(element) {
+        const kind = element.matches(".metric")
+          ? "metric"
+          : element.matches(".insight-card")
+            ? "chart"
+            : "component";
+        let title = "";
+        let excerpt = "";
+
+        if (element.matches(".metric")) {
+          const label = $(".metric-label span", element)?.textContent ?? "指标";
+          const value = $(".metric-value", element)?.textContent ?? "";
+          title = `${label.trim()} · ${compactText(value, 24)}`;
+          excerpt =
+            `${$(".metric-note", element)?.textContent ?? ""} ` +
+            `${$(".metric-label em", element)?.textContent ?? ""}`;
+        } else if (element.matches(".task-row")) {
+          title = $(".task-copy strong", element)?.textContent ?? "待办事项";
+          excerpt = $(".task-copy small", element)?.textContent ?? "";
+        } else if (element.matches(".risk-row")) {
+          title = $(".risk-copy strong", element)?.textContent ?? "供应风险";
+          excerpt = $(".risk-copy small", element)?.textContent ?? "";
+        } else if (element.matches(".run-row")) {
+          title = $(".run-copy strong", element)?.textContent ?? "Agent 运行";
+          excerpt =
+            `${$(".run-copy small", element)?.textContent ?? ""} · ` +
+            `${$(".run-time", element)?.textContent ?? ""}`;
+        } else if (element.matches(".insight-card")) {
+          title = $("h3", element)?.textContent ?? "数据洞察";
+          excerpt =
+            `${$("p", element)?.textContent ?? ""} ` +
+            `${$(".insight-signals", element)?.textContent ?? ""}`;
+        } else {
+          title =
+            $(".panel-title strong", element)?.textContent ?? "工作台面板";
+          excerpt =
+            $(".panel-body", element)?.innerText ?? element.innerText ?? title;
+        }
+
+        return {
+          kind,
+          title: compactText(title, 90),
+          excerpt: compactText(excerpt, 320),
+          source: "供应链作战台 · Pluginmax smoke · 过去 7 天",
+        };
+      }
+
+      function renderAttachment(context, { removable = false } = {}) {
+        if (!context) return "";
+        return `
+          <article class="context-attachment type-${escapeHtml(context.kind)}">
+            <div class="attachment-head">
+              <span class="attachment-kind">
+                <svg class="icon" style="width:10px;height:10px"><use href="#${iconForKind(context.kind)}"></use></svg>
+                ${labelForKind(context.kind)}
+              </span>
+              <small>${escapeHtml(context.source)}</small>
+              ${
+                removable
+                  ? `<button class="attachment-remove" type="button" data-remove-context aria-label="移除选中的内容"><svg class="icon" style="width:11px;height:11px"><use href="#i-close"></use></svg></button>`
+                  : ""
+              }
+            </div>
+            <strong>${escapeHtml(context.title)}</strong>
+            <p>${escapeHtml(context.excerpt)}</p>
+          </article>`;
+      }
+
+      function positionSelectionAction(rect) {
+        const action = $("#selectionAction");
+        if (!action || !rect) return;
+        const width = action.offsetWidth || 148;
+        const left = Math.min(
+          window.innerWidth - width / 2 - 12,
+          Math.max(width / 2 + 12, rect.left + rect.width / 2),
+        );
+        action.style.left = `${left}px`;
+        action.style.top = `${Math.max(12, rect.top - 8)}px`;
+      }
+
+      function clearSelectionOutline() {
+        state.selectedElement?.classList.remove("context-selected");
+        state.selectedElement = null;
+      }
+
+      function clearSelection() {
+        clearSelectionOutline();
+        state.selection = null;
+        const action = $("#selectionAction");
+        if (action) action.hidden = true;
+      }
+
+      function showSelection(context, rect, element = null) {
+        clearSelectionOutline();
+        state.selection = context;
+        state.selectedElement = element;
+        element?.classList.add("context-selected");
+        const action = $("#selectionAction");
+        action.hidden = false;
+        positionSelectionAction(rect);
+      }
+
+      function selectElement(element) {
+        if (!element) return;
+        const context = describeElement(element);
+        const rect = element.getBoundingClientRect();
+        showSelection(context, rect, element);
+      }
+
+      function handleTextSelection() {
+        const selection = window.getSelection();
+        if (!selection || selection.isCollapsed) return;
+        const text = selection.toString().trim();
+        if (text.length < 2) return;
+        const anchor = selection.anchorNode;
+        const anchorElement =
+          anchor?.nodeType === Node.ELEMENT_NODE
+            ? anchor
+            : anchor?.parentElement;
+        if (
+          anchorElement?.closest("#agentDrawer") ||
+          anchorElement?.closest("textarea, input, button, a")
+        ) {
+          return;
+        }
+        const range = selection.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        if (rect.width === 0 && rect.height === 0) return;
+        showSelection(
+          {
+            kind: "text",
+            title: "选中文本",
+            excerpt: compactText(text, 500),
+            source: "供应链作战台 · 当前页面",
+          },
+          rect,
+        );
+      }
+
+      function pageContext() {
+        return {
+          kind: "component",
+          title: "供应链作战台 · 当前页面",
+          excerpt:
+            "当前工作台包含核心指标、供应风险、待办和 Data Agent 运行记录，时间范围为过去 7 天。",
+          source: "供应链作战台 · Pluginmax smoke · 过去 7 天",
+        };
+      }
+
+      function renderSideTabs() {
+        const labels = {
+          "data-agent": ["Data Agent", "i-spark"],
+          communication: ["沟通", "i-message"],
+        };
+        $("#sideTabs").innerHTML = state.openTabs
+          .map((tab) => {
+            const [label, icon] = labels[tab];
+            return `
+              <div class="side-tab${state.activeTab === tab ? " active" : ""}" data-side-tab="${tab}" role="tab" aria-selected="${state.activeTab === tab}">
+                <svg class="icon"><use href="#${icon}"></use></svg>
+                <span class="side-tab-label">${label}</span>
+                <button class="side-tab-close" type="button" data-close-tab="${tab}" aria-label="关闭${label}">
+                  <svg class="icon" style="width:10px;height:10px"><use href="#i-close"></use></svg>
+                </button>
+              </div>`;
+          })
+          .join("");
+        $("#openDataAgentTop").classList.toggle(
+          "active",
+          state.drawerOpen && state.activeTab === "data-agent",
+        );
+        $("#openCommunicationTop").classList.toggle(
+          "active",
+          state.drawerOpen && state.activeTab === "communication",
+        );
+      }
+
+      function openSidePanel(tab) {
+        if (!state.openTabs.includes(tab)) state.openTabs.push(tab);
+        state.activeTab = tab;
+        state.drawerOpen = true;
+        $("#agentDrawer").hidden = false;
+        $("#scrim").hidden = true;
+        renderDrawer();
+      }
+
+      function openDataAgent() {
+        const firstOpen = !state.openTabs.includes("data-agent");
+        if (firstOpen) {
+          state.pendingContext = state.selection ?? null;
+          state.messages = [];
+          state.report = null;
+          state.view = "chat";
+        } else if (state.selection && !state.pendingContext) {
+          state.pendingContext = state.selection;
+        }
+        openSidePanel("data-agent");
+        requestAnimationFrame(() => $("#drawerInput")?.focus());
+      }
+
+      function openCommunication() {
+        openSidePanel("communication");
+      }
+
+      function openAgentForSelection() {
+        if (!state.selection) return;
+        state.pendingContext = state.selection;
+        state.messages = [];
+        state.report = null;
+        state.view = "chat";
+        state.expanded = false;
+        $("#selectionAction").hidden = true;
+        document.body.classList.remove("chat-expanded");
+        openSidePanel("data-agent");
+        requestAnimationFrame(() => $("#drawerInput")?.focus());
+      }
+
+      function closeDrawer() {
+        state.drawerOpen = false;
+        state.expanded = false;
+        $("#agentDrawer").hidden = true;
+        document.body.classList.remove("chat-expanded");
+        clearSelection();
+        renderSideTabs();
+      }
+
+      function closeTab(tab) {
+        state.openTabs = state.openTabs.filter((item) => item !== tab);
+        if (state.activeTab === tab) {
+          state.activeTab = state.openTabs.at(-1) ?? "data-agent";
+        }
+        if (state.openTabs.length === 0) {
+          closeDrawer();
+          return;
+        }
+        renderDrawer();
+      }
+
+      function toggleExpanded() {
+        state.expanded = !state.expanded;
+        document.body.classList.toggle("chat-expanded", state.expanded);
+        const button = $("#expandDrawer");
+        button.innerHTML = state.expanded
+          ? `<svg class="icon icon-sm"><use href="#i-collapse"></use></svg>`
+          : `<svg class="icon icon-sm"><use href="#i-expand"></use></svg>`;
+        button.setAttribute(
+          "aria-label",
+          state.expanded ? "还原侧边栏" : "展开侧边栏",
+        );
+        button.setAttribute(
+          "title",
+          state.expanded ? "还原侧边栏" : "展开侧边栏",
+        );
+      }
+
+      function renderComposer() {
+        const visible = state.view === "chat";
+        $("#drawerComposer").hidden = !visible;
+        if (!visible) return;
+        $("#composerContext").innerHTML = state.pendingContext
+          ? renderAttachment(state.pendingContext, { removable: true })
+          : "";
+        const suggestions = state.pendingContext
+          ? state.pendingContext.kind === "text"
+            ? ["提炼关键结论", "找出潜在原因", "生成分析报告"]
+            : ["找出主要原因", "与上一周期对比", "生成分析报告"]
+          : ["查看今日异常", "生成本周供应链周报", "对比库存周转"];
+        $("#chatSuggestions").innerHTML = suggestions
+          .map(
+            (label) =>
+              `<button class="chat-suggestion" type="button" data-suggested-prompt="${label}">${label}</button>`,
+          )
+          .join("");
+      }
+
+      function renderChatBody() {
+        const intro = state.messages.length
+          ? ""
+          : `
+            <div class="chat-intro">
+              <div class="agent-avatar" aria-hidden="true">DA</div>
+              <h2>${state.pendingContext ? "已载入你选中的内容" : "从一个数据问题开始"}</h2>
+              <p>${state.pendingContext ? "可以补充分析目标、时间范围或关注指标，也可以直接发送生成报告。" : "可以直接输入问题，也可以先选中页面中的卡片、文本或图表再分析。"}</p>
+            </div>`;
+        return `${intro}<div class="chat-messages">${state.messages.join("")}</div>`;
+      }
+
+      function renderReportView() {
+        const report = state.report;
+        if (!report) return "";
+        return `
+          <article class="report-view">
+            <div class="report-view-head">
+              <button class="btn small" type="button" data-report-action="back">
+                <svg class="icon icon-sm"><use href="#i-chevron"></use></svg>返回对话
+              </button>
+              <h2>${escapeHtml(report.title)}</h2>
+              <button class="btn small soft" type="button" data-report-action="download">
+                <svg class="icon icon-sm"><use href="#i-download"></use></svg>下载
+              </button>
+            </div>
+            <div class="report-document">
+              <section class="report-cover">
+                <span class="report-cover-label">
+                  <svg class="icon" style="width:11px;height:11px"><use href="#i-spark"></use></svg>
+                  Data Agent Report
+                </span>
+                <h1>${escapeHtml(report.title)}</h1>
+                <p>${escapeHtml(report.summary)}</p>
+                <div class="report-cover-meta">
+                  <span>供应链作战台</span>
+                  <span>Pluginmax smoke</span>
+                  <span>过去 7 天</span>
+                  <span>生成于 10 月 29 日 09:42</span>
+                </div>
+              </section>
+              <div class="report-grid">
+                ${report.metrics
+                  .map(
+                    (metric) => `
+                      <div class="report-grid-card">
+                        <span>${escapeHtml(metric.label)}</span>
+                        <strong>${escapeHtml(metric.value)}</strong>
+                        <small>${escapeHtml(metric.note)}</small>
+                      </div>`,
+                  )
+                  .join("")}
+              </div>
+              ${
+                report.chart === "otif"
+                  ? `<section class="report-section">
+                      <h2>趋势与基线</h2>
+                      ${outlineSvg}
+                    </section>`
+                  : ""
+              }
+              <section class="report-section">
+                <h2>主要发现</h2>
+                <div class="report-findings">
+                  ${report.findings
+                    .map(
+                      (finding, index) => `
+                        <div class="report-finding">
+                          <span>0${index + 1}</span>
+                          <div>
+                            <strong>${escapeHtml(finding.title)}</strong>
+                            <p>${escapeHtml(finding.body)}</p>
+                          </div>
+                        </div>`,
+                    )
+                    .join("")}
+                </div>
+              </section>
+              <section class="report-section">
+                <h2>证据链</h2>
+                <div class="evidence-list">
+                  ${report.evidence
+                    .map(
+                      (item) => `
+                        <div class="evidence-row">
+                          <svg class="icon"><use href="#i-check"></use></svg>
+                          <span>${escapeHtml(item.label)}</span>
+                          <small>${escapeHtml(item.time)}</small>
+                        </div>`,
+                    )
+                    .join("")}
+                </div>
+              </section>
+              <section class="report-section">
+                <h2>建议下一步</h2>
+                <div class="report-findings">
+                  ${report.recommendations
+                    .map(
+                      (item, index) => `
+                        <div class="report-finding">
+                          <span style="background:var(--blue-soft);color:#a8c0ff">0${index + 1}</span>
+                          <div>
+                            <strong>${escapeHtml(item.title)}</strong>
+                            <p>${escapeHtml(item.body)}</p>
+                          </div>
+                        </div>`,
+                    )
+                    .join("")}
+                </div>
+              </section>
+              <div class="report-footer">
+                <span>只读查询 · 口径 Skill v2.4 · 已执行行级权限校验</span>
+                <span>${escapeHtml(report.fileName)}.html</span>
+              </div>
+            </div>
+          </article>`;
+      }
+
+      function renderDrawer() {
+        renderSideTabs();
+        const isAgent = state.activeTab === "data-agent";
+        $("#dataAgentPane").hidden = !isAgent;
+        $("#communicationPane").hidden = isAgent;
+        $("#agentSettingsButton").hidden = !isAgent;
+        $("#drawerProtected").hidden = !isAgent;
+        $("#drawerTitle").textContent = isAgent ? "Data Agent" : "沟通";
+        $("#drawerAvatar").innerHTML = isAgent
+          ? "DA"
+          : `<svg class="icon icon-sm"><use href="#i-message"></use></svg>`;
+        $("#drawerAvatar").classList.toggle("comm-header-avatar", !isAgent);
+        $("#drawerSubtitle").textContent = isAgent
+          ? state.view === "report"
+            ? "平台内置 · 报告浏览"
+            : "平台内置 · 供应链作战台 · 当前对话"
+          : "供应链协同群 · 4 位成员 · 2 个 AI 伙伴";
+        $("#expandDrawer").setAttribute(
+          "aria-label",
+          state.expanded ? "还原侧边栏" : "展开侧边栏",
+        );
+        $("#closeDrawer").setAttribute("aria-label", "关闭侧边栏");
+
+        if (isAgent) {
+          $("#drawerBody").innerHTML =
+            state.view === "report" ? renderReportView() : renderChatBody();
+          renderComposer();
+          requestAnimationFrame(() => {
+            const body = $("#drawerBody");
+            if (body && state.view === "chat")
+              body.scrollTop = body.scrollHeight;
+            if (body && state.view === "report") body.scrollTop = 0;
+          });
+        }
+      }
+
+      function generateReport(context, prompt) {
+        const text =
+          `${context.title} ${context.excerpt} ${prompt}`.toLowerCase();
+        if (/otif|交付|下降|指标/.test(text)) {
+          return {
+            id: "otif-driver",
+            title: "华东 OTIF 异常归因报告",
+            summary:
+              "华东 OTIF 环比下降 3.1pp，主要来自供应商 G 质检返工与供应商 H 调拨延迟；11 个延迟订单中 8 个可在 10 月 31 日前恢复。",
+            fileName: "华东-OTIF-异常归因报告",
+            chart: "otif",
+            metrics: [
+              { label: "当前 OTIF", value: "93.7%", note: "环比 -3.1pp" },
+              { label: "延迟订单", value: "11 单", note: "影响 2 个项目" },
+              { label: "可恢复承诺", value: "8 单", note: "最晚 10 月 31 日" },
+            ],
+            findings: [
+              {
+                title: "供应商 G 的质检返工贡献 -1.6pp",
+                body: "返工集中在连接器批次 CN-8821，涉及 6 个承诺订单。",
+              },
+              {
+                title: "供应商 H 的调拨延迟贡献 -1.1pp",
+                body: "10 月 24 日华南调拨计划变更后，平均延迟 18 小时。",
+              },
+              {
+                title: "客户自提改期贡献 -0.4pp",
+                body: "属于客户侧变更，不计入供应商履约问题，但影响 OTIF 统计。",
+              },
+            ],
+            evidence: [
+              {
+                label: "供应链指标服务 · OTIF 口径 v2.4",
+                time: "09:40",
+              },
+              {
+                label: "订单与交付明细 · 186 条承诺记录",
+                time: "09:41",
+              },
+              {
+                label: "供应商事件记录 · 6 条延期事件",
+                time: "09:41",
+              },
+            ],
+            recommendations: [
+              {
+                title: "优先恢复供应商 G 的可交付批次",
+                body: "将 8 个可恢复订单锁定至替代产线，并在今日 14:00 前确认返工完成时间。",
+              },
+              {
+                title: "建立调拨延迟预警",
+                body: "对华南调拨计划变更增加 12 小时预警阈值，避免再次影响承诺日期。",
+              },
+            ],
+          };
+        }
+
+        if (/库存|周转|物料/.test(text)) {
+          return {
+            id: "inventory-slow",
+            title: "库存周转最慢物料分析报告",
+            summary:
+              "库存周转最慢的 5 个物料集中在关键连接器，CN-8821 与 CN-6114 同时属于单一来源物料，不能仅按库存天数压降采购。",
+            fileName: "库存周转最慢物料分析报告",
+            chart: "",
+            metrics: [
+              { label: "最慢物料", value: "72 天", note: "CN-8821" },
+              { label: "占压金额", value: "¥1.82m", note: "单一物料" },
+              { label: "高风险物料", value: "2 项", note: "建议复核" },
+            ],
+            findings: [
+              {
+                title: "CN-8821 库存天数 72 天",
+                body: "过去 30 天日均消耗下降 18%，但采购在途仍然偏高。",
+              },
+              {
+                title: "CN-6114 库存天数 64 天",
+                body: "安全库存策略尚未按新的需求预测调整。",
+              },
+              {
+                title: "两项均为单一来源物料",
+                body: "需要同步评估供应连续性与占压金额，不建议直接暂停采购。",
+              },
+            ],
+            evidence: [
+              { label: "库存与调拨 · 过去 30 天快照", time: "09:38" },
+              { label: "采购在途 · 52 条记录", time: "09:39" },
+              { label: "供应商主数据 · 单一来源标识", time: "09:40" },
+            ],
+            recommendations: [
+              {
+                title: "复核安全库存参数",
+                body: "以最新 12 周需求为基础，重新计算 CN-8821 与 CN-6114 的安全库存。",
+              },
+              {
+                title: "拆分占压金额与停供风险",
+                body: "为单一来源物料增加供应连续性评分，避免仅以库存天数决策。",
+              },
+            ],
+          };
+        }
+
+        if (/供应|风险|缺料|延迟/.test(text)) {
+          return {
+            id: "supply-risk",
+            title: "供应风险影响分析报告",
+            summary:
+              "当前高风险集中在关键连接器缺料与华南调拨延迟，两项风险均会影响 10 月 31 日前的客户承诺。",
+            fileName: "供应风险影响分析报告",
+            chart: "",
+            metrics: [
+              { label: "高风险", value: "2 项", note: "影响客户交付" },
+              { label: "缺口数量", value: "1,200", note: "关键连接器" },
+              { label: "预计阻断", value: "18h", note: "华南调拨" },
+            ],
+            findings: [
+              {
+                title: "供应商 G 缺料影响两个客户订单",
+                body: "返工批次与替代产线仍存在 1,200 件缺口。",
+              },
+              {
+                title: "供应商 H 调拨延迟正在放大",
+                body: "预计阻断下一次发运，需与华南仓同步恢复计划。",
+              },
+              {
+                title: "价格达成风险暂不影响本月交付",
+                body: "属于合同差异项，建议进入采购复核清单。",
+              },
+            ],
+            evidence: [
+              { label: "供应商风险 · 7 项关注", time: "09:40" },
+              { label: "订单与交付明细 · 2 个项目", time: "09:41" },
+              { label: "库存与调拨 · 当前在途", time: "09:38" },
+            ],
+            recommendations: [
+              {
+                title: "锁定替代产能",
+                body: "优先保障本月承诺订单，将非紧急需求移出当前生产窗口。",
+              },
+              {
+                title: "建立跨仓调拨恢复时间表",
+                body: "在 14:00 前明确华南仓恢复节点与责任人。",
+              },
+            ],
+          };
+        }
+
+        return {
+          id: "context-analysis",
+          title: "选中内容分析报告",
+          summary: `已基于“${context.title}”和补充问题完成初步分析，结论覆盖当前工作台、项目与过去 7 天范围。`,
+          fileName: "选中内容分析报告",
+          chart: "",
+          metrics: [
+            { label: "分析对象", value: "1 项", note: "页面选中内容" },
+            { label: "关联数据源", value: "8 个", note: "已完成权限校验" },
+            { label: "证据记录", value: "12 条", note: "可追溯" },
+          ],
+          findings: [
+            {
+              title: context.title,
+              body: compactText(context.excerpt, 180),
+            },
+            {
+              title: "已补充当前工作台上下文",
+              body: "分析使用供应链作战台、Pluginmax smoke 项目和过去 7 天默认范围。",
+            },
+            {
+              title: "结论需要业务复核",
+              body: "当前报告基于只读数据快照生成，未自动修改任务、项目或指标口径。",
+            },
+          ],
+          evidence: [
+            { label: "选中内容快照 · 页面上下文", time: "刚刚" },
+            { label: "供应链指标服务 · 口径 v2.4", time: "09:40" },
+            { label: "项目权限 · 行级校验通过", time: "09:42" },
+          ],
+          recommendations: [
+            {
+              title: "补充业务判断",
+              body: "将报告带到供应链周会，由负责人确认影响范围与优先级。",
+            },
+            {
+              title: "继续追问或转为任务",
+              body: "可以继续在对话中缩小范围，或把后续动作保存为任务草稿。",
+            },
+          ],
+        };
+      }
+
+      function renderAssistantReport(report) {
+        return `
+          <div class="chat-assistant-message">
+            <div class="assistant-meta">
+              <strong>Data Agent</strong>
+              <span>已完成 · 12 条证据 · 42 秒</span>
+            </div>
+            <h2 class="answer-title">${escapeHtml(report.summary)}</h2>
+            <p class="answer-sub">已根据选中内容和补充问题生成报告。你可以直接浏览全文，或下载 HTML 版本。</p>
+            <div class="report-result">
+              <div class="report-result-head">
+                <div class="report-result-icon">
+                  <svg class="icon icon-sm"><use href="#i-file"></use></svg>
+                </div>
+                <div>
+                  <h3>${escapeHtml(report.title)}</h3>
+                  <p>${escapeHtml(report.metrics.map((metric) => `${metric.label} ${metric.value}`).join(" · "))}</p>
+                  <div class="report-result-tags">
+                    <span>HTML 报告</span>
+                    <span>可追溯证据</span>
+                    <span>只读数据</span>
+                  </div>
+                </div>
+              </div>
+              <div class="report-result-actions">
+                <button class="btn small soft" type="button" data-report-action="view">
+                  <svg class="icon icon-sm"><use href="#i-book"></use></svg>浏览报告
+                </button>
+                <button class="btn small" type="button" data-report-action="download">
+                  <svg class="icon icon-sm"><use href="#i-download"></use></svg>下载 HTML
+                </button>
+              </div>
+            </div>
+            <div class="answer-note">报告包含数据截止时间、口径、证据链与建议动作。下载文件不包含无权限项目数据。</div>
+          </div>`;
+      }
+
+      function processingMessage() {
+        return `
+          <div class="processing">
+            <span class="processing-spinner"></span>
+            <span>正在读取选中内容、校验数据权限并生成报告…</span>
+          </div>`;
+      }
+
+      function submitPrompt() {
+        if (state.processing) return;
+        const context = state.pendingContext ?? pageContext();
+        state.pendingContext = context;
+        const input = $("#drawerInput");
+        const prompt =
+          String(input.value ?? "").trim() || "分析选中内容并生成报告";
+        input.value = "";
+        state.processing = true;
+        const userMessage = `
+          <div class="chat-user-message">
+            ${renderAttachment(context)}
+            <div class="chat-user-bubble">${escapeHtml(prompt)}</div>
+          </div>`;
+        state.messages.push(userMessage, processingMessage());
+        renderDrawer();
+        setTimeout(() => {
+          const report = generateReport(context, prompt);
+          state.report = report;
+          state.messages.splice(-1, 1, renderAssistantReport(report));
+          state.processing = false;
+          renderDrawer();
+        }, 820);
+      }
+
+      function buildReportHtml(report) {
+        return `<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(report.title)}</title>
+<style>
+body{margin:0;background:#f5f7fa;color:#18202c;font:14px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif}
+main{max-width:920px;margin:0 auto;padding:40px 28px 64px}
+.label{color:#5265b8;font-size:12px;font-weight:700;text-transform:uppercase}
+h1{font-size:30px;line-height:1.3;margin:10px 0 8px}h2{font-size:20px;margin:30px 0 10px}p{color:#586476}
+.meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.meta span{padding:3px 8px;border:1px solid #dce2ea;border-radius:5px;color:#687385;font-size:12px}
+.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:22px}.metric{padding:14px;border:1px solid #dce2ea;border-radius:8px;background:white}.metric span{display:block;color:#687385;font-size:12px}.metric strong{display:block;font-size:26px;margin-top:4px}.metric small{color:#7f8a9a}
+.finding{padding:12px 14px;border:1px solid #dce2ea;border-radius:8px;background:white;margin-top:8px}.finding strong{display:block}.finding p{margin:4px 0 0}
+.evidence{padding:9px 12px;border-bottom:1px solid #e7ebf0;color:#586476}.footer{margin-top:28px;padding-top:14px;border-top:1px solid #dce2ea;color:#7f8a9a;font-size:12px}
+@media(max-width:640px){main{padding:24px 16px}.metrics{grid-template-columns:1fr}}
+</style>
+</head>
+<body><main>
+<div class="label">Data Agent Report</div>
+<h1>${escapeHtml(report.title)}</h1>
+<p>${escapeHtml(report.summary)}</p>
+<div class="meta"><span>供应链作战台</span><span>Pluginmax smoke</span><span>过去 7 天</span><span>生成于 2026-10-29 09:42</span></div>
+<div class="metrics">${report.metrics.map((metric) => `<div class="metric"><span>${escapeHtml(metric.label)}</span><strong>${escapeHtml(metric.value)}</strong><small>${escapeHtml(metric.note)}</small></div>`).join("")}</div>
+<h2>主要发现</h2>${report.findings.map((finding) => `<div class="finding"><strong>${escapeHtml(finding.title)}</strong><p>${escapeHtml(finding.body)}</p></div>`).join("")}
+<h2>证据链</h2>${report.evidence.map((item) => `<div class="evidence">${escapeHtml(item.label)} · ${escapeHtml(item.time)}</div>`).join("")}
+<h2>建议下一步</h2>${report.recommendations.map((item) => `<div class="finding"><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(item.body)}</p></div>`).join("")}
+<div class="footer">由 Data Agent 生成 · 只读查询 · 口径 Skill v2.4 · 行级权限校验通过</div>
+</main></body></html>`;
+      }
+
+      function downloadReport() {
+        if (!state.report) return;
+        const html = buildReportHtml(state.report);
+        const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = `${state.report.fileName}.html`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        toast("报告已开始下载");
+      }
+
+      function toast(text) {
+        const node = document.createElement("div");
+        node.className = "toast";
+        node.innerHTML = `<svg class="icon icon-sm"><use href="#i-check"></use></svg><span>${escapeHtml(text)}</span>`;
+        $("#toastStack").appendChild(node);
+        setTimeout(() => node.remove(), 3000);
+      }
+
+      function resetAgent() {
+        state.report = null;
+        state.messages = [];
+        $("#resetModal").hidden = true;
+        toast("Data Agent 已恢复当前工作区默认配置");
+      }
+
+      $("#selectionAction").addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openAgentForSelection();
+      });
+
+      document.addEventListener("mouseup", (event) => {
+        if (
+          event.target.closest("#agentDrawer") ||
+          event.target.closest("#selectionAction") ||
+          event.target.closest("button, input, textarea, a, select")
+        ) {
+          return;
+        }
+        setTimeout(handleTextSelection, 0);
+      });
+
+      document.addEventListener("click", (event) => {
+        if (event.target.closest("#selectionAction")) return;
+        const trigger = event.target.closest("[data-query],[data-open-agent]");
+        if (trigger && !trigger.closest("#agentDrawer")) {
+          event.preventDefault();
+          const target =
+            trigger.closest("[data-selectable]") ||
+            trigger.closest(".panel") ||
+            $(".insight-card");
+          selectElement(target);
+          return;
+        }
+        if (event.target.closest("#agentDrawer")) return;
+        if (window.getSelection()?.toString().trim()) return;
+        if (event.target.closest("button, input, textarea, a, select")) return;
+        const selectable = event.target.closest("[data-selectable]");
+        if (selectable) {
+          selectElement(selectable);
+        } else {
+          clearSelection();
+        }
+      });
+
+      $("#drawerForm").addEventListener("submit", (event) => {
+        event.preventDefault();
+        submitPrompt();
+      });
+
+      $("#drawerInput").addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault();
+          $("#drawerForm").requestSubmit();
+        }
+      });
+
+      $("#composerContext").addEventListener("click", (event) => {
+        if (!event.target.closest("[data-remove-context]")) return;
+        state.pendingContext = null;
+        state.messages = [];
+        state.report = null;
+        renderDrawer();
+        toast("已移除选中内容");
+      });
+
+      $("#chatSuggestions").addEventListener("click", (event) => {
+        const button = event.target.closest("[data-suggested-prompt]");
+        if (!button) return;
+        $("#drawerInput").value = button.dataset.suggestedPrompt;
+        $("#drawerInput").focus();
+      });
+
+      $("#drawerBody").addEventListener("click", (event) => {
+        const reportButton = event.target.closest("[data-report-action]");
+        if (!reportButton) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const action = reportButton.dataset.reportAction;
+        if (action === "view") {
+          state.view = "report";
+          renderDrawer();
+          return;
+        }
+        if (action === "back") {
+          state.view = "chat";
+          renderDrawer();
+          return;
+        }
+        if (action === "download") downloadReport();
+      });
+
+      $("#sideTabs").addEventListener("click", (event) => {
+        const closeButton = event.target.closest("[data-close-tab]");
+        if (closeButton) {
+          event.stopPropagation();
+          closeTab(closeButton.dataset.closeTab);
+          return;
+        }
+        const tab = event.target.closest("[data-side-tab]");
+        if (!tab) return;
+        state.activeTab = tab.dataset.sideTab;
+        renderDrawer();
+      });
+
+      $("#communicationForm").addEventListener("submit", (event) => {
+        event.preventDefault();
+        const input = $("#communicationInput");
+        const text = input.value.trim();
+        if (!text) return;
+        input.value = "";
+        state.communicationMessages += 1;
+        const message = document.createElement("div");
+        message.className = "comm-message";
+        message.innerHTML = `
+          <span class="comm-avatar human">OY</span>
+          <div class="comm-message-copy">
+            <div class="comm-message-head"><strong>Olivia Yang</strong><span>刚刚</span></div>
+            <p>${escapeHtml(text)}</p>
+          </div>`;
+        $("#communicationBody").appendChild(message);
+        $("#communicationBody").scrollTop =
+          $("#communicationBody").scrollHeight;
+      });
+
+      $("#communicationInput").addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault();
+          $("#communicationForm").requestSubmit();
+        }
+      });
+
+      $("#openDataAgentTop").addEventListener("click", openDataAgent);
+      $("#openCommunicationTop").addEventListener("click", openCommunication);
+      $("#expandDrawer").addEventListener("click", toggleExpanded);
+      $("#closeDrawer").addEventListener("click", closeDrawer);
+      $("#agentSettingsButton").addEventListener("click", () => {
+        $("#resetModal").hidden = false;
+      });
+      $("#agentIdentity").addEventListener("click", () => {
+        openDataAgent();
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        if (!$("#resetModal").hidden) {
+          $("#resetModal").hidden = true;
+          return;
+        }
+        if (state.drawerOpen) {
+          closeDrawer();
+          return;
+        }
+        clearSelection();
+      });
+
+      $("#closeReset").addEventListener("click", () => {
+        $("#resetModal").hidden = true;
+      });
+      $("#cancelReset").addEventListener("click", () => {
+        $("#resetModal").hidden = true;
+      });
+      $("#confirmReset").addEventListener("click", resetAgent);
+
+      $("#menuButton").addEventListener("click", () => {
+        $("#sidebar").classList.toggle("open");
+      });
+      $("#main").addEventListener("click", () => {
+        if (window.innerWidth <= 900) $("#sidebar").classList.remove("open");
+      });
+
+      window.addEventListener("resize", () => {
+        if (state.selection && !state.drawerOpen) {
+          const rect = state.selectedElement?.getBoundingClientRect();
+          if (rect) positionSelectionAction(rect);
+          else $("#selectionAction").hidden = true;
+        }
+      });
+
+      window.addEventListener(
+        "scroll",
+        () => {
+          if (state.selection && !state.drawerOpen) {
+            const rect = state.selectedElement?.getBoundingClientRect();
+            if (rect) positionSelectionAction(rect);
+            else $("#selectionAction").hidden = true;
+          }
+        },
+        true,
+      );
+    </script>
+  </body>
+</html>
