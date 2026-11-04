@@ -44,9 +44,7 @@ window.__ModuleLoader__.load({
         runtime: {
           selection: runtimeId === "" ? "recommended" : "user-selected",
           allowedRuntimeIds: runtimeId === "" ? [] : [runtimeId],
-          requiredCapabilities: allowPublicWeb
-            ? [{ key: "search", necessity: "required" }]
-            : [],
+          requiredCapabilities: [],
           ...(model === "" ? {} : { model }),
           ...(reasoningEffort === "" ? {} : { reasoningEffort }),
         },
@@ -141,7 +139,7 @@ window.__ModuleLoader__.load({
     const styles = `
       /* 页面内边距由 shell 的 .pmx-page 提供，这里不再叠加，保持与工作台一致的内容宽度。 */
       /* 会议侧边栏展开时任务区会变窄：用容器查询按「可用宽度」而不是视口宽度响应。 */
-      .pmtask{min-width:0;max-width:100%;min-height:100%;display:flex;flex-direction:column;color:var(--dsw-alias-label-primary);container-type:inline-size;}
+      .pmtask{position:relative;z-index:0;isolation:isolate;min-width:0;max-width:100%;min-height:100%;display:flex;flex-direction:column;color:var(--dsw-alias-label-primary);container-type:inline-size;}
       .pmtask *{box-sizing:border-box;}
       .pmtask-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:14px;}
       .pmtask-head h1{margin:0;font-size:19px;line-height:1.3;}
@@ -193,6 +191,10 @@ window.__ModuleLoader__.load({
       .pmtask-id{color:var(--dsw-alias-label-tertiary);font-size:10px;}
       .pmtask-spinner{width:14px;height:14px;flex:none;display:inline-block;border-radius:50%;border:2px solid color-mix(in srgb,var(--dsw-alias-label-tertiary) 38%,transparent);border-top-color:var(--dsw-alias-accent-primary,#4f8ef7);animation:pmtask-spin .8s linear infinite;}
       .pmtask-spinner.lg{width:16px;height:16px;}
+      .pmtask-run-state{width:10px;height:10px;flex:none;display:inline-block;border-radius:50%;background:var(--dsw-alias-state-success-primary,#34d47e);}
+      .pmtask-run-state.cancelled{border-radius:2px;background:var(--dsw-alias-state-error-primary,#e5534b);}
+      .pmtask-run-state.waiting,.pmtask-run-state.failed{background:var(--dsw-alias-state-warning-primary,#e2a737);}
+      .pmtask-run-state.interrupted{background:var(--dsw-alias-label-tertiary);}
       @keyframes pmtask-spin{to{transform:rotate(360deg);}}
       .pmtask-title{font-size:13px;font-weight:650;line-height:1.35;overflow-wrap:anywhere;}
       .pmtask-desc{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1.45;}
@@ -237,6 +239,22 @@ window.__ModuleLoader__.load({
       .pmtask-grid-demo .pmtask-field{padding:8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);}
       .pmtask-field{display:grid;gap:4px;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.5;}
       .pmtask-field strong{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:400;line-height:1.5;}
+      .pmtask-dependency-picker{position:relative;display:grid;gap:5px;}
+      .pmtask-dependency-label{color:var(--dsw-alias-label-secondary);font-size:11px;}
+      .pmtask-dependency-selected{min-height:34px;display:flex;align-items:center;gap:8px;padding:5px 7px 5px 9px;border:1px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-base);}
+      .pmtask-dependency-selected>span{min-width:0;flex:1;display:grid;gap:1px;}
+      .pmtask-dependency-selected strong,.pmtask-dependency-selected small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+      .pmtask-dependency-selected strong{font-size:11.5px;}
+      .pmtask-dependency-selected small{color:var(--dsw-alias-label-tertiary);font-size:9.5px;}
+      .pmtask-dependency-selected button{width:24px;height:24px;display:grid;place-items:center;padding:0;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;cursor:pointer;}
+      .pmtask-dependency-selected button:hover{background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);}
+      .pmtask-dependency-options{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:80;max-height:240px;overflow:auto;display:grid;gap:2px;padding:4px;border:1px solid var(--dsw-alias-border-l3);border-radius:7px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));box-shadow:0 14px 34px rgba(0,0,0,.24);}
+      .pmtask-dependency-option{min-width:0;display:grid;gap:3px;padding:7px 8px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-primary);text-align:left;font:inherit;cursor:pointer;}
+      .pmtask-dependency-option:hover{background:var(--dsw-alias-bg-layer-2);}
+      .pmtask-dependency-option strong,.pmtask-dependency-option small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+      .pmtask-dependency-option strong{font-size:11.5px;}
+      .pmtask-dependency-option small{color:var(--dsw-alias-label-tertiary);font-size:9.5px;}
+      .pmtask-dependency-empty{padding:10px;color:var(--dsw-alias-label-tertiary);font-size:10.5px;text-align:center;}
       .pmtask-review-config{align-content:start;}
       .pmtask-review-config .pmtask-check{align-items:flex-start;margin:0;color:var(--dsw-alias-label-primary);font-size:12.5px;}
       .pmtask-review-config .pmtask-check em{color:var(--dsw-alias-label-secondary);font-size:11px;}
@@ -336,7 +354,7 @@ window.__ModuleLoader__.load({
       .pmtask-receiver-option .pmtask-avatar,.pmtask-receiver-option .pmtask-ring{width:24px;height:24px;}
       .pmtask-detail{display:block;}
       .pmtask-detail-page,.pmtask-detail-page *{box-sizing:border-box;}
-      .pmtask-detail-page{overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));font-size:14px;line-height:1.5;}
+      .pmtask-detail-page{height:100%;overflow:hidden;display:flex;flex-direction:column;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));font-size:14px;line-height:1.5;}
       .pmtask-detail-top{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--dsw-alias-border-l2);background:color-mix(in srgb,var(--dsw-alias-bg-layer-2) 72%,transparent);margin-bottom:0;}
       .pmtask-back-btn{height:auto;min-height:30px;padding:4px 9px;font-size:11px;border-width:1px;}
       .pmtask-detail-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,36%);min-height:520px;}
@@ -357,6 +375,179 @@ window.__ModuleLoader__.load({
       .pmtask-detail-main .pmtask-grid{margin-top:0;}
       .pmtask-detail-main .pmtask-actions{gap:7px;margin-top:0;}
       .pmtask-detail-main .pmtask-actions .pmtask-btn{height:auto;min-height:24px;padding:2px 7px;font-size:11px;font-weight:400;border-width:1px;}
+      .pmtask-detail-page .pmtask-detail-layout{grid-template-columns:minmax(0,1.35fr) minmax(360px,.92fr);height:calc(100dvh - 100px);min-height:620px;overflow:hidden;}
+      .pmtask-detail-page .pmtask-detail-main{min-height:0;display:flex;flex-direction:column;gap:10px;overflow:hidden;padding:14px;}
+      .pmtask-detail-page .pmtask-detail-side{min-height:0;height:100%;position:relative;display:flex;flex-direction:column;overflow:hidden;padding:0;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
+      .pmtask-detail-page .pmtask-detail-side-scroll{min-height:0;flex:1;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;}
+      .pmtask-detail-page .pmtask-detail-side>.pmtask-edit-form{padding:14px 16px 16px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
+      .pmtask-detail-page .pmtask-detail-main>.pmtask-intro{display:none;}
+      .pmtask-detail-page .pmtask-detail-main>.pmtask-edit-form{order:1;flex:none;margin:0;padding:12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2);}
+      .pmtask-detail-page .pmtask-detail-main>.pmtask-composer{order:4;flex:none;margin:0;}
+      .pmtask-detail-page .pmtask-detail-main>.pmtask-detail-section{margin:0;}
+      .pmtask-detail-page .pmtask-detail-main>.pmtask-detail-section.pmtask-detail-conversation{order:2;flex:1 1 160px;min-height:140px;overflow:auto;padding:0 4px 8px 0;border-top:0;scrollbar-gutter:stable;}
+      .pmtask-detail-page .pmtask-detail-main>.pmtask-detail-comments{order:3;flex:none;max-height:190px;overflow:auto;padding:9px 0 0;border-top:1px solid var(--dsw-alias-border-l2);}
+      .pmtask-detail-page .pmtask-detail-main>.pmtask-detail-comments{display:none;}
+      .pmtask-detail-page .pmtask-detail-comments>h3,.pmtask-detail-page .pmtask-detail-legacy-comment-list,.pmtask-detail-page .pmtask-detail-comments .pmtask-comment-guide,.pmtask-detail-page .pmtask-detail-comments .pmtask-comment-consensus em{display:none;}
+      .pmtask-detail-page .pmtask-detail-comments .pmtask-comment-form{margin-top:0;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:5px;}
+      .pmtask-detail-page .pmtask-detail-comments .pmtask-comment-consensus{grid-column:auto;padding:2px 5px;border:0;background:transparent;}
+      .pmtask-detail-page .pmtask-detail-main>.pmtask-edit-form{display:none;}
+      .pmtask-detail-requirement-label{width:max-content;display:inline-flex;align-items:center;gap:5px;padding:2px 7px;border-radius:4px;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 12%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7);font-size:10px;font-weight:650;}
+      .pmtask-detail-page .pmtask-detail-main>.pmtask-intro .pmtask-intro-head h2{font-size:14px;}
+      .pmtask-detail-page .pmtask-detail-main>.pmtask-intro .pmtask-intro-head .pmtask-pill,
+      .pmtask-detail-page .pmtask-detail-main>.pmtask-intro .pmtask-intro-head .pmtask-icon-btn,
+      .pmtask-detail-page .pmtask-detail-main>.pmtask-intro>.pmtask-grid,
+      .pmtask-detail-page .pmtask-detail-main>.pmtask-intro>.pmtask-locked-hint,
+      .pmtask-detail-page .pmtask-detail-main>.pmtask-intro>.pmtask-workflow-action,
+      .pmtask-detail-page .pmtask-detail-main>.pmtask-intro>.pmtask-actions{display:none;}
+      .pmtask-detail-page .pmtask-detail-main>.pmtask-intro>.pmtask-acceptance{padding:9px 10px;}
+      .pmtask-detail-page .pmtask-detail-conversation .pmtask-history{max-height:none;overflow:visible;gap:14px;padding:8px 0 2px;}
+      .pmtask-detail-page .pmtask-detail-conversation .pmtask-history-head{display:none;}
+      .pmtask-detail-page .pmtask-history-message{display:flex;align-items:flex-start;gap:9px;}
+      .pmtask-detail-page .pmtask-history-message .pmtask-message-body{width:fit-content;min-width:0;max-width:min(72%,620px);display:flex;flex-direction:column;align-items:flex-start;}
+      .pmtask-detail-page .pmtask-history-message.is-mine{flex-direction:row-reverse;}
+      .pmtask-detail-page .pmtask-history-message.is-mine .pmtask-message-body{margin-left:auto;align-items:flex-end;}
+      .pmtask-detail-page .pmtask-history-message.is-mine .pmtask-message-head{justify-content:flex-end;}
+      .pmtask-detail-page .pmtask-history-message .pmtask-bubble{border:1px solid var(--dsw-alias-border-l2);border-radius:3px 8px 8px 8px;background:var(--dsw-alias-bg-layer-2);}
+      .pmtask-detail-page .pmtask-history-message.is-mine .pmtask-bubble{border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 38%,transparent);border-radius:8px 3px 8px 8px;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 12%,var(--dsw-alias-bg-layer-1));}
+      .pmtask-detail-page .pmtask-history-message.is-mine .pmtask-attachments{justify-content:flex-end;}
+      .pmtask-typing-row{display:flex;align-items:flex-start;gap:9px;padding:4px 0;}
+      .pmtask-typing-bubble{display:inline-flex;align-items:center;gap:8px;min-height:34px;padding:7px 11px;border:1px solid var(--dsw-alias-border-l2);border-radius:3px 8px 8px 8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:11.5px;}
+      .pmtask-typing-dots{display:inline-flex;align-items:center;gap:3px;height:12px;}
+      .pmtask-typing-dots i{width:4px;height:4px;border-radius:50%;background:var(--dsw-alias-accent-primary,#4f8ef7);animation:pmtask-typing-dot 1.1s ease-in-out infinite;}
+      .pmtask-typing-dots i:nth-child(2){animation-delay:.15s;}
+      .pmtask-typing-dots i:nth-child(3){animation-delay:.3s;}
+      @keyframes pmtask-typing-dot{0%,60%,100%{opacity:.25;transform:translateY(0);}30%{opacity:1;transform:translateY(-2px);}}
+      .pmtask-message-run-state{display:inline-flex;align-items:center;gap:5px;margin-top:5px;color:var(--dsw-alias-label-tertiary);font-size:10.5px;line-height:1.4;}
+      .pmtask-message-run-state::before{content:"";width:7px;height:7px;flex:none;border-radius:50%;background:var(--dsw-alias-label-tertiary);}
+      .pmtask-message-run-state.cancelled{color:var(--dsw-alias-state-error-primary,#e5534b);}
+      .pmtask-message-run-state.cancelled::before{border-radius:1px;background:currentColor;}
+      .pmtask-message-run-state.failed{color:var(--dsw-alias-state-warning-primary,#e2a737);}
+      .pmtask-message-run-state.failed::before{background:currentColor;}
+      .pmtask-detail-message-badge{flex:none;height:17px;display:inline-flex;align-items:center;padding:0 5px;border-radius:4px;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-secondary);font-size:9px;font-weight:600;white-space:nowrap;}
+      .pmtask-detail-message-badge.instruction{background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 13%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7);}
+      .pmtask-detail-message-badge.feedback{background:color-mix(in srgb,#a58bff 13%,transparent);color:#b7a1ff;}
+      .pmtask-detail-message-badge.consensus{background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#34d47e) 13%,transparent);color:var(--dsw-alias-state-success-primary,#2f9b6d);}
+      .pmtask-detail-message-badge.collaboration{background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 13%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7);}
+      .pmtask-detail-message-badge.workflow-task,.pmtask-detail-message-badge.workflow-discussion{background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 12%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7);}
+      .pmtask-detail-message-badge.system{color:var(--dsw-alias-label-tertiary);}
+      .pmtask-detail-page .pmtask-history-message .pmtask-run-role,.pmtask-detail-page .pmtask-history-message .pmtask-pill.consensus{display:none;}
+      .pmtask-detail-page .pmtask-history-event{padding:3px 0;}
+      .pmtask-detail-runtime{order:0;flex:none;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2);overflow:hidden;}
+      .pmtask-detail-runtime-trigger{width:100%;display:flex;align-items:center;gap:8px;padding:8px 10px;border:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;text-align:left;cursor:pointer;}
+      .pmtask-detail-runtime-trigger:hover{background:var(--dsw-alias-bg-layer-3);}
+      .pmtask-detail-runtime-live{width:7px;height:7px;flex:none;border-radius:50%;background:var(--dsw-alias-accent-primary,#4f8ef7);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 13%,transparent);}
+      .pmtask-detail-runtime-live.idle{background:var(--dsw-alias-label-tertiary);box-shadow:none;}
+      .pmtask-detail-runtime-copy{min-width:0;display:grid;gap:1px;}
+      .pmtask-detail-runtime-copy strong,.pmtask-detail-runtime-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+      .pmtask-detail-runtime-copy strong{font-size:11.5px;}
+      .pmtask-detail-runtime-copy small{color:var(--dsw-alias-label-tertiary);font-size:9.5px;}
+      .pmtask-detail-runtime-current{min-width:0;flex:1;overflow:hidden;color:var(--dsw-alias-label-secondary);font-size:10.5px;text-overflow:ellipsis;white-space:nowrap;}
+      .pmtask-detail-runtime-count{flex:none;color:var(--dsw-alias-label-tertiary);font-size:10px;font-variant-numeric:tabular-nums;}
+      .pmtask-detail-runtime-queue{flex:none;padding:1px 6px;border-radius:999px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary);font-size:9.5px;white-space:nowrap;}
+      .pmtask-detail-runtime-caret{width:7px;height:7px;flex:none;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg) translateY(-2px);}
+      .pmtask-detail-runtime-trigger[aria-expanded="true"] .pmtask-detail-runtime-caret{transform:rotate(225deg) translate(-2px,-2px);}
+      .pmtask-detail-runtime-body{display:grid;gap:9px;padding:0 10px 10px;border-top:1px solid var(--dsw-alias-border-l2);}
+      .pmtask-detail-runtime-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:9px;color:var(--dsw-alias-label-secondary);font-size:10.5px;}
+      .pmtask-detail-runtime-track{height:5px;overflow:hidden;border-radius:999px;background:var(--dsw-alias-bg-layer-3);}
+      .pmtask-detail-runtime-track span{display:block;height:100%;border-radius:inherit;background:var(--dsw-alias-accent-primary,#4f8ef7);}
+      .pmtask-detail-runtime-steps{display:grid;gap:4px;margin:0;padding:0;list-style:none;}
+      .pmtask-detail-runtime-step{display:grid;grid-template-columns:12px minmax(0,1fr) auto;gap:6px;align-items:start;color:var(--dsw-alias-label-secondary);font-size:10.5px;line-height:1.45;}
+      .pmtask-detail-runtime-dot{width:6px;height:6px;margin-top:5px;border-radius:50%;background:var(--dsw-alias-label-tertiary);}
+      .pmtask-detail-runtime-step.active .pmtask-detail-runtime-dot{background:var(--dsw-alias-accent-primary,#4f8ef7);}
+      .pmtask-detail-runtime-step.completed .pmtask-detail-runtime-dot{background:var(--dsw-alias-state-success-primary,#34d47e);}
+      .pmtask-detail-runtime-step.failed .pmtask-detail-runtime-dot{background:var(--dsw-alias-state-error-primary,#e5534b);}
+      .pmtask-detail-runtime-step small{color:var(--dsw-alias-label-tertiary);font-size:9.5px;white-space:nowrap;}
+      .pmtask-detail-runtime-question{display:grid;gap:6px;padding:9px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-warning-primary,#e2a737) 34%,transparent);border-radius:6px;background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#e2a737) 7%,transparent);}
+      .pmtask-detail-runtime-question strong{font-size:11px;}
+      .pmtask-detail-runtime-question p{margin:0;color:var(--dsw-alias-label-secondary);font-size:10.5px;line-height:1.5;white-space:pre-wrap;}
+      .pmtask-detail-runtime-answers{display:flex;gap:5px;flex-wrap:wrap;}
+      .pmtask-detail-runtime-answer{padding:3px 7px;border:1px solid var(--dsw-alias-border-l3);border-radius:5px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:10px;cursor:pointer;}
+      .pmtask-detail-runtime-answer:hover{background:var(--dsw-alias-bg-layer-3);}
+      .pmtask-detail-runtime-queue-list{display:flex;gap:5px;flex-wrap:wrap;color:var(--dsw-alias-label-tertiary);font-size:9.5px;}
+      .pmtask-detail-side-head{position:relative;z-index:5;flex:none;display:grid;gap:9px;padding:14px 16px 11px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
+      .pmtask-detail-extension-visible{flex:none;max-height:min(46vh,360px);overflow:auto;padding:12px 16px 10px;border-bottom:1px solid var(--dsw-alias-border-l2);scrollbar-gutter:stable;}
+      .pmtask-detail-extension-visible:empty{display:none;}
+      .pmtask-detail-side-title{display:flex;align-items:flex-start;gap:8px;}
+      .pmtask-detail-side-title h2{min-width:0;flex:1;margin:0;font-size:16px;line-height:1.35;overflow-wrap:anywhere;}
+      .pmtask-detail-side-title .pmtask-icon-btn{flex:none;}
+      .pmtask-detail-side-desc{margin:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere;}
+      .pmtask-detail-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+      .pmtask-detail-session-link{flex:none;margin-left:auto;padding:2px 0;border:0;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:10.5px;white-space:nowrap;cursor:pointer;}
+      .pmtask-detail-session-link:hover{color:var(--dsw-alias-label-primary);text-decoration:underline;text-underline-offset:3px;}
+      .pmtask-detail-action{height:30px;display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:0 9px;border:1px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:11px;font-weight:500;white-space:nowrap;cursor:pointer;}
+      .pmtask-detail-action svg{width:12px;height:12px;flex:none;}
+      .pmtask-detail-action:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2);}
+      .pmtask-detail-action.primary{border-color:transparent;background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground);}
+      .pmtask-detail-action.caution{border-color:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#e2a737) 42%,transparent);color:var(--dsw-alias-state-warning-primary,#e2a737);}
+      .pmtask-detail-action.danger{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 42%,transparent);color:var(--dsw-alias-state-error-primary,#e5534b);}
+      .pmtask-detail-action.neutral{color:var(--dsw-alias-label-secondary);}
+      .pmtask-detail-action:disabled{opacity:.45;cursor:not-allowed;}
+      .pmtask-detail-tabs{position:relative;z-index:4;flex:none;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
+      .pmtask-detail-tab{min-width:0;height:38px;padding:0 5px;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:10.5px;cursor:pointer;white-space:nowrap;}
+      .pmtask-detail-tab:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
+      .pmtask-detail-tab.active{border-bottom-color:var(--dsw-alias-accent-primary,#4f8ef7);color:var(--dsw-alias-label-primary);font-weight:600;}
+      .pmtask-detail-tab-body{padding:14px 16px 18px;}
+      .pmtask-detail-info-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;}
+      .pmtask-detail-info{min-width:0;display:grid;gap:4px;padding:9px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-2);}
+      .pmtask-detail-info.wide{grid-column:1/-1;}
+      .pmtask-detail-info>span{color:var(--dsw-alias-label-tertiary);font-size:9.5px;}
+      .pmtask-detail-info>strong,.pmtask-detail-info>div{min-width:0;color:var(--dsw-alias-label-primary);font-size:11.5px;font-weight:500;overflow-wrap:anywhere;}
+      .pmtask-detail-info .pmtask-assign-trigger{width:100%;min-height:30px;}
+      .pmtask-detail-assignee-group{padding:7px 7px 3px;color:var(--dsw-alias-label-tertiary);font-size:10px;font-weight:650;}
+      .pmtask-detail-strategy{display:flex;gap:4px;flex-wrap:wrap;}
+      .pmtask-detail-strategy span{padding:2px 6px;border-radius:4px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary);font-size:9.5px;}
+      .pmtask-detail-strategy span.on{background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#34d47e) 12%,transparent);color:var(--dsw-alias-state-success-primary,#2f9b6d);}
+      .pmtask-detail-basic-toolbar{display:flex;align-items:center;justify-content:flex-end;margin-top:10px;}
+      .pmtask-detail-basic-toolbar button{height:25px;padding:0 8px;border:1px solid var(--dsw-alias-border-l3);border-radius:5px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:10px;cursor:pointer;}
+      .pmtask-detail-basic-toolbar button:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
+      .pmtask-basic-editor{display:grid;gap:10px;padding:12px 16px 18px;}
+      .pmtask-basic-editor .pmtask-check span em{display:inline;margin-left:3px;font-size:10px;}
+      .pmtask-basic-edit-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;}
+      .pmtask-basic-edit-wide{grid-column:1/-1;}
+      .pmtask-readonly-value{min-height:32px;display:flex;align-items:center;padding:6px 8px;border:0.5px dashed var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.5;overflow-wrap:anywhere;}
+      .pmtask-basic-edit-actions{display:flex;justify-content:flex-end;gap:6px;padding-top:2px;}
+      .pmtask-content-editor{height:100%;min-height:0;overflow:auto;display:grid;align-content:start;gap:10px;padding:14px 16px 18px;}
+      .pmtask-detail-doc-list{display:grid;gap:7px;}
+      .pmtask-detail-doc{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:9px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-2);}
+      .pmtask-detail-doc-main{min-width:0;display:grid;gap:4px;}
+      .pmtask-detail-doc-title{display:flex;align-items:center;gap:6px;min-width:0;}
+      .pmtask-detail-doc-title strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;}
+      .pmtask-detail-doc-meta{display:flex;align-items:center;gap:5px 8px;flex-wrap:wrap;color:var(--dsw-alias-label-tertiary);font-size:9.5px;line-height:1.45;}
+      .pmtask-detail-doc-ai{padding:1px 4px;border-radius:3px;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 12%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7);font-size:8.5px;}
+      .pmtask-detail-doc-download{width:28px;height:28px;display:grid;place-items:center;padding:0;border:1px solid var(--dsw-alias-border-l3);border-radius:5px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);cursor:pointer;}
+      .pmtask-detail-doc-download:hover:not(:disabled){background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);}
+      .pmtask-detail-doc-download svg{width:13px;height:13px;}
+      .pmtask-detail-side-scroll>.pmtask-side-section{margin:0;padding:14px 16px 18px;border-top:0;}
+      .pmtask-detail-side-scroll>.pmtask-detail-legacy-links{display:none;}
+      .pmtask-detail-side-scroll>.pmtask-side-section>.pmtask-live-head{padding-bottom:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
+      .pmtask-detail-side-scroll>.pmtask-side-section>.pmtask-timeline{padding-top:2px;}
+      .pmtask-detail-page .pmtask-detail-top .pmtask-assign-select,.pmtask-detail-page .pmtask-detail-top .pmtask-assign-actions{display:none;}
+      .pmtask-detail-project-chip{height:22px;display:inline-flex;align-items:center;padding:0 7px;border-radius:4px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:10px;white-space:nowrap;}
+      .pmtask-detail-top-actions{flex:none;display:flex;align-items:center;margin-left:auto;}
+      .pmtask-detail-top-actions>.pmda-action.workspace{margin-right:0;}
+      .pmtask-detail-sync-list{display:flex;align-items:center;gap:5px;flex-wrap:wrap;padding:7px 10px 0;color:var(--dsw-alias-label-tertiary);font-size:10px;}
+      .pmtask-detail-sync-list{display:none;}
+      .pmtask-detail-sync-chip{display:inline-flex;align-items:center;gap:4px;min-width:0;padding:2px 4px 2px 6px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);}
+      .pmtask-detail-sync-chip>span:first-of-type{max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+      .pmtask-detail-sync-chip select{height:21px;max-width:66px;border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:9.5px;}
+      .pmtask-detail-sync-chip button{width:16px;height:16px;display:grid;place-items:center;padding:0;border:0;border-radius:50%;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;cursor:pointer;}
+      .pmtask-detail-sync-chip button:hover{background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);}
+      .pmtask-detail-page .pmtask-composer-footer .pmtask-compose-hint{max-width:none;}
+      .pmtask-detail-page .pmtask-composer-footer .pmtask-btn{max-width:min(240px,52%);overflow:hidden;text-overflow:ellipsis;}
+      .pmtask-detail-page .pmtask-composer-input{min-height:64px;height:70px;resize:none;}
+      .pmtask-detail-composer-foot{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:8px 10px 10px;border-top:1px solid var(--dsw-alias-border-l2);}
+      .pmtask-detail-intent-group{display:inline-flex;align-items:center;gap:2px;padding:2px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);}
+      .pmtask-detail-intent{height:25px;display:inline-flex;align-items:center;gap:4px;padding:0 7px;border:0;border-radius:4px;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:10px;cursor:pointer;}
+      .pmtask-detail-intent svg{width:11px;height:11px;}
+      .pmtask-detail-intent.active{background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);}
+      .pmtask-detail-intent:disabled{opacity:.35;cursor:not-allowed;}
+      .pmtask-detail-intent-group.workflow{border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 24%,var(--dsw-alias-border-l2));background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 7%,var(--dsw-alias-bg-base));}
+      .pmtask-detail-intent-group.workflow .pmtask-detail-intent.active{background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 13%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7);}
+      .pmtask-detail-effect{min-width:0;flex:1;color:var(--dsw-alias-label-tertiary);font-size:9.5px;line-height:1.4;}
+      .pmtask-detail-effect.workflow{color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 78%,var(--dsw-alias-label-secondary));}
+      .pmtask-detail-composer-actions{display:flex;align-items:center;gap:6px;margin-left:auto;}
+      .pmtask-detail-composer-actions .pmtask-btn{height:30px;}
+      .pmtask-detail-page .pmtask-detail-main>.pmtask-comments{display:none;}
       .pmtask-composer{position:relative;margin-top:0;border:1px solid var(--dsw-alias-border-l3);border-radius:8px;background:var(--dsw-alias-bg-layer-2);overflow:visible;}
       .pmtask-composer-toolbar{position:relative;display:flex;align-items:center;gap:5px;padding:8px 10px 0;}
       .pmtask-tool-btn{width:28px;height:28px;display:grid;place-items:center;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:15px;cursor:pointer;}
@@ -368,7 +559,7 @@ window.__ModuleLoader__.load({
       .pmtask-composer-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px 10px;border-top:1px solid var(--dsw-alias-border-l2);}
       .pmtask-composer-footer .pmtask-btn{height:32px;padding:0 12px;font-size:12px;}
       .pmtask-composer-footer .pmtask-btn.secondary{height:auto;min-height:24px;padding:2px 7px;font-size:11px;font-weight:400;border-width:1px;}
-      .pmtask-composer .pmtask-mention-menu{left:72px;top:38px;bottom:auto;width:min(320px,calc(100% - 84px));}
+      .pmtask-composer .pmtask-mention-menu{left:72px;top:auto;bottom:calc(100% + 6px);width:min(320px,calc(100% - 84px));max-height:min(280px,calc(100dvh - 160px));}
       .pmtask-detail-section{margin-top:18px;padding-top:14px;border-top:1px solid var(--dsw-alias-border-l2);}
       .pmtask-history-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:9px;}
       .pmtask-history-head h3{margin:0 0 8px;font-size:13px;}
@@ -387,10 +578,6 @@ window.__ModuleLoader__.load({
       .pmtask-event-copy{min-width:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.5;padding-top:5px;overflow-wrap:anywhere;}
       .pmtask-event-copy time{display:block;color:var(--dsw-alias-label-tertiary);font-size:10px;margin-top:2px;}
       .pmtask-bubble{margin-top:4px;padding:10px 11px;border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-primary);font-size:13px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;}
-      .pmtask-run-meta{display:flex;flex-wrap:wrap;gap:5px 12px;margin-top:6px;padding:7px 9px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:10.5px;line-height:1.45;}
-      .pmtask-run-meta-item{display:inline-flex;align-items:baseline;gap:4px;min-width:0;max-width:100%;}
-      .pmtask-run-meta-item strong{flex:none;color:var(--dsw-alias-label-tertiary);font-size:9.5px;font-weight:650;letter-spacing:0;text-transform:uppercase;}
-      .pmtask-run-meta-item span{min-width:0;overflow-wrap:anywhere;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;}
       .pmtask-run-summary{display:grid;overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);}
       .pmtask-run-summary-row{display:grid;grid-template-columns:72px minmax(0,1fr);gap:8px;padding:7px 9px;border-bottom:0.5px solid var(--dsw-alias-border-l2);font-size:11px;line-height:1.5;}
       .pmtask-run-summary-row:last-child{border-bottom:0;}
@@ -437,6 +624,9 @@ window.__ModuleLoader__.load({
       .pmtask-side-empty{color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1.5;white-space:pre-wrap;}
       .pmtask-live-head{display:flex;align-items:center;gap:7px;margin-bottom:9px;}
       .pmtask-live-head h3{margin:0;font-size:13px;}
+      .pmtask-execution-stop{margin-left:auto;padding:2px 7px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 45%,transparent);border-radius:5px;background:transparent;color:var(--dsw-alias-state-error-primary,#e5534b);font:inherit;font-size:10.5px;white-space:nowrap;cursor:pointer;}
+      .pmtask-execution-stop:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 10%,transparent);}
+      .pmtask-execution-stop:disabled{opacity:.5;cursor:wait;}
       .pmtask-live-dot{width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-accent-primary,#4f8ef7);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 14%,transparent);}
       .pmtask-live-output{max-height:320px;overflow:auto;padding:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:12px;line-height:1.55;}
       .pmtask-doc-list{display:grid;gap:6px;max-height:260px;overflow:auto;padding-right:2px;}
@@ -461,7 +651,7 @@ window.__ModuleLoader__.load({
       .pmtask-round-caret{width:7px;height:7px;flex:none;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg) translateY(-2px);}
       .pmtask-execution-round-trigger[aria-expanded="true"] .pmtask-round-caret{transform:rotate(225deg) translate(-2px,-2px);}
       .pmtask-execution-round-menu{width:100%;max-width:100%;min-width:0;display:grid;gap:7px;max-height:430px;overflow-x:hidden;overflow-y:auto;padding:2px;border-top:1px solid var(--dsw-alias-border-l2);}
-      .pmtask-execution-round-option{width:100%;max-width:100%;min-width:0;display:grid;gap:7px;overflow:hidden;padding:9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);cursor:pointer;}
+      .pmtask-execution-round-option{width:100%;max-width:100%;min-width:0;display:grid;gap:7px;overflow:visible;padding:9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);cursor:pointer;}
       .pmtask-execution-round-option.selected{border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 55%,transparent);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 8%,var(--dsw-alias-bg-layer-2));}
       .pmtask-execution-round-option-head{width:100%;max-width:100%;min-width:0;display:flex;align-items:flex-start;justify-content:space-between;gap:8px;overflow-wrap:anywhere;border:0;padding:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:11px;font-weight:650;line-height:1.45;text-align:left;white-space:normal;cursor:pointer;}
       .pmtask-execution-round-option-head:hover{color:var(--dsw-alias-accent-primary,#4f8ef7);}
@@ -470,9 +660,9 @@ window.__ModuleLoader__.load({
       .pmtask-execution-round-option-time{flex:none;color:var(--dsw-alias-label-tertiary);font-size:10px;font-weight:400;font-variant-numeric:tabular-nums;white-space:nowrap;}
       .pmtask-round-instruction{width:100%;max-width:100%;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:4px;overflow:hidden;padding:8px 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
       .pmtask-round-instruction-label{color:var(--dsw-alias-label-tertiary);font-size:10px;font-weight:500;}
-      .pmtask-round-instruction-text{display:block;width:100%;min-width:0;max-width:100%;max-height:4.5em;flex:none;overflow:hidden;overflow-wrap:anywhere;word-break:break-word;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.5;white-space:pre-wrap;}
-      .pmtask-round-instruction.expanded .pmtask-round-instruction-text{max-height:none;overflow:visible;}
-      .pmtask-round-instruction-toggle{justify-self:start;border:0;padding:0;background:transparent;color:var(--dsw-alias-accent-primary,#4f8ef7);font:inherit;font-size:10px;cursor:pointer;}
+      .pmtask-round-instruction-text{display:-webkit-box;width:100%;min-width:0;max-width:100%;max-height:none;flex:0 0 auto;overflow:hidden;overflow-wrap:anywhere;word-break:break-word;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.5;white-space:pre-wrap;-webkit-box-orient:vertical;-webkit-line-clamp:3;}
+      .pmtask-round-instruction.expanded .pmtask-round-instruction-text{display:block;overflow:visible;-webkit-line-clamp:unset;}
+      .pmtask-round-instruction-toggle{flex:0 0 auto;justify-self:start;border:0;padding:0;background:transparent;color:var(--dsw-alias-accent-primary,#4f8ef7);font:inherit;font-size:10px;cursor:pointer;}
       .pmtask-execution-blocks{display:grid;gap:14px;margin-top:12px;}
       .pmtask-execution-block{display:grid;gap:8px;padding-top:13px;border-top:1px solid var(--dsw-alias-border-l2);}
       .pmtask-execution-block:first-child{padding-top:0;border-top:0;}
@@ -497,7 +687,7 @@ window.__ModuleLoader__.load({
       .pmtask-gate-actions .pmtask-btn{height:30px;padding:0 10px;font-size:11.5px;}
       .pmtask-comment-list>.pmtask-empty,.pmtask-history>.pmtask-empty{padding:36px;border:1px dashed var(--dsw-alias-border-l2);border-radius:8px;color:var(--dsw-alias-label-secondary);text-align:center;font-size:13px;}
       .pmtask-detail-section>.pmtask-empty{padding:28px 10px;}
-      .pmtask-mask{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:20px;background:rgba(0,0,0,.24);backdrop-filter:blur(2px);}
+      .pmtask-mask{position:absolute;inset:0;z-index:1000;display:grid;place-items:center;padding:20px;background:rgba(0,0,0,.24);backdrop-filter:blur(2px);}
       .pmtask-modal{width:min(620px,calc(100vw - 40px));max-height:min(720px,calc(100vh - 40px));overflow:auto;display:grid;gap:12px;padding:16px;border:1px solid var(--dsw-alias-border-l3);border-radius:10px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));box-shadow:0 22px 54px rgba(0,0,0,.22);}
       .pmtask-modal-head{display:flex;align-items:center;justify-content:space-between;gap:10px;}
       .pmtask-modal-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;}
@@ -511,11 +701,43 @@ window.__ModuleLoader__.load({
       .pmtask-reject-note{min-height:112px;resize:vertical;line-height:1.6;}
       .pmtask-confirm-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;}
       .pmtask-confirm-actions .pmtask-btn{height:32px;padding:0 12px;font-size:12px;}
+      .pmtask-acceptance-confirm{width:min(520px,calc(100vw - 40px));}
+      .pmtask-acceptance-confirm-list{display:grid;gap:6px;max-height:min(46vh,360px);overflow:auto;padding:2px;}
+      .pmtask-acceptance-confirm-item{display:flex;align-items:flex-start;gap:8px;padding:9px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:12px;line-height:1.55;cursor:pointer;}
+      .pmtask-acceptance-confirm-item.checked{border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary,#34d47e) 35%,var(--dsw-alias-border-l2));background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#34d47e) 8%,var(--dsw-alias-bg-layer-2));}
+      .pmtask-acceptance-confirm-item input{width:15px;height:15px;flex:none;margin:2px 0 0;accent-color:var(--dsw-alias-brand-primary);}
+      .pmtask-acceptance-confirm-item span{min-width:0;overflow-wrap:anywhere;}
+      .pmtask-acceptance-confirm-tools{display:flex;align-items:center;justify-content:space-between;gap:10px;color:var(--dsw-alias-label-tertiary);font-size:10.5px;}
+      .pmtask-acceptance-confirm-tools button{padding:0;border:0;background:transparent;color:var(--dsw-alias-accent-primary,#4f8ef7);font:inherit;font-size:10.5px;cursor:pointer;}
       .pmtask-btn.danger-solid{background:var(--dsw-alias-state-error-primary,#e5534b);color:#fff;}
       .pmtask-empty{padding:46px 18px;text-align:center;color:var(--dsw-alias-label-secondary);font-size:12.5px;}
-      @media(max-width:900px){.pmtask-detail-layout{grid-template-columns:1fr}.pmtask-detail-main{border-right:0;border-bottom:0.5px solid var(--dsw-alias-border-l2);}.pmtask-detail-top .pmtask-crumb{flex-basis:100%;order:3}.pmtask-grid-demo{grid-template-columns:repeat(2,minmax(0,1fr));}}
-      @media(max-width:700px){.pmtask-head{flex-direction:column}.pmtask-modal-grid,.pmtask-execution-overrides{grid-template-columns:1fr}}
+      @media(max-width:900px){.pmtask-detail-layout{grid-template-columns:1fr}.pmtask-detail-main{border-right:0;border-bottom:0.5px solid var(--dsw-alias-border-l2);}.pmtask-detail-top .pmtask-crumb{flex-basis:100%;order:3}.pmtask-grid-demo{grid-template-columns:repeat(2,minmax(0,1fr));}.pmtask-detail-page .pmtask-detail-layout{height:auto;min-height:0;overflow:visible;}.pmtask-detail-page .pmtask-detail-main{min-height:620px;overflow:visible;}.pmtask-detail-page .pmtask-detail-conversation{max-height:520px;}.pmtask-detail-page .pmtask-detail-side{display:block;overflow:visible;border-top:1px solid var(--dsw-alias-border-l2);}.pmtask-detail-page .pmtask-detail-side-scroll{overflow:visible;}.pmtask-detail-side-head,.pmtask-detail-tabs{position:static;}}
+      @media(max-width:700px){.pmtask-head{flex-direction:column}.pmtask-modal-grid,.pmtask-execution-overrides{grid-template-columns:1fr}.pmtask-detail-page .pmtask-detail-layout{display:block}.pmtask-detail-page .pmtask-detail-main{min-height:0;padding:10px}.pmtask-detail-page .pmtask-detail-conversation{max-height:none;overflow:visible}.pmtask-detail-page .pmtask-detail-main>.pmtask-intro{padding:10px}.pmtask-detail-page .pmtask-history-message .pmtask-message-body{max-width:82%}.pmtask-detail-info-grid{grid-template-columns:1fr}.pmtask-detail-info.wide{grid-column:auto}.pmtask-detail-tab{font-size:10px}.pmtask-detail-actions{padding-bottom:2px}.pmtask-detail-runtime-current{display:none}}
+      @media(max-width:700px){.pmtask-detail-composer-foot{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center}.pmtask-detail-intent-group{grid-column:1;grid-row:1}.pmtask-detail-effect{grid-column:1/-1;grid-row:2;white-space:normal}.pmtask-detail-composer-actions{grid-column:2;grid-row:1;margin-left:0}.pmtask-detail-composer-actions .pmtask-btn{height:28px;padding:0 9px;font-size:11px}}
       @container (max-width:900px){.pmtask-board{grid-template-columns:repeat(4,220px);}}
+      @container (max-width:980px){
+        .pmtask-detail-page .pmtask-detail-layout{display:block;height:auto;min-height:0;overflow:visible;}
+        .pmtask-detail-page .pmtask-detail-main{min-height:620px;overflow:visible;}
+        .pmtask-detail-page .pmtask-detail-conversation{max-height:520px;}
+        .pmtask-detail-page .pmtask-detail-side{display:block;overflow:visible;border-top:1px solid var(--dsw-alias-border-l2);}
+        .pmtask-detail-page .pmtask-detail-side-scroll{overflow:visible;}
+        .pmtask-detail-side-head,.pmtask-detail-tabs{position:static;}
+      }
+      @container (max-width:620px){
+        .pmtask-detail-page .pmtask-detail-main{min-height:0;padding:10px;}
+        .pmtask-detail-page .pmtask-detail-conversation{max-height:none;overflow:visible;}
+        .pmtask-detail-page .pmtask-detail-main>.pmtask-intro{padding:10px;}
+        .pmtask-detail-page .pmtask-history-message .pmtask-message-body{max-width:82%;}
+        .pmtask-detail-info-grid{grid-template-columns:1fr;}
+        .pmtask-detail-info.wide{grid-column:auto;}
+        .pmtask-detail-tab{font-size:10px;}
+        .pmtask-detail-runtime-current{display:none;}
+        .pmtask-detail-composer-foot{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;}
+        .pmtask-detail-intent-group{grid-column:1;grid-row:1;}
+        .pmtask-detail-effect{grid-column:1/-1;grid-row:2;white-space:normal;}
+        .pmtask-detail-composer-actions{grid-column:2;grid-row:1;margin-left:0;}
+        .pmtask-detail-composer-actions .pmtask-btn{height:28px;padding:0 9px;font-size:11px;}
+      }
     `;
 
     function token() {
@@ -820,18 +1042,6 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function planSourceLabel(value) {
-      return (
-        {
-          explicit: "Agent 制定",
-          derived: "根据事件整理",
-          unavailable: "不可用",
-        }[value] ??
-        value ??
-        "未知"
-      );
-    }
-
     function gateEnforcementLabel(value) {
       return (
         {
@@ -849,35 +1059,6 @@ window.__ModuleLoader__.load({
       if (value === null) return "未知";
       const text = typeof value === "string" ? value.trim() : "";
       return text === "" || text === "unknown" ? "未采集" : text;
-    }
-
-    function RunExecutionMeta({ execution }) {
-      if (execution === undefined || execution === null) return null;
-      return h(
-        "div",
-        { className: "pmtask-run-meta", "aria-label": "运行信息" },
-        ...[
-          ["Provider", execution.provider],
-          ["模型", execution.model],
-          ["推理强度", execution.reasoningEffort],
-          ["Runtime", execution.runtime],
-          ["版本", execution.runtimeVersion],
-          ["认证", execution.authMode],
-          ["沙箱", execution.sandbox],
-          ["搜索启用", execution.searchEnabled],
-          ["网络", execution.networkAccess],
-          ["实际搜索", execution.searchUsed],
-          ["计划", planVisibilityLabel(execution.planVisibility)],
-          ["工具门禁", gateEnforcementLabel(execution.gateEnforcement)],
-        ].map(([label, value]) =>
-          h(
-            "span",
-            { className: "pmtask-run-meta-item", key: label },
-            h("strong", null, label),
-            h("span", null, executionMetaLabel(value)),
-          ),
-        ),
-      );
     }
 
     function RunExecutionSummary({ execution, state }) {
@@ -969,6 +1150,53 @@ window.__ModuleLoader__.load({
           message?.runId !== undefined &&
           RUNNING_MESSAGE_STATES.includes(message.state),
       );
+    }
+
+    function latestAgentRunState(task) {
+      return [...(task?.messages ?? [])]
+        .reverse()
+        .find(
+          (message) =>
+            message?.kind === "agent" && message?.runId !== undefined,
+        )?.state;
+    }
+
+    function taskRunIndicator(task) {
+      const active = [...(task?.messages ?? [])]
+        .reverse()
+        .find(
+          (message) =>
+            message?.runId !== undefined &&
+            RUNNING_MESSAGE_STATES.includes(message.state),
+        );
+      const state = active?.state ?? latestAgentRunState(task);
+      if (state === "queued" || state === "running") {
+        return { kind: "active", label: "Agent 正在执行" };
+      }
+      if (state === "waiting_input") {
+        return { kind: "waiting", label: "Agent 等待补充信息" };
+      }
+      if (state === "cancelled") {
+        return { kind: "cancelled", label: "Agent 已停止" };
+      }
+      if (state === "interrupted") {
+        return { kind: "interrupted", label: "Agent 执行已中断" };
+      }
+      if (state === "timeout") {
+        return { kind: "failed", label: "Agent 执行超时" };
+      }
+      if (state === "failed") {
+        return { kind: "failed", label: "Agent 执行失败" };
+      }
+      return undefined;
+    }
+
+    function messageRunFeedback(state) {
+      if (state === "cancelled") return { kind: "cancelled", label: "已停止执行" };
+      if (state === "interrupted") return { kind: "interrupted", label: "执行已中断" };
+      if (state === "timeout") return { kind: "failed", label: "执行超时" };
+      if (state === "failed") return { kind: "failed", label: "执行失败" };
+      return undefined;
     }
 
     function workflowSourceLabel() {
@@ -1599,14 +1827,15 @@ window.__ModuleLoader__.load({
       onToggle,
       extraClassName = "",
     }) {
+      const text = String(instruction ?? "").trim() || "未记录本轮指令";
       return h(
         "div",
         {
           className: `pmtask-round-instruction${expanded ? " expanded" : ""}${extraClassName === "" ? "" : ` ${extraClassName}`}`,
-          title: instruction,
+          title: text,
         },
         h("span", { className: "pmtask-round-instruction-label" }, "本轮指令"),
-        h("span", { className: "pmtask-round-instruction-text" }, instruction),
+        h("span", { className: "pmtask-round-instruction-text" }, text),
         h(
           "button",
           {
@@ -1689,6 +1918,142 @@ window.__ModuleLoader__.load({
       );
     }
 
+    function DependencyPicker({
+      tasks,
+      workspaceId,
+      currentTaskId,
+      value,
+      onChange,
+    }) {
+      const [query, setQuery] = react.useState("");
+      const [open, setOpen] = react.useState(false);
+      const selected = (tasks ?? []).find((task) => task.id === value);
+      const normalize = (input) =>
+        String(input ?? "")
+          .toLowerCase()
+          .replace(/\s+/g, "");
+      const fuzzyMatch = (haystack, needle) => {
+        const text = normalize(haystack);
+        const target = normalize(needle);
+        if (target === "" || text.includes(target)) return true;
+        let index = 0;
+        for (const character of text) {
+          if (character === target[index]) index += 1;
+          if (index === target.length) return true;
+        }
+        return false;
+      };
+      const candidates = (tasks ?? [])
+        .filter(
+          (task) =>
+            task.workspaceId === workspaceId &&
+            task.id !== currentTaskId &&
+            task.archivedAt === undefined &&
+            task.status !== "cancelled",
+        )
+        .filter(
+          (task) =>
+            fuzzyMatch(
+              [
+                task.title,
+                task.id,
+                task.receiverName,
+                task.receiverId,
+                statusLabel(task.status),
+              ].join(" "),
+              query,
+            ),
+        )
+        .slice(0, 20);
+      return h(
+        "div",
+        { className: "pmtask-dependency-picker" },
+        h("span", { className: "pmtask-dependency-label" }, "前置任务"),
+        selected === undefined
+          ? h("input", {
+              className: "pmtask-input",
+              value: query,
+              placeholder: "搜索任务名称、任务 ID 或负责人",
+              "aria-label": "搜索前置任务",
+              onFocus: () => setOpen(true),
+              onChange: (event) => {
+                setQuery(event.target.value);
+                setOpen(true);
+              },
+              onKeyDown: (event) => {
+                if (event.key === "Escape") setOpen(false);
+              },
+            })
+          : h(
+              "div",
+              { className: "pmtask-dependency-selected" },
+              h(
+                "span",
+                null,
+                h("strong", null, selected.title),
+                h(
+                  "small",
+                  null,
+                  `${selected.id} · ${selected.receiverName ?? "待指派"} · ${statusLabel(selected.status)}`,
+                ),
+              ),
+              h(
+                "button",
+                {
+                  type: "button",
+                  "aria-label": "清除前置任务",
+                  onClick: () => {
+                    onChange("");
+                    setQuery("");
+                    setOpen(true);
+                  },
+                },
+                "×",
+              ),
+            ),
+        selected === undefined && open
+          ? h(
+              "div",
+              {
+                className: "pmtask-dependency-options",
+                role: "listbox",
+                "aria-label": "前置任务候选",
+              },
+              ...(candidates.length === 0
+                ? [
+                    h(
+                      "div",
+                      { className: "pmtask-dependency-empty" },
+                      "没有匹配的任务",
+                    ),
+                  ]
+                : candidates.map((task) =>
+                    h(
+                      "button",
+                      {
+                        type: "button",
+                        role: "option",
+                        className: "pmtask-dependency-option",
+                        key: task.id,
+                        onClick: () => {
+                          onChange(task.id);
+                          setQuery("");
+                          setOpen(false);
+                        },
+                      },
+                      h("strong", null, task.title),
+                      h(
+                        "small",
+                        null,
+                        `${task.id} · ${task.receiverName ?? "待指派"} · ${statusLabel(task.status)}`,
+                      ),
+                    ),
+                  )),
+            )
+          : null,
+      );
+    }
+
     function byId(items, id) {
       return items.find((item) => item.id === id);
     }
@@ -1725,6 +2090,7 @@ window.__ModuleLoader__.load({
       const [archivedOnly, setArchivedOnly] = react.useState(false);
       const [createOpen, setCreateOpen] = react.useState(false);
       const [createStatus, setCreateStatus] = react.useState("todo");
+      const [createSeed, setCreateSeed] = react.useState(null);
       const [assignOpen, setAssignOpen] = react.useState(false);
       const [pendingAssignee, setPendingAssignee] = react.useState(null);
       const [loading, setLoading] = react.useState(true);
@@ -1831,6 +2197,34 @@ window.__ModuleLoader__.load({
             ]);
             const mergedRuntimes = [];
             for (const result of runtimeResults) {
+              const defaultModel = result?.defaultModel;
+              const defaultModelName =
+                typeof defaultModel?.model === "string"
+                  ? defaultModel.model.trim()
+                  : "";
+              if (
+                defaultModelName !== "" &&
+                !mergedRuntimes.some(
+                  (runtime) => runtime.id === "__builtin__",
+                )
+              ) {
+                mergedRuntimes.push({
+                  id: "__builtin__",
+                  name: "内置执行",
+                  provider:
+                    typeof defaultModel?.provider === "string"
+                      ? defaultModel.provider
+                      : "platform",
+                  protocol: "builtin",
+                  status: "active",
+                  supportedModels: [defaultModelName],
+                  defaultModel: defaultModelName,
+                  defaultReasoningEffort:
+                    typeof defaultModel?.reasoningEffort === "string"
+                      ? defaultModel.reasoningEffort
+                      : undefined,
+                });
+              }
               for (const runtime of result.runtimes ?? []) {
                 if (
                   !mergedRuntimes.some(
@@ -1961,6 +2355,40 @@ window.__ModuleLoader__.load({
         setHighlightedId(pending.taskId);
       }, []);
 
+      react.useEffect(() => {
+        const openCreate = (seed) => {
+          if (seed === null || typeof seed !== "object") return;
+          const workspaceId =
+            typeof seed.workspaceId === "string" ? seed.workspaceId : "";
+          if (workspaceId !== "") setWorkspaceFilter(workspaceId);
+          setTaskView("board");
+          setSelectedId("");
+          setHighlightedId("");
+          setCreateSeed(seed);
+          setCreateStatus(
+            typeof seed.status === "string" ? seed.status : "todo",
+          );
+          setCreateOpen(false);
+        };
+        const pending = window.__pluginmaxPendingTaskCreate;
+        window.__pluginmaxPendingTaskCreate = null;
+        if (pending !== null && typeof pending === "object") {
+          openCreate(pending);
+        }
+        const receive = (event) => {
+          const detail = event?.detail;
+          if (detail === null || typeof detail !== "object") return;
+          openCreate(detail);
+        };
+        window.addEventListener("pluginmax:task-create-open", receive);
+        return () =>
+          window.removeEventListener("pluginmax:task-create-open", receive);
+      }, []);
+      react.useEffect(() => {
+        if (createSeed === null || loading) return;
+        setCreateOpen(true);
+      }, [createSeed, loading]);
+
       const mutate = async (path, body, message, options = {}) => {
         const result = await request(path, {
           method: "POST",
@@ -1986,20 +2414,22 @@ window.__ModuleLoader__.load({
       };
 
       const visibleTasks = tasks.filter((task) => {
-        const belongsToMe = taskBelongsTo(task, currentUser, directory);
-        const assignedToMeOnly = taskBelongsTo(
-          task,
-          currentUser,
-          directory,
-          "self",
-        );
+        const awaitingMyReview =
+          currentUser !== null &&
+          task.status === "review" &&
+          reviewableTaskIds.includes(task.id);
+        const belongsToMe =
+          taskBelongsTo(task, currentUser, directory) || awaitingMyReview;
+        const assignedToMeOnly =
+          taskBelongsTo(task, currentUser, directory, "self") ||
+          awaitingMyReview;
         const sentByMe =
           currentUser !== null && task.createdBy === currentUser.id;
         if (archivedOnly !== isArchived(task)) return false;
         if (ownership === "sent" && !sentByMe) return false;
         if (priority !== "" && task.priority !== priority) return false;
         if (receiver === "me" && !belongsToMe) return false;
-        // 「我（本人）」：只看直接指派给我这个人的任务。
+        // 「我（本人）」：包含直接指派给我的任务，以及等待我验收的任务。
         if (receiver === "me-only" && !assignedToMeOnly) return false;
         if (receiver !== "me" && receiver !== "me-only" && receiver !== "all") {
           const separator = receiver.indexOf(":");
@@ -2113,6 +2543,12 @@ window.__ModuleLoader__.load({
           );
       }, [load]);
       react.useEffect(() => {
+        const workspaceId = workspaceFilter || workspaces[0]?.id || "";
+        if (workspaceId !== "") {
+          window.__pluginmaxTaskWorkspaceId = workspaceId;
+        }
+      }, [workspaceFilter, workspaces]);
+      react.useEffect(() => {
         if (highlightedId === "" || selectedId !== "") return undefined;
         const frame = window.requestAnimationFrame(() => {
           window.document
@@ -2130,7 +2566,6 @@ window.__ModuleLoader__.load({
         ...directory.agents.map((item) => ({ ...item, type: "agent" })),
         ...directory.roles.map((item) => ({ ...item, type: "role" })),
       ];
-
       if (loading) {
         return h(
           "section",
@@ -2210,22 +2645,25 @@ window.__ModuleLoader__.load({
               ),
             )
           : null,
-        h(TaskPageHeader, {
-          renderActions: props.renderActions,
-          renderSlot: props.renderSlot,
-          workspaces,
-          workspaceFilter,
-          setWorkspaceFilter,
-          onRefresh: () => load(true),
-          onOpenDrafts: () => setTaskView("drafts"),
-          onCreate: (status = "todo") => {
-            setCreateStatus(status);
-            setCreateOpen(true);
-          },
-          currentUser,
-          showAllWorkspaces,
-          setShowAllProjects,
-        }),
+        selectedId !== "" && selected !== undefined
+          ? null
+          : h(TaskPageHeader, {
+              renderActions: props.renderActions,
+              renderSlot: props.renderSlot,
+              workspaces,
+              workspaceFilter,
+              setWorkspaceFilter,
+              onRefresh: () => load(true),
+              onOpenDrafts: () => setTaskView("drafts"),
+              onCreate: (status = "todo") => {
+                setCreateSeed(null);
+                setCreateStatus(status);
+                setCreateOpen(true);
+              },
+              currentUser,
+              showAllWorkspaces,
+              setShowAllProjects,
+            }),
         selectedId !== "" && selected !== undefined
           ? h(TaskDetail, {
               task: selected,
@@ -2239,6 +2677,7 @@ window.__ModuleLoader__.load({
                   )
                 )?.title ?? selected.workspaceId,
               directory,
+              tasks,
               externalRuntimes,
               currentUser,
               reviewableTaskIds,
@@ -2255,6 +2694,7 @@ window.__ModuleLoader__.load({
               notify,
               fail,
               renderSlot: props.renderSlot,
+              renderActions: props.renderActions,
             })
           : h(TaskBoard, {
               tasks: visibleTasks,
@@ -2277,6 +2717,7 @@ window.__ModuleLoader__.load({
               setSource,
               directoryOptions,
               onCreate: (status = "todo") => {
+                setCreateSeed(null);
                 setCreateStatus(status);
                 setCreateOpen(true);
               },
@@ -2309,9 +2750,14 @@ window.__ModuleLoader__.load({
               workspaces,
               directory,
               externalRuntimes,
+              tasks,
               currentWorkspaceId: workspaceFilter,
               initialStatus: createStatus,
-              onClose: () => setCreateOpen(false),
+              seed: createSeed,
+              onClose: () => {
+                setCreateOpen(false);
+                setCreateSeed(null);
+              },
               onCreated: async (input) => {
                 try {
                   const task = await mutate(
@@ -2320,6 +2766,7 @@ window.__ModuleLoader__.load({
                     "任务已派发",
                   );
                   setCreateOpen(false);
+                  setCreateSeed(null);
                   setSelectedId("");
                   if (task?.id !== undefined) setHighlightedId(task.id);
                   if (task?.workspaceId !== undefined) {
@@ -2675,6 +3122,25 @@ window.__ModuleLoader__.load({
       );
     }
 
+    function TaskRunStateIndicator({ task }) {
+      const indicator = taskRunIndicator(task);
+      if (indicator === undefined) return null;
+      if (indicator.kind === "active") {
+        return h("span", {
+          className: "pmtask-spinner",
+          role: "status",
+          title: indicator.label,
+          "aria-label": indicator.label,
+        });
+      }
+      return h("span", {
+        className: `pmtask-run-state ${indicator.kind}`,
+        role: "status",
+        title: indicator.label,
+        "aria-label": indicator.label,
+      });
+    }
+
     function TaskColumn({
       status,
       readOnly,
@@ -2777,14 +3243,7 @@ window.__ModuleLoader__.load({
                 h(
                   "div",
                   { style: { display: "flex", alignItems: "center", gap: 6 } },
-                  taskHasActiveRun(task)
-                    ? h("span", {
-                        className: "pmtask-spinner",
-                        role: "status",
-                        title: "Agent 正在执行",
-                        "aria-label": "Agent 正在执行",
-                      })
-                    : null,
+                  h(TaskRunStateIndicator, { task }),
                   h(TaskFollowButton, {
                     taskId: task.id,
                     workspaceId: task.workspaceId,
@@ -2929,6 +3388,126 @@ window.__ModuleLoader__.load({
       );
     }
 
+    function SubmitAcceptanceDialog({
+      steps,
+      requireAll,
+      onConfirm,
+      onCancel,
+    }) {
+      const [checkedIds, setCheckedIds] = react.useState(() =>
+        steps.filter((step) => step.done).map((step) => step.id),
+      );
+      react.useEffect(() => {
+        const onKeyDown = (event) => {
+          if (event.key === "Escape") onCancel();
+        };
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+      }, [onCancel]);
+      const checked = new Set(checkedIds);
+      const canSubmit = requireAll
+        ? steps.every((step) => checked.has(step.id))
+        : checkedIds.length > 0;
+      return h(
+        "div",
+        {
+          className: "pmtask-mask",
+          onMouseDown: (event) => {
+            if (event.target === event.currentTarget) onCancel();
+          },
+        },
+        h(
+          "form",
+          {
+            className: "pmtask-modal pmtask-confirm pmtask-acceptance-confirm",
+            role: "dialog",
+            "aria-modal": "true",
+            "aria-label": "确认验收标准并提交",
+            onSubmit: (event) => {
+              event.preventDefault();
+              if (canSubmit) onConfirm(checkedIds);
+            },
+          },
+          h(
+            "div",
+            { className: "pmtask-modal-head" },
+            h("h2", null, "确认验收标准并提交"),
+          ),
+          h(
+            "p",
+            { className: "pmtask-confirm-text" },
+            requireAll
+              ? "该任务无需 Review，需要勾选全部验收标准后才能完成。"
+              : "请确认本次已完成的验收标准；至少勾选一项后才能提交验收。",
+          ),
+          h(
+            "div",
+            { className: "pmtask-acceptance-confirm-list" },
+            ...steps.map((step) =>
+              h(
+                "label",
+                {
+                  className: `pmtask-acceptance-confirm-item${checked.has(step.id) ? " checked" : ""}`,
+                  key: step.id,
+                },
+                h("input", {
+                  type: "checkbox",
+                  checked: checked.has(step.id),
+                  onChange: (event) =>
+                    setCheckedIds((current) =>
+                      event.target.checked
+                        ? [...new Set([...current, step.id])]
+                        : current.filter((id) => id !== step.id),
+                    ),
+                }),
+                h("span", null, step.label),
+              ),
+            ),
+          ),
+          h(
+            "div",
+            { className: "pmtask-acceptance-confirm-tools" },
+            h(
+              "button",
+              {
+                type: "button",
+                onClick: () =>
+                  setCheckedIds(steps.map((step) => step.id)),
+              },
+              "勾选全部",
+            ),
+            h(
+              "span",
+              null,
+              `已勾选 ${checkedIds.length} / ${steps.length}`,
+            ),
+          ),
+          h(
+            "div",
+            { className: "pmtask-confirm-actions" },
+            h(
+              "button",
+              {
+                className: "pmtask-btn secondary",
+                type: "button",
+                onClick: onCancel,
+              },
+              "取消",
+            ),
+            h(
+              "button",
+              {
+                className: "pmtask-btn",
+                type: "submit",
+                disabled: !canSubmit,
+              },
+              "确认并提交",
+            ),
+          ),
+        ),
+      );
+    }
+
     function RejectDialog({ title, onConfirm, onCancel }) {
       const [note, setNote] = react.useState("");
       react.useEffect(() => {
@@ -3001,11 +3580,941 @@ window.__ModuleLoader__.load({
       );
     }
 
+    function DetailActionButton({
+      label,
+      tone = "neutral",
+      onClick,
+      disabled = false,
+      title,
+    }) {
+      return h(
+        "button",
+        {
+          className: `pmtask-detail-action ${tone}`,
+          type: "button",
+          disabled,
+          title: title ?? label,
+          "aria-label": title ?? label,
+          onClick,
+        },
+        h("span", null, label),
+      );
+    }
+
+    function TaskContentEditForm({ task, onCancel, onSave }) {
+      const [title, setTitle] = react.useState(task.title);
+      const [description, setDescription] = react.useState(task.description);
+      const [saving, setSaving] = react.useState(false);
+      return h(
+        "form",
+        {
+          className: "pmtask-content-editor",
+          onSubmit: async (event) => {
+            event.preventDefault();
+            if (title.trim() === "" || description.trim() === "") return;
+            setSaving(true);
+            try {
+              await onSave({
+                title: title.trim(),
+                description: description.trim(),
+                priority: task.priority,
+                acceptance: task.acceptance,
+                due: task.due,
+                autoSubmitReview: task.autoSubmitReview,
+                executionPolicy: task.executionPolicy,
+              });
+            } catch {
+              // 调用方负责展示保存错误；这里只恢复按钮状态。
+            } finally {
+              setSaving(false);
+            }
+          },
+        },
+        h(
+          "label",
+          { className: "pmtask-field" },
+          "标题",
+          h("input", {
+            className: "pmtask-input",
+            value: title,
+            required: true,
+            onChange: (event) => setTitle(event.target.value),
+          }),
+        ),
+        h(
+          "label",
+          { className: "pmtask-field" },
+          "描述",
+          h("textarea", {
+            className: "pmtask-area",
+            rows: 8,
+            value: description,
+            required: true,
+            onChange: (event) => setDescription(event.target.value),
+          }),
+        ),
+        h(
+          "div",
+          { className: "pmtask-compose-actions" },
+          h(
+            "button",
+            {
+              className: "pmtask-btn secondary",
+              type: "button",
+              disabled: saving,
+              onClick: onCancel,
+            },
+            "取消",
+          ),
+          h(
+            "button",
+            { className: "pmtask-btn", type: "submit", disabled: saving },
+            saving ? "保存中…" : "保存",
+          ),
+        ),
+      );
+    }
+
+    function reasoningEffortLabel(value) {
+      const text = String(value ?? "").trim();
+      if (text === "") return "";
+      return (
+        REASONING_EFFORT_OPTIONS.find((option) => option.value === text)
+          ?.label ?? text
+      );
+    }
+
+    function runtimeMetadataValue(value) {
+      const text = String(value ?? "").trim();
+      return text === "" || text === "unknown" ? "" : text;
+    }
+
+    function runtimeForAgent(agent, runtimeId, runtimes, runtimeName = "") {
+      const matched = (runtimes ?? []).find(
+        (candidate) =>
+          candidate.id === runtimeId ||
+          (runtimeName !== "" && candidate.name === runtimeName),
+      );
+      if (matched !== undefined) return matched;
+      return agent?.execution === "external"
+        ? undefined
+        : (runtimes ?? []).find((candidate) => candidate.id === "__builtin__");
+    }
+
+    function taskRuntimeView(
+      task,
+      directory,
+      externalRuntimes,
+      selectedExecution,
+      executionDetailState,
+    ) {
+      const policy = executionPolicyForm(task);
+      const responsibleAgent =
+        task.receiverType === "agent"
+          ? (directory?.agents ?? []).find(
+              (agent) => agent.id === task.receiverId,
+            )
+          : undefined;
+      const executionRuntime = runtimeMetadataValue(selectedExecution?.runtime);
+      const executionModel = runtimeMetadataValue(selectedExecution?.model);
+      const executionReasoning = runtimeMetadataValue(
+        selectedExecution?.reasoningEffort,
+      );
+      const runtimeId =
+        policy.runtimeId !== ""
+          ? policy.runtimeId
+          : responsibleAgent?.execution === "external"
+            ? (responsibleAgent.externalRuntimeId ?? "")
+            : "";
+      const runtime = runtimeForAgent(
+        responsibleAgent,
+        runtimeId,
+        externalRuntimes,
+        executionRuntime,
+      );
+      const runtimeLabel =
+        executionRuntime !== ""
+          ? executionRuntime
+          : (runtime?.name ??
+            (runtimeId !== ""
+              ? runtimeId
+              : responsibleAgent === undefined
+                ? executionDetailState === "loading"
+                  ? "加载中"
+                  : "未采集"
+                : responsibleAgent.execution === "external"
+                  ? (responsibleAgent.externalRuntimeId ??
+                    "外部 Runtime 未绑定")
+                  : "内置执行"));
+      const modelValue = executionModel !== "" ? executionModel : policy.model;
+      const modelIsDefault =
+        modelValue !== "" &&
+        (policy.model === "" ||
+          (runtime?.defaultModel !== undefined &&
+            modelValue === runtime.defaultModel));
+      const model =
+        modelValue !== ""
+          ? `${modelValue}${modelIsDefault ? "（默认）" : ""}`
+          : runtime?.defaultModel
+            ? `${runtime.defaultModel}（默认）`
+            : executionDetailState === "loading"
+              ? "加载中"
+              : "未采集";
+      const reasoningValue =
+        executionReasoning !== "" ? executionReasoning : policy.reasoningEffort;
+      const reasoning =
+        reasoningValue !== ""
+          ? `${reasoningEffortLabel(reasoningValue)}${
+              policy.reasoningEffort === "" ? "（默认）" : ""
+            }`
+          : executionDetailState === "loading"
+            ? "加载中"
+            : "未采集";
+      const modelParts = [model, reasoning].filter(
+        (value) => value !== "未采集" && value !== "加载中",
+      );
+      const modelAndReasoning =
+        modelParts.length > 0
+          ? modelParts.join(" · ")
+          : model === "加载中" || reasoning === "加载中"
+            ? "加载中"
+            : "未采集";
+      return { runtimeLabel, model, reasoning, modelAndReasoning };
+    }
+
+    function ExecutionRuntimeFields({
+      runtimeLabel,
+      runtimeUnavailable,
+      model,
+      modelOptions,
+      defaultModelLabel,
+      modelPlaceholder,
+      reasoningEffort,
+      defaultReasoningLabel,
+      onModelChange,
+      onReasoningChange,
+    }) {
+      const supportedModels = (modelOptions ?? []).filter(
+        (option) => String(option ?? "").trim() !== "",
+      );
+      const choices = [
+        ...new Set([
+          ...supportedModels,
+          ...(String(model ?? "").trim() === "" ? [] : [model]),
+        ]),
+      ];
+      return h(
+        "div",
+        { className: "pmtask-execution-overrides" },
+        h(
+          "div",
+          { className: "pmtask-field" },
+          "执行运行时",
+          h(
+            "div",
+            {
+              className: "pmtask-execution-runtime",
+              role: "textbox",
+              "aria-readonly": "true",
+            },
+            h("span", null, runtimeLabel),
+            h("span", { className: "pmtask-readonly-badge" }, "只读"),
+          ),
+        ),
+        h(
+          "label",
+          { className: "pmtask-field" },
+          "本轮模型",
+          supportedModels.length > 0
+            ? h(
+                "select",
+                {
+                  className: "pmtask-select",
+                  value: model,
+                  disabled: runtimeUnavailable,
+                  "aria-label": "本轮模型",
+                  onChange: (event) => onModelChange(event.target.value),
+                },
+                h(
+                  "option",
+                  { value: "" },
+                  defaultModelLabel === undefined
+                    ? "沿用 Runtime 默认模型"
+                    : `${defaultModelLabel}（默认）`,
+                ),
+                ...choices
+                  .filter((option) => option !== defaultModelLabel)
+                  .map((option) =>
+                    h("option", { value: option, key: option }, option),
+                  ),
+              )
+            : h("input", {
+                className: "pmtask-input",
+                type: "text",
+                value: model,
+                placeholder: modelPlaceholder,
+                "aria-label": "本轮模型",
+                maxLength: 160,
+                disabled: runtimeUnavailable,
+                onChange: (event) => onModelChange(event.target.value),
+              }),
+        ),
+        h(
+          "label",
+          { className: "pmtask-field" },
+          "推理强度",
+          h(
+            "select",
+            {
+              className: "pmtask-select",
+              value: reasoningEffort,
+              disabled: runtimeUnavailable,
+              "aria-label": "推理强度",
+              onChange: (event) => onReasoningChange(event.target.value),
+            },
+            h("option", { value: "" }, defaultReasoningLabel),
+            ...REASONING_EFFORT_OPTIONS.map((option) =>
+              h(
+                "option",
+                { value: option.value, key: option.value },
+                option.label,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    function BasicInfoEditForm({
+      task,
+      workspaceTitle,
+      directory,
+      tasks,
+      externalRuntimes,
+      selectedExecution,
+      executionDetailState,
+      onCancel,
+      onSave,
+    }) {
+      const initialPolicy = executionPolicyForm(task);
+      const initialPolicyModel = runtimeMetadataValue(initialPolicy.model);
+      const initialPolicyReasoning = runtimeMetadataValue(
+        initialPolicy.reasoningEffort,
+      );
+      const initialAgent =
+        task.receiverType === "agent"
+          ? (directory?.agents ?? []).find(
+              (agent) => agent.id === task.receiverId,
+            )
+          : undefined;
+      const initialRuntimeId =
+        initialPolicy.runtimeId !== ""
+          ? initialPolicy.runtimeId
+          : initialAgent?.execution === "external"
+            ? (initialAgent.externalRuntimeId ?? "")
+            : "";
+      const initialReceiverValue =
+        task.receiverType === "unassigned"
+          ? "unassigned:"
+          : `${task.receiverType}:${task.receiverId ?? ""}`;
+      const [receiverValue, setReceiverValue] =
+        react.useState(initialReceiverValue);
+      const [form, setForm] = react.useState({
+        priority: task.priority,
+        due: task.due ?? "",
+        dependsOn: task.dependsOn?.[0] ?? "",
+        autoSubmitReview: task.autoSubmitReview !== false,
+        autoApproveReview: task.autoApproveReview === true,
+        ...initialPolicy,
+        runtimeId: initialRuntimeId,
+        model: initialPolicyModel,
+        reasoningEffort: initialPolicyReasoning,
+      });
+      const [saving, setSaving] = react.useState(false);
+      const separator = receiverValue.indexOf(":");
+      const receiverType = receiverValue.slice(0, separator);
+      const receiverId = receiverValue.slice(separator + 1);
+      const receiverItem =
+        receiverType === "human"
+          ? directory.humans.find((item) => item.id === receiverId)
+          : receiverType === "agent"
+            ? directory.agents.find((item) => item.id === receiverId)
+            : receiverType === "role"
+              ? directory.roles.find((item) => item.id === receiverId)
+              : undefined;
+      const executionRuntime = runtimeMetadataValue(selectedExecution?.runtime);
+      const executionModel = runtimeMetadataValue(selectedExecution?.model);
+      const executionReasoning = runtimeMetadataValue(
+        selectedExecution?.reasoningEffort,
+      );
+      const selectedRuntime = runtimeForAgent(
+        receiverItem,
+        form.runtimeId,
+        externalRuntimes,
+        executionRuntime,
+      );
+      const runtimeLabel =
+        executionRuntime !== ""
+          ? executionRuntime
+          : (selectedRuntime?.name ??
+            (form.runtimeId !== ""
+              ? form.runtimeId
+              : receiverType === "agent"
+                ? receiverItem?.execution === "external"
+                  ? (receiverItem.externalRuntimeId ?? "外部 Runtime 未绑定")
+                  : "内置执行"
+                : executionDetailState === "loading"
+                  ? "加载中"
+                  : "未采集"));
+      const defaultModelLabel =
+        initialPolicyModel === ""
+          ? (selectedRuntime?.defaultModel ??
+            (executionModel === "" ? undefined : executionModel))
+          : selectedRuntime?.defaultModel;
+      const defaultReasoningLabel =
+        executionReasoning === ""
+          ? selectedRuntime === undefined
+            ? "沿用平台默认值"
+            : "沿用 Runtime 默认值"
+          : `${reasoningEffortLabel(executionReasoning)}（默认）`;
+      const externalRuntimeUnavailable =
+        receiverType === "agent" &&
+        receiverItem?.execution === "external" &&
+        selectedRuntime?.status !== "active";
+      const chooseReceiver = (value) => {
+        const nextSeparator = value.indexOf(":");
+        const nextType = value.slice(0, nextSeparator);
+        const nextId = value.slice(nextSeparator + 1);
+        const nextAgent =
+          nextType === "agent"
+            ? directory.agents.find((item) => item.id === nextId)
+            : undefined;
+        setReceiverValue(value);
+        setForm((current) => ({
+          ...current,
+          runtimeId:
+            nextAgent?.execution === "external"
+              ? (nextAgent.externalRuntimeId ?? "")
+              : "",
+          model: "",
+          reasoningEffort: "",
+        }));
+      };
+      const autoApproveEditable =
+        task.workflow !== undefined &&
+        task.workflow.approvalPolicy === undefined;
+      return h(
+        "form",
+        {
+          className: "pmtask-basic-editor",
+          onSubmit: async (event) => {
+            event.preventDefault();
+            setSaving(true);
+            try {
+              await onSave({
+                receiverType,
+                receiverId: receiverType === "unassigned" ? "" : receiverId,
+                receiverName:
+                  receiverType === "unassigned"
+                    ? "待指派"
+                    : (receiverItem?.name ?? receiverId),
+                priority: form.priority,
+                due: form.due || undefined,
+                dependsOn:
+                  form.dependsOn === "" ? [] : [form.dependsOn],
+                autoSubmitReview: form.autoSubmitReview,
+                autoApproveReview: form.autoApproveReview,
+                ...(receiverType === "agent"
+                  ? { executionPolicy: buildExecutionPolicy(form) }
+                  : {}),
+              });
+            } catch {
+              // 调用方负责展示保存错误；这里只恢复按钮状态。
+            } finally {
+              setSaving(false);
+            }
+          },
+        },
+        h(
+          "div",
+          { className: "pmtask-basic-edit-grid" },
+          h(
+            "label",
+            { className: "pmtask-field" },
+            "负责人",
+            h(
+              "select",
+              {
+                className: "pmtask-select",
+                value: receiverValue,
+                onChange: (event) => chooseReceiver(event.target.value),
+              },
+              h("option", { value: "unassigned:" }, "待指派"),
+              directory.humans.length > 0
+                ? h(
+                    "optgroup",
+                    { label: "人员" },
+                    ...directory.humans.map((item) =>
+                      h(
+                        "option",
+                        {
+                          value: `human:${item.id}`,
+                          key: `human:${item.id}`,
+                        },
+                        item.name,
+                      ),
+                    ),
+                  )
+                : null,
+              directory.agents.length > 0
+                ? h(
+                    "optgroup",
+                    { label: "AI伙伴" },
+                    ...directory.agents.map((item) =>
+                      h(
+                        "option",
+                        {
+                          value: `agent:${item.id}`,
+                          key: `agent:${item.id}`,
+                        },
+                        receiverOptionLabel({ ...item, type: "agent" }),
+                      ),
+                    ),
+                  )
+                : null,
+              directory.roles.length > 0
+                ? h(
+                    "optgroup",
+                    { label: "角色" },
+                    ...directory.roles.map((item) =>
+                      h(
+                        "option",
+                        {
+                          value: `role:${item.id}`,
+                          key: `role:${item.id}`,
+                        },
+                        item.name,
+                      ),
+                    ),
+                  )
+                : null,
+            ),
+          ),
+          h(
+            "label",
+            { className: "pmtask-field" },
+            "优先级",
+            h(
+              "select",
+              {
+                className: "pmtask-select",
+                value: form.priority,
+                onChange: (event) =>
+                  setForm((current) => ({
+                    ...current,
+                    priority: event.target.value,
+                  })),
+              },
+              h("option", { value: "P1" }, "P0"),
+              h("option", { value: "P2" }, "P1"),
+              h("option", { value: "P3" }, "P2"),
+            ),
+          ),
+          h(
+            "div",
+            { className: "pmtask-field pmtask-basic-edit-wide" },
+            h(DependencyPicker, {
+              tasks,
+              workspaceId: task.workspaceId,
+              currentTaskId: task.id,
+              value: form.dependsOn,
+              onChange: (dependsOn) =>
+                setForm((current) => ({ ...current, dependsOn })),
+            }),
+          ),
+          receiverType === "agent"
+            ? h(ExecutionRuntimeFields, {
+                runtimeLabel,
+                runtimeUnavailable: externalRuntimeUnavailable,
+                model: form.model,
+                modelOptions: selectedRuntime?.supportedModels ?? [],
+                defaultModelLabel:
+                  selectedRuntime?.defaultModel ?? defaultModelLabel,
+                modelPlaceholder:
+                  selectedRuntime === undefined
+                    ? "沿用平台默认模型"
+                    : "沿用 Runtime 默认模型",
+                reasoningEffort: form.reasoningEffort,
+                defaultReasoningLabel,
+                onModelChange: (model) =>
+                  setForm((current) => ({ ...current, model })),
+                onReasoningChange: (reasoningEffort) =>
+                  setForm((current) => ({ ...current, reasoningEffort })),
+              })
+            : null,
+          h(
+            "div",
+            { className: "pmtask-field" },
+            "归属项目",
+            h(
+              "div",
+              { className: "pmtask-readonly-value" },
+              `${workspaceTitle || task.workspaceId}（不可变更）`,
+            ),
+          ),
+          h(
+            "div",
+            { className: "pmtask-field" },
+            "任务类型",
+            h("div", { className: "pmtask-readonly-value" }, task.type),
+          ),
+          h(
+            "label",
+            { className: "pmtask-field" },
+            "截止时间",
+            h("input", {
+              className: "pmtask-input",
+              type: "date",
+              value: form.due,
+              onChange: (event) =>
+                setForm((current) => ({
+                  ...current,
+                  due: event.target.value,
+                })),
+            }),
+          ),
+          h(
+            "div",
+            { className: "pmtask-field" },
+            "创建人",
+            h(
+              "div",
+              { className: "pmtask-readonly-value" },
+              task.createdByName,
+            ),
+          ),
+          h(
+            "div",
+            { className: "pmtask-field pmtask-basic-edit-wide" },
+            "Review 设置",
+            h(
+              "label",
+              { className: "pmtask-check" },
+              h("input", {
+                type: "checkbox",
+                checked: form.autoSubmitReview,
+                onChange: (event) =>
+                  setForm((current) => ({
+                    ...current,
+                    autoSubmitReview: event.target.checked,
+                  })),
+              }),
+              h("span", null, "完成后自动提交 Review"),
+            ),
+            h(
+              "label",
+              { className: "pmtask-check" },
+              h("input", {
+                type: "checkbox",
+                checked: form.autoApproveReview,
+                disabled: !autoApproveEditable,
+                onChange: (event) =>
+                  setForm((current) => ({
+                    ...current,
+                    autoApproveReview: event.target.checked,
+                  })),
+              }),
+              h(
+                "span",
+                null,
+                "Review 自动通过",
+                h(
+                  "em",
+                  null,
+                  autoApproveEditable
+                    ? "（提交后自动通过 Review）"
+                    : "（仅普通工作流执行任务可配置；审批任务须人工结论）",
+                ),
+              ),
+            ),
+          ),
+          receiverType === "agent"
+            ? h(
+                "div",
+                { className: "pmtask-field pmtask-basic-edit-wide" },
+                "执行策略",
+            h(
+              "label",
+              { className: "pmtask-check" },
+              h("input", {
+                type: "checkbox",
+                checked: form.allowPublicWeb,
+                onChange: (event) =>
+                  setForm((current) => ({
+                    ...current,
+                    allowPublicWeb: event.target.checked,
+                  })),
+              }),
+              h("span", null, "允许公开网页与监管文件"),
+            ),
+            h(
+              "label",
+              { className: "pmtask-check" },
+              h("input", {
+                type: "checkbox",
+                checked: form.requireToolApproval,
+                onChange: (event) =>
+                  setForm((current) => ({
+                    ...current,
+                    requireToolApproval: event.target.checked,
+                  })),
+              }),
+              h("span", null, "写文件、执行命令和外部发布前需要人工确认"),
+            ),
+            h(
+              "label",
+              { className: "pmtask-check" },
+              h("input", {
+                type: "checkbox",
+                checked: form.requireToolEvents,
+                onChange: (event) =>
+                  setForm((current) => ({
+                    ...current,
+                    requireToolEvents: event.target.checked,
+                  })),
+              }),
+              h("span", null, "要求记录实际工具调用事件"),
+            ),
+            )
+            : null,
+        ),
+        h(
+          "div",
+          { className: "pmtask-basic-edit-actions" },
+          h(
+            "button",
+            {
+              className: "pmtask-btn secondary",
+              type: "button",
+              disabled: saving,
+              onClick: onCancel,
+            },
+            "取消",
+          ),
+          h(
+            "button",
+            {
+              className: "pmtask-btn",
+              type: "submit",
+              disabled:
+                saving ||
+                (receiverType !== "unassigned" && receiverId === "") ||
+                externalRuntimeUnavailable,
+            },
+            saving ? "保存中…" : "保存",
+          ),
+        ),
+      );
+    }
+
+    function TaskDetailRuntimeDock({
+      run,
+      plan,
+      status,
+      question,
+      onQuickAnswer,
+      queueState,
+      queueSeq,
+      autoRunEligible,
+      dependsOn,
+    }) {
+      const [open, setOpen] = react.useState(true);
+      if (run === undefined && question === null) return null;
+      const steps = plan?.steps ?? [];
+      const completed = steps.filter(
+        (step) => step.status === "completed",
+      ).length;
+      const current =
+        steps.find((step) => step.status === "active") ??
+        steps.find((step) => step.status === "pending") ??
+        steps.at(-1);
+      const percent = steps.length
+        ? Math.round((completed / steps.length) * 100)
+        : 0;
+      const queueLabel =
+        {
+          idle: "队列空闲",
+          blocked: "队列阻塞",
+          paused: "队列暂停",
+        }[queueState ?? "idle"] ?? "队列空闲";
+      return h(
+        "section",
+        { className: "pmtask-detail-runtime", "aria-label": "当前 Runtime" },
+        h(
+          "button",
+          {
+            className: "pmtask-detail-runtime-trigger",
+            type: "button",
+            "aria-expanded": open,
+            onClick: () => setOpen((value) => !value),
+          },
+          h("span", {
+            className: `pmtask-detail-runtime-live${run === undefined ? " idle" : ""}`,
+          }),
+          h(
+            "span",
+            { className: "pmtask-detail-runtime-copy" },
+            h("strong", null, run?.participantName ?? "Runtime"),
+            h(
+              "small",
+              null,
+              run
+                ? `Run ${run.roundNumber ?? 1} · ${runStatusLabel(status)}`
+                : "等待补充信息",
+            ),
+          ),
+          h(
+            "span",
+            { className: "pmtask-detail-runtime-current" },
+            current?.title ?? question ?? "暂无进行中的步骤",
+          ),
+          h(
+            "span",
+            { className: "pmtask-detail-runtime-count" },
+            steps.length ? `${completed}/${steps.length}` : "",
+          ),
+          h("span", { className: "pmtask-detail-runtime-queue" }, queueLabel),
+          h("span", {
+            className: "pmtask-detail-runtime-caret",
+            "aria-hidden": "true",
+          }),
+        ),
+        open
+          ? h(
+              "div",
+              { className: "pmtask-detail-runtime-body" },
+              h(
+                "div",
+                { className: "pmtask-detail-runtime-head" },
+                h("strong", null, "执行计划"),
+                h(
+                  "span",
+                  null,
+                  steps.length
+                    ? `${percent}% · ${runStatusLabel(status)}`
+                    : runStatusLabel(status),
+                ),
+              ),
+              steps.length
+                ? h(
+                    "div",
+                    { className: "pmtask-detail-runtime-track" },
+                    h("span", { style: { width: `${percent}%` } }),
+                  )
+                : null,
+              steps.length
+                ? h(
+                    "ol",
+                    { className: "pmtask-detail-runtime-steps" },
+                    ...steps.map((step) =>
+                      h(
+                        "li",
+                        {
+                          className: `pmtask-detail-runtime-step ${step.status}`,
+                          key: step.id,
+                        },
+                        h("span", {
+                          className: "pmtask-detail-runtime-dot",
+                          "aria-hidden": "true",
+                        }),
+                        h(
+                          "span",
+                          null,
+                          step.title,
+                          step.detail
+                            ? h("small", null, ` ${step.detail}`)
+                            : null,
+                        ),
+                        h("small", null, runStatusLabel(step.status)),
+                      ),
+                    ),
+                  )
+                : h(
+                    "div",
+                    { className: "pmtask-detail-runtime-queue-list" },
+                    "当前 Run 尚未产生执行计划",
+                  ),
+              question === null
+                ? null
+                : h(
+                    "div",
+                    { className: "pmtask-detail-runtime-question" },
+                    h("strong", null, "Agent 需要补充信息"),
+                    h("p", null, question),
+                    h(
+                      "div",
+                      { className: "pmtask-detail-runtime-answers" },
+                      ...["已补充，继续执行", "请采用默认方案继续"].map(
+                        (answer) =>
+                          h(
+                            "button",
+                            {
+                              className: "pmtask-detail-runtime-answer",
+                              type: "button",
+                              key: answer,
+                              onClick: () => onQuickAnswer(answer),
+                            },
+                            answer,
+                          ),
+                      ),
+                    ),
+                  ),
+              h(
+                "div",
+                { className: "pmtask-detail-runtime-queue-list" },
+                h("span", null, queueLabel),
+                h(
+                  "span",
+                  null,
+                  autoRunEligible === false ? "仅人工触发" : "允许自动执行",
+                ),
+                queueSeq === undefined
+                  ? null
+                  : h("span", null, `队列序号 ${queueSeq}`),
+                dependsOn.length
+                  ? h("span", null, `依赖 ${dependsOn.length} 项`)
+                  : h("span", null, "无前置依赖"),
+              ),
+            )
+          : null,
+      );
+    }
+
+    function renderVisibleSlot(renderSlot, name, props) {
+      const content = renderSlot?.(name, props);
+      const isEmpty =
+        content === undefined ||
+        content === null ||
+        content === false ||
+        content === "" ||
+        (Array.isArray(content) && content.length === 0);
+      if (isEmpty) return null;
+      return h(
+        "div",
+        {
+          className: "pmtask-detail-extension-visible",
+          "data-task-detail-slot": name,
+        },
+        content,
+      );
+    }
+
     function TaskDetail(props) {
       const {
         task,
         workspaceTitle,
         directory,
+        tasks,
         externalRuntimes,
         currentUser,
         reviewableTaskIds,
@@ -3018,10 +4527,42 @@ window.__ModuleLoader__.load({
         mutate,
         fail,
         renderSlot,
+        renderActions,
       } = props;
+      const receiverAgent =
+        task.receiverType === "agent"
+          ? directory.agents.find(
+              (agent) =>
+                agent.id === task.receiverId ||
+                agent.employeeId === task.receiverId,
+            )
+          : undefined;
+      const canCommand =
+        currentUser !== null &&
+        (task.receiverType === "human"
+          ? task.receiverId === currentUser.id
+          : task.receiverType === "agent"
+            ? receiverAgent?.ownerAuthUserId === currentUser.id
+            : false);
+      const commandLockReason =
+        task.receiverType === "agent"
+          ? "只有负责该 AI 伙伴的 Owner 可以发起指令"
+          : "只有任务负责人可以发起指令";
       const [editing, setEditing] = react.useState(false);
+      const [basicEditing, setBasicEditing] = react.useState(false);
       const [message, setMessage] = react.useState("");
       const [attachments, setAttachments] = react.useState([]);
+      const [composerIntent, setComposerIntent] = react.useState(
+        canCommand &&
+          task.workflow === undefined &&
+          task.status === "progress" &&
+          (task.receiverType === "human" || task.receiverType === "agent")
+          ? "execution"
+          : "discussion",
+      );
+      const [activeTab, setActiveTab] = react.useState(
+        task.receiverType === "agent" ? "execution" : "basic",
+      );
       const [mentionOpen, setMentionOpen] = react.useState(false);
       const [mentionQuery, setMentionQuery] = react.useState("");
       /** 从 @ 菜单里选中的目标（带 id），发送时作为结构化提及提交。 */
@@ -3035,27 +4576,77 @@ window.__ModuleLoader__.load({
       const [executionControl, setExecutionControl] = react.useState(null);
       const [taskRuns, setTaskRuns] = react.useState([]);
       const [selectedRunId, setSelectedRunId] = react.useState("");
+      const [stoppingExecution, setStoppingExecution] = react.useState(false);
       const [roundMenuOpen, setRoundMenuOpen] = react.useState(false);
       const [expandedRoundInstructionIds, setExpandedRoundInstructionIds] =
         react.useState([]);
       const [confirmArchive, setConfirmArchive] = react.useState(false);
       const [rejectOpen, setRejectOpen] = react.useState(false);
+      const [submitAcceptanceOpen, setSubmitAcceptanceOpen] =
+        react.useState(false);
       const [documents, setDocuments] = react.useState([]);
       const [documentsReady, setDocumentsReady] = react.useState(true);
       const messageRef = react.useRef(null);
+      const historyRef = react.useRef(null);
       const liveOutputRef = react.useRef(null);
       const directoryOptions = [
         ...directory.humans.map((item) => ({ ...item, type: "human" })),
         ...directory.agents.map((item) => ({ ...item, type: "agent" })),
         ...directory.roles.map((item) => ({ ...item, type: "role" })),
       ];
+      const receiverMissingFromMentionDirectory =
+        task.receiverType === "agent" &&
+        task.receiverId !== undefined &&
+        !directory.agents.some(
+          (agent) =>
+            agent.id === task.receiverId ||
+            agent.employeeId === task.receiverId,
+        );
+      const mentionDirectory = {
+        ...directory,
+        agents: receiverMissingFromMentionDirectory
+          ? [
+              {
+                id: task.receiverId,
+                name: task.receiverName ?? task.receiverId,
+                kind: "agent",
+                avatar: "",
+              },
+              ...directory.agents,
+            ]
+          : directory.agents,
+      };
       const mine = taskBelongsTo(task, currentUser, directory);
       const sent = currentUser !== null && task.createdBy === currentUser.id;
       const canReview = reviewableTaskIds.includes(task.id);
       const archived = isArchived(task);
       const readOnly = archived || task.status === "cancelled";
+      const dependencyTask =
+        task.dependsOn === undefined || task.dependsOn.length === 0
+          ? undefined
+          : (tasks ?? []).find(
+              (candidate) => candidate.id === task.dependsOn[0],
+            );
+      const isWorkflowTask = task.workflow !== undefined;
       const isApprovalTask = task.workflow?.approvalPolicy !== undefined;
-      const canClaim = task.receiverType === "role" && task.status === "todo";
+      const canClaim =
+        task.receiverType === "role" && task.status === "todo" && mine;
+      const canDiscuss =
+        !archived && task.status !== "cancelled" && task.status !== "done";
+      const canExecute =
+        canCommand &&
+        !archived &&
+        task.status !== "cancelled" &&
+        task.status !== "review" &&
+        task.workflow === undefined &&
+        task.receiverType !== "role" &&
+        task.receiverType !== "unassigned";
+      const composerIntentValue =
+        composerIntent === "execution" && canExecute
+          ? "execution"
+          : canDiscuss
+            ? "discussion"
+            : "execution";
       const insertMention = (item) => {
         const name = item.name;
         setPickedMentions((current) =>
@@ -3064,7 +4655,20 @@ window.__ModuleLoader__.load({
               candidate.type === item.type && candidate.id === item.id,
           )
             ? current
-            : [...current, { id: item.id, name, type: item.type }],
+            : [
+                ...current,
+                {
+                  id: item.id,
+                  name,
+                  type: item.type,
+                  intent:
+                    item.type === "agent"
+                      ? "collaborate"
+                      : item.type === "human"
+                        ? "ask"
+                        : "collaborate",
+                },
+              ],
         );
         const input = messageRef.current;
         const cursor = input?.selectionStart ?? message.length;
@@ -3079,7 +4683,7 @@ window.__ModuleLoader__.load({
         const nextCursor = (token?.index ?? before.length) + replacement.length;
         setMessage(next);
         setMentionOpen(false);
-        requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
           input?.focus();
           input?.setSelectionRange(nextCursor, nextCursor);
         });
@@ -3104,25 +4708,62 @@ window.__ModuleLoader__.load({
             : { storedPath: result.document.relativePath }),
         };
       };
-      const sendMessage = async () => {
+      const mentionsForContent = (content) =>
+        pickedMentions
+          .filter((item) => content.includes(`@${item.name}`))
+          .map((item) => ({
+            kind: item.type,
+            id: item.id,
+            name: item.name,
+          }));
+      const sendMessage = async (options = {}) => {
+        const source = options.content ?? message;
         const content =
-          message.trim() === "" && attachments.length > 0
+          source.trim() === "" && attachments.length > 0
             ? `已上传附件：${attachments.map((file) => file.name).join("、")}`
-            : message.trim();
+            : source.trim();
         if (readOnly || content === "") return;
+        if (composerIntentValue === "discussion") {
+          if (!canDiscuss) return;
+          if (attachments.length > 0) {
+            fail(
+              new Error(
+                isWorkflowTask
+                  ? "工作流讨论不支持上传；附件和交付物请在工作流节点提交。"
+                  : "讨论发送暂不支持附件，请切换到指令发送。",
+              ),
+            );
+            return;
+          }
+          try {
+            const mentions = mentionsForContent(content);
+            await mutate(
+              "/api/collab/tasks/comment",
+              {
+                taskId: task.id,
+                content,
+                isKeyConsensus: false,
+                mentions,
+              },
+              mentions.some((mention) => mention.kind === "agent")
+                ? "讨论已发送，@ 的 AI 伙伴开始协作执行"
+                : "讨论已发送",
+            );
+            setMessage("");
+            setPickedMentions([]);
+            setMentionOpen(false);
+          } catch (cause) {
+            fail(cause);
+          }
+          return;
+        }
         try {
           const uploaded = [];
           for (const file of attachments) {
             uploaded.push(await uploadAttachment(file));
           }
           // 只提交正文里还留着的 @：用户删掉名字后不该再定向分发。
-          const mentions = pickedMentions
-            .filter((item) => content.includes(`@${item.name}`))
-            .map((item) => ({
-              kind: item.type,
-              id: item.id,
-              name: item.name,
-            }));
+          const mentions = mentionsForContent(content);
           const addressesReceiver =
             mentions.length === 0 ||
             (task.receiverId !== undefined &&
@@ -3238,7 +4879,25 @@ window.__ModuleLoader__.load({
       react.useEffect(() => {
         setRoundMenuOpen(false);
         setExpandedRoundInstructionIds([]);
-      }, [task.id]);
+        setStoppingExecution(false);
+        setSubmitAcceptanceOpen(false);
+        setEditing(false);
+        setBasicEditing(false);
+        setActiveTab(task.receiverType === "agent" ? "execution" : "basic");
+        setComposerIntent(
+          canCommand &&
+            task.workflow === undefined &&
+            task.status === "progress" &&
+            (task.receiverType === "human" || task.receiverType === "agent")
+            ? "execution"
+            : "discussion",
+        );
+      }, [
+        task.id,
+        task.status,
+        task.workflow?.instanceId,
+        canCommand,
+      ]);
       react.useEffect(() => {
         if (selectedRunId === "") {
           setExecutionLive(null);
@@ -3366,6 +5025,7 @@ window.__ModuleLoader__.load({
               run.run?.createdAt ?? run.run?.startedAt ?? run.at;
             return {
               ...run,
+              participantId: participant.id,
               participantName: participant.name,
               instruction,
               instructionAt,
@@ -3436,6 +5096,47 @@ window.__ModuleLoader__.load({
         selectedRunMessage?.state ??
         "idle";
       const executionRunning = RUNNING_MESSAGE_STATES.includes(executionStatus);
+      const activeExecutionRuns = executionRunOptions.filter((run) =>
+        RUNNING_MESSAGE_STATES.includes(run.status),
+      );
+      const typingParticipants =
+        task.status === "cancelled"
+          ? []
+          : [
+              ...new Map(
+                activeExecutionRuns.map((run) => [
+                  run.participantId,
+                  run,
+                ]),
+              ).values(),
+            ];
+      const canStopAllExecution =
+        (canCommand || canReview) &&
+        activeExecutionRuns.length > 0 &&
+        !stoppingExecution;
+      const stopAllExecution = async () => {
+        if (!canStopAllExecution) return;
+        setStoppingExecution(true);
+        try {
+          await mutate(
+            "/api/collab/tasks/execution/stop",
+            { taskId: task.id },
+            `已停止任务中的 ${activeExecutionRuns.length} 个 AI 执行`,
+          );
+          const stoppedIds = new Set(activeExecutionRuns.map((run) => run.id));
+          setTaskRuns((current) =>
+            current.map((run) =>
+              stoppedIds.has(run.id)
+                ? { ...run, status: "cancelled" }
+                : run,
+            ),
+          );
+        } catch (cause) {
+          fail(cause);
+        } finally {
+          setStoppingExecution(false);
+        }
+      };
       const selectedPlan = executionControl?.plan ?? null;
       const selectedExecutionEvents = Array.isArray(executionControl?.events)
         ? executionControl.events.slice(-12).reverse()
@@ -3530,6 +5231,35 @@ window.__ModuleLoader__.load({
               ? { taskId: task.id }
               : { taskId: task.id, action: name, ...extra },
             label,
+          );
+        } catch (cause) {
+          fail(cause);
+        }
+      };
+      const requestSubmitAcceptance = () => {
+        if (task.steps.length === 0) {
+          void action("submit", "已提交验收");
+          return;
+        }
+        setSubmitAcceptanceOpen(true);
+      };
+
+      const cancelTask = async () => {
+        const activeHint = taskHasActiveRun(task)
+          ? "任务中正在运行的 AI 执行也会立即停止。"
+          : "";
+        if (
+          !window.confirm(
+            `取消后任务不可恢复为进行中。${activeHint}确认取消当前任务？`,
+          )
+        ) {
+          return;
+        }
+        try {
+          await mutate(
+            "/api/collab/tasks/status",
+            { taskId: task.id, status: "cancelled" },
+            "任务已取消",
           );
         } catch (cause) {
           fail(cause);
@@ -3731,45 +5461,165 @@ window.__ModuleLoader__.load({
               type: previewKind,
               name: receiverPreview,
             });
+      const workflowDiscussionHint = isApprovalTask
+        ? "可分析方案、准备材料；审批与提交请前往工作流节点。"
+        : "可讨论分析、准备材料；节点推进与提交请前往工作流节点。";
       const composerHint = archived
         ? "任务已归档 · 复原后可继续发送指令"
         : task.status === "cancelled"
           ? "任务已取消 · 仅可查看历史或归档"
-          : task.receiverType === "unassigned"
-            ? "暂无责任人 · 任务待指派"
-            : task.status === "done"
-              ? `任务已完成 · 发送指令会追加要求并在同一条会话重开一轮（${receiverDisplay(task)}）`
-              : task.receiverType === "agent"
-                ? `发送给 ${receiverDisplay(task)}${task.status === "progress" && taskHasActiveRun(task) ? " · Agent 执行中" : task.status === "progress" ? " · 最近一次 Agent 运行未完成" : ""}`
-                : `发送给 ${receiverDisplay(task)}`;
+          : !canCommand
+            ? `${commandLockReason}；可在讨论中 @ AI 伙伴发起协作执行`
+            : isWorkflowTask
+              ? workflowDiscussionHint
+              : task.receiverType === "unassigned"
+                ? "暂无责任人 · 任务待指派"
+                : task.status === "done"
+                  ? `任务已完成 · 发送指令会追加要求并在同一条会话重开一轮（${receiverDisplay(task)}）`
+                  : task.receiverType === "agent"
+                    ? `发送给 ${receiverDisplay(task)}${task.status === "progress" && taskHasActiveRun(task) ? " · Agent 执行中" : task.status === "progress" ? " · 最近一次 Agent 运行未完成" : ""}`
+                    : `发送给 ${receiverDisplay(task)}`;
+      const discussionMentionsAgent =
+        composerIntentValue === "discussion" &&
+        pickedMentions.some(
+          (item) =>
+            item.type === "agent" && message.includes(`@${item.name}`),
+        );
+      const composerEffectText = isWorkflowTask
+        ? discussionMentionsAgent
+          ? "将向 @ 的 AI 伙伴发起一轮协作执行；其余内容仅记录"
+          : workflowDiscussionHint
+        : composerIntentValue === "discussion"
+          ? discussionMentionsAgent
+            ? "将向 @ 的 AI 伙伴发起一轮协作执行；其余内容仅记录"
+            : canCommand
+              ? "仅记录讨论，不进入本次执行上下文"
+              : `仅记录讨论 · ${commandLockReason}`
+          : task.status === "done"
+            ? "将追加要求、重新开启任务，并同步之前关键共识"
+            : task.receiverType === "agent"
+              ? "将触发一次 Agent Run，并同步之前关键共识"
+              : "将通知负责人，并同步之前关键共识";
+      const composerPlaceholder = isWorkflowTask
+        ? isApprovalTask
+          ? "询问审批依据、方案风险或需要准备的材料"
+          : "讨论节点方案、风险或需要准备的交付物"
+        : composerIntentValue === "discussion"
+          ? canCommand
+            ? "参与讨论；未 @ AI 时仅记录，@ AI 伙伴会发起协作执行"
+            : `参与讨论；${commandLockReason}，@ AI 伙伴可发起协作执行`
+          : task.status === "done"
+            ? "补充新的执行要求；发送后会重新开启任务，并同步之前关键共识"
+            : "补充要求或推进说明，发送后将交给任务负责人，并通知到 @ 的人员 / AI 伙伴";
+      const composerLocked = archived || task.status === "cancelled";
+      const executionPolicyView = executionPolicyForm(task);
+      const runtimeView = taskRuntimeView(
+        task,
+        directory,
+        externalRuntimes,
+        selectedExecution,
+        executionDetailState,
+      );
       const commentPlaceholder = archived
         ? "任务已归档，复原后可评论"
         : task.status === "cancelled"
           ? "任务已取消，评论已锁定"
-          : task.workflow !== undefined
-            ? "普通讨论不触发执行；关键共识会在后续真实执行时作为背景增量同步"
-            : task.receiverType === "agent"
-              ? "普通讨论不进入执行上下文；关键共识下次执行时增量同步；@ 当前执行人可发起讨论反馈"
-              : "普通讨论不进入 Agent 上下文；关键共识会在下次真实执行时作为背景增量同步";
+          : "未 @ AI 伙伴时仅记录；@ AI 伙伴会发起协作执行";
       react.useEffect(() => {
         setComment("");
         setCommentIsConsensus(false);
         setReplyDrafts({});
       }, [task.id]);
       const history = [
+        {
+          kind: "message",
+          at: task.createdAt,
+          item: {
+            id: `${task.id}:initial-request`,
+            at: task.createdAt,
+            authorId: task.createdBy,
+            authorName: task.createdByName,
+            kind: "human",
+            content: task.description,
+            attachments: [],
+            mentions: [],
+            messageType: isWorkflowTask ? "workflow-task" : "instruction",
+          },
+        },
         ...task.messages.map((item) => ({
           kind: "message",
           at: item.at,
-          item,
+          item: {
+            ...item,
+            attachments: item.attachments ?? [],
+            messageType:
+              item.kind === "agent"
+                ? "feedback"
+                : item.kind === "system"
+                  ? "system"
+                  : "instruction",
+          },
         })),
+        ...task.comments.flatMap((item) => [
+          {
+            kind: "message",
+            at: item.at,
+            item: {
+              ...item,
+              attachments: [],
+              commentId: item.id,
+              messageType: item.mentions?.some(
+                (mention) => mention.kind === "agent",
+              )
+                ? "collaboration"
+                : item.isKeyConsensus
+                ? "consensus"
+                : isWorkflowTask
+                  ? "workflow-discussion"
+                  : "discussion",
+            },
+          },
+          ...item.replies.map((reply) => ({
+            kind: "message",
+            at: reply.at,
+            item: {
+              ...reply,
+              attachments: [],
+              replyToCommentId: item.id,
+              replyToAuthorName: item.authorName,
+              messageType: isWorkflowTask
+                ? "workflow-discussion"
+                : "discussion",
+            },
+          })),
+        ]),
         ...task.events
-          .filter((event) => event.kind !== "message")
+          .filter(
+            (event) =>
+              event.kind !== "message" &&
+              event.kind !== "created" &&
+              event.kind !== "comment" &&
+              event.kind !== "reply",
+          )
           .map((event) => ({ kind: "event", at: event.at, event })),
       ].sort(
         (left, right) =>
-          right.at.localeCompare(left.at) ||
+          left.at.localeCompare(right.at) ||
           (left.kind === right.kind ? 0 : left.kind === "message" ? -1 : 1),
       );
+      react.useEffect(() => {
+        const node = historyRef.current;
+        if (node === null) return undefined;
+        const frame = window.requestAnimationFrame(() => {
+          node.scrollTop = node.scrollHeight;
+        });
+        return () => window.cancelAnimationFrame(frame);
+      }, [
+        task.id,
+        task.messages.length,
+        task.events.length,
+        task.comments.length,
+      ]);
       const historyAvatar = (item) => {
         const kind = item.kind === "agent" ? "agent" : "human";
         const options = kind === "agent" ? directory.agents : directory.humans;
@@ -3778,12 +5628,558 @@ window.__ModuleLoader__.load({
         );
         return h(ReceiverAvatar, { option, kind, name: item.authorName });
       };
+      const detailActions = [];
+      if (
+        !archived &&
+        activeExecutionRuns.length > 0 &&
+        (canCommand || canReview) &&
+        !stoppingExecution
+      ) {
+        detailActions.push(
+          h(DetailActionButton, {
+            key: "stop-execution",
+            label: "停止执行",
+            tone: "caution",
+            title: `停止当前任务中 ${activeExecutionRuns.length} 个正在运行的 AI 伙伴`,
+            onClick: () => void stopAllExecution(),
+          }),
+        );
+      }
+      if (archived) {
+        detailActions.push(
+          h(DetailActionButton, {
+            key: "restore",
+            label: "复原",
+            icon: "restore",
+            tone: "primary",
+            onClick: () => void restoreTask(),
+          }),
+        );
+      } else if (isWorkflowTask) {
+        detailActions.push(
+          h(DetailActionButton, {
+            key: "workflow",
+            label: "打开工作流节点",
+            icon: "workflow",
+            tone: "primary",
+            onClick: openWorkflow,
+          }),
+        );
+        if (isApprovalTask && canReview && task.status === "review") {
+          detailActions.push(
+            h(DetailActionButton, {
+              key: "approve",
+              label: "通过审批",
+              icon: "approve",
+              tone: "primary",
+              disabled: readOnly,
+              onClick: () => void action("approve", "审批已通过"),
+            }),
+            h(DetailActionButton, {
+              key: "reject",
+              label: "退回审批",
+              icon: "reject",
+              tone: "caution",
+              disabled: readOnly,
+              onClick: () => setRejectOpen(true),
+            }),
+          );
+        }
+        if (["done", "cancelled"].includes(task.status)) {
+          detailActions.push(
+            h(DetailActionButton, {
+              key: "archive",
+              label: "归档",
+              icon: "archive",
+              tone: "neutral",
+              onClick: () => setConfirmArchive(true),
+            }),
+          );
+        }
+      } else {
+        if (canClaim) {
+          detailActions.push(
+            h(DetailActionButton, {
+              key: "claim",
+              label: "认领",
+              icon: "claim",
+              tone: "primary",
+              disabled: readOnly,
+              onClick: () => void action("claim", "已认领任务"),
+            }),
+          );
+        }
+        if (mine && task.receiverType === "human" && task.status === "todo") {
+          detailActions.push(
+            h(DetailActionButton, {
+              key: "start",
+              label: "开始",
+              icon: "start",
+              tone: "primary",
+              disabled: readOnly,
+              onClick: () => void action("start", "任务已开始"),
+            }),
+          );
+        }
+        if (mine && task.status === "progress" && !isApprovalTask) {
+          detailActions.push(
+            h(DetailActionButton, {
+              key: "submit",
+              label: "提交验收",
+              icon: "submit",
+              tone: "primary",
+              disabled: readOnly,
+              onClick: requestSubmitAcceptance,
+            }),
+          );
+        }
+        if (canReview && task.status === "review") {
+          detailActions.push(
+            h(DetailActionButton, {
+              key: "approve",
+              label: "通过",
+              icon: "approve",
+              tone: "primary",
+              disabled: readOnly,
+              onClick: () => void action("approve", "任务已完成"),
+            }),
+            h(DetailActionButton, {
+              key: "reject",
+              label: "退回",
+              icon: "reject",
+              tone: "caution",
+              disabled: readOnly,
+              onClick: () => setRejectOpen(true),
+            }),
+          );
+        }
+        if (
+          sent &&
+          task.receiverType === "human" &&
+          task.receiverId !== currentUser?.id &&
+          !isSettledStatus(task.status)
+        ) {
+          detailActions.push(
+            h(DetailActionButton, {
+              key: "nudge",
+              label: "催办",
+              icon: "nudge",
+              tone: "neutral",
+              disabled: readOnly,
+              onClick: () => void action("nudge", "已提醒责任人"),
+            }),
+          );
+        }
+        if (sent && !isSettledStatus(task.status)) {
+          detailActions.push(
+            h(DetailActionButton, {
+              key: "cancel",
+              label: "取消任务",
+              icon: "cancel",
+              tone: "danger",
+              disabled: readOnly,
+              onClick: () => void cancelTask(),
+            }),
+          );
+        }
+        if (isSettledStatus(task.status)) {
+          detailActions.push(
+            h(DetailActionButton, {
+              key: "archive",
+              label: "归档",
+              icon: "archive",
+              tone: "neutral",
+              onClick: () => setConfirmArchive(true),
+            }),
+          );
+        }
+      }
+      const showOpenSession =
+        task.receiverType === "agent" || task.agentRunIds.length > 0;
+      const selectDetailTab = (tab) => {
+        if (tab !== "basic") setBasicEditing(false);
+        setActiveTab(tab);
+      };
+      const saveBasicInfo = async (input) => {
+        try {
+          await mutate(
+            "/api/collab/tasks/update",
+            {
+              taskId: task.id,
+              title: task.title,
+              description: task.description,
+              acceptance: task.acceptance,
+              priority: input.priority,
+              due: input.due,
+              dependsOn: input.dependsOn,
+              autoSubmitReview: input.autoSubmitReview,
+              executionPolicy: input.executionPolicy,
+            },
+            "基础信息已更新",
+          );
+          if (
+            task.workflow !== undefined &&
+            task.workflow.approvalPolicy === undefined &&
+            input.autoApproveReview !== task.autoApproveReview
+          ) {
+            await mutate(
+              "/api/collab/tasks/review/approval",
+              {
+                taskId: task.id,
+                autoApproveReview: input.autoApproveReview,
+              },
+              input.autoApproveReview
+                ? "提交后将自动通过 Review"
+                : "提交后将等待人工 Review",
+              { silent: true },
+            );
+          }
+          if (
+            input.receiverType !== task.receiverType ||
+            input.receiverId !== (task.receiverId ?? "")
+          ) {
+            await mutate(
+              "/api/collab/tasks/assign",
+              {
+                taskId: task.id,
+                receiverType: input.receiverType,
+                receiverId: input.receiverId || undefined,
+                receiverName:
+                  input.receiverType === "unassigned"
+                    ? undefined
+                    : input.receiverName,
+              },
+              "负责人已更新",
+              { silent: true },
+            );
+          }
+          setBasicEditing(false);
+        } catch (cause) {
+          fail(cause);
+          throw cause;
+        }
+      };
+
+      const basicPane = basicEditing
+        ? h(BasicInfoEditForm, {
+            task,
+            workspaceTitle,
+            directory,
+            tasks,
+            externalRuntimes,
+            selectedExecution,
+            executionDetailState,
+            onCancel: () => setBasicEditing(false),
+            onSave: saveBasicInfo,
+          })
+        : h(
+            "div",
+            {
+              className: "pmtask-detail-tab-body",
+              "data-detail-tab": "basic",
+            },
+            h(
+              "div",
+              { className: "pmtask-detail-info-grid" },
+              h(
+                "div",
+                { className: "pmtask-detail-info" },
+                h("span", null, "负责人"),
+                h(
+                  "strong",
+                  { className: "pmtask-assignee" },
+                  h(ReceiverAvatar, {
+                    option: previewOption,
+                    kind: task.receiverType,
+                    name: previewLabel,
+                  }),
+                  h(
+                    "span",
+                    { className: "pmtask-assignee-name" },
+                    previewLabel,
+                  ),
+                ),
+              ),
+              h(
+                "div",
+                { className: "pmtask-detail-info" },
+                h("span", null, "归属项目"),
+                h("strong", null, workspaceTitle || task.workspaceId),
+              ),
+              h(
+                "div",
+                { className: "pmtask-detail-info" },
+                h("span", null, "前置任务"),
+                h(
+                  "strong",
+                  null,
+                  dependencyTask === undefined
+                    ? task.dependsOn?.[0] || "无"
+                    : `${dependencyTask.id} · ${dependencyTask.title} · ${statusLabel(dependencyTask.status)}`,
+                ),
+              ),
+              h(
+                "div",
+                { className: "pmtask-detail-info" },
+                h("span", null, "任务类型"),
+                h("strong", null, task.type),
+              ),
+              h(
+                "div",
+                { className: "pmtask-detail-info" },
+                h("span", null, "优先级"),
+                h("strong", null, priorityLabel(task.priority)),
+              ),
+              h(
+                "div",
+                { className: "pmtask-detail-info" },
+                h("span", null, "截止时间"),
+                h("strong", null, task.due || "不限"),
+              ),
+              h(
+                "div",
+                { className: "pmtask-detail-info" },
+                h("span", null, "创建人"),
+                h("strong", null, task.createdByName),
+              ),
+              h(
+                "div",
+                { className: "pmtask-detail-info" },
+                h("span", null, "完成后自动提交 Review"),
+                h(
+                  "strong",
+                  null,
+                  task.autoSubmitReview === false ? "关闭" : "开启",
+                ),
+              ),
+              h(
+                "div",
+                { className: "pmtask-detail-info" },
+                h("span", null, "Review 自动通过"),
+                h(
+                  "strong",
+                  null,
+                  task.autoApproveReview === true ? "开启" : "关闭",
+                ),
+              ),
+              h(
+                "div",
+                { className: "pmtask-detail-info" },
+                h("span", null, "执行运行时"),
+                h("strong", null, runtimeView.runtimeLabel),
+              ),
+              h(
+                "div",
+                { className: "pmtask-detail-info" },
+                h("span", null, "模型 / 推理强度"),
+                h("strong", null, runtimeView.modelAndReasoning),
+              ),
+              h(
+                "div",
+                { className: "pmtask-detail-info wide" },
+                h("span", null, "执行策略"),
+                h(
+                  "div",
+                  { className: "pmtask-detail-strategy" },
+                  h(
+                    "span",
+                    {
+                      className: executionPolicyView.allowPublicWeb ? "on" : "",
+                    },
+                    `公开网页 ${executionPolicyView.allowPublicWeb ? "允许" : "禁止"}`,
+                  ),
+                  h(
+                    "span",
+                    {
+                      className: executionPolicyView.requireToolApproval
+                        ? "on"
+                        : "",
+                    },
+                    `工具确认 ${executionPolicyView.requireToolApproval ? "开启" : "关闭"}`,
+                  ),
+                  h(
+                    "span",
+                    {
+                      className: executionPolicyView.requireToolEvents
+                        ? "on"
+                        : "",
+                    },
+                    `工具事件 ${executionPolicyView.requireToolEvents ? "记录" : "不记录"}`,
+                  ),
+                ),
+              ),
+            ),
+            h(
+              "div",
+              { className: "pmtask-detail-basic-toolbar" },
+              h(
+                "button",
+                {
+                  type: "button",
+                  disabled: readOnly,
+                  onClick: () => {
+                    setEditing(false);
+                    setBasicEditing(true);
+                  },
+                },
+                "编辑",
+              ),
+            ),
+          );
+
+      const runsById = new Map(executionRunOptions.map((run) => [run.id, run]));
+      const latestDocumentsByName = new Map();
+      for (const document of documents) {
+        const key = String(document.name ?? "").trim();
+        if (key === "") continue;
+        const current = latestDocumentsByName.get(key);
+        const currentTime = Date.parse(current?.document.updatedAt ?? "");
+        const nextTime = Date.parse(document.updatedAt ?? "");
+        if (
+          current === undefined ||
+          (Number.isFinite(nextTime) &&
+            (!Number.isFinite(currentTime) || nextTime > currentTime))
+        ) {
+          latestDocumentsByName.set(key, {
+            document,
+            hiddenVersions:
+              current === undefined ? 0 : current.hiddenVersions + 1,
+          });
+        } else {
+          current.hiddenVersions += 1;
+        }
+      }
+      const latestDocuments = [...latestDocumentsByName.values()].sort(
+        (left, right) =>
+          String(right.document.updatedAt ?? "").localeCompare(
+            String(left.document.updatedAt ?? ""),
+          ),
+      );
+      const documentsPane = h(
+        "div",
+        {
+          className: "pmtask-detail-tab-body",
+          "data-detail-tab": "documents",
+        },
+        documentsReady
+          ? null
+          : h(
+              "div",
+              { className: "pmtask-side-empty" },
+              "任务工作区不可用，暂时无法读取产出文档。",
+            ),
+        latestDocuments.length === 0
+          ? h(
+              "div",
+              { className: "pmtask-detail-doc-list" },
+              h(
+                "div",
+                { className: "pmtask-side-empty" },
+                documentsReady ? "当前任务还没有产出文档。" : "暂无可用文档。",
+              ),
+            )
+          : h(
+              "div",
+              { className: "pmtask-detail-doc-list" },
+              ...latestDocuments.map(({ document, hiddenVersions }) => {
+                const run = document.runId
+                  ? runsById.get(document.runId)
+                  : undefined;
+                const producer = document.updatedBy || "AI伙伴";
+                return h(
+                  "article",
+                  {
+                    className: "pmtask-detail-doc",
+                    key: document.id,
+                  },
+                  h(
+                    "div",
+                    { className: "pmtask-detail-doc-main" },
+                    h(
+                      "div",
+                      { className: "pmtask-detail-doc-title" },
+                      h("strong", { title: document.name }, document.name),
+                      h(
+                        "span",
+                        { className: "pmtask-doc-kind" },
+                        hiddenVersions > 0
+                          ? `v${hiddenVersions + 1}`
+                          : document.kind === "uploaded"
+                            ? "上传"
+                            : "产出",
+                      ),
+                    ),
+                    h(
+                      "div",
+                      { className: "pmtask-detail-doc-meta" },
+                      h("span", null, producer),
+                      run !== undefined || document.kind !== "uploaded"
+                        ? h("span", { className: "pmtask-detail-doc-ai" }, "AI")
+                        : null,
+                      h("span", null, localTime(document.updatedAt)),
+                      h(
+                        "span",
+                        null,
+                        run
+                          ? `第 ${run.roundNumber} 轮 · ${run.id}`
+                          : document.runId || "任务级文档",
+                      ),
+                    ),
+                  ),
+                  h(
+                    "button",
+                    {
+                      className: "pmtask-detail-doc-download",
+                      type: "button",
+                      disabled: !document.available,
+                      title: document.available
+                        ? `下载 ${document.name}`
+                        : "该附件未存储到工作区",
+                      "aria-label": `下载 ${document.name}`,
+                      onClick: () => void downloadDocument(document),
+                    },
+                    h(
+                      "svg",
+                      {
+                        viewBox: "0 0 24 24",
+                        fill: "none",
+                        stroke: "currentColor",
+                        strokeWidth: 2,
+                        strokeLinecap: "round",
+                        strokeLinejoin: "round",
+                        "aria-hidden": "true",
+                      },
+                      h("path", { d: "M12 3v12" }),
+                      h("path", { d: "m7 10 5 5 5-5" }),
+                      h("path", { d: "M5 21h14" }),
+                    ),
+                  ),
+                );
+              }),
+              latestDocuments.reduce(
+                (total, item) => total + item.hiddenVersions,
+                0,
+              ) > 0
+                ? h(
+                    "div",
+                    { className: "pmtask-side-empty" },
+                    `已合并 ${latestDocuments.reduce(
+                      (total, item) => total + item.hiddenVersions,
+                      0,
+                    )} 个旧版本`,
+                  )
+                : null,
+            ),
+      );
       return h(
         "div",
         { className: "pmtask-detail" },
         h(
           "section",
-          { className: "pmtask-detail-page" },
+          {
+            className: "pmtask-detail-page",
+            "data-data-agent-text-surface": "task-detail",
+          },
           h(
             "div",
             { className: "pmtask-detail-top" },
@@ -3802,12 +6198,22 @@ window.__ModuleLoader__.load({
               "任务 / ",
               h("b", null, `${task.id} ${task.title}`),
             ),
+            h(
+              "span",
+              { className: "pmtask-detail-project-chip" },
+              `项目 · ${workspaceTitle || task.workspaceId}`,
+            ),
             h(TaskFollowButton, {
               taskId: task.id,
-              compact: false,
+              compact: true,
               workspaceId: task.workspaceId,
               workflowInstanceId: task.workflow?.instanceId,
             }),
+            h(
+              "div",
+              { className: "pmtask-detail-top-actions" },
+              renderActions?.() ?? null,
+            ),
             h(
               "div",
               { className: "pmtask-menu pmtask-assign-select" },
@@ -3904,14 +6310,6 @@ window.__ModuleLoader__.load({
                   )
                 : null,
             ),
-            h(
-              "span",
-              { className: `pmtask-pill ${task.status}` },
-              statusLabel(task.status),
-            ),
-            archived
-              ? h("span", { className: "pmtask-pill archived" }, "已归档")
-              : null,
           ),
           h(
             "div",
@@ -3920,30 +6318,15 @@ window.__ModuleLoader__.load({
               "div",
               { className: "pmtask-detail-main" },
               editing
-                ? h(EditTaskForm, {
-                    task,
-                    workspaceTitle,
-                    directory,
-                    externalRuntimes,
-                    onCancel: () => setEditing(false),
-                    onSave: async (input) => {
-                      try {
-                        await mutate(
-                          "/api/collab/tasks/update",
-                          { taskId: task.id, ...input },
-                          task.status === "done"
-                            ? "已追加要求并重新开启任务"
-                            : "任务内容已更新",
-                        );
-                        setEditing(false);
-                      } catch (cause) {
-                        fail(cause);
-                      }
-                    },
-                  })
+                ? null
                 : h(
                     "div",
-                    { className: "pmtask-intro" },
+                    { className: "pmtask-intro", hidden: true },
+                    h(
+                      "span",
+                      { className: "pmtask-detail-requirement-label" },
+                      "任务要求",
+                    ),
                     h(
                       "div",
                       { className: "pmtask-intro-head" },
@@ -4321,8 +6704,7 @@ window.__ModuleLoader__.load({
                                   type: "button",
                                   disabled: readOnly,
                                   title: lockedTip,
-                                  onClick: () =>
-                                    void action("submit", "已提交验收"),
+                                  onClick: requestSubmitAcceptance,
                                 },
                                 "提交验收",
                               )
@@ -4360,7 +6742,7 @@ window.__ModuleLoader__.load({
                                 isApprovalTask ? "退回审批" : "退回",
                               )
                             : null,
-                          sent &&
+                          canCommand &&
                             !isSettledStatus(task.status) &&
                             // 催办只针对「指派给人类」的任务：Agent 的推进靠指令/改派。
                             task.receiverType === "human"
@@ -4429,7 +6811,7 @@ window.__ModuleLoader__.load({
                               ),
                         ),
                   ),
-              task.workflow !== undefined
+              composerLocked
                 ? null
                 : h(
                     "div",
@@ -4442,7 +6824,7 @@ window.__ModuleLoader__.load({
                         {
                           className: "pmtask-tool-btn",
                           type: "button",
-                          disabled: readOnly,
+                          disabled: composerLocked,
                           title: lockedTip ?? "插入表情",
                           "aria-label": "插入表情",
                           onClick: () => setMessage((current) => `${current}☺`),
@@ -4453,10 +6835,14 @@ window.__ModuleLoader__.load({
                         "label",
                         {
                           className: "pmtask-tool-btn",
-                          title: lockedTip ?? "上传附件",
-                          style: readOnly
-                            ? { opacity: 0.5, pointerEvents: "none" }
-                            : undefined,
+                          title: isWorkflowTask
+                            ? "讨论不支持上传；附件和交付物请在工作流节点提交"
+                            : (lockedTip ?? "上传附件"),
+                          style:
+                            composerLocked ||
+                            composerIntentValue === "discussion"
+                              ? { opacity: 0.5, pointerEvents: "none" }
+                              : undefined,
                           "aria-label": "上传附件",
                         },
                         h(
@@ -4477,7 +6863,9 @@ window.__ModuleLoader__.load({
                           type: "file",
                           multiple: true,
                           hidden: true,
-                          disabled: readOnly,
+                          disabled:
+                            composerLocked ||
+                            composerIntentValue === "discussion",
                           onChange: (event) => {
                             const picked = Array.from(event.target.files ?? []);
                             event.target.value = "";
@@ -4494,12 +6882,12 @@ window.__ModuleLoader__.load({
                         {
                           className: "pmtask-tool-btn",
                           type: "button",
-                          disabled: readOnly,
+                          disabled: composerLocked,
                           title: lockedTip ?? "插入 @ 提及",
                           "aria-haspopup": "listbox",
                           "aria-expanded": mentionOpen,
                           onClick: () => {
-                            if (readOnly) return;
+                            if (composerLocked) return;
                             setMentionQuery("");
                             setMentionOpen((value) => !value);
                           },
@@ -4508,23 +6896,76 @@ window.__ModuleLoader__.load({
                       ),
                       mentionOpen
                         ? h(MentionMenu, {
-                            directory,
+                            directory: mentionDirectory,
                             query: mentionQuery,
                             onPick: insertMention,
                           })
                         : null,
                     ),
+                    pickedMentions.length > 0
+                      ? h(
+                          "div",
+                          { className: "pmtask-detail-sync-list" },
+                          h("span", null, "同步"),
+                          ...pickedMentions.map((item) =>
+                            h(
+                              "span",
+                              {
+                                className: "pmtask-detail-sync-chip",
+                                key: `${item.type}:${item.id}`,
+                              },
+                              h("span", null, `@${item.name}`),
+                              h(
+                                "select",
+                                {
+                                  value: item.intent,
+                                  disabled: readOnly,
+                                  "aria-label": `${item.name} 的同步用途`,
+                                  onChange: (event) =>
+                                    setPickedMentions((current) =>
+                                      current.map((candidate) =>
+                                        candidate.type === item.type &&
+                                        candidate.id === item.id
+                                          ? {
+                                              ...candidate,
+                                              intent: event.target.value,
+                                            }
+                                          : candidate,
+                                      ),
+                                    ),
+                                },
+                                h("option", { value: "ask" }, "问询"),
+                                h("option", { value: "notice" }, "周知"),
+                                h("option", { value: "collaborate" }, "协作"),
+                              ),
+                              h(
+                                "button",
+                                {
+                                  type: "button",
+                                  disabled: readOnly,
+                                  "aria-label": `移除同步 ${item.name}`,
+                                  onClick: () =>
+                                    setPickedMentions((current) =>
+                                      current.filter(
+                                        (candidate) =>
+                                          candidate.type !== item.type ||
+                                          candidate.id !== item.id,
+                                      ),
+                                    ),
+                                },
+                                "×",
+                              ),
+                            ),
+                          ),
+                        )
+                      : null,
                     h("textarea", {
                       ref: messageRef,
                       className: "pmtask-composer-input",
                       rows: 4,
                       value: message,
-                      readOnly: readOnly,
-                      placeholder: archived
-                        ? "任务已归档，复原后可继续发送指令"
-                        : task.status === "cancelled"
-                          ? "任务已取消，仅可查看历史或归档"
-                          : "输入 / 补充给执行 Agent 的指令，或反馈任务进展。可 @ 人员、DE 和分身",
+                      readOnly: composerLocked,
+                      placeholder: composerPlaceholder,
                       onChange: (event) => {
                         const value = event.target.value;
                         setMessage(value);
@@ -4581,15 +7022,84 @@ window.__ModuleLoader__.load({
                       : null,
                     h(
                       "div",
-                      { className: "pmtask-composer-footer" },
+                      { className: "pmtask-detail-composer-foot" },
+                      h(
+                        "div",
+                        {
+                          className: `pmtask-detail-intent-group${isWorkflowTask ? " workflow" : ""}`,
+                          role: "group",
+                          "aria-label": "发送目的",
+                        },
+                        h(
+                          "button",
+                          {
+                            className: `pmtask-detail-intent${composerIntentValue === "discussion" ? " active" : ""}`,
+                            type: "button",
+                            disabled: !canDiscuss,
+                            onClick: () => setComposerIntent("discussion"),
+                          },
+                          h(
+                            "svg",
+                            {
+                              viewBox: "0 0 24 24",
+                              fill: "none",
+                              stroke: "currentColor",
+                              strokeWidth: 1.8,
+                              strokeLinecap: "round",
+                              strokeLinejoin: "round",
+                              "aria-hidden": "true",
+                            },
+                            h("path", {
+                              d: "M21 11.5a8.4 8.4 0 0 1-8.5 8.5 9 9 0 0 1-4-1L3 21l2-5a8.5 8.5 0 1 1 16-4.5Z",
+                            }),
+                          ),
+                          "讨论",
+                        ),
+                        isWorkflowTask
+                          ? null
+                          : h(
+                              "button",
+                              {
+                                className: `pmtask-detail-intent${composerIntentValue === "execution" ? " active" : ""}`,
+                                type: "button",
+                                disabled: !canExecute,
+                                title: canExecute
+                                  ? "发起指令并驱动任务推进"
+                                  : commandLockReason,
+                                onClick: () => {
+                                  if (!canExecute) return;
+                                  setComposerIntent("execution");
+                                  setMentionOpen(false);
+                                },
+                              },
+                              h(
+                                "svg",
+                                {
+                                  viewBox: "0 0 24 24",
+                                  fill: "none",
+                                  stroke: "currentColor",
+                                  strokeWidth: 1.8,
+                                  strokeLinecap: "round",
+                                  strokeLinejoin: "round",
+                                  "aria-hidden": "true",
+                                },
+                                h("path", { d: "m22 2-7 20-4-9-9-4Z" }),
+                                h("path", { d: "M22 2 11 13" }),
+                              ),
+                              "指令",
+                            ),
+                      ),
                       h(
                         "span",
-                        { className: "pmtask-compose-hint" },
-                        composerHint,
+                        {
+                          className: `pmtask-detail-effect${isWorkflowTask ? " workflow" : ""}`,
+                          "aria-live": "polite",
+                        },
+                        composerEffectText,
                       ),
                       h(
                         "div",
-                        { className: "pmtask-compose-actions" },
+                        { className: "pmtask-detail-composer-actions" },
                         h(
                           "button",
                           {
@@ -4610,10 +7120,18 @@ window.__ModuleLoader__.load({
                             className: "pmtask-btn",
                             type: "button",
                             disabled:
-                              readOnly ||
+                              composerLocked ||
                               (message.trim() === "" &&
                                 attachments.length === 0) ||
-                              task.receiverType === "unassigned",
+                              (composerIntentValue === "execution" &&
+                                (task.receiverType === "unassigned" ||
+                                  task.receiverType === "role")) ||
+                              (composerIntentValue === "discussion" &&
+                                attachments.length > 0) ||
+                              (composerIntentValue === "discussion" &&
+                                !canDiscuss) ||
+                              pendingAssignee !== null,
+                            title: composerHint,
                             onClick: () => void sendMessage(),
                           },
                           "发送",
@@ -4623,7 +7141,10 @@ window.__ModuleLoader__.load({
                   ),
               h(
                 "div",
-                { className: "pmtask-detail-section" },
+                {
+                  className: "pmtask-detail-section pmtask-detail-conversation",
+                  ref: historyRef,
+                },
                 h(
                   "div",
                   { className: "pmtask-history-head" },
@@ -4642,7 +7163,12 @@ window.__ModuleLoader__.load({
                       ? h(
                           "article",
                           {
-                            className: "pmtask-history-message",
+                            className: `pmtask-history-message${
+                              entry.item.kind === "human" &&
+                              entry.item.authorId === currentUser?.id
+                                ? " is-mine"
+                                : ""
+                            }`,
                             key: `message:${entry.item.id}`,
                           },
                           historyAvatar(entry.item),
@@ -4652,7 +7178,14 @@ window.__ModuleLoader__.load({
                             h(
                               "div",
                               { className: "pmtask-message-head" },
-                              h("strong", null, entry.item.authorName),
+                              h(
+                                "strong",
+                                null,
+                                entry.item.kind === "human" &&
+                                  entry.item.authorId === currentUser?.id
+                                  ? "我"
+                                  : entry.item.authorName,
+                              ),
                               entry.item.kind === "agent" &&
                                 entry.item.runRole !== undefined
                                 ? h(
@@ -4666,8 +7199,33 @@ window.__ModuleLoader__.load({
                               h(
                                 "span",
                                 null,
-                                `${localTime(entry.item.at)}${entry.item.kind === "agent" ? " · Agent" : ""}`,
+                                `${localTime(entry.item.at)}${entry.item.kind === "agent" ? " · Agent" : ""}${entry.item.replyToAuthorName ? ` · 回复 ${entry.item.replyToAuthorName}` : ""}`,
                               ),
+                              entry.item.messageType === undefined
+                                ? null
+                                : h(
+                                    "span",
+                                    {
+                                      className: `pmtask-detail-message-badge ${entry.item.messageType}`,
+                                    },
+                                    {
+                                      instruction: "指令 · 驱动执行",
+                                      feedback: "执行反馈",
+                                      discussion: "讨论 · 仅记录",
+                                      collaboration: "讨论 · @ AI 协作执行",
+                                      "workflow-task": "工作流 · 节点任务",
+                                      "workflow-discussion": "讨论",
+                                      consensus: "关键共识 · 下轮同步",
+                                      system: "系统",
+                                    }[entry.item.messageType],
+                                  ),
+                              entry.item.isKeyConsensus
+                                ? h(
+                                    "span",
+                                    { className: "pmtask-pill consensus" },
+                                    "关键共识",
+                                  )
+                                : null,
                             ),
                             h(
                               "div",
@@ -4681,6 +7239,16 @@ window.__ModuleLoader__.load({
                                   })
                                 : null,
                             ),
+                            entry.item.kind === "agent" &&
+                            messageRunFeedback(entry.item.state) !== undefined
+                              ? h(
+                                  "span",
+                                  {
+                                    className: `pmtask-message-run-state ${messageRunFeedback(entry.item.state).kind}`,
+                                  },
+                                  messageRunFeedback(entry.item.state).label,
+                                )
+                              : null,
                             entry.item.attachments.length > 0
                               ? h(
                                   "div",
@@ -4698,9 +7266,6 @@ window.__ModuleLoader__.load({
                                   ),
                                 )
                               : null,
-                            h(RunExecutionMeta, {
-                              execution: entry.item.execution,
-                            }),
                           ),
                         )
                       : h(
@@ -4720,6 +7285,45 @@ window.__ModuleLoader__.load({
                           ),
                         ),
                   ),
+                  ...typingParticipants.map((run) =>
+                    h(
+                      "div",
+                      {
+                        className: "pmtask-typing-row",
+                        key: `typing:${run.participantId}`,
+                        role: "status",
+                        "aria-live": "polite",
+                      },
+                      historyAvatar({
+                        kind: "agent",
+                        authorId: run.participantId,
+                        authorName: run.participantName,
+                      }),
+                      h(
+                        "div",
+                        { className: "pmtask-typing-bubble" },
+                        h(
+                          "span",
+                          null,
+                          run.status === "queued"
+                            ? `${run.participantName} 已接收任务，准备执行`
+                            : run.status === "waiting_input"
+                              ? `${run.participantName} 等待补充信息`
+                              : `${run.participantName} 正在输入`,
+                        ),
+                        h(
+                          "span",
+                          {
+                            className: "pmtask-typing-dots",
+                            "aria-hidden": "true",
+                          },
+                          h("i"),
+                          h("i"),
+                          h("i"),
+                        ),
+                      ),
+                    ),
+                  ),
                   history.length === 0
                     ? h(
                         "div",
@@ -4731,11 +7335,16 @@ window.__ModuleLoader__.load({
               ),
               h(
                 "div",
-                { className: "pmtask-detail-section" },
+                {
+                  className: "pmtask-detail-section pmtask-detail-comments",
+                },
                 h("h3", null, "评论与回复"),
                 h(
                   "div",
-                  { className: "pmtask-comment-list" },
+                  {
+                    className:
+                      "pmtask-comment-list pmtask-detail-legacy-comment-list",
+                  },
                   ...task.comments.map((item) =>
                     h(
                       "article",
@@ -4912,549 +7521,791 @@ window.__ModuleLoader__.load({
             h(
               "aside",
               { className: "pmtask-detail-side" },
-              renderSlot?.("pluginmax.task.detail.extension", {
+              renderVisibleSlot(renderSlot, "pluginmax.task.detail.extension", {
                 taskId: task.id,
                 workspaceId: task.workspaceId,
-              }) ?? null,
-              renderSlot?.("pluginmax.task.detail.capture-origin", {
-                taskId: task.id,
-                workspaceId: task.workspaceId,
-              }) ?? null,
+              }),
               h(
                 "div",
-                { className: "pmtask-side-section" },
-                h("h3", null, "关联事项"),
-                ...(task.links.length === 0
-                  ? [
-                      h(
-                        "div",
-                        { className: "pmtask-side-empty" },
-                        "未关联会议或工作流。",
-                      ),
-                    ]
-                  : task.links.map((link) =>
-                      h(
-                        "div",
-                        {
-                          className: "pmtask-link",
-                          key: `${link.type}:${link.id}`,
-                        },
-                        h(
-                          "div",
-                          null,
-                          h(
-                            "small",
-                            null,
-                            link.type === "meeting" ? "会议" : "工作流",
-                          ),
-                          h("div", null, h("strong", null, link.label)),
-                        ),
-                        h(
-                          "button",
-                          {
-                            className: "pmtask-btn secondary",
-                            type: "button",
-                            onClick: () => {
-                              window.__pluginmaxShell?.setRoute(
-                                link.type === "meeting"
-                                  ? "meeting"
-                                  : "workflow",
-                              );
-                              window.dispatchEvent(
-                                new CustomEvent("pluginmax:collab-navigate", {
-                                  detail:
-                                    link.type === "meeting"
-                                      ? {
-                                          plugin: "meeting",
-                                          meetingId: link.id,
-                                          workspaceId: task.workspaceId,
-                                        }
-                                      : {
-                                          plugin: "workflow",
-                                          instanceId: link.id,
-                                          workspaceId: task.workspaceId,
-                                        },
-                                }),
-                              );
-                            },
-                          },
-                          link.type === "meeting" ? "打开会议" : "打开工作流",
-                        ),
-                      ),
-                    )),
+                { className: "pmtask-detail-extension", hidden: true },
+                renderSlot?.("pluginmax.task.detail.capture-origin", {
+                  taskId: task.id,
+                  workspaceId: task.workspaceId,
+                }) ?? null,
               ),
-              h(
-                "div",
-                {
-                  className: "pmtask-side-section pmtask-execution-record",
-                },
-                h(
-                  "div",
-                  { className: "pmtask-live-head" },
-                  executionRunning
-                    ? h("span", {
-                        className: "pmtask-spinner",
-                        role: "status",
-                        "aria-label": "正在执行",
-                      })
-                    : h("span", { className: "pmtask-live-dot" }),
-                  h("h3", null, "AI执行记录"),
-                  h(
-                    "span",
-                    { className: "pmtask-side-empty" },
-                    executionRunOptions.length === 0
-                      ? "暂无"
-                      : `${executionRunOptions.length} 轮`,
-                  ),
-                ),
-                executionRunOptions.length === 0
-                  ? h("div", { className: "pmtask-side-empty" }, "暂无执行记录")
-                  : [
+              editing
+                ? h(TaskContentEditForm, {
+                    task,
+                    onCancel: () => setEditing(false),
+                    onSave: async (input) => {
+                      try {
+                        await mutate(
+                          "/api/collab/tasks/update",
+                          { taskId: task.id, ...input },
+                          task.status === "done"
+                            ? "已追加要求并重新开启任务"
+                            : "任务内容已更新",
+                        );
+                        setEditing(false);
+                      } catch (cause) {
+                        fail(cause);
+                      }
+                    },
+                  })
+                : h(
+                    "header",
+                    { className: "pmtask-detail-side-head" },
+                    h(
+                      "div",
+                      { className: "pmtask-detail-side-title" },
+                      h("h2", null, task.title),
                       h(
-                        "div",
+                        "span",
+                        { className: `pmtask-pill ${task.status}` },
+                        statusLabel(task.status),
+                      ),
+                      h(
+                        "button",
                         {
-                          className: "pmtask-execution-runs",
+                          className: "pmtask-icon-btn",
+                          type: "button",
+                          hidden: task.workflow !== undefined,
+                          disabled: readOnly,
+                          title: lockedTip ?? "编辑任务名称和描述",
+                          "aria-label": lockedTip ?? "编辑任务名称和描述",
+                          onClick: () => {
+                            setBasicEditing(false);
+                            setEditing(true);
+                          },
                         },
                         h(
-                          "span",
-                          { className: "pmtask-execution-runs-label" },
-                          "轮次",
+                          "svg",
+                          {
+                            viewBox: "0 0 24 24",
+                            fill: "none",
+                            stroke: "currentColor",
+                            strokeWidth: 2,
+                            strokeLinecap: "round",
+                            strokeLinejoin: "round",
+                            "aria-hidden": "true",
+                          },
+                          h("path", { d: "M12 20h9" }),
+                          h("path", {
+                            d: "M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z",
+                          }),
                         ),
-                        h(
+                      ),
+                    ),
+                    h(
+                      "p",
+                      { className: "pmtask-detail-side-desc" },
+                      task.description,
+                    ),
+                    detailActions.length === 0 && !showOpenSession
+                      ? null
+                      : h(
+                          "div",
+                          { className: "pmtask-detail-actions" },
+                          ...detailActions,
+                          showOpenSession
+                            ? h(
+                                "button",
+                                {
+                                  className: "pmtask-detail-session-link",
+                                  type: "button",
+                                  onClick: () => void openAgentSession(),
+                                },
+                                "打开会话",
+                              )
+                            : null,
+                        ),
+                  ),
+              editing
+                ? null
+                : h(
+                    "div",
+                    {
+                      className: "pmtask-detail-tabs",
+                      role: "tablist",
+                      "aria-label": "任务信息视图",
+                    },
+                    ...[
+                      ["basic", "基础信息"],
+                      ["execution", "AI执行记录"],
+                      ["documents", "产出文档"],
+                      ["activity", "任务动态"],
+                    ].map(([key, label]) =>
+                      h(
+                        "button",
+                        {
+                          className: `pmtask-detail-tab${activeTab === key ? " active" : ""}`,
+                          type: "button",
+                          role: "tab",
+                          key,
+                          "aria-selected": activeTab === key,
+                          onClick: () => selectDetailTab(key),
+                        },
+                        label,
+                      ),
+                    ),
+                  ),
+              editing
+                ? null
+                : h(
+                    "div",
+                    { className: "pmtask-detail-side-scroll" },
+                    activeTab === "basic" ? basicPane : null,
+                    activeTab === "documents" ? documentsPane : null,
+                    h(
+                      "div",
+                      {
+                        className:
+                          "pmtask-side-section pmtask-detail-legacy-links",
+                      },
+                      h("h3", null, "关联事项"),
+                      ...(task.links.length === 0
+                        ? [
+                            h(
+                              "div",
+                              { className: "pmtask-side-empty" },
+                              "未关联会议或工作流。",
+                            ),
+                          ]
+                        : task.links.map((link) =>
+                            h(
+                              "div",
+                              {
+                                className: "pmtask-link",
+                                key: `${link.type}:${link.id}`,
+                              },
+                              h(
+                                "div",
+                                null,
+                                h(
+                                  "small",
+                                  null,
+                                  link.type === "meeting" ? "会议" : "工作流",
+                                ),
+                                h("div", null, h("strong", null, link.label)),
+                              ),
+                              h(
+                                "button",
+                                {
+                                  className: "pmtask-btn secondary",
+                                  type: "button",
+                                  onClick: () => {
+                                    window.__pluginmaxShell?.setRoute(
+                                      link.type === "meeting"
+                                        ? "meeting"
+                                        : "workflow",
+                                    );
+                                    window.dispatchEvent(
+                                      new CustomEvent(
+                                        "pluginmax:collab-navigate",
+                                        {
+                                          detail:
+                                            link.type === "meeting"
+                                              ? {
+                                                  plugin: "meeting",
+                                                  meetingId: link.id,
+                                                  workspaceId: task.workspaceId,
+                                                }
+                                              : {
+                                                  plugin: "workflow",
+                                                  instanceId: link.id,
+                                                  workspaceId: task.workspaceId,
+                                                },
+                                        },
+                                      ),
+                                    );
+                                  },
+                                },
+                                link.type === "meeting"
+                                  ? "打开会议"
+                                  : "打开工作流",
+                              ),
+                            ),
+                          )),
+                    ),
+                    activeTab === "execution"
+                      ? h(
                           "div",
                           {
-                            className: "pmtask-execution-round-picker",
+                            className:
+                              "pmtask-side-section pmtask-execution-record",
                           },
                           h(
-                            "button",
-                            {
-                              className: "pmtask-execution-round-trigger",
-                              type: "button",
-                              "aria-expanded": roundMenuOpen,
-                              "aria-controls": `pmtask-round-menu-${task.id}`,
-                              onClick: () =>
-                                setRoundMenuOpen((current) => !current),
-                              onKeyDown: (event) => {
-                                if (event.key === "Escape") {
-                                  setRoundMenuOpen(false);
-                                }
-                              },
-                            },
+                            "div",
+                            { className: "pmtask-live-head" },
+                            executionRunning
+                              ? h("span", {
+                                  className: "pmtask-spinner",
+                                  role: "status",
+                                  "aria-label": "正在执行",
+                                })
+                              : executionStatus === "cancelled"
+                                ? h("span", {
+                                    className: "pmtask-run-state cancelled",
+                                    role: "status",
+                                    title: "执行已停止",
+                                    "aria-label": "执行已停止",
+                                  })
+                                : ["failed", "timeout"].includes(
+                                      executionStatus,
+                                    )
+                                  ? h("span", {
+                                      className: "pmtask-run-state failed",
+                                      role: "status",
+                                      title: "执行未完成",
+                                      "aria-label": "执行未完成",
+                                    })
+                                  : executionStatus === "interrupted"
+                                    ? h("span", {
+                                        className:
+                                          "pmtask-run-state interrupted",
+                                        role: "status",
+                                        title: "执行已中断",
+                                        "aria-label": "执行已中断",
+                                      })
+                              : h("span", { className: "pmtask-live-dot" }),
+                            h("h3", null, "AI执行记录"),
                             h(
                               "span",
-                              null,
-                              `第 ${selectedRunOption?.roundNumber ?? 1} 轮 · ${selectedRunOption?.participantName ?? "AI伙伴"} · ${runStatusLabel(executionStatus)}`,
+                              { className: "pmtask-side-empty" },
+                              executionRunOptions.length === 0
+                                ? "暂无"
+                                : `${executionRunOptions.length} 轮`,
                             ),
-                            selectedRunOption === undefined
-                              ? null
-                              : h(
-                                  "time",
+                            (canCommand || canReview) &&
+                            activeExecutionRuns.length > 0
+                              ? h(
+                                  "button",
                                   {
-                                    className:
-                                      "pmtask-execution-round-trigger-time",
-                                    dateTime: selectedRunOption.instructionAt,
-                                    title: "指令发送时间",
+                                    className: "pmtask-execution-stop",
+                                    type: "button",
+                                    disabled: stoppingExecution,
+                                    title: `停止当前任务中 ${activeExecutionRuns.length} 个正在执行的 AI 伙伴`,
+                                    onClick: () => void stopAllExecution(),
                                   },
-                                  localTime(selectedRunOption.instructionAt),
-                                ),
-                            h("span", {
-                              className: "pmtask-round-caret",
-                              "aria-hidden": "true",
-                            }),
+                                  stoppingExecution
+                                    ? "停止中…"
+                                    : "停止执行",
+                                )
+                              : null,
                           ),
-                          roundMenuOpen
+                          executionRunOptions.length === 0
                             ? h(
                                 "div",
-                                {
-                                  id: `pmtask-round-menu-${task.id}`,
-                                  className: "pmtask-execution-round-menu",
-                                  role: "group",
-                                  "aria-label": "轮次与指令",
-                                },
-                                ...executionRunOptions.map((run) => {
-                                  const selected = run.id === selectedRunId;
-                                  const instructionExpanded =
-                                    expandedRoundInstructionIds.includes(
-                                      run.id,
-                                    );
-                                  const selectRun = () => {
-                                    setSelectedRunId(run.id);
-                                    setRoundMenuOpen(false);
-                                  };
-                                  return h(
+                                { className: "pmtask-side-empty" },
+                                "暂无执行记录",
+                              )
+                            : [
+                                h(
+                                  "div",
+                                  {
+                                    className: "pmtask-execution-runs",
+                                  },
+                                  h(
                                     "div",
                                     {
-                                      className: `pmtask-execution-round-option${selected ? " selected" : ""}`,
-                                      key: run.id,
-                                      onClick: selectRun,
+                                      className:
+                                        "pmtask-execution-round-picker",
                                     },
                                     h(
                                       "button",
                                       {
                                         className:
-                                          "pmtask-execution-round-option-head",
+                                          "pmtask-execution-round-trigger",
                                         type: "button",
-                                        "data-run-id": run.id,
-                                        "aria-pressed": selected,
-                                        onClick: (event) => {
-                                          event.stopPropagation();
-                                          selectRun();
+                                        "aria-expanded": roundMenuOpen,
+                                        "aria-controls": `pmtask-round-menu-${task.id}`,
+                                        onClick: () =>
+                                          setRoundMenuOpen(
+                                            (current) => !current,
+                                          ),
+                                        onKeyDown: (event) => {
+                                          if (event.key === "Escape") {
+                                            setRoundMenuOpen(false);
+                                          }
                                         },
                                       },
                                       h(
                                         "span",
-                                        {
-                                          className:
-                                            "pmtask-execution-round-option-title",
-                                        },
-                                        `第 ${run.roundNumber} 轮 · ${run.participantName}`,
-                                        h(
-                                          "span",
-                                          {
-                                            className:
-                                              "pmtask-execution-round-option-status",
-                                          },
-                                          ` · ${runStatusLabel(run.status)}`,
-                                        ),
+                                        null,
+                                        `第 ${selectedRunOption?.roundNumber ?? 1} 轮 · ${selectedRunOption?.participantName ?? "AI伙伴"} · ${runStatusLabel(executionStatus)}`,
                                       ),
-                                      h(
-                                        "time",
-                                        {
-                                          className:
-                                            "pmtask-execution-round-option-time",
-                                          dateTime: run.instructionAt,
-                                          title: "指令发送时间",
-                                        },
-                                        localTime(run.instructionAt),
-                                      ),
-                                    ),
-                                    h(ExecutionRoundInstruction, {
-                                      instruction: run.instruction,
-                                      expanded: instructionExpanded,
-                                      onToggle: () =>
-                                        toggleRoundInstruction(run.id),
-                                    }),
-                                  );
-                                }),
-                              )
-                            : null,
-                          !roundMenuOpen && selectedRunOption !== undefined
-                            ? h(ExecutionRoundInstruction, {
-                                instruction: selectedRunOption.instruction,
-                                expanded: expandedRoundInstructionIds.includes(
-                                  selectedRunOption.id,
-                                ),
-                                onToggle: () =>
-                                  toggleRoundInstruction(selectedRunOption.id),
-                                extraClassName:
-                                  "pmtask-selected-round-instruction",
-                              })
-                            : null,
-                        ),
-                      ),
-                      h(
-                        "div",
-                        { className: "pmtask-execution-blocks" },
-                        h(
-                          "section",
-                          { className: "pmtask-execution-block" },
-                          h(
-                            "h4",
-                            null,
-                            "产出物",
-                            h(
-                              "span",
-                              null,
-                              visibleRunDocuments.length === 0
-                                ? ""
-                                : `${visibleRunDocuments.length}`,
-                            ),
-                          ),
-                          visibleRunDocuments.length === 0
-                            ? h(
-                                "div",
-                                { className: "pmtask-doc-empty" },
-                                documentsReady
-                                  ? "本轮暂无产出物"
-                                  : "任务工作区不可用",
-                              )
-                            : h(
-                                "div",
-                                { className: "pmtask-doc-list" },
-                                ...visibleRunDocuments.map((document) =>
-                                  h(
-                                    "div",
-                                    {
-                                      className: "pmtask-doc",
-                                      key: document.id,
-                                    },
-                                    h(
-                                      "div",
-                                      { className: "pmtask-doc-info" },
-                                      h(
-                                        "button",
-                                        {
-                                          className: "pmtask-doc-name",
-                                          type: "button",
-                                          disabled: !document.available,
-                                          title: document.available
-                                            ? `下载 ${document.name}`
-                                            : "该附件未存储到工作区",
-                                          onClick: () =>
-                                            void downloadDocument(document),
-                                        },
-                                        h(
-                                          "span",
-                                          { className: "pmtask-doc-kind" },
-                                          document.kind === "uploaded"
-                                            ? "上传"
-                                            : "产出",
-                                        ),
-                                        h("span", null, document.name),
-                                      ),
-                                      h(
-                                        "div",
-                                        { className: "pmtask-doc-meta" },
-                                        `${document.updatedBy} · ${localTime(document.updatedAt)}`,
-                                      ),
-                                    ),
-                                    document.available
-                                      ? h(
-                                          "button",
-                                          {
-                                            className: "pmtask-tool-btn",
-                                            type: "button",
-                                            title: "在本地文件夹中显示",
-                                            "aria-label": "在本地文件夹中显示",
-                                            onClick: () =>
-                                              void revealDocument(document),
-                                          },
-                                          h(
-                                            "svg",
+                                      selectedRunOption === undefined
+                                        ? null
+                                        : h(
+                                            "time",
                                             {
-                                              viewBox: "0 0 24 24",
-                                              fill: "none",
-                                              stroke: "currentColor",
-                                              strokeWidth: 2,
-                                              strokeLinecap: "round",
-                                              strokeLinejoin: "round",
-                                              "aria-hidden": "true",
+                                              className:
+                                                "pmtask-execution-round-trigger-time",
+                                              dateTime:
+                                                selectedRunOption.instructionAt,
+                                              title: "指令发送时间",
                                             },
-                                            h("path", {
-                                              d: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z",
-                                            }),
+                                            localTime(
+                                              selectedRunOption.instructionAt,
+                                            ),
                                           ),
+                                      h("span", {
+                                        className: "pmtask-round-caret",
+                                        "aria-hidden": "true",
+                                      }),
+                                    ),
+                                    roundMenuOpen
+                                      ? h(
+                                          "div",
+                                          {
+                                            id: `pmtask-round-menu-${task.id}`,
+                                            className:
+                                              "pmtask-execution-round-menu",
+                                            role: "group",
+                                            "aria-label": "轮次与指令",
+                                          },
+                                          ...executionRunOptions.map((run) => {
+                                            const selected =
+                                              run.id === selectedRunId;
+                                            const instructionExpanded =
+                                              expandedRoundInstructionIds.includes(
+                                                run.id,
+                                              );
+                                            const selectRun = () => {
+                                              setSelectedRunId(run.id);
+                                              setRoundMenuOpen(false);
+                                            };
+                                            return h(
+                                              "div",
+                                              {
+                                                className: `pmtask-execution-round-option${selected ? " selected" : ""}`,
+                                                key: run.id,
+                                                onClick: selectRun,
+                                              },
+                                              h(
+                                                "button",
+                                                {
+                                                  className:
+                                                    "pmtask-execution-round-option-head",
+                                                  type: "button",
+                                                  "data-run-id": run.id,
+                                                  "aria-pressed": selected,
+                                                  onClick: (event) => {
+                                                    event.stopPropagation();
+                                                    selectRun();
+                                                  },
+                                                },
+                                                h(
+                                                  "span",
+                                                  {
+                                                    className:
+                                                      "pmtask-execution-round-option-title",
+                                                  },
+                                                  `第 ${run.roundNumber} 轮 · ${run.participantName}`,
+                                                  h(
+                                                    "span",
+                                                    {
+                                                      className:
+                                                        "pmtask-execution-round-option-status",
+                                                    },
+                                                    ` · ${runStatusLabel(run.status)}`,
+                                                  ),
+                                                ),
+                                                h(
+                                                  "time",
+                                                  {
+                                                    className:
+                                                      "pmtask-execution-round-option-time",
+                                                    dateTime: run.instructionAt,
+                                                    title: "指令发送时间",
+                                                  },
+                                                  localTime(run.instructionAt),
+                                                ),
+                                              ),
+                                              h(ExecutionRoundInstruction, {
+                                                instruction: run.instruction,
+                                                expanded: instructionExpanded,
+                                                onToggle: () =>
+                                                  toggleRoundInstruction(
+                                                    run.id,
+                                                  ),
+                                              }),
+                                            );
+                                          }),
                                         )
+                                      : null,
+                                    !roundMenuOpen &&
+                                      selectedRunOption !== undefined
+                                      ? h(ExecutionRoundInstruction, {
+                                          instruction:
+                                            selectedRunOption.instruction,
+                                          expanded:
+                                            expandedRoundInstructionIds.includes(
+                                              selectedRunOption.id,
+                                            ),
+                                          onToggle: () =>
+                                            toggleRoundInstruction(
+                                              selectedRunOption.id,
+                                            ),
+                                          extraClassName:
+                                            "pmtask-selected-round-instruction",
+                                        })
                                       : null,
                                   ),
                                 ),
-                              ),
-                        ),
-                        h(
-                          "section",
-                          { className: "pmtask-execution-block" },
-                          h(
-                            "h4",
-                            null,
-                            "执行过程",
-                            h("span", null, runStatusLabel(executionStatus)),
-                          ),
+                                h(
+                                  "div",
+                                  { className: "pmtask-execution-blocks" },
+                                  h(
+                                    "section",
+                                    { className: "pmtask-execution-block" },
+                                    h(
+                                      "h4",
+                                      null,
+                                      "产出物",
+                                      h(
+                                        "span",
+                                        null,
+                                        visibleRunDocuments.length === 0
+                                          ? ""
+                                          : `${visibleRunDocuments.length}`,
+                                      ),
+                                    ),
+                                    visibleRunDocuments.length === 0
+                                      ? h(
+                                          "div",
+                                          { className: "pmtask-doc-empty" },
+                                          documentsReady
+                                            ? "本轮暂无产出物"
+                                            : "任务工作区不可用",
+                                        )
+                                      : h(
+                                          "div",
+                                          { className: "pmtask-doc-list" },
+                                          ...visibleRunDocuments.map(
+                                            (document) =>
+                                              h(
+                                                "div",
+                                                {
+                                                  className: "pmtask-doc",
+                                                  key: document.id,
+                                                },
+                                                h(
+                                                  "div",
+                                                  {
+                                                    className:
+                                                      "pmtask-doc-info",
+                                                  },
+                                                  h(
+                                                    "button",
+                                                    {
+                                                      className:
+                                                        "pmtask-doc-name",
+                                                      type: "button",
+                                                      disabled:
+                                                        !document.available,
+                                                      title: document.available
+                                                        ? `下载 ${document.name}`
+                                                        : "该附件未存储到工作区",
+                                                      onClick: () =>
+                                                        void downloadDocument(
+                                                          document,
+                                                        ),
+                                                    },
+                                                    h(
+                                                      "span",
+                                                      {
+                                                        className:
+                                                          "pmtask-doc-kind",
+                                                      },
+                                                      document.kind ===
+                                                        "uploaded"
+                                                        ? "上传"
+                                                        : "产出",
+                                                    ),
+                                                    h(
+                                                      "span",
+                                                      null,
+                                                      document.name,
+                                                    ),
+                                                  ),
+                                                  h(
+                                                    "div",
+                                                    {
+                                                      className:
+                                                        "pmtask-doc-meta",
+                                                    },
+                                                    `${document.updatedBy} · ${localTime(document.updatedAt)}`,
+                                                  ),
+                                                ),
+                                                document.available
+                                                  ? h(
+                                                      "button",
+                                                      {
+                                                        className:
+                                                          "pmtask-tool-btn",
+                                                        type: "button",
+                                                        title:
+                                                          "在本地文件夹中显示",
+                                                        "aria-label":
+                                                          "在本地文件夹中显示",
+                                                        onClick: () =>
+                                                          void revealDocument(
+                                                            document,
+                                                          ),
+                                                      },
+                                                      h(
+                                                        "svg",
+                                                        {
+                                                          viewBox: "0 0 24 24",
+                                                          fill: "none",
+                                                          stroke:
+                                                            "currentColor",
+                                                          strokeWidth: 2,
+                                                          strokeLinecap:
+                                                            "round",
+                                                          strokeLinejoin:
+                                                            "round",
+                                                          "aria-hidden": "true",
+                                                        },
+                                                        h("path", {
+                                                          d: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z",
+                                                        }),
+                                                      ),
+                                                    )
+                                                  : null,
+                                              ),
+                                          ),
+                                        ),
+                                  ),
+                                  h(
+                                    "section",
+                                    { className: "pmtask-execution-block" },
+                                    h(
+                                      "h4",
+                                      null,
+                                      "执行过程",
+                                      h(
+                                        "span",
+                                        null,
+                                        runStatusLabel(executionStatus),
+                                      ),
+                                    ),
+                                    h(
+                                      "div",
+                                      {
+                                        className: "pmtask-live-output",
+                                        ref: liveOutputRef,
+                                      },
+                                      h(MarkdownText, { text: executionText }),
+                                    ),
+                                  ),
+                                  h(
+                                    "section",
+                                    { className: "pmtask-execution-block" },
+                                    h("h4", null, "Agent 执行计划"),
+                                    selectedExecution?.gateEnforcement ===
+                                      "observe-only"
+                                      ? h(
+                                          "p",
+                                          { className: "pmtask-locked-hint" },
+                                          "仅执行后观察：Runtime 只能记录已执行动作，无法事前阻断。",
+                                        )
+                                      : null,
+                                    pendingExecutionGates.length === 0
+                                      ? null
+                                      : h(
+                                          "div",
+                                          { className: "pmtask-gate" },
+                                          h("strong", null, "等待执行授权"),
+                                          h(
+                                            "p",
+                                            null,
+                                            pendingExecutionGates[0].reason,
+                                          ),
+                                          h(
+                                            "div",
+                                            {
+                                              className: "pmtask-gate-actions",
+                                            },
+                                            h(
+                                              "button",
+                                              {
+                                                className: "pmtask-btn",
+                                                type: "button",
+                                                onClick: () =>
+                                                  void decideExecutionGate(
+                                                    pendingExecutionGates[0].id,
+                                                    "approved",
+                                                  ),
+                                              },
+                                              "批准",
+                                            ),
+                                            h(
+                                              "button",
+                                              {
+                                                className:
+                                                  "pmtask-btn secondary danger",
+                                                type: "button",
+                                                onClick: () =>
+                                                  void decideExecutionGate(
+                                                    pendingExecutionGates[0].id,
+                                                    "denied",
+                                                  ),
+                                              },
+                                              "拒绝",
+                                            ),
+                                          ),
+                                        ),
+                                    selectedPlan === null
+                                      ? h(
+                                          "div",
+                                          { className: "pmtask-side-empty" },
+                                          "当前 Run 尚未产生 Agent Execution Plan。",
+                                        )
+                                      : [
+                                          h(
+                                            "ol",
+                                            { className: "pmtask-plan-list" },
+                                            ...(selectedPlan.steps ?? []).map(
+                                              (step) =>
+                                                h(
+                                                  "li",
+                                                  {
+                                                    className: `pmtask-plan-step ${step.status}`,
+                                                    key: step.id,
+                                                  },
+                                                  h("span", {
+                                                    className:
+                                                      "pmtask-plan-step-dot",
+                                                    "aria-hidden": "true",
+                                                  }),
+                                                  h(
+                                                    "span",
+                                                    {
+                                                      className:
+                                                        "pmtask-plan-step-title",
+                                                    },
+                                                    step.title,
+                                                    step.detail
+                                                      ? h(
+                                                          "small",
+                                                          null,
+                                                          step.detail,
+                                                        )
+                                                      : null,
+                                                  ),
+                                                  h(
+                                                    "span",
+                                                    {
+                                                      className:
+                                                        "pmtask-plan-step-status",
+                                                    },
+                                                    runStatusLabel(step.status),
+                                                  ),
+                                                ),
+                                            ),
+                                          ),
+                                          selectedExecutionEvents.length === 0
+                                            ? null
+                                            : h(
+                                                "ul",
+                                                {
+                                                  className:
+                                                    "pmtask-execution-events",
+                                                },
+                                                ...selectedExecutionEvents.map(
+                                                  (item) =>
+                                                    h(
+                                                      "li",
+                                                      {
+                                                        className:
+                                                          "pmtask-execution-event",
+                                                        key: item.id,
+                                                      },
+                                                      h(
+                                                        "strong",
+                                                        null,
+                                                        item.summary,
+                                                      ),
+                                                      h(
+                                                        "time",
+                                                        {
+                                                          dateTime:
+                                                            item.createdAt,
+                                                        },
+                                                        localTime(
+                                                          item.createdAt,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                ),
+                                              ),
+                                        ],
+                                  ),
+                                  h(
+                                    "section",
+                                    { className: "pmtask-execution-block" },
+                                    h(
+                                      "h4",
+                                      null,
+                                      "运行信息",
+                                      h(
+                                        "span",
+                                        null,
+                                        selectedParticipant?.name ?? "AI伙伴",
+                                      ),
+                                    ),
+                                    h(RunExecutionSummary, {
+                                      execution: selectedExecution,
+                                      state: executionSummaryState,
+                                    }),
+                                  ),
+                                ),
+                              ],
+                        )
+                      : null,
+                    activeTab === "activity"
+                      ? h(
+                          "div",
+                          { className: "pmtask-side-section" },
+                          h("h3", null, "任务动态"),
                           h(
                             "div",
-                            {
-                              className: "pmtask-live-output",
-                              ref: liveOutputRef,
-                            },
-                            h(MarkdownText, { text: executionText }),
-                          ),
-                        ),
-                        h(
-                          "section",
-                          { className: "pmtask-execution-block" },
-                          h(
-                            "h4",
-                            null,
-                            "Agent 执行计划",
-                            h(
-                              "span",
-                              null,
-                              selectedPlan === null
-                                ? "暂无"
-                                : `${planVisibilityLabel(selectedPlan.visibility)} · ${planSourceLabel(selectedPlan.source)}`,
-                            ),
-                          ),
-                          selectedExecution?.gateEnforcement === "observe-only"
-                            ? h(
-                                "div",
-                                { className: "pmtask-gate observe-only" },
-                                h("strong", null, "仅执行后观察"),
-                                h(
-                                  "p",
-                                  null,
-                                  "该 Runtime 无法在工具执行前阻断。平台会记录已观察到的动作，但不能把它展示为已成功拦截。",
-                                ),
-                              )
-                            : null,
-                          pendingExecutionGates.length === 0
-                            ? null
-                            : h(
-                                "div",
-                                { className: "pmtask-gate" },
-                                h("strong", null, "等待执行授权"),
-                                h("p", null, pendingExecutionGates[0].reason),
+                            { className: "pmtask-timeline" },
+                            ...task.events
+                              .slice()
+                              .reverse()
+                              .map((event) =>
                                 h(
                                   "div",
                                   {
-                                    className: "pmtask-gate-actions",
+                                    className: "pmtask-timeline-event",
+                                    key: event.id,
                                   },
-                                  h(
-                                    "button",
-                                    {
-                                      className: "pmtask-btn",
-                                      type: "button",
-                                      onClick: () =>
-                                        void decideExecutionGate(
-                                          pendingExecutionGates[0].id,
-                                          "approved",
-                                        ),
-                                    },
-                                    "批准",
-                                  ),
-                                  h(
-                                    "button",
-                                    {
-                                      className: "pmtask-btn secondary danger",
-                                      type: "button",
-                                      onClick: () =>
-                                        void decideExecutionGate(
-                                          pendingExecutionGates[0].id,
-                                          "denied",
-                                        ),
-                                    },
-                                    "拒绝",
-                                  ),
+                                  h("time", null, localTime(event.at)),
+                                  h("span", null, event.message),
                                 ),
                               ),
-                          selectedPlan === null
-                            ? h(
-                                "div",
-                                { className: "pmtask-side-empty" },
-                                "当前 Run 尚未产生 Agent Execution Plan。",
-                              )
-                            : [
-                                selectedPlan.summary
-                                  ? h(
-                                      "p",
-                                      {
-                                        className: "pmtask-locked-hint",
-                                      },
-                                      selectedPlan.summary,
-                                    )
-                                  : null,
-                                h(
-                                  "ol",
-                                  { className: "pmtask-plan-list" },
-                                  ...(selectedPlan.steps ?? []).map((step) =>
-                                    h(
-                                      "li",
-                                      {
-                                        className: `pmtask-plan-step ${step.status}`,
-                                        key: step.id,
-                                      },
-                                      h("span", {
-                                        className: "pmtask-plan-step-dot",
-                                        "aria-hidden": "true",
-                                      }),
-                                      h(
-                                        "span",
-                                        {
-                                          className: "pmtask-plan-step-title",
-                                        },
-                                        step.title,
-                                        step.detail
-                                          ? h("small", null, step.detail)
-                                          : null,
-                                      ),
-                                      h(
-                                        "span",
-                                        {
-                                          className: "pmtask-plan-step-status",
-                                        },
-                                        runStatusLabel(step.status),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                selectedExecutionEvents.length === 0
-                                  ? null
-                                  : h(
-                                      "ul",
-                                      {
-                                        className: "pmtask-execution-events",
-                                      },
-                                      ...selectedExecutionEvents.map((item) =>
-                                        h(
-                                          "li",
-                                          {
-                                            className: "pmtask-execution-event",
-                                            key: item.id,
-                                          },
-                                          h("strong", null, item.summary),
-                                          h(
-                                            "time",
-                                            {
-                                              dateTime: item.createdAt,
-                                            },
-                                            localTime(item.createdAt),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                              ],
-                        ),
-                        h(
-                          "section",
-                          { className: "pmtask-execution-block" },
-                          h(
-                            "h4",
-                            null,
-                            "运行信息",
-                            h(
-                              "span",
-                              null,
-                              selectedParticipant?.name ?? "AI伙伴",
-                            ),
                           ),
-                          h(RunExecutionSummary, {
-                            execution: selectedExecution,
-                            state: executionSummaryState,
-                          }),
-                        ),
-                      ),
-                    ],
-              ),
-              h(
-                "div",
-                { className: "pmtask-side-section" },
-                h("h3", null, "任务动态"),
-                h(
-                  "div",
-                  { className: "pmtask-timeline" },
-                  ...task.events
-                    .slice(-5)
-                    .reverse()
-                    .map((event) =>
-                      h(
-                        "div",
-                        { className: "pmtask-timeline-event", key: event.id },
-                        h("time", null, localTime(event.at)),
-                        h("span", null, event.message),
-                      ),
-                    ),
-                ),
-              ),
+                        )
+                      : null,
+                  ),
             ),
           ),
+          submitAcceptanceOpen
+            ? h(SubmitAcceptanceDialog, {
+                steps: task.steps,
+                requireAll: task.autoSubmitReview === false,
+                onCancel: () => setSubmitAcceptanceOpen(false),
+                onConfirm: (completedStepIds) => {
+                  setSubmitAcceptanceOpen(false);
+                  void action("submit", "已提交验收", {
+                    completedStepIds,
+                  });
+                },
+              })
+            : null,
           confirmArchive
             ? h(ConfirmDialog, {
                 title: "归档该任务？",
@@ -5520,8 +8371,10 @@ window.__ModuleLoader__.load({
         reasoningEffort:
           boundRuntimeId === "" ? "" : initialPolicy.reasoningEffort,
       });
-      const selectedRuntime = (externalRuntimes ?? []).find(
-        (runtime) => runtime.id === form.runtimeId,
+      const selectedRuntime = runtimeForAgent(
+        responsibleAgent,
+        form.runtimeId,
+        externalRuntimes,
       );
       const runtimeDisplayValue =
         selectedRuntime?.name ??
@@ -5861,8 +8714,10 @@ window.__ModuleLoader__.load({
       workspaces,
       directory,
       externalRuntimes,
+      tasks,
       currentWorkspaceId,
       initialStatus,
+      seed,
       onClose,
       onCreated,
     }) {
@@ -5887,18 +8742,59 @@ window.__ModuleLoader__.load({
         initialReceiver?.execution === "external"
           ? (initialReceiver.externalRuntimeId ?? "")
           : "";
+      const seedReceiverType =
+        seed?.receiverType === "human" ||
+        seed?.receiverType === "agent" ||
+        seed?.receiverType === "role" ||
+        seed?.receiverType === "unassigned"
+          ? seed.receiverType
+          : undefined;
+      const seedReceiverId =
+        typeof seed?.receiverId === "string" ? seed.receiverId : "";
+      const seedReceiver =
+        seedReceiverType === "human"
+          ? directory.humans.find((item) => item.id === seedReceiverId)
+          : seedReceiverType === "agent"
+            ? directory.agents.find((item) => item.id === seedReceiverId)
+            : seedReceiverType === "role"
+              ? directory.roles.find((item) => item.id === seedReceiverId)
+              : undefined;
       const [form, setForm] = react.useState({
-        workspaceId: currentWorkspaceId || workspaces[0]?.id || "",
-        title: "",
+        workspaceId:
+          seed?.workspaceId ||
+          currentWorkspaceId ||
+          workspaces[0]?.id ||
+          "",
+        title: typeof seed?.title === "string" ? seed.title : "",
         type: "任务",
-        priority: "P2",
-        status: initialStatus || "todo",
-        receiverType: initialReceiverType,
-        receiverId: initialReceiver?.id ?? "",
-        receiverName: initialReceiver?.name ?? "",
-        description: "",
-        acceptance: "",
-        due: "",
+        priority:
+          seed?.priority === "P1" ||
+          seed?.priority === "P2" ||
+          seed?.priority === "P3"
+            ? seed.priority
+            : "P2",
+        status: seed?.status || initialStatus || "todo",
+        receiverType: seedReceiverType ?? initialReceiverType,
+        receiverId:
+          seedReceiverType === "unassigned"
+            ? ""
+            : (seedReceiver?.id ?? seedReceiverId ?? initialReceiver?.id ?? ""),
+        receiverName:
+          seedReceiverType === "unassigned"
+            ? "待指派"
+            : (seed?.receiverName ??
+              seedReceiver?.name ??
+              initialReceiver?.name ??
+              ""),
+        description:
+          typeof seed?.description === "string" ? seed.description : "",
+        dependsOn: Array.isArray(seed?.dependsOn)
+          ? (seed.dependsOn[0] ?? "")
+          : "",
+        acceptance: Array.isArray(seed?.acceptance)
+          ? seed.acceptance.join("\n")
+          : "",
+        due: typeof seed?.due === "string" ? seed.due : "",
         autoSubmitReview: true,
         allowPublicWeb: false,
         requireToolApproval: true,
@@ -5940,17 +8836,23 @@ window.__ModuleLoader__.load({
         form.receiverType === "agent"
           ? directory.agents.find((item) => item.id === form.receiverId)
           : undefined;
-      const selectedRuntime = (externalRuntimes ?? []).find(
-        (runtime) => runtime.id === form.runtimeId,
+      const selectedRuntime = runtimeForAgent(
+        selectedAgent,
+        form.runtimeId,
+        externalRuntimes,
       );
-      const modelChoices = [
-        ...new Set([
-          ...(selectedRuntime?.supportedModels ?? []),
-          ...(selectedRuntime?.defaultModel === undefined
-            ? []
-            : [selectedRuntime.defaultModel]),
-        ]),
-      ];
+      const externalRuntimeUnavailable =
+        form.receiverType === "agent" &&
+        selectedAgent?.execution === "external" &&
+        selectedRuntime?.status !== "active";
+      const runtimeLabel =
+        selectedAgent === undefined
+          ? "未指派 AI伙伴"
+          : selectedAgent.execution === "external"
+            ? (selectedRuntime?.name ??
+              selectedAgent.externalRuntimeId ??
+              "外部 Runtime 未绑定")
+            : "内置执行";
       return h(
         "div",
         {
@@ -5984,6 +8886,7 @@ window.__ModuleLoader__.load({
                   form.receiverType === "unassigned"
                     ? undefined
                     : form.receiverName,
+                dependsOn: form.dependsOn === "" ? [] : [form.dependsOn],
                 executionPolicy: buildExecutionPolicy(form),
               });
             },
@@ -6125,6 +9028,21 @@ window.__ModuleLoader__.load({
             h(
               "label",
               { className: "pmtask-field" },
+              "到期时间",
+              h("input", {
+                className: "pmtask-input",
+                type: "date",
+                value: form.due,
+                onChange: (event) =>
+                  setForm((current) => ({
+                    ...current,
+                    due: event.target.value,
+                  })),
+              }),
+            ),
+            h(
+              "label",
+              { className: "pmtask-field" },
               "责任人",
               h(
                 "select",
@@ -6184,41 +9102,80 @@ window.__ModuleLoader__.load({
               ),
             ),
             h(
-              "label",
-              { className: "pmtask-field" },
-              "到期时间",
-              h("input", {
-                className: "pmtask-input",
-                type: "date",
-                value: form.due,
-                onChange: (event) =>
-                  setForm((current) => ({
-                    ...current,
-                    due: event.target.value,
-                  })),
+              "div",
+              { className: "pmtask-field pmtask-span-2" },
+              h(DependencyPicker, {
+                tasks,
+                workspaceId: form.workspaceId,
+                currentTaskId: "",
+                value: form.dependsOn,
+                onChange: (dependsOn) =>
+                  setForm((current) => ({ ...current, dependsOn })),
               }),
             ),
             form.receiverType === "agent"
               ? h(
-                  "label",
-                  { className: "pmtask-check pmtask-span-2" },
-                  h("input", {
-                    type: "checkbox",
-                    checked: form.autoSubmitReview,
-                    onChange: (event) =>
+                  Fragment,
+                  null,
+                  h(ExecutionRuntimeFields, {
+                    runtimeLabel,
+                    runtimeUnavailable: externalRuntimeUnavailable,
+                    model: form.model,
+                    modelOptions: selectedRuntime?.supportedModels ?? [],
+                    defaultModelLabel: selectedRuntime?.defaultModel,
+                    modelPlaceholder:
+                      selectedRuntime === undefined
+                        ? "沿用平台默认模型"
+                        : "沿用 Runtime 默认模型",
+                    reasoningEffort: form.reasoningEffort,
+                    defaultReasoningLabel:
+                      selectedRuntime === undefined
+                        ? "沿用平台默认值"
+                        : "沿用 Runtime 默认值",
+                    onModelChange: (model) =>
+                      setForm((current) => ({ ...current, model })),
+                    onReasoningChange: (reasoningEffort) =>
                       setForm((current) => ({
                         ...current,
-                        autoSubmitReview: event.target.checked,
+                        reasoningEffort,
                       })),
                   }),
                   h(
-                    "span",
-                    null,
-                    "Agent 完成指定产出物后，自动将任务状态调整为「待Review」",
+                    "div",
+                    { className: "pmtask-field pmtask-span-2" },
+                    "Review 设置",
                     h(
-                      "em",
-                      null,
-                      "默认勾选：完成后即提交 review。取消勾选则保留在执行中，由人工手动提交验收。",
+                      "label",
+                      { className: "pmtask-check" },
+                      h("input", {
+                        type: "checkbox",
+                        checked: form.autoSubmitReview,
+                        onChange: (event) =>
+                          setForm((current) => ({
+                            ...current,
+                            autoSubmitReview: event.target.checked,
+                          })),
+                      }),
+                      h("span", null, "完成后自动提交 Review"),
+                    ),
+                    h(
+                      "label",
+                      { className: "pmtask-check" },
+                      h("input", {
+                        type: "checkbox",
+                        checked: false,
+                        disabled: true,
+                      }),
+                      h(
+                        "span",
+                        null,
+                        "Review 自动通过",
+                        h(
+                          "em",
+                          null,
+                          "（仅普通工作流执行任务可配置；审批任务须人工结论）",
+                        ),
+                      ),
                     ),
                   ),
                 )
@@ -6277,128 +9234,6 @@ window.__ModuleLoader__.load({
                     })),
                 }),
                 h("span", null, "要求记录实际工具调用事件"),
-              ),
-              h(
-                "div",
-                { className: "pmtask-execution-overrides" },
-                h(
-                  "div",
-                  { className: "pmtask-field" },
-                  "执行运行时（只读）",
-                  h(
-                    "div",
-                    {
-                      className: "pmtask-execution-runtime",
-                      role: "textbox",
-                      "aria-readonly": "true",
-                    },
-                    h(
-                      "span",
-                      null,
-                      selectedAgent === undefined
-                        ? "未指派 AI伙伴"
-                        : selectedAgent.execution === "external"
-                          ? (selectedRuntime?.name ??
-                            selectedAgent.externalRuntimeId ??
-                            "外部 Runtime 未绑定")
-                          : "内置执行",
-                    ),
-                    h("span", { className: "pmtask-readonly-badge" }, "只读"),
-                  ),
-                  h(
-                    "span",
-                    { className: "pmtask-locked-hint" },
-                    selectedAgent === undefined
-                      ? "运行时会随责任 AI伙伴自动确定。"
-                      : selectedAgent.execution === "external"
-                        ? selectedRuntime === undefined
-                          ? "AI伙伴绑定的 Runtime 不存在或已归档。"
-                          : selectedRuntime.status !== "active"
-                            ? "AI伙伴绑定的 Runtime 当前不可用。"
-                            : "来自 AI伙伴定义，任务内不可修改。"
-                        : "来自 AI伙伴定义，任务内不可修改。",
-                  ),
-                ),
-                h(
-                  "label",
-                  { className: "pmtask-field" },
-                  "本轮模型",
-                  h(
-                    "select",
-                    {
-                      className: "pmtask-select",
-                      value: form.model,
-                      disabled:
-                        selectedRuntime === undefined ||
-                        selectedRuntime.status !== "active",
-                      onChange: (event) =>
-                        setForm((current) => ({
-                          ...current,
-                          model: event.target.value,
-                        })),
-                    },
-                    h(
-                      "option",
-                      { value: "" },
-                      selectedRuntime?.defaultModel
-                        ? `Runtime 默认（${selectedRuntime.defaultModel}）`
-                        : "沿用 Runtime 默认模型",
-                    ),
-                    ...modelChoices.map((model) =>
-                      h("option", { value: model, key: model }, model),
-                    ),
-                  ),
-                  h(
-                    "span",
-                    { className: "pmtask-locked-hint" },
-                    selectedRuntime === undefined
-                      ? selectedAgent?.execution === "external"
-                        ? "AI伙伴绑定的 Runtime 当前不可用，无法选择模型。"
-                        : "先选择绑定了外部 Runtime 的 AI伙伴，才能指定本轮模型。"
-                      : modelChoices.length === 0
-                        ? "该 Runtime 尚未声明模型池，将使用 CLI 默认模型。"
-                        : "模型必须来自 Runtime 定义中的模型池。",
-                  ),
-                ),
-                h(
-                  "label",
-                  { className: "pmtask-field" },
-                  "推理强度",
-                  h(
-                    "select",
-                    {
-                      className: "pmtask-select",
-                      value: form.reasoningEffort,
-                      disabled:
-                        selectedRuntime === undefined ||
-                        selectedRuntime.status !== "active",
-                      onChange: (event) =>
-                        setForm((current) => ({
-                          ...current,
-                          reasoningEffort: event.target.value,
-                        })),
-                    },
-                    h("option", { value: "" }, "沿用 Runtime 默认值"),
-                    ...REASONING_EFFORT_OPTIONS.map((option) =>
-                      h(
-                        "option",
-                        { value: option.value, key: option.value },
-                        option.label,
-                      ),
-                    ),
-                  ),
-                  h(
-                    "span",
-                    { className: "pmtask-locked-hint" },
-                    selectedRuntime === undefined
-                      ? "只有外部 Runtime 任务可以指定推理强度。"
-                      : selectedRuntime.provider === "workbuddy"
-                        ? "将映射为 CodeBuddy 的 --effort。"
-                        : selectedRuntime.provider === "codex"
-                          ? "将映射为 Codex 的 model_reasoning_effort 配置。"
-                          : "通用命令不自动翻译该参数；仍会写入 Run 快照。",
-                  ),
-                ),
               ),
             ),
           ),

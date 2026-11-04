@@ -10,6 +10,7 @@ window.__ModuleLoader__.load({
     const WORKSPACE_KEY = "pluginmax.dataAgent.workspaceId";
     const CONVERSATION_PREFIX = "pluginmax.dataAgent.conversation.";
     const API = "/api/collab/data-agent";
+    const CONVERSATION_PAGE_SIZE = 20;
 
     const ENTITY_LABELS = {
       task: "任务",
@@ -71,6 +72,7 @@ window.__ModuleLoader__.load({
       download: icon(["M12 3v12M7 10l5 5 5-5M4 21h16"]),
       shield: icon(["M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z", "m9 12 2 2 4-5"]),
       plus: icon(["M12 5v14M5 12h14"], 12),
+      search: icon(["m21 21-4.35-4.35", "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Z"], 13),
       panel: icon(["M4 4h16v16H4Z", "M10 4v16"], 14),
     };
 
@@ -93,7 +95,7 @@ window.__ModuleLoader__.load({
 .pmda-panel{position:relative;width:100%;min-width:0;height:100%;display:flex;flex-direction:column;pointer-events:auto;overflow:hidden;border-left:0.5px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-primary);}
 .pmda-panel-root.expanded .pmda-panel{width:100%;border-left:0;}
 .pmda-panel *{box-sizing:border-box;}
-.pmda-tabs{display:flex;align-items:stretch;flex:none;gap:2px;height:49px;min-height:49px;padding:6px 8px 0 6px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);}
+.pmda-tabs{position:relative;z-index:12;display:flex;align-items:stretch;flex:none;gap:2px;height:49px;min-height:49px;padding:6px 8px 0 6px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);}
 .pmda-tab-scroll{display:flex;align-items:stretch;gap:2px;min-width:0;flex:1;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;}
 .pmda-tab{--pmda-tab-width:100px;position:relative;width:var(--pmda-tab-width);min-width:100px;max-width:100px;flex:0 0 var(--pmda-tab-width);display:inline-flex;align-items:center;height:42px;overflow:hidden;color:var(--dsw-alias-label-secondary);cursor:grab;}
 .pmda-tab.active{color:var(--dsw-alias-label-primary);border-radius:6px 6px 0 0;background:var(--dsw-alias-bg-layer-3);font-weight:600;}
@@ -114,20 +116,41 @@ window.__ModuleLoader__.load({
 .pmda-tab-action svg{width:13px;height:13px;}
 .pmda-tab-panel{width:32px;height:32px;transform:translateY(.5px);}
 .pmda-tab-panel svg{width:15px;height:15px;}
-.pmda-tab-new-menu{position:absolute;right:0;top:31px;z-index:8;min-width:150px;padding:5px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 10px 28px rgba(0,0,0,.2);}
+.pmda-tab-new-menu{position:absolute;right:0;top:31px;z-index:30;min-width:150px;padding:5px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 10px 28px rgba(0,0,0,.2);}
 .pmda-tab-new-item{display:flex;align-items:center;gap:7px;width:100%;padding:8px 9px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-primary);text-align:left;font:inherit;font-size:11px;line-height:1.4;cursor:pointer;}
 .pmda-tab-new-item svg{width:13px;height:13px;flex:none;}
 .pmda-tab-new-item:hover{background:var(--dsw-alias-bg-layer-2);}
 .pmda-iconbtn{width:28px;height:28px;flex:none;display:grid;place-items:center;padding:0;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);cursor:pointer;}
 .pmda-iconbtn:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
 .pmda-iconbtn svg{width:13px;height:13px;}
-.pmda-context{display:block;flex:none;overflow:hidden;padding:6px 10px;border-bottom:0.5px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-tertiary);font-size:10px;}
-.pmda-context-controls{display:grid;grid-template-columns:minmax(70px,1fr) minmax(102px,1.25fr) auto auto;align-items:center;gap:6px;width:100%;min-width:0;}
-.pmda-context-group{display:inline-flex;align-items:center;gap:5px;min-width:0;color:var(--dsw-alias-label-tertiary);white-space:nowrap;}
-.pmda-context-group>span{flex:none;}
-.pmda-context select{width:100%;max-width:none;height:25px;min-width:0;padding:0 6px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:5px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);font:inherit;font-size:10px;}
-.pmda-context-new{padding:0 8px;}
-.pmda-body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;}
+.pmda-context{display:block;flex:none;overflow:visible;padding:6px 10px;border-bottom:0.5px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-tertiary);font-size:10px;}
+.pmda-context-controls{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:6px;width:100%;min-width:0;}
+.pmda-session-new{height:29px;display:inline-flex;align-items:center;gap:5px;padding:0 10px;border:0.5px solid color-mix(in srgb,var(--dsw-alias-agent-primary,#8b7bf7) 54%,transparent);border-radius:6px;background:var(--dsw-alias-agent-primary,#8b7bf7);color:#fff;font:inherit;font-size:10.5px;font-weight:650;white-space:nowrap;cursor:pointer;}
+.pmda-session-new:hover{filter:brightness(1.06);}
+.pmda-session-new svg{width:12px;height:12px;}
+.pmda-session-switch{min-width:0;height:29px;display:flex;align-items:center;gap:6px;padding:0 8px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);font:inherit;font-size:10.5px;text-align:left;cursor:pointer;}
+.pmda-session-switch:hover,.pmda-session-switch[aria-expanded=true]{border-color:var(--dsw-alias-border-l4);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
+.pmda-session-switch-copy{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pmda-session-switch svg{width:12px;height:12px;flex:none;}
+.pmda-session-menu{position:fixed;z-index:1500;min-width:min(300px,calc(100vw - 24px));display:flex;flex-direction:column;padding:6px;border:1px solid var(--dsw-alias-border-l3);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));box-shadow:0 18px 48px rgba(0,0,0,.3);color:var(--dsw-alias-label-primary);}
+.pmda-session-search{height:31px;flex:none;display:flex;align-items:center;gap:6px;padding:0 8px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-tertiary);}
+.pmda-session-search svg{width:13px;height:13px;flex:none;}
+.pmda-session-search input{width:100%;min-width:0;height:29px;padding:0;border:0;outline:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:11px;}
+.pmda-session-search input::placeholder{color:var(--dsw-alias-label-tertiary);}
+.pmda-session-groups{min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:5px 1px 2px;scrollbar-gutter:stable;}
+.pmda-session-group-title{position:sticky;top:0;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 7px 5px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-tertiary);font-size:9.5px;}
+.pmda-session-group-title span:last-child{font-variant-numeric:tabular-nums;}
+.pmda-session-option{width:100%;min-width:0;display:flex;align-items:center;gap:7px;padding:7px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;text-align:left;cursor:pointer;}
+.pmda-session-option:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
+.pmda-session-option.active{background:color-mix(in srgb,var(--dsw-alias-agent-primary,#8b7bf7) 10%,transparent);color:var(--dsw-alias-label-primary);}
+.pmda-session-option-copy{min-width:0;flex:1;display:grid;gap:2px;}
+.pmda-session-option-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:550;}
+.pmda-session-option-time{color:var(--dsw-alias-label-tertiary);font-size:9px;}
+.pmda-session-option-mark{width:6px;height:6px;flex:none;border-radius:50%;background:var(--dsw-alias-agent-primary,#8b7bf7);}
+.pmda-session-status{padding:10px 8px;color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:1.5;text-align:center;}
+.pmda-session-more{width:100%;height:29px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:10px;cursor:pointer;}
+.pmda-session-more:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
+.pmda-body{position:relative;z-index:1;flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;}
 .pmda-chat{min-height:0;flex:1;overflow:auto;padding:14px 12px 18px;scroll-behavior:auto;}
 .pmda-empty{min-height:100%;display:grid;align-content:center;justify-items:center;padding:22px;text-align:center;}
 .pmda-empty-mark{width:44px;height:44px;display:grid;place-items:center;border-radius:12px;background:color-mix(in srgb,var(--dsw-alias-agent-primary,#8b7bf7) 13%,transparent);color:var(--dsw-alias-agent-primary,#8b7bf7);}
@@ -239,7 +262,7 @@ window.__ModuleLoader__.load({
 .pmda-teammate-config-field.readonly small{color:var(--dsw-alias-label-tertiary);font-size:9.5px;line-height:1.5;}
 .pmda-teammate-config-foot{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap;}
 .pmda-teammate-config-foot>span{margin-right:auto;color:var(--dsw-alias-label-tertiary);font-size:9.5px;}
-@media(max-width:640px){.pmda-panel{width:100%;}.pmda-selection-actions{max-width:calc(100vw - 24px);flex-wrap:wrap;justify-content:center;}.pmda-context{padding:6px 8px;}.pmda-context-controls{grid-template-columns:minmax(64px,1fr) minmax(92px,1.25fr) auto auto;}.pmda-report{padding:10px;}.pmda-report-toolbar{margin:-10px -10px 10px;padding:8px 10px;}}
+@media(max-width:640px){.pmda-panel{width:100%;}.pmda-selection-actions{max-width:calc(100vw - 24px);flex-wrap:wrap;justify-content:center;}.pmda-context{padding:6px 8px;}.pmda-session-menu{min-width:0;}.pmda-report{padding:10px;}.pmda-report-toolbar{margin:-10px -10px 10px;padding:8px 10px;}}
 `;
 
     function token() {
@@ -291,12 +314,174 @@ window.__ModuleLoader__.load({
       return text.length > max ? `${text.slice(0, max)}…` : text;
     }
 
+    function conversationProjectId(conversation) {
+      return conversation.projectId ?? conversation.workspaceId;
+    }
+
+    function groupConversationsByProject(conversations, workspaces) {
+      const projectNames = new Map(
+        workspaces.map((workspace) => [
+          workspace.id,
+          workspace.title ?? workspace.path ?? workspace.id,
+        ]),
+      );
+      const groups = new Map();
+      for (const conversation of conversations) {
+        const projectId = conversationProjectId(conversation);
+        const group = groups.get(projectId) ?? {
+          id: projectId,
+          title: projectNames.get(projectId) ?? projectId ?? "未归类",
+          updatedAt: "",
+          conversations: [],
+        };
+        group.conversations.push(conversation);
+        if (
+          typeof conversation.updatedAt === "string" &&
+          conversation.updatedAt > group.updatedAt
+        ) {
+          group.updatedAt = conversation.updatedAt;
+        }
+        groups.set(projectId, group);
+      }
+      return [...groups.values()]
+        .map((group) => ({
+          ...group,
+          conversations: group.conversations.sort((left, right) =>
+            String(right.updatedAt ?? "").localeCompare(
+              String(left.updatedAt ?? ""),
+            ),
+          ),
+        }))
+        .sort(
+          (left, right) =>
+            right.updatedAt.localeCompare(left.updatedAt) ||
+            left.title.localeCompare(right.title, "zh-CN"),
+        );
+    }
+
+    function mergeConversationPages(current, next) {
+      const merged = new Map(
+        current.map((conversation) => [conversation.id, conversation]),
+      );
+      for (const conversation of next) {
+        merged.set(conversation.id, conversation);
+      }
+      return [...merged.values()];
+    }
+
     function pageFromRoute(route) {
       if (route === "task") return "task";
       if (route === "workflow") return "workflow";
       if (route === "meetings" || route === "meeting") return "meeting";
       if (route === "projects" || route === "project") return "project";
       return "workbench";
+    }
+
+    function isWorkbenchRoute(route) {
+      return route === "workbench" || route === "workbench-new";
+    }
+
+    function currentNodeRoute() {
+      return window.__pluginmaxShell?.router?.state?.route ?? "";
+    }
+
+    function textSelectionSurfaceFor(node) {
+      const element =
+        node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
+      return (
+        element?.closest?.("[data-data-agent-text-surface]") ??
+        element?.closest?.(".pmx-conversation-host") ??
+        null
+      );
+    }
+
+    function textSelectionSurfaceForRange(range) {
+      const start = textSelectionSurfaceFor(range?.startContainer);
+      const end = textSelectionSurfaceFor(range?.endContainer);
+      return start !== null && start === end ? start : null;
+    }
+
+    function fallbackTaskTitle(value) {
+      const clauses = String(value)
+        .replace(/```[\s\S]*?```/g, " ")
+        .split(/\n+|[。！？!?；;]/)
+        .map((item) =>
+          item
+            .replace(/^[\s#>*_`~-]+/, "")
+            .replace(/（[^）]{0,100}）/g, "")
+            .replace(/\([^)]{0,100}\)/g, "")
+            .replace(/\s+/g, " ")
+            .trim(),
+        )
+        .filter((item) => item.length >= 6);
+      const candidate =
+        clauses.find((item) =>
+          /(处置方向|下一步|待办|行动项|人工分工|建议|结论|核实|确认|排查|梳理|分析)/.test(
+            item,
+          ),
+        ) ??
+        clauses[0] ??
+        String(value);
+      const concise = candidate
+        .replace(
+          /^(处置方向|下一步|待办|行动项|人工分工|建议|结论)[^：:]{0,24}[：:]\s*/,
+          "",
+        )
+        .replace(/\d{4}[-/.]\d{1,2}[-/.]\d{1,2}(?:T[^\s]+)?/g, " ")
+        .replace(
+          /\d[\d,.]*\s*(?:%|单|元|个|项|次|天|小时|分钟|万|家|人|笔|条)?/g,
+          " ",
+        )
+        .replace(/\s+/g, " ")
+        .replace(/(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])/g, "")
+        .trim()
+        .split(/[，,]/)[0]
+        .slice(0, 32)
+        .trim();
+      return concise || "跟进选中的事项";
+    }
+
+    function taskCaptureForSelection(node, text) {
+      const meetingMessage = node?.closest?.("[data-meeting-message-id]");
+      if (meetingMessage !== null && meetingMessage !== undefined) {
+        return {
+          surface:
+            meetingMessage.getAttribute("data-meeting-surface") ?? "",
+          sourceType:
+            meetingMessage.getAttribute("data-meeting-kind") === "ai"
+              ? "ai-chat"
+              : "meeting",
+          sourceId: meetingMessage.getAttribute("data-meeting-id") ?? "",
+          sourceTitle:
+            meetingMessage.getAttribute("data-meeting-title") ?? "",
+          workspaceId: workspaceIdFor(node),
+          messageId:
+            meetingMessage.getAttribute("data-meeting-message-id") ?? "",
+          text: compact(text, 8000),
+        };
+      }
+      const dataAgentMessage = node?.closest?.(
+        "[data-data-agent-conversation-id]",
+      );
+      if (dataAgentMessage !== null && dataAgentMessage !== undefined) {
+        return {
+          surface: "data-agent",
+          sourceType: "data-agent",
+          sourceId:
+            dataAgentMessage.getAttribute(
+              "data-data-agent-conversation-id",
+            ) ?? "",
+          sourceTitle:
+            dataAgentMessage.getAttribute(
+              "data-data-agent-conversation-title",
+            ) ?? "Data Agent 对话",
+          workspaceId: workspaceIdFor(node),
+          messageId:
+            dataAgentMessage.getAttribute("data-data-agent-message-id") ?? "",
+          text: compact(text, 8000),
+        };
+      }
+      return undefined;
     }
 
     function workspaceIdFor(element) {
@@ -586,15 +771,35 @@ window.__ModuleLoader__.load({
       })
       .catch(() => "");
 
+    function markDataAgentSelectables() {
+      for (const node of document.querySelectorAll(".pmda-selectable")) {
+        node.classList.remove("pmda-selectable");
+      }
+      if (!isWorkbenchRoute(currentNodeRoute())) return;
+      for (const adapter of entityRegistry.list()) {
+        for (const node of document.querySelectorAll(adapter.selector)) {
+          if (
+            !node.closest(".pmda-panel") &&
+            !node.closest("[data-data-agent-exclude]")
+          ) {
+            node.classList.add("pmda-selectable");
+          }
+        }
+      }
+    }
+
     function SelectionLayer() {
       const [selection, setSelection] = react.useState(null);
       const [position, setPosition] = react.useState(null);
+      const [taskCaptureBusy, setTaskCaptureBusy] = react.useState(false);
       const selectedElement = react.useRef(null);
       const actionRef = react.useRef(null);
+      const lastRouteRef = react.useRef(currentNodeRoute());
 
       const clear = react.useCallback(() => {
         selectedElement.current?.classList.remove("pmda-selected");
         selectedElement.current = null;
+        setTaskCaptureBusy(false);
         setSelection(null);
         setPosition(null);
       }, []);
@@ -612,17 +817,8 @@ window.__ModuleLoader__.load({
 
       react.useEffect(() => {
         void ambientWorkspacePromise;
-        const markSelectable = () => {
-          for (const adapter of entityRegistry.list()) {
-            for (const node of document.querySelectorAll(adapter.selector)) {
-              if (!node.closest(".pmda-panel") && !node.closest("[data-data-agent-exclude]")) {
-                node.classList.add("pmda-selectable");
-              }
-            }
-          }
-        };
-        markSelectable();
-        const observer = new MutationObserver(markSelectable);
+        markDataAgentSelectables();
+        const observer = new MutationObserver(markDataAgentSelectables);
         observer.observe(document.body, { childList: true, subtree: true });
         return () => observer.disconnect();
       }, []);
@@ -631,8 +827,14 @@ window.__ModuleLoader__.load({
         const pointerUp = (event) => {
           if (
             event.target.closest?.(
-              "[data-data-agent-panel='true'], .pmda-selection-actions, .pmda-selection-action, button, input, textarea, select, a, [role='button'][data-control], [data-data-agent-exclude]",
+              ".pmda-selection-actions, .pmda-selection-action, button, input, textarea, select, a, [role='button'][data-control], [data-data-agent-exclude]",
             )
+          ) {
+            return;
+          }
+          if (
+            event.target.closest?.("[data-data-agent-panel='true']") &&
+            !event.target.closest?.("[data-data-agent-text-surface]")
           ) {
             return;
           }
@@ -647,18 +849,23 @@ window.__ModuleLoader__.load({
                   : anchor?.parentElement;
               if (
                 node?.closest?.(
-                  "[data-data-agent-panel='true'], textarea, input, button, a, select, [contenteditable='true']",
+                  "textarea, input, button, a, select, [contenteditable='true']",
                 )
+              ) {
+                return;
+              }
+              if (
+                node?.closest?.("[data-data-agent-panel='true']") &&
+                !node?.closest?.("[data-data-agent-text-surface]")
               ) {
                 return;
               }
               const range = textSelection.getRangeAt(0);
               const rect = range.getBoundingClientRect();
               if (rect.width === 0 && rect.height === 0) return;
+              const rangeSurface = textSelectionSurfaceForRange(range);
+              if (rangeSurface === null) return;
               const route = pageFromRoute(window.__pluginmaxShell?.router?.state?.route);
-              const meetingMessage = node?.closest?.(
-                "[data-meeting-message-id]",
-              );
               show(
                 {
                   kind: "text",
@@ -669,33 +876,7 @@ window.__ModuleLoader__.load({
                     page: route === "meeting" ? "meeting" : route,
                   },
                   snapshot: { text: compact(text, 8000) },
-                  taskCapture:
-                    meetingMessage === null || meetingMessage === undefined
-                      ? undefined
-                      : {
-                          surface:
-                            meetingMessage.getAttribute(
-                              "data-meeting-surface",
-                            ) ?? "",
-                          sourceType:
-                            meetingMessage.getAttribute("data-meeting-kind") ===
-                            "ai"
-                              ? "ai-chat"
-                              : "meeting",
-                          sourceId:
-                            meetingMessage.getAttribute("data-meeting-id") ??
-                            "",
-                          sourceTitle:
-                            meetingMessage.getAttribute(
-                              "data-meeting-title",
-                            ) ?? "",
-                          workspaceId: workspaceIdFor(node),
-                          messageId:
-                            meetingMessage.getAttribute(
-                              "data-meeting-message-id",
-                            ) ?? "",
-                          text: compact(text, 8000),
-                        },
+                  taskCapture: taskCaptureForSelection(node, text),
                 },
                 rect,
                 null,
@@ -704,6 +885,11 @@ window.__ModuleLoader__.load({
           }, 0);
         };
         const click = (event) => {
+          if (window.getSelection()?.toString().trim()) return;
+          if (!isWorkbenchRoute(currentNodeRoute())) {
+            clear();
+            return;
+          }
           const interactive = event.target.closest?.(
             ".pmda-selection-action, .pmda-panel, button, input, textarea, select, a, [data-data-agent-exclude]",
           );
@@ -714,7 +900,6 @@ window.__ModuleLoader__.load({
           if (interactive !== null && interactive !== undefined && !selectionControl) {
             return;
           }
-          if (window.getSelection()?.toString().trim()) return;
           const resolved = entityRegistry.resolve(event.target);
           if (resolved === undefined) {
             if (!event.target.closest?.("[data-data-agent-entity]")) clear();
@@ -737,6 +922,13 @@ window.__ModuleLoader__.load({
         const keydown = (event) => {
           if (event.key === "Escape") clear();
         };
+        const routeChanged = () => {
+          const nextRoute = currentNodeRoute();
+          if (nextRoute === lastRouteRef.current) return;
+          lastRouteRef.current = nextRoute;
+          clear();
+          markDataAgentSelectables();
+        };
         const reposition = () => {
           if (selectedElement.current === null) return;
           const rect = selectedElement.current.getBoundingClientRect();
@@ -748,12 +940,21 @@ window.__ModuleLoader__.load({
         document.addEventListener("pointerup", pointerUp, true);
         document.addEventListener("click", click, true);
         document.addEventListener("keydown", keydown);
+        const unsubscribeRoute =
+          window.__pluginmaxShell?.router?.subscribe?.(routeChanged) ?? null;
+        if (unsubscribeRoute === null) {
+          window.addEventListener("pluginmax:route-select", routeChanged);
+        }
         window.addEventListener("resize", reposition);
         window.addEventListener("scroll", reposition, true);
         return () => {
           document.removeEventListener("pointerup", pointerUp, true);
           document.removeEventListener("click", click, true);
           document.removeEventListener("keydown", keydown);
+          unsubscribeRoute?.();
+          if (unsubscribeRoute === null) {
+            window.removeEventListener("pluginmax:route-select", routeChanged);
+          }
           window.removeEventListener("resize", reposition);
           window.removeEventListener("scroll", reposition, true);
         };
@@ -775,10 +976,11 @@ window.__ModuleLoader__.load({
             onClick: (event) => {
               event.preventDefault();
               event.stopPropagation();
+              window.__pluginmaxSidePanel?.setExpanded?.(false);
               window.__pluginmaxSidePanel?.openTab("data-agent");
               window.dispatchEvent(
                 new CustomEvent("pluginmax:data-agent-selection", {
-                  detail: { selection },
+                  detail: { selection, newSession: true },
                 }),
               );
               clear();
@@ -786,7 +988,7 @@ window.__ModuleLoader__.load({
             },
           },
           ICONS.selection,
-          "让DataAgent分析",
+          selection.kind === "text" ? "添加到对话" : "让DataAgent分析",
         ),
         selection.taskCapture === undefined
           ? null
@@ -798,17 +1000,93 @@ window.__ModuleLoader__.load({
                 onClick: (event) => {
                   event.preventDefault();
                   event.stopPropagation();
-                  window.dispatchEvent(
-                    new CustomEvent("pluginmax:task-capture-selection", {
-                      detail: selection.taskCapture,
-                    }),
-                  );
-                  clear();
-                  window.getSelection()?.removeAllRanges();
+                  if (taskCaptureBusy) return;
+                  setTaskCaptureBusy(true);
+                  void (async () => {
+                    const capture = selection.taskCapture;
+                    let title = "";
+                    let priority = "P2";
+                    let due = "";
+                    let acceptance = [];
+                    try {
+                      const prepared = await request(
+                        "/api/collab/task-capture/prepare",
+                        {
+                          method: "POST",
+                          body: JSON.stringify({
+                            sourceRef: {
+                              sourceType: capture.sourceType,
+                              sourceId: capture.sourceId,
+                              ...(capture.sourceTitle === undefined
+                                ? {}
+                                : { sourceTitle: capture.sourceTitle }),
+                            },
+                            selection: {
+                              messageIds:
+                                typeof capture.messageId === "string" &&
+                                capture.messageId !== ""
+                                  ? [capture.messageId]
+                                  : [],
+                              actionItemIds: [],
+                              reportSectionIds: [],
+                              text: capture.text,
+                            },
+                            commandId:
+                              window.crypto?.randomUUID?.() ??
+                              `task-create-${Date.now()}`,
+                          }),
+                        },
+                      );
+                      const candidate = prepared?.candidates?.[0];
+                      title =
+                        typeof candidate?.title === "string"
+                          ? candidate.title.trim()
+                          : "";
+                      priority =
+                        candidate?.priorityHint === "P1" ||
+                        candidate?.priorityHint === "P3"
+                          ? candidate.priorityHint
+                          : "P2";
+                      due =
+                        typeof candidate?.dueHint === "string"
+                          ? candidate.dueHint
+                          : "";
+                      acceptance = Array.isArray(candidate?.acceptanceHints)
+                        ? candidate.acceptanceHints
+                        : [];
+                    } catch {
+                      // 标题提炼失败时仍允许用户直接填写并创建任务。
+                    }
+                    if (title === "") {
+                      title = fallbackTaskTitle(capture.text);
+                    }
+                    const seed = {
+                      workspaceId: capture.workspaceId,
+                      title,
+                      description: capture.text,
+                      priority,
+                      due,
+                      acceptance,
+                      status: "todo",
+                    };
+                    window.__pluginmaxPendingTaskCreate = seed;
+                    window.dispatchEvent(
+                      new CustomEvent("pluginmax:task-create-open", {
+                        detail: seed,
+                      }),
+                    );
+                    window.dispatchEvent(
+                      new CustomEvent("pluginmax:navigate", {
+                        detail: { route: "task" },
+                      }),
+                    );
+                    clear();
+                    window.getSelection()?.removeAllRanges();
+                  })();
                 },
               },
               ICONS.selection,
-              "创建对应任务",
+              taskCaptureBusy ? "准备中…" : "创建任务",
             ),
       );
     }
@@ -1873,11 +2151,20 @@ window.__ModuleLoader__.load({
         () => window.localStorage.getItem(WORKSPACE_KEY) ?? "",
       );
       const [workspaces, setWorkspaces] = react.useState([]);
-      const [identity, setIdentity] = react.useState(null);
-      const [config, setConfig] = react.useState(null);
-      const [access, setAccess] = react.useState(null);
       const [conversationId, setConversationId] = react.useState("");
       const [conversations, setConversations] = react.useState([]);
+      const [conversationMenuOpen, setConversationMenuOpen] =
+        react.useState(false);
+      const [conversationQuery, setConversationQuery] = react.useState("");
+      const [conversationOptions, setConversationOptions] = react.useState([]);
+      const [conversationOptionsLoading, setConversationOptionsLoading] =
+        react.useState(false);
+      const [conversationOptionsHasMore, setConversationOptionsHasMore] =
+        react.useState(false);
+      const [conversationOptionsError, setConversationOptionsError] =
+        react.useState("");
+      const [conversationMenuStyle, setConversationMenuStyle] =
+        react.useState(null);
       const [payload, setPayload] = react.useState(null);
       const [pendingSelections, setPendingSelections] = react.useState([]);
       const [draft, setDraft] = react.useState("");
@@ -1886,11 +2173,14 @@ window.__ModuleLoader__.load({
       const [status, setStatus] = react.useState("idle");
       const [error, setError] = react.useState("");
       const [toast, setToast] = react.useState("");
-      const [taskCaptureOpen, setTaskCaptureOpen] = react.useState(false);
       const chatRef = react.useRef(null);
       const reportRef = react.useRef(null);
       const reportScroll = react.useRef(0);
       const inputRef = react.useRef(null);
+      const conversationTriggerRef = react.useRef(null);
+      const conversationMenuRef = react.useRef(null);
+      const conversationSearchRef = react.useRef(null);
+      const conversationRequestRef = react.useRef(0);
       const activeRef = react.useRef(false);
       const focusOnOpenRef = react.useRef(false);
       const lastWorkspaceRef = react.useRef("");
@@ -1907,9 +2197,6 @@ window.__ModuleLoader__.load({
           : "";
       activeDataAgentTabRef.current = activeDataAgentTab;
       const active = activeDataAgentTab !== "";
-      react.useEffect(() => {
-        setTaskCaptureOpen(false);
-      }, [conversationId]);
       const pendingInteractions =
         props?.useSessionPendingInteraction?.((state) => state) ??
         new Map();
@@ -1918,6 +2205,175 @@ window.__ModuleLoader__.load({
         setToast(message);
         window.setTimeout(() => setToast(""), 2600);
       }, []);
+
+      const startNewConversation = react.useCallback(() => {
+        const panel = window.__pluginmaxSidePanel;
+        panel?.setExpanded?.(false);
+        const snapshot = panel?.getSnapshot?.();
+        const activeTab = snapshot?.activeTab;
+        const descriptor =
+          typeof activeTab === "string"
+            ? panel?.describeTab?.(activeTab)
+            : undefined;
+        const dataAgentTab =
+          descriptor?.type === "data-agent" ? activeTab : "";
+        newConversationRef.current = true;
+        setConversationId("");
+        setPayload(null);
+        setPendingSelections([]);
+        setDraft("");
+        setActiveReport(null);
+        setView("chat");
+        if (dataAgentTab !== "") {
+          panel?.updateTab?.(dataAgentTab, {
+            sessionId: "",
+            title: "新数据洞察",
+          });
+        }
+        window.requestAnimationFrame(() => inputRef.current?.focus());
+      }, []);
+
+      const positionConversationMenu = react.useCallback(() => {
+        const trigger = conversationTriggerRef.current;
+        if (trigger === null) return;
+        const rect = trigger.getBoundingClientRect();
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        const width = Math.min(360, viewportWidth - 24);
+        const left = Math.max(
+          12,
+          Math.min(rect.left, viewportWidth - width - 12),
+        );
+        const spaceAbove = Math.max(0, rect.top - 12);
+        const spaceBelow = Math.max(0, viewportHeight - rect.bottom - 12);
+        const openAbove = spaceBelow < 220 && spaceAbove > spaceBelow;
+        const available = openAbove ? spaceAbove : spaceBelow;
+        setConversationMenuStyle({
+          left,
+          width,
+          maxHeight: Math.max(96, Math.min(380, available)),
+          ...(openAbove
+            ? { bottom: viewportHeight - rect.top + 6 }
+            : { top: rect.bottom + 6 }),
+        });
+      }, []);
+
+      const fetchConversationPage = react.useCallback(
+        async ({ queryText, offset, requestId, append }) => {
+          setConversationOptionsLoading(true);
+          setConversationOptionsError("");
+          try {
+            const params = new URLSearchParams({
+              limit: String(CONVERSATION_PAGE_SIZE),
+              offset: String(offset),
+            });
+            if (queryText.trim() !== "") params.set("query", queryText.trim());
+            const result = await request(
+              `${API}/conversations?${params.toString()}`,
+            );
+            if (conversationRequestRef.current !== requestId) return;
+            const page = result.conversations ?? [];
+            setConversationOptions((current) =>
+              append ? mergeConversationPages(current, page) : page,
+            );
+            setConversationOptionsHasMore(result.hasMore === true);
+          } catch (cause) {
+            if (conversationRequestRef.current !== requestId) return;
+            setConversationOptionsError(cause.message);
+            if (!append) {
+              setConversationOptions([]);
+              setConversationOptionsHasMore(false);
+            }
+          } finally {
+            if (conversationRequestRef.current === requestId) {
+              setConversationOptionsLoading(false);
+            }
+          }
+        },
+        [],
+      );
+
+      const closeConversationMenu = react.useCallback(() => {
+        conversationRequestRef.current += 1;
+        setConversationMenuOpen(false);
+        setConversationQuery("");
+        setConversationOptionsLoading(false);
+        setConversationMenuStyle(null);
+      }, []);
+
+      react.useEffect(() => {
+        if (!conversationMenuOpen) return undefined;
+        const requestId = ++conversationRequestRef.current;
+        setConversationOptions([]);
+        setConversationOptionsHasMore(false);
+        setConversationOptionsError("");
+        setConversationOptionsLoading(true);
+        const timer = window.setTimeout(() => {
+          void fetchConversationPage({
+            queryText: conversationQuery,
+            offset: 0,
+            requestId,
+            append: false,
+          });
+        }, conversationQuery.trim() === "" ? 0 : 180);
+        return () => window.clearTimeout(timer);
+      }, [conversationMenuOpen, conversationQuery, fetchConversationPage]);
+
+      react.useEffect(() => {
+        if (!conversationMenuOpen) return undefined;
+        positionConversationMenu();
+        const focusTimer = window.setTimeout(
+          () => conversationSearchRef.current?.focus(),
+          0,
+        );
+        const outsidePointer = (event) => {
+          if (
+            conversationTriggerRef.current?.contains(event.target) ||
+            conversationMenuRef.current?.contains(event.target)
+          ) {
+            return;
+          }
+          closeConversationMenu();
+        };
+        const escape = (event) => {
+          if (event.key === "Escape") closeConversationMenu();
+        };
+        const reposition = () => positionConversationMenu();
+        document.addEventListener("pointerdown", outsidePointer, true);
+        document.addEventListener("keydown", escape);
+        window.addEventListener("resize", reposition);
+        window.addEventListener("scroll", reposition, true);
+        return () => {
+          window.clearTimeout(focusTimer);
+          document.removeEventListener("pointerdown", outsidePointer, true);
+          document.removeEventListener("keydown", escape);
+          window.removeEventListener("resize", reposition);
+          window.removeEventListener("scroll", reposition, true);
+        };
+      }, [
+        closeConversationMenu,
+        conversationMenuOpen,
+        positionConversationMenu,
+      ]);
+
+      const loadMoreConversations = () => {
+        if (
+          conversationOptionsLoading ||
+          !conversationOptionsHasMore
+        ) {
+          return;
+        }
+        void fetchConversationPage({
+          queryText: conversationQuery,
+          offset: conversationOptions.length,
+          requestId: conversationRequestRef.current,
+          append: true,
+        });
+      };
+
+      react.useEffect(() => {
+        if (!active) closeConversationMenu();
+      }, [active, closeConversationMenu]);
 
       const loadConversation = react.useCallback(async (id) => {
         if (id === "" || loadingConversation.current === id) return;
@@ -1994,18 +2450,12 @@ window.__ModuleLoader__.load({
         if (workspaceId === "") return;
         setStatus("loading");
         try {
-          const [bootstrap, identityResult, conversationResult] = await Promise.all([
+          const [, conversationResult] = await Promise.all([
             request(`${API}?workspaceId=${encodeURIComponent(workspaceId)}`),
-            request(`/api/collab/teammates/detail?teammateId=data-agent`).catch(
-              () => ({ teammate: null }),
-            ),
             request(
               `${API}/conversations?workspaceId=${encodeURIComponent(workspaceId)}`,
             ),
           ]);
-          setIdentity(identityResult.teammate ?? bootstrap.identity);
-          setConfig(bootstrap.workspaceConfig);
-          setAccess(bootstrap.access);
           setConversations(conversationResult.conversations ?? []);
           if (newConversationRef.current) {
             newConversationRef.current = false;
@@ -2106,6 +2556,9 @@ window.__ModuleLoader__.load({
         const receiveSelection = (event) => {
           const selection = event?.detail?.selection;
           if (!selection) return;
+          if (event?.detail?.newSession === true) {
+            startNewConversation();
+          }
           if (
             selection.source?.workspaceId &&
             selection.source.workspaceId !== workspaceId
@@ -2127,6 +2580,13 @@ window.__ModuleLoader__.load({
               ? current
               : [...current, selection];
           });
+          const suggestedPrompt = event?.detail?.prompt;
+          if (
+            typeof suggestedPrompt === "string" &&
+            suggestedPrompt.trim() !== ""
+          ) {
+            setDraft(suggestedPrompt.trim());
+          }
           setView("chat");
           window.requestAnimationFrame(() => inputRef.current?.focus());
         };
@@ -2136,7 +2596,7 @@ window.__ModuleLoader__.load({
             "pluginmax:data-agent-selection",
             receiveSelection,
           );
-      }, [workspaceId]);
+      }, [startNewConversation, workspaceId]);
 
       const activeRun = payload?.runs?.find((run) =>
         ["queued", "running", "waiting_input"].includes(run.status),
@@ -2205,9 +2665,7 @@ window.__ModuleLoader__.load({
             body: JSON.stringify({
               workspaceId,
               ...(conversationId === "" ? {} : { conversationId }),
-              ...(conversation?.projectId === undefined
-                ? {}
-                : { projectId: conversation.projectId }),
+              projectId: conversation?.projectId ?? workspaceId,
               ...(conversation?.meetingId === undefined
                 ? {}
                 : { meetingId: conversation.meetingId }),
@@ -2266,22 +2724,6 @@ window.__ModuleLoader__.load({
         } catch (cause) {
           setError(cause.message);
         }
-      };
-
-      const createConversation = () => {
-        newConversationRef.current = true;
-        setConversationId("");
-        setPayload(null);
-        setPendingSelections([]);
-        setDraft("");
-        setView("chat");
-        if (activeDataAgentTab !== "") {
-          window.__pluginmaxSidePanel?.updateTab?.(activeDataAgentTab, {
-            sessionId: "",
-            title: "新数据洞察",
-          });
-        }
-        window.requestAnimationFrame(() => inputRef.current?.focus());
       };
 
       const messages = payload?.messages ?? [];
@@ -2459,7 +2901,17 @@ window.__ModuleLoader__.load({
                       })
                     : h(
                         "div",
-                        { className: "pmda-bubble" },
+                        {
+                          className: "pmda-bubble",
+                          "data-data-agent-text-surface": "conversation",
+                          "data-data-agent-conversation-id":
+                            conversationId || conversation?.id || "",
+                          "data-data-agent-conversation-title":
+                            conversation?.title || "Data Agent 对话",
+                          "data-data-agent-message-id": message.id,
+                          "data-workspace-id":
+                            conversation?.workspaceId || workspaceId,
+                        },
                         user
                           ? message.content
                           : renderChatMarkdown(message.content),
@@ -2550,58 +3002,16 @@ window.__ModuleLoader__.load({
                   : ICONS.send,
               ),
             ),
-            h(
-              "div",
-              { className: "pmda-note" },
-              h("span", null, "只读查询 · 行级权限校验"),
-              h("span", null, config?.defaultTimeRange ?? "7d"),
-            ),
-            conversationId !== "" && (payload?.messages ?? []).length > 0
-              ? h(
-                  "div",
-                  { className: "pmda-note" },
-                  h("span", null, "可从本次对话整理任务草稿"),
-                  h(
-                    "button",
-                    {
-                      type: "button",
-                      className: "pmda-btn",
-                      onClick: () => {
-                        const detail = {
-                          sourceType: "data-agent",
-                          sourceId: conversationId,
-                          sourceTitle:
-                            payload?.conversation?.title ?? "Data Agent 对话",
-                          workspaceId,
-                          messageIds: [],
-                          selectionText: "",
-                          messageOptions: (payload?.messages ?? []).map(
-                            (message) => ({
-                              id: message.id,
-                              senderName:
-                                message.role === "user" ? "我" : "Data Agent",
-                              content: message.content,
-                              createdAt: message.createdAt,
-                            }),
-                          ),
-                          actionItemIds: [],
-                        };
-                        window.__pluginmaxTaskDraftContext = detail;
-                        window.__pluginmaxSidePanel?.openTab("task-drafts");
-                        window.dispatchEvent(
-                          new CustomEvent("pluginmax:task-draft-open", {
-                            detail,
-                          }),
-                        );
-                      },
-                    },
-                    "整理任务",
-                  ),
-                )
-              : null,
           ),
         );
       }
+
+      const conversationGroups = groupConversationsByProject(
+        conversationOptions,
+        workspaces,
+      );
+      const currentConversationTitle =
+        conversation?.title?.trim() || "选择会话";
 
       return h(
         react.Fragment,
@@ -2625,69 +3035,39 @@ window.__ModuleLoader__.load({
                 "div",
                 { className: "pmda-context-controls" },
                 h(
-                  "label",
-                  { className: "pmda-context-group pmda-context-workspace" },
-                  h(
-                    "select",
-                    {
-                      value: workspaceId,
-                      "aria-label": "选择工作区",
-                      onChange: (event) => {
-                        const next = event.target.value;
-                        setWorkspaceId(next);
-                        setConversationId("");
-                        setPayload(null);
-                        setPendingSelections([]);
-                        lastWorkspaceRef.current = "";
-                      },
-                    },
-                    ...workspaces.map((workspace) =>
-                      h(
-                        "option",
-                        { key: workspace.id, value: workspace.id },
-                        workspace.title ?? workspace.path ?? workspace.id,
-                      ),
-                    ),
-                  ),
-                ),
-                h(
-                  "label",
+                  "button",
                   {
-                    className:
-                      "pmda-context-group pmda-context-conversation",
+                    type: "button",
+                    className: "pmda-session-new",
+                    onClick: startNewConversation,
                   },
-                  h("span", null, "会话："),
-                  h(
-                    "select",
-                    {
-                      value: conversationId,
-                      "aria-label": "切换 Data Agent 会话",
-                      disabled: conversations.length === 0,
-                      onChange: (event) => {
-                        const id = event.target.value;
-                        if (id === "") createConversation();
-                        else void loadConversation(id);
-                      },
-                    },
-                    h("option", { value: "" }, "新会话"),
-                    ...conversations.map((item) =>
-                      h(
-                        "option",
-                        { key: item.id, value: item.id },
-                        item.title,
-                      ),
-                    ),
-                  ),
+                  ICONS.plus,
+                  "新会话",
                 ),
                 h(
                   "button",
                   {
+                    ref: conversationTriggerRef,
                     type: "button",
-                    className: "pmda-btn pmda-context-new",
-                    onClick: createConversation,
+                    className: "pmda-session-switch",
+                    "aria-label": "切换 Data Agent 会话",
+                    "aria-haspopup": "dialog",
+                    "aria-expanded": conversationMenuOpen,
+                    onClick: () => {
+                      if (conversationMenuOpen) {
+                        closeConversationMenu();
+                      } else {
+                        setConversationQuery("");
+                        setConversationMenuOpen(true);
+                      }
+                    },
                   },
-                  ICONS.plus,
-                  "新会话",
+                  h(
+                    "span",
+                    { className: "pmda-session-switch-copy" },
+                    currentConversationTitle,
+                  ),
+                  ICONS.chevron,
                 ),
               ),
             ),
@@ -2699,35 +3079,156 @@ window.__ModuleLoader__.load({
                 )
               : null,
             h("div", { className: "pmda-body" }, body),
-            taskCaptureOpen &&
-            conversationId !== "" &&
-            typeof props?.renderSlot === "function"
-              ? props.renderSlot("pluginmax.data-agent.task-capture", {
-                  mode: "rail",
-                  sourceType: "data-agent",
-                  sourceId: conversationId,
-                  sourceTitle:
-                    payload?.conversation?.title ?? "Data Agent 对话",
-                  workspaceId,
-                  messageIds: [],
-                  messageOptions: (payload?.messages ?? []).map((message) => ({
-                    id: message.id,
-                    senderName:
-                      message.role === "user" ? "我" : "Data Agent",
-                    content: message.content,
-                    createdAt: message.createdAt,
-                  })),
-                  actionItemIds: [],
-                  onClose: () => setTaskCaptureOpen(false),
-                  onSaved: () => {
-                    window.dispatchEvent(
-                      new CustomEvent("pluginmax:task-capture-refresh"),
-                    );
-                  },
-                })
-              : null,
           ),
         ),
+        conversationMenuOpen && active
+          ? h(
+              "div",
+              {
+                ref: conversationMenuRef,
+                className: "pmda-session-menu",
+                style:
+                  conversationMenuStyle ?? {
+                    left: 0,
+                    top: 0,
+                    visibility: "hidden",
+                  },
+                role: "dialog",
+                "aria-label": "切换 Data Agent 会话",
+              },
+              h(
+                "label",
+                { className: "pmda-session-search" },
+                ICONS.search,
+                h("input", {
+                  ref: conversationSearchRef,
+                  value: conversationQuery,
+                  placeholder: "搜索会话",
+                  "aria-label": "搜索 Data Agent 会话",
+                  onChange: (event) =>
+                    setConversationQuery(event.target.value),
+                }),
+              ),
+              h(
+                "div",
+                {
+                  className: "pmda-session-groups",
+                  role: "listbox",
+                  "aria-label": "按项目分组的 Data Agent 会话",
+                  onScroll: (event) => {
+                    const node = event.currentTarget;
+                    if (
+                      node.scrollTop + node.clientHeight >=
+                      node.scrollHeight - 36
+                    ) {
+                      loadMoreConversations();
+                    }
+                  },
+                },
+                conversationOptionsLoading &&
+                  conversationOptions.length === 0
+                  ? h(
+                      "div",
+                      { className: "pmda-session-status" },
+                      "正在加载会话…",
+                    )
+                  : null,
+                conversationOptionsError !== ""
+                  ? h(
+                      "div",
+                      { className: "pmda-session-status" },
+                      conversationOptionsError,
+                    )
+                  : null,
+                conversationGroups.map((group) =>
+                  h(
+                    "div",
+                    { key: group.id },
+                    h(
+                      "div",
+                      { className: "pmda-session-group-title" },
+                      h("span", null, group.title),
+                      h(
+                        "span",
+                        null,
+                        String(group.conversations.length),
+                      ),
+                    ),
+                    ...group.conversations.map((item) =>
+                      h(
+                        "button",
+                        {
+                          key: item.id,
+                          type: "button",
+                          role: "option",
+                          "aria-selected": item.id === conversationId,
+                          className: `pmda-session-option${item.id === conversationId ? " active" : ""}`,
+                          "data-session-id": item.id,
+                          onClick: () => {
+                            closeConversationMenu();
+                            if (item.id !== conversationId) {
+                              void loadConversation(item.id);
+                            }
+                          },
+                        },
+                        h(
+                          "span",
+                          { className: "pmda-session-option-copy" },
+                          h(
+                            "span",
+                            { className: "pmda-session-option-title" },
+                            item.title,
+                          ),
+                          h(
+                            "span",
+                            { className: "pmda-session-option-time" },
+                            item.updatedAt
+                              ? new Date(item.updatedAt).toLocaleString(
+                                  "zh-CN",
+                                  {
+                                    month: "2-digit",
+                                    day: "2-digit",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  },
+                                )
+                              : "最近更新",
+                          ),
+                        ),
+                        item.id === conversationId
+                          ? h("span", {
+                              className: "pmda-session-option-mark",
+                              "aria-hidden": true,
+                            })
+                          : null,
+                      ),
+                    ),
+                  ),
+                ),
+                !conversationOptionsLoading &&
+                conversationOptionsError === "" &&
+                conversationOptions.length === 0
+                  ? h(
+                      "div",
+                      { className: "pmda-session-status" },
+                      "没有匹配的会话",
+                    )
+                  : null,
+                conversationOptionsHasMore
+                  ? h(
+                      "button",
+                      {
+                        type: "button",
+                        className: "pmda-session-more",
+                        disabled: conversationOptionsLoading,
+                        onClick: loadMoreConversations,
+                      },
+                      conversationOptionsLoading ? "加载中…" : "加载更多",
+                    )
+                  : null,
+              ),
+            )
+          : null,
         toast !== "" ? h("div", { className: "pmda-toast", role: "status" }, toast) : null,
       );
     }

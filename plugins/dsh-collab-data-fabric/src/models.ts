@@ -44,6 +44,13 @@ export const datasetDimensionSchema = z.object({
   id: dataFabricIdSchema,
   fieldId: dataFabricIdSchema,
   label: z.string().trim().min(1).max(160),
+  /** Canonical value -> accepted aliases, used before row-policy intersection. */
+  valueAliases: z
+    .record(
+      z.string().trim().min(1).max(160),
+      z.array(z.string().trim().min(1).max(160)).max(100),
+    )
+    .default({}),
 });
 export type DatasetDimension = z.infer<typeof datasetDimensionSchema>;
 

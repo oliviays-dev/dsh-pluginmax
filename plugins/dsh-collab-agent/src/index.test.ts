@@ -930,7 +930,7 @@ describe("external agent runtime", () => {
       now,
     });
     service.attachRuntime(runtime);
-    await service.dispatch(
+    const first = await service.dispatch(
       dispatchInput({
         workspacePath: "/tmp/project",
         personaId: "persona-editor",
@@ -1014,6 +1014,44 @@ describe("agent task runtime", () => {
       status: "succeeded",
     });
     expect(service.run(run.id)!.settleDelivered).toBe(true);
+  });
+
+  it("only exposes the final text block from built-in worker output", async () => {
+    const { service, runtime, subagents } = harness({ now });
+    await createProfile(service);
+    const run = await service.dispatch(
+      dispatchInput({
+        source: "chat",
+        instanceId: "meeting-ai-chat-1",
+        nodeId: "meeting-ai-chat",
+        dispatchKey: "meeting-ai:meeting-ai-chat-1:message-1",
+        payload: {
+          instanceTitle: "AI 伙伴一对一对话",
+          nodeName: "AI 1:1 对话",
+          nodeDescription: "",
+          profileName: "研究伙伴",
+          deliverables: [],
+          context: { meetingId: "meeting-ai-chat-1" },
+        },
+      }),
+    );
+    await vi.waitFor(() => expect(subagents.runs.length).toBe(1));
+    subagents.runs[0]!.outcome = {
+      output: [
+        {
+          type: "reasoning",
+          text: "Let me inspect the task tools before answering.",
+        },
+        { type: "text", text: "华东异常率 7.6%，已完成排查。" },
+      ],
+      stopReason: "completed",
+    };
+    subagents.runs[0]!.resolve();
+    await runtime.waitIdle();
+
+    expect(service.run(run.id)?.output?.summary).toBe(
+      "华东异常率 7.6%，已完成排查。",
+    );
   });
 
   it("attaches live task-worker sessions to the target workspace", async () => {
@@ -2261,6 +2299,82 @@ describe("agent task runtime", () => {
     expect(service.run(run.id)!.status).toBe("cancelled");
   });
 
+  it("queues the third workspace task without exposing it as running", async () => {
+    const { service, runtime, subagents } = harness({ now });
+    await createProfile(service);
+    const first = await service.dispatch(
+      dispatchInput({
+        instanceId: "inst-a",
+        nodeId: "task",
+        dispatchKey: "a",
+      }),
+    );
+    const second = await service.dispatch(
+      dispatchInput({
+        instanceId: "inst-b",
+        nodeId: "task",
+        dispatchKey: "b",
+      }),
+    );
+    const third = await service.dispatch(
+      dispatchInput({
+        instanceId: "inst-c",
+        nodeId: "task",
+        dispatchKey: "c",
+      }),
+    );
+    await vi.waitFor(() => expect(subagents.runs.length).toBe(2));
+    expect(service.run(third.id)?.status).toBe("queued");
+    expect(service.run(third.id)?.startedAt).toBeUndefined();
+
+    subagents.runs[0]!.outcome = {
+      output: [],
+      stopReason: "cancelled",
+    };
+    subagents.runs[0]!.resolve();
+    await vi.waitFor(() =>
+      expect(
+        [first, second, third].some(
+          (run) => service.run(run.id)?.status === "cancelled",
+        ),
+      ).toBe(true),
+    );
+    await vi.waitFor(() => expect(subagents.runs.length).toBe(3));
+    await vi.waitFor(() =>
+      expect(
+        [first, second, third]
+          .map((run) => service.run(run.id)?.status)
+          .filter((status) => status === "running"),
+      ).toHaveLength(2),
+    );
+
+    for (const run of subagents.runs.slice(1)) {
+      run.outcome = {
+        output: [],
+        stopReason: "cancelled",
+      };
+      run.resolve();
+    }
+    await runtime.waitIdle();
+  });
+
+  it("maps a direct builtin session stop to a cancelled task run", async () => {
+    const { service, runtime, subagents } = harness({ now });
+    await createProfile(service);
+    const run = await service.dispatch(dispatchInput());
+    await vi.waitFor(() => expect(subagents.runs.length).toBe(1));
+    subagents.runs[0]!.outcome = {
+      output: [],
+      stopReason: "cancelled",
+    };
+    subagents.runs[0]!.resolve();
+    await runtime.waitIdle();
+    expect(service.run(run.id)).toMatchObject({
+      status: "cancelled",
+      endedAt: expect.any(String),
+    });
+  });
+
   it("rejects cancellation after a worker reaches a terminal state", async () => {
     const { service, runtime, subagents } = harness({ now });
     await createProfile(service);
@@ -2447,5 +2561,70 @@ describe("agent routes", () => {
       response as unknown as Parameters<WebRouteLike["handler"]>[1],
     );
     expect(response.status).toBe(403);
+  });
+
+  it("returns the actual builtin default model with runtime choices", async () => {
+    const current = tables();
+    const service = new AgentRegistryService(current, { now });
+    const runtimeService = new ExternalAgentRuntimeService(
+      new FakeTable<ExternalAgentRuntime>(),
+      { now },
+    );
+    const routes = createAgentRoutes(
+      service,
+      () => ({
+        resolveToken: (token) =>
+          token === "owner"
+            ? { userId: "ws-owner", role: "member" as const }
+            : undefined,
+        members: () => [{ userId: "ws-owner", memberRole: "owner" }],
+      }),
+      undefined,
+      () => runtimeService,
+      undefined,
+      () => ({
+        currentSelection: () => ({
+          provider: "deepseek-official",
+          model: "deepseek-v4-flash",
+          reasoningEffort: "medium",
+        }),
+      }),
+    );
+    const route = routes.find(
+      (candidate) =>
+        candidate.path === "/api/collab/agent/external-runtimes",
+    )!;
+    const response = {
+      status: 0,
+      body: "",
+      writeHead(status: number) {
+        this.status = status;
+        return this;
+      },
+      end(body?: string) {
+        if (body !== undefined) this.body = body;
+        return this;
+      },
+    };
+    await route.handler(
+      {
+        method: "GET",
+        url: "/api/collab/agent/external-runtimes?workspaceId=main",
+        headers: {
+          host: "127.0.0.1:33117",
+          origin: "http://127.0.0.1:33117",
+          authorization: "Bearer owner",
+        },
+      } as unknown as Parameters<WebRouteLike["handler"]>[0],
+      response as unknown as Parameters<WebRouteLike["handler"]>[1],
+    );
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toMatchObject({
+      defaultModel: {
+        provider: "deepseek-official",
+        model: "deepseek-v4-flash",
+        reasoningEffort: "medium",
+      },
+    });
   });
 });

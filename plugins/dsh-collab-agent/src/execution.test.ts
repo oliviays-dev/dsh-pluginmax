@@ -231,6 +231,38 @@ describe("AgentExecutionService", () => {
     });
   });
 
+  it("warns instead of blocking when search capability is unknown", () => {
+    const execution = service();
+    const policy = legacyTaskExecutionPolicy();
+    policy.sourcePolicy.allow.push("public-web");
+    policy.runtime.requiredCapabilities.push({
+      key: "search",
+      necessity: "required",
+    });
+    const preflight = execution.preflight({
+      taskId: "task-1",
+      workspaceId: "workspace-1",
+      principalId: "principal-agent",
+      policy,
+      profile,
+      runtime: {
+        ...runtime,
+        id: "codex-without-search",
+        name: "Codex CLI",
+        protocol: "codex-jsonl",
+        args: [],
+      },
+    });
+    expect(preflight.compatible).toBe(true);
+    expect(preflight.runtime.capabilities.search).toBe("unknown");
+    expect(preflight.gaps).toContainEqual(
+      expect.objectContaining({ key: "search", necessity: "preferred" }),
+    );
+    expect(preflight.warnings).toContain(
+      "Runtime 未声明搜索能力，将在执行时按可用工具尝试",
+    );
+  });
+
   it("rejects a task model outside the selected runtime model pool", () => {
     const execution = service();
     const policy = legacyTaskExecutionPolicy();

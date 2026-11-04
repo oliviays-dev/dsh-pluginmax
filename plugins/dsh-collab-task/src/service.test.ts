@@ -56,6 +56,48 @@ function storedTask(overrides: Record<string, unknown> = {}): TaskRecord {
   } as unknown as TaskRecord;
 }
 
+describe("agent run delivery", () => {
+  it("compacts inline document bodies before writing a task message", async () => {
+    const table = memoryTable();
+    await table.put(
+      "TSK-agent",
+      storedTask({
+        id: "TSK-agent",
+        receiverType: "agent",
+        receiverId: "tm-report",
+        receiverName: "报告伙伴",
+      }),
+    );
+    const tasks = new TaskService({ tasks: table });
+    const document = `<html>${"x".repeat(25_000)}</html>`;
+    const updated = await tasks.attachAgentRun(
+      "TSK-agent",
+      {
+        id: "run-report",
+        instanceId: "TSK-agent",
+        status: "succeeded",
+        output: {
+          summary: [
+            "一页式简报已完成。",
+            "<!-- pluginmax-document: report.html -->",
+            document,
+            "<!-- /pluginmax-document -->",
+          ].join("\n"),
+        },
+      },
+      "报告伙伴",
+    );
+    const message = updated.messages.find(
+      (item) => item.runId === "run-report",
+    );
+    expect(message?.state).toBe("succeeded");
+    expect(message?.content).toContain("一页式简报已完成");
+    expect(message?.content).toContain("产出文档：report.html");
+    expect(message?.content).not.toContain("<html>");
+    expect(message?.content.length).toBeLessThanOrEqual(20_000);
+  });
+});
+
 describe("task execution policy", () => {
   it("stores and updates the phase-one execution policy", async () => {
     const tasks = new TaskService({ tasks: memoryTable() });

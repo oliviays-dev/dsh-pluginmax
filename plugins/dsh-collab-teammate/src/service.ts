@@ -310,6 +310,12 @@ export class TeammateTemplateService {
     return this.options.tables.templates.get(templateId);
   }
 
+  findSystem(
+    systemKey: NonNullable<TeammateTemplate["systemKey"]>,
+  ): TeammateTemplate | undefined {
+    return this.values().find((template) => template.systemKey === systemKey);
+  }
+
   /**
    * 受保护系统模版的版本迁移入口。只修复已知的旧种子缺陷，不接受普通
    * 工作区编辑，也不会覆盖平台后续维护的其他工具。
@@ -879,8 +885,8 @@ export class TeammateService {
   }
 
   /**
-   * 实例列表默认只返回"平台归属（团队共享）+ 自己创建"的实例；
-   * 平台管理员需要看全量时，必须显式传 `scope: "all"`（对应独立的"全量视图"入口）。
+   * 实例列表默认只返回自己创建的实例。平台模版共享的是定义，
+   * 平台内置 Agent 也按用户实例化；管理员全量视图需显式传 `scope: "all"`。
    */
   listInstances(
     actor?: TeammateActor,
@@ -902,9 +908,7 @@ export class TeammateService {
       (teammate) => {
         if (actor === undefined) return true;
         if (includeAll) return true;
-        if (teammate.ownerUserId === actor.userId) return true;
-        return (this.templateOf(teammate)?.source ?? teammate.source) ===
-          "platform";
+        return teammate.ownerUserId === actor.userId;
       },
     );
     const lastUsedAt = options?.lastUsedAt;
@@ -947,6 +951,119 @@ export class TeammateService {
 
   get(teammateId: string): Teammate {
     return this.requireTeammate(teammateId);
+  }
+
+  /**
+   * 平台系统 Agent 共享定义、按用户独立实例化。
+   */
+  ensureUserSystemAgent(
+    actor: TeammateActor,
+    systemKey: NonNullable<TeammateTemplate["systemKey"]>,
+  ): Promise<Teammate> {
+    return this.enqueue(async () => {
+      if (actor.role === "guest") {
+        throw new TeammateError("forbidden", "访客不能使用平台系统 Agent");
+      }
+      const existing = this.values(this.options.tables.teammates).find(
+        (teammate) =>
+          teammate.ownerUserId === actor.userId &&
+          teammate.systemKey === systemKey,
+      );
+      if (existing !== undefined) return existing;
+      const template = this.templates?.findSystem(systemKey);
+      if (template === undefined) {
+        throw new TeammateError("not_found", "平台系统 Agent 模版不存在");
+      }
+      if (template.state !== "active") {
+        throw new TeammateError(
+          "conflict",
+          "平台系统 Agent 模版当前不可用",
+        );
+      }
+      const timestamp = this.timestamp();
+      const teammate = teammateSchema.parse({
+        id: randomId(),
+        source: "platform",
+        name: template.name,
+        role: template.role,
+        ownerUserId: actor.userId,
+        ownerName: actor.name,
+        description: "",
+        soul: "",
+        scenarios: [],
+        goals: [],
+        avatar: "",
+        state: "active",
+        version: "v1.0",
+        templateId: template.id,
+        systemKey,
+        protected: {
+          deletable: false,
+          archivable: false,
+          templateSwitchable: false,
+        },
+        resettableScopes: [
+          "workspace-config",
+          "memory",
+          "platform-definition",
+        ],
+        createdBy: actor.userId,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      });
+      await this.options.tables.teammates.put(teammate.id, teammate);
+      await this.record(
+        teammate,
+        actor,
+        "created",
+        `为当前用户创建平台系统 AI伙伴「${template.name}」实例`,
+      );
+      return teammate;
+    });
+  }
+
+  /**
+   * 只写入平台系统 Agent 模板，不创建全平台共享实例。
+   */
+  async ensureSeededPlatformTemplate(input: {
+    templateId: string;
+    name: string;
+    role?: string;
+    description?: string;
+    soul?: string;
+    scenarios?: readonly string[];
+    goals?: readonly string[];
+    tools?: readonly string[];
+    systemKey: NonNullable<TeammateTemplate["systemKey"]>;
+  }): Promise<TeammateTemplate> {
+    if (this.templates === undefined) {
+      throw new TeammateError("conflict", "AI伙伴模版服务不可用");
+    }
+    const template =
+      this.templates.get(input.templateId) ??
+      (await this.templates.findOrCreate(
+        { userId: "system", name: "系统", role: "admin" },
+        {
+          id: input.templateId,
+          source: "platform",
+          name: input.name,
+          role: input.role,
+          description: input.description,
+          soul: input.soul,
+          scenarios: input.scenarios,
+          goals: input.goals,
+          tools: input.tools,
+          systemKey: input.systemKey,
+          active: true,
+        },
+      ));
+    await this.templates.repairProtectedSystemTemplate({
+      templateId: template.id,
+      systemKey: input.systemKey,
+      tools: input.tools ?? [],
+      soul: input.soul,
+    });
+    return this.templates.get(template.id) ?? template;
   }
 
   /**

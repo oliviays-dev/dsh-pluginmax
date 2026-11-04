@@ -98,6 +98,8 @@ export const conversationSchema = z.object({
   projectId: idSchema.optional(),
   meetingId: idSchema.optional(),
   agentId: z.literal(DATA_AGENT_ID),
+  /** Per-user AI partner instance; legacy rows are resolved at run time. */
+  teammateInstanceId: idSchema.optional(),
   title: z.string().trim().min(1).max(200),
   visibility: conversationVisibilitySchema,
   sourcePage: z.enum(["workbench", "task", "meeting", "project", "workflow"]),
@@ -185,6 +187,7 @@ export const runSchema = z.object({
   contextPackId: idSchema.optional(),
   contextReceiptId: idSchema.optional(),
   runtimeProfileId: idSchema.optional(),
+  teammateInstanceId: idSchema.optional(),
   runtimeProfileRevision: z.string().trim().max(200).optional(),
   mode: runModeSchema.default("report"),
   status: runStatusSchema,

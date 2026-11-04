@@ -101,6 +101,7 @@ export interface McpCatalogProvider {
     principal: MarketPrincipal,
     mcpId: string,
   ): Promise<{ status: "pending" | "connected" }>;
+  disconnect?(principal: MarketPrincipal, mcpId: string): Promise<void>;
 }
 
 export type PublisherFilter = "official" | "certified" | "community";
@@ -162,11 +163,7 @@ export interface WorkbenchTemplateView extends WorkbenchTemplateAsset {
 }
 
 export type PanelPluginStatus =
-  | "enabled"
-  | "not_enabled"
-  | "not_packaged"
-  | "disabled"
-  | "incompatible";
+  "enabled" | "not_enabled" | "not_packaged" | "disabled" | "incompatible";
 
 export interface PanelPluginView extends PanelManifest {
   source: "seed";
@@ -308,7 +305,9 @@ export class ResourceMarketService {
     return Array.from(this.tables.customAssets.entries())
       .map(([, record]) => record)
       .filter((record) => record.ownerId === principal.userId)
-      .filter((record) => input.type === undefined || record.type === input.type)
+      .filter(
+        (record) => input.type === undefined || record.type === input.type,
+      )
       .filter(
         (record) =>
           input.category === undefined ||
@@ -327,18 +326,13 @@ export class ResourceMarketService {
       .map((record) => ({ ...record, source: "user" as const }));
   }
 
-  private matches(
-    haystack: string,
-    query: string,
-    category: string,
-  ): boolean {
+  private matches(haystack: string, query: string, category: string): boolean {
     const normalized = query.trim().toLowerCase();
     return (
       (category === "" ||
         category === "全部" ||
         haystack.toLowerCase().includes(category.toLowerCase())) &&
-      (normalized === "" ||
-        haystack.toLowerCase().includes(normalized))
+      (normalized === "" || haystack.toLowerCase().includes(normalized))
     );
   }
 
@@ -557,17 +551,17 @@ export class ResourceMarketService {
   }
 
   runtimeStatus(id: string): "packaged" | "not_packaged" | "disabled" {
-    return PANEL_MANIFESTS.find((item) => item.id === id)?.runtimeStatus ??
-      "not_packaged";
+    return (
+      PANEL_MANIFESTS.find((item) => item.id === id)?.runtimeStatus ??
+      "not_packaged"
+    );
   }
 
   panelManifest(id: string): PanelManifest | undefined {
     return PANEL_MANIFESTS.find((item) => item.id === id);
   }
 
-  plugin(
-    id: string,
-  ):
+  plugin(id: string):
     | (PanelManifest & {
         compatibility: CompatibilityStatus;
         enabledFor(userId: string): boolean;
@@ -767,38 +761,52 @@ export class ResourceMarketService {
     } catch (cause) {
       this.marketProviderError(cause);
     }
-    return catalog
-      .filter((mcp) =>
-        this.matches(
-          `${mcp.name} ${mcp.description} ${mcp.protocol} ${mcp.publisher.name} ${mcp.permissions.join(" ")}`,
-          input.query ?? "",
-        input.category ?? "",
-        ),
-      )
-      .map((mcp) => {
-        const stored = this.install(principal.userId, "mcp", mcp.id);
-        const status: McpConnectionStatus =
-          provider === undefined
-            ? stored?.status === "pending"
-              ? "pending"
-              : mcp.initialStatus
-            : mcp.status ??
-              (stored?.status === "pending" ? "pending" : "off");
-        return {
-          ...mcp,
-          source:
-            (registry !== undefined && registry.size > 0) ||
-            provider !== undefined
-              ? "provider"
-              : "seed",
-          status,
-          connectionMode:
-            (registry !== undefined && registry.size > 0) ||
-            provider?.connect !== undefined
-              ? "provider"
-              : "request_only",
-        };
-      });
+    return Promise.all(
+      catalog
+        .filter((mcp) =>
+          this.matches(
+            `${mcp.name} ${mcp.description} ${mcp.protocol} ${mcp.publisher.name} ${mcp.permissions.join(" ")}`,
+            input.query ?? "",
+            input.category ?? "",
+          ),
+        )
+        .map(async (mcp) => {
+          const stored = this.install(principal.userId, "mcp", mcp.id);
+          const providerStatus: McpConnectionStatus =
+            provider === undefined
+              ? stored?.status === "pending"
+                ? "pending"
+                : mcp.initialStatus
+              : (mcp.status ??
+                (stored?.status === "pending" ? "pending" : "off"));
+          let status = providerStatus;
+          if (stored?.status === "connected" && providerStatus === "off") {
+            try {
+              const restored =
+                registry !== undefined && registry.size > 0
+                  ? await registry.connect(principal, mcp.id)
+                  : await provider?.connect?.(principal, mcp.id);
+              if (restored !== undefined) status = restored.status;
+            } catch {
+              // Keep the provider-reported state when a runtime reconnect fails.
+            }
+          }
+          return {
+            ...mcp,
+            source:
+              (registry !== undefined && registry.size > 0) ||
+              provider !== undefined
+                ? "provider"
+                : "seed",
+            status,
+            connectionMode:
+              (registry !== undefined && registry.size > 0) ||
+              provider?.connect !== undefined
+                ? "provider"
+                : "request_only",
+          };
+        }),
+    );
   }
 
   async connectMcp(
@@ -840,5 +848,33 @@ export class ResourceMarketService {
       record,
     );
     return record;
+  }
+
+  async disconnectMcp(
+    principalInput: string | MarketPrincipal,
+    mcpId: string,
+  ): Promise<void> {
+    const principal = normalizePrincipal(principalInput);
+    const registry = this.options.mcpRegistry?.();
+    const provider =
+      registry === undefined || registry.size === 0
+        ? this.options.mcpProvider?.()
+        : undefined;
+    if (registry !== undefined && registry.size > 0) {
+      try {
+        await registry.disconnect(principal, mcpId);
+      } catch (cause) {
+        this.marketProviderError(cause);
+      }
+    } else if (provider !== undefined) {
+      const catalog = await provider.list(principal);
+      if (!catalog.some((mcp) => mcp.id === mcpId)) {
+        throw new ResourceMarketError("not_found", "MCP 不存在");
+      }
+      await provider.disconnect?.(principal, mcpId);
+    }
+    await this.tables.installs.delete(
+      installKey(principal.userId, "mcp", mcpId),
+    );
   }
 }

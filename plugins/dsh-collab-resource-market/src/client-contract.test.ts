@@ -7,7 +7,13 @@ const CLIENT = resolve(import.meta.dirname, "../client/index.js");
 describe("resource market client contract", () => {
   it("renders the three platform tabs and the two workbench market tabs", () => {
     const source = readFileSync(CLIENT, "utf8");
-    for (const label of ["Skill", "MCP", "工作台市场", "工作台方案", "功能插件"]) {
+    for (const label of [
+      "Skill",
+      "MCP",
+      "工作台市场",
+      "工作台方案",
+      "功能插件",
+    ]) {
       expect(source).toContain(label);
     }
     expect(source).toContain('route !== "resource-market"');
@@ -26,8 +32,11 @@ describe("resource market client contract", () => {
     expect(source).toContain('kind: "mcp"');
     expect(source).toContain('params.set("publisher"');
     expect(source).toContain('params.set("compatibility"');
-    expect(source).toContain("登记连接请求");
     expect(source).toContain("不会伪造已连接状态");
+    expect(source).toContain("pmrm-resource-title");
+    expect(source).toContain("pmrm-resource-actions");
+    expect(source).toContain("断开连接");
+    expect(source).toContain("/api/collab/resources/mcps/disconnect");
   });
 
   it("keeps the resource market platform-level and supports preview and custom registration", () => {

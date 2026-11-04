@@ -406,6 +406,13 @@ describe("TaskCaptureService", () => {
   it("returns the existing batch when the same source items are saved again", async () => {
     const { service } = harness();
     const { saved } = await prepareAndSave(service);
+    const first = saved.drafts[0]!;
+    const edited = await service.updateDraft(actor, {
+      draftId: first.id,
+      expectedRevision: first.revision,
+      commandId: "edit-before-remount",
+      patch: { title: "已编辑并自动保存的草稿" },
+    });
     const preparedAgain = await service.prepare(actor, {
       sourceRef: {
         sourceType: "meeting",
@@ -423,6 +430,12 @@ describe("TaskCaptureService", () => {
       expectedRevision: preparedAgain.session.revision,
     });
     expect(savedAgain.batch.id).toBe(saved.batch.id);
+    expect(
+      savedAgain.drafts.find((draft) => draft.id === edited.id),
+    ).toMatchObject({
+      id: edited.id,
+      title: "已编辑并自动保存的草稿",
+    });
     expect(service.inbox(actor, "workspace-1").draftCount).toBe(2);
   });
 
@@ -544,6 +557,29 @@ describe("TaskCaptureService", () => {
     ).toMatchObject({
       taskId: "TSK-existing-1",
       draft: { status: "linked" },
+    });
+  });
+
+  it("removes an ignored draft from the library while keeping its batch history", async () => {
+    const { service } = harness();
+    const { saved } = await prepareAndSave(service);
+    const first = saved.drafts[0]!;
+    const ignored = await service.ignoreDraft(actor, {
+      draftId: first.id,
+      commandId: "delete-draft-1",
+    });
+    expect(ignored.status).toBe("ignored");
+    expect(service.library(actor, "workspace-1").items).not.toContainEqual(
+      expect.objectContaining({
+        draft: expect.objectContaining({ id: first.id }),
+      }),
+    );
+    expect(
+      service
+        .batch(actor, saved.batch.id)
+        .drafts.find((draft) => draft.id === first.id),
+    ).toMatchObject({
+      status: "ignored",
     });
   });
 

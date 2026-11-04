@@ -111,6 +111,8 @@ describe("task capture client", () => {
     expect(source).toContain("保存到草稿箱");
     expect(source).toContain("批量创建任务");
     expect(source).toContain("完善任务草稿");
+    expect(source).not.toContain("pmtc-cap-drawer-head");
+    expect(source).toContain("pmtc-cap-drawer-tools");
     expect(source).toContain("saveSideSelection(false)");
     expect(source).toContain("saveSideSelection(true)");
     expect(source).toContain("updatedResponse?.draft ?? updatedResponse");
@@ -147,6 +149,16 @@ describe("task capture client", () => {
     expect(source).toContain("reorderTab?.(source, tab)");
     expect(source).toContain("draggable: true");
     expect(source).toContain('className: "pmtc-side-tab-actions"');
+    expect(source).toContain(".pmtc-side-tabs{position:relative;z-index:12;");
+    expect(source).toContain(
+      ".pmtc-side-tab-new-menu{position:absolute;right:0;top:31px;z-index:30;",
+    );
+    expect(source).toContain(
+      ".pmtc-cap-drawer-mask{position:absolute;inset:0;z-index:100;",
+    );
+    expect(source).toContain(
+      ".pmtc-cap-drawer{width:min(470px,100%);max-width:100%;",
+    );
     expect(source).toContain(
       "height:49px;min-height:49px;padding:6px 8px 0 6px",
     );
@@ -178,10 +190,50 @@ describe("task capture client", () => {
     );
     expect(source).toContain("manualOnly: source === null");
     expect(source).toContain("手动添加一条待办");
+    expect(source).toContain("新建一条任务");
+    expect(source).toContain("addManualCandidate(true)");
+    expect(source).toContain("manualOnly && allCandidates.length > 0");
     expect(source).toContain("保存到草稿箱");
     expect(source).toContain("批量创建任务");
     expect(source).toContain("/api/collab/task-capture/manual");
     expect(source).toContain("saveManualDraft");
+  });
+
+  it("loads human and AI receivers for manual drafts and uses ISO dates", () => {
+    const source = readFileSync(
+      resolve(import.meta.dirname, "../client/index.js"),
+      "utf8",
+    );
+    expect(source).toContain("async function resolveWorkspaceId");
+    expect(source).toContain("负责人目录加载失败");
+    expect(source).toContain("正在加载负责人…");
+    expect(source).toContain("pmtc-cap-editor-error");
+    expect(source).toContain(
+      'setEditorError("截止日期请使用 yyyy-mm-dd 格式")',
+    );
+    expect(source).toContain('["人员", "human"]');
+    expect(source).toContain('["AI伙伴", "agent"]');
+    expect(source).toContain('"optgroup"');
+    expect(source).toContain("{ label, key: kind }");
+    expect(source).toContain('type: "text"');
+    expect(source).toContain("value: editorDraft.due");
+    expect(source).toContain('placeholder: "yyyy-mm-dd"');
+    expect(source).toContain("草稿截止日期，格式为 yyyy-mm-dd");
+  });
+
+  it("automatically persists Data Agent task drafts across tab remounts", () => {
+    const source = readFileSync(
+      resolve(import.meta.dirname, "../client/index.js"),
+      "utf8",
+    );
+    expect(source).toContain(
+      'const autoSaveDrafts = props.sourceType === "data-agent"',
+    );
+    expect(source).toContain('commandId: commandId("tc-auto-save")');
+    expect(source).toContain("setSavedDraftsByCandidate(savedByCandidate)");
+    expect(source).toContain("自动保存失败");
+    expect(source).toContain('"已自动保存"');
+    expect(source).toContain("hydratedEdits[candidate.id]");
   });
 
   it("renders the task draft inbox as a task-page child slot", () => {
@@ -199,6 +251,11 @@ describe("task capture client", () => {
     expect(source).toContain("高级执行设置");
     expect(source).toContain("DraftEditorDrawer");
     expect(source).toContain("CreateTasksDrawer");
+    expect(source).toContain("DeleteDraftsConfirm");
+    expect(source).toContain("批量删除");
+    expect(source).toContain('className: "pmtd-action delete"');
+    expect(source).toContain('className: "pmtd-status"');
+    expect(source).toContain("/api/collab/task-capture/draft/ignore");
     expect(source).toContain('captureIcon("refresh", 14)');
     expect(source).toContain("执行策略");
     expect(source).toContain("只创建，不派发");
@@ -211,9 +268,7 @@ describe("task capture client", () => {
       resolve(import.meta.dirname, "../client/index.js"),
       "utf8",
     );
-    expect(source).toContain(
-      'className: "pmtask-btn secondary pmtc-launcher"',
-    );
+    expect(source).toContain('className: "pmtask-btn secondary pmtc-launcher"');
     expect(source).toContain('className: "pmtask-btn-count"');
     expect(source).toContain("查看任务草稿箱");
     expect(source).toContain("height:34px;padding:0 12px");

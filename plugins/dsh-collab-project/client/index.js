@@ -278,6 +278,8 @@ window.__ModuleLoader__.load({
     function statusTone(status) {
       if (status === "风险" || status === "阻塞") return "warn";
       if (status === "已完成") return "done";
+      if (status === "已取消") return "cancelled";
+      if (status === "已归档") return "archived";
       if (status === "关注" || status === "规划中") return "notice";
       return "progress";
     }
@@ -308,6 +310,84 @@ window.__ModuleLoader__.load({
 
     function workspaceRoleLabel(role) {
       return WORKSPACE_ROLE_LABELS[role] ?? "不适用";
+    }
+
+    function isSystemAgentCandidate(candidate) {
+      const name = String(candidate?.name ?? "")
+        .replace(/\s+/g, "")
+        .toLowerCase();
+      return (
+        candidate?.systemKey !== undefined ||
+        candidate?.templateId === "sys-data-agent" ||
+        candidate?.templateId === "sys-meeting-facilitator" ||
+        candidate?.templateId === "tpl-instance-meeting-facilitator" ||
+        candidate?.id === "data-agent" ||
+        candidate?.id === "meeting-facilitator" ||
+        name === "dataagent" ||
+        name === "会议facilitator" ||
+        name === "demo会议facilitator"
+      );
+    }
+
+    function filterMemberDirectoryLocally(
+      directory,
+      members,
+      keyword,
+      limit = 30,
+    ) {
+      const value = String(keyword ?? "")
+        .trim()
+        .toLowerCase();
+      if (value === "") return { humans: [], agents: [] };
+      const matches = (candidate) =>
+        `${candidate?.name ?? ""} ${candidate?.id ?? ""}`
+          .toLowerCase()
+          .includes(value);
+      const humans = (directory?.humans ?? []).filter(matches).slice(0, limit);
+      const matchingHumans = [
+        ...humans,
+        ...(members ?? []).filter(
+          (member) => member.kind === "human" && matches(member),
+        ),
+      ];
+      const ownerIds = new Set(
+        matchingHumans
+          .map((member) => member.id)
+          .filter((id) => id !== undefined && id !== ""),
+      );
+      const ownerNames = new Set(
+        matchingHumans
+          .map((member) =>
+            String(member.name ?? "")
+              .trim()
+              .toLowerCase(),
+          )
+          .filter(Boolean),
+      );
+      const agents = (directory?.agents ?? [])
+        .filter((candidate) => !isSystemAgentCandidate(candidate))
+        .filter(
+          (candidate) =>
+            matches(candidate) ||
+            (candidate.ownerUserId !== undefined &&
+              ownerIds.has(candidate.ownerUserId)) ||
+            ownerNames.has(
+              String(candidate.ownerName ?? "")
+                .trim()
+                .toLowerCase(),
+            ),
+        )
+        .slice(0, limit);
+      return { humans, agents };
+    }
+
+    function isProjectOwner(member, ownerId) {
+      const projectOwnerId = String(ownerId ?? "").trim();
+      return (
+        member?.kind === "human" &&
+        projectOwnerId !== "" &&
+        member.id === projectOwnerId
+      );
     }
 
     function compactWorkspacePath(path, segmentCount = 3) {
@@ -561,8 +641,11 @@ window.__ModuleLoader__.load({
       .pmproj-avatar-ring.platform{background:#63b8ff;box-shadow:0 0 0 1px rgba(99,184,255,.55);}
       .pmproj-avatar-art{width:100%;height:100%;display:block;overflow:hidden;border:2px solid var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));border-radius:50%;background:#20242a;object-fit:cover;}
       .pmproj-member-copy{min-width:0;}
+      .pmproj-member-name{display:flex;align-items:center;gap:6px;min-width:0;}
+      .pmproj-member-name strong{min-width:0;}
       .pmproj-member-copy strong{display:block;overflow:hidden;text-overflow:ellipsis;font-size:12px;white-space:nowrap;}
       .pmproj-member-copy small{display:block;margin-top:2px;color:var(--dsw-alias-label-secondary);font-size:10px;}
+      .pmproj-owner-tag{flex:none;border-radius:4px;padding:1px 5px;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 14%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7);font-size:9.5px;font-weight:600;line-height:1.5;letter-spacing:0;}
       .pmproj-label{display:block;color:var(--dsw-alias-label-secondary);font-size:10px;}
       .pmproj-value{display:block;margin-top:2px;font-size:11.5px;line-height:1.45;overflow-wrap:anywhere;}
       .pmproj-subvalue{display:block;margin-top:3px;color:var(--dsw-alias-label-secondary);font-size:10px;line-height:1.4;}
@@ -576,6 +659,10 @@ window.__ModuleLoader__.load({
       .pmproj-pill.notice{color:#c99a2e;background:color-mix(in srgb,#c99a2e 16%,transparent);}
       .pmproj-pill.warn{color:#e5534b;background:color-mix(in srgb,#e5534b 16%,transparent);}
       .pmproj-pill.done{color:#3fa46a;background:color-mix(in srgb,#3fa46a 16%,transparent);}
+      .pmproj-pill.cancelled{color:#c48b71;background:color-mix(in srgb,#c48b71 15%,transparent);}
+      .pmproj-pill.archived{color:#8f96a3;background:color-mix(in srgb,#8f96a3 16%,transparent);}
+      .pmproj-pill.input{color:#9aa4b2;background:color-mix(in srgb,#9aa4b2 16%,transparent);}
+      .pmproj-pill.output{color:#4d9f78;background:color-mix(in srgb,#4d9f78 16%,transparent);}
       .pmproj-items{display:grid;gap:8px;}
       .pmproj-item{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:9px 10px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:7px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
       .pmproj-item-main{min-width:0;}
@@ -648,6 +735,23 @@ window.__ModuleLoader__.load({
       .pmproj-field input,.pmproj-field select,.pmproj-field textarea{width:100%;height:32px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;padding:0 9px;min-width:0;}
       .pmproj-field textarea{height:auto;min-height:78px;padding:8px 9px;resize:vertical;}
       .pmproj-field input:disabled,.pmproj-field select:disabled{opacity:.7;}
+      .pmproj-member-picker{position:relative;min-width:0;}
+      .pmproj-member-search{display:flex;align-items:center;gap:7px;height:32px;padding:0 8px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-base);}
+      .pmproj-member-search:focus-within{border-color:var(--dsw-alias-accent-primary,#4f8ef7);box-shadow:var(--focus-ring);}
+      .pmproj-member-search svg{width:13px;height:13px;flex:none;color:var(--dsw-alias-label-secondary);}
+      .pmproj-member-search input{flex:1;width:auto;min-width:0;border:0;outline:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;padding:0;}
+      .pmproj-member-search-clear{width:20px;height:20px;flex:none;display:grid;place-items:center;padding:0;border:0;border-radius:4px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;}
+      .pmproj-member-search-clear:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
+      .pmproj-member-search-clear svg{width:11px;height:11px;}
+      .pmproj-member-results{position:absolute;z-index:70;top:calc(100% + 4px);right:0;left:0;max-height:260px;overflow:auto;padding:4px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:7px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));box-shadow:0 12px 30px rgba(0,0,0,.28);}
+      .pmproj-member-result-group{display:block;padding:5px 7px 3px;color:var(--dsw-alias-label-tertiary);font-size:10px;font-weight:600;}
+      .pmproj-member-result{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:7px;border:0;border-radius:5px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;}
+      .pmproj-member-result:hover,.pmproj-member-result.active{background:var(--dsw-alias-bg-layer-2);}
+      .pmproj-member-result-copy{min-width:0;}
+      .pmproj-member-result-copy strong{display:block;overflow:hidden;text-overflow:ellipsis;font-size:12px;white-space:nowrap;}
+      .pmproj-member-result-copy small{display:block;margin-top:2px;overflow:hidden;text-overflow:ellipsis;color:var(--dsw-alias-label-secondary);font-size:10px;white-space:nowrap;}
+      .pmproj-member-result-kind{flex:none;color:var(--dsw-alias-label-tertiary);font-size:10px;}
+      .pmproj-member-search-status{padding:12px 8px;color:var(--dsw-alias-label-secondary);font-size:11.5px;text-align:center;}
       .pmproj-footer{display:flex;justify-content:flex-end;gap:8px;margin-top:12px;}
       .pmproj-checkboxes{display:flex;flex-wrap:wrap;gap:6px;margin-top:5px;}
       .pmproj-checkbox{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-secondary);font-size:11px;white-space:nowrap;cursor:pointer;}
@@ -793,6 +897,47 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /** 会议文件与纪要统一回到对应会议详情。 */
+    function openMeeting(meetingId, workspaceId, tab) {
+      if (typeof window.__pluginmaxShell?.setRoute === "function") {
+        window.__pluginmaxShell.setRoute("meetings");
+      }
+      window.dispatchEvent(
+        new CustomEvent("pluginmax:collab-navigate", {
+          detail: {
+            plugin: "meeting",
+            meetingId,
+            workspaceId,
+            ...(tab === undefined ? {} : { tab }),
+          },
+        }),
+      );
+    }
+
+    /** Data Agent 报告回到生成它的数据洞察会话。 */
+    function openDataAgent(conversationId, workspaceId) {
+      window.__pluginmaxPendingDataAgentConversation = {
+        conversationId,
+        workspaceId,
+      };
+      if (typeof window.__pluginmaxSidePanel?.openTab === "function") {
+        window.__pluginmaxSidePanel.openTab("data-agent");
+      } else if (typeof window.__pluginmaxShell?.setRoute === "function") {
+        window.__pluginmaxShell.setRoute("workbench");
+      }
+    }
+
+    const OUTPUT_SOURCE_LABELS = {
+      task: "任务",
+      workflow: "工作流",
+      meeting: "会议",
+      "data-agent": "Data Agent",
+    };
+
+    function outputSourceLabel(sourceKind) {
+      return OUTPUT_SOURCE_LABELS[sourceKind] ?? "来源";
+    }
+
     const OUTPUT_TYPE_LABELS = {
       pdf: "PDF",
       word: "Word",
@@ -828,6 +973,7 @@ window.__ModuleLoader__.load({
         item.workflowNodeName,
         item.workflowInstanceTitle,
         item.sourceName,
+        item.authorName,
       ]
         .filter((value) => value !== undefined)
         .join(" ")
@@ -897,6 +1043,17 @@ window.__ModuleLoader__.load({
       const [editTab, setEditTab] = react.useState("basics");
       const [leaveOpen, setLeaveOpen] = react.useState(false);
       const [memberModal, setMemberModal] = react.useState(null);
+      const [memberSearchQuery, setMemberSearchQuery] = react.useState("");
+      const [memberSearchResults, setMemberSearchResults] = react.useState({
+        humans: [],
+        agents: [],
+      });
+      const [memberSearchLoading, setMemberSearchLoading] =
+        react.useState(false);
+      const [memberSearchError, setMemberSearchError] = react.useState("");
+      const [memberSearchOpen, setMemberSearchOpen] = react.useState(false);
+      const [memberSearchActiveIndex, setMemberSearchActiveIndex] =
+        react.useState(0);
       const [roleModal, setRoleModal] = react.useState(null);
       const [roleSourcesOpen, setRoleSourcesOpen] = react.useState(false);
       const [roleSources, setRoleSources] = react.useState([]);
@@ -978,6 +1135,9 @@ window.__ModuleLoader__.load({
           const items = result.projects ?? [];
           setProjects(items);
           setViewer(result.viewer ?? null);
+          window.dispatchEvent(
+            new CustomEvent("pluginmax:project-scope-refresh"),
+          );
           setSelectedId((current) =>
             items.some((project) => project.workspaceId === current)
               ? current
@@ -1021,6 +1181,10 @@ window.__ModuleLoader__.load({
           setEditDraft(null);
           setLeaveOpen(false);
           setMemberModal(null);
+          setMemberSearchQuery("");
+          setMemberSearchResults({ humans: [], agents: [] });
+          setMemberSearchError("");
+          setMemberSearchOpen(false);
           setRoleModal(null);
           setRoleSourcesOpen(false);
           setRoleSources([]);
@@ -1234,6 +1398,70 @@ window.__ModuleLoader__.load({
           roleDiff.removed.length >
         0;
 
+      react.useEffect(() => {
+        const keyword = memberSearchQuery.trim();
+        if (
+          memberModal?.mode !== "add" ||
+          selectedProject === null ||
+          keyword === ""
+        ) {
+          setMemberSearchLoading(false);
+          setMemberSearchError("");
+          setMemberSearchResults({ humans: [], agents: [] });
+          return undefined;
+        }
+        const controller = new AbortController();
+        setMemberSearchLoading(true);
+        setMemberSearchError("");
+        const timer = window.setTimeout(() => {
+          void request(
+            `/api/collab/projects/members/search?workspaceId=${encodeURIComponent(
+              selectedProject.workspaceId,
+            )}&q=${encodeURIComponent(keyword)}&limit=30`,
+            { signal: controller.signal },
+          )
+            .then((result) => {
+              if (controller.signal.aborted) return;
+              setMemberSearchResults({
+                humans: result.humans ?? [],
+                agents: result.agents ?? [],
+              });
+              setMemberSearchActiveIndex(0);
+            })
+            .catch((cause) => {
+              if (controller.signal.aborted) return;
+              if (cause?.status === 404) {
+                setMemberSearchResults(
+                  filterMemberDirectoryLocally(
+                    detail?.directory,
+                    detail?.members,
+                    keyword,
+                  ),
+                );
+                setMemberSearchError("");
+                return;
+              }
+              setMemberSearchError(
+                cause instanceof Error ? cause.message : String(cause),
+              );
+              setMemberSearchResults({ humans: [], agents: [] });
+            })
+            .finally(() => {
+              if (!controller.signal.aborted) setMemberSearchLoading(false);
+            });
+        }, 220);
+        return () => {
+          window.clearTimeout(timer);
+          controller.abort();
+        };
+      }, [
+        detail?.directory,
+        detail?.members,
+        memberModal?.mode,
+        memberSearchQuery,
+        selectedProject?.workspaceId,
+      ]);
+
       const refreshDetail = async () => {
         await Promise.all([loadProjects(), loadDetail(selectedId, true)]);
       };
@@ -1360,6 +1588,11 @@ window.__ModuleLoader__.load({
 
       const openMemberModal = (mode, member) => {
         if (detail === null) return;
+        setMemberSearchQuery("");
+        setMemberSearchResults({ humans: [], agents: [] });
+        setMemberSearchError("");
+        setMemberSearchOpen(false);
+        setMemberSearchActiveIndex(0);
         setMemberModal({
           mode,
           memberId: member?.principalId ?? member?.id ?? "",
@@ -1371,11 +1604,22 @@ window.__ModuleLoader__.load({
         });
       };
 
+      const selectMemberCandidate = (kind, candidate) => {
+        if (memberModal === null || memberModal.mode !== "add") return;
+        setMemberModal({
+          ...memberModal,
+          addKind: kind,
+          addId: candidate.principalId ?? candidate.id,
+        });
+        setMemberSearchQuery(candidate.name);
+        setMemberSearchOpen(false);
+      };
+
       const memberModalMember = (() => {
         if (memberModal === null || detail === null) return null;
         if (memberModal.mode === "add") {
           if (memberModal.addKind === "human") {
-            const candidate = (detail.directory?.humans ?? []).find(
+            const candidate = (memberSearchResults.humans ?? []).find(
               (item) =>
                 item.principalId === memberModal.addId ||
                 item.id === memberModal.addId,
@@ -1393,7 +1637,7 @@ window.__ModuleLoader__.load({
                   roleIds: [],
                 };
           }
-          const candidate = (detail.directory?.agents ?? []).find(
+          const candidate = (memberSearchResults.agents ?? []).find(
             (item) =>
               item.principalId === memberModal.addId ||
               item.id === memberModal.addId,
@@ -1419,6 +1663,17 @@ window.__ModuleLoader__.load({
           ) ?? null
         );
       })();
+
+      const memberSearchOptions = [
+        ...(memberSearchResults.humans ?? []).map((candidate) => ({
+          kind: "human",
+          candidate,
+        })),
+        ...(memberSearchResults.agents ?? []).map((candidate) => ({
+          kind: "agent",
+          candidate,
+        })),
+      ];
 
       const memberModalScope =
         memberModal === null || detail === null
@@ -2458,17 +2713,33 @@ window.__ModuleLoader__.load({
                       h(
                         "div",
                         { className: "pmproj-member-copy" },
-                        h("strong", null, member.name),
+                        h(
+                          "div",
+                          { className: "pmproj-member-name" },
+                          h("strong", null, member.name),
+                          isProjectOwner(member, selectedProject.ownerId)
+                            ? h(
+                                "span",
+                                {
+                                  className: "pmproj-owner-tag",
+                                  title: "项目负责人",
+                                },
+                                "Owner",
+                              )
+                            : null,
+                        ),
                         h(
                           "small",
                           null,
                           member.kind === "agent" && member.ownerName
-                            ? `${member.kindLabel} · Owner ${member.ownerName}`
+                            ? `AI · Owner ${member.ownerName}`
                             : member.kind === "human" && member.joinedAt
-                              ? `${member.kindLabel} · 加入 ${new Date(
+                              ? `Human · 加入 ${new Date(
                                   member.joinedAt,
                                 ).toLocaleDateString("zh-CN")}`
-                              : member.kindLabel,
+                              : member.kind === "agent"
+                                ? "AI"
+                                : "Human",
                         ),
                       ),
                     ),
@@ -3167,6 +3438,13 @@ window.__ModuleLoader__.load({
                                   h("strong", { title: item.name }, item.name),
                                   h(
                                     Pill,
+                                    { tone: item.contentRole },
+                                    item.contentRole === "input"
+                                      ? "输入"
+                                      : "产出",
+                                  ),
+                                  h(
+                                    Pill,
                                     null,
                                     OUTPUT_TYPE_LABELS[item.documentType] ??
                                       "其他",
@@ -3195,10 +3473,7 @@ window.__ModuleLoader__.load({
                                     {
                                       className: "pmproj-output-source",
                                       type: "button",
-                                      title:
-                                        item.sourceKind === "task"
-                                          ? "打开任务"
-                                          : "打开工作流",
+                                      title: "打开来源",
                                       onClick: () => {
                                         if (
                                           item.sourceKind === "task" &&
@@ -3211,6 +3486,31 @@ window.__ModuleLoader__.load({
                                           return;
                                         }
                                         if (
+                                          item.sourceKind === "meeting" &&
+                                          item.meetingId !== undefined
+                                        ) {
+                                          openMeeting(
+                                            item.meetingId,
+                                            selectedProject.workspaceId,
+                                            item.minuteVersionId === undefined
+                                              ? undefined
+                                              : "minutes",
+                                          );
+                                          return;
+                                        }
+                                        if (
+                                          item.sourceKind === "data-agent" &&
+                                          item.dataAgentConversationId !==
+                                            undefined
+                                        ) {
+                                          openDataAgent(
+                                            item.dataAgentConversationId,
+                                            selectedProject.workspaceId,
+                                          );
+                                          return;
+                                        }
+                                        if (
+                                          item.sourceKind === "workflow" &&
                                           item.workflowInstanceId !== undefined
                                         ) {
                                           openWorkflow(
@@ -3220,7 +3520,7 @@ window.__ModuleLoader__.load({
                                         }
                                       },
                                     },
-                                    `${item.sourceKind === "task" ? "任务" : "工作流"} · ${item.sourceName}`,
+                                    `${outputSourceLabel(item.sourceKind)} · ${item.sourceName}`,
                                   ),
                                   item.workflowNodeName === undefined ||
                                     item.workflowInstanceId === undefined
@@ -4960,52 +5260,254 @@ window.__ModuleLoader__.load({
               "div",
               { className: "pmproj-form-grid" },
               h(
-                "label",
+                "div",
                 { className: "pmproj-field" },
                 h("span", { className: "label" }, "成员"),
                 memberModal.mode === "add"
                   ? h(
-                      Fragment,
-                      null,
+                      "div",
+                      { className: "pmproj-member-picker" },
                       h(
-                        "select",
+                        "div",
                         {
-                          value: `${memberModal.addKind}|${memberModal.addId}`,
-                          onChange: (event) => {
-                            const [kind, id] = event.target.value.split("|");
-                            setMemberModal({
-                              ...memberModal,
-                              addKind: kind,
-                              addId: id,
-                            });
-                          },
+                          className: "pmproj-member-search",
                         },
-                        h("option", { value: "human|" }, "选择主体…"),
-                        (detail.directory?.humans ?? []).map((candidate) =>
-                          h(
-                            "option",
-                            {
-                              key: `human:${candidate.id}`,
-                              value: `human|${
-                                candidate.principalId ?? candidate.id
-                              }`,
-                            },
-                            `${platformUserOptionLabel(candidate, "human")} · Human Principal`,
-                          ),
-                        ),
-                        (detail.directory?.agents ?? []).map((candidate) =>
-                          h(
-                            "option",
-                            {
-                              key: `agent:${candidate.id}`,
-                              value: `agent|${
-                                candidate.principalId ?? candidate.id
-                              }`,
-                            },
-                            `${platformUserOptionLabel(candidate, "agent")} · AI Principal`,
-                          ),
-                        ),
+                        SearchIcon(),
+                        h("input", {
+                          role: "combobox",
+                          value:
+                            memberModal.addId === ""
+                              ? memberSearchQuery
+                              : (member?.name ?? memberSearchQuery),
+                          placeholder: "搜索用户名或 AI 伙伴",
+                          "aria-label": "搜索用户名或 AI 伙伴名称",
+                          "aria-autocomplete": "list",
+                          "aria-expanded": memberSearchOpen,
+                          "aria-controls": "pmproj-member-search-results",
+                          "aria-activedescendant":
+                            memberSearchOpen && memberSearchOptions.length > 0
+                              ? `pmproj-member-option-${
+                                  memberSearchOptions[memberSearchActiveIndex]
+                                    ?.kind
+                                }-${
+                                  memberSearchOptions[memberSearchActiveIndex]
+                                    ?.candidate.id
+                                }`
+                              : undefined,
+                          onFocus: () => setMemberSearchOpen(true),
+                          onBlur: () => setMemberSearchOpen(false),
+                          onKeyDown: (event) => {
+                            if (event.key === "Escape") {
+                              setMemberSearchOpen(false);
+                              return;
+                            }
+                            if (
+                              event.key === "ArrowDown" &&
+                              memberSearchOptions.length > 0
+                            ) {
+                              event.preventDefault();
+                              setMemberSearchOpen(true);
+                              setMemberSearchActiveIndex(
+                                (current) =>
+                                  (current + 1) % memberSearchOptions.length,
+                              );
+                              return;
+                            }
+                            if (
+                              event.key === "ArrowUp" &&
+                              memberSearchOptions.length > 0
+                            ) {
+                              event.preventDefault();
+                              setMemberSearchOpen(true);
+                              setMemberSearchActiveIndex(
+                                (current) =>
+                                  (current - 1 + memberSearchOptions.length) %
+                                  memberSearchOptions.length,
+                              );
+                              return;
+                            }
+                            if (
+                              event.key === "Enter" &&
+                              memberSearchOpen &&
+                              memberSearchOptions[memberSearchActiveIndex]
+                            ) {
+                              event.preventDefault();
+                              const option =
+                                memberSearchOptions[memberSearchActiveIndex];
+                              selectMemberCandidate(
+                                option.kind,
+                                option.candidate,
+                              );
+                            }
+                          },
+                          onChange: (event) => {
+                            const value = event.target.value;
+                            setMemberSearchQuery(value);
+                            setMemberSearchOpen(true);
+                            setMemberSearchActiveIndex(0);
+                            if (memberModal.addId !== "") {
+                              setMemberModal({
+                                ...memberModal,
+                                addKind: "human",
+                                addId: "",
+                              });
+                            }
+                          },
+                        }),
+                        memberSearchQuery !== "" || memberModal.addId !== ""
+                          ? h(
+                              "button",
+                              {
+                                className: "pmproj-member-search-clear",
+                                type: "button",
+                                "aria-label": "清除成员搜索",
+                                onMouseDown: (event) => event.preventDefault(),
+                                onClick: () => {
+                                  setMemberSearchQuery("");
+                                  setMemberSearchResults({
+                                    humans: [],
+                                    agents: [],
+                                  });
+                                  setMemberSearchOpen(false);
+                                  setMemberModal({
+                                    ...memberModal,
+                                    addKind: "human",
+                                    addId: "",
+                                  });
+                                },
+                              },
+                              h(
+                                "svg",
+                                {
+                                  viewBox: "0 0 24 24",
+                                  fill: "none",
+                                  stroke: "currentColor",
+                                  strokeWidth: 2,
+                                  strokeLinecap: "round",
+                                  "aria-hidden": true,
+                                },
+                                h("path", {
+                                  d: "M6 6l12 12",
+                                  key: "first",
+                                }),
+                                h("path", {
+                                  d: "M18 6 6 18",
+                                  key: "second",
+                                }),
+                              ),
+                            )
+                          : null,
                       ),
+                      memberSearchOpen && memberSearchQuery.trim() !== ""
+                        ? h(
+                            "div",
+                            {
+                              id: "pmproj-member-search-results",
+                              className: "pmproj-member-results",
+                              role: "listbox",
+                              "aria-label": "成员搜索结果",
+                            },
+                            memberSearchLoading
+                              ? h(
+                                  "div",
+                                  { className: "pmproj-member-search-status" },
+                                  "搜索中…",
+                                )
+                              : memberSearchError !== ""
+                                ? h(
+                                    "div",
+                                    {
+                                      className: "pmproj-member-search-status",
+                                    },
+                                    memberSearchError,
+                                  )
+                                : memberSearchOptions.length === 0
+                                  ? h(
+                                      "div",
+                                      {
+                                        className:
+                                          "pmproj-member-search-status",
+                                      },
+                                      "未找到可添加的成员",
+                                    )
+                                  : memberSearchOptions.map((option, index) => {
+                                      const previous =
+                                        memberSearchOptions[index - 1];
+                                      const showGroup =
+                                        previous?.kind !== option.kind;
+                                      const optionId = `pmproj-member-option-${option.kind}-${option.candidate.id}`;
+                                      return h(
+                                        Fragment,
+                                        {
+                                          key: `${option.kind}:${option.candidate.id}`,
+                                        },
+                                        showGroup
+                                          ? h(
+                                              "span",
+                                              {
+                                                className:
+                                                  "pmproj-member-result-group",
+                                              },
+                                              option.kind === "human"
+                                                ? "人类用户"
+                                                : "AI 伙伴",
+                                            )
+                                          : null,
+                                        h(
+                                          "button",
+                                          {
+                                            id: optionId,
+                                            role: "option",
+                                            type: "button",
+                                            "aria-selected":
+                                              index === memberSearchActiveIndex,
+                                            className: `pmproj-member-result ${
+                                              index === memberSearchActiveIndex
+                                                ? "active"
+                                                : ""
+                                            }`.trim(),
+                                            onMouseDown: (event) =>
+                                              event.preventDefault(),
+                                            onClick: () =>
+                                              selectMemberCandidate(
+                                                option.kind,
+                                                option.candidate,
+                                              ),
+                                          },
+                                          h(
+                                            "span",
+                                            {
+                                              className:
+                                                "pmproj-member-result-copy",
+                                            },
+                                            h(
+                                              "strong",
+                                              null,
+                                              option.candidate.name,
+                                            ),
+                                            h(
+                                              "small",
+                                              null,
+                                              option.kind === "human"
+                                                ? option.candidate.platformRole
+                                                : option.candidate.kindLabel,
+                                            ),
+                                          ),
+                                          h(
+                                            "span",
+                                            {
+                                              className:
+                                                "pmproj-member-result-kind",
+                                            },
+                                            option.kind === "human"
+                                              ? "人类"
+                                              : "AI",
+                                          ),
+                                        ),
+                                      );
+                                    }),
+                          )
+                        : null,
                     )
                   : h("input", {
                       value: member?.name ?? "",
@@ -5045,6 +5547,15 @@ window.__ModuleLoader__.load({
                       ),
                     ),
               ),
+              memberModal.mode === "add" &&
+              selectedKind === "agent" &&
+              memberModal.roleIds.length === 0
+                ? h(
+                    "p",
+                    { className: "pmproj-hint wide" },
+                    "AI 伙伴需要选择项目角色后才能加入项目。",
+                  )
+                : null,
               selectedKind === "human"
                 ? h(
                     "label",
@@ -5132,7 +5643,11 @@ window.__ModuleLoader__.load({
                   {
                     className: "pmproj-btn",
                     type: "button",
-                    disabled: busy === "member",
+                    disabled:
+                      busy === "member" ||
+                      (memberModal.mode === "add" &&
+                        selectedKind === "agent" &&
+                        memberModal.roleIds.length === 0),
                     onClick: () => void saveMember(),
                   },
                   memberModal.mode === "add" ? "添加成员" : "保存变更",
@@ -5923,6 +6438,8 @@ window.__ModuleLoader__.load({
       platformUserOptionLabel,
       memberScopeForRoles,
       workspaceRoleLabel,
+      filterMemberDirectoryLocally,
+      isProjectOwner,
       compactWorkspacePath,
       auditCategoryLabel,
       auditMatches,

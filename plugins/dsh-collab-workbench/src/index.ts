@@ -268,8 +268,11 @@ function createWorkbenchRoutes(
           const params = query(request);
           const moduleId = moduleIdFrom(params.get("moduleId"));
           const tzOffset = tzOffsetFromRaw(params.get("tzOffset"));
+          const todoScope =
+            params.get("todoScope") === "me_and_ai" ? "me_and_ai" : "me";
           const module = await service.module(principal, moduleId, {
             tzOffsetMinutes: tzOffset,
+            todoScope,
           });
           sendJson(response, 200, { ok: true, module });
         } catch (cause) {
@@ -289,6 +292,31 @@ function createWorkbenchRoutes(
             throw new WorkbenchError("invalid_input", "请求内容不合法");
           }
           const marked = await service.markBriefRead(
+            principal,
+            parsed.data.itemId,
+            { tzOffsetMinutes: parsed.data.tzOffset ?? 0 },
+          );
+          const module = await service.module(principal, "brief", {
+            tzOffsetMinutes: parsed.data.tzOffset ?? 0,
+          });
+          sendJson(response, 200, { ok: true, marked, module });
+        } catch (cause) {
+          routeError(response, cause);
+        }
+      },
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/workbench/brief/unread",
+      handler: async (request, response) => {
+        try {
+          assertSameOrigin(request);
+          const principal = scopedPrincipal(request, requireTeam());
+          const parsed = readInputSchema.safeParse(await readJsonBody(request));
+          if (!parsed.success) {
+            throw new WorkbenchError("invalid_input", "请求内容不合法");
+          }
+          const marked = await service.markBriefUnread(
             principal,
             parsed.data.itemId,
             { tzOffsetMinutes: parsed.data.tzOffset ?? 0 },

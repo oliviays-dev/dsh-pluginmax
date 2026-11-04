@@ -81,7 +81,7 @@
     "approval": {
       "draftOwner": "履约 AI 伙伴",
       "requiredApprover": "周宁",
-      "warehouseConfirmation": "王工",
+      "warehouseConfirmation": "李工",
       "status": "draft",
       "humanConfirmed": false
     }

@@ -248,6 +248,7 @@ interface TeammateRuntimeLike {
     readonly name: string;
     readonly role: GlobalRole;
   }): readonly TeammateLike[];
+  isSystemAgent?(ref: string): boolean;
 }
 
 interface TaskLike {
@@ -412,6 +413,74 @@ interface WorkflowServiceLike {
   sharedDefinitions?(): readonly WorkflowDefinitionLike[];
 }
 
+interface MeetingOutputLike {
+  readonly id: string;
+  readonly workspaceId: string;
+  readonly title: string;
+  readonly status: string;
+  readonly createdBy: string;
+  readonly updatedAt: string;
+}
+
+interface MeetingServiceLike {
+  list(workspaceId: string): readonly MeetingOutputLike[];
+  get(meetingId: string): MeetingOutputLike;
+}
+
+interface MeetingFileLike {
+  readonly id: string;
+  readonly meetingId: string;
+  readonly name: string;
+  readonly mime: string;
+  readonly size: number;
+  readonly uploadedBy: string;
+  readonly createdAt: string;
+}
+
+interface MeetingFileServiceLike {
+  list(meetingId: string): readonly MeetingFileLike[];
+}
+
+interface MeetingMinuteVersionLike {
+  readonly id: string;
+  readonly meetingId: string;
+  readonly version: number;
+  readonly content: string;
+  readonly status: string;
+  readonly requestedBy: string;
+  readonly confirmedBy?: string | undefined;
+  readonly updatedAt: string;
+}
+
+interface MeetingMinutesServiceLike {
+  activeVersion(meetingId: string): MeetingMinuteVersionLike | undefined;
+}
+
+interface DataAgentConversationOutputLike {
+  readonly id: string;
+  readonly title: string;
+  readonly workspaceId: string;
+  readonly ownerUserId: string;
+}
+
+interface DataAgentReportOutputLike {
+  readonly id: string;
+  readonly conversationId: string;
+  readonly title: string;
+  readonly markdown: string;
+  readonly version: number;
+  readonly createdAt: string;
+}
+
+interface DataAgentOutputServiceLike {
+  projectReports(workspaceId: string): readonly {
+    readonly conversation: DataAgentConversationOutputLike;
+    readonly report: DataAgentReportOutputLike;
+  }[];
+  conversation(conversationId: string): DataAgentConversationOutputLike;
+  report(reportId: string): DataAgentReportOutputLike;
+}
+
 interface ProjectDependencies {
   readonly team: TeamServiceLike;
   readonly workspaces: WorkspaceRegistryLike;
@@ -421,6 +490,10 @@ interface ProjectDependencies {
   readonly tasks: () => TaskServiceLike | undefined;
   readonly taskDocuments?: () => TaskDocumentQueryServiceLike | undefined;
   readonly workflows: () => WorkflowServiceLike | undefined;
+  readonly meetings?: () => MeetingServiceLike | undefined;
+  readonly meetingFiles?: () => MeetingFileServiceLike | undefined;
+  readonly meetingMinutes?: () => MeetingMinutesServiceLike | undefined;
+  readonly dataAgent?: () => DataAgentOutputServiceLike | undefined;
   readonly principals?: () => PrincipalServiceLike | undefined;
   readonly now?: () => Date;
 }
@@ -477,6 +550,37 @@ const USER_ROLE_LABEL: Record<string, string> = {
 /** 平台角色只读展示：只取账号的全局角色，不与工作区成员角色混用。 */
 function platformRoleLabel(userRole: string | undefined): string {
   return USER_ROLE_LABEL[userRole ?? ""] ?? "平台成员";
+}
+
+function globalRoleOf(userRole: string): GlobalRole {
+  if (
+    userRole === "admin" ||
+    userRole === "owner" ||
+    userRole === "member" ||
+    userRole === "guest"
+  ) {
+    return userRole;
+  }
+  return "member";
+}
+
+function projectTeammateActors(team: TeamServiceLike): readonly {
+  userId: string;
+  name: string;
+  role: GlobalRole;
+}[] {
+  return [
+    ...team.users().map((user) => ({
+      userId: user.id,
+      name: user.name,
+      role: globalRoleOf(user.role),
+    })),
+    {
+      userId: "platform",
+      name: "平台",
+      role: "admin",
+    },
+  ];
 }
 
 function scopeLabel(permissions: readonly string[]): string {
@@ -721,8 +825,9 @@ interface ProjectOutputItem {
   readonly updatedAt: string;
   readonly documentType: ProjectOutputType;
   readonly extension: string;
+  readonly contentRole: "input" | "output";
   readonly authorName: string;
-  readonly sourceKind: "task" | "workflow";
+  readonly sourceKind: "task" | "workflow" | "meeting" | "data-agent";
   readonly sourceId: string;
   readonly sourceName: string;
   readonly taskId?: string;
@@ -732,6 +837,10 @@ interface ProjectOutputItem {
   readonly workflowNodeName?: string;
   readonly submissionId?: string;
   readonly artifactId?: string;
+  readonly meetingId?: string;
+  readonly minuteVersionId?: string;
+  readonly dataAgentConversationId?: string;
+  readonly dataAgentReportId?: string;
   readonly downloadUrl: string;
 }
 
@@ -777,6 +886,11 @@ async function projectOutputs(
   tasks: readonly TaskLike[],
   taskDocuments: TaskDocumentQueryServiceLike | undefined,
   workflows: WorkflowServiceLike | undefined,
+  meetings: MeetingServiceLike | undefined,
+  meetingFiles: MeetingFileServiceLike | undefined,
+  meetingMinutes: MeetingMinutesServiceLike | undefined,
+  dataAgent: DataAgentOutputServiceLike | undefined,
+  authorNameByUserId: ReadonlyMap<string, string>,
 ): Promise<ProjectOutputItem[]> {
   const items: ProjectOutputItem[] = [];
   const definitions = workflows?.sharedDefinitions?.() ?? [];
@@ -833,6 +947,7 @@ async function projectOutputs(
           updatedAt: submission.submittedAt,
           documentType: outputType(artifact.fileName, artifact.mimeType),
           extension: outputExtension(artifact.fileName),
+          contentRole: "output",
           authorName: submission.submittedByName,
           sourceKind: "workflow",
           sourceId: instance.id,
@@ -854,7 +969,7 @@ async function projectOutputs(
     let result: Awaited<ReturnType<TaskDocumentQueryServiceLike["list"]>>;
     try {
       result = await taskDocuments.list(task.id, {
-        includeUploaded: false,
+        includeUploaded: true,
         maxFiles: 100,
       });
     } catch {
@@ -871,7 +986,7 @@ async function projectOutputs(
         ? undefined
         : nodeNameFor(workflowInstance, workflow.nodeId));
     for (const document of result.documents) {
-      if (document.kind !== "produced" || !document.available) continue;
+      if (!document.available) continue;
       if (
         workflow?.instanceId !== undefined &&
         workflow.nodeId !== undefined &&
@@ -909,6 +1024,7 @@ async function projectOutputs(
         updatedAt: document.updatedAt,
         documentType: outputType(document.name, document.mimeType),
         extension: outputExtension(document.name),
+        contentRole: document.kind === "uploaded" ? "input" : "output",
         authorName: document.updatedBy,
         sourceKind: "task",
         sourceId: task.id,
@@ -925,6 +1041,104 @@ async function projectOutputs(
       });
     }
   }
+
+  let meetingRecords: readonly MeetingOutputLike[] = [];
+  try {
+    meetingRecords = meetings?.list(workspaceId) ?? [];
+  } catch {
+    meetingRecords = [];
+  }
+  for (const meeting of meetingRecords) {
+    if (meetingFiles !== undefined) {
+      let files: readonly MeetingFileLike[] = [];
+      try {
+        files = meetingFiles.list(meeting.id);
+      } catch {
+        files = [];
+      }
+      for (const file of files) {
+        items.push({
+          id: `meeting:file:${file.id}`,
+          name: file.name,
+          mimeType: file.mime,
+          size: file.size,
+          updatedAt: file.createdAt,
+          documentType: outputType(file.name, file.mime),
+          extension: outputExtension(file.name),
+          contentRole: "input",
+          authorName:
+            authorNameByUserId.get(file.uploadedBy) ?? file.uploadedBy,
+          sourceKind: "meeting",
+          sourceId: meeting.id,
+          sourceName: meeting.title,
+          meetingId: meeting.id,
+          downloadUrl: `/api/collab/meeting/file?fileId=${encodeURIComponent(file.id)}`,
+        });
+      }
+    }
+    if (meetingMinutes === undefined) continue;
+    let minute: MeetingMinuteVersionLike | undefined;
+    try {
+      minute = meetingMinutes.activeVersion(meeting.id);
+    } catch {
+      minute = undefined;
+    }
+    if (
+      minute === undefined ||
+      minute.content.trim() === "" ||
+      (minute.status !== "confirmed" && minute.status !== "pending_confirm")
+    ) {
+      continue;
+    }
+    const authorId = minute.confirmedBy ?? minute.requestedBy;
+    items.push({
+      id: `meeting:minute:${minute.id}`,
+      name: `${meeting.title} · 会议纪要.md`,
+      mimeType: "text/markdown",
+      size: Buffer.byteLength(minute.content),
+      updatedAt: minute.updatedAt,
+      documentType: "markdown",
+      extension: "md",
+      contentRole: "output",
+      authorName: authorNameByUserId.get(authorId) ?? authorId,
+      sourceKind: "meeting",
+      sourceId: meeting.id,
+      sourceName: meeting.title,
+      meetingId: meeting.id,
+      minuteVersionId: minute.id,
+      downloadUrl: `/api/collab/projects/outputs/download?workspaceId=${encodeURIComponent(workspaceId)}&sourceKind=meeting-minutes&meetingId=${encodeURIComponent(meeting.id)}&versionId=${encodeURIComponent(minute.id)}`,
+    });
+  }
+
+  let dataAgentReports: ReturnType<DataAgentOutputServiceLike["projectReports"]> =
+    [];
+  try {
+    dataAgentReports = dataAgent?.projectReports(workspaceId) ?? [];
+  } catch {
+    dataAgentReports = [];
+  }
+  for (const { conversation, report } of dataAgentReports) {
+    items.push({
+      id: `data-agent:report:${report.id}`,
+      name: `${report.title}.md`,
+      mimeType: "text/markdown",
+      size: Buffer.byteLength(report.markdown),
+      updatedAt: report.createdAt,
+      documentType: "markdown",
+      extension: "md",
+      contentRole: "output",
+      authorName:
+        authorNameByUserId.get(conversation.ownerUserId) ??
+        conversation.ownerUserId,
+      sourceKind: "data-agent",
+      sourceId: conversation.id,
+      sourceName: conversation.title,
+      dataAgentConversationId: conversation.id,
+      dataAgentReportId: report.id,
+      downloadUrl: `/api/collab/projects/outputs/download?workspaceId=${encodeURIComponent(workspaceId)}&sourceKind=data-agent-report&reportId=${encodeURIComponent(report.id)}`,
+    });
+  }
+
   return items
     .sort(
       (left, right) =>
@@ -932,6 +1146,24 @@ async function projectOutputs(
         left.name.localeCompare(right.name),
     )
     .slice(0, 2_000);
+}
+
+function sendOutputDownload(
+  response: ServerResponse,
+  input: {
+    readonly fileName: string;
+    readonly contentType: string;
+    readonly content: string;
+  },
+): void {
+  const body = Buffer.from(input.content, "utf8");
+  response.writeHead(200, {
+    "content-type": input.contentType,
+    "content-length": String(body.byteLength),
+    "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(input.fileName)}`,
+    "cache-control": "no-store",
+  });
+  response.end(body);
 }
 
 interface ProjectNoteSet {
@@ -1003,6 +1235,7 @@ interface MemberDirectory {
     readonly name: string;
     readonly kindLabel: string;
     readonly platformRole: string;
+    readonly ownerUserId?: string;
     readonly ownerName?: string;
   }[];
 }
@@ -1012,10 +1245,20 @@ function teammateDirectory(
   employees: EmployeeServiceLike | undefined,
   workspaceId: string,
   actor: { userId: string; name: string; role: GlobalRole },
+  actors: readonly {
+    userId: string;
+    name: string;
+    role: GlobalRole;
+  }[] = [actor],
 ): TeammateLike[] {
   const list: TeammateLike[] = [];
-  for (const teammate of teammates?.assignable(actor) ?? []) {
-    list.push(teammate);
+  const seenTeammates = new Set<string>();
+  for (const teammateActor of actors) {
+    for (const teammate of teammates?.assignable(teammateActor) ?? []) {
+      if (seenTeammates.has(teammate.id)) continue;
+      seenTeammates.add(teammate.id);
+      list.push(teammate);
+    }
   }
   const seenEmployees = new Set(
     list
@@ -1099,6 +1342,11 @@ function buildMembers(
   workspaceId: string,
   actor: { userId: string; name: string; role: GlobalRole },
   roleById: Map<string, { name: string; permissions: readonly string[] }>,
+  teammateActors?: readonly {
+    userId: string;
+    name: string;
+    role: GlobalRole;
+  }[],
 ): {
   readonly members: readonly MemberView[];
   readonly directory: MemberDirectory;
@@ -1142,6 +1390,7 @@ function buildMembers(
     employees,
     workspaceId,
     actor,
+    teammateActors,
   );
   const agentById = new Map(
     agentDirectory.map((teammate) => [teammate.id, teammate]),
@@ -1218,6 +1467,7 @@ function buildMembers(
         };
       }),
     agents: agentDirectory
+      .filter((teammate) => teammates?.isSystemAgent?.(teammate.id) !== true)
       .filter((teammate) => !agentMemberIds.has(teammate.id))
       .map((teammate) => {
         const principalId =
@@ -1237,6 +1487,7 @@ function buildMembers(
               ? `个人分身 · ${teammate.ownerName}`
               : "平台 AI伙伴",
           platformRole: teammatePlatformRole(teammate),
+          ownerUserId: teammate.ownerUserId,
           ...(teammate.ownerName === ""
             ? {}
             : { ownerName: teammate.ownerName }),
@@ -1244,6 +1495,30 @@ function buildMembers(
       }),
   };
   return { members: [...humans, ...agents], directory };
+}
+
+function memberDirectorySearch(
+  directory: MemberDirectory,
+  matchingOwnerIds: ReadonlySet<string>,
+  keyword: string,
+  limit: number,
+): MemberDirectory {
+  const value = keyword.trim().toLowerCase();
+  if (value === "") return { humans: [], agents: [] };
+  const matches = (name: string, id?: string) =>
+    `${name} ${id ?? ""}`.toLowerCase().includes(value);
+  const humans = directory.humans
+    .filter((candidate) => matches(candidate.name, candidate.id))
+    .slice(0, limit);
+  const agents = directory.agents
+    .filter(
+      (candidate) =>
+        matches(candidate.name, candidate.id) ||
+        (candidate.ownerUserId !== undefined &&
+          matchingOwnerIds.has(candidate.ownerUserId)),
+    )
+    .slice(0, limit);
+  return { humans, agents };
 }
 
 /** roles 插件自动补齐的系统席位，不属于项目自定义角色。 */
@@ -2133,6 +2408,7 @@ export function createProjectRoutes(
           role: current.role,
         },
         roleMap,
+        projectTeammateActors(team),
       );
       const tasks = tasksOf(workspaceId);
       const workflows = workflowsOf(workspaceId);
@@ -2514,6 +2790,79 @@ export function createProjectRoutes(
     }
   };
 
+  /** 添加成员时的动态搜索：人类命中时一并返回其名下尚未加入项目的 AI 伙伴。 */
+  const memberSearch = async (
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> => {
+    try {
+      const workspaceId = query(request).get("workspaceId") ?? "";
+      const current = requireProjectManager(request, team, workspaceId);
+      const workspace = workspaces.get(workspaceId);
+      if (workspace === undefined) {
+        throw new ProjectError("not_found", "项目不存在");
+      }
+      await hydrateWorkspaceMembershipGrants(workspaceId, current.userId);
+      const assignments = dependencies.assignments();
+      let project = await ensureProjectRecord(workspace);
+      project = await ensureProjectRoleCopy(service, assignments, project);
+      const keyword = query(request).get("q") ?? "";
+      const rawLimit = Number(query(request).get("limit") ?? "30");
+      const limit = Math.min(
+        50,
+        Math.max(1, Number.isFinite(rawLimit) ? Math.floor(rawLimit) : 30),
+      );
+      const roleById = new Map(
+        project.projectRoles.map((role) => [
+          role.id,
+          { name: role.name, permissions: role.permissions },
+        ]),
+      );
+      const memberDirectory = buildMembers(
+        team,
+        assignments,
+        dependencies.teammates(),
+        dependencies.employees(),
+        dependencies.principals?.(),
+        workspaceId,
+        {
+          userId: current.userId,
+          name:
+            team.users().find((user) => user.id === current.userId)?.name ??
+            current.userId,
+          role: current.role,
+        },
+        roleById,
+        projectTeammateActors(team),
+      );
+      const normalized = keyword.trim().toLowerCase();
+      const matchingOwnerIds = new Set(
+        team
+          .users()
+          .filter(
+            (user) =>
+              normalized !== "" &&
+              `${user.name} ${user.id}`.toLowerCase().includes(normalized),
+          )
+          .map((user) => user.id),
+      );
+      const directory = memberDirectorySearch(
+        memberDirectory.directory,
+        matchingOwnerIds,
+        keyword,
+        limit,
+      );
+      sendJson(response, 200, {
+        ok: true,
+        query: keyword.trim(),
+        humans: directory.humans,
+        agents: directory.agents,
+      });
+    } catch (cause) {
+      routeError(response, cause);
+    }
+  };
+
   /** 删除项目自己的角色定义；席位与指派同步清理。 */
   const projectRoleRemove = async (
     request: IncomingMessage,
@@ -2846,6 +3195,7 @@ export function createProjectRoutes(
               current.userId,
             role: current.role,
           },
+          projectTeammateActors(team),
         ).map((teammate) => [teammate.id, teammate]),
       );
       const userById = new Map(team.users().map((user) => [user.id, user]));
@@ -3039,6 +3389,11 @@ export function createProjectRoutes(
         dependencies.tasks()?.list(workspaceId) ?? [],
         dependencies.taskDocuments?.(),
         dependencies.workflows(),
+        dependencies.meetings?.(),
+        dependencies.meetingFiles?.(),
+        dependencies.meetingMinutes?.(),
+        dependencies.dataAgent?.(),
+        new Map(team.users().map((user) => [user.id, user.name])),
       );
       sendJson(response, 200, {
         ok: true,
@@ -3046,6 +3401,67 @@ export function createProjectRoutes(
         generatedAt: nowIso(now),
         outputs: items,
       });
+    } catch (cause) {
+      routeError(response, cause);
+    }
+  };
+
+  /** 项目产出物中由会议纪要 / Data Agent 报告生成的虚拟文档。 */
+  const outputsDownload = async (
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> => {
+    try {
+      assertSameOrigin(request);
+      const params = query(request);
+      const workspaceId = params.get("workspaceId") ?? "";
+      requireWorkspaceAccess(request, team, workspaceId);
+      const sourceKind = params.get("sourceKind");
+      if (sourceKind === "meeting-minutes") {
+        const meetings = dependencies.meetings?.();
+        const minutes = dependencies.meetingMinutes?.();
+        if (meetings === undefined || minutes === undefined) {
+          throw new ProjectError("not_found", "会议纪要服务不可用");
+        }
+        const meetingId = params.get("meetingId") ?? "";
+        const versionId = params.get("versionId") ?? "";
+        const meeting = meetings.get(meetingId);
+        if (meeting.workspaceId !== workspaceId) {
+          throw new ProjectError("forbidden", "会议不属于当前项目");
+        }
+        const minute = minutes.activeVersion(meetingId);
+        if (
+          minute === undefined ||
+          minute.id !== versionId ||
+          minute.content.trim() === ""
+        ) {
+          throw new ProjectError("not_found", "会议纪要不存在");
+        }
+        sendOutputDownload(response, {
+          fileName: `${meeting.title} · 会议纪要.md`,
+          contentType: "text/markdown; charset=utf-8",
+          content: minute.content,
+        });
+        return;
+      }
+      if (sourceKind === "data-agent-report") {
+        const dataAgent = dependencies.dataAgent?.();
+        if (dataAgent === undefined) {
+          throw new ProjectError("not_found", "Data Agent 服务不可用");
+        }
+        const report = dataAgent.report(params.get("reportId") ?? "");
+        const conversation = dataAgent.conversation(report.conversationId);
+        if (conversation.workspaceId !== workspaceId) {
+          throw new ProjectError("forbidden", "报告不属于当前项目");
+        }
+        sendOutputDownload(response, {
+          fileName: `${report.title}.md`,
+          contentType: "text/markdown; charset=utf-8",
+          content: report.markdown,
+        });
+        return;
+      }
+      throw new ProjectError("invalid_input", "不支持的产出物下载类型");
     } catch (cause) {
       routeError(response, cause);
     }
@@ -3151,8 +3567,24 @@ export function createProjectRoutes(
           actorId: current.userId,
         });
       } else {
+        const teammateRuntime = dependencies.teammates();
+        if (
+          teammateRuntime?.isSystemAgent?.(body.memberId) === true ||
+          teammateRuntime?.isSystemAgent?.(memberId) === true
+        ) {
+          throw new ProjectError(
+            "invalid_input",
+            "平台内置 AI 伙伴不能作为项目成员",
+          );
+        }
+        if (!wasMember && body.roleIds.length === 0) {
+          throw new ProjectError(
+            "invalid_input",
+            "请为该 AI伙伴选择一个项目角色",
+          );
+        }
         const teammate = teammateDirectory(
-          dependencies.teammates(),
+          teammateRuntime,
           dependencies.employees(),
           body.workspaceId,
           {
@@ -3162,6 +3594,7 @@ export function createProjectRoutes(
               current.userId,
             role: current.role,
           },
+          projectTeammateActors(team),
         ).find((candidate) => candidate.id === memberId);
         if (teammate !== undefined) targetName = teammate.name;
         const alreadyAssigned = activeSeats(assignments, body.workspaceId).some(
@@ -3282,6 +3715,7 @@ export function createProjectRoutes(
                 name: actorName(current.userId),
                 role: current.role,
               },
+              projectTeammateActors(team),
             ).find((candidate) => candidate.id === memberId)?.name ?? memberId);
       if (memberKind === "human") {
         const previousWorkspaceRole = memberRoleOf(
@@ -3496,7 +3930,17 @@ export function createProjectRoutes(
   return [
     { kind: "exact", path: "/api/collab/projects", handler: list },
     { kind: "exact", path: "/api/collab/projects/detail", handler: detail },
+    {
+      kind: "exact",
+      path: "/api/collab/projects/members/search",
+      handler: memberSearch,
+    },
     { kind: "exact", path: "/api/collab/projects/outputs", handler: outputs },
+    {
+      kind: "exact",
+      path: "/api/collab/projects/outputs/download",
+      handler: outputsDownload,
+    },
     { kind: "exact", path: "/api/collab/projects/create", handler: create },
     { kind: "exact", path: "/api/collab/projects/update", handler: update },
     {
@@ -3682,6 +4126,16 @@ export async function apply(ctx: ProjectContext): Promise<void> {
           | undefined,
       workflows: () =>
         child.get("collabWorkflow") as WorkflowServiceLike | undefined,
+      meetings: () =>
+        child.get("collabMeeting") as MeetingServiceLike | undefined,
+      meetingFiles: () =>
+        child.get("collabMeetingFiles") as MeetingFileServiceLike | undefined,
+      meetingMinutes: () =>
+        child.get("collabMeetingMinutes") as
+          | MeetingMinutesServiceLike
+          | undefined,
+      dataAgent: () =>
+        child.get("collabDataAgent") as DataAgentOutputServiceLike | undefined,
       principals: () =>
         child.get("collabPrincipal") as PrincipalServiceLike | undefined,
     }).map((route) => child.webServer.register(route) as () => void);

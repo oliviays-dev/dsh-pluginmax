@@ -282,7 +282,7 @@ describe("dsh-collab-meeting", () => {
     ).toContain(meeting.id);
   });
 
-  it("creates and reuses an AI conversation with one teammate", async () => {
+  it("creates and reuses a platform AI conversation independent of request project", async () => {
     const team = {
       resolveToken: (token: string) =>
         token === "alice-token"
@@ -312,6 +312,7 @@ describe("dsh-collab-meeting", () => {
     const firstMeeting = (first.json() as { meeting: Meeting }).meeting;
     expect(firstMeeting).toMatchObject({
       kind: "ai",
+      workspaceId: SYSTEM_DEFAULT_WORKSPACE_ID,
       teammateInstanceId: "tm-research",
     });
     expect(
@@ -331,6 +332,75 @@ describe("dsh-collab-meeting", () => {
     expect(second.status).toBe(200);
     expect((second.json() as { meeting: Meeting }).meeting.id).toBe(
       firstMeeting.id,
+    );
+    const otherWorkspace = await call(
+      createRoute,
+      fakeRequest("POST", "/api/collab/meetings", {
+        token: "alice-token",
+        origin: "http://127.0.0.1:33117",
+        body: { ...body, workspaceId: "other" },
+      }),
+    );
+    expect(otherWorkspace.status).toBe(200);
+    expect((otherWorkspace.json() as { meeting: Meeting }).meeting.id).toBe(
+      firstMeeting.id,
+    );
+  });
+
+  it("reuses an existing project AI conversation instead of creating a duplicate", async () => {
+    const team = {
+      resolveToken: (token: string) =>
+        token === "alice-token"
+          ? { userId: "alice", role: "member" as const }
+          : undefined,
+      members: () => [{ userId: "alice", name: "Alice", memberRole: "member" as const }],
+    };
+    const actor = {
+      kind: "user" as const,
+      id: "alice",
+      globalRole: "member" as const,
+    };
+    const existing = await service.create(actor, {
+      workspaceId: "main",
+      title: "研究伙伴",
+      kind: "ai",
+      teammateInstanceId: "tm-research",
+    });
+    await service.join(actor, existing.id, "Alice");
+    await service.addAiTeammate(actor, {
+      meetingId: existing.id,
+      teammateInstanceId: "tm-research",
+      displayName: "研究伙伴",
+      speechMode: "active",
+      announce: false,
+    });
+    const routes = createMeetingRoutes(service, team, {
+      workspaces: () => ({
+        get: (workspaceId) =>
+          workspaceId === "main"
+            ? { path: "/tmp/main", title: "项目一" }
+            : { path: "/tmp/default", title: "默认项目" },
+        list: () => [{ id: "main", path: "/tmp/main", title: "项目一" }],
+      }),
+    });
+    const response = await call(
+      findRoute(routes, "/api/collab/meetings"),
+      fakeRequest("POST", "/api/collab/meetings", {
+        token: "alice-token",
+        origin: "http://127.0.0.1:33117",
+        body: {
+          workspaceId: SYSTEM_DEFAULT_WORKSPACE_ID,
+          title: "研究伙伴",
+          kind: "ai",
+          teammateInstanceId: "tm-research",
+          teammateName: "研究伙伴",
+          displayName: "Alice",
+        },
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect((response.json() as { meeting: Meeting }).meeting.id).toBe(
+      existing.id,
     );
   });
 
@@ -352,6 +422,11 @@ describe("dsh-collab-meeting", () => {
     };
     const routes = createMeetingRoutes(service, team, {
       teammateRuntime: () => ({
+        ensureSystemAgent: async (_actor, systemKey) => ({
+          id: `${systemKey}-alice`,
+          name: "会议 Facilitator",
+          systemKey,
+        }),
         ensureRuntime: async () => {
           throw new Error("not used");
         },
@@ -468,6 +543,11 @@ describe("dsh-collab-meeting", () => {
     };
     const routes = createMeetingRoutes(service, team, {
       teammateRuntime: () => ({
+        ensureSystemAgent: async (_actor, systemKey) => ({
+          id: `${systemKey}-alice`,
+          name: "会议 Facilitator",
+          systemKey,
+        }),
         ensureRuntime: async () => ({
           teammateId: "tm-research",
           principalId: "principal-tm-research",
@@ -476,8 +556,45 @@ describe("dsh-collab-meeting", () => {
         }),
       }),
       chatAgent: () => chatAgent as never,
+      taskService: () => ({
+        list: (workspaceId: string) =>
+          workspaceId === "main"
+            ? [
+                {
+                  id: "TSK-1",
+                  title: "生成风险复盘",
+                  status: "review",
+                  receiverId: "alice",
+                  receiverPrincipalId: "principal-ai-tm-research",
+                  links: [],
+                  messages: [
+                    {
+                      id: "msg-1",
+                      kind: "agent",
+                      content: "风险复盘产出：支付失败是主要原因。",
+                    },
+                  ],
+                },
+              ]
+            : [],
+        get: () => {
+          throw new Error("not used");
+        },
+        create: async () => {
+          throw new Error("not used");
+        },
+        addMessage: async () => {
+          throw new Error("not used");
+        },
+      }),
       workspaces: () => ({
-        get: () => ({ path: "/tmp/workspace" }),
+        get: (workspaceId: string) =>
+          workspaceId === "main"
+            ? { path: "/tmp/workspace", title: "项目一" }
+            : { path: "/tmp/default" },
+        list: () => [
+          { id: "main", path: "/tmp/workspace", title: "项目一" },
+        ],
       }),
       context: () => ({
         registerAdapter: () => () => undefined,
@@ -536,6 +653,8 @@ describe("dsh-collab-meeting", () => {
     expect(posted.status).toBe(201);
     expect(dispatched).toHaveLength(1);
     expect(dispatched[0]).toMatchObject({
+      workspaceId: "main",
+      workspacePath: "/tmp/workspace",
       source: "chat",
       instanceId: meeting.id,
       principalId: "principal-tm-research",
@@ -556,8 +675,11 @@ describe("dsh-collab-meeting", () => {
       chatCarrier: "meeting-ai",
       chatChannelId: "chat-channel-main-alice",
       objectId: "chat-channel-main-alice",
-      workspaceId: "main",
+      workspaceId: SYSTEM_DEFAULT_WORKSPACE_ID,
       teammateId: "tm-research",
+      input: {
+        content: expect.stringContaining("[participating-projects]"),
+      },
     });
     expect(recordedRuns[0]).toMatchObject({
       runId: "run-chat-1",
@@ -1805,6 +1927,11 @@ describe("dsh-collab-meeting", () => {
         runs: () => storedRuns,
       }),
       teammateRuntime: () => ({
+        ensureSystemAgent: async (actor, systemKey) => ({
+          id: `${systemKey}-${actor.userId}`,
+          name: "会议 Facilitator",
+          systemKey,
+        }),
         ensureRuntime: async (input) => {
           ensured.push(input.teammateId);
           return {
@@ -1827,7 +1954,7 @@ describe("dsh-collab-meeting", () => {
     minutes.schedule(meeting.id);
     minutes.schedule(meeting.id);
     await minutes.waitIdle();
-    expect(ensured).toEqual(["meeting-facilitator"]);
+    expect(ensured).toEqual(["meeting-facilitator-admin"]);
     expect(dispatched).toHaveLength(1);
     expect(dispatched[0]).toMatchObject({
       source: "meeting",
@@ -1864,6 +1991,11 @@ describe("dsh-collab-meeting", () => {
         runs: () => [],
       }),
       teammateRuntime: () => ({
+        ensureSystemAgent: async (actor, systemKey) => ({
+          id: `${systemKey}-${actor.userId}`,
+          name: "会议 Facilitator",
+          systemKey,
+        }),
         ensureRuntime: async () => {
           throw new Error("no owner available");
         },

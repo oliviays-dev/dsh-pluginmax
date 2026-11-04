@@ -241,9 +241,16 @@ function subagentOutputText(result: SubagentResultLike): string {
   if (!Array.isArray(result.output)) return "";
   return result.output
     .filter(
-      (block): block is { readonly text: string } =>
+      (
+        block,
+      ): block is {
+        readonly type: "text";
+        readonly text: string;
+      } =>
         typeof block === "object" &&
         block !== null &&
+        "type" in block &&
+        block.type === "text" &&
         "text" in block &&
         typeof block.text === "string",
     )
@@ -1330,6 +1337,7 @@ interface AgentTask {
   readonly runId: string;
   readonly workspaceId: string;
   readonly controller: AbortController;
+  running: boolean;
   cancelReason: "cancelled" | undefined;
   timedOut: boolean;
 }
@@ -1448,9 +1456,12 @@ export class AgentTaskRuntime {
     }
   }
 
-  private async acquire(workspaceId: string): Promise<void> {
+  private async acquire(task: AgentTask): Promise<void> {
     const workspaceActive = () =>
-      [...this.tasks].filter((task) => task.workspaceId === workspaceId).length;
+      [...this.tasks].filter(
+        (candidate) =>
+          candidate.running && candidate.workspaceId === task.workspaceId,
+      ).length;
     while (
       this.activeWorkers >= MAX_GLOBAL_WORKERS ||
       workspaceActive() >= MAX_WORKSPACE_WORKERS
@@ -1458,11 +1469,15 @@ export class AgentTaskRuntime {
       await new Promise<void>((resolve) => this.waiting.push(resolve));
     }
     this.activeWorkers += 1;
+    task.running = true;
   }
 
-  private release(): void {
+  private release(task: AgentTask): void {
+    if (!task.running) return;
+    task.running = false;
     this.activeWorkers = Math.max(0, this.activeWorkers - 1);
-    this.waiting.shift()?.();
+    // 唤醒所有等待者重新竞争：释放的槽位可能不属于队首等待者所在工作区。
+    for (const resolve of this.waiting.splice(0)) resolve();
   }
 
   private async disposeHosts(): Promise<void> {
@@ -2103,6 +2118,7 @@ export class AgentTaskRuntime {
       runId,
       workspaceId: claimed.workspaceId,
       controller: new AbortController(),
+      running: false,
       cancelReason: undefined,
       timedOut: false,
     };
@@ -2119,22 +2135,32 @@ export class AgentTaskRuntime {
       this.tasks.delete(task);
       return;
     }
-    const prompt = buildPrompt(claimed, profile);
-    await this.saveRun({
-      ...claimed,
-      status: "running",
-      startedAt: iso(this.now()),
-      promptSnapshot: prompt,
-    });
-    const current = this.deps.tables.runs.get(runId)!;
-    const workspacePath = current.workspacePath ?? process.cwd();
-    const timer = setTimeout(() => {
-      task.timedOut = true;
-      task.controller.abort("timeout");
-    }, current.timeoutMs);
+    let current = claimed;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     let started: SubagentRunLike | undefined;
     try {
-      await this.acquire(current.workspaceId);
+      await this.acquire(task);
+      const afterQueue = this.deps.tables.runs.get(runId);
+      if (
+        this.cancelledRunIds.has(runId) ||
+        afterQueue === undefined ||
+        TERMINAL_RUN_STATUSES.includes(afterQueue.status)
+      ) {
+        return;
+      }
+      const prompt = buildPrompt(afterQueue, profile);
+      await this.saveRun({
+        ...afterQueue,
+        status: "running",
+        startedAt: iso(this.now()),
+        promptSnapshot: prompt,
+      });
+      current = this.deps.tables.runs.get(runId)!;
+      const workspacePath = current.workspacePath ?? process.cwd();
+      timer = setTimeout(() => {
+        task.timedOut = true;
+        task.controller.abort("timeout");
+      }, current.timeoutMs);
       const signal = task.controller.signal;
       // ContextPack renders platform policy, identity, and scene policy into
       // systemText. Inject it at the same precedence boundary as persona SOUL.
@@ -2269,6 +2295,11 @@ export class AgentTaskRuntime {
           await this.settle(this.deps.tables.runs.get(runId) ?? prepared, {
             status: "timeout",
             error: "运行超时，已中止",
+            endedAt: iso(this.now()),
+          });
+        } else if (result.stopReason === "cancelled") {
+          await this.settle(this.deps.tables.runs.get(runId) ?? prepared, {
+            status: "cancelled",
             endedAt: iso(this.now()),
           });
         } else if (result.stopReason !== "completed") {
@@ -2412,6 +2443,11 @@ export class AgentTaskRuntime {
           error: "运行超时，已中止",
           endedAt: iso(this.now()),
         });
+      } else if (result.stopReason === "cancelled") {
+        await this.settle(current, {
+          status: "cancelled",
+          endedAt: iso(this.now()),
+        });
       } else if (result.stopReason !== "completed") {
         const partialOutput = subagentOutputText(result).trim();
         await this.settle(current, {
@@ -2497,10 +2533,10 @@ export class AgentTaskRuntime {
         });
       }
     } finally {
-      clearTimeout(timer);
+      if (timer !== undefined) clearTimeout(timer);
       this.cancelledRunIds.delete(runId);
       this.tasks.delete(task);
-      this.release();
+      this.release(task);
       if (this.tasks.size === 0) {
         await this.disposeHosts();
       }
@@ -3427,6 +3463,7 @@ export function createAgentRoutes(
     readonly previousStatus?: ExternalAgentRuntime["status"] | undefined;
     readonly actor: AgentActor;
   }) => Promise<readonly string[]> | readonly string[],
+  defaultModel?: () => AgentDefaultModelLike | undefined,
 ): WebRouteLike[] {
   const requireTeam = (): TeamServiceLike => {
     const value = team();
@@ -3482,6 +3519,7 @@ export function createAgentRoutes(
             ok: true,
             runtimes: runtimeService.list(workspaceId, { includeArchived }),
             canManage: isManager(actor),
+            defaultModel: defaultModel?.()?.currentSelection(),
           });
         }, response);
       },
@@ -4237,6 +4275,7 @@ export async function apply(ctx: AgentContext): Promise<void | (() => void)> {
         });
         return paused.map((teammate) => teammate.id);
       },
+      () => ctx.agentDefaultModel,
     )) {
       ctx.webServer.register(route);
     }

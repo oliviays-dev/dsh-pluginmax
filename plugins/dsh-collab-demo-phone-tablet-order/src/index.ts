@@ -20,6 +20,7 @@ import type {
   WorkbenchDisplayProfile,
   WorkbenchService,
 } from "dsh-collab-workbench";
+import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import {
   DemoPhoneTabletMcpProvider,
@@ -34,6 +35,7 @@ import {
   DEMO_OMS_MCP_ID,
   DEMO_PLUGIN_ID,
   DEMO_PROFILE_ID,
+  DEMO_WMS_MCP_ID,
   DEMO_WORKSPACE_TITLE,
   demoDomainSpec,
   type DemoTaskReceipt,
@@ -63,7 +65,10 @@ interface TeamServiceLike {
   users(): readonly { readonly id: string; readonly name: string }[];
   members(
     workspaceId: string,
-  ): readonly { readonly userId: string; readonly role?: string }[];
+  ): readonly {
+    readonly userId: string;
+    readonly memberRole?: "owner" | "member" | "guest" | undefined;
+  }[];
 }
 
 interface WorkspaceLike {
@@ -77,6 +82,26 @@ interface WorkspaceRegistryLike {
   list(): readonly WorkspaceLike[];
 }
 
+export function isDemoWorkspace(workspace: WorkspaceLike): boolean {
+  return workspace.title?.trim().endsWith(DEMO_WORKSPACE_TITLE) === true;
+}
+
+const workbenchProfileSchema = z.object({
+  metrics: z.object({
+    selected: z.array(z.string().trim().min(1)).min(1),
+  }),
+});
+
+export async function loadDemoWorkbenchMetricIds(): Promise<
+  readonly string[]
+> {
+  const source = await readFile(
+    new URL("../config/workbench-profile.yaml", import.meta.url),
+    "utf8",
+  );
+  return workbenchProfileSchema.parse(parseYaml(source)).metrics.selected;
+}
+
 interface TaskLike {
   readonly id: string;
   readonly workspaceId: string;
@@ -86,6 +111,68 @@ interface TaskLike {
 interface TaskServiceLike {
   get(taskId: string): TaskLike;
   list(workspaceId: string): readonly TaskLike[];
+  create(
+    actor: {
+      readonly id: string;
+      readonly name: string;
+      readonly kind: "human";
+      readonly role?: "admin" | "owner" | "member" | "guest" | undefined;
+    },
+    input: {
+      readonly workspaceId: string;
+      readonly title: string;
+      readonly type: string;
+      readonly priority: "P1" | "P2" | "P3";
+      readonly status: "todo";
+      readonly receiverType: "human";
+      readonly receiverId: string;
+      readonly receiverName: string;
+      readonly description: string;
+      readonly acceptance: readonly string[];
+      readonly due?: string | undefined;
+      readonly links: readonly never[];
+      readonly autoSubmitReview: boolean;
+    },
+  ): Promise<TaskLike>;
+}
+
+interface DemoOrderExceptionSummary {
+  readonly orderCount: number;
+  readonly exceptionCount: number;
+  readonly exceptionRate: number;
+  readonly paymentFailureCount: number;
+  readonly cancelledCount: number;
+  readonly fulfillmentTimeoutCount: number;
+  readonly snapshotAt: string;
+}
+
+export async function loadDemoOrderExceptionSummary(
+  fixturePath: string,
+): Promise<DemoOrderExceptionSummary> {
+  const fixture = JSON.parse(await readFile(fixturePath, "utf8")) as {
+    readonly snapshotAt?: unknown;
+    readonly expected?: Record<string, unknown>;
+  };
+  const expected = fixture.expected ?? {};
+  const number = (key: string): number => {
+    const value = Number(expected[key]);
+    if (!Number.isFinite(value)) {
+      throw new Error(`Demo order fixture is missing expected.${key}`);
+    }
+    return value;
+  };
+  return {
+    orderCount: number("orderCount"),
+    exceptionCount: number("exceptionCount"),
+    exceptionRate: number("exceptionRate"),
+    paymentFailureCount: number("paymentFailureCount"),
+    cancelledCount: number("cancelledCount"),
+    fulfillmentTimeoutCount: number("fulfillmentTimeoutCount"),
+    snapshotAt:
+      typeof fixture.snapshotAt === "string"
+        ? fixture.snapshotAt
+        : new Date(0).toISOString(),
+  };
 }
 
 interface OrderDataServiceLike {
@@ -114,6 +201,56 @@ interface OrderDataServiceLike {
     };
     readonly asOf?: Date | undefined;
   }): ReturnType<WorkbenchDataMetricProvider["workbenchMetric"]>;
+}
+
+interface ResourceMarketServiceLike {
+  mcps(principal: { readonly userId: string }): Promise<unknown>;
+  connectMcp(principal: string, mcpId: string): Promise<unknown>;
+}
+
+interface WorkbenchV2PanelLike {
+  readonly id: string;
+  readonly pluginId: string;
+  readonly pluginVersion: string;
+  readonly title?: string | undefined;
+  readonly span: 1 | 2 | 3 | 4 | 5 | 6;
+  readonly order: number;
+  readonly height?: number | null | undefined;
+  readonly config: Readonly<Record<string, unknown>>;
+  readonly visibilityCondition?: Readonly<{
+    readonly workspaceIds?: readonly string[] | undefined;
+    readonly projectIds?: readonly string[] | undefined;
+    readonly roles?: readonly string[] | undefined;
+  }>;
+}
+
+interface WorkbenchV2RecordLike {
+  readonly id: string;
+  readonly revision: number;
+  readonly panels: readonly WorkbenchV2PanelLike[];
+}
+
+interface WorkbenchV2ServiceLike {
+  list(principal: {
+    readonly userId: string;
+    readonly role?: "admin" | "owner" | "member" | "guest" | undefined;
+  }): Promise<{
+    readonly workbenches: readonly WorkbenchV2RecordLike[];
+    readonly preference: {
+      readonly activeWorkbenchId?: string | undefined;
+    };
+  }>;
+  saveDraft(
+    principal: {
+      readonly userId: string;
+      readonly role?: "admin" | "owner" | "member" | "guest" | undefined;
+    },
+    input: {
+      readonly workbenchId: string;
+      readonly expectedRevision: number;
+      readonly panels: readonly WorkbenchV2PanelLike[];
+    },
+  ): Promise<unknown>;
 }
 
 interface DemoContext {
@@ -255,55 +392,163 @@ function createRoutes(
   ];
 }
 
-async function configureDemoWorkspace(ctx: DemoContext): Promise<void> {
+export async function configureDemoWorkspace(ctx: DemoContext): Promise<void> {
   const workspaces = lookup<WorkspaceRegistryLike>(ctx, "workspaceRegistry");
   const orders = lookup<OrderDataServiceLike>(ctx, "collabDataOrders");
-  if (workspaces === undefined || orders === undefined) return;
-  const workspace = workspaces
-    .list()
-    .find((item) => item.title?.trim() === DEMO_WORKSPACE_TITLE);
+  if (workspaces === undefined || orders === undefined) {
+    throw new DemoActionError(
+      "unavailable",
+      "工作区或订单服务尚未就绪",
+    );
+  }
+  const workspace = workspaces.list().find(isDemoWorkspace);
   if (workspace === undefined) return;
   const status = orders.status(workspace.id);
   if (
-    status.config.mcpAssetId === DEMO_OMS_MCP_ID &&
-    status.config.mcpToolName === "orders_query"
+    status.config.mcpAssetId !== DEMO_OMS_MCP_ID ||
+    status.config.mcpToolName !== "orders_query"
   ) {
+    await orders.configure(workspace.id, DEMO_PLUGIN_ID, {
+      mode: "demo",
+      transport: "mcp",
+      mcpAssetId: DEMO_OMS_MCP_ID,
+      mcpToolName: "orders_query",
+    });
+  }
+  await connectDemoMcpsForWorkspaceMembers(ctx, workspace.id);
+}
+
+/**
+ * Demo MCPs are project-scoped resources. Resource Market connections are
+ * tracked per user, so every demo workspace member must receive the same pair.
+ */
+export async function connectDemoMcpsForWorkspaceMembers(
+  ctx: DemoContext,
+  workspaceId: string,
+): Promise<void> {
+  const market = lookup<ResourceMarketServiceLike>(
+    ctx,
+    "collabResourceMarket",
+  );
+  const team = lookup<TeamServiceLike>(ctx, "collabTeam");
+  if (market === undefined || team === undefined) return;
+  const members = team.members(workspaceId).filter((member) => {
+    const role = member.memberRole;
+    return role === "owner" || role === "member";
+  });
+  const results = await Promise.allSettled(
+    members.flatMap((member) =>
+      [DEMO_OMS_MCP_ID, DEMO_WMS_MCP_ID].map((mcpId) =>
+        market.connectMcp(member.userId, mcpId),
+      ),
+    ),
+  );
+  for (const result of results) {
+    if (result.status === "rejected") {
+      console.warn(`${name}: could not connect demo MCP`, result.reason);
+    }
+  }
+}
+
+const WORKBENCH_V2_DEMO_PANELS = [
+  { pluginId: "pluginmax.daily-brief", span: 4 },
+  { pluginId: "pluginmax.task-focus", span: 2 },
+  { pluginId: "pluginmax.kpi-overview", span: 3 },
+  { pluginId: "pluginmax.following", span: 3 },
+] as const;
+
+export async function configureDemoWorkbenchV2(
+  ctx: DemoContext,
+): Promise<void> {
+  const service = lookup<WorkbenchV2ServiceLike>(ctx, "collabWorkbenchV2");
+  const team = lookup<TeamServiceLike>(ctx, "collabTeam");
+  const workspaces = lookup<WorkspaceRegistryLike>(ctx, "workspaceRegistry");
+  if (service === undefined || team === undefined || workspaces === undefined) {
     return;
   }
-  await orders.configure(workspace.id, DEMO_PLUGIN_ID, {
-    mode: "demo",
-    transport: "mcp",
-    mcpAssetId: DEMO_OMS_MCP_ID,
-    mcpToolName: "orders_query",
-  });
+  const workspace = workspaces.list().find(isDemoWorkspace);
+  if (workspace === undefined) return;
+  const members = team.members(workspace.id).filter(
+    (member) =>
+      member.memberRole === "owner" || member.memberRole === "member",
+  );
+  const results = await Promise.allSettled(
+    members.map(async (member) => {
+      const principal = {
+        userId: member.userId,
+        ...(member.memberRole === undefined
+          ? {}
+          : { role: member.memberRole }),
+      };
+      const listing = await service.list(principal);
+      const active =
+        listing.workbenches.find(
+          (workbench) => workbench.id === listing.preference.activeWorkbenchId,
+        ) ?? listing.workbenches[0];
+      if (active === undefined) return;
+      // Demo 只负责空工作台的初始脚手架。已有面板代表用户自己的布局，
+      // 不能在指标刷新、profile prepare 或插件热更新时被固定模板覆盖。
+      if (active.panels.length > 0) return;
+      const panels = WORKBENCH_V2_DEMO_PANELS.map(
+        ({ pluginId, span }, order) => {
+          const existing = active.panels.find(
+            (panel) => panel.pluginId === pluginId,
+          );
+          return {
+            ...(existing ?? {
+              id: `demo-${member.userId}-${pluginId}`,
+              pluginId,
+              pluginVersion: "1.0.0",
+              config: {},
+            }),
+            span,
+            order,
+          } satisfies WorkbenchV2PanelLike;
+        },
+      );
+      if (JSON.stringify(active.panels) === JSON.stringify(panels)) return;
+      await service.saveDraft(principal, {
+        workbenchId: active.id,
+        expectedRevision: active.revision,
+        panels,
+      });
+    }),
+  );
+  for (const result of results) {
+    if (result.status === "rejected") {
+      console.warn(`${name}: could not configure Demo workbench V2`, result.reason);
+    }
+  }
 }
 
 function displayProfile(
   ctx: DemoContext,
   snapshotAt: Date,
+  metricIds: readonly string[],
+  orderSummary: DemoOrderExceptionSummary,
 ): WorkbenchDisplayProfile {
   return {
     id: DEMO_PROFILE_ID,
     title: "手机/平板订单履约",
-    matches: (workspace) =>
-      workspace.title?.trim() === DEMO_WORKSPACE_TITLE,
+    matches: isDemoWorkspace,
     visibleModules: [
       "metrics",
       "brief",
       "todo",
       "focus",
     ] satisfies ModuleId[],
-    metrics: [
-      "otif",
-      "inventory-turn",
-      "supplier-otd",
-      "price-achievement",
-    ],
+    metrics: metricIds,
     metric: async (input) => {
       const orders = lookup<OrderDataServiceLike>(ctx, "collabDataOrders");
       if (orders === undefined) {
         throw new DemoActionError("unavailable", "订单服务不可用");
       }
+      await configureDemoWorkspace(ctx);
+      const market = lookup<ResourceMarketServiceLike>(
+        ctx,
+        "collabResourceMarket",
+      );
+      await market?.mcps({ userId: input.actor.userId });
       const metric = await orders.workbenchMetric({
         ...input,
         asOf: snapshotAt,
@@ -313,22 +558,63 @@ function displayProfile(
     prepare: async () => {
       await configureDemoWorkspace(ctx);
     },
-    brief: async ({ workspace }) => {
+    brief: async ({ workspace, principal }) => {
       const tasks = lookup<TaskServiceLike>(ctx, "collabTasks");
-      const parent = tasks
+      let parent = tasks
         ?.list(workspace.id)
         .find((task) => task.title.includes("[PT-ORD-001]"));
+      if (parent === undefined && tasks !== undefined) {
+        try {
+          parent = await tasks.create(
+            {
+              id: principal.userId,
+              name: principal.name ?? principal.userId,
+              kind: "human",
+              role: principal.role,
+            },
+            {
+              workspaceId: workspace.id,
+              title: "[PT-ORD-001] 华东手机/平板订单异常处置",
+              type: "任务",
+              priority: "P1",
+              status: "todo",
+              receiverType: "human",
+              receiverId: principal.userId,
+              receiverName: principal.name ?? principal.userId,
+              description:
+                "周宁，今天华东手机/平板订单异常率到了 7.6%，这块你来牵头处理。先让 Data Agent 把异常规模和主要构成看清楚，再找李工核实成品仓和履约条件。适合支付恢复、成品仓再平衡或订单改派的尽快推进；需要退款、取消或改约的，也要逐单给出明确结论。处理完把复盘报告放到这个任务里，我来 Review。",
+              acceptance: [
+                `${orderSummary.exceptionCount} 单全部形成明确处置结论`,
+                "完成成品仓 SKU、IMEI/SN、库存与出库能力核实",
+                "人工确认后通过 MCP 创建成品仓订单再平衡工单",
+                "上传并核对订单问题排查和处理报告 HTML",
+              ],
+              due: "今天 18:00",
+              links: [],
+              autoSubmitReview: false,
+            },
+          );
+        } catch {
+          // Keep the brief available without fabricating a task target.
+        }
+      }
+      const paymentRate =
+        (orderSummary.paymentFailureCount / orderSummary.exceptionCount) * 100;
+      const cancelRate =
+        (orderSummary.cancelledCount / orderSummary.exceptionCount) * 100;
+      const timeoutRate =
+        (orderSummary.fulfillmentTimeoutCount / orderSummary.exceptionCount) *
+        100;
       return {
         title: "每日简报",
-        summary:
-          "华东手机/平板订单异常率升至 7.6%，异常 126 单，预计影响金额约 64.3 万元。请 Data Agent 完成初步判断，并由订单履约计划员跟进支付失败、取消和履约超时。",
+        summary: `华东手机/平板订单异常率 ${orderSummary.exceptionRate.toFixed(1)}%，异常 ${orderSummary.exceptionCount} 单。请 Data Agent 基于 Mock OMS 订单快照完成初步判断。`,
         items: [
           {
             id: "east-phone-tablet-order-exception",
             title: "华东手机/平板订单异常",
-            body: "支付失败 52 单、取消 31 单、履约超时 43 单；异常集中在数码成品订单。",
-            statusLabel: "待评估",
-            actionLabel: "询问 Data Agent",
+            body: `支付失败 ${orderSummary.paymentFailureCount} 单（${paymentRate.toFixed(1)}%）、履约超时 ${orderSummary.fulfillmentTimeoutCount} 单（${timeoutRate.toFixed(1)}%）、取消 ${orderSummary.cancelledCount} 单（${cancelRate.toFixed(1)}%）。数据来自 Mock OMS 订单快照 ${orderSummary.snapshotAt}，共 ${orderSummary.orderCount} 单。`,
+            statusLabel: "演示数据 · 待评估",
+            actionLabel: "分析原因",
             ...(parent === undefined
               ? {}
               : {
@@ -343,7 +629,7 @@ function displayProfile(
           {
             id: "finished-goods-rebalance-decision",
             title: "是否需要创建成品仓订单再平衡工单",
-            body: "需要先核实 SKU、IMEI/SN、库存归属和跨仓交接约束。",
+            body: `需要先核实 ${orderSummary.fulfillmentTimeoutCount} 单履约超时涉及的 SKU、IMEI/SN、库存归属和跨仓交接约束。`,
             statusLabel: "待确认",
             actionLabel: "查看任务",
             ...(parent === undefined
@@ -423,6 +709,10 @@ export async function apply(ctx: DemoContext): Promise<void> {
   const domain = await ctx.storageDomain.open(demoDomainSpec);
   const receiptTable = domain.table("task_receipts");
   const runtimeFixture = await generateRuntimeFixture();
+  const orderExceptionSummary = await loadDemoOrderExceptionSummary(
+    runtimeFixture.path,
+  );
+  const workbenchMetricIds = await loadDemoWorkbenchMetricIds();
   const mcpProvider = new DemoPhoneTabletMcpProvider(runtimeFixture.path);
   let disposeRegistryProvider: (() => void) | undefined;
   let disposeDisplayProfile: (() => void) | undefined;
@@ -448,7 +738,12 @@ export async function apply(ctx: DemoContext): Promise<void> {
           const workbench = lookup<WorkbenchService>(child, "collabWorkbench");
           if (workbench === undefined) return;
           disposeDisplayProfile = workbench.registerDisplayProfile(
-            displayProfile(ctx, runtimeFixture.snapshotAt),
+            displayProfile(
+              ctx,
+              runtimeFixture.snapshotAt,
+              workbenchMetricIds,
+              orderExceptionSummary,
+            ),
           );
         });
   const dataOrdersFiber = ctx.inject?.(
@@ -456,6 +751,14 @@ export async function apply(ctx: DemoContext): Promise<void> {
     () => {
       void configureDemoWorkspace(ctx).catch((cause) => {
         console.warn(`${name}: could not configure demo orders`, cause);
+      });
+    },
+  );
+  const workbenchV2Fiber = ctx.inject?.(
+    ["collabWorkbenchV2", "collabTeam", "workspaceRegistry"],
+    () => {
+      void configureDemoWorkbenchV2(ctx).catch((cause) => {
+        console.warn(`${name}: could not configure demo workbench`, cause);
       });
     },
   );
@@ -505,6 +808,7 @@ export async function apply(ctx: DemoContext): Promise<void> {
     disposeRegistryProvider?.();
     registryFiber?.dispose();
     dataOrdersFiber?.dispose();
+    workbenchV2Fiber?.dispose();
     void mcpProvider.dispose();
     void domain.close();
   });

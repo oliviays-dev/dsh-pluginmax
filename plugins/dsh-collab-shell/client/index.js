@@ -689,6 +689,225 @@ window.__ModuleLoader__.load({
       return response.json();
     }
 
+    /**
+     * Scope the upstream navigation sources to projects returned by the
+     * collaboration membership API. The workspace browser reads these sources
+     * through useSyncExternalStore, so wrapping their getSnapshot/subscribe
+     * methods keeps the stock picker, rows, and open actions intact.
+     */
+    function createProjectScopeController(sessions, workspaces) {
+      const tokenKey = "pluginmax.collab.token";
+      const workspaceSource = workspaces.list;
+      const sessionSource = sessions.list;
+      const originalWorkspaceGet =
+        workspaceSource.getSnapshot.bind(workspaceSource);
+      const originalSessionGet = sessionSource.getSnapshot.bind(sessionSource);
+      const originalWorkspaceSubscribe =
+        workspaceSource.subscribe.bind(workspaceSource);
+      const originalSessionSubscribe =
+        sessionSource.subscribe.bind(sessionSource);
+      const originalSearch = sessions.search.bind(sessions);
+      const workspaceListeners = new Set();
+      const sessionListeners = new Set();
+      let allowedWorkspaceIds = new Set();
+      let membershipReady = false;
+      let membershipGeneration = 0;
+      let refreshGeneration = 0;
+      let refreshPromise = null;
+      let workspaceCache = null;
+      let sessionCache = null;
+
+      const allowedSessionIds = (raw = originalWorkspaceGet()) => {
+        const ids = new Set();
+        for (const workspace of raw.items) {
+          if (!allowedWorkspaceIds.has(String(workspace.workspaceId))) continue;
+          for (const sessionId of workspace.sessionIds)
+            ids.add(String(sessionId));
+        }
+        return ids;
+      };
+
+      const filteredWorkspaces = () => {
+        const raw = originalWorkspaceGet();
+        if (
+          workspaceCache !== null &&
+          workspaceCache.raw === raw &&
+          workspaceCache.generation === membershipGeneration
+        ) {
+          return workspaceCache.value;
+        }
+        const items = membershipReady
+          ? raw.items.filter((workspace) =>
+              allowedWorkspaceIds.has(String(workspace.workspaceId)),
+            )
+          : [];
+        const value =
+          membershipReady && items.length === raw.items.length
+            ? raw
+            : { ...raw, items };
+        workspaceCache = { raw, generation: membershipGeneration, value };
+        return value;
+      };
+
+      const filteredSessions = () => {
+        const raw = originalSessionGet();
+        const rawWorkspaces = originalWorkspaceGet();
+        if (
+          sessionCache !== null &&
+          sessionCache.raw === raw &&
+          sessionCache.workspaceRaw === rawWorkspaces &&
+          sessionCache.generation === membershipGeneration
+        ) {
+          return sessionCache.value;
+        }
+        const permitted = membershipReady
+          ? allowedSessionIds(rawWorkspaces)
+          : new Set();
+        const ids = raw.ids.filter((id) => permitted.has(String(id)));
+        const byId = {};
+        for (const id of ids) {
+          const summary = raw.byId[id];
+          if (summary !== undefined) byId[id] = summary;
+        }
+        const current =
+          raw.current !== undefined && permitted.has(String(raw.current))
+            ? raw.current
+            : undefined;
+        const subagentsByParent = {};
+        for (const [parentId, catalog] of Object.entries(
+          raw.subagentsByParent ?? {},
+        )) {
+          if (permitted.has(String(parentId))) {
+            subagentsByParent[parentId] = catalog;
+          }
+        }
+        const jobsBySession = {};
+        for (const [sessionId, jobs] of Object.entries(
+          raw.jobsBySession ?? {},
+        )) {
+          if (permitted.has(String(sessionId))) jobsBySession[sessionId] = jobs;
+        }
+        const value = {
+          ...raw,
+          ids,
+          byId,
+          current,
+          subagentsByParent,
+          jobsBySession,
+          currentAddress:
+            current === raw.current ? raw.currentAddress : undefined,
+        };
+        sessionCache = {
+          raw,
+          workspaceRaw: rawWorkspaces,
+          generation: membershipGeneration,
+          value,
+        };
+        return value;
+      };
+
+      const notify = (listeners) => {
+        for (const listener of Array.from(listeners)) listener();
+      };
+
+      const publishMembership = (ids, ready) => {
+        membershipGeneration += 1;
+        allowedWorkspaceIds = new Set([...ids].map(String));
+        membershipReady = ready;
+        workspaceCache = null;
+        sessionCache = null;
+        notify(workspaceListeners);
+        notify(sessionListeners);
+      };
+
+      const refresh = async () => {
+        const generation = ++refreshGeneration;
+        const pending = (async () => {
+          const token = window.localStorage.getItem(tokenKey);
+          if (token === null || token.trim() === "") {
+            if (generation === refreshGeneration) {
+              publishMembership(new Set(), true);
+            }
+            return;
+          }
+          try {
+            const response = await fetch("/api/collab/projects", {
+              headers: {
+                authorization: `Bearer ${token}`,
+                "cache-control": "no-store",
+              },
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const body = await response.json();
+            const ids = new Set(
+              (body.projects ?? [])
+                .filter((project) => project.isMember === true)
+                .map((project) => project.workspaceId)
+                .filter((id) => typeof id === "string" && id !== ""),
+            );
+            if (generation === refreshGeneration) publishMembership(ids, true);
+          } catch {
+            if (generation === refreshGeneration) {
+              publishMembership(new Set(), true);
+            }
+          }
+        })();
+        refreshPromise = pending;
+        void pending.finally(() => {
+          if (refreshPromise === pending) refreshPromise = null;
+        });
+        return pending;
+      };
+
+      workspaceSource.getSnapshot = filteredWorkspaces;
+      workspaceSource.subscribe = (listener) => {
+        workspaceListeners.add(listener);
+        const unsubscribe = originalWorkspaceSubscribe(listener);
+        return () => {
+          workspaceListeners.delete(listener);
+          unsubscribe();
+        };
+      };
+      sessionSource.getSnapshot = filteredSessions;
+      sessionSource.subscribe = (listener) => {
+        sessionListeners.add(listener);
+        const unsubscribe = originalSessionSubscribe(listener);
+        return () => {
+          sessionListeners.delete(listener);
+          unsubscribe();
+        };
+      };
+      sessions.search = async (query, signal) => {
+        const result = await originalSearch(query, signal);
+        if (!result.ok) return result;
+        const permitted = membershipReady ? allowedSessionIds() : new Set();
+        return {
+          ...result,
+          value: {
+            ...result.value,
+            items: result.value.items.filter((item) =>
+              permitted.has(String(item.sessionId)),
+            ),
+          },
+        };
+      };
+
+      publishMembership(new Set(), false);
+      return {
+        refresh,
+        dispose() {
+          refreshGeneration += 1;
+          workspaceSource.getSnapshot = originalWorkspaceGet;
+          workspaceSource.subscribe = originalWorkspaceSubscribe;
+          sessionSource.getSnapshot = originalSessionGet;
+          sessionSource.subscribe = originalSessionSubscribe;
+          sessions.search = originalSearch;
+          workspaceListeners.clear();
+          sessionListeners.clear();
+        },
+      };
+    }
+
     function friendlyAuthError(cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       if (message === "invalid user or password")
@@ -1490,6 +1709,7 @@ window.__ModuleLoader__.load({
                   activeGlobal === ""
                     ? jsxRuntime.jsx("div", {
                         className: "pmx-conversation-host",
+                        "data-data-agent-text-surface": "conversation",
                         children: renderSlot("conversation", {}),
                       })
                     : jsxRuntime.jsx("div", {
@@ -1529,8 +1749,24 @@ window.__ModuleLoader__.load({
       });
     };
 
-    exports.inject = ["slots", "theme"];
+    exports.inject = ["slots", "theme", "sessions", "workspaces"];
     exports.apply = (ctx) => {
+      const projectScope = createProjectScopeController(
+        ctx.get("sessions"),
+        ctx.get("workspaces"),
+      );
+      const refreshProjectScope = () => {
+        void projectScope.refresh();
+      };
+      window.addEventListener("pluginmax:collab-token", refreshProjectScope);
+      window.addEventListener("pluginmax:navigate", refreshProjectScope);
+      window.addEventListener(
+        "pluginmax:project-scope-refresh",
+        refreshProjectScope,
+      );
+      document.addEventListener("visibilitychange", refreshProjectScope);
+      refreshProjectScope();
+
       // SlotRegistry owns registration cleanup through the current fiber effect.
       // Register synchronously so the synchronous root render cannot race ahead
       // of the shell and throw a boot-order SlotAssemblyError.
@@ -1570,6 +1806,17 @@ window.__ModuleLoader__.load({
         return () => {
           disposeThemeListener();
           void disposeLayout();
+          window.removeEventListener(
+            "pluginmax:collab-token",
+            refreshProjectScope,
+          );
+          window.removeEventListener("pluginmax:navigate", refreshProjectScope);
+          window.removeEventListener(
+            "pluginmax:project-scope-refresh",
+            refreshProjectScope,
+          );
+          document.removeEventListener("visibilitychange", refreshProjectScope);
+          projectScope.dispose();
         };
       }, "pluginmax-shell: layout compatibility + theme presentation");
     };

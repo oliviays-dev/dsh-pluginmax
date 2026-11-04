@@ -24,24 +24,14 @@ import { McpProviderRegistry } from "./mcp-registry.js";
 export const name = "dsh-collab-resource-market";
 export const inject = ["storageDomain", "webServer"];
 
-export {
-  ResourceMarketError,
-  ResourceMarketService,
-  resourceMarketDomainSpec,
-};
+export { ResourceMarketError, ResourceMarketService, resourceMarketDomainSpec };
 export type {
   MarketPrincipal,
   McpCatalogProvider,
   McpProviderAsset,
 } from "./service.js";
-export {
-  McpProviderRegistry,
-  McpRegistryError,
-} from "./mcp-registry.js";
-export type {
-  McpToolCallInput,
-  McpToolProvider,
-} from "./mcp-registry.js";
+export { McpProviderRegistry, McpRegistryError } from "./mcp-registry.js";
+export type { McpToolCallInput, McpToolProvider } from "./mcp-registry.js";
 
 interface WebRouteLike {
   readonly kind: "exact";
@@ -171,10 +161,7 @@ function enumParam<T extends string>(
   return parsed.data;
 }
 
-function integerParam(
-  value: string | null,
-  fallback: number,
-): number {
+function integerParam(value: string | null, fallback: number): number {
   if (value === null || value === "") return fallback;
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 1) {
@@ -236,10 +223,16 @@ export function createResourceMarketRoutes(
         try {
           assertSameOrigin(request);
           if (request.method !== "GET") {
-            throw new ResourceMarketError("invalid_input", "method not allowed");
+            throw new ResourceMarketError(
+              "invalid_input",
+              "method not allowed",
+            );
           }
           const user = principal(request);
-          const result = service.templateList(user, marketInput(query(request)));
+          const result = service.templateList(
+            user,
+            marketInput(query(request)),
+          );
           sendJson(response, 200, {
             ok: true,
             templates: result.items,
@@ -260,7 +253,10 @@ export function createResourceMarketRoutes(
         try {
           assertSameOrigin(request);
           if (request.method !== "GET") {
-            throw new ResourceMarketError("invalid_input", "method not allowed");
+            throw new ResourceMarketError(
+              "invalid_input",
+              "method not allowed",
+            );
           }
           const user = principal(request);
           const params = query(request);
@@ -285,7 +281,10 @@ export function createResourceMarketRoutes(
         try {
           assertSameOrigin(request);
           if (request.method !== "GET") {
-            throw new ResourceMarketError("invalid_input", "method not allowed");
+            throw new ResourceMarketError(
+              "invalid_input",
+              "method not allowed",
+            );
           }
           const user = principal(request);
           const result = service.pluginList(user, marketInput(query(request)));
@@ -309,7 +308,10 @@ export function createResourceMarketRoutes(
         try {
           assertSameOrigin(request);
           if (request.method !== "POST") {
-            throw new ResourceMarketError("invalid_input", "method not allowed");
+            throw new ResourceMarketError(
+              "invalid_input",
+              "method not allowed",
+            );
           }
           const user = principal(request);
           const input = await body(request, pluginInstallSchema);
@@ -346,7 +348,10 @@ export function createResourceMarketRoutes(
             return;
           }
           if (request.method !== "POST") {
-            throw new ResourceMarketError("invalid_input", "method not allowed");
+            throw new ResourceMarketError(
+              "invalid_input",
+              "method not allowed",
+            );
           }
           const input = await body(request, skillInstallSchema);
           sendJson(response, 200, {
@@ -366,7 +371,10 @@ export function createResourceMarketRoutes(
           assertSameOrigin(request);
           const user = principal(request);
           if (request.method !== "GET") {
-            throw new ResourceMarketError("invalid_input", "method not allowed");
+            throw new ResourceMarketError(
+              "invalid_input",
+              "method not allowed",
+            );
           }
           const params = query(request);
           const queryValue = params.get("q");
@@ -377,9 +385,7 @@ export function createResourceMarketRoutes(
             ok: true,
             mcps: await service.mcps(user, {
               ...input,
-              ...(categoryValue === null
-                ? {}
-                : { category: categoryValue }),
+              ...(categoryValue === null ? {} : { category: categoryValue }),
             }),
           });
         } catch (cause) {
@@ -394,7 +400,10 @@ export function createResourceMarketRoutes(
         try {
           assertSameOrigin(request);
           if (request.method !== "POST") {
-            throw new ResourceMarketError("invalid_input", "method not allowed");
+            throw new ResourceMarketError(
+              "invalid_input",
+              "method not allowed",
+            );
           }
           const user = principal(request);
           const input = await body(request, mcpInputSchema);
@@ -402,6 +411,27 @@ export function createResourceMarketRoutes(
             ok: true,
             install: await service.connectMcp(user.userId, input.mcpId),
           });
+        } catch (cause) {
+          routeError(response, cause);
+        }
+      },
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/resources/mcps/disconnect",
+      handler: async (request, response) => {
+        try {
+          assertSameOrigin(request);
+          if (request.method !== "POST") {
+            throw new ResourceMarketError(
+              "invalid_input",
+              "method not allowed",
+            );
+          }
+          const user = principal(request);
+          const input = await body(request, mcpInputSchema);
+          await service.disconnectMcp(user.userId, input.mcpId);
+          sendJson(response, 200, { ok: true });
         } catch (cause) {
           routeError(response, cause);
         }
@@ -441,7 +471,10 @@ export function createResourceMarketRoutes(
             return;
           }
           if (request.method !== "POST") {
-            throw new ResourceMarketError("invalid_input", "method not allowed");
+            throw new ResourceMarketError(
+              "invalid_input",
+              "method not allowed",
+            );
           }
           const input = await body(request, customResourceInputSchema);
           sendJson(response, 201, {
@@ -462,9 +495,9 @@ export async function apply(ctx: MarketContext): Promise<void> {
   const service = new ResourceMarketService(
     {
       installs: domain.table("installs") as KvTableLike<InstallRecord>,
-      customAssets: domain.table("custom_assets") as KvTableLike<
-        CustomResourceRecord
-      >,
+      customAssets: domain.table(
+        "custom_assets",
+      ) as KvTableLike<CustomResourceRecord>,
     },
     {
       workbench: () => lookup<WorkbenchV2Port>(ctx, "collabWorkbenchV2"),

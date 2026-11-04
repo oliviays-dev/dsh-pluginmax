@@ -33,6 +33,8 @@ import { TaskCaptureSourceRegistry } from "./source-registry.js";
 export const name = "dsh-collab-task-capture";
 export const inject = ["storageDomain", "webServer"];
 
+const SYSTEM_DEFAULT_WORKSPACE_ID = "system.default";
+
 export { TaskCaptureError, TaskCaptureService, TaskCaptureSourceRegistry };
 export { taskCaptureDomainSpec };
 
@@ -145,10 +147,7 @@ function browserActor(
   }
   if (
     workspaceId !== undefined &&
-    principal.role !== "admin" &&
-    !team
-      .members(workspaceId)
-      .some((member) => member.userId === principal.userId)
+    !canAccessWorkspace(team, principal, workspaceId)
   ) {
     throw new TaskCaptureError("forbidden", "workspace membership is required");
   }
@@ -161,6 +160,20 @@ function browserActor(
     kind: "human",
     ...(principal.role === undefined ? {} : { role: principal.role }),
   });
+}
+
+export function canAccessWorkspace(
+  team: TeamServiceLike,
+  principal: TeamPrincipalLike,
+  workspaceId: string,
+): boolean {
+  return (
+    workspaceId === SYSTEM_DEFAULT_WORKSPACE_ID ||
+    principal.role === "admin" ||
+    team
+      .members(workspaceId)
+      .some((member) => member.userId === principal.userId)
+  );
 }
 
 function workspaceAccess(

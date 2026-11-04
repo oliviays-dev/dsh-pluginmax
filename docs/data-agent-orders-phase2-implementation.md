@@ -160,7 +160,7 @@ Dataset 字段 ID 与 Connector 规范字段保持稳定，物理字段通过 `f
 - 记录 `fromVersion -> toVersion`；
 - 迁移不删除 QueryRun、报告或历史结果；
 - 旧 `orders-manifest-v1` Fixture demo 自动迁移到资源市场 MCP 资产；
-- 当前 manifest 为 `orders-manifest-v2`，语义模型为 `orders-semantic-v1`。
+- 当前 manifest 为 `orders-manifest-v2`，语义模型为 `orders-semantic-v2`。
 
 Data Fabric 主域升级为 v2，并声明兼容 v1；新增通用 `DataSkill` 表，不改已有 Dataset、Metric、Policy、QueryRun、QueryResult 的存储契约。
 

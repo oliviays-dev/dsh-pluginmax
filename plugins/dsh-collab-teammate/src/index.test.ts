@@ -21,6 +21,7 @@ import {
   calculateInstanceLastUsedAt,
   calculateTeammateActivity,
   calculateTeammateWorkload,
+  TeammateWorkloadService,
   isInstanceOwnedPersona,
   taskIdsExecutedByPersona,
 } from "./index.js";
@@ -644,6 +645,59 @@ describe("dsh-collab-teammate service", () => {
     expect(snapshot.inactiveCount).toBe(1);
   });
 
+  it("limits AI partner workload to instances owned by the current user", async () => {
+    const tables = {
+      teammates: memoryTable<Teammate>(),
+      events: memoryTable<TeammateEvent>(),
+    };
+    await tables.teammates.put(
+      "data-agent-admin",
+      {
+        ...definition("data-agent-admin", "platform", "active", "Data Agent"),
+        ownerUserId: "admin",
+        ownerName: "Admin",
+        systemKey: "data-agent",
+      },
+    );
+    await tables.teammates.put(
+      "data-agent-olivia",
+      {
+        ...definition("data-agent-olivia", "platform", "active", "Data Agent"),
+        ownerUserId: "olivia",
+        ownerName: "Olivia",
+        systemKey: "data-agent",
+      },
+    );
+    const teammates = service(tables);
+    const workload = new TeammateWorkloadService({
+      teammates,
+      team: () => ({
+        resolveToken: () => admin,
+        users: () => [
+          { id: "admin", name: "Admin" },
+          { id: "olivia", name: "Olivia" },
+        ],
+        members: () => [
+          { userId: "admin", memberRole: "owner" },
+          { userId: "olivia", memberRole: "member" },
+        ],
+      }),
+      tasks: () => undefined,
+      workspaces: () => ({ list: () => [{ id: "main", title: "Main" }] }),
+      agents: () => ({ runs: () => [] }) as never,
+      meetings: () => undefined,
+      runtime: {
+        identityOf: async () => undefined,
+      } as never,
+      now: () => new Date("2026-11-02T12:00:00.000Z"),
+    });
+
+    const snapshot = await workload.snapshot(admin);
+    expect(snapshot.items.map((item) => item.teammateId)).toEqual([
+      "data-agent-admin",
+    ]);
+  });
+
   it("counts workflow runs through the teammate's bound Agent Profile", () => {
     const now = new Date("2026-10-09T12:00:00.000Z");
     const iso = (hours: number) =>
@@ -1001,26 +1055,32 @@ describe("dsh-collab-teammate service", () => {
       soul: chatFirstSoul,
       version: "v1.1",
     });
-    expect(teammates.listInstances(admin)[0]?.id).toBe("data-agent");
+    const userInstance = await teammates.ensureUserSystemAgent(
+      admin,
+      "data-agent",
+    );
+    expect(teammates.listInstances(admin).map((item) => item.id)).toEqual([
+      userInstance.id,
+    ]);
     await expect(
-      teammates.archiveInstanceRecord(admin, "data-agent"),
+      teammates.archiveInstanceRecord(admin, userInstance.id),
     ).rejects.toMatchObject({ code: "system_agent_protected" });
     await expect(
       teammates.changeState(admin, {
-        teammateId: "data-agent",
+        teammateId: userInstance.id,
         state: "paused",
       }),
     ).rejects.toMatchObject({ code: "system_agent_protected" });
     await expect(
       teammates.updateInstanceProfile(admin, {
-        teammateId: "data-agent",
+        teammateId: userInstance.id,
         name: "Renamed",
         description: "",
       }),
     ).rejects.toMatchObject({ code: "system_agent_protected" });
     await expect(
       teammates.switchTemplate(admin, {
-        teammateId: "data-agent",
+        teammateId: userInstance.id,
         templateId: "sys-data-agent",
       }),
     ).rejects.toMatchObject({ code: "system_agent_protected" });
@@ -1456,6 +1516,48 @@ describe("dsh-collab-teammate service", () => {
     ).rejects.toMatchObject({ code: "forbidden" });
   });
 
+  it("lets only the owning user bind runtime for a system-agent instance", async () => {
+    const tables = {
+      teammates: memoryTable<Teammate>(),
+      events: memoryTable<TeammateEvent>(),
+    };
+    const dataAgent = {
+      ...definition("data-agent", "platform", "active", "Data Agent"),
+      ownerUserId: "olivia",
+      ownerName: "Olivia",
+      systemKey: "data-agent" as const,
+    };
+    const adminOwned = {
+      ...definition("tm-admin-owned", "platform", "active", "管理员实例"),
+      ownerUserId: "admin",
+      ownerName: "Admin",
+    };
+    await tables.teammates.put(dataAgent.id, dataAgent);
+    await tables.teammates.put(adminOwned.id, adminOwned);
+    const teammates = service(tables);
+
+    const bound = await teammates.bindPrincipal(
+      olivia,
+      dataAgent.id,
+      "principal-ai-data-agent",
+    );
+    expect(bound.principalId).toBe("principal-ai-data-agent");
+    await expect(
+      teammates.bindPrincipal(
+        peter,
+        dataAgent.id,
+        "principal-ai-other",
+      ),
+    ).rejects.toMatchObject({ code: "forbidden" });
+    await expect(
+      teammates.bindPrincipal(
+        olivia,
+        adminOwned.id,
+        "principal-ai-admin-owned",
+      ),
+    ).rejects.toMatchObject({ code: "forbidden" });
+  });
+
   it("keeps personal definitions scoped to the owner", async () => {
     const teammates = service();
     const draft = await teammates.create(olivia, { source: "personal" });
@@ -1720,7 +1822,7 @@ describe("实例列表可见性", () => {
     ]);
   });
 
-  it("非管理员看不到他人的个人实例，管理员可见全部", async () => {
+  it("默认只显示自己创建和平台内置的实例，管理员全量视图可见全部", async () => {
     const tables = {
       teammates: memoryTable<Teammate>(),
       events: memoryTable<TeammateEvent>(),
@@ -1741,9 +1843,16 @@ describe("实例列表可见性", () => {
       ownerUserId: "owner",
       ownerName: "Owner",
     };
+    const platformBuiltIn = {
+      ...definition("tm-platform-built-in", "platform", "active", "平台内置实例"),
+      ownerUserId: "platform",
+      ownerName: "平台",
+      systemKey: "data-agent" as const,
+    };
     await tables.teammates.put(mine.id, mine);
     await tables.teammates.put(othersPersonal.id, othersPersonal);
     await tables.teammates.put(othersPlatform.id, othersPlatform);
+    await tables.teammates.put(platformBuiltIn.id, platformBuiltIn);
 
     const idsFor = (actor: TeammateActor) =>
       teammates
@@ -1751,22 +1860,73 @@ describe("实例列表可见性", () => {
         .map((item) => item.id)
         .sort();
 
-    expect(idsFor(olivia)).toEqual(["tm-mine", "tm-others-platform"].sort());
-    // 方案 B：管理员普通视图同样只看"自己的 + 平台"，全量需要显式 scope。
-    expect(idsFor(admin)).toEqual(["tm-others-platform"]);
+    expect(idsFor(olivia)).toEqual(["tm-mine"]);
+    // 管理员普通视图同样只看自己的实例，全量需要显式 scope。
+    expect(idsFor(admin)).toEqual([]);
     expect(
       teammates
         .listInstances(admin, { scope: "all" })
         .map((item) => item.id)
         .sort(),
-    ).toEqual(["tm-mine", "tm-others-personal", "tm-others-platform"].sort());
+    ).toEqual(
+      [
+        "tm-mine",
+        "tm-others-personal",
+        "tm-others-platform",
+        "tm-platform-built-in",
+      ].sort(),
+    );
     // 非管理员即使传 scope=all 也不能拿到全量。
     expect(
       teammates
         .listInstances(olivia, { scope: "all" })
         .map((item) => item.id)
         .sort(),
-    ).toEqual(["tm-mine", "tm-others-platform"].sort());
+    ).toEqual(["tm-mine"]);
+  });
+
+  it("creates one independent system-agent instance per user from a shared template", async () => {
+    const templates = templateService();
+    const template = await templates.create(admin, {
+      source: "platform",
+      name: "Data Agent",
+      systemKey: "data-agent",
+    });
+    const tables = {
+      teammates: memoryTable<Teammate>(),
+      events: memoryTable<TeammateEvent>(),
+    };
+    const teammates = service(tables, templates);
+
+    const oliviaAgent = await teammates.ensureUserSystemAgent(
+      olivia,
+      "data-agent",
+    );
+    const peterAgent = await teammates.ensureUserSystemAgent(
+      peter,
+      "data-agent",
+    );
+
+    expect(oliviaAgent.id).not.toBe(peterAgent.id);
+    expect(oliviaAgent).toMatchObject({
+      ownerUserId: "olivia",
+      templateId: template.id,
+      systemKey: "data-agent",
+    });
+    expect(peterAgent).toMatchObject({
+      ownerUserId: "peter",
+      templateId: template.id,
+      systemKey: "data-agent",
+    });
+    expect(
+      teammates.listInstances(olivia).map((item) => item.id),
+    ).toEqual([oliviaAgent.id]);
+    expect(
+      teammates.listInstances(peter).map((item) => item.id),
+    ).toEqual([peterAgent.id]);
+    expect(
+      await teammates.ensureUserSystemAgent(olivia, "data-agent"),
+    ).toMatchObject({ id: oliviaAgent.id });
   });
 });
 

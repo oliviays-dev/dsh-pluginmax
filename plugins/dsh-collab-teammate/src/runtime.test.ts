@@ -126,6 +126,7 @@ function setup() {
   }> = [];
   const agentProfiles: Array<{
     id: string;
+    workspaceId?: string;
     status: string;
     personaId?: string;
     visibility?: "workspace" | "platform";
@@ -423,7 +424,7 @@ function setup() {
           .filter((item) => item.visibility === "platform")
           .map((item) => ({
             ...item,
-            workspaceId,
+            workspaceId: item.workspaceId ?? workspaceId,
             name: `Agent ${item.id}`,
             runtimeKind: "task-worker",
             status: item.status,
@@ -434,6 +435,7 @@ function setup() {
         agentActors.push(actor);
         const record = {
           id: `agent-${String(agentProfiles.length + 1)}`,
+          workspaceId: input.workspaceId,
           status: "active",
           ...(input.personaId === undefined
             ? {}
@@ -456,6 +458,13 @@ function setup() {
           (item) => item.id === input.profileId,
         );
         if (profile === undefined) throw new Error("agent profile not found");
+        if (
+          profile.workspaceId !== undefined &&
+          profile.workspaceId !== input.workspaceId &&
+          actor.globalRole !== "admin"
+        ) {
+          throw new Error("platform profile requires a platform administrator");
+        }
         if (input.execution !== undefined) profile.execution = input.execution;
         if (input.externalRuntimeId === null) delete profile.externalRuntimeId;
         else if (input.externalRuntimeId !== undefined)
@@ -547,6 +556,31 @@ describe("teammate runtime provisioning", () => {
     });
   });
 
+  it("resolves a teammate instance from its bound employee identity", async () => {
+    const { teammates, runtime, employees } = setup();
+    const teammate = await activeTeammate(teammates, "platform");
+    employees.set("digital-lu", {
+      id: "digital-lu",
+      kind: "digital",
+      status: "active",
+      displayName: "陆行01 开发",
+      managerEmployeeId: "human-admin",
+      personaId: "persona-lu",
+    });
+    await teammates.bindEmployee(admin, teammate.id, "digital-lu");
+
+    const ensured = await runtime.ensureRuntime({
+      teammateId: "digital-lu",
+      workspaceId: "workspace-1",
+      actor: admin,
+    });
+
+    expect(ensured).toMatchObject({
+      teammateId: teammate.id,
+      employeeId: "digital-lu",
+    });
+  });
+
   it("only exposes active teammates that the actor may use", async () => {
     const { teammates, runtime } = setup();
     const platform = await activeTeammate(teammates, "platform");
@@ -570,12 +604,10 @@ describe("teammate runtime provisioning", () => {
         avatar: "",
       },
     ]);
-    expect(
-      runtime
-        .assignable(olivia)
-        .map((item) => item.id)
-        .sort(),
-    ).toEqual([platform.id, personal.id].sort());
+    // 平台模版共享定义，不代表其他用户基于该模版创建的实例也可被派发。
+    expect(runtime.assignable(olivia).map((item) => item.id)).toEqual([
+      personal.id,
+    ]);
     expect(runtime.assignable(admin).some((item) => item.id === draft.id)).toBe(
       false,
     );
@@ -590,6 +622,41 @@ describe("teammate runtime provisioning", () => {
     expect(
       runtime.assignable(olivia).some((item) => item.id === otherPersonal.id),
     ).toBe(false);
+  });
+
+  it("creates and runs a per-user built-in agent from the shared platform template", async () => {
+    const { teammates, runtime } = setup();
+    await teammates.ensureSeededPlatformTeammate({
+      id: "data-agent",
+      name: "Data Agent",
+      role: "数据分析师",
+      templateId: "sys-data-agent",
+      systemKey: "data-agent",
+    });
+    const dataAgent = await teammates.ensureUserSystemAgent(
+      olivia,
+      "data-agent",
+    );
+    const personal = await activeTeammate(teammates, "personal");
+    expect(runtime.isSystemAgent(dataAgent.id)).toBe(true);
+    expect(runtime.isSystemAgent(personal.id)).toBe(false);
+
+    const ensured = await runtime.ensureRuntime({
+      teammateId: dataAgent.id,
+      workspaceId: "workspace-1",
+      actor: olivia,
+      workspaceRole: "member",
+    });
+
+    expect(ensured).toMatchObject({
+      teammateId: dataAgent.id,
+      principalId: `principal-ai-${dataAgent.id}`,
+    });
+    expect(teammates.get(dataAgent.id).principalId).toBe(
+      `principal-ai-${dataAgent.id}`,
+    );
+    expect(ensured.principalId).toBeDefined();
+    expect(runtime.isSystemAgent(ensured.principalId!)).toBe(true);
   });
 
   it("refuses to dispatch a teammate that is not active", async () => {

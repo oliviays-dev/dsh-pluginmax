@@ -15,7 +15,7 @@ window.__ModuleLoader__.load({
       .pmtc-overlay.is-side{position:relative;inset:auto;width:100%;height:100%;border-left:0;box-shadow:none;background:var(--dsw-alias-bg-layer-1,#fff);}
       .pmtc-side-root{position:absolute;inset:0;z-index:23;display:flex;justify-content:flex-end;pointer-events:none;}
       .pmtc-side-panel{position:relative;display:flex;flex-direction:column;width:100%;height:100%;min-width:0;overflow:hidden;border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);pointer-events:auto;}
-      .pmtc-side-tabs{display:flex;align-items:stretch;flex:none;gap:2px;height:49px;min-height:49px;padding:6px 8px 0 6px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);}
+      .pmtc-side-tabs{position:relative;z-index:12;display:flex;align-items:stretch;flex:none;gap:2px;height:49px;min-height:49px;padding:6px 8px 0 6px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);}
       .pmtc-side-tab-scroll{display:flex;align-items:stretch;gap:2px;min-width:0;flex:1;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;}
       .pmtc-side-tab{position:relative;display:inline-flex;align-items:center;height:42px;width:100px;min-width:100px;max-width:100px;flex:0 0 100px;color:var(--dsw-alias-label-secondary);cursor:grab;}
       .pmtc-side-tab.is-active{color:var(--dsw-alias-label-primary);border-radius:6px 6px 0 0;background:var(--dsw-alias-bg-layer-3);font-weight:600;}
@@ -33,11 +33,11 @@ window.__ModuleLoader__.load({
       .pmtc-side-tab-action svg{width:13px;height:13px;}
       .pmtc-side-tab-panel{width:32px;height:32px;transform:translateY(.5px);}
       .pmtc-side-tab-panel svg{width:15px;height:15px;}
-      .pmtc-side-tab-new-menu{position:absolute;right:0;top:31px;z-index:8;min-width:150px;padding:5px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 10px 28px rgba(0,0,0,.2);}
+      .pmtc-side-tab-new-menu{position:absolute;right:0;top:31px;z-index:30;min-width:150px;padding:5px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 10px 28px rgba(0,0,0,.2);}
       .pmtc-side-tab-new-item{display:flex;align-items:center;gap:7px;width:100%;padding:8px 9px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-primary);text-align:left;font:inherit;font-size:11px;line-height:1.4;cursor:pointer;}
       .pmtc-side-tab-new-item svg{width:13px;height:13px;flex:none;}
       .pmtc-side-tab-new-item:hover{background:var(--dsw-alias-bg-layer-2);}
-      .pmtc-side-body{flex:1;min-height:0;display:flex;overflow:hidden;}
+      .pmtc-side-body{position:relative;z-index:1;flex:1;min-height:0;display:flex;overflow:hidden;}
       .pmtc-side-empty{display:grid;place-content:center;gap:6px;width:100%;padding:24px;text-align:center;color:var(--dsw-alias-label-secondary);font-size:12px;}
       .pmtc-manual-card{display:grid;align-content:center;gap:12px;width:100%;max-width:340px;margin:auto;padding:20px;}
       .pmtc-manual-card h3{margin:0;color:var(--dsw-alias-label-primary);font-size:15px;text-align:left;}
@@ -134,6 +134,10 @@ window.__ModuleLoader__.load({
       .pmtc-cap-footer{flex:none;min-height:60px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 11px;border-top:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);}
       .pmtc-cap-selection{min-width:0;color:var(--dsw-alias-label-secondary);font-size:10px;white-space:nowrap;}
       .pmtc-cap-footer-actions{display:flex;align-items:center;gap:8px;}
+      .pmtc-cap-autosave{min-height:28px;display:inline-flex;align-items:center;gap:5px;padding:0 8px;border-radius:5px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:9.5px;white-space:nowrap;}
+      .pmtc-cap-autosave.saved{background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#34c78d) 10%,transparent);color:var(--dsw-alias-state-success-primary,#2f9b6d);}
+      .pmtc-cap-autosave.saving{color:var(--dsw-alias-accent-primary,#5b8def);}
+      .pmtc-cap-autosave.error{color:var(--dsw-alias-state-error-primary,#e5534b);}
       .pmtc-cap-btn{min-width:110px;min-height:32px;display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:0 10px;border:1px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:10px;white-space:nowrap;cursor:pointer;}
       .pmtc-cap-btn:hover:not(:disabled){background:var(--dsw-alias-bg-layer-3);}
       .pmtc-cap-btn.primary{min-width:124px;border-color:transparent;background:var(--dsw-alias-accent-primary,#5b8def);color:#fff;}
@@ -141,14 +145,12 @@ window.__ModuleLoader__.load({
       .pmtc-cap-empty{display:grid;place-content:center;justify-items:center;gap:7px;min-height:220px;padding:24px;text-align:center;color:var(--dsw-alias-label-secondary);}
       .pmtc-cap-empty strong{color:var(--dsw-alias-label-primary);font-size:11px;}
       .pmtc-cap-empty span{max-width:260px;font-size:9.5px;line-height:1.55;}
-      .pmtc-cap-drawer-mask{position:fixed;inset:0;z-index:100;background:rgba(4,7,10,.5);}
-      .pmtc-cap-drawer{width:min(470px,96vw);height:100%;margin-left:auto;display:flex;flex-direction:column;border-left:1px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-layer-1);box-shadow:-20px 0 52px rgba(0,0,0,.38);}
-      .pmtc-cap-drawer-head{flex:none;min-height:55px;display:flex;align-items:center;gap:9px;padding:10px 12px;border-bottom:1px solid var(--dsw-alias-border-l2);}
-      .pmtc-cap-drawer-head-copy{min-width:0;flex:1;}
-      .pmtc-cap-drawer-head h2{margin:0;font-size:13.5px;font-weight:680;}
-      .pmtc-cap-drawer-head p{margin:2px 0 0;color:var(--dsw-alias-label-tertiary);font-size:9.2px;}
+      .pmtc-cap-drawer-mask{position:absolute;inset:0;z-index:100;background:rgba(4,7,10,.5);}
+      .pmtc-cap-drawer{width:min(470px,100%);max-width:100%;height:100%;margin-left:auto;display:flex;flex-direction:column;border-left:1px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-layer-1);box-shadow:-20px 0 52px rgba(0,0,0,.38);}
+      .pmtc-cap-drawer-tools{display:flex;justify-content:flex-end;margin-bottom:4px;}
       .pmtc-cap-drawer-close{width:28px;height:28px;display:grid;place-items:center;padding:0;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;}
       .pmtc-cap-drawer-body{flex:1;min-height:0;overflow:auto;padding:12px;}
+      .pmtc-cap-editor-error{margin:0 0 10px;padding:8px 9px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 28%,transparent);border-radius:6px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 9%,transparent);color:var(--dsw-alias-state-error-primary,#e5534b);font-size:10px;line-height:1.5;}
       .pmtc-cap-fieldset{display:grid;gap:5px;margin-bottom:10px;}
       .pmtc-cap-fieldset>span{color:var(--dsw-alias-label-secondary);font-size:9.5px;}
       .pmtc-cap-fieldset input,.pmtc-cap-fieldset select,.pmtc-cap-fieldset textarea{width:100%;min-height:33px;padding:6px 8px;border:1px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:10.5px;}
@@ -207,7 +209,7 @@ window.__ModuleLoader__.load({
       .pmtd-detail-copy p{margin:3px 0 0;color:var(--dsw-alias-label-tertiary);font-size:10px;}
       .pmtd-mobile-project{display:none;min-width:170px;}
       .pmtd-list{min-width:0;flex:1;}
-      .pmtd-row{display:grid;grid-template-columns:18px minmax(0,1fr) 78px;gap:9px;padding:11px 12px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);}
+      .pmtd-row{display:grid;grid-template-columns:18px minmax(0,1fr) 70px 58px;gap:9px;padding:11px 12px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);}
       .pmtd-row:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary) 1.5%,transparent);}
       .pmtd-row.is-created{background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#34c78d) 4%,transparent);}
       .pmtd-row-check{padding-top:3px;}
@@ -227,14 +229,19 @@ window.__ModuleLoader__.load({
       .pmtd-source:hover{color:var(--dsw-alias-label-primary);}
       .pmtd-source span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
       .pmtd-source:disabled{cursor:default;opacity:.75;}
+      .pmtd-status{display:flex;align-items:center;justify-content:flex-end;min-width:0;}
       .pmtd-actions{display:flex;flex-direction:column;align-items:stretch;justify-content:center;gap:5px;min-width:0;}
-      .pmtd-action{width:78px;height:25px;display:inline-flex;align-items:center;justify-content:center;padding:0;border:1px solid transparent;border-radius:5px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:inherit;font-size:10px;line-height:1;text-align:center;white-space:nowrap;cursor:default;}
+      .pmtd-action{width:58px;height:25px;display:inline-flex;align-items:center;justify-content:center;gap:3px;padding:0;border:1px solid transparent;border-radius:5px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:inherit;font-size:10px;line-height:1;text-align:center;white-space:nowrap;cursor:default;}
+      .pmtd-action.status{width:70px;}
       .pmtd-action.status.ready{background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#34c78d) 11%,transparent);color:var(--dsw-alias-state-success-primary,#2f9b6d);}
       .pmtd-action.status.needs{background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#dda34d) 12%,transparent);color:var(--dsw-alias-state-warning-primary,#b9791f);}
       .pmtd-action.status.done{background:color-mix(in srgb,var(--dsw-alias-accent-primary,#5b8def) 11%,transparent);color:var(--dsw-alias-accent-primary,#5b8def);}
       .pmtd-action.edit{border-color:var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);cursor:pointer;}
       .pmtd-action.edit:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
       .pmtd-action.edit:disabled{cursor:not-allowed;opacity:.45;}
+      .pmtd-action.delete{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 35%,var(--dsw-alias-border-l2));background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-state-error-primary,#e5534b);cursor:pointer;}
+      .pmtd-action.delete:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 8%,transparent);}
+      .pmtd-action.delete:disabled{cursor:not-allowed;opacity:.4;}
       .pmtd-duplicate-row{grid-column:2 / -1;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 8px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-warning-primary,#dda34d) 34%,transparent);border-radius:5px;background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#dda34d) 8%,transparent);color:var(--dsw-alias-state-warning-primary,#a76a16);font-size:10px;}
       .pmtd-duplicate-copy{min-width:0;}
       .pmtd-duplicate-actions{display:flex;gap:5px;flex-wrap:wrap;}
@@ -244,6 +251,7 @@ window.__ModuleLoader__.load({
       .pmtd-task-link button{padding:0;border:0;background:transparent;color:inherit;font:inherit;cursor:pointer;}
       .pmtd-footer{position:sticky;bottom:0;z-index:2;min-height:52px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 12px;border-top:1px solid var(--dsw-alias-border-l2);background:color-mix(in srgb,var(--dsw-alias-bg-layer-2) 84%,var(--dsw-alias-bg-layer-1));}
       .pmtd-footer-copy{color:var(--dsw-alias-label-secondary);font-size:11px;white-space:nowrap;}
+      .pmtd-footer-actions{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap;}
       .pmtd-empty{display:grid;place-content:center;justify-items:center;gap:8px;min-height:300px;padding:24px;text-align:center;color:var(--dsw-alias-label-secondary);}
       .pmtd-empty strong{color:var(--dsw-alias-label-primary);font-size:13px;}
       .pmtd-empty span{max-width:320px;font-size:11px;line-height:1.55;}
@@ -300,6 +308,11 @@ window.__ModuleLoader__.load({
       .pmtd-result{display:grid;gap:7px;padding:9px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-2);font-size:10.5px;}
       .pmtd-result strong{font-size:11px;}
       .pmtd-result span{color:var(--dsw-alias-label-secondary);}
+      .pmtd-confirm-mask{position:fixed;inset:0;z-index:130;display:grid;place-items:center;padding:16px;background:rgba(5,8,12,.52);}
+      .pmtd-confirm{width:min(420px,100%);display:grid;gap:14px;padding:18px;border:1px solid var(--dsw-alias-border-l3);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);box-shadow:0 20px 52px rgba(0,0,0,.34);}
+      .pmtd-confirm h2{margin:0;font-size:15px;font-weight:680;}
+      .pmtd-confirm p{margin:0;color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1.6;}
+      .pmtd-confirm-actions{display:flex;justify-content:flex-end;gap:7px;flex-wrap:wrap;}
       @container (max-width:760px){
         .pmtd-workspace{grid-template-columns:1fr;}
         .pmtd-projects{display:none;}
@@ -308,11 +321,16 @@ window.__ModuleLoader__.load({
         .pmtd-head-actions{width:100%;margin-left:0;}
         .pmtd-head-actions{flex-wrap:wrap;}
         .pmtd-search{order:3;width:100%;max-width:none;flex-basis:100%;}
-        .pmtd-row{grid-template-columns:18px minmax(0,1fr) 72px;padding:10px;}
-        .pmtd-action{width:72px;}
+        .pmtd-notice{align-items:flex-start;flex-wrap:wrap;}
+        .pmtd-notice span{min-width:100%;flex-basis:100%;white-space:normal;}
+        .pmtd-notice .pmtd-mini-btn{margin-left:20px;}
+        .pmtd-row{grid-template-columns:18px minmax(0,1fr) 62px 54px;padding:10px;gap:7px;}
+        .pmtd-action{width:54px;}
+        .pmtd-action.status{width:62px;}
         .pmtd-duplicate-row{align-items:flex-start;flex-direction:column;}
         .pmtd-footer{align-items:flex-start;flex-wrap:wrap;}
-        .pmtd-footer .pmtd-btn{width:100%;}
+        .pmtd-footer-actions{width:100%;}
+        .pmtd-footer-actions .pmtd-btn{flex:1 1 140px;}
       }
       @media(max-width:560px){
         .pmtd-form-grid,.pmtd-readonly-group{grid-template-columns:1fr;}
@@ -379,6 +397,67 @@ window.__ModuleLoader__.load({
       return body;
     }
 
+    async function resolveWorkspaceId(explicit) {
+      if (typeof explicit === "string" && explicit.trim() !== "") {
+        return explicit.trim();
+      }
+      for (const candidate of [
+        window.__pluginmaxTaskWorkspaceId,
+        window.__pluginmaxDataAgentWorkspaceId,
+      ]) {
+        if (typeof candidate === "string" && candidate.trim() !== "") {
+          return candidate;
+        }
+      }
+      const result = await request("/api/collab/team/workspaces");
+      const workspaces = Array.isArray(result.workspaces)
+        ? result.workspaces
+        : [];
+      return (
+        workspaces.find((workspace) => workspace.isMember === true)?.id ??
+        workspaces[0]?.id ??
+        ""
+      );
+    }
+
+    function normalizeDueDate(value) {
+      const text = String(value ?? "").trim();
+      const validDate = (year, month, day) => {
+        const monthNumber = Number(month);
+        const dayNumber = Number(day);
+        if (
+          monthNumber < 1 ||
+          monthNumber > 12 ||
+          dayNumber < 1 ||
+          dayNumber > 31
+        ) {
+          return "";
+        }
+        const date = new Date(
+          Date.UTC(Number(year), monthNumber - 1, dayNumber),
+        );
+        if (
+          date.getUTCFullYear() !== Number(year) ||
+          date.getUTCMonth() !== monthNumber - 1 ||
+          date.getUTCDate() !== dayNumber
+        ) {
+          return "";
+        }
+        return `${year}-${String(monthNumber).padStart(2, "0")}-${String(dayNumber).padStart(2, "0")}`;
+      };
+      const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(text);
+      if (iso !== null) return validDate(iso[1], iso[2], iso[3]);
+      const full = /^(\d{4})[./年-](\d{1,2})[./月-](\d{1,2})日?$/.exec(text);
+      if (full !== null) {
+        return validDate(full[1], full[2], full[3]);
+      }
+      const short = /^(\d{1,2})月(\d{1,2})日?$/.exec(text);
+      if (short !== null) {
+        return validDate(new Date().getFullYear(), short[1], short[2]);
+      }
+      return "";
+    }
+
     function fieldNode(label, value, missing) {
       return h(
         "span",
@@ -410,6 +489,13 @@ window.__ModuleLoader__.load({
         arrowLeft: ["m15 18-6-6 6-6", "M9 12h12"],
         search: ["M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16Z", "m21 21-4.3-4.3"],
         refresh: ["M21 12a9 9 0 1 1-3-6.7", "M21 3v6h-6"],
+        trash: [
+          "M3 6h18",
+          "M8 6V4h8v2",
+          "m19 6-1 14H6L5 6",
+          "M10 11v5",
+          "M14 11v5",
+        ],
         alert: ["M12 3 2 21h20Z", "M12 9v5", "M12 17h.01"],
         link: [
           "M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.2 1.2",
@@ -447,6 +533,7 @@ window.__ModuleLoader__.load({
 
     function TaskCapturePanel(props) {
       const manualOnly = props.manualOnly === true;
+      const autoSaveDrafts = props.sourceType === "data-agent";
       const [loading, setLoading] = react.useState(!manualOnly);
       const [saving, setSaving] = react.useState(false);
       const [error, setError] = react.useState("");
@@ -461,9 +548,11 @@ window.__ModuleLoader__.load({
         react.useState({});
       const [sideBanner, setSideBanner] = react.useState(null);
       const [sideAction, setSideAction] = react.useState("");
+      const [autoSaveState, setAutoSaveState] = react.useState("idle");
       const [expandedCandidateId, setExpandedCandidateId] = react.useState("");
       const [editorCandidateId, setEditorCandidateId] = react.useState("");
       const [editorDraft, setEditorDraft] = react.useState(null);
+      const [editorError, setEditorError] = react.useState("");
       const incomingMessageIds = Array.isArray(props.messageIds)
         ? props.messageIds
         : [];
@@ -481,6 +570,8 @@ window.__ModuleLoader__.load({
         agents: [],
         roles: [],
       });
+      const [directoryLoading, setDirectoryLoading] =
+        react.useState(manualOnly);
       const prepareCommand = react.useRef(commandId("tc-prepare"));
       const saveCommand = react.useRef("");
       const messageOptions = Array.isArray(props.messageOptions)
@@ -499,9 +590,11 @@ window.__ModuleLoader__.load({
         setCreatedTasksByCandidate({});
         setSideBanner(null);
         setSideAction("");
+        setAutoSaveState("idle");
         setExpandedCandidateId("");
         setEditorCandidateId("");
         setEditorDraft(null);
+        setEditorError("");
         setError("");
         saveCommand.current = "";
       }, [
@@ -549,26 +642,26 @@ window.__ModuleLoader__.load({
               }),
             });
             if (disposed) return;
-            setProjection(result);
-            setSelected((result.candidates ?? []).map((item) => item.id));
-            setEdits(
-              Object.fromEntries(
-                (result.candidates ?? []).map((candidate) => [
-                  candidate.id,
-                  {
-                    title: candidate.title,
-                    description: candidate.description || candidate.title,
-                    priority: candidate.priorityHint ?? "P2",
-                    due: candidate.dueHint ?? "",
-                    acceptance: (candidate.acceptanceHints ?? []).join("\n"),
-                    receiverKey:
-                      candidate.receiverHint === undefined
-                        ? ""
-                        : `${candidate.receiverHint.kind}:${candidate.receiverHint.id}`,
-                  },
-                ]),
-              ),
+            const preparedCandidates = result.candidates ?? [];
+            const preparedEdits = Object.fromEntries(
+              preparedCandidates.map((candidate) => [
+                candidate.id,
+                {
+                  title: candidate.title,
+                  description: candidate.description || candidate.title,
+                  priority: candidate.priorityHint ?? "P2",
+                  due: candidate.dueHint ?? "",
+                  acceptance: (candidate.acceptanceHints ?? []).join("\n"),
+                  receiverKey:
+                    candidate.receiverHint === undefined
+                      ? ""
+                      : `${candidate.receiverHint.kind}:${candidate.receiverHint.id}`,
+                },
+              ]),
             );
+            setProjection(result);
+            setSelected(preparedCandidates.map((item) => item.id));
+            setEdits(preparedEdits);
             if (result.session?.workspaceId) {
               const bootstrap = await request(
                 `/api/collab/tasks/bootstrap?workspaceId=${encodeURIComponent(result.session.workspaceId)}`,
@@ -581,6 +674,88 @@ window.__ModuleLoader__.load({
                     roles: [],
                   },
                 );
+              }
+            }
+            if (autoSaveDrafts && preparedCandidates.length > 0) {
+              setAutoSaveState("saving");
+              try {
+                const savedProjection = await request(
+                  "/api/collab/task-capture/save",
+                  {
+                    method: "POST",
+                    body: JSON.stringify({
+                      workspaceId: result.session.workspaceId,
+                      sessionId: result.session.id,
+                      candidateIds: preparedCandidates.map(
+                        (candidate) => candidate.id,
+                      ),
+                      candidateOverrides: preparedCandidates.map(
+                        (candidate) => {
+                          const edit = preparedEdits[candidate.id];
+                          return {
+                            candidateId: candidate.id,
+                            title: edit.title.trim(),
+                            description:
+                              edit.description.trim() || edit.title.trim(),
+                            priority: edit.priority,
+                            due:
+                              edit.due.trim() === "" ? null : edit.due.trim(),
+                          };
+                        },
+                      ),
+                      commandId: commandId("tc-auto-save"),
+                      expectedRevision: result.session.revision,
+                    }),
+                  },
+                );
+                if (disposed) return;
+                const draftsBySource = new Map(
+                  savedProjection.drafts.map((draft) => [
+                    draft.sourceItemKey,
+                    draft,
+                  ]),
+                );
+                const hydratedEdits = { ...preparedEdits };
+                const savedByCandidate = {};
+                for (const candidate of preparedCandidates) {
+                  const draft = draftsBySource.get(candidate.sourceItemKey);
+                  if (draft === undefined) continue;
+                  savedByCandidate[candidate.id] = draft;
+                  hydratedEdits[candidate.id] = {
+                    title: draft.title,
+                    description: draft.description,
+                    priority: draft.priority,
+                    due: draft.due ?? "",
+                    acceptance: draft.acceptance.join("\n"),
+                    receiverKey:
+                      draft.receiverType === "unassigned" ||
+                      draft.receiverId === undefined
+                        ? ""
+                        : `${draft.receiverType}:${draft.receiverId}`,
+                  };
+                }
+                setEdits(hydratedEdits);
+                setSavedDraftsByCandidate(savedByCandidate);
+                setSelected([]);
+                setSideBanner({
+                  kind: "draft",
+                  count: Object.keys(savedByCandidate).length,
+                  result: savedProjection,
+                });
+                setAutoSaveState("saved");
+                props.onSaved?.(savedProjection);
+                window.dispatchEvent(
+                  new CustomEvent("pluginmax:task-capture-refresh"),
+                );
+              } catch (cause) {
+                if (!disposed) {
+                  setAutoSaveState("error");
+                  setError(
+                    cause instanceof Error
+                      ? `自动保存失败：${cause.message}`
+                      : "自动保存失败",
+                  );
+                }
               }
             }
             setLoading(false);
@@ -602,6 +777,46 @@ window.__ModuleLoader__.load({
         incomingSelectionText,
         (props.actionItemIds ?? []).join(":"),
       ]);
+
+      react.useEffect(() => {
+        if (!manualOnly) return undefined;
+        let disposed = false;
+        setDirectoryLoading(true);
+        void (async () => {
+          try {
+            const workspaceId = await resolveWorkspaceId(
+              props.workspaceId ?? props.sourceWorkspaceId,
+            );
+            if (workspaceId === "") {
+              throw new Error("未找到可加载负责人目录的项目");
+            }
+            const bootstrap = await request(
+              `/api/collab/tasks/bootstrap?workspaceId=${encodeURIComponent(workspaceId)}`,
+            );
+            if (disposed) return;
+            setDirectory(
+              bootstrap?.directory ?? {
+                humans: [],
+                agents: [],
+                roles: [],
+              },
+            );
+          } catch (cause) {
+            if (!disposed) {
+              setError(
+                cause instanceof Error
+                  ? `负责人目录加载失败：${cause.message}`
+                  : "负责人目录加载失败",
+              );
+            }
+          } finally {
+            if (!disposed) setDirectoryLoading(false);
+          }
+        })();
+        return () => {
+          disposed = true;
+        };
+      }, [manualOnly, props.workspaceId, props.sourceWorkspaceId]);
 
       const candidates = projection?.candidates ?? [];
       const allCandidates = [...candidates, ...manualCandidates];
@@ -671,25 +886,38 @@ window.__ModuleLoader__.load({
         : `${sourceKind} · ${props.sourceTitle ?? "当前会话"}`;
       const openCandidateEditor = (candidate) => {
         setEditorCandidateId(candidate.id);
-        setEditorDraft({ ...candidateEdit(candidate) });
+        setEditorError("");
+        const edit = candidateEdit(candidate);
+        setEditorDraft({
+          ...edit,
+          due: normalizeDueDate(edit.due) || edit.due,
+        });
       };
       const closeCandidateEditor = () => {
         setEditorCandidateId("");
         setEditorDraft(null);
+        setEditorError("");
       };
       const applyCandidateEditor = () => {
         if (editorCandidateId === "" || editorDraft === null) return;
+        setEditorError("");
         if (String(editorDraft.title ?? "").trim() === "") {
-          setError("待办标题不能为空");
+          setEditorError("待办标题不能为空");
+          return;
+        }
+        const due = String(editorDraft.due ?? "").trim();
+        const normalizedDue = due === "" ? "" : normalizeDueDate(due);
+        if (due !== "" && normalizedDue === "") {
+          setEditorError("截止日期请使用 yyyy-mm-dd 格式");
           return;
         }
         setEdits((current) => ({
           ...current,
-          [editorCandidateId]: { ...editorDraft },
+          [editorCandidateId]: { ...editorDraft, due: normalizedDue },
         }));
         closeCandidateEditor();
       };
-      const addManualCandidate = () => {
+      const addManualCandidate = (openEditor = false) => {
         const id = `manual:${Date.now().toString(36)}-${Math.random()
           .toString(36)
           .slice(2, 7)}`;
@@ -722,6 +950,7 @@ window.__ModuleLoader__.load({
           },
         }));
         setSelected((current) => [...current, id]);
+        if (openEditor) openCandidateEditor(candidate);
       };
       const togglePickedMessage = (id) => {
         setPickedMessageIds((current) =>
@@ -873,20 +1102,11 @@ window.__ModuleLoader__.load({
         setSideAction(createFormalTasks ? "create" : "save");
         setError("");
         try {
-          let workspaceId = projection?.session?.workspaceId ?? "";
-          if (workspaceId === "") {
-            if (
-              typeof window.__pluginmaxDataAgentWorkspaceId === "string" &&
-              window.__pluginmaxDataAgentWorkspaceId !== ""
-            ) {
-              workspaceId = window.__pluginmaxDataAgentWorkspaceId;
-            } else {
-              const workspaceResult = await request(
-                "/api/collab/team/workspaces",
-              );
-              workspaceId = workspaceResult.workspaces?.[0]?.id ?? "";
-            }
-          }
+          const workspaceId = await resolveWorkspaceId(
+            projection?.session?.workspaceId ??
+              props.workspaceId ??
+              props.sourceWorkspaceId,
+          );
           if (workspaceId === "") throw new Error("未找到可用工作区");
           const records = [];
           const sourceCandidates = chosen.filter(
@@ -1170,17 +1390,32 @@ window.__ModuleLoader__.load({
                     react.Fragment,
                     null,
                     allCandidates.length === 0
-                      ? h(
-                          "div",
-                          { className: "pmtc-cap-empty" },
-                          captureIcon("checkSquare", 16),
-                          h("strong", null, "本次待办已处理"),
-                          h(
-                            "span",
-                            null,
-                            "可以手动添加一条，或继续查看其他沟通来源。",
-                          ),
-                        )
+                      ? manualOnly
+                        ? h(
+                            "div",
+                            { className: "pmtc-cap-empty" },
+                            h(
+                              "button",
+                              {
+                                type: "button",
+                                className: "pmtc-cap-btn primary",
+                                onClick: () => addManualCandidate(true),
+                              },
+                              captureIcon("plus", 12),
+                              "新建一条任务",
+                            ),
+                          )
+                        : h(
+                            "div",
+                            { className: "pmtc-cap-empty" },
+                            captureIcon("checkSquare", 16),
+                            h("strong", null, "本次待办已处理"),
+                            h(
+                              "span",
+                              null,
+                              "可以手动添加一条，或继续查看其他沟通来源。",
+                            ),
+                          )
                       : h(
                           "div",
                           { className: "pmtc-cap-list" },
@@ -1371,16 +1606,18 @@ window.__ModuleLoader__.load({
                             );
                           }),
                         ),
-                    h(
-                      "button",
-                      {
-                        type: "button",
-                        className: "pmtc-cap-add",
-                        onClick: addManualCandidate,
-                      },
-                      captureIcon("plus", 11),
-                      "手动添加一条待办",
-                    ),
+                    manualOnly && allCandidates.length > 0
+                      ? h(
+                          "button",
+                          {
+                            type: "button",
+                            className: "pmtc-cap-add",
+                            onClick: () => addManualCandidate(false),
+                          },
+                          captureIcon("plus", 11),
+                          "手动添加一条待办",
+                        )
+                      : null,
                   ),
             ),
           ),
@@ -1395,18 +1632,34 @@ window.__ModuleLoader__.load({
             h(
               "span",
               { className: "pmtc-cap-footer-actions" },
-              h(
-                "button",
-                {
-                  type: "button",
-                  className: "pmtc-cap-btn",
-                  disabled:
-                    sideAction !== "" || selectableCount === 0 || loading,
-                  onClick: () => void saveSideSelection(false),
-                },
-                captureIcon("inbox", 12),
-                sideAction === "save" ? "保存中…" : "保存到草稿箱",
-              ),
+              autoSaveDrafts && autoSaveState !== "error"
+                ? h(
+                    "span",
+                    {
+                      className: `pmtc-cap-autosave ${autoSaveState}`,
+                      role: "status",
+                    },
+                    autoSaveState === "saved"
+                      ? captureIcon("check", 11)
+                      : captureIcon("inbox", 11),
+                    autoSaveState === "saved"
+                      ? "已自动保存"
+                      : autoSaveState === "saving"
+                        ? "正在自动保存…"
+                        : "准备自动保存…",
+                  )
+                : h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "pmtc-cap-btn",
+                      disabled:
+                        sideAction !== "" || selectableCount === 0 || loading,
+                      onClick: () => void saveSideSelection(false),
+                    },
+                    captureIcon("inbox", 12),
+                    sideAction === "save" ? "保存中…" : "保存到草稿箱",
+                  ),
               h(
                 "button",
                 {
@@ -1441,39 +1694,47 @@ window.__ModuleLoader__.load({
                     "aria-label": "完善任务草稿",
                   },
                   h(
-                    "header",
-                    { className: "pmtc-cap-drawer-head" },
-                    h(
-                      "div",
-                      { className: "pmtc-cap-drawer-head-copy" },
-                      h("h2", null, "完善任务草稿"),
-                      h("p", null, `来源：${sourceLabel}`),
-                    ),
-                    h(
-                      "button",
-                      {
-                        type: "button",
-                        className: "pmtc-cap-drawer-close",
-                        "aria-label": "关闭",
-                        onClick: closeCandidateEditor,
-                      },
-                      captureIcon("x", 13),
-                    ),
-                  ),
-                  h(
                     "div",
                     { className: "pmtc-cap-drawer-body" },
+                    h(
+                      "div",
+                      { className: "pmtc-cap-drawer-tools" },
+                      h(
+                        "button",
+                        {
+                          type: "button",
+                          className: "pmtc-cap-drawer-close",
+                          "aria-label": "关闭",
+                          onClick: closeCandidateEditor,
+                        },
+                        captureIcon("x", 13),
+                      ),
+                    ),
+                    editorError === ""
+                      ? null
+                      : h(
+                          "div",
+                          {
+                            className: "pmtc-cap-editor-error",
+                            role: "alert",
+                          },
+                          editorError,
+                        ),
                     h(
                       "label",
                       { className: "pmtc-cap-fieldset" },
                       h("span", null, "标题"),
                       h("input", {
                         value: editorDraft.title,
-                        onChange: (event) =>
+                        "aria-label": "草稿标题",
+                        "aria-invalid": editorError !== "",
+                        onChange: (event) => {
+                          setEditorError("");
                           setEditorDraft((current) => ({
                             ...current,
                             title: event.target.value,
-                          })),
+                          }));
+                        },
                       }),
                     ),
                     h(
@@ -1501,23 +1762,47 @@ window.__ModuleLoader__.load({
                           "select",
                           {
                             value: editorDraft.receiverKey,
+                            disabled:
+                              directoryLoading && receiverOptions.length === 0,
+                            "aria-label": "选择草稿负责人",
                             onChange: (event) =>
                               setEditorDraft((current) => ({
                                 ...current,
                                 receiverKey: event.target.value,
                               })),
                           },
-                          h("option", { value: "" }, "未指派"),
-                          ...receiverOptions.map((item) =>
-                            h(
-                              "option",
-                              {
-                                key: `${item.kind}:${item.id}`,
-                                value: `${item.kind}:${item.id}`,
-                              },
-                              item.name,
-                            ),
+                          h(
+                            "option",
+                            { value: "" },
+                            directoryLoading && receiverOptions.length === 0
+                              ? "正在加载负责人…"
+                              : "未指派",
                           ),
+                          ...[
+                            ["人员", "human"],
+                            ["AI伙伴", "agent"],
+                            ["角色", "role"],
+                          ].map(([label, kind]) => {
+                            const options = receiverOptions.filter(
+                              (item) => item.kind === kind,
+                            );
+                            return options.length === 0
+                              ? null
+                              : h(
+                                  "optgroup",
+                                  { label, key: kind },
+                                  ...options.map((item) =>
+                                    h(
+                                      "option",
+                                      {
+                                        key: `${item.kind}:${item.id}`,
+                                        value: `${item.kind}:${item.id}`,
+                                      },
+                                      item.name,
+                                    ),
+                                  ),
+                                );
+                          }),
                         ),
                       ),
                       h(
@@ -1525,13 +1810,21 @@ window.__ModuleLoader__.load({
                         { className: "pmtc-cap-fieldset" },
                         h("span", null, "截止日期"),
                         h("input", {
+                          type: "text",
                           value: editorDraft.due,
-                          placeholder: "例如 10月30日",
-                          onChange: (event) =>
+                          placeholder: "yyyy-mm-dd",
+                          inputMode: "numeric",
+                          maxLength: 10,
+                          pattern: "\\d{4}-\\d{2}-\\d{2}",
+                          "aria-label": "草稿截止日期，格式为 yyyy-mm-dd",
+                          "aria-invalid": editorError !== "",
+                          onChange: (event) => {
+                            setEditorError("");
                             setEditorDraft((current) => ({
                               ...current,
                               due: event.target.value,
-                            })),
+                            }));
+                          },
                         }),
                       ),
                     ),
@@ -2065,18 +2358,9 @@ window.__ModuleLoader__.load({
       };
 
       const manualWorkspaceId = async () => {
-        if (
-          typeof source?.workspaceId === "string" &&
-          source.workspaceId !== ""
-        )
-          return source.workspaceId;
-        if (
-          typeof window.__pluginmaxDataAgentWorkspaceId === "string" &&
-          window.__pluginmaxDataAgentWorkspaceId !== ""
-        )
-          return window.__pluginmaxDataAgentWorkspaceId;
-        const result = await request("/api/collab/team/workspaces");
-        const workspaceId = result.workspaces?.[0]?.id;
+        const workspaceId = await resolveWorkspaceId(
+          source?.workspaceId ?? window.__pluginmaxTaskWorkspaceId,
+        );
         if (typeof workspaceId !== "string" || workspaceId === "")
           throw new Error("未找到可用工作区");
         return workspaceId;
@@ -3396,6 +3680,16 @@ window.__ModuleLoader__.load({
       );
     }
 
+    function deletableDraft(entry) {
+      return (
+        entry.canEdit &&
+        entry.draft.status !== "converted" &&
+        entry.draft.status !== "converting" &&
+        entry.draft.status !== "linked" &&
+        entry.draft.status !== "ignored"
+      );
+    }
+
     function receiverKey(draft) {
       return draft.receiverType === "unassigned" ||
         draft.receiverId === undefined
@@ -4565,6 +4859,75 @@ window.__ModuleLoader__.load({
       );
     }
 
+    function DeleteDraftsConfirm(props) {
+      const count = props.entries.length;
+      return h(
+        "div",
+        {
+          className: "pmtd-confirm-mask",
+          onMouseDown: (event) => {
+            if (event.target === event.currentTarget && props.busy !== true) {
+              props.onCancel?.();
+            }
+          },
+        },
+        h(
+          "section",
+          {
+            className: "pmtd-confirm",
+            role: "dialog",
+            "aria-modal": "true",
+            "aria-label": "删除任务草稿",
+          },
+          h(
+            "h2",
+            null,
+            count === 1 ? "删除这条草稿？" : `删除 ${count} 条草稿？`,
+          ),
+          h(
+            "p",
+            null,
+            "删除后草稿会从任务草稿箱移除，来源、批次和处理记录仍会保留。已创建或已关联任务的草稿不可删除。",
+          ),
+          props.error === ""
+            ? null
+            : h(
+                "p",
+                {
+                  className: "pmtd-drawer-error",
+                  role: "alert",
+                },
+                props.error,
+              ),
+          h(
+            "div",
+            { className: "pmtd-confirm-actions" },
+            h(
+              "button",
+              {
+                type: "button",
+                className: "pmtd-btn",
+                disabled: props.busy,
+                onClick: props.onCancel,
+              },
+              "取消",
+            ),
+            h(
+              "button",
+              {
+                type: "button",
+                className: "pmtd-btn danger",
+                disabled: props.busy,
+                onClick: props.onConfirm,
+              },
+              captureIcon("trash", 12),
+              props.busy ? "删除中…" : "确认删除",
+            ),
+          ),
+        ),
+      );
+    }
+
     function TaskDraftInboxPage(props) {
       const projects = Array.isArray(props.projects) ? props.projects : [];
       const projectIds = projects.map((project) => project.id).filter(Boolean);
@@ -4579,6 +4942,9 @@ window.__ModuleLoader__.load({
       const [allowedDuplicates, setAllowedDuplicates] = react.useState({});
       const [editorEntry, setEditorEntry] = react.useState(undefined);
       const [createOpen, setCreateOpen] = react.useState(false);
+      const [deleteRequest, setDeleteRequest] = react.useState(null);
+      const [deleting, setDeleting] = react.useState(false);
+      const [deleteError, setDeleteError] = react.useState("");
       const [lastCreated, setLastCreated] = react.useState(null);
       const [tasksByWorkspace, setTasksByWorkspace] = react.useState({});
       const selectedProjectRef = react.useRef("");
@@ -4776,6 +5142,79 @@ window.__ModuleLoader__.load({
           );
         }
       };
+      const requestDelete = (entries) => {
+        const deletable = entries.filter(deletableDraft);
+        if (deletable.length === 0) return;
+        setDeleteError("");
+        setDeleteRequest(deletable);
+      };
+      const confirmDelete = async () => {
+        if (deleteRequest === null || deleting) return;
+        setDeleting(true);
+        setDeleteError("");
+        const results = await Promise.allSettled(
+          deleteRequest.map(async (entry) => {
+            await request("/api/collab/task-capture/draft/ignore", {
+              method: "POST",
+              body: JSON.stringify({
+                workspaceId: entry.draft.workspaceId,
+                draftId: entry.draft.id,
+                commandId: commandId("tc-delete"),
+              }),
+            });
+            return entry;
+          }),
+        );
+        const removed = results
+          .filter((result) => result.status === "fulfilled")
+          .map((result) => result.value);
+        const failed = results
+          .filter((result) => result.status === "rejected")
+          .map((result) => result.reason);
+        setDeleting(false);
+        if (removed.length > 0) {
+          const removedIds = new Set(removed.map((entry) => entry.draft.id));
+          setSelectedIds((current) =>
+            current.filter((id) => !removedIds.has(id)),
+          );
+          setAllowedDuplicates((current) =>
+            Object.fromEntries(
+              Object.entries(current).filter(([id]) => !removedIds.has(id)),
+            ),
+          );
+          setNotice(
+            removed.length === 1
+              ? "草稿已从草稿箱删除"
+              : `已删除 ${removed.length} 条草稿`,
+          );
+          window.dispatchEvent(
+            new CustomEvent("pluginmax:task-capture-refresh"),
+          );
+        }
+        if (failed.length > 0) {
+          setDeleteError(
+            failed.length === 1
+              ? failed[0] instanceof Error
+                ? failed[0].message
+                : String(failed[0])
+              : `有 ${failed.length} 条草稿删除失败，请刷新后重试`,
+          );
+        }
+        if (failed.length === 0) {
+          setDeleteRequest(null);
+        } else {
+          setDeleteRequest(
+            deleteRequest.filter((entry) =>
+              results.some(
+                (result, index) =>
+                  result.status === "rejected" &&
+                  deleteRequest[index]?.draft.id === entry.draft.id,
+              ),
+            ),
+          );
+        }
+        await loadLibrary({ silent: true, preserve: true });
+      };
       const openSource = (entry) => {
         const source = entry.batch.source;
         if (source.sourceType === "meeting") {
@@ -4806,14 +5245,7 @@ window.__ModuleLoader__.load({
         setError("来源入口暂不可用，草稿内容仍可继续编辑");
       };
       const toggleSelected = (entry) => {
-        if (
-          entry.draft.status !== "active" ||
-          !entry.canEdit ||
-          (entry.draft.duplicate !== undefined &&
-            allowedDuplicates[entry.draft.id] !== true)
-        ) {
-          return;
-        }
+        if (!deletableDraft(entry)) return;
         setSelectedIds((current) =>
           current.includes(entry.draft.id)
             ? current.filter((id) => id !== entry.draft.id)
@@ -4879,6 +5311,7 @@ window.__ModuleLoader__.load({
           (entry.draft.duplicate === undefined ||
             allowedDuplicates[entry.draft.id] === true),
       );
+      const deletableSelectedEntries = selectedEntries.filter(deletableDraft);
       const projectUpdatedAt = currentEntries.reduce(
         (latest, entry) =>
           entry.draft.updatedAt > latest ? entry.draft.updatedAt : latest,
@@ -5143,6 +5576,7 @@ window.__ModuleLoader__.load({
                       entry.draft.status === "converted" ||
                       entry.draft.status === "linked" ||
                       entry.draft.status === "ignored";
+                    const canDelete = deletableDraft(entry);
                     const checked = selectedIds.includes(entry.draft.id);
                     return h(
                       "article",
@@ -5157,11 +5591,7 @@ window.__ModuleLoader__.load({
                         h("input", {
                           type: "checkbox",
                           checked,
-                          disabled:
-                            !entry.canEdit ||
-                            entry.draft.status !== "active" ||
-                            (entry.draft.duplicate !== undefined &&
-                              !duplicateAcknowledged),
+                          disabled: !deletableDraft(entry),
                           "aria-label": `选择${entry.draft.title}`,
                           onChange: () => toggleSelected(entry),
                         }),
@@ -5321,7 +5751,7 @@ window.__ModuleLoader__.load({
                       ),
                       h(
                         "div",
-                        { className: "pmtd-actions" },
+                        { className: "pmtd-status" },
                         h(
                           "span",
                           {
@@ -5329,6 +5759,10 @@ window.__ModuleLoader__.load({
                           },
                           status.label,
                         ),
+                      ),
+                      h(
+                        "div",
+                        { className: "pmtd-actions" },
                         h(
                           "button",
                           {
@@ -5338,6 +5772,18 @@ window.__ModuleLoader__.load({
                             onClick: () => setEditorEntry(entry),
                           },
                           "编辑",
+                        ),
+                        h(
+                          "button",
+                          {
+                            type: "button",
+                            className: "pmtd-action delete",
+                            disabled: !canDelete,
+                            "aria-label": `删除${entry.draft.title}`,
+                            onClick: () => requestDelete([entry]),
+                          },
+                          captureIcon("trash", 10),
+                          "删除",
                         ),
                       ),
                     );
@@ -5352,15 +5798,30 @@ window.__ModuleLoader__.load({
                 `已选 ${selectedEntries.length} 条`,
               ),
               h(
-                "button",
-                {
-                  type: "button",
-                  className: "pmtd-btn primary",
-                  disabled: readySelectedEntries.length === 0,
-                  onClick: () => setCreateOpen(true),
-                },
-                captureIcon("checkSquare", 13),
-                `批量创建任务（${readySelectedEntries.length}）`,
+                "span",
+                { className: "pmtd-footer-actions" },
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    className: "pmtd-btn danger",
+                    disabled: deletableSelectedEntries.length === 0,
+                    onClick: () => requestDelete(deletableSelectedEntries),
+                  },
+                  captureIcon("trash", 12),
+                  `批量删除（${deletableSelectedEntries.length}）`,
+                ),
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    className: "pmtd-btn primary",
+                    disabled: readySelectedEntries.length === 0,
+                    onClick: () => setCreateOpen(true),
+                  },
+                  captureIcon("checkSquare", 13),
+                  `批量创建任务（${readySelectedEntries.length}）`,
+                ),
               ),
             ),
           ),
@@ -5401,6 +5862,19 @@ window.__ModuleLoader__.load({
                 setNotice("");
                 await loadLibrary({ silent: true, preserve: true });
               },
+            })
+          : null,
+        deleteRequest !== null
+          ? h(DeleteDraftsConfirm, {
+              entries: deleteRequest,
+              busy: deleting,
+              error: deleteError,
+              onCancel: () => {
+                if (deleting) return;
+                setDeleteRequest(null);
+                setDeleteError("");
+              },
+              onConfirm: () => void confirmDelete(),
             })
           : null,
       );

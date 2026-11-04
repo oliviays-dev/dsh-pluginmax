@@ -380,6 +380,7 @@ export interface WorkbenchDataMetricProvider {
     readonly queryRunId?: string | undefined;
     readonly dataMode: "demo" | "production" | "unavailable";
     readonly dataCutoffAt?: string | undefined;
+    readonly sourceNote?: string | undefined;
   }>;
 }
 
@@ -430,6 +431,7 @@ export interface WorkbenchMetricItem extends MetricDefinition {
   readonly queryRunId?: string | undefined;
   readonly dataMode?: "demo" | "production" | "unavailable" | undefined;
   readonly dataCutoffAt?: string | undefined;
+  readonly sourceNote?: string | undefined;
 }
 
 export interface WorkbenchModule<T> {
@@ -445,6 +447,7 @@ export interface WorkbenchModule<T> {
 
 export interface ModuleOptions {
   tzOffsetMinutes: number;
+  todoScope?: "me" | "me_and_ai";
 }
 
 const STATUS_LABEL: Record<TaskRecordLike["status"], string> = {
@@ -971,7 +974,13 @@ export class WorkbenchService {
       profileMetrics.length > 0
         ? [...new Set(profileMetrics)].slice(0, 5)
         : this.metricPreference(principal);
-    let items: WorkbenchMetricItem[] = METRIC_DEFINITIONS.map((metric) => ({
+    const availableMetrics =
+      profileMetrics.length > 0
+        ? METRIC_DEFINITIONS.filter((metric) =>
+            profileMetrics.includes(metric.id),
+          )
+        : METRIC_DEFINITIONS;
+    let items: WorkbenchMetricItem[] = availableMetrics.map((metric) => ({
       ...metric,
       dataMode: "demo",
     }));
@@ -1032,6 +1041,9 @@ export class WorkbenchService {
                   ...(live.dataCutoffAt === undefined
                     ? {}
                     : { dataCutoffAt: live.dataCutoffAt }),
+                  ...(live.sourceNote === undefined
+                    ? {}
+                    : { sourceNote: live.sourceNote }),
                 }
               : item,
           );
@@ -1043,11 +1055,19 @@ export class WorkbenchService {
                 ? "mixed"
                 : "demo";
           sourceNote =
-            live.dataMode === "demo"
-              ? "订单卡来自 Data Fabric 演示数据，其余经营卡为演示种子"
-              : live.dataMode === "production"
-                ? "订单卡来自 Data Fabric 生产指标，其余经营卡仍为演示种子"
-                : "订单指标暂不可用，经营演示种子未混入生产结果";
+            live.sourceNote === undefined
+              ? live.dataMode === "demo"
+                ? selected.length === 1
+                  ? "订单卡来自 Data Fabric 演示数据；仅展示工作台已选指标"
+                  : "订单卡来自 Data Fabric 演示数据，其余经营卡为演示种子"
+                : live.dataMode === "production"
+                  ? selected.length === 1
+                    ? "订单卡来自 Data Fabric 生产指标；仅展示工作台已选指标"
+                    : "订单卡来自 Data Fabric 生产指标，其余经营卡仍为演示种子"
+                  : "订单指标暂不可用，经营演示种子未混入生产结果"
+              : selected.length === 1
+                ? live.sourceNote
+                : `${live.sourceNote}；其余 ${selected.length - 1} 项为静态演示数据`;
           if (orderMetric === undefined) dataMode = "unavailable";
         } catch {
           dataMode = "unavailable";
@@ -1067,7 +1087,10 @@ export class WorkbenchService {
 
   // ------------------------------------------------------------------ todo
 
-  todoModule(principal: WorkbenchPrincipal): WorkbenchModule<{
+  todoModule(
+    principal: WorkbenchPrincipal,
+    options: { scope?: "me" | "me_and_ai" } = {},
+  ): WorkbenchModule<{
     items: TodoItemPayload[];
   }> {
     const service = this.deps.tasks?.();
@@ -1075,7 +1098,10 @@ export class WorkbenchService {
       throw new WorkbenchError("unavailable", "任务服务不可用");
     }
     const { byId: workspaces } = this.workspaceMap(principal);
-    const agentIds = this.myAgentIds(principal);
+    const agentIds =
+      options.scope === "me_and_ai"
+        ? this.myAgentIds(principal)
+        : new Set<string>();
     const items: TodoItemPayload[] = [];
     for (const workspace of workspaces.values()) {
       const roleSeats = this.myRoleSeats(principal, workspace.id);
@@ -2874,8 +2900,31 @@ export class WorkbenchService {
       await this.tables.briefItems.put(key, {
         ...item,
         readState: "read",
+        manualUnread: false,
         readAt: now,
         readVia: "click",
+        updatedAt: now,
+      });
+    }
+    void options;
+    return true;
+  }
+
+  async markBriefUnread(
+    principal: WorkbenchPrincipal,
+    itemId: string,
+    options: ModuleOptions,
+  ): Promise<boolean> {
+    const key = briefItemKey(principal.userId, itemId);
+    const item = this.tables.briefItems.get(key);
+    if (item === undefined) return false;
+    if (item.readState === "read") {
+      const now = nowIso(() => this.now());
+      const { readAt: _readAt, readVia: _readVia, ...rest } = item;
+      await this.tables.briefItems.put(key, {
+        ...rest,
+        readState: "unread",
+        manualUnread: true,
         updatedAt: now,
       });
     }
@@ -2915,7 +2964,12 @@ export class WorkbenchService {
             options,
           )) as WorkbenchModule<T>;
         case "todo":
-          return this.todoModule(principal) as WorkbenchModule<T>;
+          return this.todoModule(
+            principal,
+            options.todoScope === undefined
+              ? {}
+              : { scope: options.todoScope },
+          ) as WorkbenchModule<T>;
         case "focus":
           return this.focusModule(principal) as WorkbenchModule<T>;
         case "meeting-minutes":

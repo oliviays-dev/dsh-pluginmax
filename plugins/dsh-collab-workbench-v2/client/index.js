@@ -700,6 +700,7 @@ window.__ModuleLoader__.load({
         setHistory([]);
         setEditing(true);
         setDirty(false);
+        setError("");
       };
 
       const undo = () => {
@@ -738,14 +739,36 @@ window.__ModuleLoader__.load({
         if (active === undefined) return;
         setBusy(true);
         try {
-          const result = await request("/api/collab/workbenches/draft", {
-            method: "PUT",
-            body: JSON.stringify({
-              workbenchId: active.id,
-              expectedRevision: active.revision,
-              panels: draftPanels,
-            }),
-          });
+          let result = null;
+          let expectedRevision = active.revision;
+          let rebased = false;
+          for (let attempt = 0; attempt < 2; attempt += 1) {
+            try {
+              result = await request("/api/collab/workbenches/draft", {
+                method: "PUT",
+                body: JSON.stringify({
+                  workbenchId: active.id,
+                  expectedRevision,
+                  panels: draftPanels,
+                }),
+              });
+              break;
+            } catch (cause) {
+              if (cause.code !== "conflict" || attempt > 0) throw cause;
+              const listing = await request("/api/collab/workbenches");
+              setWorkbenches(listing.workbenches ?? []);
+              setPreference(listing.preference ?? null);
+              const latest = (listing.workbenches ?? []).find(
+                (item) => item.id === active.id,
+              );
+              if (latest === undefined) throw cause;
+              expectedRevision = latest.revision;
+              rebased = true;
+            }
+          }
+          if (result === null) {
+            throw new Error("布局保存未返回有效结果");
+          }
           setWorkbenches((items) =>
             items.map((item) =>
               item.id === result.workbench.id ? result.workbench : item,
@@ -754,14 +777,22 @@ window.__ModuleLoader__.load({
           setEditing(false);
           setDirty(false);
           setHistory([]);
-          showToast("布局已保存");
+          setDraftPanels(clone(result.workbench.panels));
+          setError("");
+          showToast(
+            rebased
+              ? "布局已保存，并同步了其他页面之前的更新"
+              : "布局已保存",
+          );
           if (leaveAfter) {
             leaveResolver.current?.(true);
             leaveResolver.current = null;
             setLeavePrompt(null);
           }
         } catch (cause) {
-          showToast(`保存失败：${cause.message}`);
+          const message = `保存失败：${cause.message}。当前修改仍保留，可再次保存。`;
+          setError(message);
+          showToast(message);
           if (leaveAfter) {
             leaveResolver.current?.(false);
             leaveResolver.current = null;
@@ -985,6 +1016,40 @@ window.__ModuleLoader__.load({
             );
             return;
           }
+          if (plugin.status !== "enabled") {
+            await request("/api/collab/workbench-market/plugins/install", {
+              method: "POST",
+              body: JSON.stringify({ pluginId: plugin.id }),
+            });
+          }
+          if (editing) {
+            const panel = {
+              id: actionKey("pi"),
+              pluginId: plugin.id,
+              pluginVersion: plugin.version,
+              span: plugin.defaultSpan,
+              order: draftPanels.length,
+              config: {},
+            };
+            commit([...draftPanels, panel]);
+            window.requestAnimationFrame(() => {
+              document
+                .querySelector(
+                  `[data-panel-instance-id="${panel.id}"]`,
+                )
+                ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+            });
+            setPlugins((items) =>
+              items.map((item) =>
+                item.id === plugin.id
+                  ? { ...item, status: "enabled" }
+                  : item,
+              ),
+            );
+            setLibraryOpen(false);
+            showToast(`已添加「${plugin.name}」，保存布局后生效`);
+            return;
+          }
           const result = await request("/api/collab/workbenches/panels", {
             method: "POST",
             headers: {
@@ -1003,32 +1068,6 @@ window.__ModuleLoader__.load({
               item.id === result.workbench.id ? result.workbench : item,
             ),
           );
-          if (editing) {
-            const existingIds = new Set(
-              (active?.panels ?? []).map((panel) => panel.id),
-            );
-            const addedPanels = result.workbench.panels.filter(
-              (panel) => !existingIds.has(panel.id),
-            );
-            if (addedPanels.length > 0) {
-              setDraftPanels((current) => [
-                ...current,
-                ...addedPanels,
-              ].map((panel, index) => ({ ...panel, order: index })));
-              setHistory((current) => [
-                ...current.slice(-19),
-                clone(draftPanels),
-              ]);
-              setDirty(true);
-              window.requestAnimationFrame(() => {
-                document
-                  .querySelector(
-                    `[data-panel-instance-id="${addedPanels[0]?.id ?? ""}"]`,
-                  )
-                  ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-              });
-            }
-          }
           setPlugins((items) =>
             items.map((item) =>
               item.id === plugin.id ? { ...item, status: "enabled" } : item,
@@ -1287,7 +1326,14 @@ window.__ModuleLoader__.load({
           setDraftPanels((panels) =>
             panels.map((panel) =>
               panel.id === resize.panelId
-                ? { ...panel, span: nextSpan }
+                ? {
+                    ...panel,
+                    span: nextSpan,
+                    ...(panel.pluginId === "pluginmax.kpi-overview" &&
+                    resize.axis === "width"
+                      ? { height: undefined }
+                      : {}),
+                  }
                 : panel,
             ),
           );
@@ -1351,7 +1397,10 @@ window.__ModuleLoader__.load({
             {
               key: panel.id,
               "data-panel-instance-id": panel.id,
-              className: `pmwb2-card${editing ? " edit" : ""}`,
+              "data-plugin-id": panel.pluginId,
+              className: `pmwb2-card${editing ? " edit" : ""}${
+                panel.height ? " has-height" : ""
+              }`,
               style: {
                 "--cols": panel.span,
                 ...(panel.height ? { maxHeight: `${panel.height}px` } : {}),
@@ -1439,9 +1488,18 @@ window.__ModuleLoader__.load({
               "div",
               {
                 className: "pmwb2-card-body",
-                style: panel.height
-                  ? { maxHeight: `${Math.max(120, panel.height - 43)}px` }
-                  : undefined,
+                style:
+                  panel.height !== undefined &&
+                  panel.height !== null
+                    ? {
+                        maxHeight: `${Math.max(120, panel.height - 43)}px`,
+                        ...(panel.pluginId === "pluginmax.kpi-overview"
+                          ? {
+                              height: `${Math.max(120, panel.height - 43)}px`,
+                            }
+                          : {}),
+                      }
+                    : undefined,
               },
               typeof props.renderSlot === "function"
                 ? props.renderSlot(
@@ -1751,13 +1809,31 @@ window.__ModuleLoader__.load({
                 h(
                   "p",
                   { className: "pmwb2-plugin-hint" },
-                  "启用：让当前账号获得插件能力；添加：在当前工作台创建一个新的面板实例。",
+                  "启用：让当前账号获得插件能力；当前工作台是否已添加，以正在编辑的布局草稿为准。",
                 ),
                 h(
                   "div",
                   { className: "pmwb2-list", style: { marginTop: "10px" } },
-                  ...visiblePlugins.map((plugin) =>
-                    h(
+                  ...visiblePlugins.map((plugin) => {
+                    const placedPanelCount = panels.filter(
+                      (panel) => panel.pluginId === plugin.id,
+                    ).length;
+                    const placed = placedPanelCount > 0;
+                    const runtimeBlocked =
+                      plugin.status === "not_packaged" ||
+                      plugin.status === "disabled";
+                    const statusLabel = placed
+                      ? placedPanelCount > 1
+                        ? `已在当前工作台 · ${placedPanelCount}`
+                        : "已在当前工作台"
+                      : plugin.status === "not_packaged"
+                        ? "未装配"
+                        : plugin.status === "disabled"
+                          ? "已禁用"
+                          : plugin.status === "enabled"
+                            ? "已启用，未添加"
+                            : "未启用";
+                    return h(
                       "article",
                       { className: "pmwb2-plugin-card", key: plugin.id },
                       h(
@@ -1780,49 +1856,44 @@ window.__ModuleLoader__.load({
                             "span",
                             {
                               className: `pmwb2-plugin-status${
-                                plugin.status === "enabled"
+                                placed || plugin.status === "enabled"
                                   ? " enabled"
-                                  : plugin.status === "not_packaged" ||
-                                      plugin.status === "disabled"
+                                  : runtimeBlocked
                                     ? " warn"
                                     : ""
                               }`,
                             },
-                            plugin.status === "enabled"
-                              ? "已启用"
-                              : plugin.status === "not_packaged"
-                                ? "未装配"
-                                : plugin.status === "disabled"
-                                  ? "已禁用"
-                                  : "未启用",
+                            statusLabel,
                           ),
                           h(
                             "button",
                             {
                               type: "button",
                               className: "pmwb2-btn",
-                              disabled:
-                                plugin.status === "not_packaged" ||
-                                plugin.status === "disabled",
+                              disabled: runtimeBlocked,
                               title:
-                                plugin.status === "enabled"
+                                placed
+                                  ? "当前工作台已包含该面板；点击可再添加一个独立实例"
+                                  : plugin.status === "enabled"
                                   ? "插件已启用；点击后在当前工作台新增一个面板实例"
                                   : "先为当前账号启用插件，再新增一个面板实例",
                               onClick: () => void addPlugin(plugin),
                             },
-                            plugin.status === "enabled"
-                              ? "添加面板"
+                            placed
+                              ? "再添加一个"
                               : plugin.status === "not_packaged"
                                 ? "未装配"
                                 : plugin.status === "disabled"
                                   ? "已禁用"
-                                  : "启用并添加面板",
+                                  : plugin.status === "enabled"
+                                    ? "添加面板"
+                                    : "启用并添加面板",
                           ),
                         ),
                       ),
                       h(PluginPreview, { pluginId: plugin.id }),
-                    ),
-                  ),
+                    );
+                  }),
                 ),
               ),
             )

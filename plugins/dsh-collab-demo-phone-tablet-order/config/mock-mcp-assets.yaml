@@ -5,6 +5,12 @@ featureFlag: "PLUGINMAX_ENABLE_PHONE_TABLET_DEMO"
 registrationMode: "McpCatalogProvider"
 productionEnabled: false
 detachable: true
+currentImplementation:
+  providerRegistered: true
+  connectionUsesInitializeAndToolsList: true
+  toolCallsUseMcpToolsCall: true
+  externalRunsUseIsolatedState: true
+  dataCutoffSource: "fixture.snapshotAt"
 
 assets:
   - id: "mcp-orders-phone-tablet-demo"
@@ -58,6 +64,8 @@ assets:
       command: "node"
       args:
         - "plugins/dsh-collab-demo-phone-tablet-order/mock/mock-wms-mcp-server.mjs"
+      env:
+        DEMO_WMS_STATE_PATH: ".tmp/phone-tablet-demo/isolated/wms-state.json"
     tools:
       - name: "wms_health"
         access: "read"
@@ -89,6 +97,29 @@ registration:
       - "clear per-user client cache"
   failurePolicy: "fail_closed"
   productionFallback: false
+
+validation:
+  oms:
+    toolsList:
+      - "orders_health"
+      - "orders_query"
+    expectedFixtureRows: 8358
+    expectedQueryRows: 1658
+    dataCutoff: "fixture.snapshotAt"
+  wms:
+    toolsList:
+      - "wms_health"
+      - "wms_rebalance_work_order_get"
+      - "wms_rebalance_work_order_create"
+    expectedWorkOrderId: "WO-RB-DEMO-1030-017"
+    idempotencyKey: "PT-ORD-001-B"
+    persistedState: true
+    rejects:
+      - "missing action ticket"
+      - "invalid action ticket signature"
+      - "expired action ticket"
+      - "consumer data-agent"
+      - "humanConfirmed=false"
 
 removal:
   steps:

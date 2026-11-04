@@ -190,6 +190,9 @@ function candidateRecord(input: {
       ? {}
       : { suggestion: candidate.suggestion }),
     readState: prior?.readState ?? "unread",
+    ...(prior?.manualUnread === undefined
+      ? {}
+      : { manualUnread: prior.manualUnread }),
     ...(prior?.readAt === undefined ? {} : { readAt: prior.readAt }),
     ...(prior?.readVia === undefined ? {} : { readVia: prior.readVia }),
     priorityScore: candidate.priorityScore,
@@ -307,6 +310,10 @@ export function mergeBriefItems(input: {
         next.push(prior);
         continue;
       }
+      if (prior.manualUnread === true) {
+        next.push({ ...prior, resolved: true });
+        continue;
+      }
       if (prior.readState === "unread") {
         markedRead.push(prior.itemId);
         next.push({
@@ -335,6 +342,10 @@ export function mergeBriefItems(input: {
         removed.push(prior.itemId);
         continue;
       }
+      if (prior.manualUnread === true) {
+        next.push({ ...prior, resolved: true });
+        continue;
+      }
       if (prior.readState === "unread") {
         markedRead.push(prior.itemId);
         next.push({
@@ -355,6 +366,10 @@ export function mergeBriefItems(input: {
       continue;
     }
     // conclusion：读完即走；未读遇到下游闭环时保留到当日结束。
+    if (prior.manualUnread === true) {
+      next.push({ ...prior, resolved });
+      continue;
+    }
     if (prior.readState === "read") {
       if (
         prior.readVia === "downstream_action" &&

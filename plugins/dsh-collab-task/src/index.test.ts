@@ -2,8 +2,9 @@ import { mkdir, mkdtemp, readFile, utimes, writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  canCommandTask,
   canReviewTask,
   createTaskDispatcher,
   createTaskDocumentQueryService,
@@ -204,6 +205,136 @@ describe("dsh-collab-task service", () => {
     expect(canReview({ id: "worker", role: "member" })).toBe(false);
   });
 
+  it("does not let a human submitter review their own completed task", async () => {
+    const tasks = service();
+    const task = await tasks.create(
+      { id: "zhouning", name: "周宁", kind: "human", role: "member" },
+      {
+        workspaceId: "workspace-1",
+        title: "仓库履约核实",
+        priority: "P2",
+        receiverType: "human",
+        receiverId: "ligong",
+        receiverName: "李工",
+        description: "核实库存与仓间履约约束。",
+        acceptance: ["完成库存核实"],
+        status: "progress",
+      },
+    );
+    const submitted = await tasks.submit(
+      { id: "ligong", name: "李工", kind: "human", role: "member" },
+      task.id,
+      [task.steps[0]!.id],
+    );
+    expect(submitted.reviewSubmitter).toMatchObject({
+      receiverType: "human",
+      receiverId: "ligong",
+    });
+    const team = {
+      resolveToken: () => undefined,
+      users: () => [
+        { id: "zhouning", name: "周宁", role: "member" as const },
+        { id: "ligong", name: "李工", role: "member" as const },
+      ],
+      members: () => [
+        { userId: "zhouning", memberRole: "member" as const },
+        { userId: "ligong", memberRole: "owner" as const },
+      ],
+    };
+    const assignments = {
+      config: () => ({
+        seats: [
+          {
+            id: "reviewer",
+            label: "Reviewer",
+            permissions: ["read", "approve"],
+          },
+        ],
+      }),
+      members: () => [
+        {
+          seatId: "reviewer",
+          assigneeKind: "user" as const,
+          assigneeId: "ligong",
+          status: "assigned" as const,
+        },
+      ],
+    };
+    const actor = (id: string) => ({
+      id,
+      name: id,
+      kind: "human" as const,
+      role: "member" as const,
+    });
+    expect(
+      canReviewTask({
+        task: submitted,
+        actor: actor("ligong"),
+        team,
+        assignments,
+      }),
+    ).toBe(false);
+    expect(
+      canReviewTask({
+        task: submitted,
+        actor: actor("zhouning"),
+        team,
+        assignments,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps AI-submitted work in the creator's review queue", async () => {
+    const tasks = service();
+    const created = await tasks.create(
+      { id: "zhouning", name: "周宁", kind: "human", role: "member" },
+      {
+        workspaceId: "workspace-1",
+        title: "履约 AI 工单草稿",
+        priority: "P2",
+        receiverType: "agent",
+        receiverId: "fulfillment-ai",
+        receiverName: "履约 AI 伙伴",
+        description: "生成工单草稿并提交人工确认。",
+        acceptance: ["提交工单草稿"],
+      },
+    );
+    const submitted = {
+      ...created,
+      status: "review" as const,
+      receiverType: "agent" as const,
+      receiverId: "fulfillment-ai",
+      receiverName: "履约 AI 伙伴",
+      reviewSubmitter: {
+        receiverType: "agent" as const,
+        receiverId: "fulfillment-ai",
+        receiverName: "履约 AI 伙伴",
+        submittedAt: "2026-03-08T00:00:00.000Z",
+      },
+    };
+    const team = {
+      resolveToken: () => undefined,
+      users: () => [
+        { id: "zhouning", name: "周宁", role: "member" as const },
+      ],
+      members: () => [
+        { userId: "zhouning", memberRole: "member" as const },
+      ],
+    };
+    expect(
+      canReviewTask({
+        task: submitted,
+        actor: {
+          id: "zhouning",
+          name: "周宁",
+          kind: "human",
+          role: "member",
+        },
+        team,
+      }),
+    ).toBe(true);
+  });
+
   it("degrades review authority when workspace roles are not materialized", async () => {
     const tasks = service();
     const task = await tasks.create(olivia, {
@@ -241,6 +372,286 @@ describe("dsh-collab-task service", () => {
         assignments,
       }),
     ).toBe(false);
+  });
+
+  it("limits command initiation to the human receiver or the responsible AI owner", async () => {
+    const tasks = service();
+    const admin = { id: "admin", name: "Admin", kind: "human" as const };
+    const humanTask = await tasks.create(admin, {
+      workspaceId: "workspace-1",
+      title: "Human-owned task",
+      priority: "P2",
+      receiverType: "human",
+      receiverId: "worker",
+      receiverName: "Worker",
+      description: "Only the receiver can issue instructions.",
+      acceptance: ["Command authority is enforced"],
+    });
+    const aiTask = await tasks.create(admin, {
+      workspaceId: "workspace-1",
+      title: "AI-owned task",
+      priority: "P2",
+      receiverType: "agent",
+      receiverId: "tm-own",
+      receiverName: "Worker AI",
+      description: "Only the AI owner can issue instructions.",
+      acceptance: ["Command authority is enforced"],
+    });
+    const teammates = {
+      assignable: () => [],
+      ownerOf: (ref: string) =>
+        ref === "tm-own"
+          ? { userId: "worker", name: "Worker" }
+          : ref === "tm-other"
+            ? { userId: "other", name: "Other" }
+            : undefined,
+      ownersOf: (ref: string) => {
+        const owner = teammates.ownerOf(ref);
+        return owner === undefined ? [] : [owner];
+      },
+      ensureRuntime: async () => ({
+        teammateId: "tm-own",
+        profileId: "agent-own",
+      }),
+    };
+    const worker = {
+      id: "worker",
+      name: "Worker",
+      kind: "human" as const,
+      role: "member" as const,
+    };
+    const other = {
+      id: "other",
+      name: "Other",
+      kind: "human" as const,
+      role: "member" as const,
+    };
+    expect(
+      canCommandTask({
+        task: humanTask,
+        actor: worker,
+        teammates,
+      }),
+    ).toBe(true);
+    expect(
+      canCommandTask({
+        task: humanTask,
+        actor: other,
+        teammates,
+      }),
+    ).toBe(false);
+    expect(
+      canCommandTask({
+        task: aiTask,
+        actor: worker,
+        teammates,
+      }),
+    ).toBe(true);
+    expect(
+      canCommandTask({
+        task: aiTask,
+        actor: other,
+        teammates,
+      }),
+    ).toBe(false);
+    expect(
+      canCommandTask({
+        task: aiTask,
+        actor: { ...admin, role: "admin" },
+        teammates,
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps general instructions owner-only while explicit discussion mentions can drive project agents", async () => {
+    const tasks = service();
+    const admin = { id: "admin", name: "Admin", kind: "human" as const };
+    const team = {
+      resolveToken: (candidate: string) =>
+        ({
+          "admin-token": { userId: "admin", role: "admin" as const },
+          "worker-token": { userId: "worker", role: "member" as const },
+          "other-token": { userId: "other", role: "member" as const },
+        })[candidate],
+      users: () => [
+        { id: "admin", name: "Admin", role: "admin" },
+        { id: "worker", name: "Worker", role: "member" },
+        { id: "other", name: "Other", role: "member" },
+      ],
+      members: () => [
+        { userId: "admin", memberRole: "owner" as const },
+        { userId: "worker", memberRole: "member" as const },
+        { userId: "other", memberRole: "member" as const },
+      ],
+    };
+    const teammates = {
+      assignable: (candidate: { userId: string }) =>
+        candidate.userId === "worker"
+          ? [
+              {
+                id: "tm-own",
+                name: "Worker AI",
+                ownerUserId: "worker",
+                ownerName: "Worker",
+                source: "personal" as const,
+                avatar: "",
+              },
+            ]
+          : candidate.userId === "other"
+            ? [
+                {
+                  id: "tm-other",
+                  name: "Other AI",
+                  ownerUserId: "other",
+                  ownerName: "Other",
+                  source: "personal" as const,
+                  avatar: "",
+                },
+              ]
+            : [],
+      ownerOf: (ref: string) =>
+        ref === "tm-own"
+          ? { userId: "worker", name: "Worker" }
+          : ref === "tm-other"
+            ? { userId: "other", name: "Other" }
+            : undefined,
+      ensureRuntime: async (input: { teammateId: string }) => ({
+        teammateId: input.teammateId,
+        employeeId: `digital-${input.teammateId}`,
+        profileId: `agent-${input.teammateId}`,
+      }),
+    };
+    const dispatched: Array<Record<string, unknown>> = [];
+    const routes = createTaskRoutes(
+      tasks,
+      team,
+      undefined,
+      {
+        config: () => ({ seats: [] }),
+        seats: () => [
+          {
+            seatId: "planner",
+            assigneeKind: "agent" as const,
+            assigneeId: "tm-own",
+            status: "assigned" as const,
+          },
+          {
+            seatId: "planner",
+            assigneeKind: "agent" as const,
+            assigneeId: "tm-other",
+            status: "assigned" as const,
+          },
+        ],
+      },
+      () => ({
+        bindTask: () => undefined,
+        dispatch: async (input) => {
+          dispatched.push(input as unknown as Record<string, unknown>);
+          return {
+            id: `run-${dispatched.length}`,
+            instanceId: String(
+              (input as unknown as { instanceId: string }).instanceId,
+            ),
+            status: "queued" as const,
+            payload: (
+              input as unknown as {
+                payload: { context: Record<string, string> };
+              }
+            ).payload,
+          };
+        },
+      }),
+      undefined,
+      () => teammates,
+    );
+    const message = routes.find(
+      (route) => route.path === "/api/collab/tasks/message",
+    );
+    const comment = routes.find(
+      (route) => route.path === "/api/collab/tasks/comment",
+    );
+    const aiTask = await tasks.create(admin, {
+      workspaceId: "workspace-1",
+      title: "AI-owned task",
+      priority: "P2",
+      receiverType: "agent",
+      receiverId: "tm-own",
+      receiverName: "Worker AI",
+      description: "Only the owner can drive this task.",
+      acceptance: ["Ownership is enforced"],
+    });
+
+    const outsiderInstruction = fakeResponse();
+    await message?.handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/message",
+        token: "other-token",
+        body: { taskId: aiTask.id, content: "Please run this." },
+      }),
+      outsiderInstruction.response,
+    );
+    expect(outsiderInstruction.read().status).toBe(403);
+
+    const foreignMention = fakeResponse();
+    await message?.handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/message",
+        token: "worker-token",
+        body: {
+          taskId: aiTask.id,
+          content: "@Other AI run this",
+          mentions: [
+            { kind: "agent", id: "tm-other", name: "Other AI" },
+          ],
+          deliveryTarget: "collaborators",
+        },
+      }),
+      foreignMention.response,
+    );
+    expect(foreignMention.read().status).toBe(200);
+    expect(dispatched).toHaveLength(1);
+    expect(dispatched[0]?.payload).toMatchObject({
+      context: { taskReceiverId: "tm-other" },
+    });
+
+    const discussion = fakeResponse();
+    await comment?.handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/comment",
+        token: "other-token",
+        body: {
+          taskId: aiTask.id,
+          content: "@Other AI please consider this risk",
+          mentions: [
+            { kind: "agent", id: "tm-other", name: "Other AI" },
+          ],
+        },
+      }),
+      discussion.response,
+    );
+    expect(discussion.read()).toMatchObject({
+      status: 200,
+      body: { dispatched: true },
+    });
+    expect(dispatched).toHaveLength(2);
+    expect(dispatched[1]?.payload).toMatchObject({
+      context: { taskReceiverId: "tm-other" },
+    });
+
+    const ownerInstruction = fakeResponse();
+    await message?.handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/message",
+        token: "worker-token",
+        body: { taskId: aiTask.id, content: "Run the approved scope." },
+      }),
+      ownerInstruction.response,
+    );
+    expect(ownerInstruction.read().status).toBe(200);
   });
 
   it("creates, assigns, claims, transitions, comments, and replies", async () => {
@@ -358,6 +769,29 @@ describe("dsh-collab-task service", () => {
     const unchanged = tasks.get(created.id);
     expect(unchanged.status).toBe("progress");
     expect(unchanged.steps.map((step) => step.done)).toEqual([false, false]);
+  });
+
+  it("saves selected acceptance items and submits them atomically", async () => {
+    const tasks = service();
+    const created = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Acceptance confirmation",
+      priority: "P2",
+      status: "progress",
+      receiverType: "human",
+      receiverId: "olivia",
+      receiverName: "Olivia",
+      description: "Confirm the selected acceptance item on submit.",
+      acceptance: ["Scope checked", "Risk recorded"],
+    });
+    const submitted = await tasks.submit(olivia, created.id, [
+      created.steps[0]!.id,
+    ]);
+    expect(submitted.status).toBe("review");
+    expect(submitted.receiverType).toBe("human");
+    expect(submitted.receiverId).toBe("olivia");
+    expect(submitted.receiverName).toBe("Olivia");
+    expect(submitted.steps.map((step) => step.done)).toEqual([true, false]);
   });
 
   it("requires all acceptance items before a no-review task can close", async () => {
@@ -562,7 +996,7 @@ describe("dsh-collab-task service", () => {
     ).toHaveLength(2);
   });
 
-  it("hands an auto-submitted agent task back to the instance owner", async () => {
+  it("keeps the agent responsible when auto-submitting for review", async () => {
     const tasks = service();
     const created = await tasks.create(olivia, {
       workspaceId: "workspace-1",
@@ -586,11 +1020,15 @@ describe("dsh-collab-task service", () => {
       { userId: "olivia", name: "Olivia" },
     );
     expect(completed.status).toBe("review");
-    expect(completed.receiverType).toBe("human");
-    expect(completed.receiverId).toBe("olivia");
-    expect(completed.receiverName).toBe("Olivia");
+    expect(completed.receiverType).toBe("agent");
+    expect(completed.receiverId).toBe("tm-1");
+    expect(completed.receiverName).toBe("Research Agent");
+    expect(completed.reviewSubmitter).toMatchObject({
+      receiverType: "agent",
+      receiverId: "tm-1",
+    });
     expect(completed.events.at(-1)?.message).toBe(
-      "Research Agent 完成产出物，已提交 Olivia 确认",
+      "Research Agent 完成产出物，自动提交验收",
     );
   });
 
@@ -2233,6 +2671,97 @@ describe("teammate task assignment", () => {
     });
   });
 
+  it("lists project-assigned AI Teammates even when another user owns them", async () => {
+    const tasks = service();
+    const projectTeammate = {
+      id: "tm-project",
+      name: "履约AI伙伴01",
+      ownerUserId: "zhouning",
+      ownerName: "周宁",
+      source: "personal" as const,
+      avatar: "",
+    };
+    const unrelatedTeammate = {
+      ...projectTeammate,
+      id: "tm-unrelated",
+      name: "未加入项目的 AI 伙伴",
+    };
+    const routes = createTaskRoutes(
+      tasks,
+      {
+        resolveToken: (candidate) =>
+          candidate === "token"
+            ? { userId: "admin", role: "admin" }
+            : undefined,
+        users: () => [
+          { id: "admin", name: "平台Admin", role: "admin" },
+          { id: "zhouning", name: "周宁", role: "member" },
+        ],
+        members: () => [
+          { userId: "admin", memberRole: "owner" },
+          { userId: "zhouning", memberRole: "member" },
+        ],
+      },
+      undefined,
+      {
+        config: () => ({ seats: [] }),
+        seats: () => [
+          {
+            seatId: "planner",
+            assigneeKind: "agent",
+            assigneeId: projectTeammate.id,
+            status: "assigned",
+          },
+        ],
+      },
+      undefined,
+      undefined,
+      () => ({
+        assignable: (actor) =>
+          actor.userId === "zhouning"
+            ? [projectTeammate, unrelatedTeammate]
+            : [],
+        ensureRuntime: async () => ({
+          teammateId: projectTeammate.id,
+          profileId: "agent-project",
+        }),
+      }),
+    );
+
+    const bootstrap = routes.find(
+      (route) => route.path === "/api/collab/tasks/bootstrap",
+    );
+    const response = fakeResponse();
+    await bootstrap?.handler(
+      fakeRequest({
+        method: "GET",
+        url: "/api/collab/tasks/bootstrap?workspaceId=workspace-1",
+        token: "token",
+      }),
+      response.response,
+    );
+    const result = response.read();
+    expect(result.status).toBe(200);
+    const directory = result.body?.directory as {
+      agents: Array<{
+        id: string;
+        name: string;
+        ownerName?: string;
+        ownerAuthUserId?: string;
+      }>;
+    };
+    expect(
+      directory.agents.find((agent) => agent.id === projectTeammate.id),
+    ).toMatchObject({
+      name: "履约AI伙伴01",
+      ownerName: "周宁",
+      ownerAuthUserId: "zhouning",
+    });
+    expect(
+      directory.agents.some((agent) => agent.id === unrelatedTeammate.id),
+    ).toBe(false);
+  });
+
   it("dispatches through Principal Runtime and issues an action ticket", async () => {
     const tasks = new TaskService({ tasks: memoryTable() });
     const dispatched: Array<Record<string, unknown>> = [];
@@ -2708,6 +3237,7 @@ function contextHarness(
   const tasks = service();
   const dispatched: Array<{
     profileId: string;
+    principalId?: string | undefined;
     payload: { context: Record<string, string> };
   }> = [];
   const runs = new Map<string, CapturedRun>();
@@ -2750,6 +3280,13 @@ function contextHarness(
         runs.set(id, run);
         dispatched.push({
           profileId: (input as unknown as { profileId: string }).profileId,
+          ...((input as unknown as { principalId?: string }).principalId ===
+          undefined
+            ? {}
+            : {
+                principalId: (input as unknown as { principalId: string })
+                  .principalId,
+              }),
           payload: run.payload,
         });
         return run;
@@ -2770,6 +3307,32 @@ function contextHarness(
           source: "platform" as const,
           avatar: "",
         },
+        {
+          id: "tm-qa",
+          name: "柯真 01 测试",
+          ownerUserId: "admin",
+          ownerName: "平台",
+          source: "platform" as const,
+          avatar: "",
+          employeeId: "digital-qa",
+        },
+        {
+          id: "tm-dev",
+          name: "陆行01 开发",
+          ownerUserId: "admin",
+          ownerName: "平台",
+          source: "platform" as const,
+          avatar: "",
+          employeeId: "digital-dev",
+        },
+        {
+          id: "meeting-facilitator",
+          name: "会议 Facilitator",
+          ownerUserId: "admin",
+          ownerName: "平台",
+          source: "platform" as const,
+          avatar: "",
+        },
       ],
       // 每个 teammate 实例对应一套独立执行身份：被 @ 的协作方要落到自己的会话。
       ensureRuntime: async (input) => {
@@ -2783,12 +3346,14 @@ function contextHarness(
           input.teammateId === "tm-1"
             ? {
                 teammateId: input.teammateId,
+                principalId: "principal-tm-1",
                 employeeId: "digital-1",
                 profileId: "agent-1",
                 personaId: "persona-tm-1",
               }
             : {
                 teammateId: input.teammateId,
+                principalId: `principal-${input.teammateId.replace(/[^a-zA-Z0-9]/g, "")}`,
                 employeeId: `digital-${input.teammateId.replace(/[^a-zA-Z0-9]/g, "")}`,
                 profileId: `agent-${input.teammateId.replace(/[^a-zA-Z0-9]/g, "")}`,
                 personaId: `persona-${input.teammateId.replace(/[^a-zA-Z0-9]/g, "")}`,
@@ -2907,6 +3472,9 @@ describe("task context delivery", () => {
         body: {
           taskId: task.id,
           content: "@测小白 风险章节还差一条指标说明。",
+          mentions: [
+            { kind: "agent", id: "tm-1", name: "测小白" },
+          ],
         },
       }),
       mention.response,
@@ -2946,6 +3514,93 @@ describe("task context delivery", () => {
     expect(dispatched[3]?.payload.context.taskSessionEpoch).toBe("1");
     expect(dispatched[3]?.payload.context.firstDelivery).toBe("true");
     expect(dispatched[3]?.payload.context.instruction).toContain("# 任务");
+  });
+
+  it("dispatches workflow discussion as analysis without advancing the node", async () => {
+    const { tasks, route, dispatched, runtimeActors } = contextHarness();
+    const created = fakeResponse();
+    await route("/api/collab/tasks/create").handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/create",
+        body: {
+          workspaceId: "workspace-1",
+          title: "测试文档设计",
+          priority: "P1",
+          status: "review",
+          receiverType: "agent",
+          receiverId: "digital-qa",
+          receiverName: "柯真 01 测试",
+          description: "设计测试策略、用例和验收口径。",
+          acceptance: ["测试文档可执行"],
+          autoSubmitReview: false,
+          workflow: {
+            instanceId: "wf-qa",
+            nodeId: "test-design",
+            instanceTitle: "软件交付",
+            nodeName: "测试文档设计",
+            approvalPolicy: "any",
+          },
+        },
+      }),
+      created.response,
+    );
+    const task = (created.read().body?.task ?? {}) as {
+      id: string;
+      status: string;
+    };
+    const before = tasks.get(task.id);
+    dispatched.length = 0;
+
+    const discussion = fakeResponse();
+    await route("/api/collab/tasks/comment").handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/comment",
+        body: {
+          taskId: task.id,
+          content: "请分析审批前还需要补齐哪些测试风险和材料。",
+          isKeyConsensus: false,
+          mentions: [
+            {
+              kind: "agent",
+              id: "digital-qa",
+              name: "柯真 01 测试",
+            },
+          ],
+        },
+      }),
+      discussion.response,
+    );
+
+    expect(discussion.read().status).toBe(200);
+    expect(discussion.read().body?.dispatched).toBe(true);
+    expect(dispatched).toHaveLength(1);
+    expect(dispatched[0]?.payload.context).toMatchObject({
+      taskRunRole: "assist",
+      taskRunPurpose: "workflow-discussion",
+      taskReceiverId: "digital-qa",
+    });
+    expect(dispatched[0]?.principalId).toBe("principal-tmqa");
+    expect(runtimeActors.at(-1)?.teammateId).toBe("tm-qa");
+    const instruction = dispatched[0]?.payload.context.instruction ?? "";
+    expect(instruction).toContain("# 工作流节点讨论");
+    expect(instruction).toContain(
+      "不要推进工作流、不要提交审批，也不要提交最终交付物",
+    );
+    expect(instruction).toContain("帮助准备节点材料和交付物草稿");
+
+    const after = tasks.get(task.id);
+    expect(after.status).toBe(before.status);
+    expect(after.workflow?.outcome).toBeUndefined();
+    expect(after.comments.at(-1)?.content).toContain("测试风险和材料");
+    expect(after.messages.at(-1)).toMatchObject({
+      kind: "agent",
+      runRole: "assist",
+      authorId: "digital-qa",
+    });
+    expect(after.events.at(-1)?.message).toContain("柯真 01 测试");
+    expect(after.events.at(-1)?.message).toContain("协作");
   });
 
   it("resends full task context to stateless external agents", async () => {
@@ -3365,6 +4020,322 @@ describe("task continuation re-dispatch", () => {
     const instruction = dispatched[1]?.payload.context.instruction ?? "";
     expect(instruction).toContain("# 任务（已更新）");
     expect(instruction).toContain("回滚方案可执行");
+  });
+});
+
+describe("task execution control", () => {
+  it("stops every active agent run for the task and rejects unauthorized callers", async () => {
+    const tasks = service();
+    const task = await tasks.create(
+      { id: "admin", name: "Admin", kind: "human" },
+      {
+        workspaceId: "workspace-1",
+        title: "Stop all active agents",
+        priority: "P2",
+        receiverType: "human",
+        receiverId: "worker",
+        receiverName: "Worker",
+        description: "Multiple agents are collaborating.",
+        acceptance: ["Stopping the task stops all agents"],
+      },
+    );
+    const runStatuses = new Map([
+      ["run-1", "running" as const],
+      ["run-2", "queued" as const],
+    ]);
+    const cancelled: string[] = [];
+    const agent = {
+      bindTask: () => undefined,
+      dispatch: async () => {
+        throw new Error("not used");
+      },
+      run: (runId: string) => ({
+        status: runStatuses.get(runId),
+      }),
+      cancel: async (runId: string) => {
+        cancelled.push(runId);
+        runStatuses.delete(runId);
+        const stopped = {
+          id: runId,
+          instanceId: task.id,
+          status: "cancelled" as const,
+        };
+        await tasks.attachAgentRun(task.id, stopped, runId, undefined, {
+          role: "assist",
+          authorId: runId,
+          authorName: runId,
+        });
+        return stopped;
+      },
+    };
+    for (const run of [
+      { id: "run-1", instanceId: task.id, status: "running" as const },
+      { id: "run-2", instanceId: task.id, status: "queued" as const },
+    ]) {
+      await tasks.attachAgentRun(task.id, run, run.id, undefined, {
+        role: "assist",
+        authorId: run.id,
+        authorName: run.id,
+      });
+    }
+    const routes = createTaskRoutes(
+      tasks,
+      {
+        resolveToken: (token) =>
+          token === "creator-token"
+            ? { userId: "admin", role: "member" }
+            : token === "other-token"
+              ? { userId: "other", role: "member" }
+              : undefined,
+        users: () => [
+          { id: "admin", name: "Admin", role: "member" },
+          { id: "worker", name: "Worker", role: "member" },
+          { id: "other", name: "Other", role: "member" },
+        ],
+        members: () => [
+          { userId: "admin", memberRole: "member" },
+          { userId: "worker", memberRole: "member" },
+          { userId: "other", memberRole: "member" },
+        ],
+      },
+      undefined,
+      undefined,
+      () => agent,
+    );
+    const stop = routes.find(
+      (route) => route.path === "/api/collab/tasks/execution/stop",
+    )!;
+
+    const outsider = fakeResponse();
+    await stop.handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/execution/stop",
+        token: "other-token",
+        body: { taskId: task.id },
+      }),
+      outsider.response,
+    );
+    expect(outsider.read().status).toBe(403);
+
+    const stopped = fakeResponse();
+    await stop.handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/execution/stop",
+        token: "creator-token",
+        body: { taskId: task.id },
+      }),
+      stopped.response,
+    );
+    expect(stopped.read()).toMatchObject({
+      status: 200,
+      body: {
+        cancelledRunIds: ["run-1", "run-2"],
+        failedRunIds: [],
+      },
+    });
+    expect(cancelled).toEqual(["run-1", "run-2"]);
+    expect(
+      tasks.get(task.id).messages
+        .filter((message) => message.runId !== undefined)
+        .map((message) => message.state),
+    ).toEqual(["cancelled", "cancelled"]);
+    expect(
+      tasks
+        .get(task.id)
+        .messages.filter((message) => message.runId !== undefined)
+        .map((message) => message.content),
+    ).toEqual(["已停止执行。", "已停止执行。"]);
+
+    const noRunning = fakeResponse();
+    await stop.handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/execution/stop",
+        token: "creator-token",
+        body: { taskId: task.id },
+      }),
+      noRunning.response,
+    );
+    expect(noRunning.read().status).toBe(409);
+
+    runStatuses.set("run-3", "running");
+    await tasks.attachAgentRun(
+      task.id,
+      { id: "run-3", instanceId: task.id, status: "running" },
+      "run-3",
+      undefined,
+      { role: "assist", authorId: "run-3", authorName: "run-3" },
+    );
+    const status = routes.find(
+      (route) => route.path === "/api/collab/tasks/status",
+    )!;
+    const cancelledTask = fakeResponse();
+    await status.handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/status",
+        token: "creator-token",
+        body: { taskId: task.id, status: "cancelled" },
+      }),
+      cancelledTask.response,
+    );
+    expect(cancelledTask.read()).toMatchObject({
+      status: 200,
+      body: {
+        task: { id: task.id, status: "cancelled" },
+        cancelledRunIds: ["run-3"],
+      },
+    });
+    expect(cancelled).toEqual(["run-1", "run-2", "run-3"]);
+
+    runStatuses.set("run-4", "running");
+    await tasks.attachAgentRun(
+      task.id,
+      { id: "run-4", instanceId: task.id, status: "running" },
+      "run-4",
+      undefined,
+      { role: "assist", authorId: "run-4", authorName: "run-4" },
+    );
+    const bootstrap = routes.find(
+      (route) => route.path === "/api/collab/tasks/bootstrap",
+    )!;
+    const repaired = fakeResponse();
+    await bootstrap.handler(
+      fakeRequest({
+        method: "GET",
+        url: "/api/collab/tasks/bootstrap?workspaceId=workspace-1",
+        token: "creator-token",
+      }),
+      repaired.response,
+    );
+    expect(repaired.read()).toMatchObject({
+      status: 200,
+      body: {
+        tasks: [
+          {
+            id: task.id,
+            status: "cancelled",
+            messages: [
+              expect.objectContaining({ runId: "run-1", state: "cancelled" }),
+              expect.objectContaining({ runId: "run-2", state: "cancelled" }),
+              expect.objectContaining({ runId: "run-3", state: "cancelled" }),
+              expect.objectContaining({ runId: "run-4", state: "cancelled" }),
+            ],
+          },
+        ],
+      },
+    });
+    expect(cancelled).toEqual(["run-1", "run-2", "run-3", "run-4"]);
+  });
+
+  it("starts an agent task only after its predecessor reaches done", async () => {
+    const harness = contextHarness();
+    const create = async (body: Record<string, unknown>) => {
+      const response = fakeResponse();
+      await harness.route("/api/collab/tasks/create").handler(
+        fakeRequest({
+          method: "POST",
+          url: "/api/collab/tasks/create",
+          body,
+        }),
+        response.response,
+      );
+      return response.read();
+    };
+    const predecessor = await create({
+      workspaceId: "workspace-1",
+      title: "前置任务",
+      priority: "P2",
+      receiverType: "agent",
+      receiverId: "tm-1",
+      receiverName: "测小白",
+      description: "先完成前置任务。",
+      acceptance: ["前置任务完成"],
+    });
+    const predecessorTask = predecessor.body?.task as { id: string };
+    expect(harness.dispatched).toHaveLength(1);
+
+    const dependent = await create({
+      workspaceId: "workspace-1",
+      title: "后续任务",
+      priority: "P2",
+      receiverType: "agent",
+      receiverId: "tm-1",
+      receiverName: "测小白",
+      description: "前置任务完成后才开始。",
+      acceptance: ["后续任务完成"],
+      dependsOn: [predecessorTask.id],
+    });
+    const dependentTask = dependent.body?.task as { id: string };
+    expect(dependentTask).toBeDefined();
+    expect(harness.tasks.get(dependentTask.id).agentRunIds).toEqual([]);
+    expect(harness.dispatched).toHaveLength(1);
+
+    await harness.tasks.changeStatus(
+      { id: "admin", name: "Admin", kind: "human", role: "admin" },
+      { taskId: predecessorTask.id, status: "done" },
+    );
+    await vi.waitFor(() =>
+      expect(harness.tasks.get(dependentTask.id).agentRunIds).toHaveLength(1),
+    );
+    expect(harness.dispatched).toHaveLength(2);
+  });
+
+  it("allows one same-project prerequisite and rejects dependency cycles", async () => {
+    const tasks = service();
+    const actor = {
+      id: "admin",
+      name: "Admin",
+      kind: "human" as const,
+      role: "admin" as const,
+    };
+    const first = await tasks.create(actor, {
+      workspaceId: "workspace-1",
+      title: "First",
+      priority: "P2",
+      receiverType: "agent",
+      receiverId: "tm-1",
+      receiverName: "Worker",
+      description: "First task",
+      acceptance: ["Done"],
+    });
+    const second = await tasks.create(actor, {
+      workspaceId: "workspace-1",
+      title: "Second",
+      priority: "P2",
+      receiverType: "agent",
+      receiverId: "tm-1",
+      receiverName: "Worker",
+      description: "Second task",
+      acceptance: ["Done"],
+      dependsOn: [first.id],
+    });
+    expect(second.dependsOn).toEqual([first.id]);
+    await expect(
+      tasks.update(actor, {
+        taskId: first.id,
+        title: first.title,
+        priority: first.priority,
+        description: first.description,
+        acceptance: first.acceptance,
+        dependsOn: [second.id],
+      }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+    await expect(
+      tasks.create(actor, {
+        workspaceId: "workspace-1",
+        title: "Multiple dependencies",
+        priority: "P2",
+        receiverType: "agent",
+        receiverId: "tm-1",
+        receiverName: "Worker",
+        description: "Multiple dependency input",
+        acceptance: ["Rejected"],
+        dependsOn: [first.id, second.id],
+      }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
   });
 });
 
@@ -3819,7 +4790,7 @@ describe("task queue and待确认", () => {
     ]);
   });
 
-  it("supports approve / handoff on a review task", async () => {
+  it("supports manual handoff and approve on a review task", async () => {
     const tasks = service();
     const created = await createTask(tasks, "待确认闭环", {
       receiverType: "agent",
@@ -3838,7 +4809,8 @@ describe("task queue and待确认", () => {
       { userId: "olivia", name: "Olivia" },
     );
     expect(inReview.status).toBe("review");
-    expect(inReview.receiverType).toBe("human");
+    expect(inReview.receiverType).toBe("agent");
+    expect(inReview.receiverId).toBe("tm-1");
     expect(inReview.reviewSubmitter).toMatchObject({
       receiverType: "agent",
       receiverId: "tm-1",

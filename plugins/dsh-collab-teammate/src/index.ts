@@ -171,7 +171,12 @@ const DATA_AGENT_SEED = {
     "- 跨项目、跨工作区数据必须重新校验权限。",
     "",
     "## 输出契约",
-    "- 常规对话使用简洁中文直接回答，不套用报告结构。",
+    "- 常规对话使用简洁中文直接回答，不套用报告结构；优先 1-2 个短段落或一个紧凑表格。",
+    "- 用户要求“简短”时，先给结论与关键数字，不展开长背景；必要限制压缩成一句。",
+    "- 只保留一个证据区，不重复 QueryRun、datasetId、指标版本、dataCutoffAt 或权限摘要。",
+    "- QueryRun 和数据集证据优先由系统统一追加；正文不要自行再写一份“数据范围与查询证据”。",
+    "- 查询入参结束时间晚于 dataCutoffAt 时，说明实际截止与未纳入时段；不得用“无遗漏”概括时间完整性。",
+    "- 异常构成按计数降序，只有相等才可并列；占比分母使用去重异常量，构成不等于原因。",
     "- 报告请求使用中文 Markdown，至少包含：结论、分析范围、口径、证据链、不确定性、建议下一步。",
     "- 报告先给业务影响，再给证据；不要用长段落替代结论。",
     "- 默认不生成 HTML；只有用户显式请求时才生成 HTML 派生版本。",
@@ -428,6 +433,38 @@ interface MeetingActivityLike {
     readonly updatedAt: string;
     readonly deactivatedAt?: string | undefined;
   }[];
+}
+
+interface ProjectRoleAssignmentLike {
+  readonly id: string;
+  readonly workspaceId: string;
+  readonly seatId: string;
+  readonly seatLabel: string;
+  readonly assigneeKind: "user" | "agent";
+  readonly assigneeId: string;
+  readonly principalId?: string | undefined;
+  readonly permissions: readonly string[];
+  readonly status: "claimed" | "assigned" | "released";
+  readonly updatedAt: string;
+  readonly expiresAt?: string | undefined;
+}
+
+interface ProjectRoleAssignmentServiceLike {
+  seats(workspaceId: string): readonly ProjectRoleAssignmentLike[];
+  release(
+    actor: {
+      readonly kind: "user";
+      readonly id: string;
+      readonly globalRole?: "admin" | "owner" | "member" | "guest" | undefined;
+      readonly workspaceRole?: "owner" | "member" | "guest" | undefined;
+    },
+    workspaceId: string,
+    seatId: string,
+    target: {
+      readonly assigneeKind: "user" | "agent";
+      readonly assigneeId: string;
+    },
+  ): Promise<ProjectRoleAssignmentLike>;
 }
 
 export interface TeammateActivityScope {
@@ -1779,10 +1816,10 @@ export class TeammateWorkloadService implements TeammateWorkloadPort {
     if (team === undefined) {
       throw new TeammateError("not_found", "identity service is unavailable");
     }
+    // 工作台负载卡片的边界是「我的 AI伙伴实例」。管理员的全量治理视图
+    // 只用于管理页，不能把其他用户各自的系统 Agent 实例聚合到这里。
     const teammates = this.deps.teammates
-      .listInstances(actor, {
-        scope: actor.role === "admin" ? "all" : "mine",
-      })
+      .listInstances(actor, { scope: "mine" })
       .filter((teammate) => teammate.state !== "archived");
     const registry = this.deps.workspaces();
     const accessibleWorkspaces: WorkspaceRegistryLike = {
@@ -1839,6 +1876,7 @@ export function createTeammateRoutes(
   taskDispatch?: () => TaskDispatchLike | undefined,
   teammateTemplates?: TeammateTemplateService,
   employees?: () => EmployeeServiceLike | undefined,
+  projectAssignments?: () => ProjectRoleAssignmentServiceLike | undefined,
 ): WebRouteLike[] {
   const requireTeam = (): TeamServiceLike => {
     const value = team();
@@ -1914,7 +1952,7 @@ export function createTeammateRoutes(
     return result;
   };
   /**
-   * 明细类接口的统一读取口径：实例 owner、平台实例（团队共享）、平台管理员，
+   * 明细类接口的统一读取口径：实例 owner、平台内置身份、平台管理员，
    * 以及在任务/会议中与该实例共同参与的协作方可以读取；其余登录用户拒绝。
    */
   const canReadTeammate = (
@@ -1924,11 +1962,6 @@ export function createTeammateRoutes(
   ): boolean => {
     if (actor.role === "admin") return true;
     if (teammate.ownerUserId === actor.userId) return true;
-    if (
-      (service.templateOf(teammate)?.source ?? teammate.source) === "platform"
-    ) {
-      return true;
-    }
     const receiverIds = new Set<string>([teammate.id]);
     if (teammate.employeeId !== undefined) {
       receiverIds.add(teammate.employeeId);
@@ -1999,6 +2032,10 @@ export function createTeammateRoutes(
           methods("GET", request);
           const actor = requirePrincipal(request, requireTeam());
           await runBeforeList();
+          if (actor.role !== "guest") {
+            await service.ensureUserSystemAgent(actor, "data-agent");
+            await service.ensureUserSystemAgent(actor, "meeting-facilitator");
+          }
           const scopeParam = query(request).get("scope");
           const availabilityWorkspaceId =
             query(request).get("workspaceId")?.trim() ?? "";
@@ -2106,6 +2143,55 @@ export function createTeammateRoutes(
             teammate: instance,
             events: service.events(teammate.id),
           });
+        }, response),
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/teammates/project-roles",
+      handler: (request, response) =>
+        runHandler(async () => {
+          methods("GET", request);
+          const { actor, teammate } = requireReadableTeammate(request);
+          const assignmentService = projectAssignments?.();
+          if (assignmentService === undefined) {
+            throw new TeammateError(
+              "not_found",
+              "项目角色服务不可用，无法读取 AI伙伴项目角色",
+            );
+          }
+          const identity = requireTeam();
+          const accessible = accessibleWorkspaceIds(actor, identity);
+          const roles = [...accessible]
+            .flatMap((workspaceId) =>
+              assignmentService
+                .seats(workspaceId)
+                .filter(
+                  (assignment) =>
+                    assignment.status !== "released" &&
+                    assignment.assigneeKind === "agent" &&
+                    (assignment.assigneeId === teammate.id ||
+                      (teammate.principalId !== undefined &&
+                        assignment.principalId === teammate.principalId)),
+                )
+                .map((assignment) => ({
+                  id: assignment.id,
+                  workspaceId: assignment.workspaceId,
+                  role: assignment.seatId,
+                  roleLabel: assignment.seatLabel,
+                  permissions: assignment.permissions,
+                  status: "active" as const,
+                  createdAt: assignment.updatedAt,
+                  ...(assignment.expiresAt === undefined
+                    ? {}
+                    : { expiresAt: assignment.expiresAt }),
+                })),
+            )
+            .sort(
+              (left, right) =>
+                left.workspaceId.localeCompare(right.workspaceId) ||
+                left.roleLabel.localeCompare(right.roleLabel),
+            );
+          sendJson(response, 200, { ok: true, roles });
         }, response),
     },
     {
@@ -2324,13 +2410,102 @@ export function createTeammateRoutes(
             (member) =>
               member.userId === actor.userId && member.memberRole === "owner",
           );
+        const taskService = tasks();
+        const workspaceTasks =
+          taskService === undefined ? [] : taskService.list(input.workspaceId);
+        const assignmentService = projectAssignments?.();
+        const projectRoleAssignments =
+          assignmentService
+            ?.seats(input.workspaceId)
+            .filter(
+              (assignment) =>
+                assignment.status !== "released" &&
+                assignment.assigneeKind === "agent" &&
+                (assignment.assigneeId === teammate.id ||
+                  (teammate.principalId !== undefined &&
+                    assignment.principalId === teammate.principalId)),
+            ) ?? [];
+        if (
+          assignmentService !== undefined &&
+          projectRoleAssignments.length > 0
+        ) {
+          if (!canManageWorkspace) {
+            throw new TeammateError(
+              "forbidden",
+              "只有项目 owner 或平台管理员可以调整 AI伙伴的项目角色",
+            );
+          }
+          const targets =
+            input.assignmentId === undefined
+              ? projectRoleAssignments
+              : projectRoleAssignments.filter(
+                  (assignment) => assignment.id === input.assignmentId,
+                );
+          if (targets.length === 0) {
+            throw new TeammateError(
+              "not_found",
+              "该项目下没有可退出的生效项目角色",
+            );
+          }
+          const member = members.find(
+            (candidate) => candidate.userId === actor.userId,
+          );
+          for (const assignment of targets) {
+            await assignmentService.release(
+              {
+                kind: "user",
+                id: actor.userId,
+                globalRole: actor.role,
+                ...(member?.memberRole === undefined
+                  ? {}
+                  : { workspaceRole: member.memberRole }),
+              },
+              input.workspaceId,
+              assignment.seatId,
+              {
+                assigneeKind: "agent",
+                assigneeId: teammate.id,
+              },
+            );
+          }
+          const receiver =
+            input.scope === "workspace"
+              ? resolveLeaveReceiver(teammate, members, identity.users())
+              : undefined;
+          const reassignedTaskIds: string[] = [];
+          if (receiver !== undefined) {
+            for (const task of workspaceTasks) {
+              if (
+                task.receiverType !== "agent" ||
+                task.receiverId !== teammate.id ||
+                task.archivedAt !== undefined ||
+                task.status === "done" ||
+                task.status === "cancelled"
+              ) {
+                continue;
+              }
+              await taskService?.assign(actor, {
+                taskId: task.id,
+                receiverType: "human",
+                receiverId: receiver.id,
+                receiverName: receiver.name,
+              });
+              reassignedTaskIds.push(task.id);
+            }
+          }
+          return {
+            revokedAssignments: targets.map((assignment) => ({
+              id: assignment.id,
+              role: assignment.seatLabel,
+            })),
+            reassignedTaskIds,
+            ...(receiver === undefined ? {} : { receiver }),
+          };
+        }
         const reassignTo =
           input.scope === "workspace"
             ? resolveLeaveReceiver(teammate, members, identity.users())
             : undefined;
-        const taskService = tasks();
-        const workspaceTasks =
-          taskService === undefined ? [] : taskService.list(input.workspaceId);
         const result = await teammateRuntime.leaveWorkspace({
           teammateId: input.teammateId,
           workspaceId: input.workspaceId,
@@ -2900,6 +3075,9 @@ export interface TeammateContext {
   get(key: "collabEmployee"): EmployeeServiceLike | undefined;
   get(key: "collabAgent"): AgentServiceLike | undefined;
   get(key: "collabPrincipal"): PrincipalServiceLike | undefined;
+  get(
+    key: "collabAssignment",
+  ): ProjectRoleAssignmentServiceLike | undefined;
   get(key: "agents"): AgentsRegistryLike | undefined;
   get(key: "subagents"): SubagentsRuntimeLike | undefined;
   inject(
@@ -2953,8 +3131,8 @@ export async function apply(ctx: TeammateContext): Promise<void> {
         PrincipalRuntimePrincipalServiceLike | undefined,
   );
   // 平台内置数据：只在缺失时写入，不覆盖平台维护。
-  await service.ensureSeededPlatformTeammate(MEETING_FACILITATOR_SEED);
-  await service.ensureSeededPlatformTeammate(DATA_AGENT_SEED);
+  await service.ensureSeededPlatformTemplate(MEETING_FACILITATOR_SEED);
+  await service.ensureSeededPlatformTemplate(DATA_AGENT_SEED);
   ctx.provide("collabTeammates", service);
   ctx.provide("collabTeammateTemplates", teammateTemplateService);
   const runtimeService = new TeammateRuntime({
@@ -3021,6 +3199,7 @@ export async function apply(ctx: TeammateContext): Promise<void> {
       () => ctx.get("collabTaskDispatch"),
       teammateTemplateService,
       () => ctx.get("collabEmployee"),
+      () => ctx.get("collabAssignment"),
     );
     for (const route of routes) ctx.webServer.register(route);
     void syncRuntimeIdentities().catch(() => undefined);

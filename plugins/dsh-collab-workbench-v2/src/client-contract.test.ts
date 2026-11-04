@@ -57,10 +57,36 @@ describe("Workbench V2 client contract", () => {
     expect(source).toContain("示例预览");
     expect(source).toContain("添加面板");
     expect(source).toContain("启用并添加面板");
+    expect(source).toContain("已在当前工作台");
+    expect(source).toContain("已启用，未添加");
+    expect(source).toContain("再添加一个");
+    expect(source).toContain("const placedPanelCount = panels.filter");
     expect(source).toContain("const resetDraft = () =>");
     expect(source).toContain("setDraftPanels(clone(active.panels))");
+    expect(source).toContain('"data-plugin-id": panel.pluginId');
+    expect(source).toContain(
+      'panel.pluginId === "pluginmax.kpi-overview"',
+    );
+    expect(source).toContain("panel.height ? \" has-height\" : \"\"");
+    expect(source).toContain("resize.axis === \"width\"");
+    expect(source).toContain("{ height: undefined }");
+    expect(source).toContain(
+      'panel.pluginId === "pluginmax.kpi-overview"',
+    );
     expect(source).toContain("已重置到最近保存版本");
     expect(source).not.toContain('"重做"');
+    expect(source).toContain('cause.code !== "conflict" || attempt > 0');
+    expect(source).toContain("expectedRevision = latest.revision");
+    expect(source).toContain(
+      "布局已保存，并同步了其他页面之前的更新",
+    );
+    expect(source).toContain("当前修改仍保留，可再次保存");
+    expect(source).toContain(
+      'showToast(`已添加「${plugin.name}」，保存布局后生效`);',
+    );
+    expect(source).toContain(
+      "setDraftPanels(clone(result.workbench.panels))",
+    );
     expect(source).toContain("AI_LOAD_COLUMN_OPTIONS");
     expect(source).toContain("AI_LOAD_METRIC_OPTIONS");
     expect(source).toContain("normalizeAiLoadSettings");

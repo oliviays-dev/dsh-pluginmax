@@ -148,6 +148,17 @@ describe("phase 1 routes", () => {
       minutesRuntime: () => runtime,
       delegates: () => delegates,
       reads: () => reads,
+      teammateRuntime: () => ({
+        ensureSystemAgent: async (actor, systemKey) => ({
+          id: `${systemKey}-${actor.userId}`,
+          name: "会议 Facilitator",
+          systemKey,
+        }),
+        ensureRuntime: async (input) => ({
+          teammateId: input.teammateId,
+          profileId: `profile-${input.teammateId}`,
+        }),
+      }),
       principals: () => ({
         resolveReference: (reference) =>
           reference === "principal:principal-ai-tm-1"
@@ -250,7 +261,7 @@ describe("phase 1 routes", () => {
       .find(
         (participant) =>
           participant.kind === "ai_teammate" &&
-          participant.refId === "meeting-facilitator" &&
+          participant.refId === "meeting-facilitator-alice" &&
           participant.status === "active",
       );
     expect(joined?.autoSpeak).toBe("manual");

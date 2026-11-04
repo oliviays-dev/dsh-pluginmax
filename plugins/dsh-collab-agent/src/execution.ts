@@ -563,13 +563,15 @@ function gapsFor(input: {
   for (const requirement of input.policy.runtime.requiredCapabilities) {
     const state = capabilityForRequirement(input.runtime, requirement);
     if (state === "supported") continue;
+    const unknownSearch =
+      state === "unknown" && requirement.key === "search";
     gaps.push({
       code:
         state === "unknown"
           ? "runtime-capability-missing"
           : "runtime-capability-missing",
       key: requirement.key,
-      necessity: requirement.necessity,
+      necessity: unknownSearch ? "preferred" : requirement.necessity,
       message:
         state === "unknown"
           ? `Runtime capability is unknown: ${requirement.key}`
@@ -1096,9 +1098,15 @@ export class AgentExecutionService {
       gaps,
       suggestedRuntimeIds: [],
       warnings:
-        capability.gateEnforcement === "observe-only"
-          ? ["该 Runtime 不能在动作执行前阻断高风险工具"]
-          : [],
+        [
+          ...(capability.gateEnforcement === "observe-only"
+            ? ["该 Runtime 不能在动作执行前阻断高风险工具"]
+            : []),
+          ...(policy.sourcePolicy.allow.includes("public-web") &&
+          capability.capabilities.search === "unknown"
+            ? ["Runtime 未声明搜索能力，将在执行时按可用工具尝试"]
+            : []),
+        ],
     };
   }
 

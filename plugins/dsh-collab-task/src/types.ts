@@ -168,6 +168,7 @@ export const taskCommentSchema = z.object({
   authorName: z.string().min(1).max(200),
   kind: taskActorKindSchema,
   content: z.string().min(1).max(8000),
+  mentions: z.array(taskMentionSchema).default([]),
   /** 人类显式确认的关键共识；默认评论仅为讨论。 */
   isKeyConsensus: z.boolean().default(false),
   replies: z.array(taskReplySchema).default([]),

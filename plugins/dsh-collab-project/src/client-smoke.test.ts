@@ -49,6 +49,22 @@ interface ClientExports {
       roleIds: readonly string[],
     ): string;
     workspaceRoleLabel(role?: string): string;
+    filterMemberDirectoryLocally(
+      directory: {
+        humans: readonly Record<string, unknown>[];
+        agents: readonly Record<string, unknown>[];
+      },
+      members: readonly Record<string, unknown>[],
+      keyword: string,
+      limit?: number,
+    ): {
+      humans: readonly Record<string, unknown>[];
+      agents: readonly Record<string, unknown>[];
+    };
+    isProjectOwner(
+      member: { id: string; kind: "human" | "agent" },
+      ownerId?: string,
+    ): boolean;
     compactWorkspacePath(path?: string, segmentCount?: number): string;
     auditCategoryLabel(category: string): string;
     auditMatches(
@@ -230,6 +246,8 @@ describe("project management client", () => {
     expect(helpers?.statusTone("关注")).toBe("notice");
     expect(helpers?.statusTone("规划中")).toBe("notice");
     expect(helpers?.statusTone("进行中")).toBe("progress");
+    expect(helpers?.statusTone("已取消")).toBe("cancelled");
+    expect(helpers?.statusTone("已归档")).toBe("archived");
     expect(helpers?.priorityLabel("P1")).toBe("P0");
     expect(helpers?.priorityLabel("P2")).toBe("P1");
     expect(helpers?.priorityLabel("P3")).toBe("P2");
@@ -282,6 +300,125 @@ describe("project management client", () => {
     expect(client.__test?.workspaceRoleLabel("owner")).toBe("负责人");
     expect(client.__test?.workspaceRoleLabel("guest")).toBe("访客");
     expect(client.__test?.workspaceRoleLabel(undefined)).toBe("不适用");
+  });
+
+  it("falls back to the loaded directory when member search is unavailable", () => {
+    const { exports: client } = loadClientExports();
+    const result = client.__test?.filterMemberDirectoryLocally(
+      {
+        humans: [
+          {
+            id: "mia",
+            name: "Mia",
+            principalId: "principal-human-mia",
+            platformRole: "平台成员",
+          },
+        ],
+        agents: [
+          {
+            id: "teammate-2",
+            name: "小白PD",
+            ownerName: "Olivia",
+            ownerUserId: "olivia",
+          },
+          {
+            id: "teammate-3",
+            name: "计划助手",
+            ownerName: "Mia",
+          },
+          {
+            id: "system-data-agent",
+            name: "Data Agent",
+            ownerName: "Mia",
+            systemKey: "data-agent",
+          },
+          {
+            id: "legacy-facilitator",
+            name: "Demo 会议Facilitator",
+            ownerName: "Mia",
+          },
+        ],
+      },
+      [{ id: "olivia", name: "Olivia", kind: "human" }],
+      "Olivia",
+    );
+    expect(result?.humans).toEqual([]);
+    expect(result?.agents.map((item) => item.id)).toEqual(["teammate-2"]);
+    for (const keyword of ["Data Agent", "Demo 会议Facilitator"]) {
+      expect(
+        client.__test?.filterMemberDirectoryLocally(
+          {
+            humans: [],
+            agents: [
+              {
+                id: "system-data-agent",
+                name: "Data Agent",
+                ownerName: "Mia",
+              },
+              {
+                id: "legacy-facilitator",
+                name: "Demo 会议Facilitator",
+                ownerName: "Mia",
+              },
+            ],
+          },
+          [],
+          keyword,
+        )?.agents,
+      ).toEqual([]);
+    }
+    expect(
+      client.__test
+        ?.filterMemberDirectoryLocally(
+          {
+            humans: [],
+            agents: [{ id: "teammate-3", name: "计划助手", ownerName: "Mia" }],
+          },
+          [],
+          "计划",
+        )
+        ?.agents.map((item) => item.id),
+    ).toEqual(["teammate-3"]);
+  });
+
+  it("marks only the project owner from the actual owner id", () => {
+    const { exports: client } = loadClientExports();
+    const isProjectOwner = client.__test?.isProjectOwner;
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(
+      isProjectOwner?.(
+        { id: "platform-admin", kind: "human" },
+        "platform-admin",
+      ),
+    ).toBe(true);
+    expect(
+      isProjectOwner?.({ id: "other-member", kind: "human" }, "platform-admin"),
+    ).toBe(false);
+    expect(
+      isProjectOwner?.(
+        { id: "platform-admin", kind: "agent" },
+        "platform-admin",
+      ),
+    ).toBe(false);
+    expect(isProjectOwner?.({ id: "platform-admin", kind: "human" }, "")).toBe(
+      false,
+    );
+    expect(source).toContain("isProjectOwner(member, selectedProject.ownerId)");
+    expect(source).toContain('className: "pmproj-owner-tag"');
+  });
+
+  it("keeps member subtitles free of Principal labels", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    const membersTabStart = source.indexOf("const renderMembersTab");
+    const roleEditorStart = source.indexOf("const renderProjectRoleEditor");
+    const membersTab = source.slice(membersTabStart, roleEditorStart);
+    expect(membersTabStart).toBeGreaterThan(-1);
+    expect(roleEditorStart).toBeGreaterThan(membersTabStart);
+    expect(membersTab).not.toContain("Human Principal");
+    expect(membersTab).not.toContain("AI Principal");
+    expect(membersTab).not.toContain("member.kindLabel");
+    expect(membersTab).toContain("`AI · Owner ${member.ownerName}`");
+    expect(membersTab).toContain("`Human · 加入 ${new Date(");
   });
 
   it("compacts long workspace paths while preserving copyable input", () => {
@@ -421,7 +558,7 @@ describe("project management client", () => {
       true,
     );
     expect(helpers?.outputMatches(item, "Research Avatar", "all", "", "")).toBe(
-      false,
+      true,
     );
     expect(
       helpers?.outputMatches(item, "", "markdown", "2026-10-17", "2026-10-17"),
@@ -450,6 +587,19 @@ describe("project management client", () => {
     expect(helpers?.outputLoadErrorMessage(new Error("网络异常"))).toBe(
       "网络异常",
     );
+  });
+
+  it("links every aggregated output source back to its origin", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain("function openMeeting(");
+    expect(source).toContain("function openDataAgent(");
+    expect(source).toContain('"data-agent": "Data Agent"');
+    expect(source).toContain("outputSourceLabel(item.sourceKind)");
+    expect(source).toContain("item.dataAgentConversationId");
+    expect(source).toContain("item.meetingId");
+    expect(source).toContain('item.contentRole === "input"');
+    expect(source).toContain('"输入"');
+    expect(source).toContain('"产出"');
   });
 
   it("parses report markdown into headings, lists and paragraphs", () => {
@@ -578,6 +728,19 @@ describe("project management client", () => {
     expect(membersTab).not.toContain('openRoleModal("add"');
     expect(membersTab).not.toContain("confirmRoleDraft");
     expect(source).not.toContain("const renderMemberManagement");
+  });
+
+  it("searches addable humans and AI partners while adding a member", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain("/api/collab/projects/members/search");
+    expect(source).toContain("memberSearchQuery");
+    expect(source).toContain("memberSearchOptions");
+    expect(source).toContain('"aria-autocomplete": "list"');
+    expect(source).toContain('event.key === "ArrowDown"');
+    expect(source).toContain('event.key === "Enter"');
+    expect(source).toContain("人类用户");
+    expect(source).toContain("AI 伙伴");
+    expect(source).toContain("AI 伙伴需要选择项目角色后才能加入项目");
   });
 
   it("clears project data and member edit state when the login token changes", () => {

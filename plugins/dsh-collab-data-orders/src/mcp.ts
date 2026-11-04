@@ -67,9 +67,12 @@ function defaultConfig(): OrderMcpProviderConfig {
       assetId: "mcp-orders-mock",
       transport: "streamable-http",
       url,
-      headers: token === undefined || token === "" ? {} : {
-        authorization: `Bearer ${token}`,
-      },
+      headers:
+        token === undefined || token === ""
+          ? {}
+          : {
+              authorization: `Bearer ${token}`,
+            },
       toolCallTimeoutMs: 15_000,
     };
   }
@@ -113,15 +116,9 @@ export class OrderMcpProvider implements McpToolProvider {
         },
         version: "1.0.0",
         icon: "database",
-        permissions: [
-          "orders.read",
-          "payments.read",
-          "fulfillment.read",
-        ],
+        permissions: ["orders.read", "payments.read", "fulfillment.read"],
         initialStatus: "off",
-        status: this.connectedUsers.has(principal.userId)
-          ? "connected"
-          : "off",
+        status: this.connectedUsers.has(principal.userId) ? "connected" : "off",
       },
     ];
   }
@@ -136,6 +133,18 @@ export class OrderMcpProvider implements McpToolProvider {
     await this.ensureConnected(principal.userId);
     this.connectedUsers.add(principal.userId);
     return { status: "connected" };
+  }
+
+  async disconnect(principal: OrderMcpPrincipal, mcpId: string): Promise<void> {
+    if (mcpId !== this.config.assetId) {
+      throw new DataFabricError("not_found", "order MCP asset not found");
+    }
+    this.connectedUsers.delete(principal.userId);
+    const connection = this.clients.get(principal.userId);
+    if (connection === undefined) return;
+    this.clients.delete(principal.userId);
+    await connection.client.close().catch(() => undefined);
+    await connection.transport.close().catch(() => undefined);
   }
 
   async callTool(input: {
@@ -188,7 +197,11 @@ export class OrderMcpProvider implements McpToolProvider {
       const text = this.textContent(result);
       try {
         const parsed = JSON.parse(text) as unknown;
-        if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+        if (
+          parsed !== null &&
+          typeof parsed === "object" &&
+          !Array.isArray(parsed)
+        ) {
           return parsed as Record<string, unknown>;
         }
       } catch {
@@ -263,10 +276,7 @@ export class OrderMcpProvider implements McpToolProvider {
       }) as Transport;
     }
     if (this.config.command === undefined) {
-      throw new DataFabricError(
-        "unavailable",
-        "order MCP command is missing",
-      );
+      throw new DataFabricError("unavailable", "order MCP command is missing");
     }
     return new StdioClientTransport({
       command: this.config.command,
@@ -300,9 +310,7 @@ const ORDER_MCP_RESULT = z.object({
 });
 
 export class McpOrderTransport implements OrderReadonlyTransport {
-  constructor(
-    private readonly provider: Pick<McpToolProvider, "callTool">,
-  ) {}
+  constructor(private readonly provider: Pick<McpToolProvider, "callTool">) {}
 
   async query(request: OrderTransportRequest): Promise<OrderSourceBatch> {
     if (

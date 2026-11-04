@@ -1395,8 +1395,7 @@ export class TeammateRuntime {
       .filter(
         (teammate) =>
           teammate.state === "active" &&
-          (this.sourceOf(teammate) === "platform" ||
-            teammate.ownerUserId === actor.userId),
+          teammate.ownerUserId === actor.userId,
       )
       .map((teammate) => ({
         id: teammate.id,
@@ -1415,6 +1414,30 @@ export class TeammateRuntime {
           ? {}
           : { externalRuntimeId: teammate.externalRuntimeId }),
       }));
+  }
+
+  /**
+   * 项目成员目录需要排除平台内置实例；除当前 systemKey 外，
+   * 继续识别迁移期尚未补齐 systemKey 的旧 Facilitator / Data Agent 实例。
+   */
+  isSystemAgent(ref: string): boolean {
+    const teammate = this.deps.teammates
+      .list()
+      .find(
+        (item) =>
+          item.id === ref ||
+          item.employeeId === ref ||
+          item.principalId === ref,
+      );
+    if (teammate === undefined) return false;
+    return (
+      teammate.systemKey !== undefined ||
+      teammate.id === "data-agent" ||
+      teammate.id === "meeting-facilitator" ||
+      teammate.templateId === "sys-data-agent" ||
+      teammate.templateId === "sys-meeting-facilitator" ||
+      teammate.templateId === "tpl-instance-meeting-facilitator"
+    );
   }
 
   /**
@@ -1535,7 +1558,15 @@ export class TeammateRuntime {
   }
 
   async ensureRuntime(input: EnsureRuntimeInput): Promise<EnsuredRuntime> {
-    const teammate = this.deps.teammates.get(input.teammateId);
+    const teammate = this.deps.teammates
+      .list()
+      .find(
+        (item) =>
+          item.id === input.teammateId || item.employeeId === input.teammateId,
+      );
+    if (teammate === undefined) {
+      throw new TeammateError("not_found", "AI伙伴不存在");
+    }
     if (teammate.state !== "active") {
       throw new TeammateError(
         "conflict",
@@ -1584,7 +1615,11 @@ export class TeammateRuntime {
       if (agents !== undefined && agentProfile !== undefined) {
         const updateProfile =
           agents.updateRuntimeProfile ?? agents.updateProfile;
-        if (updateProfile !== undefined) {
+        if (
+          updateProfile !== undefined &&
+          (agentProfile.workspaceId === input.workspaceId ||
+            input.actor.role === "admin")
+        ) {
           await updateProfile.call(agents, runtimeAgentActor(input), {
             workspaceId: input.workspaceId,
             profileId: agentProfile.id,
@@ -1886,20 +1921,32 @@ export class TeammateRuntime {
     const existingRuntimeProfile = principalRuntime
       .profiles({ principalId: principal.id })
       .find((runtime) => runtime.workspaceId === input.workspaceId);
-    let profileId =
+    const profiles = agents.profiles?.(input.workspaceId) ?? [];
+    const existingAgentProfile =
       existingRuntimeProfile === undefined
         ? undefined
-        : agents
-            .profiles?.(input.workspaceId)
-            .find(
-              (candidate) =>
-                candidate.id === existingRuntimeProfile.agentProfileId,
-            )?.id;
-    profileId ??= agents
-      .profiles?.(input.workspaceId)
-      .find((candidate) => candidate.personaId === personaId)?.id;
+        : profiles.find(
+            (candidate) =>
+              candidate.id === existingRuntimeProfile.agentProfileId,
+          );
+    const personaProfiles = profiles.filter(
+      (candidate) => candidate.personaId === personaId,
+    );
+    const agentProfile =
+      existingAgentProfile ??
+      personaProfiles.find(
+        (candidate) => candidate.workspaceId === input.workspaceId,
+      ) ??
+      personaProfiles[0];
+    let profileId = agentProfile?.id;
     const updateProfile = agents.updateRuntimeProfile ?? agents.updateProfile;
-    if (profileId !== undefined && updateProfile !== undefined) {
+    if (
+      profileId !== undefined &&
+      updateProfile !== undefined &&
+      agentProfile !== undefined &&
+      (agentProfile.workspaceId === input.workspaceId ||
+        input.actor.role === "admin")
+    ) {
       await updateProfile.call(
         agents,
         {
@@ -1965,5 +2012,16 @@ export class TeammateRuntime {
       ...(externalRuntimeId === undefined ? {} : { externalRuntimeId }),
       personaId,
     };
+  }
+
+  async ensureSystemAgent(
+    actor: TeammateActor,
+    systemKey: NonNullable<Teammate["systemKey"]>,
+  ): Promise<ReturnType<TeammateService["viewOf"]>> {
+    const teammate = await this.deps.teammates.ensureUserSystemAgent(
+      actor,
+      systemKey,
+    );
+    return this.deps.teammates.viewOf(teammate);
   }
 }

@@ -120,6 +120,9 @@ describe("phone/tablet demo order data fabric", () => {
         ORDER_METRIC_IDS.orderCount,
         ORDER_METRIC_IDS.orderExceptionCount,
         ORDER_METRIC_IDS.orderExceptionRate,
+        ORDER_METRIC_IDS.paymentFailureCount,
+        ORDER_METRIC_IDS.cancelCount,
+        ORDER_METRIC_IDS.fulfillmentTimeoutCount,
         ORDER_METRIC_IDS.paymentFailureRate,
         ORDER_METRIC_IDS.cancelRate,
         ORDER_METRIC_IDS.fulfillmentTimeoutRate,
@@ -141,6 +144,9 @@ describe("phone/tablet demo order data fabric", () => {
       order_count: 1658,
       order_exception_count: 126,
       order_exception_rate: 7.6,
+      payment_failure_count: 52,
+      cancel_count: 31,
+      fulfillment_timeout_count: 43,
       order_amount_sum: 8420218,
     });
     expect(result.result.rows[0]?.payment_failure_rate).toBeGreaterThan(0);
@@ -160,7 +166,9 @@ describe("phone/tablet demo order data fabric", () => {
       trend: "-1.8pt",
       trendClass: "down",
       dataMode: "demo",
+      sourceNote: "MCP OMS · orders_query · 演示数据 · 非生产",
     });
+    expect(workbenchMetric.queryRunId).toBeDefined();
     const memberMetric = await orders.workbenchMetric({
       workspaceId: "workspace-demo",
       actor: { ...actor, workspaceRole: "member" },

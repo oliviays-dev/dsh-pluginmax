@@ -182,6 +182,30 @@ describe("mergeBriefItems", () => {
     expect(result.markedRead).toEqual(["A:run:run-1"]);
   });
 
+  it("preserves a manually marked unread risk item after downstream resolves", () => {
+    const existing = [
+      priorRecord({
+        itemId: "A:run:run-1",
+        manualUnread: true,
+      }),
+    ];
+    const result = mergeBriefItems({
+      readerId: principal.userId,
+      existing,
+      candidates: [],
+      liveState: new Map([["A:run:run-1", { active: false, resolved: true }]]),
+      now,
+      tzOffsetMinutes,
+    });
+    expect(result.unread).toHaveLength(1);
+    expect(result.unread[0]).toMatchObject({
+      readState: "unread",
+      manualUnread: true,
+      resolved: true,
+    });
+    expect(result.markedRead).toEqual([]);
+  });
+
   it("drops escalation items once their condition disappears", () => {
     const existing = [
       priorRecord({
@@ -466,6 +490,14 @@ describe("WorkbenchService", () => {
     expect(scoped.modules.metrics?.data).toMatchObject({
       selected: ["otif"],
     });
+    const metricsData = scoped.modules.metrics?.data as
+      | {
+          readonly items: readonly { readonly id: string }[];
+          readonly sourceNote: string;
+        }
+      | undefined;
+    expect(metricsData?.items.map((item) => item.id)).toEqual(["otif"]);
+    expect(metricsData?.sourceNote).not.toContain("其余经营卡");
     expect(scoped.modules.brief).toMatchObject({
       title: "订单简报",
       data: {
@@ -473,6 +505,23 @@ describe("WorkbenchService", () => {
         unreadCount: 1,
       },
     });
+    const profileItemId = "order-demo-profile:exception";
+    await service.markBriefRead(principal, profileItemId, {
+      tzOffsetMinutes,
+    });
+    const read = await service.briefModule(principal, { tzOffsetMinutes });
+    expect(
+      read.data?.views.all.find((item) => item.itemId === profileItemId)
+        ?.readState,
+    ).toBe("read");
+    await service.markBriefUnread(principal, profileItemId, {
+      tzOffsetMinutes,
+    });
+    const unread = await service.briefModule(principal, { tzOffsetMinutes });
+    expect(
+      unread.data?.views.unread.find((item) => item.itemId === profileItemId)
+        ?.readState,
+    ).toBe("unread");
     expect(prepared).toBe(1);
     dispose();
     const defaults = await service.summary(
@@ -481,6 +530,66 @@ describe("WorkbenchService", () => {
     );
     expect(defaults.display.visibleModules).toContain("supplier");
     expect(defaults.display.profileId).toBeUndefined();
+  });
+
+  it("combines one MCP-backed metric with static profile metrics", async () => {
+    const service = serviceWith();
+    const dispose = service.registerDisplayProfile({
+      id: "order-mixed-profile",
+      title: "订单混合指标",
+      matches: (workspace) => workspace.id === "ws-1",
+      visibleModules: ["metrics"],
+      metrics: [
+        "otif",
+        "inventory-turn",
+        "supplier-otd",
+        "price-achievement",
+      ],
+      metric: async () => ({
+        id: "otif",
+        label: "订单准时履约率",
+        value: "94.1",
+        unit: "%",
+        trend: "-1.8pt",
+        trendClass: "down",
+        target: "演示数据 · 近 7 天 · 非生产",
+        description: "已应履约订单的准时履约情况",
+        spark: [],
+        metricId: "fulfillment_on_time_rate",
+        metricVersion: "orders-metric-v1",
+        dataMode: "demo",
+        sourceNote: "OTIF 来自 MCP OMS · orders_query",
+      }),
+    });
+    const summary = await service.summary(
+      { ...principal, workspaceId: "ws-1" },
+      { tzOffsetMinutes },
+    );
+    const metrics = summary.modules.metrics?.data as
+      | {
+          readonly items: readonly {
+            readonly id: string;
+            readonly value: string;
+          }[];
+          readonly sourceNote: string;
+        }
+      | undefined;
+    expect(metrics?.items.map((item) => item.id)).toEqual([
+      "otif",
+      "inventory-turn",
+      "supplier-otd",
+      "price-achievement",
+    ]);
+    expect(metrics?.items.find((item) => item.id === "otif")?.value).toBe(
+      "94.1",
+    );
+    expect(
+      metrics?.items.find((item) => item.id === "inventory-turn")?.value,
+    ).toBe("38.6");
+    expect(metrics?.sourceNote).toBe(
+      "OTIF 来自 MCP OMS · orders_query；其余 3 项为静态演示数据",
+    );
+    dispose();
   });
 
   it("lists followed meetings in the focus module", async () => {
@@ -637,7 +746,8 @@ describe("WorkbenchService", () => {
         ],
       }),
     });
-    const module = service.todoModule(principal);
+    expect(service.todoModule(principal).data?.items).toEqual([]);
+    const module = service.todoModule(principal, { scope: "me_and_ai" });
     expect((module.data?.items ?? []).map((item) => item.id)).toEqual([
       "TSK-A",
       "TSK-B",
@@ -828,6 +938,26 @@ describe("WorkbenchService", () => {
     // 标签要一眼看出是催办，而不是笼统的「待决策」。
     expect(item?.tag).toBe("nudge");
     expect(item?.section).toBe("escalation");
+
+    await service.markBriefRead(principal, item?.itemId ?? "", {
+      tzOffsetMinutes,
+    });
+    const read = await service.briefModule(principal, { tzOffsetMinutes });
+    expect(
+      read.data?.views.all.find(
+        (candidate) => candidate.itemId === "B:task:TSK-NUDGE",
+      )?.readState,
+    ).toBe("read");
+
+    await service.markBriefUnread(principal, item?.itemId ?? "", {
+      tzOffsetMinutes,
+    });
+    const unread = await service.briefModule(principal, { tzOffsetMinutes });
+    expect(
+      unread.data?.views.unread.find(
+        (candidate) => candidate.itemId === "B:task:TSK-NUDGE",
+      )?.readState,
+    ).toBe("unread");
   });
 
   it("keeps the 待决策 tag when an overdue task was also nudged", async () => {

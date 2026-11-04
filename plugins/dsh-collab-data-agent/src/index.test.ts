@@ -26,16 +26,101 @@ const message = {
 };
 
 describe("Data Agent runtime intent", () => {
+  it("summarizes selected analysis as a concise task title", () => {
+    const title = __test.dataAgentCaptureTitle(`
+支付方式：这个字段在 1,658 单里全部为空值（按钱包、卡、转账过滤返回 0 行），无法拆分。
+金额：授权范围内合计 8,420,218 元，但认证指标只有分组订单总金额。
+处置方向（先核实再动手，不是根因判断）：支付重试应对 52 单支付失败，成品仓核实 43 单履约超时，客服跟进 31 单取消。
+人工分工：订单运营核对支付网关日志与失败原因码；成品仓核对出库时间。
+`);
+    expect(title).toBe("支付重试应对支付失败");
+    expect(title.length).toBeLessThanOrEqual(32);
+    expect(title).not.toContain("1,658");
+  });
+
+  it("normalizes model-generated task titles", () => {
+    expect(
+      __test.normalizeDataAgentCaptureTitle(
+        '"任务标题：核实支付失败与履约超时原因。"',
+      ),
+    ).toBe("核实支付失败与履约超时原因");
+  });
+
+  it("uses the conversation's last model route to name a task", async () => {
+    let requested: Record<string, unknown> | undefined;
+    const ctx = {
+      get: (key: string) => {
+        if (key === "sessions") {
+          return {
+            get: (id: string) => ({
+              id,
+              snapshotEvents: () => [
+                {
+                  type: "request/header",
+                  data: {
+                    header: {
+                      config: { provider: "provider-a", model: "model-a" },
+                    },
+                  },
+                },
+              ],
+            }),
+            list: () => [],
+          };
+        }
+        if (key === "llm") {
+          return {
+            async *stream(options: Record<string, unknown>) {
+              requested = options;
+              yield { type: "text-delta", text: "核查支付失败与履约超时" };
+              yield { type: "finish", reason: { kind: "stop" } };
+            },
+          };
+        }
+        return undefined;
+      },
+    };
+    const service = {
+      run: () => ({ runtimeSessionId: "session-1" }),
+    };
+    const title = await __test.modelCaptureTitle(
+      ctx as never,
+      service as never,
+      [{ ...message, runId: "run-1" }],
+      "支付失败与履约超时需要逐项核实。",
+    );
+    expect(title).toBe("核查支付失败与履约超时");
+    expect(requested).toMatchObject({
+      provider: "provider-a",
+      model: "model-a",
+      sessionId: "session-1",
+      purpose: "session-title",
+    });
+  });
+
   it("keeps ordinary questions in chat mode", () => {
     expect(__test.requestsReport("分析一下原因")).toBe(false);
     expect(__test.requestsReport("这个指标为什么下降？")).toBe(false);
     expect(__test.requestsReport("不要生成报告，直接回答")).toBe(false);
+    expect(
+      __test.requestsReport("不生成正式报告，直接给简短结论"),
+    ).toBe(false);
+    expect(__test.requestsReport("不输出报告，只回答异常量")).toBe(false);
+    expect(__test.requestsReport("不要做报告，先说主要构成")).toBe(false);
+    expect(
+      __test.requestsReport(
+        "先给个简短结论，不用出正式报告。今天一共多少单、异常多少单？",
+      ),
+    ).toBe(false);
   });
 
   it("enters report mode only for an explicit report request", () => {
     expect(__test.requestsReport("生成一份分析报告")).toBe(true);
     expect(__test.requestsReport("生成本周工作简报")).toBe(true);
     expect(__test.requestsReport("write a report about this")).toBe(true);
+    expect(
+      __test.requestsReport("先简短回答，再生成一份正式报告"),
+    ).toBe(true);
     expect(
       __test.requestsReport(
         "生成一份正式订单异常分析报告。不要重新查询；报告要包含 QueryRun 证据。",
@@ -44,9 +129,28 @@ describe("Data Agent runtime intent", () => {
   });
 
   it("uses the native clarification path in ordinary conversation", () => {
-    const prompt = __test.selectionPrompt(conversation, message, [], [], "chat");
+    const prompt = __test.selectionPrompt(
+      conversation,
+      message,
+      [],
+      [],
+      "chat",
+      "手机平板订单履约演示",
+    );
     expect(prompt).toContain("当前请求按常规对话处理，不要生成报告");
     expect(prompt).toContain("ask_user_question");
+    expect(prompt).toContain("用户明确要求“简短”时");
+    expect(prompt).toContain("禁止自行估算");
+    expect(prompt).toContain(
+      "工作区名称：手机平板订单履约演示",
+    );
+    expect(prompt).toContain(
+      "工作区 ID（仅用于证据定位，正文不要展示）",
+    );
+    expect(prompt).toContain(
+      "正文不要自行创建第二个证据区",
+    );
+    expect(prompt).toContain("截止后的时段未纳入");
     expect(prompt).not.toContain("输出中文 Markdown 报告");
   });
 

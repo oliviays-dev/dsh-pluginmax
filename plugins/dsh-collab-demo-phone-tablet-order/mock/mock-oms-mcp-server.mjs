@@ -5,9 +5,11 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-const fixturePath =
-  process.env.ORDERS_DEMO_FIXTURE_PATH?.trim() ||
-  fileURLToPath(new URL("./orders-fixture.json", import.meta.url));
+const fixturePaths = [
+  process.env.ORDERS_DEMO_FIXTURE_PATH?.trim(),
+  fileURLToPath(new URL("./orders-fixture.json", import.meta.url)),
+  fileURLToPath(new URL("../data/orders-fixture.json", import.meta.url)),
+].filter((value) => typeof value === "string" && value !== "");
 
 function fail(message) {
   throw new Error(`[phone-tablet-demo-oms] ${message}`);
@@ -15,12 +17,19 @@ function fail(message) {
 
 async function loadFixture() {
   let parsed;
-  try {
-    parsed = JSON.parse(await readFile(fixturePath, "utf8"));
-  } catch (cause) {
+  let lastError;
+  for (const fixturePath of fixturePaths) {
+    try {
+      parsed = JSON.parse(await readFile(fixturePath, "utf8"));
+      break;
+    } catch (cause) {
+      lastError = cause;
+    }
+  }
+  if (parsed === undefined) {
     fail(
-      `fixture cannot be loaded from ${fixturePath}: ${
-        cause instanceof Error ? cause.message : String(cause)
+      `fixture cannot be loaded from ${fixturePaths.join(", ")}: ${
+        lastError instanceof Error ? lastError.message : String(lastError)
       }`,
     );
   }
@@ -33,6 +42,12 @@ async function loadFixture() {
   }
   if (parsed.orders.length > 10_000) {
     fail("fixture exceeds the 10,000 order limit");
+  }
+  if (
+    typeof parsed.snapshotAt !== "string" ||
+    !Number.isFinite(Date.parse(parsed.snapshotAt))
+  ) {
+    fail("fixture.snapshotAt must be an ISO-8601 datetime");
   }
   const required = [
     "order_id",
@@ -113,10 +128,7 @@ server.registerTool(
       from: z.string().datetime({ offset: true }),
       to: z.string().datetime({ offset: true }),
       filters: z
-        .record(
-          z.string(),
-          z.union([z.string(), z.array(z.string()).max(100)]),
-        )
+        .record(z.string(), z.union([z.string(), z.array(z.string()).max(100)]))
         .optional(),
       limit: z.number().int().min(1).max(10_000).optional(),
     },
@@ -124,11 +136,7 @@ server.registerTool(
   async ({ from, to, filters = {}, limit = 10_000 }) => {
     const fromMs = Date.parse(from);
     const toMs = Date.parse(to);
-    if (
-      !Number.isFinite(fromMs) ||
-      !Number.isFinite(toMs) ||
-      fromMs >= toMs
-    ) {
+    if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || fromMs >= toMs) {
       return {
         isError: true,
         content: [{ type: "text", text: "invalid order time range" }],
@@ -152,7 +160,7 @@ server.registerTool(
       .slice(0, limit);
     const result = {
       orders: matched,
-      dataCutoffAt: new Date().toISOString(),
+      dataCutoffAt: fixture.snapshotAt,
       freshness: "mock fixture · phone-tablet demo",
       scannedRows: fixture.orders.length,
       truncated: matched.length >= limit,

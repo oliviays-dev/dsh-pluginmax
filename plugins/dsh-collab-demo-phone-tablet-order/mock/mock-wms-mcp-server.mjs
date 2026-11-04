@@ -1,8 +1,5 @@
 #!/usr/bin/env node
-import {
-  createHmac,
-  timingSafeEqual,
-} from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -39,9 +36,7 @@ function canonicalJson(value) {
   if (value !== null && typeof value === "object") {
     return `{${Object.entries(value)
       .sort(([left], [right]) => left.localeCompare(right))
-      .map(
-        ([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`,
-      )
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
       .join(",")}}`;
   }
   return JSON.stringify(value);
@@ -88,10 +83,7 @@ function verifyTicket(input) {
   }
   const expected = Buffer.from(signatureFor(claims), "hex");
   const actual = Buffer.from(input.actionTicketSignature, "hex");
-  if (
-    expected.length !== actual.length ||
-    !timingSafeEqual(expected, actual)
-  ) {
+  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
     return "action ticket signature is invalid";
   }
   return null;

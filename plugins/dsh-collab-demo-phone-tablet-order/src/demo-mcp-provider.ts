@@ -92,9 +92,9 @@ export class DemoPhoneTabletMcpProvider implements McpToolProvider {
 
   constructor(private readonly fixturePath?: string | undefined) {}
 
-  async list(
-    principal: { readonly userId: string },
-  ): Promise<readonly McpProviderAsset[]> {
+  async list(principal: {
+    readonly userId: string;
+  }): Promise<readonly McpProviderAsset[]> {
     const connected = this.connected.get(principal.userId) ?? new Set<string>();
     return ASSETS.map((asset) => ({
       id: asset.id,
@@ -128,9 +128,24 @@ export class DemoPhoneTabletMcpProvider implements McpToolProvider {
     return { status: "connected" };
   }
 
-  async callTool(
-    input: McpToolCallInput,
-  ): Promise<Record<string, unknown>> {
+  async disconnect(
+    principal: { readonly userId: string },
+    mcpId: string,
+  ): Promise<void> {
+    const connected = this.connected.get(principal.userId);
+    connected?.delete(mcpId);
+    if (connected?.size === 0) {
+      this.connected.delete(principal.userId);
+    }
+    const cacheKey = `${principal.userId}\u0000${mcpId}`;
+    const connection = this.clients.get(cacheKey);
+    if (connection === undefined) return;
+    this.clients.delete(cacheKey);
+    await connection.client.close().catch(() => undefined);
+    await connection.transport.close().catch(() => undefined);
+  }
+
+  async callTool(input: McpToolCallInput): Promise<Record<string, unknown>> {
     const asset = ASSETS.find((candidate) => candidate.id === input.mcpId);
     if (asset === undefined) {
       throw new Error(`unknown demo MCP asset: ${input.mcpId}`);
@@ -141,9 +156,7 @@ export class DemoPhoneTabletMcpProvider implements McpToolProvider {
       );
     }
     if (!this.connected.get(input.userId)?.has(input.mcpId)) {
-      throw new Error(
-        `${input.mcpId} is not connected in the resource market`,
-      );
+      throw new Error(`${input.mcpId} is not connected in the resource market`);
     }
     const connection = await this.ensureConnected(input.userId, input.mcpId);
     const result = await connection.client.request(
@@ -230,18 +243,14 @@ export class DemoPhoneTabletMcpProvider implements McpToolProvider {
     try {
       await client.connect(transport);
       const listed = MCP_TOOLS.parse(
-        await client.request(
-          { method: "tools/list", params: {} },
-          MCP_TOOLS,
-          { timeout: 15_000 },
-        ),
+        await client.request({ method: "tools/list", params: {} }, MCP_TOOLS, {
+          timeout: 15_000,
+        }),
       );
       const names = new Set(listed.tools.map((tool) => tool.name));
       const missing = asset.tools.filter((tool) => !names.has(tool));
       if (missing.length > 0) {
-        throw new Error(
-          `${mcpId} is missing MCP tools: ${missing.join(", ")}`,
-        );
+        throw new Error(`${mcpId} is missing MCP tools: ${missing.join(", ")}`);
       }
     } catch (cause) {
       await client.close().catch(() => undefined);

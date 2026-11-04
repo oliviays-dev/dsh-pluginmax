@@ -40,6 +40,13 @@ describe("Data Agent client contract", () => {
     expect(source).toContain("left.depth - right.depth");
   });
 
+  it("uses a concise local fallback when task title preparation fails", () => {
+    const source = readFileSync(CLIENT, "utf8");
+    expect(source).toContain("function fallbackTaskTitle(value)");
+    expect(source).toContain("title = fallbackTaskTitle(capture.text)");
+    expect(source).not.toContain(".split(/\\n|[。！？]/)");
+  });
+
   it("keeps tab state and only derives HTML on explicit action", () => {
     const source = readFileSync(CLIENT, "utf8");
     expect(source).toContain("reportScroll");
@@ -62,6 +69,13 @@ describe("Data Agent client contract", () => {
     expect(source).toContain('className: "pmda-chat-md"');
     expect(source).toContain(".pmda-chat-md table");
     expect(source).toContain(".pmda-chat-md strong");
+  });
+
+  it("keeps low-value permission and time notes out of the composer", () => {
+    const source = readFileSync(CLIENT, "utf8");
+    expect(source).not.toContain("只读查询 · 行级权限校验");
+    expect(source).not.toContain("默认范围 · ${timeRangeLabel}");
+    expect(source).not.toContain("timeRangeLabel");
   });
 
   it("expands the shared panel without collapsing its content width", () => {
@@ -165,11 +179,13 @@ describe("Data Agent client contract", () => {
   it("uses one persistent side-panel action for the shared workspace", () => {
     const source = readFileSync(CLIENT, "utf8");
     expect(source).not.toContain('className: "pmda-head"');
-    expect(source).toContain('h("span", null, "会话：")');
     expect(source).toContain("justify-content:flex-end");
     expect(source).not.toContain("more: icon");
     expect(source).not.toContain('h("span", null, "工作区")');
-    expect(source).toContain("grid-template-columns:minmax(70px,1fr)");
+    expect(source).not.toContain('"aria-label": "选择工作区"');
+    expect(source).toContain(
+      ".pmda-context-controls{display:grid;grid-template-columns:auto minmax(0,1fr)",
+    );
     expect(source).toContain('{ className: "pmda-tab-actions" }');
     expect(source).toContain(
       "height:49px;min-height:49px;padding:6px 8px 0 6px",
@@ -224,6 +240,12 @@ describe("Data Agent client contract", () => {
       ".pmda-tab-main span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
     );
     expect(source).toContain('"data-tab": tab');
+    expect(source).toContain(
+      ".pmda-tabs{position:relative;z-index:12;",
+    );
+    expect(source).toContain(
+      ".pmda-tab-new-menu{position:absolute;right:0;top:31px;z-index:30;",
+    );
     expect(source).toContain("clarificationMode");
     expect(source).toContain("maxRowsPerQuery");
   });
@@ -255,23 +277,122 @@ describe("Data Agent client contract", () => {
     expect(source).toContain("data-data-agent-card");
   });
 
-  it("offers task creation beside Data Agent for selected meeting text", () => {
+  it("uses conversation actions for selected dialog text", () => {
     const source = readFileSync(CLIENT, "utf8");
     expect(source).toContain("pmda-selection-actions");
-    expect(source).toContain("创建对应任务");
-    expect(source).toContain("pluginmax:task-capture-selection");
+    expect(source).toContain("添加到对话");
+    expect(source).toContain("创建任务");
+    expect(source).not.toContain("整理任务");
+    expect(source).toContain("pluginmax:task-create-open");
+    expect(source).toContain("__pluginmaxPendingTaskCreate");
+    expect(source).toContain("/api/collab/task-capture/prepare");
+    expect(source).not.toContain("pluginmax:task-capture-selection");
     expect(source).toContain("[data-meeting-message-id]");
+    expect(source).toContain("[data-data-agent-conversation-id]");
     expect(source).toContain("selection.taskCapture");
     expect(source).toContain(
-      "[data-data-agent-panel='true'], textarea, input, button",
+      "[data-data-agent-panel='true']",
     );
   });
 
-  it("opens captured tasks in the shared task-drafts side panel", () => {
+  it("orders new conversation before a grouped searchable switcher", () => {
+    const source = readFileSync(CLIENT, "utf8");
+    const newConversation = source.indexOf('className: "pmda-session-new"');
+    const switcher = source.indexOf('className: "pmda-session-switch"');
+    expect(newConversation).toBeGreaterThan(0);
+    expect(switcher).toBeGreaterThan(newConversation);
+    expect(source).toContain("function groupConversationsByProject(");
+    expect(source).toContain("conversationProjectId(conversation)");
+    expect(source).toContain("left.title.localeCompare(right.title");
+    expect(source).toContain("String(right.updatedAt ?? \"\").localeCompare(");
+    expect(source).toContain("CONVERSATION_PAGE_SIZE = 20");
+    expect(source).toContain("params.set(\"query\", queryText.trim())");
+    expect(source).toContain("result.hasMore === true");
+    expect(source).toContain("loadMoreConversations");
+    expect(source).toContain("positionConversationMenu");
+    expect(source).toContain("window.innerHeight");
+    expect(source).toContain("maxHeight: Math.max(96, Math.min(380, available))");
+  });
+
+  it("searches and paginates conversation options through the API", () => {
+    const client = readFileSync(CLIENT, "utf8");
+    const server = readFileSync(
+      resolve(import.meta.dirname, "../src/index.ts"),
+      "utf8",
+    );
+    const service = readFileSync(
+      resolve(import.meta.dirname, "../src/service.ts"),
+      "utf8",
+    );
+    expect(client).toContain("limit: String(CONVERSATION_PAGE_SIZE)");
+    expect(client).toContain("offset: String(offset)");
+    expect(server).toContain('query(request).get("query")');
+    expect(server).toContain('const limitParam = query(request).get("limit")');
+    expect(server).toContain("hasMore:");
+    expect(service).toContain("const searchTerms = (input.query ?? \"\")");
+    expect(service).toContain(
+      "return searchTerms.every((term) => searchable.includes(term));",
+    );
+  });
+
+  it("limits card selection to the workbench route", () => {
+    const source = readFileSync(CLIENT, "utf8");
+    expect(source).toContain("function isWorkbenchRoute(route)");
+    expect(source).toContain(
+      'route === "workbench" || route === "workbench-new"',
+    );
+    expect(source).toContain(
+      "if (!isWorkbenchRoute(currentNodeRoute())) return;",
+    );
+    expect(source).toContain(
+      "if (!isWorkbenchRoute(currentNodeRoute())) {\n            clear();\n            return;\n          }",
+    );
+  });
+
+  it("limits text selection to explicit detail and conversation surfaces", () => {
+    const source = readFileSync(CLIENT, "utf8");
+    expect(source).toContain(
+      'element?.closest?.("[data-data-agent-text-surface]")',
+    );
+    expect(source).toContain(
+      "const rangeSurface = textSelectionSurfaceForRange(range);",
+    );
+    expect(source).toContain(
+      "window.__pluginmaxShell?.router?.subscribe?.(routeChanged)",
+    );
+    expect(source).toContain(
+      "if (nextRoute === lastRouteRef.current) return;",
+    );
+
+    const shell = readFileSync(
+      resolve(import.meta.dirname, "../../dsh-collab-shell/client/index.js"),
+      "utf8",
+    );
+    const task = readFileSync(
+      resolve(import.meta.dirname, "../../dsh-collab-task/client/index.js"),
+      "utf8",
+    );
+    const meeting = readFileSync(
+      resolve(import.meta.dirname, "../../dsh-collab-meeting/client/index.js"),
+      "utf8",
+    );
+    expect(shell).toContain('"data-data-agent-text-surface": "conversation"');
+    expect(task).toContain('"data-data-agent-text-surface": "task-detail"');
+    expect(meeting).toContain(
+      '"data-data-agent-text-surface": "communication-detail"',
+    );
+    expect(meeting).toContain(
+      '"data-data-agent-text-surface": isAiConversation',
+    );
+  });
+
+  it("opens selected text in the shared task creation dialog", () => {
     const source = readFileSync(CLIENT, "utf8");
     expect(source).toContain('"task-drafts": "task"');
-    expect(source).toContain('openTab("task-drafts")');
-    expect(source).toContain("pluginmax:task-draft-open");
+    expect(source).toContain("pluginmax:task-create-open");
+    expect(source).toContain("__pluginmaxPendingTaskCreate");
+    expect(source).not.toContain("pluginmax:task-draft-open");
+    expect(source).not.toContain("__pluginmaxTaskDraftContext");
     expect(source).toContain("openNewTab(type)");
     expect(source).toContain("新建侧栏标签");
     expect(source).toContain("reorderTab?.(source, tab)");
@@ -283,6 +404,28 @@ describe("Data Agent client contract", () => {
     expect(source).toContain('["data-agent", "数据洞察"]');
     expect(source).toContain("result.conversation.title?.trim()");
     expect(source).toContain('"数据洞察会话"');
+    expect(source).toContain('title: "新数据洞察"');
+  });
+
+  it("prefills the composer from a workbench action prompt", () => {
+    const source = readFileSync(CLIENT, "utf8");
+    expect(source).toContain("const suggestedPrompt = event?.detail?.prompt;");
+    expect(source).toContain("setDraft(suggestedPrompt.trim());");
+  });
+
+  it("starts a fresh Data Agent session for page selections", () => {
+    const source = readFileSync(CLIENT, "utf8");
+    expect(source).toContain("detail: { selection, newSession: true }");
+    expect(source).toContain(
+      'window.__pluginmaxSidePanel?.setExpanded?.(false);\n              window.__pluginmaxSidePanel?.openTab("data-agent");',
+    );
+    expect(source).toContain("if (event?.detail?.newSession === true) {");
+    expect(source).toContain("startNewConversation();");
+    expect(source).toContain("const startNewConversation = react.useCallback(() => {");
+    expect(source).toContain(
+      'const panel = window.__pluginmaxSidePanel;\n        panel?.setExpanded?.(false);',
+    );
+    expect(source).toContain("sessionId: \"\",");
     expect(source).toContain('title: "新数据洞察"');
   });
 });

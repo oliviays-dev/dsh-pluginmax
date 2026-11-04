@@ -64,6 +64,7 @@ interface MeetingWindowStub {
   __pluginmaxPendingMeeting?: {
     meetingId: string;
     workspaceId: string;
+    tab?: "minutes";
   } | null;
   localStorage: {
     getItem: (key: string) => string | null;
@@ -404,6 +405,7 @@ describe("meeting client", () => {
       workspaceId: "system.default",
       title: "有历史的 AI 对话",
       kind: "ai",
+      aiContextMode: "participant-projects-v1",
       teammateInstanceId: "tm-1",
       status: "active",
       createdBy: "admin",
@@ -416,7 +418,9 @@ describe("meeting client", () => {
         createdAt: "2026-03-03T00:00:00.000Z",
       },
     };
-    const fetchImpl = async (input: string) => {
+    const requests: Array<{ input: string; init?: unknown }> = [];
+    const fetchImpl = async (input: string, init?: unknown) => {
+      requests.push({ input, init });
       if (input.startsWith("/api/collab/team/workspaces")) {
         return payload({
           workspaces: [
@@ -442,6 +446,10 @@ describe("meeting client", () => {
               name: "AI伙伴一",
               ownerName: "Admin",
               state: "active",
+              availability: {
+                available: false,
+                reason: "Agent Profile 已离线",
+              },
             },
           ],
         });
@@ -616,6 +624,27 @@ describe("meeting client", () => {
       ),
       "列表项应显示头像",
     ).toBeDefined();
+    const unavailableAiItem = findNode(
+      tree,
+      (node) =>
+        node.type === "button" &&
+        node.props?.["aria-label"] === "打开沟通 有历史的 AI 对话",
+    );
+    expect(
+      unavailableAiItem?.props?.["data-ai-unavailable"],
+      "失效或离线的 AI伙伴会话应标记为不可用",
+    ).toBe("true");
+    expect(
+      (unavailableAiItem?.props?.style as Record<string, unknown> | undefined)
+        ?.opacity,
+      "失效或离线的 AI伙伴会话应降低透明度",
+    ).toBe(0.55);
+    expect(
+      (unavailableAiItem?.props?.style as Record<string, unknown> | undefined)
+        ?.filter,
+      "失效或离线的 AI伙伴会话应灰度显示",
+    ).toBe("grayscale(1)");
+    expect(unavailableAiItem?.props?.title).toBe("Agent Profile 已离线");
     expect(
       findNode(tree, (node) => node.props?.children === "没有历史的 AI 对话"),
     ).toBeUndefined();
@@ -758,6 +787,20 @@ describe("meeting client", () => {
         (node) => node.props?.["aria-label"] === "与 AI伙伴一 开始对话",
       ),
     ).toBeDefined();
+    const unavailableNewConversation = findNode(
+      tree,
+      (node) =>
+        node.type === "button" &&
+        node.props?.["aria-label"] === "与 AI伙伴一 开始对话",
+    );
+    expect(
+      unavailableNewConversation?.props?.disabled,
+      "失效或离线的 AI伙伴不应允许新建默认对话",
+    ).toBe(true);
+    expect(
+      containsText(unavailableNewConversation, "Agent Profile 已离线"),
+      "新建对话入口应说明 AI伙伴不可用原因",
+    ).toBe(true);
 
     const backFromNew = findNode(
       tree,
@@ -811,12 +854,14 @@ describe("meeting client", () => {
 
   it("shows an admin's own meetings and allows creating one without joined projects", async () => {
     const runtime = createReactRuntime();
+    const requests: Array<{ input: string; init?: unknown }> = [];
     const payload = (body: unknown) => ({
       ok: true,
       status: 200,
       json: async () => body,
     });
-    const fetchImpl = async (input: string) => {
+    const fetchImpl = async (input: string, init?: unknown) => {
+      requests.push({ input, init });
       if (input.startsWith("/api/collab/team/workspaces")) {
         return payload({
           workspaces: [
@@ -829,9 +874,53 @@ describe("meeting client", () => {
         return payload({ user: { id: "admin", name: "Admin", role: "admin" } });
       }
       if (input.startsWith("/api/collab/teammates")) {
-        return payload({ teammates: [] });
+        return payload({
+          teammates: [
+            {
+              id: "tm-own",
+              name: "我的 AI 伙伴",
+              ownerName: "Admin",
+              ownerUserId: "admin",
+              state: "active",
+            },
+            {
+              id: "tm-offline",
+              name: "离线伙伴",
+              ownerName: "Admin",
+              ownerUserId: "admin",
+              state: "inactive",
+            },
+            {
+              id: "tm-other",
+              name: "别人的 AI 伙伴",
+              ownerName: "Other",
+              ownerUserId: "other",
+              state: "active",
+            },
+          ],
+        });
       }
       if (input.startsWith("/api/collab/meetings")) {
+        if ((init as { method?: string } | undefined)?.method === "POST") {
+          const body = JSON.parse(
+            String((init as { body?: unknown } | undefined)?.body ?? "{}"),
+          );
+          return payload({
+            meeting: {
+              id: "m-created-ai",
+              workspaceId: body.workspaceId,
+              title: body.title,
+              kind: body.kind,
+              teammateInstanceId: body.teammateInstanceId,
+              status: "active",
+              createdBy: "admin",
+              updatedAt: "2026-03-03T00:00:00.000Z",
+              messageCount: 0,
+              unreadCount: 0,
+              lastMessage: null,
+            },
+          });
+        }
         const workspaceId = new URL(`http://x${input}`).searchParams.get(
           "workspaceId",
         );
@@ -975,9 +1064,9 @@ describe("meeting client", () => {
 
     const createButton = findNode(
       tree,
-      (node) => node.type === "button" && node.props?.children === "新建会议",
+      (node) => node.type === "button" && node.props?.children === "新建沟通",
     );
-    expect(createButton, "新建会议 按钮应渲染").toBeDefined();
+    expect(createButton, "新建沟通 按钮应渲染").toBeDefined();
     // 平台管理员对全部项目都有建会权限，未加入项目时按钮也必须可用。
     expect(createButton?.props?.disabled).toBe(false);
 
@@ -1000,6 +1089,87 @@ describe("meeting client", () => {
       "项目二",
       "默认项目（system，不关联项目）",
     ]);
+
+    const createTypeGroup = findNode(
+      tree,
+      (node) =>
+        node.props?.role === "group" &&
+        node.props?.["aria-label"] === "新建沟通类型",
+    );
+    expect(createTypeGroup, "新建沟通应支持会议和 AI 1:1 两种类型").toBeDefined();
+    (
+      findNode(
+        createTypeGroup,
+        (node) =>
+          node.type === "button" && node.props?.children === "AI伙伴 1:1",
+      )?.props?.onClick as (() => void) | undefined
+    )?.();
+    tree = await settle(1);
+
+    const teammateSelect = findNode(
+      tree,
+      (node) =>
+        node.props?.["aria-label"] === "新建 AI 伙伴一对一沟通",
+    );
+    expect(teammateSelect, "AI 1:1 模式应提供伙伴选择").toBeDefined();
+    expect(
+      findNode(
+        tree,
+        (node) =>
+          node.props?.["aria-label"] === "新建 AI 伙伴沟通关联项目",
+      ),
+      "AI 1:1 不要求用户关联项目",
+    ).toBeUndefined();
+    const teammateChildren = teammateSelect?.props?.children;
+    const teammateOptions = (
+      Array.isArray(teammateChildren)
+        ? teammateChildren
+        : [teammateChildren]
+    ).filter(Boolean) as TreeNode[];
+    expect(
+      teammateOptions.map((option) => option.props?.children),
+      "只能选择当前账号可用且未失效的 AI 伙伴实例",
+    ).toEqual(["我的 AI 伙伴"]);
+
+    const createForm = findNode(
+      tree,
+      (node) =>
+        node.type === "form" &&
+        node.props?.role === "dialog" &&
+        node.props?.["aria-label"] === "新建沟通",
+    );
+    await (
+      createForm?.props?.onSubmit as
+        ((event: { preventDefault: () => void }) => Promise<void>) | undefined
+    )?.({ preventDefault: () => undefined });
+    tree = await settle(5);
+    const aiCreateRequest = requests.find(
+      (entry) =>
+        entry.input === "/api/collab/meetings" &&
+        (entry.init as { method?: string } | undefined)?.method === "POST",
+    );
+    expect(aiCreateRequest, "提交 AI 1:1 应创建一对一沟通").toBeDefined();
+    expect(
+      JSON.parse(
+        String(
+          (aiCreateRequest?.init as { body?: unknown } | undefined)?.body ??
+            "{}",
+        ),
+      ),
+      "AI 1:1 应绑定当前账号自己的伙伴实例",
+    ).toMatchObject({
+      workspaceId: "system.default",
+      kind: "ai",
+      teammateInstanceId: "tm-own",
+    });
+    expect(
+      findNode(
+        tree,
+        (node) =>
+          node.props?.["aria-label"] === "新建 AI 伙伴一对一沟通",
+      ),
+      "创建成功后应关闭新建沟通弹窗",
+    ).toBeUndefined();
   });
 
   it("keeps the shared project scope when the module mounts from a cross-module jump", async () => {
@@ -1140,9 +1310,13 @@ describe("meeting client", () => {
                     id: "m-target",
                     workspaceId: "ws-2",
                     title: "待打开会议",
-                    status: "closed",
+                    status: "archived",
                     createdBy: "admin",
                     updatedAt: "2026-03-02T00:00:00.000Z",
+                    summary: "实例隔离验证完成。",
+                    messageCount: 0,
+                    unreadCount: 0,
+                    lastMessage: null,
                   },
                 ]
               : [],
@@ -1154,44 +1328,23 @@ describe("meeting client", () => {
             id: "m-target",
             workspaceId: "ws-2",
             title: "待打开会议",
-            status: "closed",
+            status: "archived",
+            summary: "实例隔离验证完成。",
             participants: [],
-            transcript: [
-              {
-                id: "msg-target",
-                meetingId: "m-target",
-                sequence: 1,
-                senderKind: "human",
-                senderId: "admin",
-                senderName: "Admin",
-                content: "待打开会议历史消息",
-                mentions: [],
-                deliveries: [],
-                createdAt: "2026-03-02T00:00:00.000Z",
-              },
-            ],
+            transcript: [],
           },
           participants: [],
-          transcript: [
-            {
-              id: "msg-target",
-              meetingId: "m-target",
-              sequence: 1,
-              senderKind: "human",
-              senderId: "admin",
-              senderName: "Admin",
-              content: "待打开会议历史消息",
-              mentions: [],
-              deliveries: [],
-              createdAt: "2026-03-02T00:00:00.000Z",
-            },
-          ],
+          transcript: [],
           actorId: "admin",
           read: { lastReadSeq: 0 },
         });
       }
       if (input.startsWith("/api/collab/meeting/minutes")) {
-        return payload({ versions: [], current: null });
+        return payload({
+          facilitator: null,
+          versions: [],
+          current: null,
+        });
       }
       if (input.startsWith("/api/collab/meeting/delegates")) {
         return payload({ delegates: [] });
@@ -1209,6 +1362,7 @@ describe("meeting client", () => {
     harness.window.__pluginmaxPendingMeeting = {
       meetingId: "m-target",
       workspaceId: "ws-2",
+      tab: "minutes",
     };
     let Meetings: ((props: Record<string, unknown>) => unknown) | undefined;
     const ctx = {
@@ -1244,6 +1398,21 @@ describe("meeting client", () => {
     expect(
       findNode(tree, (node) => node.props?.children === "待打开会议"),
     ).toBeDefined();
+    expect(
+      findNode(
+        tree,
+        (node) => node.type === "button" && node.props?.children === "纪要",
+      )?.props?.["aria-selected"],
+    ).toBe(true);
+    expect(containsText(tree, "会议摘要")).toBe(true);
+    expect(containsText(tree, "实例隔离验证完成。")).toBe(true);
+    expect(
+      findNode(
+        tree,
+        (node) =>
+          node.type === "button" && node.props?.children === "返回会议列表",
+      )?.props?.["aria-pressed"],
+    ).toBe(true);
   });
 
   it("invite picker defaults to 5 visible rows with in-box fuzzy search and multi-select", async () => {
@@ -1678,6 +1847,15 @@ describe("meeting client", () => {
         workspaceId: "system.default",
         title: "Codex 助手",
         kind: "ai",
+        aiContextMode: "participant-projects-v1",
+        teammateInstanceId: "tm-codex",
+        status: "active",
+      },
+      "m-chat-codex-project": {
+        id: "m-chat-codex-project",
+        workspaceId: "ws-atlas",
+        title: "Codex 助手",
+        kind: "ai",
         teammateInstanceId: "tm-codex",
         status: "active",
       },
@@ -1686,6 +1864,7 @@ describe("meeting client", () => {
         workspaceId: "system.default",
         title: "设计伙伴",
         kind: "ai",
+        aiContextMode: "participant-projects-v1",
         teammateInstanceId: "tm-design",
         status: "active",
       },
@@ -1694,6 +1873,7 @@ describe("meeting client", () => {
         workspaceId: "system.default",
         title: "新建伙伴",
         kind: "ai",
+        aiContextMode: "participant-projects-v1",
         teammateInstanceId: "tm-new",
         status: "active",
       },
@@ -1748,7 +1928,7 @@ describe("meeting client", () => {
               name: "设计伙伴",
               ownerName: "王敏",
               ownerUserId: "owner-wang",
-              state: "active",
+              state: "inactive",
               source: "private",
               updatedAt: "2026-03-04T00:00:00.000Z",
             },
@@ -1772,7 +1952,9 @@ describe("meeting client", () => {
         return payload({
           meeting,
           participants:
-            meetingId === "m-exact" || meetingId === "m-chat-codex"
+            meetingId === "m-exact" ||
+            meetingId === "m-chat-codex" ||
+            meetingId === "m-chat-codex-project"
               ? [
                   {
                     id: "p-admin",
@@ -1860,6 +2042,25 @@ describe("meeting client", () => {
                     },
                   },
                   {
+                    id: "m-chat-codex-project",
+                    workspaceId,
+                    title: "Codex 助手",
+                    kind: "ai",
+                    teammateInstanceId: "tm-codex",
+                    status: "active",
+                    createdBy: "admin",
+                    updatedAt: "2026-03-07T12:00:00.000Z",
+                    messageCount: 2,
+                    unreadCount: 0,
+                    lastActivityAt: "2026-03-07T12:00:00.000Z",
+                    lastMessage: {
+                      senderKind: "agent",
+                      senderName: "Codex 助手",
+                      content: "项目内的旧 AI 会话",
+                      createdAt: "2026-03-07T12:00:00.000Z",
+                    },
+                  },
+                  {
                     id: "m-closed",
                     workspaceId,
                     title: "历史复盘",
@@ -1896,6 +2097,7 @@ describe("meeting client", () => {
                       workspaceId,
                       title: "Codex 助手",
                       kind: "ai",
+                      aiContextMode: "participant-projects-v1",
                       teammateInstanceId: "tm-codex",
                       status: "active",
                       createdBy: "admin",
@@ -1915,6 +2117,7 @@ describe("meeting client", () => {
                       workspaceId,
                       title: "设计伙伴",
                       kind: "ai",
+                      aiContextMode: "participant-projects-v1",
                       teammateInstanceId: "tm-design",
                       status: "active",
                       createdBy: "admin",
@@ -1943,6 +2146,7 @@ describe("meeting client", () => {
             workspaceId: "system.default",
             title: "新建伙伴",
             kind: "ai",
+            aiContextMode: "participant-projects-v1",
             teammateInstanceId: "tm-new",
             status: "active",
             messageCount: 0,
@@ -2007,8 +2211,17 @@ describe("meeting client", () => {
         tree,
         (node) => node.props?.["aria-label"] === "打开与 Codex 助手 的默认对话",
       ),
-      "每个 AI伙伴都应有默认对话入口",
+      "每个 AI伙伴都应有唯一的默认对话入口",
     ).toBeDefined();
+    expect(
+      findAll(
+        tree,
+        (node) =>
+          node.type === "button" &&
+          node.props?.["aria-label"] === "打开与 Codex 助手 的默认对话",
+      ),
+      "同一 AI伙伴跨项目也只能显示一个 1:1 对话",
+    ).toHaveLength(1);
     expect(
       findNode(
         tree,
@@ -2122,6 +2335,15 @@ describe("meeting client", () => {
       "不可用 AI伙伴应在左侧列表显示标签",
     ).toBeDefined();
     expect(unavailableListTag?.props?.title).toBe("Agent Profile 已停用");
+    expect(
+      aiThreadCard?.props?.["data-ai-unavailable"],
+      "运行时不可用的 AI伙伴会话应标记为不可用",
+    ).toBe("true");
+    expect(
+      (aiThreadCard?.props?.style as Record<string, unknown> | undefined)
+        ?.opacity,
+      "运行时不可用的 AI伙伴会话应置灰",
+    ).toBe(0.55);
     const availableDesignCard = findNode(
       tree,
       (node) =>
@@ -2130,8 +2352,20 @@ describe("meeting client", () => {
     );
     expect(
       containsText(availableDesignCard, "不可用"),
-      "可用 AI伙伴不应显示不可用标签",
-    ).toBe(false);
+      "已失效的 AI伙伴即使不在 active 状态也应保留会话并显示不可用标签",
+    ).toBe(true);
+    expect(
+      availableDesignCard?.props?.["data-ai-unavailable"],
+      "已失效的 AI伙伴会话应标记为不可用",
+    ).toBe("true");
+    expect(
+      (
+        availableDesignCard?.props?.style as
+          | Record<string, unknown>
+          | undefined
+      )?.filter,
+      "已失效的 AI伙伴会话应灰度显示",
+    ).toBe("grayscale(1)");
     expect(
       findNode(
         tree,
@@ -2306,6 +2540,15 @@ describe("meeting client", () => {
       ),
       "对话恢复后左侧列表的不可用标签应自动消失",
     ).toBe(false);
+    expect(
+      findNode(
+        tree,
+        (node) =>
+          node.type === "button" &&
+          node.props?.["aria-label"] === "打开与 Codex 助手 的默认对话",
+      )?.props?.["data-ai-unavailable"],
+      "对话恢复后左侧列表应移除不可用标记",
+    ).toBeUndefined();
     const typeFilter = findNode(
       tree,
       (node) =>
@@ -2330,6 +2573,16 @@ describe("meeting client", () => {
       (button?.props?.onClick as (() => void) | undefined)?.();
       tree = await settle(1);
     };
+    const historyPartnerLabels = findAllInOrder(
+      tree,
+      (node) =>
+        (node.type === "button" || node.type === "div") &&
+        String(node.props?.["aria-label"] ?? "").startsWith("打开与"),
+    ).map((node) => node.props?.["aria-label"]);
+    expect(historyPartnerLabels).toEqual([
+      "打开与 Codex 助手 的默认对话",
+      "打开与 设计伙伴 的默认对话",
+    ]);
     await clickTypeTag("会议");
     expect(
       findNode(
@@ -2363,12 +2616,21 @@ describe("meeting client", () => {
       ),
     ).toBeDefined();
     expect(
+      findAllInOrder(
+        tree,
+        (node) =>
+          (node.type === "button" || node.type === "div") &&
+          String(node.props?.["aria-label"] ?? "").startsWith("打开与"),
+      ).map((node) => node.props?.["aria-label"]),
+      "AI伙伴筛选应只包含「全部」中已有历史沟通记录的 AI 会话",
+    ).toEqual(historyPartnerLabels);
+    expect(
       findNode(
         tree,
         (node) => node.props?.["aria-label"] === "打开与 新建伙伴 的默认对话",
       ),
-      "AI伙伴筛选应提供尚无历史消息的新会话入口",
-    ).toBeDefined();
+      "AI伙伴筛选不应补入尚无历史消息的伙伴",
+    ).toBeUndefined();
     await clickTypeTag("全部");
     expect(
       findNode(
@@ -2485,20 +2747,22 @@ describe("meeting client", () => {
     ).toBeDefined();
 
     await clickTypeTag("AI伙伴");
-    const newPartner = findNode(
-      tree,
-      (node) => node.props?.["aria-label"] === "打开与 新建伙伴 的默认对话",
-    );
-    (newPartner?.props?.onClick as (() => void) | undefined)?.();
-    tree = await settle(4);
+    expect(
+      findNode(
+        tree,
+        (node) =>
+          node.props?.["aria-label"] === "打开与 新建伙伴 的默认对话",
+      ),
+      "切换筛选后仍不应展示尚无历史消息的 AI伙伴",
+    ).toBeUndefined();
     expect(
       requests.some(
         (entry) =>
           entry.input === "/api/collab/meetings" &&
           (entry.init as { method?: string } | undefined)?.method === "POST",
       ),
-      "尚无历史消息的 AI伙伴应可通过列表新开默认对话",
-    ).toBe(true);
+      "筛选列表不应触发创建无历史记录的 AI 会话",
+    ).toBe(false);
   });
 
   it("opens an existing one-to-one conversation from an AI partner row", async () => {
@@ -2509,11 +2773,27 @@ describe("meeting client", () => {
       status: 200,
       json: async () => body,
     });
+    const markdownMessage = [
+      "## 运行信息",
+      "",
+      "| 项 | 值 |",
+      "| :--- | ---: |",
+      "| 模型 | **DeepSeek-V4** |",
+      "| 文档 | [查看文档](https://example.com/docs) |",
+      "",
+      "1. **第一项**",
+      "2. ~~旧配置~~ `v4`",
+      "",
+      "> 安全引用",
+      "",
+      "---",
+    ].join("\n");
     const existingMeeting = {
       id: "m-ai",
       workspaceId: "system.default",
       title: "Codex 助手",
       kind: "ai",
+      aiContextMode: "participant-projects-v1",
       teammateInstanceId: "tm-codex",
       status: "active",
       createdBy: "admin",
@@ -2522,7 +2802,7 @@ describe("meeting client", () => {
       unreadCount: 1,
       lastActivityAt: "2026-03-03T00:05:00.000Z",
       lastMessage: {
-        content: "上一轮对话已完成",
+        content: markdownMessage,
         createdAt: "2026-03-03T00:05:00.000Z",
       },
     };
@@ -2583,7 +2863,7 @@ describe("meeting client", () => {
               senderKind: "human",
               senderId: "admin",
               senderName: "Admin",
-              content: "上一轮对话已完成",
+              content: markdownMessage,
               mentions: [],
               deliveries: [],
               createdAt: "2026-03-03T00:05:00.000Z",
@@ -2654,6 +2934,46 @@ describe("meeting client", () => {
       ),
       "点击后应直接打开已有的一对一对话",
     ).toBe(true);
+    const markdownTable = findNode(tree, (node) => node.type === "table");
+    expect(markdownTable, "沟通消息应渲染 Markdown 表格").toBeDefined();
+    expect(
+      findAllInOrder(markdownTable, (node) => node.type === "th").map(
+        (node) => node.props?.children,
+      ),
+      "表格应渲染表头而不是原始分隔线",
+    ).toEqual(["项", "值"]);
+    expect(
+      findNode(markdownTable, (node) => node.type === "strong")?.props?.children,
+      "表格单元格内的加粗应渲染",
+    ).toBe("DeepSeek-V4");
+    expect(
+      findNode(markdownTable, (node) => node.type === "a")?.props?.href,
+      "Markdown 链接应渲染为安全链接",
+    ).toBe("https://example.com/docs");
+    expect(
+      findNode(tree, (node) => node.type === "ol"),
+      "沟通消息应渲染有序列表",
+    ).toBeDefined();
+    expect(
+      findNode(tree, (node) => node.type === "del")?.props?.children,
+      "沟通消息应渲染删除线",
+    ).toBe("旧配置");
+    expect(
+      findNode(tree, (node) => node.type === "code")?.props?.children,
+      "沟通消息应渲染行内代码",
+    ).toBe("v4");
+    expect(
+      findNode(tree, (node) => node.type === "blockquote"),
+      "沟通消息应渲染引用",
+    ).toBeDefined();
+    expect(
+      findNode(tree, (node) => node.type === "hr"),
+      "沟通消息应渲染分隔线",
+    ).toBeDefined();
+    expect(
+      containsText(tree, "| :--- | ---: |"),
+      "Markdown 表格分隔线不应作为正文显示",
+    ).toBe(false);
     expect(
       findNode(
         tree,
@@ -2731,10 +3051,26 @@ describe("meeting client", () => {
     expect(source).not.toContain('"data-data-agent-select": "meeting"');
   });
 
+  it("opens the exact conversation represented by an AI partner row", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain("setMeetingId(row.conversation.id)");
+    expect(source).not.toContain(
+      "onClick: () => void openTeammateConversation(teammate)",
+    );
+  });
+
   it("includes accessible workspaces for platform admins in the meeting panel", () => {
     const source = readFileSync(CLIENT_PATH, "utf8");
     expect(source).toContain('const platformAdmin = me.user?.role === "admin"');
     expect(source).toContain("(platformAdmin || workspace.isMember === true)");
+  });
+
+  it("always hides legacy system.default AI conversations", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).not.toContain("hasProjectWorkspace");
+    expect(source).toContain(
+      'item.aiContextMode !== "participant-projects-v1"',
+    );
   });
 
   it("keeps task capture behind the composer tool without a prompt banner", () => {
@@ -2763,6 +3099,8 @@ describe("meeting client", () => {
     expect(source).toContain("reorderTab(sourceTab, targetTab)");
     expect(source).toContain("draggable: true");
     expect(source).toContain("sidePanelTabsStyle.actionWrap");
+    expect(source).toContain("position: \"relative\"");
+    expect(source).toContain("zIndex: 12");
     expect(source).toContain("height: 49");
     expect(source).toContain('padding: "6px 8px 0 6px"');
     expect(source).toContain("sidePanelTabsStyle.panelToggle");

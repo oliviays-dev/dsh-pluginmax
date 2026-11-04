@@ -6,10 +6,7 @@ import {
   type InstallRecord,
   type KvTableLike,
 } from "./service.js";
-import {
-  McpProviderRegistry,
-  type McpToolProvider,
-} from "./mcp-registry.js";
+import { McpProviderRegistry, type McpToolProvider } from "./mcp-registry.js";
 
 class FakeTable<V> implements KvTableLike<V> {
   readonly records = new Map<string, V>();
@@ -74,8 +71,9 @@ describe("ResourceMarketService", () => {
     const second = provider("provider-b", "mcp-b");
     const disposeFirst = registry.register(first);
     registry.register(second);
-    expect((await registry.list({ userId: "alice" })).map((item) => item.id))
-      .toEqual(["mcp-a", "mcp-b"]);
+    expect(
+      (await registry.list({ userId: "alice" })).map((item) => item.id),
+    ).toEqual(["mcp-a", "mcp-b"]);
     await expect(
       registry.callTool({
         userId: "alice",
@@ -87,8 +85,9 @@ describe("ResourceMarketService", () => {
     disposeFirst();
     await Promise.resolve();
     expect(disposed).toBe(1);
-    expect((await registry.list({ userId: "alice" })).map((item) => item.id))
-      .toEqual(["mcp-b"]);
+    expect(
+      (await registry.list({ userId: "alice" })).map((item) => item.id),
+    ).toEqual(["mcp-b"]);
     await expect(
       registry.callTool({
         userId: "alice",
@@ -145,34 +144,26 @@ describe("ResourceMarketService", () => {
 
   it("distinguishes packaged plugins from user enablement", () => {
     const enabled = new Set<string>();
-    const service = new ResourceMarketService(
-      tables(),
-      {
-        workbench: () => ({
-          entitlements: () => [...enabled],
-          enablePlugin: async (_principal, pluginId) => {
-            enabled.add(pluginId);
-            return { pluginId };
-          },
-        }),
-      },
-    );
-    expect(service.plugins({ userId: "alice" })[0]?.status).toBe(
-      "not_enabled",
-    );
+    const service = new ResourceMarketService(tables(), {
+      workbench: () => ({
+        entitlements: () => [...enabled],
+        enablePlugin: async (_principal, pluginId) => {
+          enabled.add(pluginId);
+          return { pluginId };
+        },
+      }),
+    });
+    expect(service.plugins({ userId: "alice" })[0]?.status).toBe("not_enabled");
     expect(service.runtimeStatus("pluginmax.daily-brief")).toBe("packaged");
   });
 
   it("publishes the legacy workbench as a normal template", () => {
-    const service = new ResourceMarketService(
-      tables(),
-      {
-        workbench: () => ({
-          entitlements: () => [],
-          enablePlugin: async () => undefined,
-        }),
-      },
-    );
+    const service = new ResourceMarketService(tables(), {
+      workbench: () => ({
+        entitlements: () => [],
+        enablePlugin: async () => undefined,
+      }),
+    });
     const legacy = service.template("tpl-legacy", "1.0.0");
     expect(legacy?.name).toBe("经典工作台（旧版）");
     expect(legacy?.panelPlan.map((panel) => panel.pluginId)).toEqual([
@@ -187,15 +178,12 @@ describe("ResourceMarketService", () => {
   });
 
   it("keeps MCP connect as pending instead of faking a connected state", async () => {
-    const service = new ResourceMarketService(
-      tables(),
-      {
-        workbench: () => ({
-          entitlements: () => [],
-          enablePlugin: async () => undefined,
-        }),
-      },
-    );
+    const service = new ResourceMarketService(tables(), {
+      workbench: () => ({
+        entitlements: () => [],
+        enablePlugin: async () => undefined,
+      }),
+    });
     const record = await service.connectMcp("alice", "mcp-wecom");
     expect(record.status).toBe("pending");
     expect(
@@ -206,58 +194,52 @@ describe("ResourceMarketService", () => {
   });
 
   it("never reports a seed MCP as connected without a provider", async () => {
-    const service = new ResourceMarketService(
-      tables(),
-      {
-        workbench: () => ({
-          entitlements: () => [],
-          enablePlugin: async () => undefined,
-        }),
-      },
-    );
+    const service = new ResourceMarketService(tables(), {
+      workbench: () => ({
+        entitlements: () => [],
+        enablePlugin: async () => undefined,
+      }),
+    });
     const mcps = await service.mcps({ userId: "alice" });
     expect(mcps.every((item) => item.status !== "connected")).toBe(true);
     expect(mcps.every((item) => item.source === "seed")).toBe(true);
-    expect(
-      mcps.every((item) => item.connectionMode === "request_only"),
-    ).toBe(true);
+    expect(mcps.every((item) => item.connectionMode === "request_only")).toBe(
+      true,
+    );
   });
 
   it("accepts connected only from an MCP provider", async () => {
-    const service = new ResourceMarketService(
-      tables(),
-      {
-        workbench: () => ({
-          entitlements: () => [],
-          enablePlugin: async () => undefined,
-        }),
-        mcpProvider: () => ({
-          id: "test-mcp-provider",
-          list: async () => [
-            {
-              id: "mcp-provider",
-              name: "真实 MCP",
-              description: "provider supplied",
-              category: "采购",
-              protocol: "HTTP",
-              toolCount: 1,
-              publisher: {
-                id: "provider",
-                name: "Provider",
-                verified: true,
-                kind: "certified",
-              },
-              version: "1.0.0",
-              icon: "store",
-              permissions: ["只读"],
-              initialStatus: "off",
-              status: "connected",
+    const service = new ResourceMarketService(tables(), {
+      workbench: () => ({
+        entitlements: () => [],
+        enablePlugin: async () => undefined,
+      }),
+      mcpProvider: () => ({
+        id: "test-mcp-provider",
+        list: async () => [
+          {
+            id: "mcp-provider",
+            name: "真实 MCP",
+            description: "provider supplied",
+            category: "采购",
+            protocol: "HTTP",
+            toolCount: 1,
+            publisher: {
+              id: "provider",
+              name: "Provider",
+              verified: true,
+              kind: "certified",
             },
-          ],
-          connect: async () => ({ status: "connected" }),
-        }),
-      },
-    );
+            version: "1.0.0",
+            icon: "store",
+            permissions: ["只读"],
+            initialStatus: "off",
+            status: "connected",
+          },
+        ],
+        connect: async () => ({ status: "connected" }),
+      }),
+    });
     const mcps = await service.mcps({ userId: "alice" });
     expect(mcps[0]).toMatchObject({
       status: "connected",
@@ -266,16 +248,119 @@ describe("ResourceMarketService", () => {
     });
   });
 
-  it("exposes real template titles, dependencies, and filters", () => {
-    const service = new ResourceMarketService(
-      tables(),
-      {
-        workbench: () => ({
-          entitlements: () => [],
-          enablePlugin: async () => undefined,
-        }),
-      },
+  it("disconnects a provider MCP and clears the stored connection", async () => {
+    const connected = new Set<string>();
+    const store = tables();
+    const service = new ResourceMarketService(store, {
+      workbench: () => ({
+        entitlements: () => [],
+        enablePlugin: async () => undefined,
+      }),
+      mcpProvider: () => ({
+        id: "test-mcp-provider",
+        list: async (principal) => [
+          {
+            id: "mcp-provider",
+            name: "真实 MCP",
+            description: "provider supplied",
+            category: "采购",
+            protocol: "HTTP",
+            toolCount: 1,
+            publisher: {
+              id: "provider",
+              name: "Provider",
+              verified: true,
+              kind: "certified" as const,
+            },
+            version: "1.0.0",
+            icon: "store",
+            permissions: ["只读"],
+            initialStatus: "off" as const,
+            status: connected.has(principal.userId)
+              ? ("connected" as const)
+              : ("off" as const),
+          },
+        ],
+        connect: async (principal) => {
+          connected.add(principal.userId);
+          return { status: "connected" as const };
+        },
+        disconnect: async (principal) => {
+          connected.delete(principal.userId);
+        },
+      }),
+    });
+
+    await expect(
+      service.connectMcp("alice", "mcp-provider"),
+    ).resolves.toMatchObject({ status: "connected" });
+    expect((await service.mcps({ userId: "alice" }))[0]?.status).toBe(
+      "connected",
     );
+
+    await service.disconnectMcp("alice", "mcp-provider");
+    expect((await service.mcps({ userId: "alice" }))[0]?.status).toBe("off");
+    expect([...store.installs.entries()]).toHaveLength(0);
+  });
+
+  it("restores a stored MCP connection after the provider runtime resets", async () => {
+    const connected = new Set<string>();
+    const store = tables();
+    const provider = () => ({
+      id: "test-mcp-provider",
+      list: async (principal: { userId: string }) => [
+        {
+          id: "mcp-provider",
+          name: "真实 MCP",
+          description: "provider supplied",
+          category: "采购",
+          protocol: "HTTP",
+          toolCount: 1,
+          publisher: {
+            id: "provider",
+            name: "Provider",
+            verified: true,
+            kind: "certified" as const,
+          },
+          version: "1.0.0",
+          icon: "store",
+          permissions: ["只读"],
+          initialStatus: "off" as const,
+          status: connected.has(principal.userId)
+            ? ("connected" as const)
+            : ("off" as const),
+        },
+      ],
+      connect: async (principal: { userId: string }) => {
+        connected.add(principal.userId);
+        return { status: "connected" as const };
+      },
+    });
+    const options = {
+      workbench: () => ({
+        entitlements: () => [],
+        enablePlugin: async () => undefined,
+      }),
+      mcpProvider: provider,
+    };
+    const first = new ResourceMarketService(store, options);
+    await first.connectMcp("linlan", "mcp-provider");
+
+    connected.clear();
+    const restarted = new ResourceMarketService(store, options);
+    const mcps = await restarted.mcps({ userId: "linlan" });
+
+    expect(mcps[0]?.status).toBe("connected");
+    expect(connected.has("linlan")).toBe(true);
+  });
+
+  it("exposes real template titles, dependencies, and filters", () => {
+    const service = new ResourceMarketService(tables(), {
+      workbench: () => ({
+        entitlements: () => [],
+        enablePlugin: async () => undefined,
+      }),
+    });
     const detail = service.templateDetail("alice", "tpl-legacy", "1.0.0");
     expect(detail?.panels.map((panel) => panel.title)).toContain("每日简报");
     expect(detail?.dependencies).toHaveLength(7);
@@ -298,15 +383,12 @@ describe("ResourceMarketService", () => {
   });
 
   it("registers private custom resources without executing manifests", async () => {
-    const service = new ResourceMarketService(
-      tables(),
-      {
-        workbench: () => ({
-          entitlements: () => [],
-          enablePlugin: async () => undefined,
-        }),
-      },
-    );
+    const service = new ResourceMarketService(tables(), {
+      workbench: () => ({
+        entitlements: () => [],
+        enablePlugin: async () => undefined,
+      }),
+    });
     const created = await service.registerCustomResource("alice", {
       type: "skill",
       name: "我的采购助手",

@@ -10,6 +10,7 @@ interface ClientExports {
       route: string;
       refId: string;
       workspaceId?: string;
+      tab?: "minutes";
     }): void;
     itemReadSignature(item: {
       id: string;
@@ -58,6 +59,7 @@ interface Harness {
     __pluginmaxPendingMeeting?: {
       meetingId: string;
       workspaceId: string;
+      tab?: "minutes";
     };
     __pluginmaxScope?: ScopeStore;
     dispatchEvent(event: unknown): void;
@@ -170,6 +172,37 @@ describe("workbench client navigation", () => {
     ).toContain("pluginmax:collab-navigate");
   });
 
+  it("carries the minutes tab into workbench meeting deep links", () => {
+    const harness = createHarness();
+    loadClient(harness);
+
+    harness.exports.__test?.navigateTo({
+      route: "meeting",
+      refId: "MTG-MINUTES",
+      workspaceId: "WS-1",
+      tab: "minutes",
+    });
+
+    expect(harness.windowStub.__pluginmaxPendingMeeting).toEqual({
+      meetingId: "MTG-MINUTES",
+      workspaceId: "WS-1",
+      tab: "minutes",
+    });
+    expect(
+      harness.events.find(
+        (event) =>
+          (event as { type?: string }).type === "pluginmax:collab-navigate",
+      ),
+    ).toMatchObject({
+      detail: {
+        plugin: "meeting",
+        meetingId: "MTG-MINUTES",
+        workspaceId: "WS-1",
+        tab: "minutes",
+      },
+    });
+  });
+
   it("reloads shared follow state when another module changes a follow", () => {
     const source = readFileSync(CLIENT_PATH, "utf8");
     expect(source).toContain('"pluginmax:follow-change"');
@@ -228,6 +261,9 @@ describe("workbench client navigation", () => {
     expect(source).not.toContain("onClick: () => ctx.openBriefItem(item)");
     expect(source).toContain('item.actionLabel || "查看明细"');
     expect(source).toContain('"详情"');
+    expect(source).toContain(
+      'ctx.openLink({ ...item.deepLink, tab: "minutes" })',
+    );
   });
 
   it("resolves daily brief deep links to standard Data Agent entities", () => {

@@ -16,10 +16,7 @@ export interface McpToolProvider extends McpCatalogProvider {
   dispose?(): Promise<void> | void;
 }
 
-export type McpRegistryErrorCode =
-  | "conflict"
-  | "not_found"
-  | "unavailable";
+export type McpRegistryErrorCode = "conflict" | "not_found" | "unavailable";
 
 export class McpRegistryError extends Error {
   constructor(
@@ -126,13 +123,23 @@ export class McpProviderRegistry {
     }
   }
 
-  async callTool(
-    input: McpToolCallInput,
-  ): Promise<Record<string, unknown>> {
-    const provider = await this.resolve(
-      { userId: input.userId },
-      input.mcpId,
-    );
+  async disconnect(principal: MarketPrincipal, mcpId: string): Promise<void> {
+    const provider = await this.resolve(principal, mcpId);
+    if (provider.disconnect === undefined) return;
+    try {
+      await provider.disconnect(principal, mcpId);
+    } catch (cause) {
+      throw new McpRegistryError(
+        "unavailable",
+        cause instanceof Error
+          ? `MCP disconnect failed: ${cause.message}`
+          : "MCP disconnect failed",
+      );
+    }
+  }
+
+  async callTool(input: McpToolCallInput): Promise<Record<string, unknown>> {
+    const provider = await this.resolve({ userId: input.userId }, input.mcpId);
     if (!("callTool" in provider) || typeof provider.callTool !== "function") {
       throw new McpRegistryError(
         "unavailable",
@@ -140,9 +147,7 @@ export class McpProviderRegistry {
       );
     }
     try {
-      return await (
-        provider as McpToolProvider
-      ).callTool({
+      return await (provider as McpToolProvider).callTool({
         userId: input.userId,
         mcpId: input.mcpId,
         toolName: input.toolName,

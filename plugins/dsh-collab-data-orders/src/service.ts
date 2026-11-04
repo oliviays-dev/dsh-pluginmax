@@ -24,6 +24,7 @@ import {
   type OrderMigration,
   type OrderSourceConfig,
 } from "./models.js";
+import { ORDER_DISPLAY_ALIASES } from "./connector.js";
 
 export interface KvTableLike<V> {
   get(key: string): V | undefined;
@@ -52,12 +53,14 @@ export interface OrderWorkbenchMetric {
   readonly queryRunId?: string | undefined;
   readonly dataMode: "demo" | "production" | "unavailable";
   readonly dataCutoffAt?: string | undefined;
+  readonly sourceNote?: string | undefined;
 }
 
 interface WorkbenchQueryEvidence {
   readonly value: number | undefined;
   readonly run: QueryRun | undefined;
   readonly demo: boolean;
+  readonly evidence: readonly string[];
 }
 
 export interface OrderDataFabricQuery {
@@ -121,10 +124,19 @@ function orderDataset(input: {
   readonly config: OrderSourceConfig;
   readonly now: string;
 }): Dataset {
-  const dimension = (id: string, label: string) => ({
+  const dimension = (
+    id: keyof typeof ORDER_DISPLAY_ALIASES,
+    label: string,
+  ) => ({
     id,
     fieldId: id,
     label,
+    valueAliases: Object.fromEntries(
+      Object.entries(ORDER_DISPLAY_ALIASES[id]).map(([canonical, aliases]) => [
+        canonical,
+        [...aliases],
+      ]),
+    ),
   });
   return {
     id: ORDER_DATASET_ID,
@@ -325,6 +337,37 @@ function orderMetrics(
     },
     {
       ...common,
+      id: ORDER_METRIC_IDS.paymentFailureCount,
+      name: "支付失败订单数",
+      synonyms: ["支付失败单数", "付款失败订单数"],
+      definition: "下单时间范围内支付失败的订单数。",
+      aggregation: "count-where",
+      timeField: "ordered_at",
+      unit: "单",
+    },
+    {
+      ...common,
+      id: ORDER_METRIC_IDS.cancelCount,
+      name: "取消订单数",
+      synonyms: ["取消单数", "订单取消量"],
+      definition: "下单时间范围内取消的订单数。",
+      aggregation: "count-where",
+      timeField: "ordered_at",
+      unit: "单",
+    },
+    {
+      ...common,
+      id: ORDER_METRIC_IDS.fulfillmentTimeoutCount,
+      name: "履约超时订单数",
+      synonyms: ["超时单数", "延迟履约订单数"],
+      definition:
+        "截至数据截止时间，超过承诺履约时间仍未履约的订单数；取消和支付失败订单不计入。",
+      aggregation: "count-where",
+      timeField: "promised_fulfillment_at",
+      unit: "单",
+    },
+    {
+      ...common,
       id: ORDER_METRIC_IDS.paymentFailureRate,
       name: "支付失败率",
       synonyms: ["支付失败", "付款失败率"],
@@ -456,26 +499,34 @@ function orderSkill(workspaceId: string, now: string): DataSkill {
       "",
       "## 问询与下钻",
       "- “今天有没有订单异常”优先直接查询，不先要求用户选卡片。",
-      "- 查询至少覆盖 order_count、order_exception_count、order_exception_rate，并按需要拆分支付失败、取消、履约超时，以及区域/品类驱动。",
-      "- “查看华东生鲜”等追问沿用上一轮时间范围和口径，仅增加 region=华东、category=生鲜 过滤后重新查询。",
+      "- 查询至少覆盖 order_count、order_exception_count、order_exception_rate；用户问主要构成时，同时查询 payment_failure_count、cancel_count、fulfillment_timeout_count，不能只给比率。",
+      "- “查看华东生鲜”等追问沿用上一轮时间范围和口径；查询层会把 region=华东、category=生鲜 规范化为 east/fresh 后再与行级权限求交集。",
       "- 用户要求“全国/全部”但 permissionSummary 显示 coverage 未覆盖部分区域时，明确说结果仅覆盖授权区域，不推断未覆盖区域为零。",
       "- 命中多个可能口径且会实质改变结论时才使用原生 ask_user_question；默认异常口径无需澄清即可执行。",
       "",
       "## brief 输出契约",
-      "普通问询必须输出简洁 Markdown brief，并包含：",
-      "1. 结论：异常量/率及最重要驱动；",
-      "2. 范围：工作区、区域/品类、时间范围、演示或生产状态；",
-      "3. 口径：订单异常 v1，以及实际使用的指标版本；",
-      "4. 截止时间：QueryResult.dataCutoffAt；",
-      "5. 权限覆盖：QueryResult.permissionSummary，部分授权必须明确；",
-      "6. QueryRun 证据：queryRunId、datasetId、指标 ID 与版本；",
-      "7. 不确定性：无数据、截断、超时、连接失败或未覆盖范围。",
+      "普通问询和简答不是正式报告，不要求逐项铺开所有章节。",
+      "- 默认简答正文不超过 12 行：先给异常量/异常率，再按需给构成表或一条限制说明。",
+      "- 用户明确要求“简短”时，正文不超过 8 行：结论、异常量/率、三项构成单数和必要限制各压缩成一行。",
+      "- 用户只问单量、异常量或主要构成时，不主动展开完整指标版本、扫描行数或长口径解释；这些放在系统证据区。",
+      "- 只有用户追问口径、权限、数据质量或原因时，才单独展开对应说明；不要把所有章节都写一遍。",
       "- 不得编造 QueryRun 或数据；工具失败时说明失败阶段和下一步。",
-      "- 只有用户明确要求正式报告时才使用报告结构。正式报告必须复用已执行 QueryRun 的 QueryResult；HTML 只能从同一报告快照派生，不得重新查询。",
+      "- 截止时间必须展示原始 ISO 值和 Asia/Shanghai 转换值；不得自行估算“距今多久”，除非已有明确的计算证据。",
+      "- 用户明确要求“简短”时，不得主动增加未要求的华南/历史对比或扩展分析。",
+      "- 用户询问主要构成时，支付失败、取消、履约超时必须按单数降序输出；只有计数相等才允许并列，不得先给一个顺序再写相反结论。",
+      "- 每项占比按“该类型单数 / 去重后的 order_exception_count”计算，同时展示分子、分母和百分比，例如“52 单（占异常量 41.3%，52/126）”。异常类型可能重叠，不得把各项占比强行相加为 100%。",
+      "- 异常构成不是原因证明。缺少原因码、库存、仓配或支付渠道证据时，只能写“待人工核实”或“缺少数据源”，不得断言某类异常由某个业务环节导致。",
+      "- 查询入参 to 晚于 dataCutoffAt 时，用不超过两行说明查询范围、实际数据截止时间和截止后未纳入；不得写成“本次不存在遗漏”。",
+      "- brief 正文展示工作区名称，不展示工作区 UUID；QueryRun ID、datasetId、指标版本和权限快照由系统只追加一次，正文不要自行创建“数据范围与查询证据”小节。",
+      "- HTML 版本只能在用户后续明确要求时生成，不能由 chat brief 自动派生。",
+      "- 只有用户明确要求正式报告时才使用“结论、范围、口径、证据、不确定性、建议”的完整报告结构。正式报告必须复用已执行 QueryRun 的 QueryResult；HTML 只能从同一报告快照派生，不得重新查询。",
     ].join("\n"),
     preferredMetricIds: [
       ORDER_METRIC_IDS.orderExceptionRate,
       ORDER_METRIC_IDS.orderExceptionCount,
+      ORDER_METRIC_IDS.paymentFailureCount,
+      ORDER_METRIC_IDS.cancelCount,
+      ORDER_METRIC_IDS.fulfillmentTimeoutCount,
       ORDER_METRIC_IDS.fulfillmentTimeoutRate,
       ORDER_METRIC_IDS.paymentFailureRate,
       ORDER_METRIC_IDS.cancelRate,
@@ -811,6 +862,11 @@ export class OrderDataService {
       ...(current.run?.dataCutoffAt === undefined
         ? {}
         : { dataCutoffAt: current.run.dataCutoffAt }),
+      ...(dataMode !== "demo" || config.transport !== "mcp"
+        ? {}
+        : {
+            sourceNote: "MCP OMS · orders_query · 演示数据 · 非生产",
+          }),
     };
   }
 
@@ -845,9 +901,10 @@ export class OrderDataService {
         value: typeof raw === "number" && Number.isFinite(raw) ? raw : undefined,
         run: result.run,
         demo: configIsDemo(result.result.evidence),
+        evidence: [...result.result.evidence],
       };
     } catch {
-      return { value: undefined, run: undefined, demo: false };
+      return { value: undefined, run: undefined, demo: false, evidence: [] };
     }
   }
 
@@ -920,9 +977,10 @@ export function createOrderWorkbenchMetricProvider(
         value: typeof raw === "number" && Number.isFinite(raw) ? raw : undefined,
         run: result.run,
         demo: configIsDemo(result.result.evidence),
+        evidence: [...result.result.evidence],
       };
     } catch {
-      return { value: undefined, run: undefined, demo: false };
+      return { value: undefined, run: undefined, demo: false, evidence: [] };
     }
   };
   return {
@@ -980,6 +1038,13 @@ export function createOrderWorkbenchMetricProvider(
         ...(current.run?.dataCutoffAt === undefined
           ? {}
           : { dataCutoffAt: current.run.dataCutoffAt }),
+        ...(dataMode !== "demo" ||
+        !current.evidence.some((item) => item === "transport:mcp")
+          ? {}
+          : {
+              sourceNote:
+                "MCP OMS · orders_query · 演示数据 · 非生产",
+            }),
       };
     },
   };

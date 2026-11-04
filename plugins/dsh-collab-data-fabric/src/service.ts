@@ -185,16 +185,29 @@ function normalizeFilters(
   dataset: Dataset,
   filters: SemanticQueryInput["filters"],
 ): Record<string, string[]> {
-  const allowed = new Set(dataset.dimensions.map((dimension) => dimension.id));
+  const dimensions = new Map(
+    dataset.dimensions.map((dimension) => [dimension.id, dimension]),
+  );
   const normalized: Record<string, string[]> = {};
   for (const [dimensionId, value] of Object.entries(filters)) {
-    if (!allowed.has(dimensionId)) {
+    const dimension = dimensions.get(dimensionId);
+    if (dimension === undefined) {
       throw new DataFabricError(
         "invalid_input",
         `unsupported dataset dimension: ${dimensionId}`,
       );
     }
-    normalized[dimensionId] = Array.isArray(value) ? [...value] : [value];
+    const requested = Array.isArray(value) ? [...value] : [value];
+    const aliases = new Map<string, string>();
+    for (const [canonical, names] of Object.entries(dimension.valueAliases)) {
+      aliases.set(canonical.toLocaleLowerCase("zh-Hans-CN"), canonical);
+      for (const name of names) {
+        aliases.set(name.toLocaleLowerCase("zh-Hans-CN"), canonical);
+      }
+    }
+    normalized[dimensionId] = requested.map((item) => {
+      return aliases.get(item.toLocaleLowerCase("zh-Hans-CN")) ?? item;
+    });
   }
   return normalized;
 }

@@ -109,6 +109,52 @@ export class TaskError extends Error {
   }
 }
 
+const TASK_MESSAGE_CONTENT_LIMIT = 20_000;
+const TRUNCATED_MESSAGE_SUFFIX =
+  "\n\n…（内容过长，完整结果见运行记录或产出文档）";
+
+function taskMessageContent(value: string): string {
+  const compact = value
+    .replace(
+      /<!--\s*pluginmax-document\s*:\s*([^\r\n>]+?)\s*-->[\s\S]*?<!--\s*\/pluginmax-document\s*-->/gi,
+      (_block, name: string) => `\n\n产出文档：${name.trim()}\n`,
+    )
+    .trim();
+  if (compact.length <= TASK_MESSAGE_CONTENT_LIMIT) return compact;
+  return (
+    compact.slice(
+      0,
+      TASK_MESSAGE_CONTENT_LIMIT - TRUNCATED_MESSAGE_SUFFIX.length,
+    ) + TRUNCATED_MESSAGE_SUFFIX
+  );
+}
+
+function agentRunMessageContent(
+  run: Pick<TaskAgentRun, "status" | "output" | "error">,
+): string {
+  if (run.status === "succeeded") {
+    return taskMessageContent(
+      run.output?.summary?.trim() || "执行完成，但没有返回文本结果。",
+    );
+  }
+  if (run.status === "waiting_input") {
+    return taskMessageContent(
+      run.output?.summary?.trim() ||
+        run.error?.trim() ||
+        "信息不足，等待人工补充后继续。",
+    );
+  }
+  if (run.status === "cancelled")
+    return taskMessageContent(run.error?.trim() || "已停止执行。");
+  if (run.status === "interrupted")
+    return taskMessageContent(run.error?.trim() || "执行已中断。");
+  if (run.status === "timeout")
+    return taskMessageContent(run.error?.trim() || "执行超时，已停止。");
+  if (run.status === "failed")
+    return taskMessageContent(run.error?.trim() || "执行失败。");
+  return "已接收指令，正在执行…";
+}
+
 export interface WorkflowTaskActionHandler {
   assign(task: TaskRecord, actor: TaskActor): Promise<void> | void;
   assigned?(task: TaskRecord, actor: TaskActor): Promise<void> | void;
@@ -144,6 +190,7 @@ const createInputSchema = z.object({
   acceptance: z.array(z.string().min(1).max(500)).min(1).max(30),
   executionPolicy: taskExecutionPolicySchema.optional(),
   due: z.string().max(40).optional(),
+  dependsOn: z.array(z.string().min(1).max(160)).max(1).optional(),
   links: z
     .array(
       z.object({
@@ -167,6 +214,7 @@ const updateInputSchema = z.object({
   acceptance: z.array(z.string().min(1).max(500)).min(1).max(30),
   executionPolicy: taskExecutionPolicySchema.optional(),
   due: z.string().max(40).optional(),
+  dependsOn: z.array(z.string().min(1).max(160)).max(1).optional(),
   autoSubmitReview: z.boolean().optional(),
 });
 
@@ -230,6 +278,7 @@ const commentInputSchema = z.object({
   taskId: z.string().min(1).max(160),
   content: z.string().min(1).max(8000),
   isKeyConsensus: z.boolean().default(false),
+  mentions: z.array(taskMentionSchema).max(20).default([]),
 });
 
 const replyInputSchema = z.object({
@@ -443,6 +492,9 @@ export function pickNextTask<T extends QueueTaskLike>(input: {
 
 export class TaskService {
   private workflowActions: WorkflowTaskActionHandler | undefined;
+  private readonly changeListeners = new Set<
+    (task: TaskRecord) => void | Promise<void>
+  >();
 
   constructor(
     private readonly tables: TaskTables,
@@ -465,6 +517,39 @@ export class TaskService {
     const task = this.tables.tasks.get(taskIdValue);
     if (task === undefined) throw new TaskError("not_found", "task not found");
     return parseTask(task);
+  }
+
+  private normalizeDependencies(
+    candidateId: string | undefined,
+    workspaceId: string,
+    values: readonly string[],
+  ): string[] {
+    const dependencies = [
+      ...new Set(values.map((value) => value.trim()).filter(Boolean)),
+    ];
+    if (dependencies.length > 1) {
+      throw new TaskError("invalid_input", "任务最多只能选择一个前置任务");
+    }
+    const pending = [...dependencies];
+    const visited = new Set<string>();
+    while (pending.length > 0) {
+      const dependencyId = pending.shift()!;
+      if (dependencyId === candidateId) {
+        throw new TaskError("invalid_input", "任务不能依赖自身");
+      }
+      if (visited.has(dependencyId)) continue;
+      visited.add(dependencyId);
+      const dependency = this.tables.tasks.get(dependencyId);
+      if (dependency === undefined) {
+        throw new TaskError("not_found", "前置任务不存在");
+      }
+      const parsed = parseTask(dependency);
+      if (parsed.workspaceId !== workspaceId) {
+        throw new TaskError("invalid_input", "前置任务必须属于同一个项目");
+      }
+      pending.push(...(parsed.dependsOn ?? []));
+    }
+    return dependencies;
   }
 
   private principalForActor(actor: TaskActor): PrincipalRecordLike | undefined {
@@ -648,7 +733,21 @@ export class TaskService {
     } catch {
       // A failing listener must never break a task write.
     }
+    for (const listener of this.changeListeners) {
+      try {
+        void Promise.resolve(listener(parsed)).catch(() => undefined);
+      } catch {
+        // Change subscribers are best effort and isolated from persistence.
+      }
+    }
     return parsed;
+  }
+
+  subscribeChanges(
+    listener: (task: TaskRecord) => void | Promise<void>,
+  ): () => void {
+    this.changeListeners.add(listener);
+    return () => this.changeListeners.delete(listener);
   }
 
   bindWorkflowActions(handler: WorkflowTaskActionHandler): void {
@@ -904,8 +1003,14 @@ export class TaskService {
     const steps = parsed.acceptance.map((label) =>
       taskStepSchema.parse({ id: randomUUID(), label, done: false }),
     );
+    const nextTaskId = taskId();
+    const dependsOn = this.normalizeDependencies(
+      nextTaskId,
+      parsed.workspaceId,
+      parsed.dependsOn ?? [],
+    );
     const task = taskRecordSchema.parse({
-      id: taskId(),
+      id: nextTaskId,
       ...(options.creationKey === undefined
         ? {}
         : { creationKey: options.creationKey }),
@@ -938,6 +1043,7 @@ export class TaskService {
       ...(parsed.autoApproveReview === undefined
         ? {}
         : { autoApproveReview: parsed.autoApproveReview }),
+      dependsOn,
       progress: 0,
       steps,
       messages: [],
@@ -965,6 +1071,14 @@ export class TaskService {
     if (task.workflow !== undefined) {
       throw new TaskError("conflict", "工作流任务内容由工作流节点同步");
     }
+    const dependsOn =
+      parsed.dependsOn === undefined
+        ? task.dependsOn
+        : this.normalizeDependencies(
+            task.id,
+            task.workspaceId,
+            parsed.dependsOn,
+          );
     const steps = parsed.acceptance.map((label, index) =>
       taskStepSchema.parse({
         id: task.steps[index]?.id ?? randomUUID(),
@@ -981,6 +1095,7 @@ export class TaskService {
           priority: parsed.priority,
           description: parsed.description,
           acceptance: parsed.acceptance,
+          dependsOn,
           ...(parsed.executionPolicy === undefined
             ? {}
             : { executionPolicy: parsed.executionPolicy }),
@@ -1116,8 +1231,40 @@ export class TaskService {
     return this.setStatus(actor, task, "progress", "开始处理");
   }
 
-  async submit(actor: TaskActor, taskIdValue: string): Promise<TaskRecord> {
+  async submit(
+    actor: TaskActor,
+    taskIdValue: string,
+    completedStepIds?: readonly string[],
+  ): Promise<TaskRecord> {
     let task = requireOpen(this.require(taskIdValue));
+    if (
+      completedStepIds !== undefined &&
+      task.workflow === undefined &&
+      task.steps.length > 0
+    ) {
+      const selected = new Set(completedStepIds);
+      const known = new Set(task.steps.map((step) => step.id));
+      if ([...selected].some((stepId) => !known.has(stepId))) {
+        throw new TaskError("invalid_input", "completedStepIds 包含未知验收项");
+      }
+      const steps = task.steps.map((step) => ({
+        ...step,
+        done: selected.has(step.id),
+      }));
+      task = await this.put(
+        this.event(
+          {
+            ...task,
+            steps,
+            progress: Math.max(task.progress, progressForSteps(steps)),
+            updatedAt: this.now(),
+          },
+          actor,
+          "step",
+          `${actor.name} 确认了验收标准`,
+        ),
+      );
+    }
     if (task.workflow !== undefined) {
       const reviewRequired = task.workflow.reviewRequired !== false;
       if (
@@ -1565,12 +1712,7 @@ export class TaskService {
       kind: "agent",
     };
     const existing = task.messages.find((message) => message.runId === run.id);
-    const content =
-      run.status === "succeeded"
-        ? run.output?.summary?.trim() || "执行完成，但没有返回文本结果。"
-        : ["failed", "timeout", "cancelled", "interrupted"].includes(run.status)
-          ? run.error?.trim() || "Agent 执行未完成。"
-          : "已接收指令，正在执行…";
+    const content = agentRunMessageContent(run);
     if (
       existing !== undefined &&
       existing.state === run.status &&
@@ -1932,19 +2074,7 @@ export class TaskService {
       authorId,
       authorName,
       kind: "agent",
-      content:
-        run.status === "succeeded"
-          ? run.output?.summary?.trim() || "执行完成，但没有返回文本结果。"
-          : run.status === "waiting_input"
-            ? run.output?.summary?.trim() ||
-              run.error?.trim() ||
-              "信息不足，等待人工补充后继续。"
-            : run.status === "failed" ||
-                run.status === "timeout" ||
-                run.status === "cancelled" ||
-                run.status === "interrupted"
-              ? run.error?.trim() || "Agent 执行未完成。"
-              : "已接收指令，正在执行…",
+      content: agentRunMessageContent(run),
       attachments: [],
       runId: run.id,
       runRole: options?.role ?? "owner",
@@ -2113,25 +2243,12 @@ export class TaskService {
         );
       }
     }
-    // 自动提交验收时把任务交回实例 owner（实例创建人）确认，
-    // 这样产出物回写后进入该负责人的「待验收」，而不是继续挂在 Agent 身上。
-    const handedOff =
-      handoff === undefined
-        ? withRun
-        : {
-            ...withRun,
-            receiverType: "human" as const,
-            receiverId: handoff.userId,
-            receiverName: handoff.name,
-          };
     return this.put(
       this.event(
-        handedOff,
+        withRun,
         actor,
         "status",
-        handoff === undefined
-          ? `${receiverName} 完成产出物，自动提交验收`
-          : `${receiverName} 完成产出物，已提交 ${handoff.name} 确认`,
+        `${receiverName} 完成产出物，自动提交验收`,
       ),
     );
   }
@@ -2176,6 +2293,7 @@ export class TaskService {
       kind: actor.kind,
       content: parsed.content,
       isKeyConsensus: parsed.isKeyConsensus,
+      mentions: parsed.mentions,
       replies: [],
     });
     const updated = this.event(
@@ -2325,13 +2443,11 @@ export class TaskService {
     const dependsOn =
       input.dependsOn === undefined
         ? task.dependsOn
-        : [...new Set(input.dependsOn)].filter((id) => id !== task.id);
-    for (const dependencyId of dependsOn) {
-      const dependency = this.require(dependencyId);
-      if (dependency.workspaceId !== task.workspaceId) {
-        throw new TaskError("invalid_input", "前置任务必须属于同一个项目");
-      }
-    }
+        : this.normalizeDependencies(
+            task.id,
+            task.workspaceId,
+            input.dependsOn,
+          );
     const notes: string[] = [];
     if (
       input.queueState !== undefined &&

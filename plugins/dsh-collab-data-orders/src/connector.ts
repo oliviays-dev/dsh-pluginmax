@@ -62,7 +62,10 @@ export interface OrderReadonlyTransport {
   query(request: OrderTransportRequest): Promise<OrderSourceBatch>;
 }
 
-const DISPLAY_ALIASES: Record<DimensionId, Record<string, readonly string[]>> = {
+export const ORDER_DISPLAY_ALIASES: Record<
+  DimensionId,
+  Record<string, readonly string[]>
+> = {
   region: {
     east: ["华东", "东区"],
     south: ["华南", "南区"],
@@ -71,7 +74,7 @@ const DISPLAY_ALIASES: Record<DimensionId, Record<string, readonly string[]>> = 
   },
   category: {
     fresh: ["生鲜"],
-    digital: ["数码", "数码家电"],
+    digital: ["数码", "数码家电", "手机平板", "手机/平板", "手机和平板"],
     apparel: ["服饰", "服装"],
   },
   order_status: {
@@ -152,7 +155,7 @@ function dimensionValue(
         : mappings[dimensionId];
   const mapped = canonicalMappedValue(value, mapping);
   const normalized = mapped.toLocaleLowerCase("zh-Hans-CN");
-  const aliases = DISPLAY_ALIASES[dimensionId];
+  const aliases = ORDER_DISPLAY_ALIASES[dimensionId];
   for (const [canonical, names] of Object.entries(aliases)) {
     if (
       normalized === canonical ||
@@ -241,7 +244,7 @@ function normalizedFilters(
     Object.entries(filters).map(([dimensionId, requested]) => [
       dimensionId,
       requested.map((value) =>
-        value in DISPLAY_ALIASES
+        value in ORDER_DISPLAY_ALIASES
           ? value
           : dimensionValue(dimensionId as DimensionId, value, values),
       ),
@@ -322,6 +325,12 @@ function metricValues(
           row.paymentStatus === "succeeded" ||
           (row.orderStatus === "fulfilled" && row.paidAt !== null),
       );
+    case ORDER_METRIC_IDS.paymentFailureCount:
+      return count(isPaymentFailure);
+    case ORDER_METRIC_IDS.cancelCount:
+      return count(isCancelled);
+    case ORDER_METRIC_IDS.fulfillmentTimeoutCount:
+      return timeout;
     case ORDER_METRIC_IDS.paymentFailureRate:
       return rate(
         count((row) => row.paymentStatus === "failed"),

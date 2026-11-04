@@ -400,6 +400,8 @@ window.__ModuleLoader__.load({
         gap: 2,
         height: 49,
         minHeight: 49,
+        position: "relative",
+        zIndex: 12,
         padding: "6px 8px 0 6px",
         borderBottom: "1px solid var(--dsw-alias-border-l2)",
         background: "var(--dsw-alias-bg-layer-2)",
@@ -728,7 +730,7 @@ window.__ModuleLoader__.load({
                       position: "absolute",
                       right: 0,
                       top: 30,
-                      zIndex: 5,
+                      zIndex: 30,
                       minWidth: 150,
                       padding: 5,
                       border: "1px solid var(--dsw-alias-border-l2)",
@@ -853,9 +855,9 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 会议聊天里的轻量 Markdown 渲染：支持 # 标题、有序/无序列表、
-     * **加粗**、`行内代码` 与 ``` 代码块。会议消息（尤其纪要）本身是 MD，
-     * 直接当纯文本显示会把 `##` 这类标记露出来。
+     * 会议聊天里的安全 Markdown 渲染：覆盖标题、列表、表格、引用、链接、
+     * 加粗、斜体、删除线、行内代码与代码块。全部通过 React 节点输出，
+     * 不注入原始 HTML。
      */
     function renderChatMarkdown(raw) {
       const text = typeof raw === "string" ? raw : "";
@@ -868,7 +870,8 @@ window.__ModuleLoader__.load({
       let seq = 0;
       const inline = (source, keyBase) => {
         const parts = [];
-        const pattern = /(\*\*(.+?)\*\*|`([^`]+)`)/g;
+        const pattern =
+          /(\*\*(.+?)\*\*|~~(.+?)~~|`([^`]+)`|\[([^\]]+)\]\(([^)\s]+)\)|\*([^*\n]+)\*)/g;
         let last = 0;
         let match;
         let i = 0;
@@ -877,6 +880,8 @@ window.__ModuleLoader__.load({
           if (match[2] !== undefined) {
             parts.push(h("strong", { key: `${keyBase}-b${i}` }, match[2]));
           } else if (match[3] !== undefined) {
+            parts.push(h("del", { key: `${keyBase}-d${i}` }, match[3]));
+          } else if (match[4] !== undefined) {
             parts.push(
               h(
                 "code",
@@ -890,9 +895,34 @@ window.__ModuleLoader__.load({
                     padding: "1px 4px",
                   },
                 },
-                match[3],
+                match[4],
               ),
             );
+          } else if (match[5] !== undefined) {
+            const href = match[6];
+            const safeHref = /^(https?:|mailto:|#|\/)/i.test(href)
+              ? href
+              : undefined;
+            parts.push(
+              safeHref === undefined
+                ? match[5]
+                : h(
+                    "a",
+                    {
+                      key: `${keyBase}-a${i}`,
+                      href: safeHref,
+                      target: safeHref.startsWith("#") ? undefined : "_blank",
+                      rel: "noreferrer noopener",
+                      style: {
+                        color: "var(--dsw-alias-accent-primary,#4f8ef7)",
+                        textDecoration: "underline",
+                      },
+                    },
+                    match[5],
+                  ),
+            );
+          } else if (match[7] !== undefined) {
+            parts.push(h("em", { key: `${keyBase}-i${i}` }, match[7]));
           }
           last = pattern.lastIndex;
           i += 1;
@@ -916,7 +946,28 @@ window.__ModuleLoader__.load({
         listItems = [];
         seq += 1;
       };
-      for (const line of text.split("\n")) {
+      const splitTableRow = (line) =>
+        line
+          .trim()
+          .replace(/^\|/, "")
+          .replace(/\|$/, "")
+          .split("|")
+          .map((cell) => cell.trim());
+      const tableAlignment = (cell) =>
+        cell.startsWith(":") && cell.endsWith(":")
+          ? "center"
+          : cell.endsWith(":")
+            ? "right"
+            : "left";
+      const tableCellStyle = {
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        padding: "5px 8px",
+        textAlign: "left",
+        verticalAlign: "top",
+      };
+      const lines = text.split("\n");
+      for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+        const line = lines[lineIndex];
         if (line.trim().startsWith("```")) {
           if (inCode) {
             blocks.push(
@@ -965,6 +1016,153 @@ window.__ModuleLoader__.load({
                 },
               },
               ...inline(headingMatch[2], seq),
+            ),
+          );
+          seq += 1;
+          continue;
+        }
+        const tableHeader = line.includes("|")
+          ? splitTableRow(line)
+          : [];
+        const tableDivider =
+          lineIndex + 1 < lines.length && lines[lineIndex + 1].includes("|")
+            ? splitTableRow(lines[lineIndex + 1])
+            : [];
+        if (
+          tableHeader.length > 0 &&
+          tableDivider.length === tableHeader.length &&
+          tableDivider.every((cell) => /^:?-{3,}:?$/.test(cell))
+        ) {
+          flushList();
+          const alignments = tableDivider.map(tableAlignment);
+          const rows = [];
+          lineIndex += 2;
+          while (
+            lineIndex < lines.length &&
+            lines[lineIndex].trim() !== "" &&
+            lines[lineIndex].includes("|")
+          ) {
+            rows.push(splitTableRow(lines[lineIndex]));
+            lineIndex += 1;
+          }
+          lineIndex -= 1;
+          const tableKey = `table-${seq}`;
+          blocks.push(
+            h(
+              "div",
+              {
+                key: tableKey,
+                style: { margin: "6px 0", overflowX: "auto" },
+              },
+              h(
+                "table",
+                {
+                  style: {
+                    borderCollapse: "collapse",
+                    fontSize: 12,
+                    minWidth: "100%",
+                  },
+                },
+                h(
+                  "thead",
+                  null,
+                  h(
+                    "tr",
+                    null,
+                    ...tableHeader.map((cell, cellIndex) =>
+                      h(
+                        "th",
+                        {
+                          key: `${tableKey}-h-${cellIndex}`,
+                          style: Object.assign({}, tableCellStyle, {
+                            background: "var(--dsw-alias-bg-layer-2)",
+                            fontWeight: 650,
+                            textAlign: alignments[cellIndex],
+                          }),
+                        },
+                        ...inline(cell, `${tableKey}-h-${cellIndex}`),
+                      ),
+                    ),
+                  ),
+                ),
+                h(
+                  "tbody",
+                  null,
+                  ...rows.map((row, rowIndex) =>
+                    h(
+                      "tr",
+                      { key: `${tableKey}-r-${rowIndex}` },
+                      ...tableHeader.map((_, cellIndex) =>
+                        h(
+                          "td",
+                          {
+                            key: `${tableKey}-c-${rowIndex}-${cellIndex}`,
+                            style: Object.assign({}, tableCellStyle, {
+                              textAlign: alignments[cellIndex],
+                            }),
+                          },
+                          ...inline(
+                            row[cellIndex] ?? "",
+                            `${tableKey}-c-${rowIndex}-${cellIndex}`,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+          seq += 1;
+          continue;
+        }
+        if (/^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/.test(line)) {
+          flushList();
+          blocks.push(
+            h("hr", {
+              key: `hr-${seq}`,
+              style: {
+                border: "none",
+                borderTop: "0.5px solid var(--dsw-alias-border-l3)",
+                margin: "8px 0",
+              },
+            }),
+          );
+          seq += 1;
+          continue;
+        }
+        if (/^\s*>\s?/.test(line)) {
+          flushList();
+          const quoteLines = [];
+          while (
+            lineIndex < lines.length &&
+            /^\s*>\s?/.test(lines[lineIndex])
+          ) {
+            quoteLines.push(lines[lineIndex].replace(/^\s*>\s?/, ""));
+            lineIndex += 1;
+          }
+          lineIndex -= 1;
+          const quoteKey = `quote-${seq}`;
+          blocks.push(
+            h(
+              "blockquote",
+              {
+                key: quoteKey,
+                style: {
+                  borderLeft:
+                    "2px solid var(--dsw-alias-accent-primary,#4f8ef7)",
+                  color: "var(--dsw-alias-label-secondary)",
+                  margin: "6px 0",
+                  padding: "2px 0 2px 10px",
+                },
+              },
+              ...quoteLines.map((quoteLine, quoteIndex) =>
+                h(
+                  "div",
+                  { key: `${quoteKey}-${quoteIndex}` },
+                  ...inline(quoteLine, `${quoteKey}-${quoteIndex}`),
+                ),
+              ),
             ),
           );
           seq += 1;
@@ -1855,6 +2053,11 @@ window.__ModuleLoader__.load({
         border:
           "0.5px solid color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 55%,transparent)",
       },
+      dropdownItemUnavailable: {
+        color: "var(--dsw-alias-label-tertiary)",
+        filter: "grayscale(1)",
+        opacity: 0.55,
+      },
       dropdownItemIdle: {
         border: "0.5px solid var(--dsw-alias-border-l3)",
         background: "var(--dsw-alias-bg-layer-2)",
@@ -2221,6 +2424,14 @@ window.__ModuleLoader__.load({
             if (disposed) return;
             const merged = lists
               .flat()
+              .filter(
+                (item) =>
+                  !(
+                    item.kind === "ai" &&
+                    item.workspaceId === SYSTEM_DEFAULT_WORKSPACE_ID &&
+                    item.aiContextMode !== "participant-projects-v1"
+                  ),
+              )
               .sort((left, right) =>
                 String(meetingActivityTime(right) ?? "").localeCompare(
                   String(meetingActivityTime(left) ?? ""),
@@ -2548,6 +2759,17 @@ window.__ModuleLoader__.load({
       // 两者共用一张列表，保证「成员里有它 = facilitator 已启用」。
       // 平台 Facilitator 实例只以「席位」形态出现，历史遗留的
       // `participant/ai` 记录不再重复展示，避免同一 AI 出现两行。
+      const facilitatorTeammate = teammates.find(
+        (item) => item.systemKey === "meeting-facilitator",
+      );
+      const facilitatorTeammateId =
+        facilitatorTeammate?.id ?? "meeting-facilitator";
+      const isFacilitatorParticipant = (participant) =>
+        participant.systemKey === "meeting-facilitator" ||
+        (participant.teammateInstanceId ?? participant.refId) ===
+          facilitatorTeammateId ||
+        (participant.teammateInstanceId ?? participant.refId) ===
+          "meeting-facilitator";
       const humanMemberRows = participants
         .filter(
           (participant) =>
@@ -2569,7 +2791,7 @@ window.__ModuleLoader__.load({
             participant.kind !== "human" &&
             !(
               participant.kind === "ai_teammate" &&
-              participant.refId === "meeting-facilitator"
+              isFacilitatorParticipant(participant)
             ),
         )
         .map((participant) => ({
@@ -2588,9 +2810,9 @@ window.__ModuleLoader__.load({
           : [
               {
                 id: `facilitator:${facilitator.id}`,
-                label: "会议 Facilitator",
+                label: facilitatorTeammate?.name ?? "会议 Facilitator",
                 kind: "ai",
-                teammateId: "meeting-facilitator",
+                teammateId: facilitatorTeammateId,
                 tag: "会议服务",
                 facilitator: true,
                 active: true,
@@ -2622,7 +2844,7 @@ window.__ModuleLoader__.load({
           query,
         );
       };
-      const matched = meetings
+      const matchedRows = meetings
         .filter((item) => meetingHasConversation(item))
         .map((item) => ({
           item,
@@ -2637,6 +2859,30 @@ window.__ModuleLoader__.load({
             ),
         )
         .map(({ item }) => item);
+      const panelAiByTeammate = new Map();
+      const panelOtherRows = [];
+      for (const item of matchedRows) {
+        if (item.kind !== "ai") {
+          panelOtherRows.push(item);
+          continue;
+        }
+        if (
+          item.status !== "active" ||
+          item.teammateInstanceId === undefined
+        ) {
+          continue;
+        }
+        const current = panelAiByTeammate.get(item.teammateInstanceId);
+        if (preferAiConversation(current, item)) {
+          panelAiByTeammate.set(item.teammateInstanceId, item);
+        }
+      }
+      const matched = [...panelOtherRows, ...panelAiByTeammate.values()].sort(
+        (left, right) =>
+          String(meetingActivityTime(right) ?? "").localeCompare(
+            String(meetingActivityTime(left) ?? ""),
+          ),
+      );
       const myTeammates = teammates.filter((item) => item.state !== "archived");
       const activeTeammateIds = new Set(
         participants
@@ -2665,7 +2911,9 @@ window.__ModuleLoader__.load({
           // facilitator 已启用 ⇔ 它已在会议中，两者是同一件事。
           inMeeting:
             activeTeammateIds.has(item.id) ||
-            (facilitator !== undefined && item.id === "meeting-facilitator"),
+            (facilitator !== undefined &&
+              (item.id === facilitatorTeammateId ||
+                item.systemKey === "meeting-facilitator")),
         })),
       ].filter(
         (candidate) =>
@@ -2742,7 +2990,11 @@ window.__ModuleLoader__.load({
             });
           }
           for (const instanceId of instances) {
-            if (instanceId === "meeting-facilitator") {
+            const invited = teammates.find((item) => item.id === instanceId);
+            if (
+              instanceId === facilitatorTeammateId ||
+              invited?.systemKey === "meeting-facilitator"
+            ) {
               // 邀请平台 Facilitator 实例 = 启用会议 AI Facilitator（同一状态）。
               if (facilitator === undefined) {
                 await post("/api/collab/meeting/facilitator/open", {
@@ -2907,10 +3159,17 @@ window.__ModuleLoader__.load({
               (candidate) => candidate.id === item.teammateInstanceId,
             )
           : undefined;
+        const unavailable =
+          aiConversation &&
+          (teammate === undefined || teammateIsUnavailable(teammate));
+        const unavailableReason = unavailable
+          ? teammateUnavailableReason(teammate)
+          : "";
         const workspaceName = panelWorkspaceNameById.get(item.workspaceId);
         const meta = aiConversation
           ? [
               teammate?.ownerName ? `${teammate.ownerName} 的 AI` : "AI 伙伴",
+              unavailableReason,
               workspaceName,
             ]
           : [
@@ -2923,11 +3182,14 @@ window.__ModuleLoader__.load({
             type: "button",
             key: item.id,
             "aria-label": `打开沟通 ${item.title}`,
+            "data-ai-unavailable": unavailable ? "true" : undefined,
+            title: unavailable ? unavailableReason : undefined,
             style: Object.assign(
               {},
               panelStyles.dropdownItem,
               panelStyles.dropdownItemIdle,
               item.id === meetingId ? panelStyles.dropdownItemActive : {},
+              unavailable ? panelStyles.dropdownItemUnavailable : {},
             ),
             onClick: () => openConversation(item),
           },
@@ -3023,44 +3285,60 @@ window.__ModuleLoader__.load({
                   }),
                 ]
               : myTeammates.map((teammate) =>
-                  h(
-                    "button",
-                    {
-                      key: teammate.id,
-                      type: "button",
-                      style: Object.assign(
-                        {},
-                        panelStyles.dropdownItem,
-                        panelStyles.dropdownItemIdle,
-                      ),
-                      "aria-label": `与 ${teammate.name} 开始对话`,
-                      disabled: busy !== "",
-                      onClick: () => void createAiConversation(teammate),
-                    },
-                    h(
-                      "span",
+                  (() => {
+                    const unavailable = teammateIsUnavailable(teammate);
+                    const unavailableReason = unavailable
+                      ? teammateUnavailableReason(teammate)
+                      : "";
+                    return h(
+                      "button",
                       {
+                        key: teammate.id,
+                        type: "button",
                         style: Object.assign(
                           {},
-                          panelStyles.dropdownAvatar,
-                          teammateRingStyle(teammate.source === "platform"),
+                          panelStyles.dropdownItem,
+                          panelStyles.dropdownItemIdle,
+                          unavailable
+                            ? panelStyles.dropdownItemUnavailable
+                            : {},
                         ),
+                        "aria-label": `与 ${teammate.name} 开始对话`,
+                        "aria-disabled": unavailable || undefined,
+                        "data-ai-unavailable": unavailable
+                          ? "true"
+                          : undefined,
+                        title: unavailable ? unavailableReason : undefined,
+                        disabled: busy !== "" || unavailable,
+                        onClick: () => void createAiConversation(teammate),
                       },
-                      avatarArt(teammate.avatar),
-                    ),
-                    h("span", { style: panelStyles.switchCopy }, [
-                      h("span", {
-                        style: panelStyles.switchName,
-                        children: teammate.name,
-                      }),
-                      h("span", {
-                        style: panelStyles.switchMeta,
-                        children: teammate.ownerName
-                          ? `${teammate.ownerName} 的 AI · 默认对话`
-                          : "AI 伙伴 · 默认对话",
-                      }),
-                    ]),
-                  ),
+                      h(
+                        "span",
+                        {
+                          style: Object.assign(
+                            {},
+                            panelStyles.dropdownAvatar,
+                            teammateRingStyle(teammate.source === "platform"),
+                          ),
+                        },
+                        avatarArt(teammate.avatar),
+                      ),
+                      h("span", { style: panelStyles.switchCopy }, [
+                        h("span", {
+                          style: panelStyles.switchName,
+                          children: teammate.name,
+                        }),
+                        h("span", {
+                          style: panelStyles.switchMeta,
+                          children: unavailable
+                            ? unavailableReason
+                            : teammate.ownerName
+                              ? `${teammate.ownerName} 的 AI · 默认对话`
+                              : "AI 伙伴 · 默认对话",
+                        }),
+                      ]),
+                    );
+                  })(),
                 )),
           ),
         ]),
@@ -3305,7 +3583,13 @@ window.__ModuleLoader__.load({
               ? listView
               : panelView === "new"
                 ? newCommunicationView
-                : h("div", { style: panelStyles.detailView }, [
+                : h(
+                    "div",
+                    {
+                      style: panelStyles.detailView,
+                      "data-data-agent-text-surface": "communication-detail",
+                    },
+                    [
                     meeting && !isAiConversation
                       ? h(
                           "div",
@@ -4443,6 +4727,11 @@ window.__ModuleLoader__.load({
         borderColor:
           "color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 55%,transparent)",
       },
+      itemUnavailable: {
+        color: "var(--dsw-alias-label-tertiary)",
+        filter: "grayscale(1)",
+        opacity: 0.55,
+      },
       searchShell: {
         alignItems: "center",
         background: "var(--dsw-alias-bg-base)",
@@ -5284,7 +5573,8 @@ window.__ModuleLoader__.load({
                       );
                     }),
               ),
-            ])
+                    ],
+                  )
           : null,
       ]);
     }
@@ -5439,11 +5729,27 @@ window.__ModuleLoader__.load({
     };
     const meetingHasConversation = (meeting) =>
       Number(meeting?.messageCount ?? 0) > 0 && !isSyntheticMeeting(meeting);
-    const meetingIsNavigable = (meeting) => meetingHasConversation(meeting);
     const meetingActivityTime = (meeting) =>
       meeting?.lastActivityAt ??
       meeting?.lastMessage?.createdAt ??
       meeting?.updatedAt;
+    const aiConversationPriority = (meeting) =>
+      (meetingHasConversation(meeting) ? 2 : 0) +
+      (meeting?.workspaceId === SYSTEM_DEFAULT_WORKSPACE_ID &&
+      meeting?.aiContextMode === "participant-projects-v1"
+        ? 1
+        : 0);
+    const preferAiConversation = (current, candidate) => {
+      if (current === undefined) return true;
+      const priorityDifference =
+        aiConversationPriority(candidate) - aiConversationPriority(current);
+      if (priorityDifference !== 0) return priorityDifference > 0;
+      return (
+        String(meetingActivityTime(candidate) ?? "").localeCompare(
+          String(meetingActivityTime(current) ?? ""),
+        ) > 0
+      );
+    };
     const meetingLastMessageText = (meeting) =>
       String(displayContent(meeting?.lastMessage?.content) ?? "")
         .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
@@ -5471,12 +5777,12 @@ window.__ModuleLoader__.load({
     };
     const teammateIsUnavailable = (teammate) =>
       teammate?.availability?.available === false ||
-      (teammate?.availability === undefined &&
-        teammate?.state !== undefined &&
-        teammate.state !== "active");
+      (teammate?.state !== undefined && teammate.state !== "active");
     const teammateUnavailableReason = (teammate) =>
       String(
-        teammate?.availability?.reason ??
+        (teammate === undefined
+          ? "AI伙伴已失效或不可访问"
+          : teammate.availability?.reason) ??
           (teammate?.state === "archived"
             ? "AI伙伴已归档"
             : teammate?.state === "inactive"
@@ -5543,6 +5849,15 @@ window.__ModuleLoader__.load({
       const [accountId, setAccountId] = react.useState("");
       const [meetings, setMeetings] = react.useState([]);
       const [meetingId, setMeetingId] = react.useState("");
+      // 深链目标可能只有纪要、没有普通消息。它必须绕过「有对话才可打开」
+      // 的列表过滤，否则从工作台跳转后会被自动选中逻辑切回空列表。
+      const [pinnedMeetingIds, setPinnedMeetingIds] = react.useState(
+        () => new Set(),
+      );
+      const requestedCenterTabRef = react.useRef({
+        meetingId: "",
+        tab: "",
+      });
       const [recentEmptyMeetingIds, setRecentEmptyMeetingIds] = react.useState(
         () => {
           try {
@@ -5621,6 +5936,8 @@ window.__ModuleLoader__.load({
       const [notice, setNotice] = react.useState("");
       const [refreshKey, setRefreshKey] = react.useState(0);
       const [createOpen, setCreateOpen] = react.useState(false);
+      const [createMode, setCreateMode] = react.useState("meeting");
+      const [createTeammateId, setCreateTeammateId] = react.useState("");
       // 状态反馈条 3 秒后自动消失。
       react.useEffect(() => {
         if (notice === "" && error === "") return undefined;
@@ -5665,6 +5982,14 @@ window.__ModuleLoader__.load({
           setWorkspaceFilter(pending.workspaceId);
         }
         if (typeof pending.meetingId === "string" && pending.meetingId !== "") {
+          setPinnedMeetingIds((current) => {
+            if (current.has(pending.meetingId)) return current;
+            return new Set([...current, pending.meetingId]);
+          });
+          requestedCenterTabRef.current = {
+            meetingId: pending.meetingId,
+            tab: pending.tab === "minutes" ? "minutes" : "",
+          };
           setMeetingId(pending.meetingId);
         }
       }, []);
@@ -5680,7 +6005,18 @@ window.__ModuleLoader__.load({
             setWorkspaceFilter(detail.workspaceId);
           }
           if (typeof detail.meetingId === "string" && detail.meetingId !== "") {
+            setPinnedMeetingIds((current) => {
+              if (current.has(detail.meetingId)) return current;
+              return new Set([...current, detail.meetingId]);
+            });
+            requestedCenterTabRef.current = {
+              meetingId: detail.meetingId,
+              tab: detail.tab === "minutes" ? "minutes" : "",
+            };
             setMeetingId(detail.meetingId);
+            setCenterTab(
+              detail.tab === "minutes" ? "minutes" : "conversation",
+            );
           }
         };
         window.addEventListener("pluginmax:collab-navigate", onNavigate);
@@ -5747,7 +6083,7 @@ window.__ModuleLoader__.load({
             setAccountId(me.user?.id ?? "");
             setTeammates(
               (teammateResult.teammates ?? []).filter(
-                (item) => item.state === "active",
+                (item) => item.state !== "archived",
               ),
             );
             // 平台管理员对全部项目都有建会权限，可选项不止“已加入”的项目；
@@ -5960,7 +6296,15 @@ window.__ModuleLoader__.load({
       }, [route, meetingId, refreshKey]);
 
       react.useEffect(() => {
-        setCenterTab("conversation");
+        const requested = requestedCenterTabRef.current;
+        if (requested.meetingId === meetingId && requested.meetingId !== "") {
+          setCenterTab(
+            requested.tab === "minutes" ? "minutes" : "conversation",
+          );
+          requestedCenterTabRef.current = { meetingId: "", tab: "" };
+        } else {
+          setCenterTab("conversation");
+        }
         setCenterTaskCaptureOpen(false);
         setCenterTaskCaptureSeed({});
       }, [meetingId]);
@@ -6091,20 +6435,45 @@ window.__ModuleLoader__.load({
       const teammateById = new Map(
         teammates.map((teammate) => [teammate.id, teammate]),
       );
-      // 每位 AI伙伴只保留最近一个进行中的默认会话，避免历史数据里的
-      // 同实例多会话在左侧重复成多行。
+      const myAiTeammates = teammates.filter(
+        (teammate) =>
+          teammate.ownerUserId === accountId &&
+          !teammateIsUnavailable(teammate),
+      );
+      const selectedCreateTeammateId = myAiTeammates.some(
+        (teammate) => teammate.id === createTeammateId,
+      )
+        ? createTeammateId
+        : (myAiTeammates[0]?.id ?? "");
+      const isLegacyDefaultAiConversation = (item) =>
+        item.kind === "ai" &&
+        item.workspaceId === SYSTEM_DEFAULT_WORKSPACE_ID &&
+        item.aiContextMode !== "participant-projects-v1";
+      // AI伙伴 1:1 以伙伴实例为唯一维度，项目只用于运行时取数。
       const activeAiConversationByTeammate = new Map();
       for (const item of meetings) {
         if (
           item.kind !== "ai" ||
           item.status !== "active" ||
-          !meetingIsNavigable(item) ||
-          !meetingHasConversation(item) ||
           item.teammateInstanceId === undefined ||
-          activeAiConversationByTeammate.has(item.teammateInstanceId)
+          isLegacyDefaultAiConversation(item)
         )
           continue;
-        activeAiConversationByTeammate.set(item.teammateInstanceId, item);
+        if (
+          !meetingHasConversation(item) &&
+          !recentEmptyMeetingIds.has(item.id)
+        ) {
+          continue;
+        }
+        const current = activeAiConversationByTeammate.get(
+          item.teammateInstanceId,
+        );
+        if (preferAiConversation(current, item)) {
+          activeAiConversationByTeammate.set(
+            item.teammateInstanceId,
+            item,
+          );
+        }
       }
       const meetingSearchScore = (item) =>
         relevanceScore(
@@ -6126,9 +6495,8 @@ window.__ModuleLoader__.load({
           search,
         );
       const teammateSearchScore = (teammate) => {
-        const activeConversation = activeAiConversationByTeammate.get(
-          teammate.id,
-        );
+        const activeConversation =
+          activeAiConversationByTeammate.get(teammate.id);
         return relevanceScore(
           [
             { text: teammate.name, weight: 1.3 },
@@ -6152,12 +6520,9 @@ window.__ModuleLoader__.load({
           setMeetingId(existing.id);
           return;
         }
-        // 一对一默认会话固定在平台默认项目，避免切换项目筛选后
-        // 为同一个 AI伙伴重复创建多段单聊。
-        const workspaceId = SYSTEM_DEFAULT_WORKSPACE_ID;
         await run(`ai-chat:${teammate.id}`, async () => {
           const result = await post("/api/collab/meetings", {
-            workspaceId,
+            workspaceId: SYSTEM_DEFAULT_WORKSPACE_ID,
             title: teammate.name,
             kind: "ai",
             teammateInstanceId: teammate.id,
@@ -6165,6 +6530,7 @@ window.__ModuleLoader__.load({
             displayName: accountName,
           });
           if (result?.meeting?.id) {
+            rememberEmptyMeeting(result.meeting.id);
             setMeetings((current) => [
               result.meeting,
               ...current.filter((item) => item.id !== result.meeting.id),
@@ -6180,9 +6546,14 @@ window.__ModuleLoader__.load({
         if (route !== "meetings") return;
         if (meetings.length === 0) return;
         const matchesView = (item) =>
-          showArchived
-            ? item.status === "archived"
-            : item.status !== "archived";
+          !isLegacyDefaultAiConversation(item) &&
+          (item.kind !== "ai" ||
+            activeAiConversationByTeammate.get(item.teammateInstanceId)?.id ===
+              item.id) &&
+          (pinnedMeetingIds.has(item.id) ||
+            (showArchived
+              ? item.status === "archived"
+              : item.status !== "archived"));
         const matchesType = (item) =>
           communicationFilter === "all" ||
           (communicationFilter === "ai"
@@ -6191,6 +6562,7 @@ window.__ModuleLoader__.load({
         const matchesSearch = (item) =>
           normalizeSearchText(search) === "" || meetingSearchScore(item) > 0;
         const matchesConversation = (item) =>
+          pinnedMeetingIds.has(item.id) ||
           meetingHasConversation(item) ||
           (item.status === "active" &&
             (item.id === meetingId || recentEmptyMeetingIds.has(item.id)));
@@ -6211,7 +6583,7 @@ window.__ModuleLoader__.load({
               matchesType(item) &&
               matchesConversation(item) &&
               matchesSearch(item) &&
-              item.status !== "closed",
+              (pinnedMeetingIds.has(item.id) || item.status !== "closed"),
           )
           .sort((left, right) =>
             normalizeSearchText(search) === ""
@@ -6235,6 +6607,7 @@ window.__ModuleLoader__.load({
         route,
         meetings,
         meetingId,
+        pinnedMeetingIds,
         recentEmptyMeetingIds,
         search,
         showArchived,
@@ -6242,6 +6615,26 @@ window.__ModuleLoader__.load({
         workspaces,
         allWorkspaces,
         teammates,
+      ]);
+
+      react.useEffect(() => {
+        if (meetingId === "" || !pinnedMeetingIds.has(meetingId)) return;
+        const current = meetings.find((item) => item.id === meetingId);
+        if (current?.status === "archived" && !showArchived) {
+          setShowArchived(true);
+        }
+        if (
+          current?.status === "closed" &&
+          !closedOpen
+        ) {
+          setClosedOpen(true);
+        }
+      }, [
+        meetings,
+        meetingId,
+        pinnedMeetingIds,
+        showArchived,
+        closedOpen,
       ]);
 
       react.useEffect(() => {
@@ -6284,22 +6677,28 @@ window.__ModuleLoader__.load({
           ? sortRowsByUpdatedAt(left, right)
           : sortRowsByRelevance(left, right);
 
-      // 「全部」只列当前数据范围内实际存在的沟通记录；AI伙伴名录仅用于
-      // 「AI伙伴」筛选下发现尚未聊过的伙伴并发起新对话。
+      // 「全部」与「AI伙伴」都只列当前数据范围内实际存在的沟通记录。
+      // 「AI伙伴」是「全部」的 AI 子集，不再补入尚无历史消息的伙伴。
       const conversationTeammateRows =
         communicationFilter === "meeting"
           ? []
-          : [...activeAiConversationByTeammate.entries()]
-              .map(([teammateId, conversation]) => {
-                const teammate = teammateById.get(teammateId) ?? {
+          : [...activeAiConversationByTeammate.values()]
+              .map((conversation) => {
+                const teammateId = conversation.teammateInstanceId;
+                const resolvedTeammate = teammateById.get(teammateId);
+                const teammate = resolvedTeammate ?? {
                   id: teammateId,
                   name: conversation.title,
                   ownerName: conversation.ownerName ?? "",
                   ownerUserId: conversation.ownerUserId ?? "",
                   source: conversation.teammateSource ?? "personal",
+                  availability: {
+                    available: false,
+                    reason: teammateUnavailableReason(undefined),
+                  },
                 };
                 return {
-                  id: `teammate:${teammate.id}`,
+                  id: `teammate:${conversation.workspaceId}:${teammate.id}`,
                   teammate,
                   conversation,
                   updatedAt: meetingActivityTime(conversation),
@@ -6307,26 +6706,7 @@ window.__ModuleLoader__.load({
                 };
               })
               .filter((row) => matchesSearch(row.score));
-      const conversationTeammateIds = new Set(
-        conversationTeammateRows.map((row) => row.teammate.id),
-      );
-      const availableTeammateRows =
-        communicationFilter === "ai"
-          ? teammates
-              .filter((teammate) => !conversationTeammateIds.has(teammate.id))
-              .map((teammate) => ({
-                id: `teammate:${teammate.id}`,
-                teammate,
-                conversation: undefined,
-                updatedAt: undefined,
-                score: teammateSearchScore(teammate),
-              }))
-              .filter((row) => matchesSearch(row.score))
-          : [];
-      const teammateRows = [
-        ...conversationTeammateRows,
-        ...availableTeammateRows,
-      ];
+      const teammateRows = conversationTeammateRows;
       const rankedTeammateRows =
         normalizedQuery === ""
           ? teammateRows
@@ -6335,8 +6715,9 @@ window.__ModuleLoader__.load({
       // 已归档的会议单独成组：默认列表只显示未归档的，由「已归档 N」入口切换。
       const archivedMeetings = meetings.filter(
         (item) =>
+          item.kind !== "ai" &&
           item.status === "archived" &&
-          meetingHasConversation(item) &&
+          (pinnedMeetingIds.has(item.id) || meetingHasConversation(item)) &&
           (communicationFilter === "all" ||
             (communicationFilter === "ai"
               ? item.kind === "ai"
@@ -6359,7 +6740,8 @@ window.__ModuleLoader__.load({
               (item) =>
                 item.kind !== "ai" &&
                 item.status !== "archived" &&
-                (meetingHasConversation(item) ||
+                (pinnedMeetingIds.has(item.id) ||
+                  meetingHasConversation(item) ||
                   (item.status === "active" &&
                     (item.id === meetingId ||
                       recentEmptyMeetingIds.has(item.id)))),
@@ -6441,7 +6823,9 @@ window.__ModuleLoader__.load({
         ? teammates.find((item) => item.id === meeting?.teammateInstanceId)
         : undefined;
       const aiConversationUnavailable =
-        isAiConversation && teammateIsUnavailable(aiConversationTeammate);
+        isAiConversation &&
+        (aiConversationTeammate === undefined ||
+          teammateIsUnavailable(aiConversationTeammate));
       const aiConversationUnavailableReason = aiConversationUnavailable
         ? teammateUnavailableReason(aiConversationTeammate)
         : "";
@@ -6452,6 +6836,17 @@ window.__ModuleLoader__.load({
           participant.status === "active" &&
           participant.refId === actorId,
       );
+      const facilitatorTeammate = teammates.find(
+        (item) => item.systemKey === "meeting-facilitator",
+      );
+      const facilitatorTeammateId =
+        facilitatorTeammate?.id ?? "meeting-facilitator";
+      const isFacilitatorParticipant = (participant) =>
+        participant.systemKey === "meeting-facilitator" ||
+        (participant.teammateInstanceId ?? participant.refId) ===
+          facilitatorTeammateId ||
+        (participant.teammateInstanceId ?? participant.refId) ===
+          "meeting-facilitator";
       const facilitatorId = minutes?.facilitator?.id;
       const bucket = { human: [], ai: [], service: [] };
       // Facilitator 只占一个「服务成员」席位：启用时合成一行，
@@ -6463,8 +6858,9 @@ window.__ModuleLoader__.load({
           : {
               id: `facilitator:${activeFacilitator.id}`,
               kind: "facilitator",
-              refId: "meeting-facilitator",
-              displayName: "会议 Facilitator（AI）",
+              refId: facilitatorTeammateId,
+              displayName:
+                facilitatorTeammate?.name ?? "会议 Facilitator（AI）",
               status: "active",
             };
       for (const participant of [
@@ -6474,7 +6870,7 @@ window.__ModuleLoader__.load({
             participant.status === "active" &&
             !(
               participant.kind === "ai_teammate" &&
-              participant.refId === "meeting-facilitator"
+              isFacilitatorParticipant(participant)
             ),
         ),
       ])
@@ -6492,6 +6888,7 @@ window.__ModuleLoader__.load({
       const displayVersion = [...allVersions]
         .reverse()
         .find((version) => String(version.content ?? "").trim() !== "");
+      const meetingSummary = String(meeting?.summary ?? "").trim();
       const canEditMinutes = canConfirm && meeting?.status !== "archived";
       const activeHumans = participants.filter(
         (participant) =>
@@ -6571,20 +6968,45 @@ window.__ModuleLoader__.load({
                   "会议 Facilitator 未在会：用「邀请成员」把它拉进会议后即可生成纪要。",
               }),
         displayVersion === undefined
-          ? h("div", { style: PS.group }, [
-              h(
-                "div",
-                { style: { alignItems: "center", display: "flex", gap: 6 } },
-                [
-                  h("div", {
-                    style: Object.assign({}, PS.groupTitle, { flex: 1 }),
-                    children: "会议纪要",
-                  }),
-                  minutesTriggerBtn,
-                ],
-              ),
-              h("div", { style: PS.meta, children: "暂无会议纪要" }),
-            ])
+          ? h(
+              "div",
+              { style: Object.assign({}, PS.group, { flex: 1, minHeight: 0 }) },
+              [
+                h(
+                  "div",
+                  { style: { alignItems: "center", display: "flex", gap: 6 } },
+                  [
+                    h("div", {
+                      style: Object.assign({}, PS.groupTitle, { flex: 1 }),
+                      children: meetingSummary === "" ? "会议纪要" : "会议摘要",
+                    }),
+                    minutesTriggerBtn,
+                  ],
+                ),
+                meetingSummary === ""
+                  ? h("div", { style: PS.meta, children: "暂无会议纪要" })
+                  : h(
+                      "div",
+                      {
+                        style: Object.assign({}, PS.pre, {
+                          flex: 1,
+                          maxHeight: "none",
+                          minHeight: 0,
+                        }),
+                      },
+                      renderChatMarkdown(meetingSummary) ??
+                        h("span", null, meetingSummary),
+                    ),
+                meetingSummary === ""
+                  ? null
+                  : h("div", {
+                      style: PS.meta,
+                      children: `更新于：${timeFull(
+                        meeting.updatedAt ?? meeting.createdAt,
+                      )}`,
+                    }),
+              ],
+            )
           : h(
               "div",
               { style: Object.assign({}, PS.group, { flex: 1, minHeight: 0 }) },
@@ -6986,6 +7408,8 @@ window.__ModuleLoader__.load({
       const removeCenterMember = async (participant) => {
         await run("member", () =>
           participant.kind === "facilitator" ||
+          participant.systemKey === "meeting-facilitator" ||
+          participant.refId === facilitatorTeammateId ||
           participant.refId === "meeting-facilitator"
             ? post("/api/collab/meeting/facilitator/close", { meetingId })
             : post("/api/collab/meeting/participant/remove", {
@@ -7301,6 +7725,9 @@ window.__ModuleLoader__.load({
         ? h(
             "div",
             {
+              "data-data-agent-text-surface": isAiConversation
+                ? "conversation"
+                : "meeting-detail",
               style: Object.assign(
                 {},
                 PS.chat,
@@ -7764,6 +8191,7 @@ window.__ModuleLoader__.load({
           teammate.ownerName?.trim() || teammate.ownerUserId?.trim();
         const unavailable = teammateIsUnavailable(teammate);
         const unavailableReason = teammateUnavailableReason(teammate);
+        const canOpen = row.conversation !== undefined || !unavailable;
         const unreadCount = Number(row.conversation?.unreadCount ?? 0);
         const preview = meetingPreviewText(
           row.conversation,
@@ -7778,15 +8206,25 @@ window.__ModuleLoader__.load({
             type: "button",
             key: row.id,
             "aria-label": `打开与 ${teammate.name} 的默认对话`,
-            disabled: busy !== "",
+            "aria-disabled": !canOpen || undefined,
+            "data-ai-unavailable": unavailable ? "true" : undefined,
+            title: unavailable ? unavailableReason : undefined,
+            disabled: busy !== "" || !canOpen,
             style: Object.assign(
               {},
               PS.item,
               PS.itemIdle,
               selected ? PS.itemActive : {},
+              unavailable ? PS.itemUnavailable : {},
               busy !== "" && !loading ? { opacity: 0.55 } : {},
             ),
-            onClick: () => void openTeammateConversation(teammate),
+            onClick: () => {
+              if (row.conversation === undefined) {
+                void openTeammateConversation(teammate);
+                return;
+              }
+              setMeetingId(row.conversation.id);
+            },
           },
           h(
             "div",
@@ -7878,6 +8316,12 @@ window.__ModuleLoader__.load({
         const teammate = aiConversation
           ? teammateById.get(item.teammateInstanceId)
           : undefined;
+        const unavailable =
+          aiConversation &&
+          (teammate === undefined || teammateIsUnavailable(teammate));
+        const unavailableReason = unavailable
+          ? teammateUnavailableReason(teammate)
+          : "";
         const unreadCount = Number(item.unreadCount ?? 0);
         const preview = meetingPreviewText(item);
         const speaker = meetingLastMessageText(item)
@@ -7891,13 +8335,16 @@ window.__ModuleLoader__.load({
             "data-data-agent-id": item.id,
             "data-data-agent-title": item.title,
             "data-workspace-id": item.workspaceId,
+            "data-ai-unavailable": unavailable ? "true" : undefined,
             "aria-label": `打开会议 ${item.title}`,
             role: "group",
+            title: unavailable ? unavailableReason : undefined,
             style: Object.assign(
               {},
               PS.item,
               PS.itemIdle,
               item.id === meetingId ? PS.itemActive : {},
+              unavailable ? PS.itemUnavailable : {},
             ),
             onClick: () => setMeetingId(item.id),
           },
@@ -7942,6 +8389,13 @@ window.__ModuleLoader__.load({
                       children:
                         workspaceNameById.get(item.workspaceId) ?? "未分组",
                     }),
+                unavailable
+                  ? h("span", {
+                      style: PS.unavailableTag,
+                      title: unavailableReason,
+                      children: "不可用",
+                    })
+                  : null,
               ],
             ),
             h("time", {
@@ -8058,7 +8512,12 @@ window.__ModuleLoader__.load({
             h("div", {
               key: "list-empty",
               style: PS.meta,
-              children: normalizedQuery === "" ? "暂无沟通" : "没有匹配的沟通",
+              children:
+                normalizedQuery === ""
+                  ? communicationFilter === "ai"
+                    ? "暂无有历史记录的 AI伙伴沟通"
+                    : "暂无沟通"
+                  : "没有匹配的沟通",
             }),
           ];
         }
@@ -8082,10 +8541,16 @@ window.__ModuleLoader__.load({
                 type: "button",
                 style: PS.primaryBtn,
                 disabled: visibleWorkspaces.length === 0,
-                onClick: () => setCreateOpen(true),
-                children: "新建会议",
+                onClick: () => {
+                  setCreateMode(
+                    communicationFilter === "ai" ? "ai" : "meeting",
+                  );
+                  setCreateTeammateId("");
+                  setCreateOpen(true);
+                },
+                children: "新建沟通",
               }),
-              // 已归档入口：放在「新建会议」右侧；进入归档列表后变成「返回会议列表」。
+              // 已归档入口：放在「新建沟通」右侧；进入归档列表后变成「返回会议列表」。
               archivedMeetings.length > 0
                 ? h("button", {
                     type: "button",
@@ -8448,9 +8913,52 @@ window.__ModuleLoader__.load({
                 h(
                   "form",
                   {
+                    role: "dialog",
+                    "aria-label": "新建沟通",
                     style: PS.modal,
                     onSubmit: async (event) => {
                       event.preventDefault();
+                      if (createMode === "ai") {
+                        const teammate = myAiTeammates.find(
+                          (item) => item.id === selectedCreateTeammateId,
+                        );
+                        if (teammate === undefined) {
+                          setError("暂无可用的个人 AI 伙伴");
+                          return;
+                        }
+                        const existing =
+                          activeAiConversationByTeammate.get(teammate.id);
+                        if (existing !== undefined) {
+                          setCommunicationFilter("ai");
+                          setMeetingId(existing.id);
+                          setCreateOpen(false);
+                          return;
+                        }
+                        await run("create-ai", async () => {
+                          const result = await post("/api/collab/meetings", {
+                            workspaceId: SYSTEM_DEFAULT_WORKSPACE_ID,
+                            title: teammate.name,
+                            kind: "ai",
+                            teammateInstanceId: teammate.id,
+                            teammateName: teammate.name,
+                            displayName: accountName,
+                          });
+                          if (result?.meeting?.id) {
+                            rememberEmptyMeeting(result.meeting.id);
+                            setMeetings((current) => [
+                              result.meeting,
+                              ...current.filter(
+                                (item) => item.id !== result.meeting.id,
+                              ),
+                            ]);
+                            setCommunicationFilter("ai");
+                            setMeetingId(result.meeting.id);
+                            setCreateTeammateId("");
+                            setCreateOpen(false);
+                          }
+                        });
+                        return;
+                      }
                       if (newTitle.trim() === "") return;
                       await run("create", async () => {
                         const result = await post("/api/collab/meetings", {
@@ -8463,6 +8971,7 @@ window.__ModuleLoader__.load({
                         setNewAgenda("");
                         if (result?.meeting?.id) {
                           rememberEmptyMeeting(result.meeting.id);
+                          setCommunicationFilter("meeting");
                           setMeetings((current) => [
                             result.meeting,
                             ...current.filter(
@@ -8475,46 +8984,115 @@ window.__ModuleLoader__.load({
                     },
                   },
                   [
-                    h("div", { style: PS.title, children: "新建会议" }),
-                    h("label", { style: PS.field }, [
-                      h("span", { children: "关联项目" }),
-                      h(
-                        "select",
-                        {
-                          style: PS.input,
-                          value: createWorkspaceId,
-                          "aria-label": "新建会议关联项目",
-                          onChange: (event) =>
-                            setCreateWorkspaceId(event.target.value),
-                        },
-                        ...visibleWorkspaces.map((workspace) =>
-                          h("option", {
-                            key: workspace.id,
-                            value: workspace.id,
-                            children:
-                              workspace.id === SYSTEM_DEFAULT_WORKSPACE_ID
-                                ? "默认项目（system，不关联项目）"
-                                : workspaceLabel(workspace),
-                          }),
-                        ),
-                      ),
-                    ]),
-                    h("label", { style: PS.field }, [
-                      h("span", { children: "会议主题" }),
-                      h("input", {
-                        style: PS.input,
-                        value: newTitle,
-                        onChange: (event) => setNewTitle(event.target.value),
-                      }),
-                    ]),
-                    h("label", { style: PS.field }, [
-                      h("span", { children: "议程（可选）" }),
-                      h("textarea", {
-                        style: PS.textarea,
-                        value: newAgenda,
-                        onChange: (event) => setNewAgenda(event.target.value),
-                      }),
-                    ]),
+                    h("div", { style: PS.title, children: "新建沟通" }),
+                    h(
+                      "div",
+                      {
+                        role: "group",
+                        "aria-label": "新建沟通类型",
+                        style: PS.filterSegment,
+                      },
+                      [
+                        h("button", {
+                          type: "button",
+                          style: Object.assign(
+                            {},
+                            PS.filterBtn,
+                            createMode === "meeting"
+                              ? PS.filterBtnActive
+                              : {},
+                          ),
+                          "aria-pressed": createMode === "meeting",
+                          onClick: () => setCreateMode("meeting"),
+                          children: "创建会议",
+                        }),
+                        h("button", {
+                          type: "button",
+                          style: Object.assign(
+                            {},
+                            PS.filterBtn,
+                            createMode === "ai" ? PS.filterBtnActive : {},
+                          ),
+                          "aria-pressed": createMode === "ai",
+                          onClick: () => setCreateMode("ai"),
+                          children: "AI伙伴 1:1",
+                        }),
+                      ],
+                    ),
+                    ...(createMode === "meeting"
+                      ? [
+                          h("label", { style: PS.field }, [
+                            h("span", { children: "关联项目" }),
+                            h(
+                              "select",
+                              {
+                                style: PS.input,
+                                value: createWorkspaceId,
+                                "aria-label": "新建会议关联项目",
+                                onChange: (event) =>
+                                  setCreateWorkspaceId(event.target.value),
+                              },
+                              ...visibleWorkspaces.map((workspace) =>
+                                h("option", {
+                                  key: workspace.id,
+                                  value: workspace.id,
+                                  children:
+                                    workspace.id ===
+                                    SYSTEM_DEFAULT_WORKSPACE_ID
+                                      ? "默认项目（system，不关联项目）"
+                                      : workspaceLabel(workspace),
+                                }),
+                              ),
+                            ),
+                          ]),
+                          h("label", { style: PS.field }, [
+                            h("span", { children: "会议主题" }),
+                            h("input", {
+                              style: PS.input,
+                              value: newTitle,
+                              "aria-label": "新建会议主题",
+                              onChange: (event) =>
+                                setNewTitle(event.target.value),
+                            }),
+                          ]),
+                          h("label", { style: PS.field }, [
+                            h("span", { children: "议程（可选）" }),
+                            h("textarea", {
+                              style: PS.textarea,
+                              value: newAgenda,
+                              onChange: (event) =>
+                                setNewAgenda(event.target.value),
+                            }),
+                          ]),
+                        ]
+                      : [
+                          myAiTeammates.length === 0
+                            ? h("div", {
+                                style: PS.meta,
+                                children: "暂无可用的个人 AI 伙伴",
+                              })
+                            : h("label", { style: PS.field }, [
+                                h("span", { children: "选择我的 AI 伙伴" }),
+                                h(
+                                  "select",
+                                  {
+                                    style: PS.input,
+                                    value: selectedCreateTeammateId,
+                                    "aria-label":
+                                      "新建 AI 伙伴一对一沟通",
+                                    onChange: (event) =>
+                                      setCreateTeammateId(event.target.value),
+                                  },
+                                  ...myAiTeammates.map((teammate) =>
+                                    h("option", {
+                                      key: teammate.id,
+                                      value: teammate.id,
+                                      children: teammate.name,
+                                    }),
+                                  ),
+                                ),
+                              ]),
+                        ]),
                     h(
                       "div",
                       {
@@ -8534,7 +9112,19 @@ window.__ModuleLoader__.load({
                         h("button", {
                           type: "submit",
                           style: PS.primaryBtn,
-                          children: "创建",
+                          disabled:
+                            busy !== "" ||
+                            (createMode === "meeting"
+                              ? newTitle.trim() === ""
+                              : myAiTeammates.length === 0),
+                          children:
+                            createMode === "ai"
+                              ? busy === "create-ai"
+                                ? "创建中…"
+                                : "开始 1:1 沟通"
+                              : busy === "create"
+                                ? "创建中…"
+                                : "创建会议",
                         }),
                       ],
                     ),

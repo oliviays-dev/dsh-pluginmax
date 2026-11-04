@@ -627,8 +627,14 @@ grep -q '"systemKey":"data-agent"' "$BODY" || {
   cat "$BODY" >&2
   exit 1
 }
+DATA_AGENT_ID="$(node -e 'const body=require(process.argv[1]);process.stdout.write(body.identity?.id ?? "")' "$BODY")"
+if [[ -z "$DATA_AGENT_ID" ]]; then
+  echo "data agent bootstrap is missing the per-user instance id" >&2
+  cat "$BODY" >&2
+  exit 1
+fi
 
-code="$(api GET "/teammates/detail?teammateId=data-agent" "$TOKEN")"
+code="$(api GET "/teammates/detail?teammateId=$DATA_AGENT_ID" "$TOKEN")"
 expect_code 200 "$code" "data agent teammate detail"
 grep -q '"deletable":false' "$BODY" || {
   echo "data agent teammate detail is missing protection metadata" >&2

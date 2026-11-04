@@ -162,6 +162,18 @@ describe("DataAgentService", () => {
     expect(completed.report.visibility).toBe("private");
     expect(completed.report.ownerType).toBe("user");
     expect(dataAgent.htmlForReport(completed.report.id)).toBeUndefined();
+    expect(dataAgent.projectReports(conversation.workspaceId)).toMatchObject([
+      {
+        conversation: {
+          id: conversation.id,
+          title: "OTIF 异常分析",
+        },
+        report: {
+          id: completed.report.id,
+          title: "OTIF 异常归因",
+        },
+      },
+    ]);
   });
 
   it("creates HTML only on explicit request and keeps report-version linkage", async () => {
@@ -247,6 +259,40 @@ describe("DataAgentService", () => {
     expect(chatResult.message.content).toContain("query-order-1");
     expect(chatResult.message.content).toContain("当前授权");
     expect(chatResult.run.queryEvidence).toEqual(evidence);
+    expect(
+      chatResult.message.content.match(/## 数据范围与查询证据/g),
+    ).toHaveLength(1);
+
+    const selfContained = await dataAgent.createRun(actor, {
+      conversationId: conversation.id,
+      prompt: "再简短回答一次",
+      title: "订单异常",
+      mode: "chat",
+    });
+    const selfContainedResult = await dataAgent.completeChatRun({
+      actor,
+      runId: selfContained.id,
+      rawOutput: [
+        "今天订单异常 126 单。",
+        "",
+        "**口径与来源**",
+        "- 这里是不应出现在简答里的重复说明。",
+        "",
+        "## 数据范围与查询证据",
+        "- QueryRun：`query-order-1`",
+        "- 数据集：`orders-facts`",
+        "- 数据截止：2026-10-29T01:55:00.000Z",
+      ].join("\n"),
+      queryEvidence: evidence,
+    });
+    expect(
+      selfContainedResult.message.content.match(
+        /## 数据范围与查询证据/g,
+      ),
+    ).toHaveLength(1);
+    expect(selfContainedResult.message.content).not.toContain(
+      "**口径与来源**",
+    );
 
     const reportRun = await dataAgent.createRun(actor, {
       conversationId: conversation.id,
@@ -330,5 +376,65 @@ describe("DataAgentService", () => {
         workspaceId: "ws-main",
       }),
     ).toHaveLength(0);
+  });
+
+  it("searches conversations and keeps recent updates first within a project", async () => {
+    const dataTables = tables();
+    const dataAgent = new DataAgentService(dataTables, {
+      now: () => new Date("2026-10-29T02:00:00.000Z"),
+      id: () => `test-${++sequence}`,
+    });
+    const metricReview = await dataAgent.createConversation(actor, {
+      workspaceId: "project-a",
+      projectId: "project-a",
+      page: "workbench",
+      title: "指标异常复盘",
+    });
+    const orderReview = await dataAgent.createConversation(actor, {
+      workspaceId: "project-a",
+      projectId: "project-a",
+      page: "workbench",
+      title: "订单异常排查",
+    });
+    const metricDefinition = await dataAgent.createConversation(actor, {
+      workspaceId: "project-b",
+      projectId: "project-b",
+      page: "workbench",
+      title: "指标口径确认",
+    });
+    await dataTables.conversations.put(metricReview.id, {
+      ...metricReview,
+      updatedAt: "2026-10-29T03:00:00.000Z",
+    });
+    await dataTables.conversations.put(orderReview.id, {
+      ...orderReview,
+      updatedAt: "2026-10-29T05:00:00.000Z",
+    });
+    await dataTables.conversations.put(metricDefinition.id, {
+      ...metricDefinition,
+      updatedAt: "2026-10-29T04:00:00.000Z",
+    });
+
+    expect(
+      dataAgent
+        .listConversations(actor, {
+          projectId: "project-a",
+        })
+        .map((conversation) => conversation.title),
+    ).toEqual(["订单异常排查", "指标异常复盘"]);
+    expect(
+      dataAgent
+        .listConversations(actor, {
+          query: "指标",
+        })
+        .map((conversation) => conversation.title),
+    ).toEqual(["指标口径确认", "指标异常复盘"]);
+    expect(
+      dataAgent
+        .listConversations(actor, {
+          query: "订单 排查",
+        })
+        .map((conversation) => conversation.title),
+    ).toEqual(["订单异常排查"]);
   });
 });

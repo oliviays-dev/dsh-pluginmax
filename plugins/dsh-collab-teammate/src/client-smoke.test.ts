@@ -717,6 +717,20 @@ describe("AI Teammate runtime client", () => {
     );
   });
 
+  it("omits conversation counts from AI partner workload metrics", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).not.toContain("参会次数");
+    expect(source).not.toContain('className: "meetings"');
+    expect(source).not.toContain("stats.meetingCount ?? 0");
+  });
+
+  it("loads project roles from AI teammate assignments without an employee record", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain("/api/collab/teammates/project-roles?teammateId=");
+    expect(source).not.toContain("/api/collab/employee/roles?employeeId=");
+    expect(source).not.toContain("还没有绑定员工档案");
+  });
+
   it("requires an explicit action to create or save", () => {
     const source = readFileSync(CLIENT_PATH, "utf8");
     // 输入框不再用回车隐式提交：中文输入法确认候选词时按 Enter 会误触发。

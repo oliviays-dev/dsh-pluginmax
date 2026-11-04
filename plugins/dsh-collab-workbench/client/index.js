@@ -426,9 +426,11 @@ ${SCOPE_BUTTON_STYLES}
         return;
       }
       if (link.route === "meeting") {
+        const tab = link.tab === "minutes" ? "minutes" : undefined;
         window.__pluginmaxPendingMeeting = {
           meetingId: link.refId,
           workspaceId: link.workspaceId ?? "",
+          ...(tab === undefined ? {} : { tab }),
         };
         if (typeof window.__pluginmaxShell?.setRoute === "function") {
           window.__pluginmaxShell.setRoute("meetings");
@@ -445,6 +447,7 @@ ${SCOPE_BUTTON_STYLES}
               plugin: "meeting",
               meetingId: link.refId,
               workspaceId: link.workspaceId ?? "",
+              ...(tab === undefined ? {} : { tab }),
             },
           }),
         );
@@ -1885,7 +1888,7 @@ ${SCOPE_BUTTON_STYLES}
           const read = ctx.isItemRead("meeting-minutes", item);
           const openItem = () => {
             ctx.markItemRead("meeting-minutes", item);
-            ctx.openLink(item.deepLink);
+            ctx.openLink({ ...item.deepLink, tab: "minutes" });
           };
           return h(
             "article",

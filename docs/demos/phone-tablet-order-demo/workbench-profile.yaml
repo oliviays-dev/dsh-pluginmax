@@ -4,6 +4,9 @@ pluginId: "dsh-collab-demo-phone-tablet-order"
 detachable: true
 title: "手机/平板订单履约"
 dataMode: "demo"
+implementationStatus:
+  configIsRuntimeSource: true
+  notes: "Demo 插件只读取 metrics.selected；正式工作台指标与用户偏好不受影响"
 
 layout:
   visibleModules:
@@ -29,7 +32,7 @@ metrics:
     expectedUnit: "%"
     expectedTrend: "-1.8pt"
     dataMode: "demo"
-    sourceNote: "订单卡来自 Data Fabric 演示数据，其余经营卡为演示种子"
+    sourceNote: "OTIF 来自 MCP OMS · orders_query；其余 3 项为静态演示数据 · 非生产"
 
 brief:
   title: "每日简报"
@@ -39,8 +42,8 @@ brief:
   items:
     - type: "data-exception"
       title: "华东手机/平板订单异常"
-      body: "支付失败 52 单、取消 31 单、履约超时 43 单；异常集中在数码成品订单。"
-      actionLabel: "询问 Data Agent"
+      body: "支付失败 52 单（41.3%）、履约超时 43 单（34.1%）、取消 31 单（24.6%）；异常集中在数码成品订单。"
+      actionLabel: "分析原因"
     - type: "decision"
       title: "是否需要创建成品仓订单再平衡工单"
       body: "需要先核实 SKU、IMEI/SN、库存归属和跨仓交接约束。"

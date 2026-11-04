@@ -42,7 +42,7 @@ async function api(path, options = {}) {
             ? {}
             : { "content-type": "application/json" }),
           ...(token === "" ? {} : { authorization: `Bearer ${token}` }),
-          ...(options.headers ?? {}),
+          ...options.headers,
         },
       });
       const body = await response.json().catch(() => ({}));
@@ -217,12 +217,23 @@ await createDraft({
 });
 
 await page.reload({ waitUntil: "domcontentloaded" });
-await page.waitForTimeout(1_500);
+await page.waitForTimeout(3_000);
 await dismissOverlays();
 await page.evaluate(() => {
   window.__pluginmaxShell?.setRoute?.("task");
 });
-await page.getByRole("button", { name: /^草稿箱/ }).click();
+await page.waitForTimeout(1_000);
+await dismissOverlays();
+const taskNav = page.getByRole("button", { name: "任务", exact: true }).first();
+if (await taskNav.isVisible().catch(() => false)) {
+  await taskNav.click();
+}
+const draftLauncher = page.locator(".pmtc-launcher");
+if (!(await draftLauncher.isVisible().catch(() => false))) {
+  await dismissOverlays();
+}
+await draftLauncher.waitFor();
+await draftLauncher.click();
 const inbox = page.locator('[data-page="task-drafts"]');
 await page.waitForTimeout(1_000);
 if ((await inbox.count()) === 0) {
@@ -274,16 +285,21 @@ await titleUpdate;
 const actionMeasurements = await page
   .locator(".pmtd-row")
   .first()
-  .locator(".pmtd-action")
-  .evaluateAll((nodes) =>
-    nodes.map((node) => {
-      const style = getComputedStyle(node);
-      return {
-        width: node.getBoundingClientRect().width,
-        fontSize: style.fontSize,
-      };
-    }),
-  );
+  .evaluate((node) => {
+    const status = node.querySelector(".pmtd-action.status");
+    const edit = node.querySelector(".pmtd-action.edit");
+    const remove = node.querySelector(".pmtd-action.delete");
+    const statusRect = status?.getBoundingClientRect();
+    const editRect = edit?.getBoundingClientRect();
+    const removeRect = remove?.getBoundingClientRect();
+    return {
+      statusRect,
+      editRect,
+      removeRect,
+      editFont: edit ? getComputedStyle(edit).fontSize : "",
+      deleteFont: remove ? getComputedStyle(remove).fontSize : "",
+    };
+  });
 const headerMeasurements = await inbox.evaluate((node) => {
   const title = node.querySelector(".pmtd-title")?.getBoundingClientRect();
   const newButton = [...node.querySelectorAll(".pmtd-head-actions button")]
@@ -316,12 +332,17 @@ if (
   );
 }
 if (
-  actionMeasurements.length !== 2 ||
-  actionMeasurements[0].width !== actionMeasurements[1].width ||
-  actionMeasurements[0].fontSize !== actionMeasurements[1].fontSize
+  actionMeasurements.statusRect === undefined ||
+  actionMeasurements.editRect === undefined ||
+  actionMeasurements.removeRect === undefined ||
+  actionMeasurements.statusRect.right >= actionMeasurements.editRect.left ||
+  actionMeasurements.editRect.width !== actionMeasurements.removeRect.width ||
+  actionMeasurements.editRect.height !== actionMeasurements.removeRect.height ||
+  actionMeasurements.editRect.top >= actionMeasurements.removeRect.top ||
+  actionMeasurements.editFont !== actionMeasurements.deleteFont
 ) {
   throw new Error(
-    `draft action columns are not aligned: ${JSON.stringify(actionMeasurements)}`,
+    `draft action layout failed: ${JSON.stringify(actionMeasurements)}`,
   );
 }
 const overflow = await page.evaluate(() => ({
@@ -407,6 +428,15 @@ if (mobileProjectTitle === null || mobileProjectTitle.width < 180) {
     `mobile project title is compressed: ${JSON.stringify(mobileProjectTitle)}`,
   );
 }
+const mobileNoticeText = await inbox
+  .locator(".pmtd-notice span")
+  .first()
+  .boundingBox();
+if (mobileNoticeText !== null && mobileNoticeText.width < 220) {
+  throw new Error(
+    `mobile notice text is compressed: ${JSON.stringify(mobileNoticeText)}`,
+  );
+}
 await page.screenshot({
   path: resolve(evidenceDir, "task-draft-inbox-mobile.png"),
   fullPage: true,
@@ -442,6 +472,28 @@ await page.screenshot({
   fullPage: true,
 });
 await mobileEditor.getByRole("button", { name: "取消", exact: true }).click();
+
+await page.setViewportSize({ width: 1440, height: 960 });
+await page.waitForTimeout(250);
+const selectableChecks = inbox.locator(".pmtd-row-check input:not(:disabled)");
+if ((await selectableChecks.count()) < 2) {
+  throw new Error("batch delete requires at least two selectable drafts");
+}
+for (let index = 0; index < 2; index += 1) {
+  const checkbox = selectableChecks.nth(index);
+  if (!(await checkbox.isChecked())) await checkbox.check();
+}
+await page.getByRole("button", { name: /^批量删除（\d+）/ }).click();
+const deleteDialog = page.getByRole("dialog", { name: "删除任务草稿" });
+await deleteDialog.waitFor();
+await deleteDialog.getByText("来源、批次和处理记录仍会保留").waitFor();
+await page.screenshot({
+  path: resolve(evidenceDir, "task-draft-batch-delete-desktop.png"),
+  fullPage: true,
+});
+await deleteDialog.getByRole("button", { name: "确认删除" }).click();
+await deleteDialog.waitFor({ state: "hidden", timeout: 20_000 });
+await page.getByText(/已删除 \d+ 条草稿/).waitFor();
 
 const actionableConsoleErrors = consoleErrors.filter(
   (item) => !item.includes("status of 401 (Unauthorized)"),

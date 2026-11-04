@@ -324,6 +324,15 @@ describe("order Data Fabric domain", () => {
         },
       });
       expect(Array.isArray(result.orders)).toBe(true);
+      await provider.disconnect(
+        { userId: "owner", role: "member" },
+        "mcp-orders-mock",
+      );
+      const disconnected = await provider.list({
+        userId: "owner",
+        role: "member",
+      });
+      expect(disconnected[0]?.status).toBe("off");
     } finally {
       await provider.dispose();
     }
@@ -457,6 +466,22 @@ describe("order Data Fabric domain", () => {
     expect(skills).toContainEqual(
       expect.objectContaining({ id: ORDER_SKILL_ID, version: "v1.0" }),
     );
+    const orderSkill = skills.find((skill) => skill.id === ORDER_SKILL_ID);
+    expect(orderSkill?.instructions).toContain(
+      "支付失败、取消、履约超时必须按单数降序输出",
+    );
+    expect(orderSkill?.instructions).toContain(
+      "该类型单数 / 去重后的 order_exception_count",
+    );
+    expect(orderSkill?.instructions).toContain(
+      "异常构成不是原因证明",
+    );
+    expect(orderSkill?.instructions).toContain(
+      "查询入参 to 晚于 dataCutoffAt",
+    );
+    expect(orderSkill?.instructions).toContain(
+      "工作区 UUID",
+    );
     expect(orders.migrations("ws-1")).toHaveLength(1);
   });
 
@@ -525,6 +550,14 @@ describe("order Data Fabric domain", () => {
       groupBy: ["region"],
       limit: 10,
     });
+    const eastAlias = await fabric.query(member, "ws-1", {
+      datasetId: ORDER_DATASET_ID,
+      metricIds: [ORDER_METRIC_IDS.orderCount],
+      timeRange: { from: TODAY_FROM, to: TODAY_TO },
+      filters: { region: ["华东"], category: ["手机平板"] },
+      groupBy: ["region", "category"],
+      limit: 10,
+    });
 
     expect(result.result.rows).toEqual(
       expect.arrayContaining([
@@ -537,6 +570,9 @@ describe("order Data Fabric domain", () => {
       "coverage:当前授权：华东、华南；未覆盖：华北、西南",
     );
     expect(north.result.rows).toEqual([]);
+    expect(eastAlias.result.rows).toEqual([
+      expect.objectContaining({ region: "east", category: "digital" }),
+    ]);
   });
 
   it("supports alias drill-down into east fresh orders", async () => {

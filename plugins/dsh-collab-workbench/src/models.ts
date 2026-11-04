@@ -119,6 +119,8 @@ export const briefItemRecordSchema = z.object({
     })
     .optional(),
   readState: z.enum(["unread", "read"]).default("unread"),
+  /** 用户手工标为未读后，不允许自动闭环逻辑再次把它改成已读。 */
+  manualUnread: z.boolean().optional(),
   readAt: isoTimeSchema.optional(),
   readVia: briefReadViaSchema.optional(),
   priorityScore: z.number().int().min(0).max(20),

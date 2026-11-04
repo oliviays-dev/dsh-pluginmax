@@ -19,6 +19,7 @@
     "data/**/*",
     "config/**/*",
     "prompts/**/*",
+    "project-inputs/**/*",
     "scripts/**/*",
     "cordis.patch.yml",
     "README.md"
@@ -34,6 +35,7 @@
     "dsh-collab-resource-market": "workspace:*",
     "dsh-collab-task": "workspace:*",
     "dsh-collab-workbench": "workspace:*",
+    "yaml": "^2.9.1",
     "zod": "4.4.3"
   },
   "engines": {

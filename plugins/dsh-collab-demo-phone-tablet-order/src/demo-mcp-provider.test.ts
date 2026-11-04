@@ -150,6 +150,11 @@ describe("phone/tablet demo MCP provider", () => {
       expect(paymentFailed.length + cancelled.length + timedOut.length).toBe(
         126,
       );
+      await provider.disconnect({ userId: "zhouning" }, DEMO_OMS_MCP_ID);
+      const disconnected = await provider.list({ userId: "zhouning" });
+      expect(
+        disconnected.find((asset) => asset.id === DEMO_OMS_MCP_ID)?.status,
+      ).toBe("off");
     } finally {
       await provider.dispose();
     }

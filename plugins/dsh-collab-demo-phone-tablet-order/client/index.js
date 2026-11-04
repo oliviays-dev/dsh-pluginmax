@@ -192,6 +192,7 @@ window.__ModuleLoader__.load({
               h("span", null, "Mock WMS · MCP · 演示动作 · 非生产"),
               h("span", null, `确认人：${receipt.confirmedByName}`),
               h("span", null, `操作者：${receipt.operatorName}`),
+              h("span", null, `幂等键：${receipt.idempotencyKey}`),
               h("span", null, `审计引用：${receipt.actionTicketId}`),
               state.wms?.status === "unavailable"
                 ? h(

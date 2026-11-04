@@ -171,6 +171,28 @@ function setup() {
           ]
         : [],
   };
+  const projectAssignments = {
+    seats: (workspaceId: string) =>
+      workspaceId === "ws-1"
+        ? [
+            {
+              id: "assignment-1",
+              workspaceId,
+              seatId: "planner",
+              seatLabel: "计划员",
+              assigneeKind: "agent" as const,
+              assigneeId: "tm-1",
+              principalId: "principal-tm-1",
+              permissions: ["read", "write", "approve"],
+              status: "assigned" as const,
+              updatedAt: at,
+            },
+          ]
+        : [],
+    release: async () => {
+      throw new Error("not used");
+    },
+  };
   const team = {
     resolveToken: (token: string) => principals[token],
     users: () =>
@@ -192,6 +214,11 @@ function setup() {
     undefined,
     undefined,
     () => meetings,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    () => projectAssignments,
   );
   return { routes };
 }
@@ -226,7 +253,28 @@ describe("AI Teammate 明细接口读取收口", () => {
     expect(result.json.error).toMatchObject({ code: "forbidden" });
   });
 
-  it("所有者、任务协作方、会议协作方、管理员与平台实例均可读取", async () => {
+  it("returns project role assignments for an AI member without an employee record", async () => {
+    const { routes } = setup();
+    const result = await call(
+      routes,
+      "/api/collab/teammates/project-roles",
+      "?teammateId=tm-1",
+      "token-peter",
+    );
+    expect(result.status).toBe(200);
+    expect(result.json.roles).toEqual([
+      expect.objectContaining({
+        id: "assignment-1",
+        workspaceId: "ws-1",
+        role: "planner",
+        roleLabel: "计划员",
+        permissions: ["read", "write", "approve"],
+        status: "active",
+      }),
+    ]);
+  });
+
+  it("所有者、任务协作方、会议协作方、管理员可读取，平台托管历史实例不可越权读取", async () => {
     const { routes } = setup();
     const detail = (id: string, token: string) =>
       call(
@@ -241,8 +289,8 @@ describe("AI Teammate 明细接口读取收口", () => {
     expect((await detail("tm-1", "token-olivia")).status).toBe(200);
     // 会议协作方：olivia 与 tm-meeting 同场参会（无任务）
     expect((await detail("tm-meeting", "token-olivia")).status).toBe(200);
-    // 平台共享实例对所有登录用户可见
-    expect((await detail("tm-platform", "token-sam")).status).toBe(200);
+    // 平台托管历史实例不再默认共享给普通用户
+    expect((await detail("tm-platform", "token-sam")).status).toBe(403);
     // 平台管理员
     expect((await detail("tm-1", "token-admin")).status).toBe(200);
   });

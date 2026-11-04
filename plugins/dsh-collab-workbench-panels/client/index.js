@@ -5,9 +5,27 @@ window.__ModuleLoader__.load({
     const exports = module.exports;
     const react = require("react");
     const h = react.createElement;
+    const ICONS = {
+      gear: h(
+        "svg",
+        {
+          viewBox: "0 0 24 24",
+          fill: "none",
+          stroke: "currentColor",
+          strokeWidth: 1.8,
+          strokeLinecap: "round",
+          strokeLinejoin: "round",
+          "aria-hidden": "true",
+        },
+        h("path", {
+          d: "M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5ZM19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z",
+        }),
+      ),
+    };
 
     const TOKEN_KEY = "pluginmax.collab.token";
     const TZ_OFFSET = -new Date().getTimezoneOffset();
+    const TODO_SCOPE_KEY = "dsh-workbench-todo-scope-v1";
 
     const LEGACY_MODULE = {
       "pluginmax.kpi-overview": "metrics",
@@ -105,6 +123,9 @@ window.__ModuleLoader__.load({
 .pmwb2-error{display:grid;gap:7px;padding:10px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 35%,transparent);border-radius:7px;color:var(--dsw-alias-state-error-primary,#e5534b);font-size:11px;line-height:1.5;}
 .pmwb2-error button{justify-self:start;padding:3px 8px;border:1px solid currentColor;border-radius:5px;background:transparent;color:inherit;font:inherit;cursor:pointer;}
 .pmwb2-list{display:grid;gap:6px;}
+.pmwb-todo-scope-settings{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:7px 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);}
+.pmwb-todo-scope-settings > span{color:var(--dsw-alias-label-secondary);font-size:11px;}
+.pmwb-todo-scope-settings .pmwb-seg{flex:none;}
       .pmwb2-ai-load{display:grid;gap:7px;}
       .pmwb2-ai-load-table{border:1px solid var(--dsw-alias-border-l2);border-radius:6px;overflow:auto;background:var(--dsw-alias-bg-layer-2);scrollbar-width:thin;}
       .pmwb2-ai-load-head,.pmwb2-ai-load-row{display:grid;grid-template-columns:20px minmax(80px,1fr) minmax(0,2.6fr);align-items:center;gap:3px;padding:5px 4px;}
@@ -225,6 +246,25 @@ window.__ModuleLoader__.load({
 .pmwb-metric-value{margin-top:6px;font-size:22px;line-height:1.15;font-weight:650;letter-spacing:0;}.pmwb-metric-value small{margin-left:2px;font-size:11.5px;font-weight:500;color:var(--dsw-alias-label-secondary);}
 .pmwb-metric-target{margin-top:5px;color:var(--dsw-alias-label-tertiary);font-size:10.5px;line-height:1.5;}
 .pmwb-spark{display:flex;align-items:flex-end;gap:2px;height:26px;margin-top:9px;}.pmwb-spark span{flex:1;min-width:2px;border-radius:2px 2px 0 0;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 42%,transparent);}.pmwb-spark span.strong{background:var(--dsw-alias-accent-primary,#4f8ef7);}.pmwb-spark span.warn{background:var(--dsw-alias-state-error-primary,#e5534b);}
+.pmwb2-kpi-panel{--pmwb2-kpi-padding:12px;--pmwb2-kpi-gap:8px;--pmwb2-kpi-label-size:12px;--pmwb2-kpi-value-size:26px;--pmwb2-kpi-target-size:10.5px;--pmwb2-kpi-spark-height:30px;--pmwb2-kpi-card-min-height:168px;display:grid;grid-template-rows:minmax(0,1fr);gap:9px;height:auto;min-height:0;}
+.pmwb2-card[data-plugin-id="pluginmax.kpi-overview"] .pmwb2-card-body{display:flex;flex-direction:column;}
+.pmwb2-card[data-plugin-id="pluginmax.kpi-overview"] .pmwb2-card-body .pmwb2-panel{display:flex;flex:1 1 auto;flex-direction:column;min-height:0;}
+.pmwb2-card[data-plugin-id="pluginmax.kpi-overview"] .pmwb2-kpi-panel{flex:1 1 auto;}
+.pmwb2-card.has-height[data-plugin-id="pluginmax.kpi-overview"] .pmwb2-kpi-panel{height:100%;}
+.pmwb2-kpi-panel.no-source{grid-template-rows:minmax(0,1fr);}
+.pmwb2-kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));grid-auto-rows:minmax(0,1fr);gap:var(--pmwb2-kpi-gap);min-height:0;height:auto;overflow:visible;}
+.pmwb2-card.has-height[data-plugin-id="pluginmax.kpi-overview"] .pmwb2-kpi-grid{height:100%;}
+.pmwb2-kpi-card{display:flex;flex-direction:column;justify-content:flex-start;gap:var(--pmwb2-kpi-gap);min-width:0;min-height:var(--pmwb2-kpi-card-min-height);padding:var(--pmwb2-kpi-padding);border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 24%,var(--dsw-alias-border-l2));background:linear-gradient(145deg,color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 7%,var(--dsw-alias-bg-layer-2)),var(--dsw-alias-bg-layer-2));}
+.pmwb2-card.has-height[data-plugin-id="pluginmax.kpi-overview"] .pmwb2-kpi-card{min-height:0;}
+.pmwb2-kpi-card:only-child{min-height:174px;}
+.pmwb2-kpi-card.no-spark{justify-content:center;}
+.pmwb2-kpi-card .pmwb-metric-label{font-size:var(--pmwb2-kpi-label-size);}
+.pmwb2-kpi-card .pmwb-metric-label,.pmwb2-kpi-card .pmwb-metric-value,.pmwb2-kpi-card .pmwb-metric-target{flex:0 0 auto;min-height:0;}
+.pmwb2-kpi-card .pmwb-metric-value{margin-top:0;font-size:var(--pmwb2-kpi-value-size);line-height:1;font-weight:680;font-variant-numeric:tabular-nums;}
+.pmwb2-kpi-card:only-child .pmwb-metric-value{margin-top:14px;font-size:34px;}
+.pmwb2-kpi-card .pmwb-metric-value small{margin-left:4px;font-size:14px;}
+.pmwb2-kpi-card .pmwb-metric-target{margin-top:0;color:var(--dsw-alias-label-secondary);font-size:var(--pmwb2-kpi-target-size);}
+.pmwb2-kpi-card .pmwb-spark{flex:1 1 auto;height:auto;min-height:var(--pmwb2-kpi-spark-height);max-height:none;margin-top:0;overflow:hidden;}
 .pmwb-severity{flex:none;display:grid;place-items:center;width:34px;min-height:24px;padding:2px;border-radius:6px;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-secondary);font-size:11px;font-weight:650;}
 .pmwb-severity.high{color:var(--dsw-alias-state-error-primary,#e5534b);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 14%,transparent);}.pmwb-severity.medium{color:var(--dsw-alias-state-warning-primary,#d29922);background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d29922) 16%,transparent);}.pmwb-severity.watch{color:var(--dsw-alias-accent-primary,#4f8ef7);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 14%,transparent);}
 .pmwb-control-item{display:grid;grid-template-columns:34px minmax(0,1fr);gap:9px;padding:9px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-2);}
@@ -352,6 +392,24 @@ window.__ModuleLoader__.load({
       }
     }
 
+    function readTodoScope() {
+      try {
+        return window.localStorage.getItem(TODO_SCOPE_KEY) === "me_and_ai"
+          ? "me_and_ai"
+          : "me";
+      } catch {
+        return "me";
+      }
+    }
+
+    function saveTodoScope(scope) {
+      try {
+        window.localStorage.setItem(TODO_SCOPE_KEY, scope);
+      } catch {
+        // The active in-memory scope remains usable when storage is unavailable.
+      }
+    }
+
     function itemSignature(item) {
       return `${item?.kind ?? "item"}:${item?.id ?? ""}:${item?.updatedAt ?? ""}`;
     }
@@ -436,9 +494,11 @@ window.__ModuleLoader__.load({
         return;
       }
       if (link?.route === "meeting") {
+        const tab = link.tab === "minutes" ? "minutes" : undefined;
         window.__pluginmaxPendingMeeting = {
           meetingId: link.refId,
           workspaceId: link.workspaceId ?? "",
+          ...(tab === undefined ? {} : { tab }),
         };
         window.__pluginmaxShell?.setRoute("meetings");
         window.dispatchEvent(
@@ -447,6 +507,7 @@ window.__ModuleLoader__.load({
               plugin: "meeting",
               meetingId: link.refId,
               workspaceId: link.workspaceId ?? "",
+              ...(tab === undefined ? {} : { tab }),
             },
           }),
         );
@@ -603,6 +664,53 @@ window.__ModuleLoader__.load({
         });
       }
       return dataAgentCardAttributes(item);
+    }
+
+    function briefDataAgentSelection(item) {
+      const workspaceId = item?.deepLink?.workspaceId ?? item?.workspaceId;
+      const detail = [
+        item?.statusLabel ? `状态：${item.statusLabel}` : "",
+        item?.conclusion ? `内容：${item.conclusion}` : "",
+        item?.reason ? `入选原因：${item.reason}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+      return {
+        kind: "component",
+        title: item?.title ?? "每日简报",
+        excerpt: detail.slice(0, 4_000),
+        source: {
+          workspaceId,
+          page: "workbench",
+          ...(item?.deepLink?.route === undefined ||
+          item?.deepLink?.refId === undefined
+            ? {}
+            : {
+                entityRef: `${item.deepLink.route}:${item.deepLink.refId}`,
+              }),
+        },
+        snapshot: {
+          text: detail.slice(0, 8_000),
+          values: {
+            briefItemId: item?.itemId,
+            statusLabel: item?.statusLabel,
+            reason: item?.reason,
+            sourceId: item?.sourceId,
+          },
+        },
+      };
+    }
+
+    function openBriefItemInDataAgent(item) {
+      window.__pluginmaxSidePanel?.openTab("data-agent");
+      window.dispatchEvent(
+        new CustomEvent("pluginmax:data-agent-selection", {
+          detail: {
+            selection: briefDataAgentSelection(item),
+            prompt: item?.actionLabel ?? "分析原因",
+          },
+        }),
+      );
     }
 
     function meetingParticipantGroup(item) {
@@ -772,6 +880,20 @@ window.__ModuleLoader__.load({
         h(
           "div",
           { className: "pmwb-item-trailing" },
+          read
+            ? h(
+                "button",
+                {
+                  type: "button",
+                  className: "pmwb-btn pmwb-read-action",
+                  onClick: (event) => {
+                    event.stopPropagation();
+                    ctx.markUnread(moduleId, item);
+                  },
+                },
+                "标为未读",
+              )
+            : null,
           h(
             "button",
             {
@@ -802,7 +924,7 @@ window.__ModuleLoader__.load({
         const read = ctx.isRead("meeting-minutes", item);
         const openItem = () => {
           ctx.markRead("meeting-minutes", item);
-          navigateTo(item.deepLink);
+          navigateTo({ ...item.deepLink, tab: "minutes" });
         };
         return h(
           "article",
@@ -835,6 +957,20 @@ window.__ModuleLoader__.load({
           h(
             "div",
             { className: "pmwb-item-trailing" },
+            read
+              ? h(
+                  "button",
+                  {
+                    type: "button",
+                    className: "pmwb-btn pmwb-read-action",
+                    onClick: (event) => {
+                      event.stopPropagation();
+                      ctx.markUnread("meeting-minutes", item);
+                    },
+                  },
+                  "标为未读",
+                )
+              : null,
             h(
               "button",
               {
@@ -905,11 +1041,92 @@ window.__ModuleLoader__.load({
     }
 
     function LegacyMetricsBody({ payload }) {
+      const panelRef = react.useRef(null);
       const data = payload.data ?? {};
       const selected = new Set(data.selected ?? []);
       const items = (data.items ?? []).filter((metric) =>
         selected.has(metric.id),
       );
+      react.useEffect(() => {
+        const node = panelRef.current;
+        if (node === null || typeof ResizeObserver !== "function") {
+          return undefined;
+        }
+        let frame = 0;
+        const resize = () => {
+          window.cancelAnimationFrame(frame);
+          frame = window.requestAnimationFrame(() => {
+            const rect = node.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) return;
+            const grid = node.querySelector(".pmwb2-kpi-grid");
+            const columns = Math.max(
+              1,
+              grid === null
+                ? 1
+                : getComputedStyle(grid)
+                    .gridTemplateColumns.split(" ")
+                    .filter(Boolean).length,
+            );
+            const gap =
+              grid === null
+                ? 8
+                : Number.parseFloat(getComputedStyle(grid).columnGap) || 8;
+            const cardWidth =
+              (rect.width - gap * Math.max(0, columns - 1)) / columns;
+            const widthScale = cardWidth / 240;
+            // 高度会随列数变化，不能参与字号计算，否则侧边栏挤压宽度后会
+            // 触发「变窄 -> 单列 -> 变高 -> 字号放大」的反馈循环。
+            const scale = Math.max(0.68, Math.min(1, widthScale));
+            node.style.setProperty(
+              "--pmwb2-kpi-padding",
+              `${Math.round(12 * scale)}px`,
+            );
+            node.style.setProperty(
+              "--pmwb2-kpi-gap",
+              `${Math.round(8 * scale)}px`,
+            );
+            node.style.setProperty(
+              "--pmwb2-kpi-label-size",
+              `${(12 * scale).toFixed(1)}px`,
+            );
+            node.style.setProperty(
+              "--pmwb2-kpi-value-size",
+              `${(26 * scale).toFixed(1)}px`,
+            );
+            node.style.setProperty(
+              "--pmwb2-kpi-target-size",
+              `${(10.5 * scale).toFixed(1)}px`,
+            );
+            node.style.setProperty(
+              "--pmwb2-kpi-spark-height",
+              `${Math.round(30 * scale)}px`,
+            );
+            node.style.setProperty(
+              "--pmwb2-kpi-card-min-height",
+              `${Math.round(150 * scale)}px`,
+            );
+          });
+        };
+        const observer = new ResizeObserver(resize);
+        const owner = node.closest(
+          '[data-plugin-id="pluginmax.kpi-overview"]',
+        );
+        const mutationObserver =
+          owner === null ? null : new MutationObserver(resize);
+        observer.observe(node);
+        mutationObserver?.observe(owner, {
+          attributes: true,
+          attributeFilter: ["class", "style"],
+        });
+        resize();
+        const timer = window.setTimeout(resize, 120);
+        return () => {
+          window.cancelAnimationFrame(frame);
+          window.clearTimeout(timer);
+          observer.disconnect();
+          mutationObserver?.disconnect();
+        };
+      }, [items.length]);
       if (items.length === 0) {
         return h(
           "div",
@@ -919,26 +1136,20 @@ window.__ModuleLoader__.load({
       }
       return h(
         "div",
-        null,
-        data.sourceNote
-          ? h(
-              "div",
-              {
-                className: "pmwb-metric-source",
-                "data-data-mode": data.dataMode,
-              },
-              h("b", null, data.dataMode === "unavailable" ? "数据不可用" : "数据来源"),
-              h("span", null, data.sourceNote),
-            )
-          : null,
+        {
+          className: "pmwb2-kpi-panel no-source",
+          ref: panelRef,
+        },
         h(
         "div",
-        { className: "pmwb-metrics" },
+        { className: "pmwb-metrics pmwb2-kpi-grid" },
         ...items.map((metric) =>
-          h(
+          {
+            const spark = metric.spark ?? [];
+            return h(
             "article",
             {
-              className: "pmwb-metric",
+              className: `pmwb-metric pmwb2-kpi-card${spark.length === 0 ? " no-spark" : ""}`,
               key: metric.id,
               "data-metric-id": metric.id,
               "data-data-agent-title": `${metric.label} ${metric.value}${metric.unit ?? ""}`,
@@ -963,19 +1174,22 @@ window.__ModuleLoader__.load({
               metric.unit ? h("small", null, metric.unit) : null,
             ),
             h("div", { className: "pmwb-metric-target" }, metric.target),
-            h(
-              "div",
-              { className: "pmwb-spark", "aria-hidden": "true" },
-              ...(metric.spark ?? []).map((height, index) =>
-                h("span", {
-                  key: `${metric.id}-${index}`,
-                  className:
-                    height >= 62 ? "strong" : height <= 36 ? "warn" : "",
-                  style: { height: `${height}%` },
-                }),
-              ),
-            ),
-          ),
+            spark.length > 0
+              ? h(
+                  "div",
+                  { className: "pmwb-spark", "aria-hidden": "true" },
+                  ...spark.map((height, index) =>
+                    h("span", {
+                      key: `${metric.id}-${index}`,
+                      className:
+                        height >= 62 ? "strong" : height <= 36 ? "warn" : "",
+                      style: { height: `${height}%` },
+                    }),
+                  ),
+                )
+              : null,
+          );
+          },
         ),
         ),
       );
@@ -1371,6 +1585,8 @@ window.__ModuleLoader__.load({
       onToggleSuggestion,
       onToggleText,
       onOpen,
+      onAnalyze,
+      onUnread,
     }) {
       const data = payload?.data ?? {};
       const items =
@@ -1455,6 +1671,20 @@ window.__ModuleLoader__.load({
                   h(
                     "div",
                     { className: "pmwb-brief-actions" },
+                    item.readState === "read"
+                      ? h(
+                          "button",
+                          {
+                            type: "button",
+                            className: "pmwb-btn pmwb-read-action",
+                            onClick: (event) => {
+                              event.stopPropagation();
+                              onUnread(item);
+                            },
+                          },
+                          "标为未读",
+                        )
+                      : null,
                     item.suggestion
                       ? h(
                           "button",
@@ -1476,7 +1706,14 @@ window.__ModuleLoader__.load({
                         className: "pmwb-btn primary",
                         onClick: (event) => {
                           event.stopPropagation();
-                          onOpen(item);
+                          if (
+                            typeof item.actionLabel === "string" &&
+                            item.actionLabel.includes("分析")
+                          ) {
+                            onAnalyze(item);
+                          } else {
+                            onOpen(item);
+                          }
                         },
                       },
                       item.actionLabel || "查看明细",
@@ -2093,7 +2330,14 @@ window.__ModuleLoader__.load({
       return h(GenericList, { items });
     }
 
-    function LegacyReadableBody({ pluginId, items, read, view, onRead }) {
+    function LegacyReadableBody({
+      pluginId,
+      items,
+      read,
+      view,
+      onRead,
+      onUnread,
+    }) {
       const visible =
         view === "unread" ? items.filter((item) => !read(item)) : items;
       if (visible.length === 0) {
@@ -2120,6 +2364,7 @@ window.__ModuleLoader__.load({
           ...renderMeetingRows(visible, {
             isRead: read,
             markRead: onRead,
+            markUnread: onUnread,
           }),
         );
       }
@@ -2132,6 +2377,7 @@ window.__ModuleLoader__.load({
             {
               isRead: read,
               markRead: onRead,
+              markUnread: onUnread,
             },
             pluginId === "pluginmax.following" ? "focus" : "todo",
           ),
@@ -2148,6 +2394,8 @@ window.__ModuleLoader__.load({
       const [expanded, setExpanded] = react.useState({});
       const [briefTextExpanded, setBriefTextExpanded] = react.useState({});
       const [aiLoadWindow, setAiLoadWindow] = react.useState("last24h");
+      const [todoScope, setTodoScope] = react.useState(readTodoScope);
+      const [todoSettingsOpen, setTodoSettingsOpen] = react.useState(false);
       const load = react.useCallback(async () => {
         setState((previous) => ({
           status: previous.payload === undefined ? "loading" : "refreshing",
@@ -2194,9 +2442,13 @@ window.__ModuleLoader__.load({
               },
             };
           } else if (legacy) {
+            const todoScopeQuery =
+              pluginId === "pluginmax.task-focus"
+                ? `&todoScope=${encodeURIComponent(todoScope)}`
+                : "";
             payload = (
               await request(
-                `/api/collab/workbench/module?moduleId=${encodeURIComponent(legacy)}&tzOffset=${TZ_OFFSET}${scope}`,
+                `/api/collab/workbench/module?moduleId=${encodeURIComponent(legacy)}&tzOffset=${TZ_OFFSET}${scope}${todoScopeQuery}`,
               )
             ).module;
           } else {
@@ -2210,7 +2462,7 @@ window.__ModuleLoader__.load({
         } catch (error) {
           setState({ status: "error", error: error.message });
         }
-      }, [props.pluginId]);
+      }, [props.pluginId, todoScope]);
 
       react.useEffect(() => {
         void load();
@@ -2286,6 +2538,44 @@ window.__ModuleLoader__.load({
         [currentUserId],
       );
 
+      const markUnread = react.useCallback(
+        (moduleId, item) => {
+          if (currentUserId === "") return;
+          setReadState((previous) => {
+            const signature = itemSignature(item);
+            if (!previous[currentUserId]?.[moduleId]?.[signature]) {
+              return previous;
+            }
+            const moduleState = {
+              ...previous[currentUserId]?.[moduleId],
+            };
+            delete moduleState[signature];
+            const next = {
+              ...previous,
+              [currentUserId]: {
+                ...previous[currentUserId],
+                [moduleId]: moduleState,
+              },
+            };
+            try {
+              window.localStorage.setItem(
+                "dsh-workbench-read-state-v1",
+                JSON.stringify(next),
+              );
+            } catch {
+              // Keep the in-memory read state when storage is unavailable.
+            }
+            window.dispatchEvent(
+              new CustomEvent("pluginmax:workbench-toast", {
+                detail: { message: "已标记为未读" },
+              }),
+            );
+            return next;
+          });
+        },
+        [currentUserId],
+      );
+
       const legacyPayload = state.payload ?? {};
       const isBrief = props.pluginId === "pluginmax.daily-brief";
       const legacyItems =
@@ -2346,32 +2636,54 @@ window.__ModuleLoader__.load({
             )
           : readable
           ? h(
-            "div",
-            {
-              className: "pmwb-seg",
-              role: "group",
-              "aria-label": "面板视图",
-            },
+            react.Fragment,
+            null,
             h(
-              "button",
+              "div",
               {
-                type: "button",
-                className: view === "unread" ? "active" : "",
-                "aria-pressed": view === "unread",
-                onClick: () => setView("unread"),
+                className: "pmwb-seg",
+                role: "group",
+                "aria-label": "面板视图",
               },
-              `未读 ${unreadCount}`,
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: view === "unread" ? "active" : "",
+                  "aria-pressed": view === "unread",
+                  onClick: () => setView("unread"),
+                },
+                `未读 ${unreadCount}`,
+              ),
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: view === "all" ? "active" : "",
+                  "aria-pressed": view === "all",
+                  onClick: () => setView("all"),
+                },
+                `全部 ${allCount}`,
+              ),
             ),
-            h(
-              "button",
-              {
-                type: "button",
-                className: view === "all" ? "active" : "",
-                "aria-pressed": view === "all",
-                onClick: () => setView("all"),
-              },
-              `全部 ${allCount}`,
-            ),
+            props.pluginId === "pluginmax.task-focus"
+              ? h(
+                  "button",
+                  {
+                    type: "button",
+                    className: `pmwb2-iconbtn${
+                      todoSettingsOpen ? " active" : ""
+                    }`,
+                    "aria-label": "设置待办范围",
+                    title: "设置待办范围",
+                    "aria-expanded": todoSettingsOpen,
+                    "aria-controls": `pmwb-todo-scope-settings-${props.instanceId}`,
+                    onClick: () =>
+                      setTodoSettingsOpen((current) => !current),
+                  },
+                  ICONS.gear,
+                )
+              : null,
           )
         : isBrief
           ? h(
@@ -2426,6 +2738,7 @@ window.__ModuleLoader__.load({
         isBrief,
         followTick,
         aiLoadWindow,
+        todoSettingsOpen,
       ]);
 
       if (state.status === "loading") {
@@ -2477,6 +2790,54 @@ window.__ModuleLoader__.load({
                   ...current,
                   [itemId]: !current[itemId],
                 })),
+              onAnalyze: async (item) => {
+                if (item.readState === "unread") {
+                  try {
+                    const result = await request(
+                      "/api/collab/workbench/brief/read",
+                      {
+                        method: "POST",
+                        body: JSON.stringify({
+                          itemId: item.itemId,
+                          tzOffset: TZ_OFFSET,
+                        }),
+                      },
+                    );
+                    setState({ status: "ready", payload: result.module });
+                  } catch {
+                    // Analysis remains available when read-state persistence fails.
+                  }
+                }
+                openBriefItemInDataAgent(item);
+              },
+              onUnread: async (item) => {
+                try {
+                  const result = await request(
+                    "/api/collab/workbench/brief/unread",
+                    {
+                      method: "POST",
+                      body: JSON.stringify({
+                        itemId: item.itemId,
+                        tzOffset: TZ_OFFSET,
+                      }),
+                    },
+                  );
+                  setState({ status: "ready", payload: result.module });
+                  window.dispatchEvent(
+                    new CustomEvent("pluginmax:workbench-toast", {
+                      detail: { message: "已标记为未读" },
+                    }),
+                  );
+                } catch (error) {
+                  window.dispatchEvent(
+                    new CustomEvent("pluginmax:workbench-toast", {
+                      detail: {
+                        message: `标记未读失败：${error?.message ?? "未知错误"}`,
+                      },
+                    }),
+                  );
+                }
+              },
               onOpen: async (item) => {
                 if (item.readState === "unread") {
                   try {
@@ -2527,6 +2888,15 @@ window.__ModuleLoader__.load({
                           : "todo",
                       item,
                     ),
+                  onUnread: (item) =>
+                    markUnread(
+                      props.pluginId === "pluginmax.meeting-insights"
+                        ? "meeting-minutes"
+                        : props.pluginId === "pluginmax.following"
+                          ? "focus"
+                          : "todo",
+                      item,
+                    ),
                 })
             : h(NewPanelBody, {
                 pluginId: props.pluginId,
@@ -2538,6 +2908,50 @@ window.__ModuleLoader__.load({
         "div",
         { className: "pmwb2-panel", "data-plugin-id": props.pluginId },
         h("style", null, styles),
+        props.pluginId === "pluginmax.task-focus" && todoSettingsOpen
+          ? h(
+              "div",
+              {
+                id: `pmwb-todo-scope-settings-${props.instanceId}`,
+                className: "pmwb-todo-scope-settings",
+              },
+              h("span", null, "待办范围"),
+              h(
+                "div",
+                {
+                  className: "pmwb-seg",
+                  role: "group",
+                  "aria-label": "待办范围",
+                },
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    className: todoScope === "me" ? "active" : "",
+                    "aria-pressed": todoScope === "me",
+                    onClick: () => {
+                      setTodoScope("me");
+                      saveTodoScope("me");
+                    },
+                  },
+                  "我的",
+                ),
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    className: todoScope === "me_and_ai" ? "active" : "",
+                    "aria-pressed": todoScope === "me_and_ai",
+                    onClick: () => {
+                      setTodoScope("me_and_ai");
+                      saveTodoScope("me_and_ai");
+                    },
+                  },
+                  "我和我的 AI 伙伴",
+                ),
+              ),
+            )
+          : null,
         state.status === "refreshing"
           ? h("div", { className: "pmwb2-skeleton" })
           : null,

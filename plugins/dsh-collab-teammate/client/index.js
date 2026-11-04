@@ -750,7 +750,6 @@ window.__ModuleLoader__.load({
       .pmtm-load{display:flex;align-items:center;gap:4px;flex-wrap:wrap;min-width:0;margin-top:2px;color:var(--dsw-alias-label-secondary);font-size:10px;}
       .pmtm-load-value{flex:none;white-space:nowrap;font-weight:700;}
       .pmtm-load-value .runtime{color:${ACCENT};}
-      .pmtm-load-value .meetings{color:var(--dsw-alias-label-tertiary);font-weight:600;}
       .pmtm-load-value .tokens{color:var(--dsw-alias-label-secondary);font-weight:600;}
       .pmtm-load-value .live{color:#34d47e;}
       .pmtm-load-value .owned{color:var(--dsw-alias-label-secondary);}
@@ -761,7 +760,6 @@ window.__ModuleLoader__.load({
       .pmtm-load-stacked{display:grid;gap:1px;justify-items:end;text-align:right;margin-top:0;font-size:10px;line-height:1.5;}
       .pmtm-load-stacked .pmtm-load-value{white-space:nowrap;font-weight:700;}
       .pmtm-load-stacked .pmtm-load-value.runtime{color:${ACCENT};}
-      .pmtm-load-stacked .pmtm-load-value.meetings,
       .pmtm-load-stacked .pmtm-load-value.owned{color:var(--dsw-alias-label-tertiary);font-weight:600;}
       .pmtm-load-stacked .pmtm-load-value.tokens{display:inline-flex;align-items:center;gap:3px;color:var(--dsw-alias-label-secondary);font-weight:600;}
       .pmtm-load-stacked .pmtm-load-value.live{color:#34d47e;}
@@ -770,7 +768,6 @@ window.__ModuleLoader__.load({
       .pmtm-load-card .label{display:flex;align-items:center;gap:4px;color:var(--dsw-alias-label-tertiary);font-size:10px;white-space:nowrap;}
       .pmtm-load-card .value{margin-top:2px;font-size:16px;line-height:1.25;white-space:nowrap;}
       .pmtm-load-card .value .runtime{color:${ACCENT};font-weight:800;}
-      .pmtm-load-card .value .meetings{color:var(--dsw-alias-label-secondary);font-weight:700;}
       .pmtm-load-card .value .tokens{color:var(--dsw-alias-label-secondary);font-weight:700;}
       .pmtm-load-card .value .live{color:#34d47e;font-weight:800;}
       .pmtm-load-card .value .owned{color:var(--dsw-alias-label-secondary);font-weight:700;}
@@ -1625,7 +1622,6 @@ window.__ModuleLoader__.load({
           : "口径：仅统计绑定到该 AI伙伴的运行（AI伙伴绑定的 Run，以及指派给它的任务运行）。",
         `统计周期：最近 24 小时，每 30 秒刷新${generatedAt === "" ? "" : `，截至 ${timeShort(generatedAt)}`}。`,
         "运行时长：Agent 任务运行开始到结束与统计窗口的交集，包含执行和思考时间；排队和等待人工输入不计入。",
-        "参会次数：统计周期内实际参与过的 live 会议去重数，同一会议多次进出只计 1 次。",
         "Token：仅统计 Agent 输出的 Token，不包含输入 Token。",
       ].join("\n");
     }
@@ -1698,12 +1694,6 @@ window.__ModuleLoader__.load({
         " / ",
         h(
           "span",
-          { className: "meetings" },
-          `${String(stats.meetingCount ?? 0)}次`,
-        ),
-        " / ",
-        h(
-          "span",
           { className: "tokens" },
           `${outputTokensText(stats.outputTokens)} Token`,
         ),
@@ -1719,11 +1709,6 @@ window.__ModuleLoader__.load({
             "span",
             { className: "pmtm-load-value runtime" },
             runtimeHoursText(stats.runtimeHours),
-          ),
-          h(
-            "span",
-            { className: "pmtm-load-value meetings" },
-            `${String(stats.meetingCount ?? 0)}次`,
           ),
           h(
             "span",
@@ -2368,7 +2353,7 @@ window.__ModuleLoader__.load({
       const [archivedOnly, setArchivedOnly] = react.useState(false);
       const archivedOnlyRef = react.useRef(false);
       /**
-       * 管理员全量视图开关：默认关闭，普通视图只看自己的 + 平台实例。
+       * 管理员全量视图开关：默认关闭，普通视图只看自己的 + 平台内置身份。
        * 状态来自跨模块共享 store，跳转前后保持同一选择。
        */
       const scopeAll = react.useSyncExternalStore(
@@ -2572,17 +2557,17 @@ window.__ModuleLoader__.load({
         }
       }, []);
 
-      /** 角色权限：读取实例绑定员工档案上的工作区角色授权。 */
+      /** 角色权限：读取实例作为 AI 项目成员持有的项目角色席位。 */
       const loadProjectRoles = react.useCallback(async (teammate) => {
-        const employeeId = teammate?.employeeId ?? "";
-        if (employeeId === "") {
+        const teammateId = teammate?.id ?? "";
+        if (teammateId === "") {
           setProjectRoles([]);
           return;
         }
         try {
           setProjectRolesLoading(true);
           const result = await request(
-            `/api/collab/employee/roles?employeeId=${encodeURIComponent(employeeId)}`,
+            `/api/collab/teammates/project-roles?teammateId=${encodeURIComponent(teammateId)}`,
           );
           setProjectRoles(result.roles ?? []);
         } catch (cause) {
@@ -4014,11 +3999,14 @@ window.__ModuleLoader__.load({
             task.status !== "done" &&
             task.status !== "cancelled",
         );
-        const roleLabel = (role) => WORKSPACE_ROLE_LABEL[role] ?? role;
+        const roleLabel = (assignment) =>
+          assignment.roleLabel ??
+          WORKSPACE_ROLE_LABEL[assignment.role] ??
+          assignment.role;
         const confirmed = window.confirm(
           wholeProject
             ? `让「${teammate.name}」退出项目「${workspaceTitle}」？\n\n· 撤销该项目下 ${String(activeRoles.length)} 条生效角色授权（历史记录保留）\n· 该项目下尚未完成的 ${String(pendingTasks.length)} 个任务将改派给 AI伙伴负责人；AI伙伴负责人不是项目成员时改派给项目 owner`
-            : `让「${teammate.name}」退出项目「${workspaceTitle}」的角色「${roleLabel(assignment.role)}」？\n\n角色授权会被撤销，历史记录保留；已指派的任务保持不变。`,
+            : `让「${teammate.name}」退出项目「${workspaceTitle}」的角色「${roleLabel(assignment)}」？\n\n角色授权会被撤销，历史记录保留；已指派的任务保持不变。`,
         );
         if (!confirmed) return;
         try {
@@ -5176,7 +5164,6 @@ window.__ModuleLoader__.load({
       };
 
       const renderRolesTab = (teammate) => {
-        const employeeId = teammate.employeeId ?? "";
         const active = projectRoles.filter(
           (item) => item.status === "active" && !isRoleExpired(item),
         );
@@ -5208,7 +5195,9 @@ window.__ModuleLoader__.load({
               h(
                 "span",
                 { className: "pmtm-pill role" },
-                WORKSPACE_ROLE_LABEL[assignment.role] ?? assignment.role,
+                assignment.roleLabel ??
+                  WORKSPACE_ROLE_LABEL[assignment.role] ??
+                  assignment.role,
               ),
               h(
                 "span",
@@ -5313,19 +5302,13 @@ window.__ModuleLoader__.load({
               ),
             ),
           ),
-          employeeId === ""
-            ? h(
-                "div",
-                { className: "pmtm-empty" },
-                "该 AI伙伴还没有绑定员工档案，暂无项目角色。",
-              )
-            : projectRolesLoading && projectRoles.length === 0
+          projectRolesLoading && projectRoles.length === 0
               ? h("div", { className: "pmtm-empty" }, "角色加载中…")
               : groups.size === 0
                 ? h(
                     "div",
                     { className: "pmtm-empty" },
-                    "该 AI伙伴当前没有参与任何项目。",
+                    "该 AI伙伴当前没有项目角色。",
                   )
                 : h(
                     "div",
@@ -8012,12 +7995,12 @@ window.__ModuleLoader__.load({
                 className: `pmtm-token${scopeAll ? "" : " active"}`,
                 "aria-pressed": !scopeAll,
                 title:
-                  "默认视图：我创建的 AI伙伴 + 平台共享 AI伙伴（不含其他用户的个人 AI伙伴）",
+                  "默认视图：我创建的 AI伙伴 + 平台内置身份（不含其他用户创建的 AI伙伴）",
                 onClick: () => {
                   if (scopeAllRef.current) setScopeView(false);
                 },
               },
-              "仅看我的",
+              "我的 + 内置",
             ),
             h(
               "button",
@@ -8025,7 +8008,7 @@ window.__ModuleLoader__.load({
                 type: "button",
                 className: `pmtm-token${scopeAll ? " active" : ""}`,
                 "aria-pressed": scopeAll,
-                title: "平台全量视图：显示全部账号（含其他用户个人）的 AI伙伴",
+                title: "平台全量视图：显示全部账号创建的 AI伙伴",
                 onClick: () => {
                   if (!scopeAllRef.current) setScopeView(true);
                 },

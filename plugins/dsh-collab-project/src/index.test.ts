@@ -551,25 +551,119 @@ function createHarness(options: HarnessOptions = {}) {
         ]
       : [];
   const teammates = {
-    assignable: () => [
-      {
-        id: "teammate-1",
-        name: "Research Avatar",
-        ownerUserId: "olivia",
-        ownerName: "Olivia",
-        source: "personal" as const,
-        avatar: "",
-      },
-      {
-        id: "teammate-2",
-        name: "小白PD",
-        ownerUserId: "olivia",
-        ownerName: "Olivia",
-        source: "personal" as const,
-        avatar: "",
-      },
-    ],
+    assignable: (actor?: { userId: string }) =>
+      [
+        {
+          id: "teammate-1",
+          name: "Research Avatar",
+          ownerUserId: "olivia",
+          ownerName: "Olivia",
+          source: "personal" as const,
+          avatar: "",
+        },
+        {
+          id: "teammate-2",
+          name: "小白PD",
+          ownerUserId: "olivia",
+          ownerName: "Olivia",
+          source: "personal" as const,
+          avatar: "",
+        },
+        {
+          id: "teammate-3",
+          name: "计划助手",
+          ownerUserId: "mia",
+          ownerName: "Mia",
+          source: "personal" as const,
+          avatar: "",
+        },
+        {
+          id: "teammate-4",
+          name: "Data Agent",
+          ownerUserId: "mia",
+          ownerName: "Mia",
+          source: "platform" as const,
+          avatar: "",
+        },
+        {
+          id: "teammate-5",
+          name: "会议 Facilitator",
+          ownerUserId: "olivia",
+          ownerName: "Olivia",
+          source: "platform" as const,
+          avatar: "",
+        },
+      ].filter(
+        (teammate) =>
+          actor === undefined || teammate.ownerUserId === actor.userId,
+      ),
+    isSystemAgent: (ref: string) =>
+      ref === "teammate-4" ||
+      ref === "principal-ai-teammate-4" ||
+      ref === "teammate-5" ||
+      ref === "principal-ai-teammate-5",
   };
+  const meetingOutputs =
+    options.outputs === true
+      ? [
+          {
+            id: "meeting-1",
+            workspaceId: "ws-1",
+            title: "订单异常复盘",
+            status: "closed",
+            createdBy: "olivia",
+            updatedAt: "2026-10-16T03:00:00.000Z",
+          },
+        ]
+      : [];
+  const meetingFileOutputs =
+    options.outputs === true
+      ? [
+          {
+            id: "meeting-file-1",
+            meetingId: "meeting-1",
+            name: "meeting-notes.md",
+            mime: "text/markdown",
+            size: 512,
+            uploadedBy: "peter",
+            createdAt: "2026-10-16T02:30:00.000Z",
+          },
+        ]
+      : [];
+  const meetingMinutesOutput =
+    options.outputs === true
+      ? {
+          id: "minute-version-1",
+          meetingId: "meeting-1",
+          version: 1,
+          content: "# 订单异常复盘\n\n确认履约异常原因。",
+          status: "confirmed",
+          requestedBy: "olivia",
+          confirmedBy: "olivia",
+          updatedAt: "2026-10-16T03:00:00.000Z",
+        }
+      : undefined;
+  const dataAgentReports =
+    options.outputs === true
+      ? [
+          {
+            conversation: {
+              id: "data-agent-conversation-1",
+              title: "订单异常分析",
+              workspaceId: "ws-1",
+              ownerUserId: "mia",
+            },
+            report: {
+              id: "data-agent-report-1",
+              conversationId: "data-agent-conversation-1",
+              title: "订单异常分析报告",
+              markdown: "# 订单异常分析\n\n支付失败集中在数码品类。",
+              version: 1,
+              createdAt: "2026-10-16T04:00:00.000Z",
+            },
+          },
+        ]
+      : [];
   const principals = {
     resolveReference(reference: string) {
       const value = reference.startsWith("principal:")
@@ -716,6 +810,45 @@ function createHarness(options: HarnessOptions = {}) {
             ]
           : []),
       ],
+    }),
+    meetings: () => ({
+      list: (workspaceId: string) =>
+        workspaceId === "ws-1" ? meetingOutputs : [],
+      get: (meetingId: string) => {
+        const meeting = meetingOutputs.find((item) => item.id === meetingId);
+        if (meeting === undefined) throw new Error("meeting not found");
+        return meeting;
+      },
+    }),
+    meetingFiles: () => ({
+      list: (meetingId: string) =>
+        meetingFileOutputs.filter((file) => file.meetingId === meetingId),
+    }),
+    meetingMinutes: () => ({
+      activeVersion: (meetingId: string) =>
+        meetingMinutesOutput?.meetingId === meetingId
+          ? meetingMinutesOutput
+          : undefined,
+    }),
+    dataAgent: () => ({
+      projectReports: (workspaceId: string) =>
+        dataAgentReports.filter(
+          ({ conversation }) => conversation.workspaceId === workspaceId,
+        ),
+      conversation: (conversationId: string) => {
+        const item = dataAgentReports.find(
+          ({ conversation }) => conversation.id === conversationId,
+        );
+        if (item === undefined) throw new Error("conversation not found");
+        return item.conversation;
+      },
+      report: (reportId: string) => {
+        const item = dataAgentReports.find(
+          ({ report }) => report.id === reportId,
+        );
+        if (item === undefined) throw new Error("report not found");
+        return item.report;
+      },
     }),
     principals: () => principals,
     now: () => now,
@@ -895,36 +1028,122 @@ describe("project routes", () => {
     expect(response.status).toBe(200);
     const body = response.json();
     expect(body.outputs.map((output: { name: string }) => output.name)).toEqual(
-      ["review-final.pdf", "design.md"],
+      [
+        "订单异常分析报告.md",
+        "订单异常复盘 · 会议纪要.md",
+        "meeting-notes.md",
+        "review-final.pdf",
+        "design.md",
+        "input.pdf",
+      ],
     );
-    expect(body.outputs[0]).toMatchObject({
+    const workflowOutput = body.outputs.find(
+      (output: { sourceKind: string }) => output.sourceKind === "workflow",
+    );
+    expect(workflowOutput).toMatchObject({
       sourceKind: "workflow",
       sourceName: "GUI 回归",
       workflowNodeName: "评审",
       documentType: "pdf",
+      contentRole: "output",
       submissionId: "submission-new",
       artifactId: "artifact-new",
     });
-    expect(body.outputs[1]).toMatchObject({
+    expect(
+      body.outputs.find(
+        (output: { name: string; sourceKind: string }) =>
+          output.name === "design.md" && output.sourceKind === "task",
+      ),
+    ).toMatchObject({
       sourceKind: "task",
       sourceName: "补全项目视角",
       workflowNodeName: "设计",
       documentType: "markdown",
+      contentRole: "output",
       taskId: "TSK-1",
+    });
+    expect(
+      body.outputs.find((output: { name: string }) => output.name === "input.pdf"),
+    ).toMatchObject({
+      sourceKind: "task",
+      authorName: "Peter",
+      contentRole: "input",
+    });
+    expect(
+      body.outputs.find(
+        (output: { name: string }) => output.name === "meeting-notes.md",
+      ),
+    ).toMatchObject({
+      sourceKind: "meeting",
+      sourceName: "订单异常复盘",
+      meetingId: "meeting-1",
+      authorName: "Peter",
+      contentRole: "input",
+    });
+    expect(
+      body.outputs.find((output: { minuteVersionId?: string }) =>
+        output.minuteVersionId === "minute-version-1",
+      ),
+    ).toMatchObject({
+      sourceKind: "meeting",
+      contentRole: "output",
+    });
+    expect(
+      body.outputs.find((output: { sourceKind: string }) =>
+        output.sourceKind === "data-agent",
+      ),
+    ).toMatchObject({
+      sourceKind: "data-agent",
+      sourceName: "订单异常分析",
+      dataAgentConversationId: "data-agent-conversation-1",
+      dataAgentReportId: "data-agent-report-1",
+      authorName: "Mia",
+      contentRole: "output",
     });
     expect(
       body.outputs.some(
         (output: { name: string }) =>
-          output.name === "input.pdf" ||
           output.name === "review-old.pdf" ||
           output.name === "review-rejected.pdf",
       ),
     ).toBe(false);
-    expect(body.outputs[0].downloadUrl).toContain(
+    expect(workflowOutput.downloadUrl).toContain(
       "/api/collab/workflow/deliverables/download",
     );
-    expect(body.outputs[1].downloadUrl).toContain(
-      "/api/collab/tasks/document/content",
+    expect(
+      body.outputs.find(
+        (output: { name: string; sourceKind: string }) =>
+          output.name === "design.md" && output.sourceKind === "task",
+      ).downloadUrl,
+    ).toContain("/api/collab/tasks/document/content");
+
+    const downloadRoute = findRoute(
+      harness.routes,
+      "/api/collab/projects/outputs/download",
+    );
+    const minuteDownload = await call(
+      downloadRoute,
+      fakeRequest(
+        "GET",
+        "/api/collab/projects/outputs/download?workspaceId=ws-1&sourceKind=meeting-minutes&meetingId=meeting-1&versionId=minute-version-1",
+        { token: "owner-token" },
+      ),
+    );
+    expect(minuteDownload.status).toBe(200);
+    expect(Buffer.from(minuteDownload.body).toString("utf8")).toContain(
+      "确认履约异常原因",
+    );
+    const reportDownload = await call(
+      downloadRoute,
+      fakeRequest(
+        "GET",
+        "/api/collab/projects/outputs/download?workspaceId=ws-1&sourceKind=data-agent-report&reportId=data-agent-report-1",
+        { token: "owner-token" },
+      ),
+    );
+    expect(reportDownload.status).toBe(200);
+    expect(Buffer.from(reportDownload.body).toString("utf8")).toContain(
+      "支付失败集中在数码品类",
     );
   });
 
@@ -1064,7 +1283,17 @@ describe("project routes", () => {
         name: "小白PD",
         kindLabel: "个人分身 · Olivia",
         platformRole: "未分配",
+        ownerUserId: "olivia",
         ownerName: "Olivia",
+      },
+      {
+        id: "teammate-3",
+        principalId: "principal-ai-teammate-3",
+        name: "计划助手",
+        kindLabel: "个人分身 · Mia",
+        platformRole: "未分配",
+        ownerUserId: "mia",
+        ownerName: "Mia",
       },
     ]);
     expect(body.roles.map((role: any) => role.id)).toEqual([
@@ -1072,6 +1301,165 @@ describe("project routes", () => {
       "role-dev",
     ]);
     expect(body.viewer.canManage).toBe(true);
+  });
+
+  it("searches addable members and includes the matched human's AI partners", async () => {
+    const harness = createHarness();
+    await harness.service.seedDefaults();
+    harness.assignments.assign(null, {
+      workspaceId: "ws-1",
+      seatId: "role-owner",
+      assigneeKind: "agent",
+      assigneeId: "teammate-1",
+    });
+    const route = findRoute(
+      harness.routes,
+      "/api/collab/projects/members/search",
+    );
+    const humanSearch = await call(
+      route,
+      fakeRequest(
+        "GET",
+        "/api/collab/projects/members/search?workspaceId=ws-1&q=mia",
+        { token: "admin-token" },
+      ),
+    );
+    expect(humanSearch.status).toBe(200);
+    expect(humanSearch.json().humans).toEqual([
+      {
+        id: "mia",
+        principalId: "principal-human-mia",
+        name: "Mia",
+        platformRole: "平台成员",
+      },
+    ]);
+    expect(humanSearch.json().agents).toMatchObject([
+      {
+        id: "teammate-3",
+        name: "计划助手",
+        ownerUserId: "mia",
+        ownerName: "Mia",
+      },
+    ]);
+
+    const ownerSearch = await call(
+      route,
+      fakeRequest(
+        "GET",
+        "/api/collab/projects/members/search?workspaceId=ws-1&q=olivia",
+        { token: "admin-token" },
+      ),
+    );
+    expect(ownerSearch.status).toBe(200);
+    expect(ownerSearch.json().humans).toEqual([]);
+    expect(ownerSearch.json().agents).toMatchObject([
+      {
+        id: "teammate-2",
+        name: "小白PD",
+        ownerUserId: "olivia",
+        ownerName: "Olivia",
+      },
+    ]);
+
+    const aiSearch = await call(
+      route,
+      fakeRequest(
+        "GET",
+        `/api/collab/projects/members/search?workspaceId=ws-1&q=${encodeURIComponent("小白")}`,
+        { token: "admin-token" },
+      ),
+    );
+    expect(aiSearch.status).toBe(200);
+    expect(aiSearch.json().agents.map((item: any) => item.id)).toEqual([
+      "teammate-2",
+    ]);
+
+    for (const keyword of ["Data Agent", "会议 Facilitator"]) {
+      const systemSearch = await call(
+        route,
+        fakeRequest(
+          "GET",
+          `/api/collab/projects/members/search?workspaceId=ws-1&q=${encodeURIComponent(keyword)}`,
+          { token: "admin-token" },
+        ),
+      );
+      expect(systemSearch.status).toBe(200);
+      expect(systemSearch.json().agents).toEqual([]);
+    }
+
+    const denied = await call(
+      route,
+      fakeRequest(
+        "GET",
+        "/api/collab/projects/members/search?workspaceId=ws-1&q=mia",
+        { token: "member-token" },
+      ),
+    );
+    expect(denied.status).toBe(403);
+
+    const saveRoute = findRoute(
+      harness.routes,
+      "/api/collab/projects/members/save",
+    );
+    const crossOwnerAgent = await call(
+      saveRoute,
+      fakeRequest("POST", "/api/collab/projects/members/save", {
+        token: "admin-token",
+        body: {
+          workspaceId: "ws-1",
+          memberKind: "agent",
+          memberId: "principal:principal-ai-teammate-3",
+          roleIds: ["role-dev"],
+        },
+      }),
+    );
+    expect(
+      crossOwnerAgent.status,
+      JSON.stringify(crossOwnerAgent.json()),
+    ).toBe(200);
+    expect(
+      harness.assignments
+        .seats("ws-1")
+        .find(
+          (assignment) =>
+            assignment.assigneeKind === "agent" &&
+            assignment.assigneeId === "teammate-3",
+        ),
+    ).toMatchObject({ seatId: "role-dev", status: "assigned" });
+
+    const unassignedAgent = await call(
+      saveRoute,
+      fakeRequest("POST", "/api/collab/projects/members/save", {
+        token: "admin-token",
+        body: {
+          workspaceId: "ws-1",
+          memberKind: "agent",
+          memberId: "principal:principal-ai-teammate-2",
+          roleIds: [],
+        },
+      }),
+    );
+    expect(unassignedAgent.status).toBe(400);
+    expect(unassignedAgent.json().error.message).toBe(
+      "请为该 AI伙伴选择一个项目角色",
+    );
+
+    const systemAgent = await call(
+      saveRoute,
+      fakeRequest("POST", "/api/collab/projects/members/save", {
+        token: "admin-token",
+        body: {
+          workspaceId: "ws-1",
+          memberKind: "agent",
+          memberId: "principal:principal-ai-teammate-4",
+          roleIds: [],
+        },
+      }),
+    );
+    expect(systemAgent.status).toBe(400);
+    expect(systemAgent.json().error.message).toBe(
+      "平台内置 AI 伙伴不能作为项目成员",
+    );
   });
 
   it("records project settings and merges collaboration identity audit history", async () => {

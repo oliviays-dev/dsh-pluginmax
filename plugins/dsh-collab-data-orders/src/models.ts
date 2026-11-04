@@ -14,13 +14,16 @@ export const ORDER_MCP_ASSET_ID = "mcp-orders-mock";
 export const ORDER_CONNECTION_ID = "orders-readonly-source";
 export const ORDER_DATASET_ID = "orders-facts";
 export const ORDER_MANIFEST_VERSION = "orders-manifest-v2";
-export const ORDER_SEMANTIC_VERSION = "orders-semantic-v1";
+export const ORDER_SEMANTIC_VERSION = "orders-semantic-v2";
 export const ORDER_SKILL_ID = "skill.order-exception-analysis";
 export const ORDER_DEMO_SOURCE_ID = "orders-demo-v1";
 
 export const ORDER_METRIC_IDS = {
   orderCount: "order_count",
   paidOrderCount: "paid_order_count",
+  paymentFailureCount: "payment_failure_count",
+  cancelCount: "cancel_count",
+  fulfillmentTimeoutCount: "fulfillment_timeout_count",
   paymentFailureRate: "payment_failure_rate",
   cancelRate: "cancel_rate",
   fulfillmentTimeoutRate: "fulfillment_timeout_rate",

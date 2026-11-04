@@ -361,6 +361,44 @@ describe("dsh-collab-identity", () => {
     expect(current.sessions.size).toBe(0);
   });
 
+  it("lets an admin reset an existing demo account password", async () => {
+    const { tables: current, service: team } = service();
+    const admin = await team.bootstrap({
+      userId: "linlan",
+      name: "林岚",
+      password: "password-123",
+    });
+    await team.registerUser(admin.userId, {
+      userId: "ligong",
+      name: "李工",
+      password: "old-password",
+      role: "member",
+    });
+    const oldSession = await team.login({
+      userId: "ligong",
+      password: "old-password",
+    });
+
+    await team.resetUserPassword(
+      admin.userId,
+      "ligong",
+      "password-123",
+    );
+    expect(team.resolveToken(oldSession.token)).toBeUndefined();
+    await expect(
+      team.login({ userId: "ligong", password: "old-password" }),
+    ).rejects.toMatchObject({ code: "unauthorized" });
+    await expect(
+      team.login({ userId: "ligong", password: "password-123" }),
+    ).resolves.toMatchObject({ userId: "ligong" });
+    expect(
+      [...current.audit.entries()].map(([, event]) => event.action),
+    ).toContain("reset_user_password");
+    expect(JSON.stringify([...current.audit.entries()])).not.toContain(
+      "password-123",
+    );
+  });
+
   it("manages users and workspace members with admin checks", async () => {
     const { tables: current, service: team } = service();
     const admin = await team.bootstrap({

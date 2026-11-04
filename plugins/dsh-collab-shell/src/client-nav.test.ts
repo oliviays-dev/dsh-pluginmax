@@ -14,6 +14,33 @@ function readNavItems() {
 }
 
 describe("shell client navigation", () => {
+  function loadProjectScopeController() {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    const start = source.indexOf(
+      "function createProjectScopeController(sessions, workspaces)",
+    );
+    const end = source.indexOf("\n    function friendlyAuthError", start);
+    if (start < 0 || end < 0)
+      throw new Error("missing project scope controller");
+    return new Function(
+      "window",
+      "fetch",
+      `${source.slice(start, end)}
+      return createProjectScopeController;`,
+    ) as (
+      window: unknown,
+      fetchImpl: typeof globalThis.fetch,
+    ) => (
+      sessions: {
+        search(query: string, signal: AbortSignal): Promise<unknown>;
+      },
+      workspaces: unknown,
+    ) => {
+      refresh(): Promise<void>;
+      dispose(): void;
+    };
+  }
+
   it("merges the workbench entries and keeps the global menu order", () => {
     expect(readNavItems()).toEqual([
       { key: "workbench-new", label: "工作台" },
@@ -74,6 +101,155 @@ describe("shell client navigation", () => {
     const registration = source.slice(registerStart, registerEnd);
     expect(registration).toContain('name: "root"');
     expect(registration).not.toContain("ctx.effect(");
+  });
+
+  it("scopes both workspace navigation and session rows to joined projects", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain("createProjectScopeController");
+    expect(source).toContain(
+      'exports.inject = ["slots", "theme", "sessions", "workspaces"]',
+    );
+    expect(source).toContain('fetch("/api/collab/projects"');
+    expect(source).toContain(
+      "workspaceSource.getSnapshot = filteredWorkspaces",
+    );
+    expect(source).toContain("sessionSource.getSnapshot = filteredSessions");
+    expect(source).toContain("sessions.search = async (query, signal)");
+    expect(source).toContain(".filter((project) => project.isMember === true)");
+    expect(source).toContain(
+      'window.addEventListener("pluginmax:collab-token", refreshProjectScope)',
+    );
+  });
+
+  it("refreshes the sidebar project scope when project membership changes", () => {
+    const project = readFileSync(
+      resolve(import.meta.dirname, "../../dsh-collab-project/client/index.js"),
+      "utf8",
+    );
+    expect(project).toContain(
+      'new CustomEvent("pluginmax:project-scope-refresh")',
+    );
+  });
+
+  it("fails closed and filters workspace, session, current, and search rows", async () => {
+    const workspaceSnapshot = {
+      items: [
+        {
+          workspaceId: "allowed",
+          title: "1102-手机平板订单履约演示",
+          sessionIds: ["allowed-session"],
+        },
+        {
+          workspaceId: "excluded",
+          title: "Pluginmax smoke",
+          sessionIds: ["excluded-session"],
+        },
+      ],
+      archivedSessionIds: [],
+      state: "idle",
+      phase: "ready",
+      error: null,
+    };
+    const sessionSnapshot = {
+      ids: ["allowed-session", "excluded-session", "loose-session"],
+      byId: {
+        "allowed-session": { id: "allowed-session", displayTitle: "Allowed" },
+        "excluded-session": {
+          id: "excluded-session",
+          displayTitle: "Excluded",
+        },
+        "loose-session": { id: "loose-session", displayTitle: "Loose" },
+      },
+      current: "excluded-session",
+      phase: "ready",
+      subagentsByParent: {
+        "allowed-session": { state: "ready" },
+        "excluded-session": { state: "ready" },
+      },
+      jobsBySession: {
+        "allowed-session": [{ id: "allowed-job" }],
+        "excluded-session": [{ id: "excluded-job" }],
+      },
+      currentAddress: { parentSessionId: "excluded-session" },
+    };
+    const workspaceSource = {
+      getSnapshot: () => workspaceSnapshot,
+      subscribe: () => () => undefined,
+    };
+    const sessionSource = {
+      getSnapshot: () => sessionSnapshot,
+      subscribe: () => () => undefined,
+    };
+    const sessions = {
+      list: sessionSource,
+      search: async (_query: string, _signal: AbortSignal) => ({
+        ok: true,
+        value: {
+          items: [
+            { sessionId: "allowed-session", snippet: "allowed" },
+            { sessionId: "excluded-session", snippet: "excluded" },
+          ],
+          hasMore: false,
+        },
+      }),
+    };
+    const workspaces = { list: workspaceSource };
+    const localStorage = new Map([["pluginmax.collab.token", "linlan-token"]]);
+    const window = {
+      localStorage: {
+        getItem: (key: string) => localStorage.get(key) ?? null,
+      },
+    };
+    const fetchStub = (async () => ({
+      ok: true,
+      json: async () => ({
+        projects: [
+          { workspaceId: "allowed", isMember: true },
+          { workspaceId: "excluded", isMember: false },
+        ],
+      }),
+    })) as unknown as typeof fetch;
+    const createController = loadProjectScopeController();
+    const controller = createController(window, fetchStub)(
+      sessions,
+      workspaces,
+    );
+
+    expect(workspaceSource.getSnapshot()).toMatchObject({ items: [] });
+    expect(sessionSource.getSnapshot()).toMatchObject({
+      ids: [],
+      byId: {},
+      current: undefined,
+    });
+
+    await controller.refresh();
+
+    const filteredWorkspaces =
+      workspaceSource.getSnapshot() as typeof workspaceSnapshot;
+    expect(filteredWorkspaces.items.map((item) => item.workspaceId)).toEqual([
+      "allowed",
+    ]);
+    const filteredSessions =
+      sessionSource.getSnapshot() as typeof sessionSnapshot;
+    expect(filteredSessions.ids).toEqual(["allowed-session"]);
+    expect(Object.keys(filteredSessions.byId)).toEqual(["allowed-session"]);
+    expect(filteredSessions.current).toBeUndefined();
+    expect(filteredSessions.subagentsByParent).toEqual({
+      "allowed-session": { state: "ready" },
+    });
+    expect(filteredSessions.jobsBySession).toEqual({
+      "allowed-session": [{ id: "allowed-job" }],
+    });
+    expect(filteredSessions.currentAddress).toBeUndefined();
+    await expect(
+      sessions.search("query", new AbortController().signal),
+    ).resolves.toMatchObject({
+      ok: true,
+      value: {
+        items: [{ sessionId: "allowed-session" }],
+      },
+    });
+    controller.dispose();
   });
 
   it("owns the shared Data Agent / communication side-panel state", () => {

@@ -677,6 +677,33 @@ export class TeamService {
     });
   }
 
+  resetUserPassword(
+    actorId: string,
+    targetId: string,
+    password: string,
+  ): Promise<void> {
+    const parsedActor = parseOrInvalid(idSchema, actorId);
+    const parsedTarget = parseOrInvalid(idSchema, targetId);
+    const parsedPassword = parseOrInvalid(passwordSchema, password);
+    return this.enqueue(async () => {
+      const actor = this.requireAdmin(parsedActor);
+      const target = this.requireUser(parsedTarget);
+      await this.tables.users.put(target.id, {
+        ...target,
+        passwordHash: hashPassword(parsedPassword),
+        updatedAt: this.time(),
+      });
+      await Promise.all(
+        [...this.tables.sessions.entries()]
+          .filter(([, session]) => session.userId === target.id)
+          .map(([hash]) => this.tables.sessions.delete(hash)),
+      );
+      await this.appendAudit(actor, "reset_user_password", {
+        targetId: target.id,
+      });
+    });
+  }
+
   login(input: { userId: string; password: string }): Promise<LoginResult> {
     const parsed = parseOrInvalid(userLoginSchema, input);
     return this.enqueue(async () => {
@@ -989,6 +1016,10 @@ const userUpdateSchema = z.object({
   name: nameSchema.optional(),
   role: userRoleSchema.optional(),
   status: userStatusSchema.optional(),
+});
+const userPasswordResetSchema = z.object({
+  userId: idSchema,
+  password: passwordSchema,
 });
 const auditFilterSchema = z.object({
   actorId: idSchema.optional(),
@@ -1305,6 +1336,21 @@ export function createIdentityRoutes(
         });
         await syncAccountPrincipal(principals, user);
         sendJson(response, 200, { ok: true, user });
+      },
+    },
+    {
+      path: "/api/collab/team/users/reset-password",
+      method: "POST",
+      handler: async (request, response) => {
+        assertSameOrigin(request);
+        const actor = requireAdmin(request, service);
+        const input = await readBody(request, userPasswordResetSchema);
+        await service.resetUserPassword(
+          actor.userId,
+          input.userId,
+          input.password,
+        );
+        sendJson(response, 200, { ok: true });
       },
     },
     {

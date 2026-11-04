@@ -29,14 +29,18 @@ window.__ModuleLoader__.load({
     };
 
     const ICONS = {
-      search: icon("M21 21l-4.3-4.3M10.8 18a7.2 7.2 0 1 1 0-14.4 7.2 7.2 0 0 1 0 14.4Z"),
+      search: icon(
+        "M21 21l-4.3-4.3M10.8 18a7.2 7.2 0 1 1 0-14.4 7.2 7.2 0 0 1 0 14.4Z",
+      ),
       close: icon("M18 6 6 18M6 6l12 12"),
       store: icon("M3 9l2-5h14l2 5M4 9v11h16V9M9 20v-6h6v6"),
       plus: icon("M12 5v14M5 12h14"),
       arrow: icon("M5 12h14M13 6l6 6-6 6"),
       shield: icon("M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"),
       check: icon("m5 12 4 4L19 6"),
-      alert: icon("M12 9v4M12 17h.01M10.3 3.7 2.4 18a2 2 0 0 0 1.8 3h15.6a2 2 0 0 0 1.8-3L13.7 3.7a2 2 0 0 0-3.4 0Z"),
+      alert: icon(
+        "M12 9v4M12 17h.01M10.3 3.7 2.4 18a2 2 0 0 0 1.8 3h15.6a2 2 0 0 0 1.8-3L13.7 3.7a2 2 0 0 0-3.4 0Z",
+      ),
     };
 
     function icon(path) {
@@ -120,6 +124,10 @@ window.__ModuleLoader__.load({
 .pmrm-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;}
 .pmrm-resource{display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:9px;padding:11px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);}
 .pmrm-resource .pmrm-mark{width:36px;height:36px;}
+.pmrm-resource-title{display:flex;align-items:center;gap:6px;min-width:0;}
+.pmrm-resource-title h3{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pmrm-resource-title .pmrm-status{flex:none;}
+.pmrm-resource-actions{display:grid;justify-items:end;align-content:start;gap:6px;min-width:74px;}
 .pmrm-resource h3{margin:0;font-size:11.5px;}.pmrm-resource p{margin:3px 0 0;color:var(--dsw-alias-label-secondary);font-size:9.5px;line-height:1.5;}
 .pmrm-status{padding:1px 6px;border-radius:999px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:8.5px;white-space:nowrap;}
 .pmrm-status.ok{color:var(--dsw-alias-state-success-primary,#34d47e);background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#34d47e) 12%,transparent);}
@@ -176,7 +184,8 @@ window.__ModuleLoader__.load({
         ...options.headers,
       };
       if (token() !== "") headers.authorization = `Bearer ${token()}`;
-      if (options.body !== undefined) headers["content-type"] = "application/json";
+      if (options.body !== undefined)
+        headers["content-type"] = "application/json";
       const response = await fetch(path, { ...options, headers });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || payload?.ok === false) {
@@ -206,14 +215,19 @@ window.__ModuleLoader__.load({
     function templateBlocks(template) {
       const groups = template.panelPlan.slice(0, 7);
       return groups.map((panel, index) =>
-        h("span", {
-          className: "pmrm-block",
-          key: panel.pluginId + index,
-          style: {
-            "--span": panel.span,
-            "--height": `${22 + (index % 3) * 7}px`,
+        h(
+          "span",
+          {
+            className: "pmrm-block",
+            key: panel.pluginId + index,
+            style: {
+              "--span": panel.span,
+              "--height": `${22 + (index % 3) * 7}px`,
+            },
           },
-        }, h("i"), h("b")),
+          h("i"),
+          h("b"),
+        ),
       );
     }
 
@@ -237,12 +251,12 @@ window.__ModuleLoader__.load({
         const detail =
           item?.value !== undefined
             ? `${item.value}${item.unit ?? ""}`
-            : item?.statusLabel ??
+            : (item?.statusLabel ??
               item?.status ??
               item?.level ??
               item?.role ??
               item?.note ??
-              "";
+              "");
         return { title: String(title), detail: String(detail).slice(0, 48) };
       });
     }
@@ -290,8 +304,20 @@ window.__ModuleLoader__.load({
       return "";
     }
 
-    function ResourceAssetCard({ kind, item, onOpen }) {
+    function ResourceAssetCard({
+      kind,
+      item,
+      onOpen,
+      onAction,
+      actionDisabled = false,
+    }) {
       const permissions = item.permissions ?? [];
+      const mcpActionLabel =
+        item.status === "connected"
+          ? "断开连接"
+          : item.status === "pending"
+            ? "等待验证"
+            : "连接";
       return h(
         "article",
         { className: "pmrm-resource" },
@@ -306,7 +332,18 @@ window.__ModuleLoader__.load({
         h(
           "div",
           { style: { minWidth: 0 } },
-          h("h3", null, item.name),
+          h(
+            "div",
+            { className: "pmrm-resource-title" },
+            h("h3", null, item.name),
+            h(
+              "span",
+              {
+                className: `pmrm-status${assetStatusClass(kind, item.status)}`,
+              },
+              assetStatusLabel(kind, item.status),
+            ),
+          ),
           h("p", null, item.description),
           h(
             "div",
@@ -324,14 +361,22 @@ window.__ModuleLoader__.load({
         ),
         h(
           "div",
-          { style: { display: "grid", gap: "6px", justifyItems: "end" } },
-          h(
-            "span",
-            {
-              className: `pmrm-status${assetStatusClass(kind, item.status)}`,
-            },
-            assetStatusLabel(kind, item.status),
-          ),
+          { className: "pmrm-resource-actions" },
+          kind === "mcp"
+            ? h(
+                "button",
+                {
+                  type: "button",
+                  className:
+                    item.status === "connected"
+                      ? "pmrm-btn"
+                      : "pmrm-btn primary",
+                  disabled: actionDisabled || item.status === "pending",
+                  onClick: () => onAction?.(item),
+                },
+                mcpActionLabel,
+              )
+            : null,
           h(
             "button",
             {
@@ -360,7 +405,12 @@ window.__ModuleLoader__.load({
         h(
           "div",
           { style: { minWidth: 0 } },
-          h("h3", null, item.name),
+          h(
+            "div",
+            { className: "pmrm-resource-title" },
+            h("h3", null, item.name),
+            h("span", { className: "pmrm-status" }, "已注册"),
+          ),
           h("p", null, item.description || "用户注册的自定义资源"),
           h(
             "div",
@@ -369,17 +419,12 @@ window.__ModuleLoader__.load({
             h("span", null, `v${item.version}`),
             h("span", null, item.publisherName),
             h("span", null, sourceLabel("user")),
-            h(
-              "span",
-              null,
-              item.permissions.join(" · ") || "未声明额外权限",
-            ),
+            h("span", null, item.permissions.join(" · ") || "未声明额外权限"),
           ),
         ),
         h(
           "div",
-          { style: { display: "grid", gap: "6px", justifyItems: "end" } },
-          h("span", { className: "pmrm-status" }, "已注册"),
+          { className: "pmrm-resource-actions" },
           h(
             "button",
             {
@@ -438,51 +483,51 @@ window.__ModuleLoader__.load({
         timer.current = window.setTimeout(() => setToast(""), 2500);
       };
 
-      const loadSkills = react.useCallback(async (
-        search = "",
-        selectedCategory = "全部",
-      ) => {
-        setLoading(true);
-        try {
-          const params = new URLSearchParams({ q: search });
-          if (selectedCategory !== "全部" && selectedCategory !== "自定义") {
-            params.set("category", selectedCategory);
+      const loadSkills = react.useCallback(
+        async (search = "", selectedCategory = "全部") => {
+          setLoading(true);
+          try {
+            const params = new URLSearchParams({ q: search });
+            if (selectedCategory !== "全部" && selectedCategory !== "自定义") {
+              params.set("category", selectedCategory);
+            }
+            const result = await request(
+              `/api/collab/resources/skills?${params.toString()}`,
+            );
+            setSkills(
+              selectedCategory === "自定义" ? [] : (result.skills ?? []),
+            );
+            setError("");
+          } catch (cause) {
+            setError(cause.message);
+          } finally {
+            setLoading(false);
           }
-          const result = await request(
-            `/api/collab/resources/skills?${params.toString()}`,
-          );
-          setSkills(
-            selectedCategory === "自定义" ? [] : result.skills ?? [],
-          );
-          setError("");
-        } catch (cause) {
-          setError(cause.message);
-        } finally {
-          setLoading(false);
-        }
-      }, []);
+        },
+        [],
+      );
 
-      const loadMcps = react.useCallback(async (
-        search = "",
-        selectedCategory = "全部",
-      ) => {
-        setLoading(true);
-        try {
-          const params = new URLSearchParams({ q: search });
-          if (selectedCategory !== "全部" && selectedCategory !== "自定义") {
-            params.set("category", selectedCategory);
+      const loadMcps = react.useCallback(
+        async (search = "", selectedCategory = "全部") => {
+          setLoading(true);
+          try {
+            const params = new URLSearchParams({ q: search });
+            if (selectedCategory !== "全部" && selectedCategory !== "自定义") {
+              params.set("category", selectedCategory);
+            }
+            const result = await request(
+              `/api/collab/resources/mcps?${params.toString()}`,
+            );
+            setMcps(selectedCategory === "自定义" ? [] : (result.mcps ?? []));
+            setError("");
+          } catch (cause) {
+            setError(cause.message);
+          } finally {
+            setLoading(false);
           }
-          const result = await request(
-            `/api/collab/resources/mcps?${params.toString()}`,
-          );
-          setMcps(selectedCategory === "自定义" ? [] : result.mcps ?? []);
-          setError("");
-        } catch (cause) {
-          setError(cause.message);
-        } finally {
-          setLoading(false);
-        }
-      }, []);
+        },
+        [],
+      );
 
       const loadCustomResources = react.useCallback(
         async (type, search = "", selectedCategory = "自定义") => {
@@ -517,7 +562,9 @@ window.__ModuleLoader__.load({
           const active =
             workbenches.find(
               (item) => item.id === listing.preference?.activeWorkbenchId,
-            ) ?? workbenches[0] ?? null;
+            ) ??
+            workbenches[0] ??
+            null;
           setActiveWorkbench(active);
           setCurrentUserId(current?.user?.id ?? "");
         } catch {
@@ -665,8 +712,7 @@ window.__ModuleLoader__.load({
           } else if (tab === "mcp") {
             void loadMcps(value, category);
             void loadCustomResources("mcp", value, category);
-          }
-          else if (assetTab === "templates") {
+          } else if (assetTab === "templates") {
             void loadTemplates(
               value,
               category,
@@ -675,11 +721,7 @@ window.__ModuleLoader__.load({
               sort,
               1,
             );
-            void loadCustomResources(
-              "workbench-template",
-              value,
-              category,
-            );
+            void loadCustomResources("workbench-template", value, category);
           } else {
             void loadPlugins(
               value,
@@ -705,24 +747,10 @@ window.__ModuleLoader__.load({
           void loadCustomResources("mcp", query, value);
         } else if (tab === "workbench") {
           if (assetTab === "templates") {
-            void loadTemplates(
-              query,
-              value,
-              publisher,
-              compatibility,
-              sort,
-              1,
-            );
+            void loadTemplates(query, value, publisher, compatibility, sort, 1);
             void loadCustomResources("workbench-template", query, value);
           } else {
-            void loadPlugins(
-              query,
-              value,
-              publisher,
-              compatibility,
-              sort,
-              1,
-            );
+            void loadPlugins(query, value, publisher, compatibility, sort, 1);
             void loadCustomResources("panel-plugin", query, value);
           }
         }
@@ -749,7 +777,14 @@ window.__ModuleLoader__.load({
       const chooseSort = (value) => {
         setSort(value);
         if (assetTab === "templates") {
-          void loadTemplates(query, category, publisher, compatibility, value, 1);
+          void loadTemplates(
+            query,
+            category,
+            publisher,
+            compatibility,
+            value,
+            1,
+          );
         } else {
           void loadPlugins(query, category, publisher, compatibility, value, 1);
         }
@@ -824,28 +859,58 @@ window.__ModuleLoader__.load({
         if (busy) return;
         setBusy(true);
         try {
-          await request("/api/collab/resources/mcps/connect", {
+          const result = await request("/api/collab/resources/mcps/connect", {
             method: "POST",
             body: JSON.stringify({ mcpId: mcp.id }),
           });
+          const status = result.install?.status ?? "pending";
           setMcps((items) =>
             items.map((item) =>
-              item.id === mcp.id ? { ...item, status: "pending" } : item,
+              item.id === mcp.id ? { ...item, status } : item,
             ),
           );
           setDetail((current) =>
             current?.kind === "mcp" && current.value.id === mcp.id
               ? {
                   ...current,
-                  value: { ...current.value, status: "pending" },
+                  value: { ...current.value, status },
                 }
               : current,
           );
           showToast(
-            mcp.connectionMode === "provider"
-              ? "已同步 MCP 连接状态"
+            status === "connected"
+              ? `已连接「${mcp.name}」`
               : "连接请求已登记为待验证，不会伪造已连接状态",
           );
+        } catch (cause) {
+          showToast(cause.message);
+        } finally {
+          setBusy(false);
+        }
+      };
+
+      const disconnectMcp = async (mcp) => {
+        if (busy) return;
+        setBusy(true);
+        try {
+          await request("/api/collab/resources/mcps/disconnect", {
+            method: "POST",
+            body: JSON.stringify({ mcpId: mcp.id }),
+          });
+          setMcps((items) =>
+            items.map((item) =>
+              item.id === mcp.id ? { ...item, status: "off" } : item,
+            ),
+          );
+          setDetail((current) =>
+            current?.kind === "mcp" && current.value.id === mcp.id
+              ? {
+                  ...current,
+                  value: { ...current.value, status: "off" },
+                }
+              : current,
+          );
+          showToast(`已断开「${mcp.name}」`);
         } catch (cause) {
           showToast(cause.message);
         } finally {
@@ -902,7 +967,9 @@ window.__ModuleLoader__.load({
           const livePanels = new Map();
           await Promise.all(
             panelPlan
-              .filter((panel) => PREVIEW_LEGACY_MODULE[panel.pluginId] === undefined)
+              .filter(
+                (panel) => PREVIEW_LEGACY_MODULE[panel.pluginId] === undefined,
+              )
               .map(async (panel) => {
                 try {
                   const result = await request(
@@ -917,9 +984,7 @@ window.__ModuleLoader__.load({
           const panels = panelPlan.map((panel, index) => {
             const moduleId = PREVIEW_LEGACY_MODULE[panel.pluginId];
             const legacyPayload =
-              moduleId === undefined
-                ? undefined
-                : summary.modules?.[moduleId];
+              moduleId === undefined ? undefined : summary.modules?.[moduleId];
             return {
               ...panel,
               title:
@@ -971,8 +1036,7 @@ window.__ModuleLoader__.load({
               name: registerForm.name,
               description: registerForm.description,
               version: registerForm.version,
-              publisherName:
-                registerForm.publisherName.trim() || currentUserId,
+              publisherName: registerForm.publisherName.trim() || currentUserId,
               permissions: registerForm.permissions
                 .split(/[\n,，]/)
                 .map((item) => item.trim())
@@ -1099,8 +1163,7 @@ window.__ModuleLoader__.load({
         h(CustomResourceCard, {
           item,
           key: item.id,
-          onOpen: (resource) =>
-            setDetail({ kind: "custom", value: resource }),
+          onOpen: (resource) => setDetail({ kind: "custom", value: resource }),
         }),
       );
       const customSection =
@@ -1153,9 +1216,7 @@ window.__ModuleLoader__.load({
               onOpen: (item) => setDetail({ kind: "skill", value: item }),
             }),
           ),
-          skills.length === 0 &&
-          !loading &&
-          category !== "自定义"
+          skills.length === 0 && !loading && category !== "自定义"
             ? h("div", { className: "pmrm-empty" }, "没有匹配的 Skill")
             : null,
         ),
@@ -1183,12 +1244,15 @@ window.__ModuleLoader__.load({
               kind: "mcp",
               item: mcp,
               key: mcp.id,
+              actionDisabled: busy,
+              onAction: (item) =>
+                void (item.status === "connected"
+                  ? disconnectMcp(item)
+                  : connectMcp(item)),
               onOpen: (item) => setDetail({ kind: "mcp", value: item }),
             }),
           ),
-          mcps.length === 0 &&
-          !loading &&
-          category !== "自定义"
+          mcps.length === 0 && !loading && category !== "自定义"
             ? h("div", { className: "pmrm-empty" }, "没有匹配的 MCP")
             : null,
         ),
@@ -1201,7 +1265,10 @@ window.__ModuleLoader__.load({
           { className: "pmrm-card", key: template.id },
           h(
             "div",
-            { className: "pmrm-preview", style: { "--template-color": template.color } },
+            {
+              className: "pmrm-preview",
+              style: { "--template-color": template.color },
+            },
             ...templateBlocks(template),
           ),
           h(
@@ -1212,7 +1279,10 @@ window.__ModuleLoader__.load({
               { className: "pmrm-card-title" },
               h(
                 "span",
-                { className: "pmrm-mark", style: { "--asset-color": template.color } },
+                {
+                  className: "pmrm-mark",
+                  style: { "--asset-color": template.color },
+                },
                 ICONS.store,
               ),
               h(
@@ -1267,8 +1337,7 @@ window.__ModuleLoader__.load({
                   {
                     type: "button",
                     className: "pmrm-btn primary",
-                    disabled:
-                      busy || template.compatibility === "incompatible",
+                    disabled: busy || template.compatibility === "incompatible",
                     onClick: () => void copyTemplate(template),
                   },
                   "应用",
@@ -1283,7 +1352,11 @@ window.__ModuleLoader__.load({
         h(
           "article",
           { className: "pmrm-resource", key: plugin.id },
-          h("span", { className: "pmrm-mark", style: { "--asset-color": "#7057ca" } }, ICONS.plus),
+          h(
+            "span",
+            { className: "pmrm-mark", style: { "--asset-color": "#7057ca" } },
+            ICONS.plus,
+          ),
           h(
             "div",
             null,
@@ -1358,65 +1431,68 @@ window.__ModuleLoader__.load({
         ),
         category !== "自定义"
           ? h(
-          "div",
-          { className: "pmrm-filterbar" },
-          h(
-            "label",
-            null,
-            "发布者",
-            h(
-              "select",
-              {
-                value: publisher,
-                onChange: (event) => choosePublisher(event.target.value),
-              },
-              h("option", { value: "all" }, "全部发布者"),
-              h("option", { value: "official" }, "官方"),
-              h("option", { value: "certified" }, "认证团队"),
-              h("option", { value: "community" }, "社区"),
-            ),
-          ),
-          h(
-            "label",
-            null,
-            "兼容性",
-            h(
-              "select",
-              {
-                value: compatibility,
-                onChange: (event) => chooseCompatibility(event.target.value),
-              },
-              h("option", { value: "all" }, "全部兼容性"),
-              h("option", { value: "compatible" }, "当前宿主兼容"),
-              h("option", { value: "incompatible" }, "需要升级"),
-            ),
-          ),
-          h(
-            "label",
-            null,
-            "排序",
-            h(
-              "select",
-              {
-                value: sort,
-                onChange: (event) => chooseSort(event.target.value),
-              },
-              h("option", { value: "recommended" }, "推荐"),
-              h("option", { value: "updated" }, "最近更新"),
-              h("option", { value: "name" }, "名称"),
-            ),
-          ),
-          h("span", { className: "pmrm-filter-total" }, `${pagination.total} 项`),
-        )
+              "div",
+              { className: "pmrm-filterbar" },
+              h(
+                "label",
+                null,
+                "发布者",
+                h(
+                  "select",
+                  {
+                    value: publisher,
+                    onChange: (event) => choosePublisher(event.target.value),
+                  },
+                  h("option", { value: "all" }, "全部发布者"),
+                  h("option", { value: "official" }, "官方"),
+                  h("option", { value: "certified" }, "认证团队"),
+                  h("option", { value: "community" }, "社区"),
+                ),
+              ),
+              h(
+                "label",
+                null,
+                "兼容性",
+                h(
+                  "select",
+                  {
+                    value: compatibility,
+                    onChange: (event) =>
+                      chooseCompatibility(event.target.value),
+                  },
+                  h("option", { value: "all" }, "全部兼容性"),
+                  h("option", { value: "compatible" }, "当前宿主兼容"),
+                  h("option", { value: "incompatible" }, "需要升级"),
+                ),
+              ),
+              h(
+                "label",
+                null,
+                "排序",
+                h(
+                  "select",
+                  {
+                    value: sort,
+                    onChange: (event) => chooseSort(event.target.value),
+                  },
+                  h("option", { value: "recommended" }, "推荐"),
+                  h("option", { value: "updated" }, "最近更新"),
+                  h("option", { value: "name" }, "名称"),
+                ),
+              ),
+              h(
+                "span",
+                { className: "pmrm-filter-total" },
+                `${pagination.total} 项`,
+              ),
+            )
           : null,
         assetTab === "templates"
           ? h(
               "div",
               { className: "pmrm-grid" },
               ...templateCards,
-              templateCards.length === 0 &&
-              !loading &&
-              category !== "自定义"
+              templateCards.length === 0 && !loading && category !== "自定义"
                 ? h("div", { className: "pmrm-empty" }, "没有匹配的工作台方案")
                 : null,
             )
@@ -1424,9 +1500,7 @@ window.__ModuleLoader__.load({
               "div",
               { className: "pmrm-list" },
               ...pluginCards,
-              pluginCards.length === 0 &&
-              !loading &&
-              category !== "自定义"
+              pluginCards.length === 0 && !loading && category !== "自定义"
                 ? h("div", { className: "pmrm-empty" }, "没有匹配的功能插件")
                 : null,
             ),
@@ -1474,12 +1548,11 @@ window.__ModuleLoader__.load({
               ? "功能插件"
               : detail.kind === "custom"
                 ? "我的资源"
-              : detail.kind === "skill"
-                ? "Skill 详情"
-                : "MCP 详情";
+                : detail.kind === "skill"
+                  ? "Skill 详情"
+                  : "MCP 详情";
       const activeReadOnly =
-        activeWorkbench !== null &&
-        activeWorkbench.ownerId !== currentUserId;
+        activeWorkbench !== null && activeWorkbench.ownerId !== currentUserId;
       let actionLabel = "";
       let actionDisabled = busy;
       let action = () => {};
@@ -1503,14 +1576,15 @@ window.__ModuleLoader__.load({
       } else if (detail?.kind === "mcp") {
         actionLabel =
           detail.value.status === "connected"
-            ? "已连接"
+            ? "断开连接"
             : detail.value.status === "pending"
               ? "等待治理验证"
-              : detail.value.connectionMode === "provider"
-                ? "发起连接"
-                : "登记连接请求";
-        actionDisabled ||= detail.value.status !== "off";
-        action = () => void connectMcp(detail.value);
+              : "连接";
+        actionDisabled ||= detail.value.status === "pending";
+        action = () =>
+          void (detail.value.status === "connected"
+            ? disconnectMcp(detail.value)
+            : connectMcp(detail.value));
       } else if (detail?.kind === "plugin") {
         actionLabel = activeReadOnly
           ? "只读工作台：复制后可编辑"
@@ -1622,11 +1696,7 @@ window.__ModuleLoader__.load({
                           "div",
                           { className: "pmrm-fact", key: "type" },
                           h("span", null, "资源类型"),
-                          h(
-                            "strong",
-                            null,
-                            customTypeLabel(detail.value.type),
-                          ),
+                          h("strong", null, customTypeLabel(detail.value.type)),
                         ),
                         h(
                           "div",
@@ -1648,82 +1718,85 @@ window.__ModuleLoader__.load({
                         ),
                       ]
                     : detail.kind === "plugin"
-                    ? [
-                        h(
-                          "div",
-                          { className: "pmrm-fact", key: "category" },
-                          h("span", null, "分类"),
-                          h("strong", null, detail.value.category),
-                        ),
-                        h(
-                          "div",
-                          { className: "pmrm-fact", key: "status" },
-                          h("span", null, "用户状态"),
+                      ? [
                           h(
-                            "strong",
-                            null,
-                            assetStatusLabel("plugin", detail.value.status),
-                          ),
-                        ),
-                        h(
-                          "div",
-                          { className: "pmrm-fact", key: "host" },
-                          h("span", null, "兼容宿主"),
-                          h("strong", null, detail.value.compatibleHost),
-                        ),
-                        h(
-                          "div",
-                          { className: "pmrm-fact", key: "runtime" },
-                          h("span", null, "DSH 包"),
-                          h(
-                            "strong",
-                            null,
-                            detail.value.runtimeStatus === "packaged"
-                              ? "已装配"
-                              : "未装配",
-                          ),
-                        ),
-                      ]
-                    : [
-                        h(
-                          "div",
-                          { className: "pmrm-fact", key: "category" },
-                          h(
-                            "span",
-                            null,
-                            detail.kind === "mcp" ? "协议" : "分类",
+                            "div",
+                            { className: "pmrm-fact", key: "category" },
+                            h("span", null, "分类"),
+                            h("strong", null, detail.value.category),
                           ),
                           h(
-                            "strong",
-                            null,
-                            detail.kind === "mcp"
-                              ? detail.value.protocol
-                              : detail.value.category,
+                            "div",
+                            { className: "pmrm-fact", key: "status" },
+                            h("span", null, "用户状态"),
+                            h(
+                              "strong",
+                              null,
+                              assetStatusLabel("plugin", detail.value.status),
+                            ),
                           ),
-                        ),
-                        h(
-                          "div",
-                          { className: "pmrm-fact", key: "status" },
-                          h("span", null, "状态"),
                           h(
-                            "strong",
-                            null,
-                            assetStatusLabel(detail.kind, detail.value.status),
+                            "div",
+                            { className: "pmrm-fact", key: "host" },
+                            h("span", null, "兼容宿主"),
+                            h("strong", null, detail.value.compatibleHost),
                           ),
-                        ),
-                        h(
-                          "div",
-                          { className: "pmrm-fact", key: "publisher" },
-                          h("span", null, "发布者"),
-                          h("strong", null, detail.value.publisher.name),
-                        ),
-                        h(
-                          "div",
-                          { className: "pmrm-fact", key: "source" },
-                          h("span", null, "来源"),
-                          h("strong", null, sourceLabel(detail.value.source)),
-                        ),
-                      ],
+                          h(
+                            "div",
+                            { className: "pmrm-fact", key: "runtime" },
+                            h("span", null, "DSH 包"),
+                            h(
+                              "strong",
+                              null,
+                              detail.value.runtimeStatus === "packaged"
+                                ? "已装配"
+                                : "未装配",
+                            ),
+                          ),
+                        ]
+                      : [
+                          h(
+                            "div",
+                            { className: "pmrm-fact", key: "category" },
+                            h(
+                              "span",
+                              null,
+                              detail.kind === "mcp" ? "协议" : "分类",
+                            ),
+                            h(
+                              "strong",
+                              null,
+                              detail.kind === "mcp"
+                                ? detail.value.protocol
+                                : detail.value.category,
+                            ),
+                          ),
+                          h(
+                            "div",
+                            { className: "pmrm-fact", key: "status" },
+                            h("span", null, "状态"),
+                            h(
+                              "strong",
+                              null,
+                              assetStatusLabel(
+                                detail.kind,
+                                detail.value.status,
+                              ),
+                            ),
+                          ),
+                          h(
+                            "div",
+                            { className: "pmrm-fact", key: "publisher" },
+                            h("span", null, "发布者"),
+                            h("strong", null, detail.value.publisher.name),
+                          ),
+                          h(
+                            "div",
+                            { className: "pmrm-fact", key: "source" },
+                            h("span", null, "来源"),
+                            h("strong", null, sourceLabel(detail.value.source)),
+                          ),
+                        ],
               ),
               detail.kind === "template"
                 ? h(
@@ -1733,7 +1806,8 @@ window.__ModuleLoader__.load({
                       "div",
                       { className: "pmrm-section" },
                       h("h3", null, "真实布局"),
-                      ...(detail.value.panels ??
+                      ...(
+                        detail.value.panels ??
                         detail.value.panelPlan.map((panel) => ({
                           ...panel,
                           title: panel.pluginId.replace("pluginmax.", ""),
@@ -1767,38 +1841,40 @@ window.__ModuleLoader__.load({
                               { className: "pmrm-error" },
                               `依赖状态读取失败：${detail.error}`,
                             )
-                        : h(
-                            "div",
-                            { className: "pmrm-dependency-list" },
-                            ...(detail.value.dependencies ?? []).map((dependency) => {
-                              const labels = {
-                                enabled: "已启用",
-                                not_enabled: "复制时启用",
-                                not_packaged: "未装配",
-                                disabled: "已禁用",
-                                incompatible: "版本不兼容",
-                                missing: "缺少插件",
-                              };
-                              return h(
-                                "div",
-                                {
-                                  className: "pmrm-panel-row",
-                                  key: dependency.id,
+                          : h(
+                              "div",
+                              { className: "pmrm-dependency-list" },
+                              ...(detail.value.dependencies ?? []).map(
+                                (dependency) => {
+                                  const labels = {
+                                    enabled: "已启用",
+                                    not_enabled: "复制时启用",
+                                    not_packaged: "未装配",
+                                    disabled: "已禁用",
+                                    incompatible: "版本不兼容",
+                                    missing: "缺少插件",
+                                  };
+                                  return h(
+                                    "div",
+                                    {
+                                      className: "pmrm-panel-row",
+                                      key: dependency.id,
+                                    },
+                                    h("span", null, dependency.id),
+                                    h(
+                                      "small",
+                                      null,
+                                      `${dependency.versionRange} · ${labels[dependency.status]}`,
+                                    ),
+                                  );
                                 },
-                                h("span", null, dependency.id),
-                                h(
-                                  "small",
-                                  null,
-                                  `${dependency.versionRange} · ${labels[dependency.status]}`,
-                                ),
-                              );
-                            }),
-                          ),
+                              ),
+                            ),
                     ),
                   )
-                : []
-              ,
-              detail.kind === "mcp" && detail.value.connectionMode === "request_only"
+                : [],
+              detail.kind === "mcp" &&
+                detail.value.connectionMode === "request_only"
                 ? h(
                     "div",
                     { className: "pmrm-section" },
@@ -1833,9 +1909,12 @@ window.__ModuleLoader__.load({
                       ? "复制不会扩大你的数据权限"
                       : "市场启用不会扩大业务数据权限",
                   ),
-                  ...(detail.value.permissions ?? detail.value.dataScopes ?? []).map(
-                    (permission) =>
-                      h("span", { key: permission }, `· ${permission}`),
+                  ...(
+                    detail.value.permissions ??
+                    detail.value.dataScopes ??
+                    []
+                  ).map((permission) =>
+                    h("span", { key: permission }, `· ${permission}`),
                   ),
                 ),
               ),
@@ -1901,11 +1980,7 @@ window.__ModuleLoader__.load({
                     "div",
                     null,
                     h("h2", null, preview.template.name),
-                    h(
-                      "p",
-                      null,
-                      "基于当前账号可访问的数据生成只读预览。",
-                    ),
+                    h("p", null, "基于当前账号可访问的数据生成只读预览。"),
                   ),
                   h(
                     "button",
@@ -1928,11 +2003,7 @@ window.__ModuleLoader__.load({
                         "正在读取当前账号数据…",
                       )
                     : preview.error !== ""
-                      ? h(
-                          "div",
-                          { className: "pmrm-error" },
-                          preview.error,
-                        )
+                      ? h("div", { className: "pmrm-error" }, preview.error)
                       : h(
                           "div",
                           { className: "pmrm-preview-canvas" },
@@ -2197,7 +2268,11 @@ window.__ModuleLoader__.load({
 
       return h(
         "section",
-        { className: "pmrm", "data-resource-market-page": "true", style: { position: "relative" } },
+        {
+          className: "pmrm",
+          "data-resource-market-page": "true",
+          style: { position: "relative" },
+        },
         h("style", null, styles),
         h(
           "header",
@@ -2215,7 +2290,11 @@ window.__ModuleLoader__.load({
           ),
           h(
             "div",
-            { className: "pmrm-tabs", role: "tablist", "aria-label": "资源类型" },
+            {
+              className: "pmrm-tabs",
+              role: "tablist",
+              "aria-label": "资源类型",
+            },
             ...[
               ["skill", "Skill"],
               ["mcp", "MCP"],
@@ -2262,7 +2341,9 @@ window.__ModuleLoader__.load({
             h(
               "div",
               { className: "pmrm-content-inner" },
-              error !== "" ? h("div", { className: "pmrm-error" }, error) : null,
+              error !== ""
+                ? h("div", { className: "pmrm-error" }, error)
+                : null,
               h(
                 "div",
                 {
@@ -2294,14 +2375,28 @@ window.__ModuleLoader__.load({
                     )
                   : null,
               ),
-              loading ? h("div", { style: { padding: "20px", color: "var(--dsw-alias-label-tertiary)", fontSize: "11px" } }, "正在加载…") : content,
+              loading
+                ? h(
+                    "div",
+                    {
+                      style: {
+                        padding: "20px",
+                        color: "var(--dsw-alias-label-tertiary)",
+                        fontSize: "11px",
+                      },
+                    },
+                    "正在加载…",
+                  )
+                : content,
             ),
           ),
         ),
         detailView,
         previewModal,
         registerModal,
-        toast !== "" ? h("div", { className: "pmrm-toast", role: "status" }, toast) : null,
+        toast !== ""
+          ? h("div", { className: "pmrm-toast", role: "status" }, toast)
+          : null,
       );
     }
 

@@ -165,6 +165,26 @@ function reportSummary(markdown: string): string {
   return (paragraphs[0] ?? "报告已生成，请浏览正文与证据链。").slice(0, 600);
 }
 
+function compactShortChat(markdown: string, prompt: string): string {
+  if (!/(简短|简单|只回答|只给|先给)/.test(prompt)) {
+    return markdown.trim();
+  }
+  const output: string[] = [];
+  for (const line of markdown.trim().split("\n")) {
+    if (
+      /^\*\*(口径|来源|截止|权限|不确定性|数据范围|查询证据|证据|建议)/.test(
+        line,
+      ) ||
+      (/^#{1,6}\s+/.test(line) && output.some((item) => item.trim() !== ""))
+    ) {
+      break;
+    }
+    output.push(line);
+    if (output.filter((item) => item.trim() !== "").length >= 12) break;
+  }
+  return output.join("\n").trim();
+}
+
 function dataEvidenceMarkdown(
   evidence: readonly DataAgentQueryEvidence[],
 ): string[] {
@@ -187,6 +207,25 @@ function dataEvidenceMarkdown(
       ].join("\n"),
     ),
   ];
+}
+
+function hasCompleteQueryEvidence(
+  markdown: string,
+  evidence: readonly DataAgentQueryEvidence[],
+): boolean {
+  if (evidence.length === 0) return false;
+  const hasHeading =
+    /(?:^|\n)##\s+(?:数据范围与查询证据|查询证据|证据)\s*(?:\n|$)/.test(
+      markdown,
+    );
+  if (!hasHeading) return false;
+  return evidence.every(
+    (item) =>
+      markdown.includes(item.queryRunId) &&
+      markdown.includes(item.datasetId) &&
+      (item.dataCutoffAt === undefined ||
+        markdown.includes(item.dataCutoffAt)),
+  );
 }
 
 function contractMarkdown(input: {
@@ -218,7 +257,12 @@ function contractMarkdown(input: {
     `- 页面：${input.context[0]?.source.page ?? "workbench"}`,
     `- 项目：${input.context[0]?.source.projectId ?? "未指定"}`,
     "- 口径：以当前选区和已授权数据源返回的口径为准；未返回的口径不会自行补造。",
-    ...dataEvidenceMarkdown(input.queryEvidence ?? []),
+    ...(hasCompleteQueryEvidence(
+      modelBody,
+      input.queryEvidence ?? [],
+    )
+      ? []
+      : dataEvidenceMarkdown(input.queryEvidence ?? [])),
     "",
     "## 主要证据",
     ...(refs.length === 0 ? ["- 当前请求未附带结构化选区。"] : refs.map((ref) => `- ${ref}`)),
@@ -536,6 +580,7 @@ export class DataAgentService {
       readonly workspaceId: string;
       readonly projectId?: string | undefined;
       readonly meetingId?: string | undefined;
+      readonly teammateInstanceId?: string | undefined;
       readonly page: "workbench" | "task" | "meeting" | "project" | "workflow";
       readonly title?: string | undefined;
       readonly visibility?: "private" | "project" | "meeting" | undefined;
@@ -559,6 +604,9 @@ export class DataAgentService {
       ...(input.projectId === undefined ? {} : { projectId: input.projectId }),
       ...(input.meetingId === undefined ? {} : { meetingId: input.meetingId }),
       agentId: DATA_AGENT_ID,
+      ...(input.teammateInstanceId === undefined
+        ? {}
+        : { teammateInstanceId: input.teammateInstanceId }),
       title: input.title?.trim() || "Data Agent 会话",
       visibility,
       sourcePage: input.page,
@@ -604,9 +652,15 @@ export class DataAgentService {
     input: {
       readonly workspaceId?: string | undefined;
       readonly projectId?: string | undefined;
+      readonly query?: string | undefined;
       readonly includeArchived?: boolean | undefined;
     } = {},
   ): DataAgentConversation[] {
+    const searchTerms = (input.query ?? "")
+      .trim()
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((term) => term !== "");
     return values(this.tables.conversations)
       .filter((conversation) => {
         if (conversation.ownerUserId !== actor.userId && actor.role !== "admin") {
@@ -624,7 +678,21 @@ export class DataAgentService {
         ) {
           return false;
         }
-        return input.includeArchived === true || conversation.archivedAt === undefined;
+        if (
+          input.includeArchived !== true &&
+          conversation.archivedAt !== undefined
+        ) {
+          return false;
+        }
+        if (searchTerms.length === 0) return true;
+        const searchable = [
+          conversation.title,
+          conversation.projectId ?? "",
+          conversation.workspaceId,
+        ]
+          .join(" ")
+          .toLowerCase();
+        return searchTerms.every((term) => searchable.includes(term));
       })
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
@@ -738,6 +806,7 @@ export class DataAgentService {
       readonly mode?: "chat" | "report" | undefined;
       readonly contextPackId?: string | undefined;
       readonly runtimeProfileId?: string | undefined;
+      readonly teammateInstanceId?: string | undefined;
     },
   ): Promise<DataAgentRun> {
     const conversation = this.requireConversationOwner(
@@ -755,6 +824,9 @@ export class DataAgentService {
       ...(input.runtimeProfileId === undefined
         ? {}
         : { runtimeProfileId: input.runtimeProfileId }),
+      ...(input.teammateInstanceId === undefined
+        ? {}
+        : { teammateInstanceId: input.teammateInstanceId }),
       ...(input.contextPackId === undefined
         ? {}
         : { contextPackId: input.contextPackId }),
@@ -844,6 +916,22 @@ export class DataAgentService {
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
 
+  /** 项目产出物聚合：每个会话取最新报告，由项目路由完成工作区权限校验。 */
+  projectReports(workspaceId: string): readonly {
+    readonly conversation: DataAgentConversation;
+    readonly report: DataAgentReport;
+  }[] {
+    return values(this.tables.conversations)
+      .filter((conversation) => conversation.workspaceId === workspaceId)
+      .flatMap((conversation) => {
+        const report = this.reportsForConversation(conversation.id)[0];
+        return report === undefined ? [] : [{ conversation, report }];
+      })
+      .sort((left, right) =>
+        right.report.createdAt.localeCompare(left.report.createdAt),
+      );
+  }
+
   async completeChatRun(input: {
     readonly actor: DataAgentActor;
     readonly runId: string;
@@ -857,9 +945,11 @@ export class DataAgentService {
     const current = this.run(input.runId);
     const conversation = this.conversation(current.conversationId);
     const timestamp = this.now();
+    const rawOutput = compactShortChat(input.rawOutput, current.prompt);
     const content = [
-      input.rawOutput.trim(),
-      ...(input.queryEvidence === undefined
+      rawOutput,
+      ...(input.queryEvidence === undefined ||
+      hasCompleteQueryEvidence(rawOutput, input.queryEvidence)
         ? []
         : dataEvidenceMarkdown(input.queryEvidence)),
     ]
@@ -869,7 +959,7 @@ export class DataAgentService {
       id: this.id("da-msg"),
       conversationId: conversation.id,
       senderType: "ai-partner",
-      senderId: DATA_AGENT_ID,
+      senderId: conversation.teammateInstanceId ?? DATA_AGENT_ID,
       content,
       contextAttachmentIds: [],
       runId: current.id,
@@ -1027,7 +1117,7 @@ export class DataAgentService {
       id: this.id("da-msg"),
       conversationId: conversation.id,
       senderType: "ai-partner",
-      senderId: DATA_AGENT_ID,
+      senderId: conversation.teammateInstanceId ?? DATA_AGENT_ID,
       content: report.summary,
       contextAttachmentIds: [],
       runId: current.id,
