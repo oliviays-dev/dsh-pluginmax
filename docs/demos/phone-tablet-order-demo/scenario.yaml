@@ -1,0 +1,387 @@
+schemaVersion: "1.0"
+demoId: "phone-tablet-order-exception-v1"
+title: "华东手机/平板订单异常处置"
+subtitle: "从管理驾驶舱发现异常，到人机协同处置并由 AI 小助理生成管理报告"
+timezone: "Asia/Shanghai"
+targetDurationMinutes: 14
+
+demoIsolation:
+  pluginId: "dsh-collab-demo-phone-tablet-order"
+  featureFlag: "PLUGINMAX_ENABLE_PHONE_TABLET_DEMO"
+  detachable: true
+  productionDependency: false
+  externalSystemsRegistration: "McpCatalogProvider"
+  currentImplementation:
+    - "独立 Demo 插件已实现并通过 provider 注册 OMS / WMS MCP"
+    - "任务详情业务动作扩展点已可见，未安装 Demo 时保持空态"
+    - "Demo 工作区 owner / member 会按 memberRole 自动连接 OMS / WMS MCP"
+    - "AI 伙伴一对一沟通已支持绑定外部运行时，但当前只回写文本，不返回文件附件"
+    - "外部 Runner 已支持 codebuddy 进程适配，但创建接口与页面尚未提供 CodeBuddy 选项"
+    - "Data Agent 只用于只读 brief 和证据留存，本场景不再生成正式报告"
+    - "Demo 工作台配置仍选择四张指标卡，其中采购价格达成包含跨行业文案，录制前必须收敛"
+
+recordingReadiness:
+  status: "blocked"
+  blockers:
+    - "CodeBuddy 创建接口与 AI伙伴 Provider 下拉尚未放行"
+    - "AI 1:1 尚无外部 Runtime 文件 artifact 返回与附件回写"
+    - "Demo 工作台指标配置尚未收敛为订单履约指标"
+    - "任务系统没有持久化定时派发和次日交付能力，夜间作业镜头暂不可录"
+  requiredGenericChanges: "./developer-change-prompt.md"
+
+projectInputs:
+  lookupScope: "current-project-space"
+  lookupMode: "by-file-name"
+  readPolicy:
+    fileReadScope: "current-project-space-only"
+    scanOtherDirectories: false
+    externalDocumentConnectors: false
+    productionSystems: false
+    fulfillmentPartnerWebAccess: false
+    executiveAssistantWebAccess:
+      enabled: true
+      when: "only-when-needed"
+      scope: "public-information-verification-only"
+      mayInferInternalOrderFacts: false
+      mayUploadProjectData: false
+      requiredEvidence:
+        - "public-source-url"
+        - "accessed-at"
+    priority:
+      - "task-or-chat-message-explicit-facts"
+      - "matched-project-evidence-pack"
+      - "task-description"
+  files:
+    index: "00-手机平板订单异常-资料索引.md"
+    fulfillmentEvidence: "PT-ORD-001-B-履约证据包.md"
+    reportEvidence: "PT-ORD-001-RPT-管理报告证据包.md"
+  routing:
+    fulfillmentPartner: "PT-ORD-001-B-履约证据包.md"
+    executiveAssistant: "PT-ORD-001-RPT-管理报告证据包.md"
+  missingFileBehavior: "state-missing-file-once-and-continue-with-available-facts; no-repeated-unrelated-file-authorization-requests"
+
+businessContext:
+  industry: "消费电子"
+  products:
+    - "智能手机"
+    - "平板电脑"
+  supplyChainModel: "成品仓 → 区域履约仓 → 承运商 → 用户签收"
+  fulfillmentConstraints:
+    - "按型号、颜色和存储版本管理 SKU"
+    - "手机出库前绑定 IMEI，平板出库前绑定 SN"
+    - "渠道库存与区域成品仓库存分别占用"
+    - "跨仓调拨需要库存归属变更、序列号扫描和高货值运输交接"
+    - "运输需保价，签收需身份核验，发票与售后信息需同步"
+  explicitlyExcluded:
+    - "冷链"
+    - "温控"
+    - "生鲜时效"
+    - "采购到料或生产齐套分析"
+
+dataSource:
+  datasetId: "orders-facts"
+  connector: "orders-readonly"
+  transport: "mcp-orders-phone-tablet-demo"
+  mode: "demo"
+  readOnly: true
+  fixture: "./orders-fixture.json"
+  scope:
+    timeRange: "today"
+    region: "华东"
+    canonicalRegion: "east"
+    category: "数码"
+    canonicalCategory: "digital"
+  anomalyDefinition: "支付失败 + 取消 + 履约超时；按订单去重；不含退款和金额异常"
+  dataQueryActor: "zhouning"
+  permissions:
+    memberPolicy: "orders-member-region-scope"
+    memberCoverage: "当前授权：华东、华南；未覆盖：华北、西南"
+    ownerScope: "Owner 使用默认工作区范围，不自动继承 Member 的区域限制"
+    rule: "权限镜头必须使用周宁；Owner 预览不得声称受华东/华南限制"
+
+expectedMetrics:
+  orderCount: 1658
+  exceptionCount: 126
+  exceptionRate: 7.6
+  paymentFailureCount: 52
+  cancelledCount: 31
+  fulfillmentTimeoutCount: 43
+  orderAmount: 8420218
+  exceptionAmount: 642748
+  averageOrderAmount: 5078.54
+  currentSevenDayOnTimeRate: 94.1
+  previousSevenDayOnTimeRate: 95.9
+  onTimeDeltaPt: -1.8
+  totalFixtureRows: 8358
+
+accounts:
+  - userId: "linlan"
+    displayName: "林岚"
+    role: "供应链运营总监"
+    workspaceRole: "owner"
+    demoPassword: "password-123"
+  - userId: "zhouning"
+    displayName: "周宁"
+    role: "订单履约计划员"
+    workspaceRole: "member"
+    demoPassword: "password-123"
+  - userId: "ligong"
+    displayName: "李工"
+    role: "华东成品仓配负责人"
+    workspaceRole: "member"
+    demoPassword: "password-123"
+
+workspace:
+  title: "手机平板订单履约演示"
+  owner: "linlan"
+  members:
+    - "zhouning"
+    - "ligong"
+
+aiPartners:
+  dataAgent:
+    id: "data-agent"
+    displayName: "Data Agent"
+    purpose: "只读查询订单异常、解释口径、输出证据 brief"
+    template: "平台内置 Data Agent"
+    output: "chat-brief-with-query-run-evidence"
+  fulfillmentPartner:
+    id: "fulfillment-ai"
+    displayName: "履约 AI 伙伴"
+    owner: "zhouning"
+    template: "流程跟进 / 通用执行型 AI 伙伴"
+    purpose: "整理订单范围、汇总人工核实结果、生成再平衡工单草稿，并在人工确认后执行受控建单"
+    state: "active"
+  executiveAssistant:
+    id: "zhouning-ai-assistant"
+    displayName: "周宁的AI小助理"
+    owner: "zhouning"
+    template: "管理报告型个人 AI 伙伴模版"
+    purpose: "通过一对一沟通接收已确认事实，调用 CodeBuddy 生成单文件 HTML 管理报告"
+    soul: "./ai-assistant-soul.md"
+    prompt: "./ai-assistant-prompt.md"
+    execution:
+      mode: "external"
+      provider: "codebuddy"
+      command: "codebuddy"
+      protocol: "plain-text"
+      permissionMode: "acceptEdits"
+      allowedTools:
+        - "read_file"
+        - "write_file"
+        - "web_search"
+    conversation:
+      carrier: "meeting-ai-one-to-one"
+      entry: "沟通 → 新建沟通 → AI伙伴 1:1"
+    output:
+      fileName: "华东手机平板订单问题排查和处理报告.html"
+      mime: "text/html"
+      maxBytes: 524288
+      format: "single-file-self-contained-html"
+      returnPath: "current-one-to-one-attachment"
+    state: "active"
+
+tasks:
+  parent:
+    title: "[PT-ORD-001] 华东手机/平板订单异常处置"
+    type: "任务"
+    project: "手机平板订单履约演示"
+    priorityDisplay: "P0"
+    priorityStorage: "P1"
+    initialStatus: "待处理"
+    receiver: "zhouning"
+    due: "录制日"
+    description: |
+      周宁，今天华东手机/平板订单异常率到了 7.6%，这块你来牵头处理。
+      先让 Data Agent 把异常规模和主要构成看清楚，再找李工核实成品仓和履约条件。
+      适合支付恢复、成品仓再平衡或订单改派的尽快推进；需要退款、取消或改约的，
+      也要逐单给出明确结论。处理完把复盘报告放到这个任务里，我来 Review。
+    acceptance:
+      - "126 单全部形成明确处置结论"
+      - "完成受影响 SKU、IMEI/SN、成品仓库存与出库能力核实"
+      - "人工确认后创建成品仓订单再平衡工单"
+      - "上传并核对订单问题排查和处理报告 HTML"
+  humanChild:
+    title: "[PT-ORD-001-A] 核实成品仓 SKU/序列号与跨仓履约"
+    type: "任务"
+    project: "手机平板订单履约演示"
+    priorityDisplay: "P0"
+    priorityStorage: "P1"
+    initialStatus: "待处理"
+    receiver: "ligong"
+    due: "录制日"
+    description: |
+      核实华东受影响手机/平板订单对应 SKU 的可分配库存、IMEI/SN 状态、出库能力、
+      跨仓库存归属变更、高货值运输交接和签收要求。
+      请给出可转入再平衡的订单范围、不可履约原因和仓配约束。
+    acceptance:
+      - "确认可立即出库、需跨仓调拨和不可履约的订单数量"
+      - "确认序列号扫描及库存归属变更要求"
+      - "确认高货值运输交接、保价和签收约束"
+  aiChild:
+    title: "[PT-ORD-001-B] 生成成品仓订单再平衡工单"
+    type: "任务"
+    project: "手机平板订单履约演示"
+    priorityDisplay: "P0"
+    priorityStorage: "P1"
+    initialStatus: "待处理"
+    receiver: "fulfillment-ai"
+    due: "录制日"
+    autoSubmitReview: true
+    description: |
+      华东手机/平板订单异常处置已进入仓配执行阶段。李工已确认 37 单可从
+      华东备用成品仓调拨至华东履约仓，预计订单金额 ¥194,125，需在当天 17:00 前
+      完成库存锁定、库存归属变更和订单改派。
+      请编制一份成品仓订单再平衡工单草稿，写清订单范围、源仓和目标仓、交接时点，
+      以及手机/平板 SKU、IMEI/SN 绑定、保价运输、身份核验签收、发票和售后同步要求。
+      工单完成后提交周宁确认，再由平台执行 WMS 建单。
+      参考资料：project-inputs/phone-tablet-order/PT-ORD-001-B-履约证据包.md
+    acceptance:
+      - "输出 37 单可再平衡订单范围"
+      - "工单包含 SKU、IMEI/SN、库存归属、跨仓交接和签收约束"
+      - "提交人工确认前状态为草稿"
+
+afterHoursHandoff:
+  recordingStatus: "blocked-until-durable-scheduled-task-dispatch"
+  storyTime: "录制日 17:45"
+  scheduledStart: "20:30"
+  deliveryBy: "次日 08:30"
+  executionMode: "unattended-read-only"
+  dependencyMode: "none"
+  reviewPolicy: "human-review-required"
+  autoApproveReview: false
+  newAiPartnerRequired: false
+  tasks:
+    - title: "[Q4-MKT-01] 手机/平板竞品新品与价格带调研"
+      type: "任务"
+      project: "手机平板订单履约演示"
+      priorityDisplay: "P1"
+      priorityStorage: "P2"
+      initialStatus: "待处理"
+      receiver: "zhouning-ai-assistant"
+      receiverDisplay: "DE / 分身 → 周宁的AI小助理"
+      scheduleStart: "20:30"
+      deliveryDue: "次日 08:30"
+      dependsOn: []
+      autoSubmitReview: true
+      executionMode: "unattended"
+      webAccess: "public-sources-only"
+      description: |
+        这两周我在看四季度手机和平板的竞品节奏。请整理苹果、华为、小米、荣耀、
+        OPPO、vivo 和三星近期新品、核心价格带、渠道动作和促销变化，
+        重点说明对华东成品仓备货和订单结构可能产生的影响。
+        公开事实、行业判断和待确认信息要分开，给出公开来源和访问时间。
+        明早 8:30 前给我一页式简报和后续跟踪清单。
+      acceptance:
+        - "新品、价格带、渠道动作和促销变化均有公开来源与访问时间"
+        - "公开事实、行业判断和待确认信息分开"
+        - "给出一页式简报和后续跟踪清单"
+    - title: "[Q4-MKT-02] 华东渠道促销与换机需求变化分析"
+      type: "任务"
+      project: "手机平板订单履约演示"
+      priorityDisplay: "P1"
+      priorityStorage: "P2"
+      initialStatus: "待处理"
+      receiver: "zhouning-ai-assistant"
+      receiverDisplay: "DE / 分身 → 周宁的AI小助理"
+      scheduleStart: "20:30"
+      deliveryDue: "次日 08:30"
+      dependsOn: []
+      autoSubmitReview: true
+      executionMode: "unattended"
+      webAccess: "public-sources-only"
+      description: |
+        帮我看看四季度以来华东手机和平板线上、线下渠道的促销、换机需求和价格变化，
+        判断未来两周哪些价位段可能出现备货压力。只使用可追溯的公开来源，
+        全国趋势和华东证据要分开；找不到华东数据就明确标缺口，不要直接外推。
+        明早 8:30 前给我三条主要判断、证据、风险和三个可执行建议。
+      acceptance:
+        - "区分全国趋势与华东证据"
+        - "华东数据缺失时明确标注，不直接外推"
+        - "输出三条判断、证据、风险和三个可执行建议"
+    - title: "[Q4-INV-01] 基于本周订单异常的成品仓库存计划建议"
+      type: "任务"
+      project: "手机平板订单履约演示"
+      priorityDisplay: "P1"
+      priorityStorage: "P2"
+      initialStatus: "待处理"
+      receiver: "fulfillment-ai"
+      receiverDisplay: "DE / 分身 → 履约 AI 伙伴"
+      scheduleStart: "20:30"
+      deliveryDue: "次日 08:30"
+      dependsOn: []
+      autoSubmitReview: true
+      executionMode: "unattended"
+      webAccess: false
+      description: |
+        结合本周华东手机和平板订单异常、37 单仓间再平衡和当前项目资料，
+        给我一份未来 7 天成品仓库存计划建议。按产品线、仓库和履约风险，
+        说明需要优先关注的数量、容量和交接约束；不要虚构 SKU、IMEI/SN 明细，
+        不要修改库存。明早 8:30 前给出一页式建议、风险和数据缺口。
+      acceptance:
+        - "按产品线、仓库和履约风险给出未来 7 天建议"
+        - "不虚构 SKU、IMEI/SN 明细"
+        - "列出风险和数据缺口，不修改库存"
+  nextMorning:
+    screen: "AI伙伴 → 工作计划"
+    status: "3 条任务进入待确认"
+    workReportSection: "无人值守执行小结 · 3 项"
+    humanAction: "周宁逐条查看并选择通过或退回补充"
+  boundaries:
+    - "不增加前置任务依赖"
+    - "不新增业务 AI 伙伴"
+    - "不自动通过 Review"
+    - "夜间不发送供应商邮件"
+    - "夜间不改变客户承诺"
+    - "夜间不修改库存或生产计划"
+    - "夜间作业不改变 PT-ORD-001 的一个 A 和一个 B 结构"
+
+reportDelivery:
+  mode: "ai-assistant-one-to-one-html-artifact"
+  assistant: "zhouning-ai-assistant"
+  title: "华东手机平板订单问题排查和处理报告"
+  fileName: "华东手机平板订单问题排查和处理报告.html"
+  inputSource: "周宁在一对一对话中粘贴的 QueryRun 证据、李工回执、WMS MCP 回执和业务对账口径"
+  generation: "CodeBuddy 在当前项目工作区生成单文件 HTML，并由平台作为 AI 消息附件返回当前一对一对话"
+  humanCheck:
+    - "周宁在对话内下载并打开 HTML"
+    - "核对 KPI、证据、时间线、结果对账和剩余风险"
+  parentTaskDelivery:
+    actor: "zhouning"
+    target: "[PT-ORD-001]"
+    action: "在任务统一输入区以“指令”上传 HTML，发送后点击“提交验收”"
+  review:
+    actor: "linlan"
+    action: "打开父任务附件，核对报告后点击“通过”"
+  dailyReport:
+    fulfillment: "履约 AI 伙伴可在“工作日报”生成仅覆盖 B 任务与运行摘要的实例快照"
+    assistant: "小助理的报告交付不冒充任务，也不要求生成 AI 工作日报"
+  cannotClaim:
+    - "AI伙伴自行执行了新的 Data Fabric 查询"
+    - "工作日报等同于任务验收"
+    - "正式报告未经人工确认已外发"
+    - "AI 消息附件不存在时用本地文件或手写下载链接冒充"
+
+outcome:
+  totalExceptions: 126
+  recoveredOrders: 83
+  paymentRetryRecovered: 46
+  rebalancedOrders: 37
+  closedWithRefundOrReschedule: 43
+  workOrderId: "WO-RB-DEMO-1030-017"
+  reconciliation: "83 = 46 单支付恢复 + 37 单成品仓再平衡；83 + 43 = 126"
+  finalOwnerSummary: "华东手机/平板订单异常已闭环：126 单全部有结论，83 单恢复履约，其中 37 单通过成品仓再平衡工单处置，43 单退款、取消或改约；AI 小助理生成的 HTML 报告由周宁核对并上传父任务，林岚 Review 通过。"
+
+assets:
+  dataAgentPrompts: "./data-agent-prompts.md"
+  fulfillmentPartnerPrompt: "./fulfillment-partner-prompt.md"
+  assistantSoul: "./ai-assistant-soul.md"
+  assistantPrompt: "./ai-assistant-prompt.md"
+  reportDraft: "./report-draft.md"
+  workOrderTemplate: "./rebalance-work-order.json"
+  workbenchProfile: "./workbench-profile.yaml"
+  mockMcpAssets: "./mock-mcp-assets.yaml"
+  mockOmsServer: "./mock-oms-mcp-server.mjs"
+  mockWmsServer: "./mock-wms-mcp-server.mjs"
+  developerChangePrompt: "./developer-change-prompt.md"
+  generator: "./generate-orders-fixture.mjs"

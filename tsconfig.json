@@ -5,7 +5,79 @@
       "path": "packages/shared"
     },
     {
+      "path": "packages/contracts"
+    },
+    {
+      "path": "plugins/dsh-collab-shell"
+    },
+    {
+      "path": "plugins/dsh-collab-side-panel"
+    },
+    {
       "path": "plugins/dsh-pluginmax-canary"
+    },
+    {
+      "path": "plugins/dsh-collab-space"
+    },
+    {
+      "path": "plugins/dsh-collab-roles"
+    },
+    {
+      "path": "plugins/dsh-collab-memory"
+    },
+    {
+      "path": "plugins/dsh-collab-context"
+    },
+    {
+      "path": "plugins/dsh-collab-meeting"
+    },
+    {
+      "path": "plugins/dsh-collab-workflow"
+    },
+    {
+      "path": "plugins/dsh-collab-project"
+    },
+    {
+      "path": "plugins/dsh-collab-task"
+    },
+    {
+      "path": "plugins/dsh-collab-task-capture"
+    },
+    {
+      "path": "plugins/dsh-collab-task-tools"
+    },
+    {
+      "path": "plugins/dsh-collab-agent"
+    },
+    {
+      "path": "plugins/dsh-collab-data-agent"
+    },
+    {
+      "path": "plugins/dsh-collab-data-fabric"
+    },
+    {
+      "path": "plugins/dsh-collab-data-orders"
+    },
+    {
+      "path": "plugins/dsh-collab-employee"
+    },
+    {
+      "path": "plugins/dsh-collab-teammate"
+    },
+    {
+      "path": "plugins/dsh-collab-workbench"
+    },
+    {
+      "path": "plugins/dsh-collab-workbench-v2"
+    },
+    {
+      "path": "plugins/dsh-collab-workbench-panels"
+    },
+    {
+      "path": "plugins/dsh-collab-resource-market"
+    },
+    {
+      "path": "plugins/dsh-collab-demo-phone-tablet-order"
     }
   ]
 }

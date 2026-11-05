@@ -1,0 +1,601 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>DSH Enterprise+ · 端到端计划工作台</title>
+  <link rel="stylesheet" href="./supply-chain-plan-workbench.css">
+</head>
+<body>
+  <svg class="sprite" aria-hidden="true">
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v8A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z"/></symbol>
+    <symbol id="i-check-square" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m7 12 3 3 7-7"/></symbol>
+    <symbol id="i-workflow" viewBox="0 0 24 24"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="15" width="6" height="6" rx="1"/><path d="M9 6h5a4 4 0 0 1 4 4v5M6 9v5a4 4 0 0 0 4 4h5"/></symbol>
+    <symbol id="i-message" viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+    <symbol id="i-store" viewBox="0 0 24 24"><path d="m3 9 2-5h14l2 5"/><path d="M5 13v7h14v-7"/><path d="M9 20v-5h6v5"/><path d="M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0"/></symbol>
+    <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="m12 3 1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z"/><path d="m19 16 .8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/><path d="m5 2 .7 1.8L7.5 4.5l-1.8.7L5 7l-.7-1.8L2.5 4.5l1.8-.7z"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-trending-up" viewBox="0 0 24 24"><path d="m3 17 6-6 4 4 8-8"/><path d="M15 7h6v6"/></symbol>
+    <symbol id="i-package" viewBox="0 0 24 24"><path d="m21 8-9-5-9 5 9 5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></symbol>
+    <symbol id="i-factory" viewBox="0 0 24 24"><path d="M3 21V9l6 3V9l6 3V7l6 3v11z"/><path d="M7 17h1M12 17h1M17 17h1"/><path d="M6 21v-4h4v4"/></symbol>
+    <symbol id="i-warehouse" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v11H3z"/><path d="M7 21v-7h10v7"/><path d="M7 17h10"/></symbol>
+    <symbol id="i-truck" viewBox="0 0 24 24"><path d="M1 4h13v13H1z"/><path d="M14 8h4l4 4v5h-8z"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="19" r="2"/></symbol>
+    <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v6c0 1.7 4 3 9 3s9-1.3 9-3V5"/><path d="M3 11v6c0 1.7 4 3 9 3s9-1.3 9-3v-6"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-.8 4.2"/><path d="M20 4v7h-7"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h6"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.2 1.2"/><path d="M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.2-1.2"/></symbol>
+    <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  </svg>
+
+  <div class="app">
+    <aside class="sidebar" aria-label="主导航">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+        <div class="brand-copy"><strong>DSH Enterprise+</strong><small>Pluginmax 工作空间</small></div>
+      </div>
+      <div class="side-scroll">
+        <nav class="nav" aria-label="平台功能">
+          <button class="nav-item active" type="button"><svg class="i"><use href="#i-grid"></use></svg><span>工作台</span></button>
+          <button class="nav-item" type="button"><svg class="i"><use href="#i-folder"></use></svg><span>项目</span></button>
+          <button class="nav-item" type="button"><svg class="i"><use href="#i-check-square"></use></svg><span>任务</span><b class="nav-count">12</b></button>
+          <button class="nav-item" type="button"><svg class="i"><use href="#i-workflow"></use></svg><span>工作流</span></button>
+          <button class="nav-item" type="button"><svg class="i"><use href="#i-message"></use></svg><span>沟通</span><b class="nav-count">3</b></button>
+          <button class="nav-item" type="button"><svg class="i"><use href="#i-users"></use></svg><span>AI 伙伴</span></button>
+          <button class="nav-item" type="button"><svg class="i"><use href="#i-store"></use></svg><span>资源市场</span></button>
+        </nav>
+        <div class="side-gap"></div>
+        <div class="side-label">工作台</div>
+        <button class="side-switch" type="button">
+          <svg class="i i-sm"><use href="#i-chevron-down"></use></svg>
+          <strong>端到端计划</strong>
+        </button>
+        <div class="side-gap"></div>
+        <div class="side-label">计划项目</div>
+        <div class="project-list">
+          <button class="project-item active" type="button">
+            <span class="project-icon"><svg class="i i-sm"><use href="#i-trending-up"></use></svg></span>
+            <span class="project-copy"><strong>S&amp;OP · 2026 W45</strong><small>v48 已冻结 · 4 AI 伙伴</small></span>
+            <span class="project-meta danger">1 P0</span>
+          </button>
+          <button class="project-item" type="button">
+            <span class="project-icon"><svg class="i i-sm"><use href="#i-alert"></use></svg></span>
+            <span class="project-copy"><strong>关键物料缺口处置</strong><small>EXC-W45-C4821</small></span>
+            <span class="project-meta">运行中</span>
+          </button>
+          <button class="project-item" type="button">
+            <span class="project-icon"><svg class="i i-sm"><use href="#i-file"></use></svg></span>
+            <span class="project-copy"><strong>W44 计划复盘</strong><small>已归档 · 6 份交付物</small></span>
+          </button>
+        </div>
+      </div>
+      <div class="side-foot">
+        <div class="avatar">OY</div>
+        <div class="account"><strong>Olivia Yang</strong><small>供应链计划总监</small></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="crumb"><strong>工作台</strong><svg class="i i-sm"><use href="#i-chevron-right"></use></svg><span>端到端计划</span></div>
+        <div class="topbar-center">
+          <div class="top-context"><span class="live-dot"></span><span>2026 W45</span><span>|</span><code>EXC-W45-C4821</code><span>|</span><span>数据截止 09:40</span></div>
+        </div>
+        <div class="topbar-actions">
+          <button class="agent-entry" type="button" id="topDataAgentBtn"><svg class="i i-sm"><use href="#i-sparkles"></use></svg>Data Agent</button>
+          <button class="icon-btn" type="button" title="搜索"><svg class="i"><use href="#i-search"></use></svg></button>
+          <button class="icon-btn" type="button" title="通知"><svg class="i"><use href="#i-alert"></use></svg></button>
+          <div class="avatar">OY</div>
+        </div>
+      </header>
+
+      <div class="page">
+        <div class="page-head">
+          <div>
+            <div class="eyebrow">2026 W45 · 11 月 2 日–11 月 8 日 · 数据截止 09:40</div>
+            <div class="title-row">
+              <h1>端到端计划工作台</h1>
+              <span class="plan-badge"><svg class="i" style="width:9px;height:9px"><use href="#i-check"></use></svg>v48 已冻结</span>
+            </div>
+            <p class="page-sub">供应链计划运营 · 管理视图 · 4 个 AI 伙伴在线</p>
+          </div>
+          <div class="page-actions">
+            <button class="btn ghost" type="button" id="refreshBtn"><svg class="i i-sm"><use href="#i-refresh"></use></svg>刷新</button>
+            <button class="btn" type="button" id="shareBtn">共享视图</button>
+            <button class="btn primary" type="button" id="sopBtn"><svg class="i i-sm"><use href="#i-message"></use></svg>发起 S&amp;OP</button>
+          </div>
+        </div>
+
+        <div class="tabs" role="tablist" aria-label="工作台页签">
+          <button class="tab active" type="button" role="tab" aria-selected="true">我的工作台</button>
+          <button class="tab" type="button" role="tab">计划运行<span class="tab-count">4</span></button>
+          <button class="tab" type="button" role="tab">决策归档</button>
+          <button class="tab" type="button" role="tab">版本与口径</button>
+        </div>
+
+        <section class="summary-bar" aria-label="计划运行摘要">
+          <div class="summary-cell">
+            <span class="summary-label">计划健康度</span>
+            <div class="summary-value warning"><strong>82</strong><span>/ 100 · 需关注</span></div>
+          </div>
+          <div class="summary-cell">
+            <span class="summary-label">W46–W47 供应缺口</span>
+            <div class="summary-value danger"><strong>4,320</strong><span>件</span></div>
+          </div>
+          <div class="summary-cell">
+            <span class="summary-label">客户承诺风险</span>
+            <div class="summary-value warning"><strong>¥2,140</strong><span>万</span></div>
+          </div>
+          <div class="summary-cell">
+            <span class="summary-label">待我决策</span>
+            <div class="summary-value"><strong id="decisionCount">3</strong><span>项</span></div>
+          </div>
+          <div class="summary-cell">
+            <div class="summary-agent">
+              <span class="agent-mark">AI</span>
+              <div class="summary-agent-copy"><strong>4 AI + 3 人 · 17 项已自动完成</strong><small>26 份证据已汇总 · 无待召开会议</small></div>
+            </div>
+          </div>
+        </section>
+
+        <div class="workbench-grid">
+          <section class="panel decision-panel" aria-labelledby="decisionPanelTitle">
+            <div class="panel-head">
+              <div class="panel-title">
+                <svg class="i"><use href="#i-alert"></use></svg>
+                <h2 id="decisionPanelTitle">关键决策</h2>
+                <span class="panel-sub">C-4821 连接器缺口 · P0</span>
+              </div>
+              <div class="panel-tools">
+                <span class="tag danger">14:00 前</span>
+                <button class="mini-btn" type="button" title="更多"><svg class="i i-sm"><use href="#i-workflow"></use></svg></button>
+              </div>
+            </div>
+            <div class="decision-body">
+              <div class="decision-summary">
+                <div class="decision-summary-copy">
+                  <h3>3 个客户承诺将在 72 小时内失守</h3>
+                  <p>H 供应商承诺滑期 5 天，叠加华东需求上修 4.8%。需要今天 14:00 前完成取舍。</p>
+                </div>
+                <div class="decision-impact">
+                  <div class="impact"><small>缺口</small><strong class="danger">4,320 件</strong></div>
+                  <div class="impact"><small>涉险承诺</small><strong>¥2,140 万</strong></div>
+                  <div class="impact"><small>影响客户</small><strong>3 家</strong></div>
+                </div>
+              </div>
+
+              <div class="block-label" style="padding:0 11px;margin:2px 0 0">影响传导 <span>2 个上游原因 · 4 类下游影响</span></div>
+              <div class="causal-wrap">
+                <div class="causal-mini">
+                  <span class="causal-mini-line" aria-hidden="true"></span>
+                  <div class="causal-step">
+                    <span class="causal-dot"><svg class="i i-sm"><use href="#i-trending-up"></use></svg></span>
+                    <label>需求</label><strong>+17,600 台</strong><small>华东 2 个渠道</small>
+                  </div>
+                  <div class="causal-step risk">
+                    <span class="causal-dot"><svg class="i i-sm"><use href="#i-package"></use></svg></span>
+                    <label>供给</label><strong class="risk">缺口 4,320 件</strong><small>H 供应商晚 5 天</small>
+                  </div>
+                  <div class="causal-step">
+                    <span class="causal-dot"><svg class="i i-sm"><use href="#i-factory"></use></svg></span>
+                    <label>产能</label><strong>2 条线 &gt;97%</strong><small>WO-2317 / 2321</small>
+                  </div>
+                  <div class="causal-step">
+                    <span class="causal-dot"><svg class="i i-sm"><use href="#i-warehouse"></use></svg></span>
+                    <label>关键料库存</label><strong>4.1 天</strong><small>2 号线仅够到 14:00</small>
+                  </div>
+                  <div class="causal-step">
+                    <span class="causal-dot"><svg class="i i-sm"><use href="#i-truck"></use></svg></span>
+                    <label>履约</label><strong class="risk">3 客户 / 5 订单</strong><small>OTIF 93.7%</small>
+                  </div>
+                </div>
+              </div>
+
+              <div class="impact-scope">
+                <span class="impact-scope-label">影响范围</span>
+                <span>P9 / A5</span><span>·</span><span>2 条产线</span><span>·</span><span>4 个工单</span><span>·</span><span>3 客户 / 5 订单</span><span>·</span><span><strong>¥2,140 万</strong> 收入风险</span>
+                <button class="text-link" type="button" id="impactBtn">完整传导路径 <svg class="i" style="width:9px;height:9px"><use href="#i-arrow-right"></use></svg></button>
+              </div>
+
+              <div class="options-block">
+                <div class="block-label">处置策略 <span>AI 推荐“保承诺”</span></div>
+                <div class="option-list" role="radiogroup" aria-label="计划处置策略">
+                  <button class="option-row selected" type="button" role="radio" aria-checked="true" data-choice="promise" data-label="保承诺">
+                    <span class="option-radio"><svg class="i"><use href="#i-check"></use></svg></span>
+                    <span class="option-copy"><strong><span>保承诺 · 专车调拨 + 产线重排</span><em class="rec">AI 推荐</em></strong><small>1,200 件专车调拨，600 件由 WO-2317 后移 4 小时释放</small></span>
+                    <span class="opt-metric"><small>客户承诺</small><strong>3 个全保</strong></span>
+                    <span class="opt-metric"><small>增量成本</small><strong>+¥86 万</strong></span>
+                    <span class="opt-metric"><small>OTIF</small><strong class="good">97.4%</strong></span>
+                    <span class="risk low">低风险</span>
+                  </button>
+                  <button class="option-row" type="button" role="radio" aria-checked="false" data-choice="cost" data-label="保成本">
+                    <span class="option-radio"><svg class="i"><use href="#i-check"></use></svg></span>
+                    <span class="option-copy"><strong><span>保成本 · 切换备用供应商</span></strong><small>需 3 天质量认证，P1 客户可能延迟</small></span>
+                    <span class="opt-metric"><small>客户承诺</small><strong>2 个保住</strong></span>
+                    <span class="opt-metric"><small>增量成本</small><strong>+¥12 万</strong></span>
+                    <span class="opt-metric"><small>OTIF</small><strong>94.2%</strong></span>
+                    <span class="risk mid">中风险</span>
+                  </button>
+                  <button class="option-row" type="button" role="radio" aria-checked="false" data-choice="cash" data-label="保现金">
+                    <span class="option-radio"><svg class="i"><use href="#i-check"></use></svg></span>
+                    <span class="option-copy"><strong><span>保现金 · 客户分批交付</span></strong><small>不加急、不调拨，按客户等级重排交付</small></span>
+                    <span class="opt-metric"><small>客户承诺</small><strong>1 个保住</strong></span>
+                    <span class="opt-metric"><small>增量成本</small><strong>¥0</strong></span>
+                    <span class="opt-metric"><small>OTIF</small><strong>91.8%</strong></span>
+                    <span class="risk high">高风险</span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="recommend-line">
+                <span class="agent-mark">AI</span>
+                <div class="recommend-copy">
+                  <strong>推荐“保承诺”：</strong>3 个客户承诺的违约影响约 ¥2,140 万，86 万增量成本可换回 3.7pp OTIF，且不击穿 16 天安全库存下限。
+                  <button class="text-link" type="button" id="whyBtn">让 Data Agent 展开证据 <svg class="i" style="width:9px;height:9px"><use href="#i-arrow-right"></use></svg></button>
+                </div>
+              </div>
+            </div>
+            <div class="decision-footer">
+              <div class="footer-note" id="footerNote">采用后只生成 v49 草案，不自动修改生产计划或对外承诺。</div>
+              <button class="btn ghost" type="button" id="openEvidenceBtn">查看证据</button>
+              <button class="btn primary" type="button" id="adoptBtn">采用“保承诺”，生成 v49 草案</button>
+            </div>
+          </section>
+
+          <aside class="right-column" aria-label="待办与 AI 动态">
+            <section class="panel">
+              <div class="panel-head">
+                <div class="panel-title"><svg class="i"><use href="#i-check-square"></use></svg><h2>我的待办</h2><span class="panel-sub">3 项</span></div>
+                <div class="panel-tools"><button class="mini-btn" type="button" title="更多"><svg class="i i-sm"><use href="#i-chevron-right"></use></svg></button></div>
+              </div>
+              <div class="queue-list">
+                <button class="queue-item active" type="button">
+                  <span class="queue-priority">P0</span>
+                  <span class="queue-copy"><strong>C-4821 连接器缺口 4,320 件</strong><small>3 个客户承诺受影响</small></span>
+                  <span class="queue-time danger" id="firstQueueTime">14:00</span>
+                </button>
+                <button class="queue-item" type="button">
+                  <span class="queue-priority p1">P1</span>
+                  <span class="queue-copy"><strong>H 供应商产能恢复证明待补</strong><small>采购已催办 · 2 份证据缺失</small></span>
+                  <span class="queue-time">16:00</span>
+                </button>
+                <button class="queue-item" type="button">
+                  <span class="queue-priority p1">P1</span>
+                  <span class="queue-copy"><strong>W46 排产版本切换</strong><small>2 条产线 · 2 小时窗口</small></span>
+                  <span class="queue-time">明天</span>
+                </button>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-head">
+                <div class="panel-title"><svg class="i"><use href="#i-users"></use></svg><h2>AI 工作动态</h2><span class="panel-sub">4 在线</span></div>
+                <div class="panel-tools"><button class="mini-btn" type="button" title="刷新"><svg class="i i-sm"><use href="#i-refresh"></use></svg></button></div>
+              </div>
+              <div class="agent-list">
+                <div class="agent-row">
+                  <span class="agent-avatar ai">S</span>
+                  <span class="agent-copy"><strong><span>Scout</span><i class="role-chip">物料风险</i></strong><small>锁定 H 供应商滑期与维修工单证据</small></span>
+                  <span class="agent-state done">已完成</span>
+                </div>
+                <div class="agent-row">
+                  <span class="agent-avatar ai">A</span>
+                  <span class="agent-copy"><strong><span>Atlas</span><i class="role-chip">供应计划</i></strong><small id="atlasCopy">已生成 3 套再平衡情景与成本</small></span>
+                  <span class="agent-state waiting" id="atlasState">待决策</span>
+                </div>
+                <div class="agent-row">
+                  <span class="agent-avatar ai">D</span>
+                  <span class="agent-copy"><strong><span>Data Agent</span><i class="role-chip">分析</i></strong><small>核完 26 份证据，供应归因 62%</small></span>
+                  <span class="agent-state done">已完成</span>
+                </div>
+                <div class="agent-row">
+                  <span class="agent-avatar ai">F</span>
+                  <span class="agent-copy"><strong><span>Forge</span><i class="role-chip">产能规划</i></strong><small>校验 WO-2317 后移后的产线余量</small></span>
+                  <span class="agent-state working">运行中</span>
+                </div>
+              </div>
+              <div class="agent-foot"><span><strong>17</strong> 项分析 · <strong>26</strong> 份证据 · <strong>3</strong> 套方案</span><button class="text-link" type="button">查看运行记录</button></div>
+            </section>
+          </aside>
+
+          <section class="panel signals-panel" aria-labelledby="signalsTitle">
+            <div class="panel-head">
+              <div class="panel-title"><svg class="i"><use href="#i-trending-up"></use></svg><h2 id="signalsTitle">计划信号</h2><span class="panel-sub">需求、供给、产能、库存、履约</span></div>
+              <div class="panel-tools"><span class="tag">09:40 同步</span><button class="mini-btn" type="button" title="更多"><svg class="i i-sm"><use href="#i-chevron-right"></use></svg></button></div>
+            </div>
+            <table class="signal-table" aria-label="计划信号明细">
+              <thead><tr><th style="width:34%">信号</th><th style="width:24%">数据源 / 时间</th><th style="width:24%">影响</th><th>状态</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td><span class="signal-name"><svg class="i i-sm"><use href="#i-trending-up"></use></svg><span>华东渠道需求上修</span></span></td>
+                  <td>需求计划 v48 · 09:38</td>
+                  <td>P9 / A5 · +4.8%</td>
+                  <td><span class="signal-status"><i class="status-dot"></i>已纳入</span></td>
+                </tr>
+                <tr>
+                  <td><span class="signal-name"><svg class="i i-sm"><use href="#i-package"></use></svg><span>H 供应商承诺滑期</span></span></td>
+                  <td>SRM · 09:40</td>
+                  <td>C-4821 · 缺口 4,320 件</td>
+                  <td><span class="signal-status"><i class="status-dot danger"></i>需决策</span></td>
+                </tr>
+                <tr>
+                  <td><span class="signal-name"><svg class="i i-sm"><use href="#i-factory"></use></svg><span>产线负载进入高位</span></span></td>
+                  <td>APS · 09:32</td>
+                  <td>2 条线 &gt; 97%</td>
+                  <td><span class="signal-status"><i class="status-dot warning"></i>关注</span></td>
+                </tr>
+                <tr>
+                  <td><span class="signal-name"><svg class="i i-sm"><use href="#i-warehouse"></use></svg><span>C-4821 关键料库存</span></span></td>
+                  <td>WMS · 09:36</td>
+                  <td>4.1 天 · 低于 16 天下限</td>
+                  <td><span class="signal-status"><i class="status-dot danger"></i>风险</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div class="drawer-scrim" id="drawerScrim"></div>
+  <aside class="drawer" id="dataAgentDrawer" aria-hidden="true" aria-labelledby="dataAgentTitle">
+    <div class="drawer-head">
+      <span class="agent-mark">AI</span>
+      <div class="drawer-title">
+        <div class="drawer-kicker"><svg class="i i-sm"><use href="#i-sparkles"></use></svg>DATA AGENT · 只读分析</div>
+        <h2 id="dataAgentTitle">为什么主因是供应商，而不是需求？</h2>
+        <p>基于 09:40 数据快照 · 26 份记录 · 3 套推演</p>
+      </div>
+      <button class="icon-btn" type="button" id="closeDataAgentBtn" title="关闭"><svg class="i"><use href="#i-x"></use></svg></button>
+    </div>
+    <div class="drawer-body">
+      <div class="context-tag"><svg class="i i-sm"><use href="#i-link"></use></svg><code>EXC-W45-C4821</code><span>·</span><span>C-4821</span><span>·</span><span>W46–W47</span></div>
+      <div class="question-bubble">为什么判断主因是供应商，而不是需求？如果 H 再晚 3 天，影响是什么？</div>
+      <div class="answer">
+        <div class="answer-head">供应解释了 62% 的缺口</div>
+        <p>需求上修只解释了 24%，库存分配解释了 14%。H 供应商的承诺滑期和近 90 天准交率下降，是这次缺口的<strong>主因</strong>；需求增长是放大器，不是起点。</p>
+        <div class="attribution">
+          <div class="attr-row primary"><span>供应</span><div class="attr-track"><span style="--w:62%"></span></div><strong>62%</strong></div>
+          <div class="attr-row"><span>需求</span><div class="attr-track"><span style="--w:24%"></span></div><strong>24%</strong></div>
+          <div class="attr-row"><span>库存</span><div class="attr-track"><span style="--w:14%"></span></div><strong>14%</strong></div>
+        </div>
+      </div>
+      <div class="evidence-list">
+        <div class="evidence-item">
+          <span class="evidence-icon"><svg class="i i-sm"><use href="#i-database"></use></svg></span>
+          <div class="evidence-copy"><strong>SRM：PO-0918 恢复日期 11/04 → 11/09</strong><small>H 供应商交付经理已确认；维修工单尚未关闭</small></div>
+          <span class="evidence-time">09:40</span>
+        </div>
+        <div class="evidence-item">
+          <span class="evidence-icon"><svg class="i i-sm"><use href="#i-warehouse"></use></svg></span>
+          <div class="evidence-copy"><strong>WMS：可用库存 1,840 件，安全库存 3,600 件</strong><small>已扣除锁定与质检冻结批次</small></div>
+          <span class="evidence-time">09:36</span>
+        </div>
+        <div class="evidence-item">
+          <span class="evidence-icon"><svg class="i i-sm"><use href="#i-factory"></use></svg></span>
+          <div class="evidence-copy"><strong>APS：WO-2317 后移 4h 可释放 600 件需求</strong><small>不影响客户承诺；换型次数不增加</small></div>
+          <span class="evidence-time">09:32</span>
+        </div>
+      </div>
+      <div class="fact-grid">
+        <div class="fact"><strong>87%</strong>当前判断置信度</div>
+        <div class="fact"><strong>13%</strong>H 供应商再次滑期风险</div>
+        <div class="fact"><strong>+3 天</strong>缺口将扩大到 6,120 件</div>
+        <div class="fact"><strong>0</strong>需要额外会议</div>
+      </div>
+      <div class="recommend-line" style="margin:10px 0 0">
+        <span class="agent-mark">AI</span>
+        <div class="recommend-copy">结论已加入决策证据。对外承诺与生产计划仍需人工确认。</div>
+      </div>
+    </div>
+    <div class="drawer-foot">
+      <button class="btn" type="button" id="closeDataAgentSecondary">收起</button>
+      <button class="btn primary" type="button" id="useEvidenceBtn">将结论加入决策证据</button>
+    </div>
+  </aside>
+
+  <aside class="drawer impact-drawer" id="impactDrawer" aria-hidden="true" aria-labelledby="impactDrawerTitle">
+    <div class="drawer-head">
+      <span class="agent-mark">AI</span>
+      <div class="drawer-title">
+        <div class="drawer-kicker"><svg class="i i-sm"><use href="#i-link"></use></svg>PLAN SIGNAL · 传导路径</div>
+        <h2 id="impactDrawerTitle">从 H 供应商滑期，到 3 个客户承诺</h2>
+        <p>EXC-W45-C4821 · W46–W47 · 需求、供给、产能、库存、履约</p>
+      </div>
+      <button class="icon-btn" type="button" id="closeImpactBtn" title="关闭"><svg class="i"><use href="#i-x"></use></svg></button>
+    </div>
+    <div class="drawer-body">
+      <div class="context-tag"><svg class="i i-sm"><use href="#i-link"></use></svg><code>EXC-W45-C4821</code><span>·</span><span>4,320 件</span><span>·</span><span>影响 3 客户 / 5 订单</span></div>
+      <p class="impact-intro">这不是孤立的库存问题。H 供应商滑期先击穿 C-4821 库存，再把两条高负载产线和客户承诺一起拖入风险区。</p>
+      <div class="impact-path">
+        <div class="impact-path-item risk">
+          <span class="impact-index">1</span>
+          <span class="impact-copy"><strong>H 供应商交付延后 5 天</strong><small>PO-0918 原交期 11/04 → 修订 11/09 · 维修工单未关闭</small></span>
+          <span class="impact-tag risk">上游起因</span>
+        </div>
+        <div class="impact-path-item risk">
+          <span class="impact-index">2</span>
+          <span class="impact-copy"><strong>C-4821 缺口 4,320 件</strong><small>W46–W47 · 无已认证替代料 · 日本/华南仓均无可释放量</small></span>
+          <span class="impact-tag risk">物料断点</span>
+        </div>
+        <div class="impact-path-item">
+          <span class="impact-index">3</span>
+          <span class="impact-copy"><strong>关键料库存降至 4.1 天</strong><small>2 号线 14:00 后只能靠调拨或工单释放</small></span>
+          <span class="impact-tag">库存压力</span>
+        </div>
+        <div class="impact-path-item">
+          <span class="impact-index">4</span>
+          <span class="impact-copy"><strong>2 条产线负载进入 97% 以上</strong><small>WO-2317 / WO-2321 受影响 · W48 前无额外富裕班次</small></span>
+          <span class="impact-tag">产能约束</span>
+        </div>
+        <div class="impact-path-item">
+          <span class="impact-index">5</span>
+          <span class="impact-copy"><strong>3 个客户 / 5 个订单承诺受威胁</strong><small>P9 / A5 · P0/P1 客户 · OTIF 预测降至 93.7%</small></span>
+          <span class="impact-tag">履约影响</span>
+        </div>
+        <div class="impact-path-item risk">
+          <span class="impact-index">6</span>
+          <span class="impact-copy"><strong>收入风险 ¥2,140 万</strong><small>增量缓解成本 ¥86 万 · 库存与现金另有压力</small></span>
+          <span class="impact-tag risk">经营结果</span>
+        </div>
+      </div>
+      <div class="impact-scope-block">
+        <h3>影响范围与责任边界</h3>
+        <div class="scope-list">
+          <div class="scope-row"><span>需求</span><strong>华东 2 渠道 · +17,600 台</strong><span>Nova 已核</span></div>
+          <div class="scope-row"><span>供给</span><strong>H 供应商 · 晚 5 天 · 2 个采购订单</strong><em>需采购确认</em></div>
+          <div class="scope-row"><span>产能</span><strong>2 条线 &gt;97% · WO-2317 / 2321</strong><em>需生产确认</em></div>
+          <div class="scope-row"><span>履约</span><strong>3 客户 / 5 订单 / 4,320 台</strong><em>承诺不可变</em></div>
+          <div class="scope-row"><span>经营</span><strong>收入风险 ¥2,140 万 · 增量成本 ¥86 万</strong><span>财务 AI 已核</span></div>
+        </div>
+      </div>
+      <div class="impact-foot-note">链路中的每个数量都有来源、时点和责任边界。点击“让 Data Agent 解释传导”可继续追问任一节点。</div>
+    </div>
+    <div class="drawer-foot">
+      <button class="btn" type="button" id="closeImpactSecondary">收起</button>
+      <button class="btn agent" type="button" id="impactToDataAgentBtn">让 Data Agent 解释传导</button>
+    </div>
+  </aside>
+
+  <div class="toast" id="toast" role="status" aria-live="polite">
+    <svg class="i"><use href="#i-check"></use></svg><span id="toastText"></span>
+  </div>
+
+  <script>
+    const options = [...document.querySelectorAll(".option-row")];
+    const adoptBtn = document.getElementById("adoptBtn");
+    const dataAgentDrawer = document.getElementById("dataAgentDrawer");
+    const impactDrawer = document.getElementById("impactDrawer");
+    const drawerScrim = document.getElementById("drawerScrim");
+    const toast = document.getElementById("toast");
+    const toastText = document.getElementById("toastText");
+    let adopted = false;
+    let toastTimer = null;
+
+    function showToast(message) {
+      toastText.textContent = message;
+      toast.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove("show"), 3400);
+    }
+
+    function openDataAgent() {
+      impactDrawer.classList.remove("open");
+      impactDrawer.setAttribute("aria-hidden", "true");
+      dataAgentDrawer.classList.add("open");
+      dataAgentDrawer.setAttribute("aria-hidden", "false");
+      drawerScrim.classList.add("open");
+    }
+
+    function closeDataAgent() {
+      dataAgentDrawer.classList.remove("open");
+      dataAgentDrawer.setAttribute("aria-hidden", "true");
+      drawerScrim.classList.remove("open");
+    }
+
+    function openImpact() {
+      dataAgentDrawer.classList.remove("open");
+      dataAgentDrawer.setAttribute("aria-hidden", "true");
+      impactDrawer.classList.add("open");
+      impactDrawer.setAttribute("aria-hidden", "false");
+      drawerScrim.classList.add("open");
+    }
+
+    function closeImpact() {
+      impactDrawer.classList.remove("open");
+      impactDrawer.setAttribute("aria-hidden", "true");
+      drawerScrim.classList.remove("open");
+    }
+
+    function closeAllDrawers() {
+      closeDataAgent();
+      closeImpact();
+    }
+
+    options.forEach(option => {
+      option.addEventListener("click", () => {
+        if (adopted) return;
+        options.forEach(item => {
+          const active = item === option;
+          item.classList.toggle("selected", active);
+          item.setAttribute("aria-checked", String(active));
+        });
+        adoptBtn.textContent = `采用“${option.dataset.label}”，生成 v49 草案`;
+      });
+    });
+
+    adoptBtn.addEventListener("click", () => {
+      if (adopted) {
+        showToast("决策已形成，工作流包已在小周的执行台等待处理。");
+        return;
+      }
+      adopted = true;
+      adoptBtn.disabled = true;
+      adoptBtn.textContent = "已形成决定 · 4 个任务已派发";
+      document.getElementById("decisionCount").textContent = "2";
+      document.getElementById("footerNote").textContent = "已派发给小周（执行负责人）+ 3 个 AI 助手；执行状态自动回传本工作台。";
+      document.getElementById("firstQueueTime").textContent = "执行中";
+      document.getElementById("firstQueueTime").className = "queue-time success";
+      document.getElementById("atlasCopy").textContent = "已将 3 个动作交给小周的 AI 助手执行";
+      document.getElementById("atlasState").textContent = "已派发";
+      document.getElementById("atlasState").className = "agent-state done";
+      showToast("已生成 v49 草案。小周承接执行，仓配、排产、供应商 3 个 AI 助手已收到任务。");
+    });
+
+    document.getElementById("whyBtn").addEventListener("click", openDataAgent);
+    document.getElementById("openEvidenceBtn").addEventListener("click", openDataAgent);
+    document.getElementById("topDataAgentBtn").addEventListener("click", openDataAgent);
+    document.getElementById("closeDataAgentBtn").addEventListener("click", closeDataAgent);
+    document.getElementById("closeDataAgentSecondary").addEventListener("click", closeDataAgent);
+    document.getElementById("impactBtn").addEventListener("click", openImpact);
+    document.getElementById("closeImpactBtn").addEventListener("click", closeImpact);
+    document.getElementById("closeImpactSecondary").addEventListener("click", closeImpact);
+    document.getElementById("impactToDataAgentBtn").addEventListener("click", () => {
+      closeImpact();
+      openDataAgent();
+    });
+    drawerScrim.addEventListener("click", closeAllDrawers);
+    document.getElementById("useEvidenceBtn").addEventListener("click", () => {
+      closeDataAgent();
+      showToast("Data Agent 结论已加入决策证据，决策卡保持一个主操作。");
+    });
+
+    document.getElementById("refreshBtn").addEventListener("click", () => {
+      showToast("计划信号已刷新：数据截止 09:40，无新增 P0 异常。");
+    });
+    document.getElementById("shareBtn").addEventListener("click", () => {
+      showToast("只读视图已复制，包含当前决策与证据链，不包含权限外数据。");
+    });
+    document.getElementById("sopBtn").addEventListener("click", () => {
+      showToast("已基于当前 3 项待办生成 S&OP 议题草稿。");
+    });
+
+    document.querySelectorAll(".queue-item").forEach(item => {
+      item.addEventListener("click", () => {
+        if (item.classList.contains("active")) return;
+        showToast("当前演示聚焦 C-4821 决策，其他事项可在正式工作台中打开。");
+      });
+    });
+
+    document.querySelectorAll(".tab").forEach(tab => {
+      tab.addEventListener("click", () => {
+        if (!tab.classList.contains("active")) showToast("当前演示聚焦“我的工作台”。");
+      });
+    });
+
+    toast.addEventListener("click", () => toast.classList.remove("show"));
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape") closeAllDrawers();
+    });
+  </script>
+</body>
+</html>

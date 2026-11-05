@@ -1,0 +1,61 @@
+schemaVersion: "1.0"
+pluginId: "dsh-collab-demo-<scenario-id>"
+providerId: "<scenario>-demo-mcp-provider"
+featureFlag: "PLUGINMAX_ENABLE_<SCENARIO>_DEMO"
+registrationMode: "McpCatalogProvider"
+productionEnabled: false
+detachable: true
+
+assets:
+  - id: "mcp-<system>-<scenario>-demo"
+    name: "Mock <外部系统>"
+    protocol: "MCP · stdio"
+    permissions:
+      - "<resource>.read"
+    tools:
+      - name: "<system>_health"
+        access: "read"
+      - name: "<system>_query"
+        access: "read"
+    consumers:
+      - "<consumer>"
+
+  - id: "mcp-<business-system>-<scenario>-demo"
+    name: "Mock <业务系统>"
+    protocol: "MCP · stdio"
+    permissions:
+      - "<resource>.read"
+      - "business_document.write"
+    tools:
+      - name: "<business-system>_health"
+        access: "read"
+      - name: "<business-system>_create_document"
+        access: "write"
+        humanConfirmationRequired: true
+        actionTicketRequired: true
+        idempotencyField: "idempotencyKey"
+        allowedConsumers:
+          - "<execution-ai>"
+        deniedConsumers:
+          - "data-agent"
+
+registration:
+  resourceMarket:
+    visible: true
+  providerLifecycle:
+    connect:
+      - "initialize"
+      - "tools/list"
+    disconnect:
+      - "close MCP transport"
+      - "clear per-user client cache"
+  failurePolicy: "fail_closed"
+  productionFallback: false
+
+removal:
+  steps:
+    - "remove optional demo plugin from profile"
+    - "unset demo feature flag"
+    - "remove demo MCP assets from provider"
+    - "delete demo fixture, prompts, config, and runtime records"
+  residualProductionData: "none"

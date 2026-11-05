@@ -57,21 +57,66 @@ for (const pluginName of pluginNames) {
   const clientSourcePath = join(dir, "client/index.js");
   if (existsSync(clientSourcePath)) {
     const clientSource = readFileSync(clientSourcePath, "utf8");
-    check(
-      /exports\.inject\s*=\s*\["slots"\]/.test(clientSource),
-      `${pluginName}: client must declare its slots service dependency`,
-    );
-    check(
-      /ctx\.slots\.inject\(\s*"settings\.section"/.test(clientSource),
-      `${pluginName}: client must register through the settings.section slot`,
-    );
-    check(
-      !clientSource.includes("ctx.inject("),
-      `${pluginName}: client must not return slot registration from a nested context inject`,
-    );
+    const headless =
+      existsSync(manifestPath) &&
+      JSON.parse(readFileSync(manifestPath, "utf8")).dsh?.client?.headless ===
+        true;
+    if (!headless) {
+      check(
+        /exports\.inject\s*=\s*\["slots"(?:\s*,\s*"[^"]+")*\]/.test(
+          clientSource,
+        ),
+        `${pluginName}: client must declare its slots service dependency`,
+      );
+      const validSlots = [
+        "root",
+        "sidebar",
+        "conversation.view",
+        "settings.section",
+        "pluginmax.account-access.tab",
+        "sidebar.footer.action",
+        "shell.overlay",
+        "pluginmax.global",
+        "workbench.canvas.panel",
+        "pluginmax.communication.rail.task-capture",
+        "pluginmax.communication.context.task-capture",
+        "pluginmax.data-agent.task-capture",
+        "pluginmax.teammate.data-agent-settings",
+        "pluginmax.task.capture-launcher",
+        "pluginmax.task.detail.capture-origin",
+        "pluginmax.task.detail.extension",
+      ];
+      const replacesRoot = /ctx\.slots\.register\(\s*\{\s*name:\s*"root"/.test(
+        clientSource,
+      );
+      check(
+        replacesRoot ||
+          validSlots.some((slot) =>
+            new RegExp(`ctx\\.slots\\.inject\\(\\s*"${slot}"`).test(clientSource),
+          ),
+        `${pluginName}: client must register through a known DSH slot (${validSlots.join(", ")})`,
+      );
+      check(
+        !clientSource.includes("ctx.inject("),
+        `${pluginName}: client must not return slot registration from a nested context inject`,
+      );
+    }
     check(
       readFileSync(join(dir, "lib/client.js"), "utf8") === clientSource,
       `${pluginName}: built client bundle must match client/index.js`,
+    );
+  }
+
+  const serverSourcePath = join(dir, "src/index.ts");
+  if (existsSync(serverSourcePath)) {
+    const serverSource = readFileSync(serverSourcePath, "utf8");
+    const toolRegistrations =
+      serverSource.match(/ctx\.tools\.register\(/g)?.length ?? 0;
+    const outputDeclarations =
+      serverSource.match(/(^|\s)output:\s*/g)?.length ?? 0;
+    check(
+      outputDeclarations >= toolRegistrations,
+      `${pluginName}: every tool registration must declare an output contract`,
     );
   }
 
