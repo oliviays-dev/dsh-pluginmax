@@ -143,6 +143,7 @@ interface TaskRecordLike {
   readonly receiverType: "unassigned" | "human" | "agent" | "role";
   readonly receiverId?: string;
   readonly receiverName?: string;
+  readonly createdBy?: string;
   readonly due?: string;
   readonly description: string;
   readonly acceptance: readonly string[];
@@ -165,6 +166,7 @@ interface TaskRecordLike {
     readonly nodeName: string;
     readonly reviewRequired: boolean;
     readonly approvalPolicy?: "any" | "all";
+    readonly approverIds?: readonly string[] | undefined;
   };
   readonly archivedAt?: string;
   readonly createdAt: string;
@@ -1098,21 +1100,38 @@ export class WorkbenchService {
       throw new WorkbenchError("unavailable", "任务服务不可用");
     }
     const { byId: workspaces } = this.workspaceMap(principal);
-    const agentIds =
-      options.scope === "me_and_ai"
-        ? this.myAgentIds(principal)
-        : new Set<string>();
+    const agentIds = this.myAgentIds(principal);
     const items: TodoItemPayload[] = [];
     for (const workspace of workspaces.values()) {
       const roleSeats = this.myRoleSeats(principal, workspace.id);
       for (const task of service.list(workspace.id)) {
         if (task.archivedAt !== undefined) continue;
         if (task.status !== "todo" && task.status !== "review") continue;
-        if (!this.ownsTask(principal, task, agentIds, roleSeats)) continue;
+        const reviewAssignedToMe =
+          task.status === "review" &&
+          (task.workflow?.approverIds ?? []).some(
+            (id) =>
+              id === principal.userId ||
+              agentIds.has(id) ||
+              roleSeats.has(id),
+          );
+        // 待验收任务的接收人可能是 AI伙伴，但验收动作属于实例 owner。
+        // 因此 review 必须始终进入 owner 的待办，不受「仅我 / 我和 AI 伙伴」范围影响。
+        const visibleAgentIds =
+          options.scope === "me_and_ai" || task.status === "review"
+            ? agentIds
+            : new Set<string>();
+        if (
+          !reviewAssignedToMe &&
+          !this.ownsTask(principal, task, visibleAgentIds, roleSeats)
+        ) {
+          continue;
+        }
         items.push({
           id: task.id,
           displayId: task.id,
           title: task.title,
+          description: task.description,
           priority: task.priority,
           priorityLabel: priorityLabel(task.priority),
           status: task.status,
@@ -1122,6 +1141,10 @@ export class WorkbenchService {
           workspaceName: this.workspaceName(workspace),
           receiverType: task.receiverType,
           receiverName: task.receiverName ?? task.receiverId ?? "待指派",
+          receiverOwnerName:
+            task.receiverType === "agent" && task.createdBy !== undefined
+              ? this.userName(task.createdBy)
+              : undefined,
           due: task.due ?? "",
           updatedAt: task.updatedAt,
           deepLink: {
@@ -3057,6 +3080,7 @@ export interface TodoItemPayload {
   /** 展示用编号（任务即 TSK-…）。 */
   displayId: string;
   title: string;
+  description: string;
   priority: string;
   priorityLabel: string;
   status: string;
@@ -3066,6 +3090,7 @@ export interface TodoItemPayload {
   workspaceName: string;
   receiverType: string;
   receiverName: string;
+  receiverOwnerName?: string | undefined;
   due: string;
   updatedAt: string;
   deepLink: { route: "task"; refId: string; workspaceId: string };

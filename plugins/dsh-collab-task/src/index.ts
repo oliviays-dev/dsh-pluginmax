@@ -431,6 +431,18 @@ function taskAgentDisplayName(task: TaskRecord): string {
   return task.receiverName ?? task.receiverId ?? "Agent";
 }
 
+function firstRunId(
+  runs: readonly Pick<TaskAgentRunSummary, "id" | "createdAt" | "startedAt">[],
+): string | undefined {
+  return [...runs]
+    .sort(
+      (left, right) =>
+        Date.parse(left.startedAt ?? left.createdAt ?? "") -
+        Date.parse(right.startedAt ?? right.createdAt ?? ""),
+    )
+    .at(0)?.id;
+}
+
 export function createTaskDocumentQueryService(
   service: TaskService,
   agent: () => TaskAgentServiceLike | undefined,
@@ -459,6 +471,7 @@ export function createTaskDocumentQueryService(
       const ownerRuns = runs.filter(
         (run) => (run.payload?.context?.taskRunRole ?? "owner") === "owner",
       );
+      const taskUploadRunId = firstRunId(ownerRuns);
       const ownerRunIds = new Set(ownerRuns.map((run) => run.id));
       const allWindows = windowsFromRuns(
         allRuns.map((run) => {
@@ -483,6 +496,7 @@ export function createTaskDocumentQueryService(
       const collectedDocuments = await collectDocuments({
         root,
         windows: allWindows,
+        taskId: task.id,
         ...(options.maxFiles === undefined
           ? {}
           : { maxFiles: options.maxFiles }),
@@ -521,6 +535,7 @@ export function createTaskDocumentQueryService(
                       : [];
                   }),
                 ),
+                taskUploadRunId,
               )),
         ]),
       };
@@ -1416,11 +1431,13 @@ async function taskDocumentBrief(
   const ownerRuns = runs.filter(
     (run) => (run.payload?.context?.taskRunRole ?? "owner") === "owner",
   );
+  const taskUploadRunId = firstRunId(ownerRuns);
   const produced =
     root === undefined
       ? []
       : await collectDocuments({
           root,
+          taskId: task.id,
           windows: windowsFromRuns(
             ownerRuns.map((run) => ({
               id: run.id,
@@ -1462,11 +1479,25 @@ async function taskDocumentBrief(
             : [];
         }),
       ),
+      taskUploadRunId,
     ),
   ]).map(
     (document) =>
       `- ${document.kind === "produced" ? "产出" : "上传"}：${document.name}（${document.relativePath}）${document.available ? "" : " · 当前不可读"}`,
   );
+}
+
+function taskDocumentContextLines(
+  documents: readonly string[],
+): readonly string[] {
+  if (documents.length === 0) return [];
+  return [
+    "",
+    "## 当前任务文档",
+    "以下文件属于当前任务。需要读取或按用户要求在原文件上更新时，请直接使用下列相对路径。",
+    "这些文件可能位于 `.pluginmax` 下；不要只按工作区根目录的文件搜索结果判断文件不存在。",
+    ...documents.slice(0, 40),
+  ];
 }
 
 async function dispatchTaskInstruction(
@@ -1685,20 +1716,30 @@ async function dispatchTaskInstruction(
     (typeof previousDefinitionDigest !== "string" ||
       previousDefinitionDigest !== definitionDigest);
   const runSeq = task.agentRunIds.length + 1;
+  const ownerTaskDocuments =
+    runRole === "owner"
+      ? await taskDocumentBrief(agent, workspaces, task)
+      : [];
+  const ownerDocumentContext = taskDocumentContextLines(ownerTaskDocuments);
   const legacyInstruction =
     runRole === "owner"
-      ? buildTaskContext(task, {
-          firstDelivery,
-          ...(statelessExternal ? { statelessExternal: true } : {}),
-          ...(deliveredThrough === undefined
-            ? {}
-            : { deliveredThroughMessageId: deliveredThrough }),
-          ...(trigger?.messageId === undefined
-            ? {}
-            : { triggerMessageId: trigger.messageId }),
-          ...(trigger === undefined ? {} : { triggerContent: trigger.content }),
-          ...(definitionChanged ? { definitionChanged: true } : {}),
-        })
+      ? [
+          buildTaskContext(task, {
+            firstDelivery,
+            ...(statelessExternal ? { statelessExternal: true } : {}),
+            ...(deliveredThrough === undefined
+              ? {}
+              : { deliveredThroughMessageId: deliveredThrough }),
+            ...(trigger?.messageId === undefined
+              ? {}
+              : { triggerMessageId: trigger.messageId }),
+            ...(trigger === undefined
+              ? {}
+              : { triggerContent: trigger.content }),
+            ...(definitionChanged ? { definitionChanged: true } : {}),
+          }),
+          ...ownerDocumentContext,
+        ].join("\n")
       : buildAssistContext(task, {
           role: runRole,
           ask: options?.ask ?? trigger?.content ?? "",
@@ -1756,10 +1797,14 @@ async function dispatchTaskInstruction(
     contextService !== undefined && contextPack !== undefined
       ? contextService.session?.(contextPack.sessionBindingId)
       : undefined;
-  const instruction =
+  const renderedInstruction =
     contextPack === undefined
       ? legacyInstruction
       : contextPack.rendered.flattenedPrompt;
+  const instruction =
+    contextPack === undefined
+      ? renderedInstruction
+      : [renderedInstruction, ...ownerDocumentContext].join("\n");
   const timeoutMinutes = target.maxMinutes ?? 30;
   const workspacePath = workspaces?.get(task.workspaceId)?.path;
   const run = await agent.dispatch({
@@ -1839,12 +1884,41 @@ async function dispatchTaskInstruction(
   return run;
 }
 
-const uploadInputSchema = z.object({
-  taskId: z.string().min(1).max(160),
+const attachmentUploadSchema = z.object({
   name: z.string().min(1).max(300),
   mimeType: z.string().max(200).optional(),
   contentBase64: z.string().min(1).max(32_000_000),
 });
+const uploadInputSchema = attachmentUploadSchema.extend({
+  taskId: z.string().min(1).max(160),
+});
+
+async function persistTaskUpload(
+  root: string,
+  taskId: string,
+  input: z.infer<typeof attachmentUploadSchema>,
+  uploadedBy: string,
+): Promise<{
+  readonly name: string;
+  readonly relativePath: string;
+  readonly size: number;
+  readonly mimeType: string;
+  readonly uploadedBy: string;
+}> {
+  const content = decodeBase64(input.contentBase64);
+  const directory = uploadDirectory(root, taskId);
+  await mkdir(directory, { recursive: true });
+  const fileName = safeFileName(input.name);
+  const absolute = join(directory, fileName);
+  await writeFile(absolute, content);
+  return {
+    name: fileName,
+    relativePath: toRelativePath(root, absolute),
+    size: content.byteLength,
+    mimeType: input.mimeType ?? mimeTypeFor(fileName),
+    uploadedBy,
+  };
+}
 
 function safeResolve(root: string, relativePath: string): string {
   try {
@@ -2384,6 +2458,7 @@ export function createTaskRoutes(
         actor: TaskActor,
         body: unknown,
       ) => Promise<unknown>,
+      maxBodyBytes?: number,
     ) =>
     async (
       request: IncomingMessage,
@@ -2391,7 +2466,7 @@ export function createTaskRoutes(
     ): Promise<void> => {
       try {
         assertSameOrigin(request);
-        const body = await readJsonBody(request);
+        const body = await readJsonBody(request, maxBodyBytes);
         let workspaceId =
           typeof body === "object" && body !== null && "workspaceId" in body
             ? String((body as { workspaceId?: unknown }).workspaceId ?? "")
@@ -2711,12 +2786,53 @@ export function createTaskRoutes(
       kind: "exact",
       path: "/api/collab/tasks/create",
       handler: mutate(async (_request, currentActor, body) => {
-        const task = await service.create(currentActor, body);
+        const bodyRecord =
+          typeof body === "object" && body !== null
+            ? (body as Record<string, unknown>)
+            : {};
+        const parsedAttachments = z
+          .array(attachmentUploadSchema)
+          .max(20)
+          .safeParse(bodyRecord.attachments ?? []);
+        if (!parsedAttachments.success) {
+          throw new TaskError("invalid_input", "任务附件内容不合法");
+        }
+        let task = await service.create(currentActor, {
+          ...bodyRecord,
+          attachments: parsedAttachments.data.map(
+            ({ contentBase64: _contentBase64, ...attachment }) => attachment,
+          ),
+        });
+        if (parsedAttachments.data.length > 0) {
+          const root = workspaceRoot(task);
+          if (root === undefined) {
+            throw new TaskError("conflict", "任务工作区不可用");
+          }
+          const uploaded = [];
+          for (const attachment of parsedAttachments.data) {
+            const document = await persistTaskUpload(
+              root,
+              task.id,
+              attachment,
+              currentActor.name,
+            );
+            uploaded.push({
+              name: document.name,
+              size: document.size,
+              mimeType: document.mimeType,
+              storedPath: document.relativePath,
+            });
+          }
+          task = await service.setDescriptionAttachments(currentActor, {
+            taskId: task.id,
+            attachments: uploaded,
+          });
+        }
         if (task.receiverType !== "agent" || task.receiverId === undefined) {
           return { task };
         }
         return dispatchTaskWhenReady(task, currentActor);
-      }),
+      }, 32 * 1024 * 1024),
     },
     {
       kind: "exact",
@@ -3271,21 +3387,15 @@ export function createTaskRoutes(
           if (root === undefined) {
             throw new TaskError("conflict", "任务工作区不可用");
           }
-          const content = decodeBase64(parsed.data.contentBase64);
-          const directory = uploadDirectory(root, task.id);
-          await mkdir(directory, { recursive: true });
-          const fileName = safeFileName(parsed.data.name);
-          const absolute = join(directory, fileName);
-          await writeFile(absolute, content);
+          const document = await persistTaskUpload(
+            root,
+            task.id,
+            parsed.data,
+            currentActor.name,
+          );
           sendJson(response, 200, {
             ok: true,
-            document: {
-              name: fileName,
-              relativePath: toRelativePath(root, absolute),
-              size: content.byteLength,
-              mimeType: parsed.data.mimeType ?? mimeTypeFor(fileName),
-              uploadedBy: currentActor.name,
-            },
+            document,
           });
         } catch (cause) {
           routeError(response, cause);

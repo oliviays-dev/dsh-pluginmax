@@ -16,12 +16,18 @@ import {
   teammateTemplateSchema,
   teammateTemplateStateSchema,
   teammateWorkReportSchema,
+  templateSkillBindingSchema,
+  teammateExtensionPolicySchema,
+  instanceSkillExtensionSchema,
   type Teammate,
   type TeammateAuditEvent,
   type TeammateEvent,
   type ProfileTemplate,
   type TeammateTemplate,
   type TeammateWorkReport,
+  type TemplateSkillBinding,
+  type TeammateExtensionPolicy,
+  type InstanceSkillExtension,
 } from "./models.js";
 import {
   canManageInstance,
@@ -465,6 +471,27 @@ interface ProjectRoleAssignmentServiceLike {
       readonly assigneeId: string;
     },
   ): Promise<ProjectRoleAssignmentLike>;
+}
+
+interface SkillCatalogItemLike {
+  readonly id: string;
+  readonly name: string;
+  readonly version: string;
+  readonly instructions?: string | undefined;
+  readonly triggers?: readonly string[] | undefined;
+  readonly source?: "seed" | "provider" | "user" | undefined;
+  readonly status?: "enabled" | "available" | undefined;
+}
+
+interface SkillCatalogServiceLike {
+  installedSkills(
+    principal: string | { readonly userId: string },
+  ): Promise<readonly SkillCatalogItemLike[]>;
+  resolveSkills(
+    principal: string | { readonly userId: string },
+    skillIds: readonly string[],
+    options?: { readonly requireInstallation?: boolean },
+  ): Promise<readonly SkillCatalogItemLike[]>;
 }
 
 export interface TeammateActivityScope {
@@ -1411,6 +1438,8 @@ const teammateTemplateCreateBodySchema = z.object({
   scenarios: z.array(z.string().trim().min(1).max(500)).max(50).optional(),
   goals: z.array(z.string().trim().min(1).max(500)).max(50).optional(),
   tools: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
+  skillBindings: z.array(templateSkillBindingSchema).max(30).optional(),
+  extensionPolicy: teammateExtensionPolicySchema.optional(),
   active: z.boolean().optional(),
 });
 
@@ -1877,6 +1906,7 @@ export function createTeammateRoutes(
   teammateTemplates?: TeammateTemplateService,
   employees?: () => EmployeeServiceLike | undefined,
   projectAssignments?: () => ProjectRoleAssignmentServiceLike | undefined,
+  skillCatalog?: () => SkillCatalogServiceLike | undefined,
 ): WebRouteLike[] {
   const requireTeam = (): TeamServiceLike => {
     const value = team();
@@ -2021,6 +2051,102 @@ export function createTeammateRoutes(
       throw new TeammateError("not_found", "AI伙伴模版服务不可用");
     }
     return teammateTemplates;
+  };
+  const requireSkillCatalog = (): SkillCatalogServiceLike => {
+    const catalog = skillCatalog?.();
+    if (catalog === undefined) {
+      throw new TeammateError(
+        "not_found",
+        "Skill 服务不可用，无法读取或解析 Skill",
+      );
+    }
+    return catalog;
+  };
+  const skillConfigFor = async (teammate: Teammate) => {
+    const catalog = requireSkillCatalog();
+    const template = service.templateOf(teammate);
+    const baseline = template?.skillBindings ?? [];
+    const extensionPolicy =
+      template?.extensionPolicy ??
+      teammateExtensionPolicySchema.parse({});
+    const extensions = teammate.skillExtensions ?? [];
+    const installed = await catalog.installedSkills({
+      userId: teammate.ownerUserId,
+    });
+    const baseSkills = await catalog.resolveSkills(
+      { userId: template?.createdBy ?? teammate.ownerUserId },
+      baseline.map((binding) => binding.skillId),
+      { requireInstallation: false },
+    );
+    const extensionSkills = await catalog.resolveSkills(
+      { userId: teammate.ownerUserId },
+      extensions.map((extension) => extension.skillId),
+      { requireInstallation: true },
+    );
+    const baseById = new Map(baseSkills.map((skill) => [skill.id, skill]));
+    const extensionById = new Map(
+      extensionSkills.map((skill) => [skill.id, skill]),
+    );
+    const effective = new Map<
+      string,
+      SkillCatalogItemLike & {
+        readonly bindingSource: "platform" | "user";
+        readonly mode: "required" | "default" | "additive" | "primary";
+        readonly scenes: readonly string[];
+      }
+    >();
+    for (const binding of baseline) {
+      if (!binding.enabled || binding.mode === "optional") continue;
+      const skill = baseById.get(binding.skillId);
+      if (skill === undefined) continue;
+      effective.set(binding.skillId, {
+        ...skill,
+        bindingSource: "platform",
+        mode: binding.mode,
+        scenes: binding.scenes,
+      });
+    }
+    for (const extension of extensions) {
+      if (extension.status !== "active") continue;
+      const skill = extensionById.get(extension.skillId);
+      if (skill === undefined) continue;
+      effective.set(extension.skillId, {
+        ...skill,
+        bindingSource: "user",
+        mode: extension.mode,
+        scenes: extension.scenes,
+      });
+    }
+    return {
+      templateId: template?.id,
+      baseline,
+      extensionPolicy,
+      extensions,
+      installedSkills: installed,
+      effective: [...effective.values()],
+    };
+  };
+  const assertTemplateSkillsInstalled = async (
+    actor: TeammateActor,
+    bindings: readonly TemplateSkillBinding[],
+  ): Promise<void> => {
+    if (bindings.length === 0) return;
+    const catalog = requireSkillCatalog();
+    const resolved = await catalog.resolveSkills(
+      { userId: actor.userId },
+      bindings.map((binding) => binding.skillId),
+      { requireInstallation: true },
+    );
+    const installedIds = new Set(resolved.map((skill) => skill.id));
+    const missing = bindings
+      .map((binding) => binding.skillId)
+      .filter((skillId) => !installedIds.has(skillId));
+    if (missing.length > 0) {
+      throw new TeammateError(
+        "invalid_input",
+        `以下 Skill 未安装或无权使用：${missing.join("、")}`,
+      );
+    }
   };
 
   return [
@@ -2196,6 +2322,171 @@ export function createTeammateRoutes(
     },
     {
       kind: "exact",
+      path: "/api/collab/teammates/skills",
+      handler: (request, response) =>
+        runHandler(async () => {
+          methods("GET", request);
+          const { teammate } = requireReadableTeammate(request);
+          sendJson(response, 200, {
+            ok: true,
+            ...(await skillConfigFor(teammate)),
+          });
+        }, response),
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/teammates/skills/extend",
+      handler: mutate(async (actor, body) => {
+        const input = parseOrInvalid(
+          z.object({
+            teammateId: z.string().trim().min(1).max(160),
+            skillId: z.string().trim().min(1).max(160),
+            mode: z.enum(["additive", "primary"]).default("additive"),
+            scenes: z
+              .array(z.string().trim().min(1).max(80))
+              .max(20)
+              .optional(),
+          }),
+          body,
+        );
+        const teammate = service.get(input.teammateId);
+        if (!canManageInstance(teammate, actor)) {
+          throw new TeammateError(
+            "forbidden",
+            "只有 AI伙伴负责人或平台管理员可以维护 Skill 扩展",
+          );
+        }
+        const catalog = requireSkillCatalog();
+        const resolved = await catalog.resolveSkills(
+          { userId: teammate.ownerUserId },
+          [input.skillId],
+          { requireInstallation: true },
+        );
+        const skill = resolved[0];
+        if (skill === undefined) {
+          throw new TeammateError(
+            "not_found",
+            "Skill 未安装、无权使用或已被归档",
+          );
+        }
+        const template = service.templateOf(teammate);
+        const policy =
+          template?.extensionPolicy ??
+          teammateExtensionPolicySchema.parse({});
+        const baseline = template?.skillBindings ?? [];
+        if (policy.protectedSkillIds.includes(input.skillId)) {
+          throw new TeammateError(
+            "forbidden",
+            "该 Skill 属于平台保护能力，不能由实例扩展覆盖",
+          );
+        }
+        const baseBinding = baseline.find(
+          (binding) => binding.skillId === input.skillId,
+        );
+        if (baseBinding === undefined && !policy.allowAdditionalSkills) {
+          throw new TeammateError(
+            "forbidden",
+            "该智能体定义不允许用户追加 Skill",
+          );
+        }
+        const scenes =
+          input.scenes !== undefined && input.scenes.length > 0
+            ? input.scenes
+            : skill.triggers !== undefined && skill.triggers.length > 0
+              ? [...skill.triggers]
+              : ["general"];
+        if (
+          input.mode === "primary" &&
+          scenes.some((scene) => policy.protectedScenes.includes(scene))
+        ) {
+          throw new TeammateError(
+            "forbidden",
+            "该场景受平台保护，不能由实例选择主处理器",
+          );
+        }
+        const requiredScenes = new Set(
+          baseline
+            .filter(
+              (binding) =>
+                binding.enabled &&
+                (binding.mode === "required" || binding.mode === "default"),
+            )
+            .flatMap((binding) => binding.scenes),
+        );
+        if (
+          input.mode === "primary" &&
+          scenes.some((scene) => requiredScenes.has(scene)) &&
+          !policy.allowSceneOverrides
+        ) {
+          throw new TeammateError(
+            "forbidden",
+            "该模版不允许用户覆盖已有场景处理器",
+          );
+        }
+        const conflicting = (teammate.skillExtensions ?? []).find(
+          (extension) =>
+            extension.status === "active" &&
+            extension.mode === "primary" &&
+            extension.skillId !== input.skillId &&
+            extension.scenes.some((scene) => scenes.includes(scene)),
+        );
+        if (input.mode === "primary" && conflicting !== undefined) {
+          throw new TeammateError(
+            "conflict",
+            `场景 ${scenes.join("、")} 已有其他用户扩展主处理器`,
+          );
+        }
+        const now = new Date().toISOString();
+        const nextExtensions = [
+          ...(teammate.skillExtensions ?? []).filter(
+            (extension) => extension.skillId !== input.skillId,
+          ),
+          {
+            skillId: input.skillId,
+            versionConstraint: "*",
+            scenes,
+            mode: input.mode,
+            status: "active" as const,
+            addedBy: actor.userId,
+            addedAt: now,
+          },
+        ];
+        const updated = await service.updateSkillExtensions(actor, {
+          teammateId: teammate.id,
+          skillExtensions: nextExtensions,
+        });
+        return { teammate: updated, ...(await skillConfigFor(updated)) };
+      }),
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/teammates/skills/remove",
+      handler: mutate(async (actor, body) => {
+        const input = parseOrInvalid(
+          z.object({
+            teammateId: z.string().trim().min(1).max(160),
+            skillId: z.string().trim().min(1).max(160),
+          }),
+          body,
+        );
+        const teammate = service.get(input.teammateId);
+        if (!canManageInstance(teammate, actor)) {
+          throw new TeammateError(
+            "forbidden",
+            "只有 AI伙伴负责人或平台管理员可以维护 Skill 扩展",
+          );
+        }
+        const updated = await service.updateSkillExtensions(actor, {
+          teammateId: teammate.id,
+          skillExtensions: (teammate.skillExtensions ?? []).filter(
+            (extension) => extension.skillId !== input.skillId,
+          ),
+        });
+        return { teammate: updated, ...(await skillConfigFor(updated)) };
+      }),
+    },
+    {
+      kind: "exact",
       path: "/api/collab/teammate-templates",
       handler: (request, response) =>
         runHandler(async () => {
@@ -2212,21 +2503,27 @@ export function createTeammateRoutes(
     {
       kind: "exact",
       path: "/api/collab/teammate-templates/create",
-      handler: mutate((actor, body) => {
+      handler: mutate(async (actor, body) => {
         const input = parseOrInvalid(teammateTemplateCreateBodySchema, body);
-        return requireTeammateTemplates()
-          .create(actor, input)
-          .then((template) => ({ template }));
+        await assertTemplateSkillsInstalled(
+          actor,
+          input.skillBindings ?? [],
+        );
+        const template = await requireTeammateTemplates().create(actor, input);
+        return { template };
       }),
     },
     {
       kind: "exact",
       path: "/api/collab/teammate-templates/update",
-      handler: mutate((actor, body) => {
+      handler: mutate(async (actor, body) => {
         const input = parseOrInvalid(teammateTemplateUpdateBodySchema, body);
-        return requireTeammateTemplates()
-          .update(actor, input)
-          .then((template) => ({ template }));
+        await assertTemplateSkillsInstalled(
+          actor,
+          input.skillBindings ?? [],
+        );
+        const template = await requireTeammateTemplates().update(actor, input);
+        return { template };
       }),
     },
     {
@@ -2949,6 +3246,32 @@ export function createTeammateRoutes(
                 createdAt: run.createdAt,
               }),
             );
+          const skillConfig =
+            skillCatalog?.() === undefined
+              ? undefined
+              : await skillConfigFor(teammate);
+          const applicableSkills = (skillConfig?.effective ?? []).filter(
+            (skill) =>
+              skill.scenes.includes("work-report") ||
+              skill.scenes.includes("general"),
+          );
+          const userPrimary = applicableSkills.find(
+            (skill) =>
+              skill.bindingSource === "user" &&
+              skill.mode === "primary" &&
+              skill.scenes.includes("work-report"),
+          );
+          const selectedSkills = applicableSkills.filter((skill) => {
+            if (
+              userPrimary === undefined ||
+              skill.bindingSource !== "platform" ||
+              skill.mode !== "default" ||
+              !skill.scenes.includes("work-report")
+            ) {
+              return true;
+            }
+            return false;
+          });
           const context: WorkReportGenerationContext = {
             teammate,
             reportDate,
@@ -2963,6 +3286,21 @@ export function createTeammateRoutes(
               runsFor,
               reportDate,
             }),
+            skills: selectedSkills
+              .filter(
+                (skill) =>
+                  typeof skill.instructions === "string" &&
+                  skill.instructions.trim() !== "",
+              )
+              .map((skill) => ({
+                id: skill.id,
+                name: skill.name,
+                version: skill.version,
+                instructions: skill.instructions ?? "",
+                source: skill.source ?? "provider",
+                bindingSource: skill.bindingSource,
+                scenes: [...skill.scenes],
+              })),
           };
           const author = {
             type: "ai-teammate" as const,
@@ -3078,6 +3416,7 @@ export interface TeammateContext {
   get(
     key: "collabAssignment",
   ): ProjectRoleAssignmentServiceLike | undefined;
+  get(key: "collabResourceMarket"): SkillCatalogServiceLike | undefined;
   get(key: "agents"): AgentsRegistryLike | undefined;
   get(key: "subagents"): SubagentsRuntimeLike | undefined;
   inject(
@@ -3200,6 +3539,7 @@ export async function apply(ctx: TeammateContext): Promise<void> {
       teammateTemplateService,
       () => ctx.get("collabEmployee"),
       () => ctx.get("collabAssignment"),
+      () => ctx.get("collabResourceMarket"),
     );
     for (const route of routes) ctx.webServer.register(route);
     void syncRuntimeIdentities().catch(() => undefined);

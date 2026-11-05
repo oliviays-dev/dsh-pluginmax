@@ -202,6 +202,8 @@ export const taskRecordSchema = z.object({
   createdBy: z.string().min(1).max(160),
   createdByName: z.string().min(1).max(200),
   description: z.string().min(1).max(20000),
+  /** Files supplied together with the task definition and description. */
+  attachments: z.array(taskAttachmentSchema).max(20).default([]),
   acceptance: z.array(z.string().min(1).max(500)).min(1).max(30),
   executionPolicy: taskExecutionPolicySchema.optional(),
   due: z.string().max(40).optional(),

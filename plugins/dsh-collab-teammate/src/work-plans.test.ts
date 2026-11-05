@@ -1,9 +1,15 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { describe, expect, it } from "vitest";
-import type { Teammate, TeammateAuditEvent, TeammateWorkReport } from "./models.js";
+import type {
+  Teammate,
+  TeammateAuditEvent,
+  TeammateTemplate,
+  TeammateWorkReport,
+} from "./models.js";
 import { createTeammateRoutes, type TeammateWorkReportRuntimeContext } from "./index.js";
 import {
   TeammateService,
+  TeammateTemplateService,
   type KvTableLike,
   type TeammateActor,
 } from "./service.js";
@@ -43,6 +49,16 @@ interface FakeTask {
   autoSubmitReview: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+interface SkillCatalogItemFixture {
+  id: string;
+  name: string;
+  version: string;
+  instructions?: string;
+  triggers?: readonly string[];
+  source?: "seed" | "provider" | "user";
+  status?: "enabled" | "available";
 }
 
 class FakeResponse {
@@ -89,9 +105,85 @@ function setup(options?: {
   report?: GeneratedWorkReport;
   reportError?: Error;
   dispatchError?: string;
+  skillCatalog?: {
+    installedSkills: (
+      principal: unknown,
+    ) => Promise<readonly SkillCatalogItemFixture[]>;
+    resolveSkills: (
+      principal: unknown,
+      skillIds: readonly string[],
+    ) => Promise<readonly SkillCatalogItemFixture[]>;
+  };
+  skillExtensions?: readonly {
+    skillId: string;
+    versionConstraint: string;
+    scenes: readonly string[];
+    mode: "additive" | "primary";
+    status: "active" | "paused";
+    addedBy: string;
+    addedAt: string;
+  }[];
+  templateSkillBindings?: readonly {
+    skillId: string;
+    versionConstraint: string;
+    mode: "required" | "default" | "optional";
+    scenes: readonly string[];
+    enabled: boolean;
+  }[];
+  extensionPolicy?: {
+    allowAdditionalSkills: boolean;
+    allowDisableDefaultSkills: boolean;
+    allowSceneOverrides: boolean;
+    protectedScenes: readonly string[];
+    protectedSkillIds: readonly string[];
+  };
 }) {
   const teammatesTable = memoryTable<Teammate>();
   const at = new Date("2026-10-01T00:00:00.000Z").toISOString();
+  const templatesTable = memoryTable<TeammateTemplate>();
+  const templateService = new TeammateTemplateService({
+    tables: { templates: templatesTable },
+  });
+  const templateId =
+    options?.templateSkillBindings === undefined ? undefined : "tpl-skills";
+  if (templateId !== undefined) {
+    void templatesTable.put(templateId, {
+      id: templateId,
+      source: "platform",
+      name: "平台履约伙伴",
+      role: "履约",
+      description: "",
+      soul: "",
+      scenarios: [],
+      goals: [],
+      tools: [],
+      skillBindings: (options?.templateSkillBindings ?? []).map((binding) => ({
+        ...binding,
+        scenes: [...binding.scenes],
+      })),
+      extensionPolicy:
+        options?.extensionPolicy === undefined
+          ? {
+              allowAdditionalSkills: true,
+              allowDisableDefaultSkills: false,
+              allowSceneOverrides: true,
+              protectedScenes: [],
+              protectedSkillIds: [],
+            }
+          : {
+              ...options.extensionPolicy,
+              protectedScenes: [...options.extensionPolicy.protectedScenes],
+              protectedSkillIds: [
+                ...options.extensionPolicy.protectedSkillIds,
+              ],
+            },
+      state: "active",
+      version: "v1.0",
+      createdBy: "admin",
+      createdAt: at,
+      updatedAt: at,
+    });
+  }
   const teammate: Teammate = {
     id: "tm-1",
     source: "personal",
@@ -99,10 +191,15 @@ function setup(options?: {
     role: "供应链研究",
     ownerUserId: options?.ownerUserId ?? "olivia",
     ownerName: "Olivia",
+    ...(templateId === undefined ? {} : { templateId }),
     description: "",
     soul: "",
     scenarios: [],
     goals: [],
+    skillExtensions: (options?.skillExtensions ?? []).map((extension) => ({
+      ...extension,
+      scenes: [...extension.scenes],
+    })),
     avatar: "",
     state: "active",
     version: "v1.0",
@@ -116,6 +213,7 @@ function setup(options?: {
       teammates: teammatesTable,
       events: memoryTable(),
     },
+    templates: templateService,
   });
   const tasks: FakeTask[] = [];
   const created: unknown[] = [];
@@ -214,6 +312,12 @@ function setup(options?: {
         };
       },
     }),
+    undefined,
+    undefined,
+    undefined,
+    options?.skillCatalog === undefined
+      ? undefined
+      : () => options.skillCatalog,
   );
   expect(routes.some((route) => route.path.includes("profile-templates"))).toBe(
     false,
@@ -434,6 +538,121 @@ describe("work plan routes", () => {
     expect(context.generationContexts[0]?.tasks[0]?.id).toBe("TSK-9");
     const audit = context.reports.auditEvents({ teammateId: "tm-1" });
     expect(audit.events[0]?.actor.type).toBe("ai-teammate");
+  });
+
+  it("loads the instance's effective work-report skill into report generation", async () => {
+    const skill = {
+      id: "custom-daily",
+      name: "精简工作日报",
+      version: "1.0.0",
+      instructions: "先结论，后证据，最多 500 字。",
+      triggers: ["work-report"],
+      source: "user" as const,
+      status: "enabled" as const,
+    };
+    const context = setup({
+      skillExtensions: [
+        {
+          skillId: "custom-daily",
+          versionConstraint: "*",
+          scenes: ["work-report"],
+          mode: "primary",
+          status: "active",
+          addedBy: "olivia",
+          addedAt: "2026-10-10T01:00:00.000Z",
+        },
+      ],
+      skillCatalog: {
+        installedSkills: async () => [skill],
+        resolveSkills: async (_principal, skillIds) =>
+          skillIds.includes("custom-daily") ? [skill] : [],
+      },
+    });
+    context.tasks.push({
+      id: "TSK-SKILL",
+      workspaceId: "ws-main",
+      title: "风险复盘",
+      status: "done",
+      priority: "P2",
+      receiverType: "agent",
+      receiverId: "tm-1",
+      description: "完成复盘",
+      autoSubmitReview: true,
+      createdAt: "2026-10-10T01:00:00.000Z",
+      updatedAt: "2026-10-10T02:00:00.000Z",
+    });
+    const result = await call(
+      context.routes,
+      "/api/collab/teammates/work-reports/generate",
+      "POST",
+      "/api/collab/teammates/work-reports/generate",
+      { teammateId: "tm-1", reportDate: "2026-10-10" },
+    );
+    expect(result.status).toBe(200);
+    expect(context.generationContexts[0]?.skills).toEqual([
+      expect.objectContaining({
+        id: "custom-daily",
+        bindingSource: "user",
+        instructions: expect.stringContaining("先结论"),
+        scenes: ["work-report"],
+      }),
+    ]);
+  });
+
+  it("loads a platform baseline skill without a user installation record", async () => {
+    const skill = {
+      id: "platform-daily",
+      name: "企业日报 SOP",
+      version: "2.0.0",
+      instructions: "按企业 SOP 输出管理层日报。",
+      triggers: ["work-report"],
+      source: "provider" as const,
+      status: "available" as const,
+    };
+    const context = setup({
+      templateSkillBindings: [
+        {
+          skillId: "platform-daily",
+          versionConstraint: "2.x",
+          mode: "required",
+          scenes: ["work-report"],
+          enabled: true,
+        },
+      ],
+      skillCatalog: {
+        installedSkills: async () => [],
+        resolveSkills: async (_principal, skillIds) =>
+          skillIds.includes("platform-daily") ? [skill] : [],
+      },
+    });
+    context.tasks.push({
+      id: "TSK-PLATFORM-SKILL",
+      workspaceId: "ws-main",
+      title: "平台基线日报",
+      status: "progress",
+      priority: "P2",
+      receiverType: "agent",
+      receiverId: "tm-1",
+      description: "执行",
+      autoSubmitReview: true,
+      createdAt: "2026-10-10T01:00:00.000Z",
+      updatedAt: "2026-10-10T02:00:00.000Z",
+    });
+    const result = await call(
+      context.routes,
+      "/api/collab/teammates/work-reports/generate",
+      "POST",
+      "/api/collab/teammates/work-reports/generate",
+      { teammateId: "tm-1", reportDate: "2026-10-10" },
+    );
+    expect(result.status).toBe(200);
+    expect(context.generationContexts[0]?.skills).toEqual([
+      expect.objectContaining({
+        id: "platform-daily",
+        bindingSource: "platform",
+        instructions: "按企业 SOP 输出管理层日报。",
+      }),
+    ]);
   });
 
   it("falls back to a template snapshot when the model fails", async () => {

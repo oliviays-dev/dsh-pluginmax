@@ -12,8 +12,10 @@ export interface DocumentWindow {
 
 export interface TaskDocumentEntry {
   readonly id: string;
-  /** Producing run; absent only for legacy task-level files. */
+  /** Most recent run that created or updated the file. */
   readonly runId?: string | undefined;
+  /** Every task run that created or updated this same file. */
+  readonly runIds?: readonly string[] | undefined;
   readonly kind: "produced" | "uploaded";
   readonly name: string;
   readonly relativePath: string;
@@ -299,6 +301,8 @@ export async function materializeAgentOutputDocuments(
 export interface CollectDocumentsOptions {
   readonly root: string;
   readonly windows: readonly DocumentWindow[];
+  /** Only this task's generated-output directory is traversed under .pluginmax. */
+  readonly taskId?: string | undefined;
   readonly maxFiles?: number;
   readonly maxEntries?: number;
 }
@@ -331,7 +335,16 @@ export async function collectDocuments(
       const childRelative =
         directory === "" ? dirent.name : `${directory}/${dirent.name}`;
       if (dirent.isDirectory()) {
-        if (!IGNORED_DIRECTORIES.has(dirent.name)) queue.push(childRelative);
+        if (dirent.name === ".pluginmax" && options.taskId !== undefined) {
+          queue.push(
+            `.pluginmax/task-outputs/${safeFileName(options.taskId)}`,
+          );
+        } else if (
+          dirent.name !== ".pluginmax" &&
+          !IGNORED_DIRECTORIES.has(dirent.name)
+        ) {
+          queue.push(childRelative);
+        }
         continue;
       }
       if (!dirent.isFile()) continue;
@@ -409,13 +422,30 @@ export function windowsFromRuns(
   return windows;
 }
 
-/** Uploaded attachments recorded on task messages, newest message first. */
+/**
+ * Uploaded attachments recorded on the task or its messages. Creation-time
+ * attachments inherit the first task run so the UI can show their round.
+ */
 export function attachmentDocuments(
-  task: Pick<TaskRecord, "messages">,
+  task: Pick<TaskRecord, "messages" | "attachments" | "createdByName" | "createdAt">,
   workspaceReady: boolean,
   runIdByMessageId: ReadonlyMap<string, string> = new Map(),
+  taskUploadRunId?: string | undefined,
 ): TaskDocumentEntry[] {
-  const documents: TaskDocumentEntry[] = [];
+  const documents: TaskDocumentEntry[] = task.attachments.map(
+    (attachment, index) => ({
+      id: `uploaded:task:${index}`,
+      ...(taskUploadRunId === undefined ? {} : { runId: taskUploadRunId }),
+      kind: "uploaded",
+      name: attachment.name,
+      relativePath: attachment.storedPath ?? "",
+      size: attachment.size ?? 0,
+      mimeType: attachment.mimeType ?? mimeTypeFor(attachment.name),
+      updatedBy: task.createdByName,
+      updatedAt: task.createdAt,
+      available: attachment.storedPath !== undefined && workspaceReady,
+    }),
+  );
   for (const message of task.messages) {
     const runId = runIdByMessageId.get(message.id);
     message.attachments.forEach((attachment, index) => {
@@ -437,7 +467,10 @@ export function attachmentDocuments(
   return documents;
 }
 
-/** Merges entries that point at the same file, keeping the newest one. */
+/**
+ * Merges entries that point at the same file while retaining every run that
+ * touched it. The newest metadata describes the file currently on disk.
+ */
 export function mergeDocuments(
   documents: readonly TaskDocumentEntry[],
 ): TaskDocumentEntry[] {
@@ -446,11 +479,37 @@ export function mergeDocuments(
     const key =
       document.relativePath === "" ? document.id : document.relativePath;
     const current = merged.get(key);
+    const runIds = [
+      ...new Set(
+        [
+          ...(current?.runIds ?? []),
+          current?.runId,
+          ...(document.runIds ?? []),
+          document.runId,
+        ].filter(
+          (runId): runId is string =>
+            typeof runId === "string" && runId !== "",
+        ),
+      ),
+    ];
     if (
       current === undefined ||
       Date.parse(current.updatedAt) <= Date.parse(document.updatedAt)
     ) {
-      merged.set(key, document);
+      merged.set(key, {
+        ...document,
+        ...(runIds.length === 0
+          ? {}
+          : {
+              runId: document.runId ?? current?.runId ?? runIds.at(-1),
+              runIds,
+            }),
+      });
+    } else {
+      merged.set(key, {
+        ...current,
+        ...(runIds.length === 0 ? {} : { runIds }),
+      });
     }
   }
   return [...merged.values()].sort(

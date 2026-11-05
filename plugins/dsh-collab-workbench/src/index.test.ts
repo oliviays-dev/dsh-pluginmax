@@ -716,6 +716,7 @@ describe("WorkbenchService", () => {
       receiverType: "agent" as const,
       receiverId,
       receiverName: "Research Agent",
+      createdBy: "olivia",
       description: "",
       acceptance: ["a"],
       agentRunIds: [],
@@ -746,12 +747,56 @@ describe("WorkbenchService", () => {
         ],
       }),
     });
-    expect(service.todoModule(principal).data?.items).toEqual([]);
+    // review 由实例 owner 人工验收，即使当前范围是「仅我」也必须进入待办；
+    // 未到验收阶段的 AI 任务仍按范围开关控制。
+    const defaultTodo = service.todoModule(principal).data?.items ?? [];
+    expect(defaultTodo.map((item) => item.id)).toEqual(["TSK-B"]);
+    expect(defaultTodo[0]).toMatchObject({
+      description: "",
+      receiverName: "Research Agent",
+      receiverOwnerName: "Olivia",
+    });
     const module = service.todoModule(principal, { scope: "me_and_ai" });
     expect((module.data?.items ?? []).map((item) => item.id)).toEqual([
       "TSK-A",
       "TSK-B",
     ]);
+  });
+
+  it("includes review tasks where the current user is an explicit approver", () => {
+    const task = {
+      id: "TSK-APPROVER",
+      workspaceId: "ws-1",
+      title: "审批交付结果",
+      type: "任务",
+      status: "review" as const,
+      priority: "P1" as const,
+      receiverType: "human" as const,
+      receiverId: "peter",
+      receiverName: "Peter",
+      description: "",
+      acceptance: ["批准或退回"],
+      agentRunIds: [],
+      workflow: {
+        instanceId: "wf-1",
+        nodeId: "approval",
+        instanceTitle: "交付审批",
+        nodeName: "验收",
+        reviewRequired: true,
+        approverIds: ["olivia"],
+      },
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+    const service = serviceWith({
+      tasks: () => ({
+        list: () => [task],
+        get: () => task,
+      }),
+    });
+    expect(
+      (service.todoModule(principal).data?.items ?? []).map((item) => item.id),
+    ).toEqual(["TSK-APPROVER"]);
   });
 
   it("rejects an empty metrics selection and persists at most five", async () => {

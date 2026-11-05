@@ -82,6 +82,7 @@ function definition(
     soul: "",
     scenarios: [],
     goals: [],
+    skillExtensions: [],
     avatar: "",
     state,
     version: "v1.0",
@@ -989,6 +990,60 @@ describe("dsh-collab-teammate service", () => {
     expect(templates.get(seeded.templateId)).toMatchObject({
       name: "平台自定义 Facilitator",
       state: "archived",
+    });
+  });
+
+  it("reserves enterprise-required skills for platform templates", async () => {
+    const templates = templateService();
+    await expect(
+      templates.create(olivia, {
+        source: "personal",
+        name: "个人 Skill 模版",
+        skillBindings: [
+          {
+            skillId: "skill-required",
+            versionConstraint: "*",
+            mode: "required",
+            scenes: ["work-report"],
+            enabled: true,
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      code: "forbidden",
+      message: "企业强制 Skill 只能配置在平台模版中",
+    });
+
+    const personal = await templates.create(olivia, {
+      source: "personal",
+      name: "个人扩展模版",
+      skillBindings: [
+        {
+          skillId: "skill-default",
+          versionConstraint: "*",
+          mode: "default",
+          scenes: ["work-report"],
+          enabled: true,
+        },
+      ],
+    });
+    await expect(
+      templates.update(olivia, {
+        templateId: personal.id,
+        name: personal.name,
+        skillBindings: [
+          {
+            skillId: "skill-default",
+            versionConstraint: "*",
+            mode: "required",
+            scenes: ["work-report"],
+            enabled: true,
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      code: "forbidden",
+      message: "企业强制 Skill 只能配置在平台模版中",
     });
   });
 

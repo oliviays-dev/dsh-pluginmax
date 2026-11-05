@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
+  discoverCodexRuntimeModels,
   ExternalAgentProcessRunner,
   probeExternalRuntime,
   terminalExternalAgentRuntimeTrace,
@@ -57,6 +58,47 @@ async function script(command: string): Promise<string> {
 }
 
 describe("external agent process runner", () => {
+  it("reads the real Codex model catalog from CODEX_HOME", async () => {
+    const codexHome = await mkdtemp(join(scriptDirectory, "codex-home-"));
+    await writeFile(
+      join(codexHome, "config.toml"),
+      [
+        'model_provider = "custom"',
+        'model = "deepseek-v4-flash"',
+        'model_catalog_json = "catalog.json"',
+      ].join("\n"),
+      "utf8",
+    );
+    await writeFile(
+      join(codexHome, "catalog.json"),
+      JSON.stringify({
+        models: [
+          { slug: "deepseek-v4-flash", display_name: "DeepSeek V4 Flash" },
+          { slug: "deepseek-v4-pro", display_name: "DeepSeek V4 Pro" },
+          { slug: "deepseek-flash", display_name: "DeepSeek Flash" },
+        ],
+      }),
+      "utf8",
+    );
+    await expect(
+      discoverCodexRuntimeModels(
+        runtime({
+          provider: "codex",
+          protocol: "codex-jsonl",
+          supportedModels: [],
+        }),
+        { codexHome },
+      ),
+    ).resolves.toEqual({
+      supportedModels: [
+        "deepseek-v4-flash",
+        "deepseek-v4-pro",
+        "deepseek-flash",
+      ],
+      defaultModel: "deepseek-v4-flash",
+    });
+  });
+
   it("writes runtime governance events to the service terminal", () => {
     const write = vi
       .spyOn(process.stderr, "write")
@@ -197,7 +239,41 @@ describe("external agent process runner", () => {
     expect(args).toContain("task-selected-model");
     expect(args).not.toContain("runtime-default");
     expect(args).toContain('model_reasoning_effort="medium"');
+    expect(args).toContain("workspace-write");
+    expect(args).toContain(
+      "sandbox_workspace_write.network_access=true",
+    );
+    expect(args).not.toContain("read-only");
     expect(args).toContain("exec");
+  });
+
+  it("honors read-only and disabled-network Codex runtime settings", async () => {
+    const path = await script("process.stdin.resume();");
+    const traces: Array<{ args?: readonly string[] | undefined }> = [];
+    const runner = new ExternalAgentProcessRunner({
+      onTrace: (event) => {
+        if (event.kind === "spawn") traces.push({ args: event.args });
+      },
+    });
+    await runner.execute({
+      runId: "run-codex-locked",
+      runtime: runtime({
+        provider: "codex",
+        protocol: "codex-jsonl",
+        command: process.execPath,
+        args: [path],
+        sandboxMode: "read-only",
+        networkAccess: false,
+      }),
+      prompt: "执行任务",
+      workspacePath,
+      signal: new AbortController().signal,
+    });
+    const args = traces[0]?.args ?? [];
+    expect(args).toContain("read-only");
+    expect(args).toContain(
+      "sandbox_workspace_write.network_access=false",
+    );
   });
 
   it("streams WorkBuddy reasoning summaries and tool events without leaking reasoning text", async () => {

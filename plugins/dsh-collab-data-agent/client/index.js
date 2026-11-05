@@ -1902,6 +1902,7 @@ window.__ModuleLoader__.load({
       const enabled =
         props?.teammate?.systemKey === "data-agent" ||
         props?.teammate?.id === "data-agent";
+      const summaryOnly = props?.mode === "summary";
       const [workspaceId, setWorkspaceId] = react.useState(
         props?.workspaceId ?? "",
       );
@@ -2002,6 +2003,117 @@ window.__ModuleLoader__.load({
           setPhase("ready");
         }
       };
+
+      if (summaryOnly) {
+        const defaultRangeText =
+          {
+            today: "今天",
+            "7d": "过去 7 天",
+            "30d": "过去 30 天",
+            month: "本月",
+          }[defaultTimeRange] ?? defaultTimeRange;
+        const clarificationLabel =
+          {
+            hybrid: "自动 brief，必要时澄清",
+            "always-ask": "查询前先澄清",
+            "default-first": "优先使用默认范围",
+          }[clarificationMode] ?? clarificationMode;
+        return h(
+          "section",
+          { className: "pmtm-block pmda-teammate-config" },
+          h(
+            "div",
+            { className: "pmda-teammate-config-head" },
+            h(
+              "div",
+              null,
+              h("h3", null, "智能体配置"),
+              h(
+                "p",
+                null,
+                "Data Agent 在当前项目的查询默认值与澄清策略。",
+              ),
+            ),
+            h(
+              "div",
+              {
+                style: {
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  flexWrap: "wrap",
+                },
+              },
+              h(
+                "span",
+                { className: "pmda-teammate-config-revision" },
+                `revision ${config?.revision ?? "-"}`,
+              ),
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "pmtm-btn secondary small",
+                  disabled: access?.canManage !== true,
+                  onClick: () => props?.onEdit?.(),
+                },
+                "编辑配置",
+              ),
+            ),
+          ),
+          phase === "loading"
+            ? h("div", { className: "pmtm-empty" }, "正在加载 Data Agent 配置…")
+            : phase === "error"
+              ? h("div", { className: "pmda-error" }, error)
+              : h(
+                  react.Fragment,
+                  null,
+                  h(
+                    "div",
+                    { className: "pmda-teammate-config-grid" },
+                    h(
+                      "div",
+                      { className: "pmda-teammate-config-field readonly" },
+                      h("span", null, "默认时间范围"),
+                      h("strong", null, defaultRangeText),
+                    ),
+                    h(
+                      "div",
+                      { className: "pmda-teammate-config-field readonly" },
+                      h("span", null, "澄清策略"),
+                      h("strong", null, clarificationLabel),
+                    ),
+                    h(
+                      "div",
+                      { className: "pmda-teammate-config-field readonly" },
+                      h("span", null, "单次查询行数上限"),
+                      h("strong", null, String(maxRowsPerQuery)),
+                    ),
+                    h(
+                      "div",
+                      { className: "pmda-teammate-config-field readonly" },
+                      h("span", null, "运行方式"),
+                      h(
+                        "strong",
+                        null,
+                        (props?.teammate?.execution ?? "builtin") === "external"
+                          ? props?.teammate?.externalRuntimeId ?? "外部运行时"
+                          : "平台内置运行时",
+                      ),
+                    ),
+                  ),
+                  h(
+                    "div",
+                    { className: "pmda-teammate-config-foot" },
+                    h(
+                      "span",
+                      null,
+                      `${config?.dataConnectionIds?.length ?? 0} 个只读连接`,
+                    ),
+                  ),
+                ),
+        );
+      }
 
       return h(
         "section",

@@ -1378,6 +1378,7 @@ describe("teammate live instance counts", () => {
       soul: "",
       scenarios: [],
       goals: [],
+      skillExtensions: [],
       avatar: "",
       state: "active",
       version: "v1.0",

@@ -98,6 +98,8 @@ export interface ExecutionRuntimeLike {
   readonly supportedModels?: readonly string[] | undefined;
   readonly defaultModel?: string | undefined;
   readonly contextWindowTokens?: number | undefined;
+  readonly sandboxMode?: "read-only" | "workspace-write" | undefined;
+  readonly networkAccess?: boolean | undefined;
   readonly status: "active" | "disabled" | "archived";
 }
 
@@ -706,7 +708,9 @@ function buildEnvelope(input: {
           : input.capability.protocol === "builtin"
             ? "restricted"
             : input.capability.protocol === "codex-jsonl"
-              ? "restricted"
+              ? input.runtime?.networkAccess === false
+                ? "restricted"
+                : "public"
               : "unknown",
       allowedToolCategories: allowed.filter(
         (category) => !denied.includes(category),
@@ -715,7 +719,7 @@ function buildEnvelope(input: {
       deniedToolCategories: denied,
       sandbox:
         input.capability.protocol === "codex-jsonl"
-          ? "read-only"
+          ? (input.runtime?.sandboxMode ?? "workspace-write")
           : input.capability.protocol === "builtin"
             ? "platform-managed"
             : "unknown",

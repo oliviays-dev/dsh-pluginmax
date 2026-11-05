@@ -7,6 +7,7 @@ import {
   type TaskDraftForCreation,
 } from "@pluginmax/contracts";
 import {
+  taskAttachmentSchema,
   taskCommentSchema,
   taskEventSchema,
   taskRecordSchema,
@@ -187,6 +188,7 @@ const createInputSchema = z.object({
   receiverId: z.string().max(240).optional(),
   receiverName: z.string().max(200).optional(),
   description: z.string().min(1).max(20000),
+  attachments: z.array(taskAttachmentSchema).max(20).default([]),
   acceptance: z.array(z.string().min(1).max(500)).min(1).max(30),
   executionPolicy: taskExecutionPolicySchema.optional(),
   due: z.string().max(40).optional(),
@@ -364,6 +366,18 @@ function progressForSteps(steps: TaskRecord["steps"]): number {
   if (steps.length === 0) return 0;
   return Math.round(
     (steps.filter((step) => step.done).length / steps.length) * 100,
+  );
+}
+
+function reviewSubmitterChangesReceiver(
+  task: TaskRecord,
+  submitter: TaskRecord["reviewSubmitter"] | undefined,
+): boolean {
+  if (submitter === undefined) return false;
+  return (
+    task.receiverType !== submitter.receiverType ||
+    task.receiverId !== submitter.receiverId ||
+    task.receiverPrincipalId !== submitter.receiverPrincipalId
   );
 }
 
@@ -965,6 +979,7 @@ export class TaskService {
           ? {}
           : { receiverName: draft.receiverName }),
         description: draft.description,
+        attachments: [],
         acceptance: draft.acceptance,
         ...(draft.due === undefined ? {} : { due: draft.due }),
         links: [],
@@ -1032,6 +1047,7 @@ export class TaskService {
       createdBy: actor.id,
       createdByName: actor.name,
       description: parsed.description,
+      attachments: parsed.attachments,
       acceptance: parsed.acceptance,
       ...(parsed.executionPolicy === undefined
         ? {}
@@ -1117,6 +1133,36 @@ export class TaskService {
       ),
     );
     return updated;
+  }
+
+  /** Persist files uploaded as part of the initial task description. */
+  async setDescriptionAttachments(
+    actor: TaskActor,
+    input: {
+      readonly taskId: string;
+      readonly attachments: readonly z.infer<typeof taskAttachmentSchema>[];
+    },
+  ): Promise<TaskRecord> {
+    const task = this.requireActive(this.require(input.taskId));
+    if (task.createdBy !== actor.id && actor.role !== "admin") {
+      throw new TaskError("forbidden", "只有任务创建人可以添加任务附件");
+    }
+    const attachments = z
+      .array(taskAttachmentSchema)
+      .max(20)
+      .parse(input.attachments);
+    return this.put(
+      this.event(
+        {
+          ...task,
+          attachments,
+          updatedAt: this.now(),
+        },
+        actor,
+        "updated",
+        `${actor.name} 添加了 ${attachments.length} 个任务附件`,
+      ),
+    );
   }
 
   async assign(actor: TaskActor, input: unknown): Promise<TaskRecord> {
@@ -1381,6 +1427,10 @@ export class TaskService {
       return this.settleProjection(actor, taskIdValue, "rejected");
     }
     const reviewSubmitter = this.inferReviewSubmitter(task);
+    const restoredReceiver = reviewSubmitterChangesReceiver(
+      task,
+      reviewSubmitter,
+    );
     return this.put(
       this.event(
         {
@@ -1392,7 +1442,7 @@ export class TaskService {
         },
         actor,
         "status",
-        `${actor.name} 退回并补充说明：${note}${reviewSubmitter === undefined ? "" : `，负责人恢复为 ${reviewSubmitter.receiverName ?? reviewSubmitter.receiverId ?? "原执行人"}`}`,
+        `${actor.name} 退回并补充说明：${note}${!restoredReceiver ? "" : `，负责人恢复为 ${reviewSubmitter?.receiverName ?? reviewSubmitter?.receiverId ?? "原执行人"}`}`,
       ),
     );
   }
@@ -1869,6 +1919,9 @@ export class TaskService {
     const task = requireContinuable(
       this.requireActive(this.require(parsed.taskId)),
     );
+    if (task.status === "done") {
+      throw new TaskError("conflict", "任务已完成，不能继续发送指令");
+    }
     if (task.workflow !== undefined) {
       throw new TaskError(
         "conflict",
@@ -1891,15 +1944,8 @@ export class TaskService {
       mentions: parsed.mentions,
       deliveryTarget,
     });
-    const reopened =
-      task.status === "done" && deliveryTarget !== "collaborators";
-    const status = reopened
-      ? actor.kind === "agent"
-        ? "progress"
-        : "todo"
-      : actor.kind === "agent" && task.status === "todo"
-        ? "progress"
-        : task.status;
+    const started = task.status === "todo";
+    const status = started ? "progress" : task.status;
     const updated = this.event(
       {
         ...task,
@@ -1909,11 +1955,9 @@ export class TaskService {
       },
       actor,
       "message",
-      reopened
-        ? `${actor.name} 追加要求，任务重新开启`
-        : task.status === "done"
-          ? `${actor.name} 添加了协作消息`
-          : `${actor.name} 添加了执行消息`,
+      started
+        ? `${actor.name} 发送指令，任务进入进行中`
+        : `${actor.name} 添加了执行消息`,
     );
     return this.put(updated);
   }
@@ -2524,6 +2568,10 @@ export class TaskService {
         deliveryTarget: "receiver",
       });
       const reviewSubmitter = this.inferReviewSubmitter(task);
+      const restoredReceiver = reviewSubmitterChangesReceiver(
+        task,
+        reviewSubmitter,
+      );
       return this.put(
         this.event(
           {
@@ -2539,7 +2587,7 @@ export class TaskService {
           },
           actor,
           "status",
-          `${actor.name} 退回并补充说明：${task.status} → todo${reviewSubmitter === undefined ? "" : `，负责人恢复为 ${reviewSubmitter.receiverName ?? reviewSubmitter.receiverId ?? "原执行人"}`}`,
+          `${actor.name} 退回并补充说明：${task.status} → todo${!restoredReceiver ? "" : `，负责人恢复为 ${reviewSubmitter?.receiverName ?? reviewSubmitter?.receiverId ?? "原执行人"}`}`,
         ),
       );
     }

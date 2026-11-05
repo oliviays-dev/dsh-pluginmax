@@ -64,6 +64,10 @@ export interface SkillAsset {
   icon: string;
   permissions: string[];
   usage: string;
+  /** Instructions injected into an agent only when the skill is effective. */
+  instructions?: string;
+  /** Scene hints used by the host runtime for explicit skill resolution. */
+  triggers?: string[];
 }
 
 export interface McpAsset {

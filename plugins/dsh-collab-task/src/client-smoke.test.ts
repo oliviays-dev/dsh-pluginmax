@@ -598,6 +598,146 @@ function titleNode(tree: unknown, title: string): TreeNode | undefined {
 }
 
 describe("task client", () => {
+  it("maps execution status to the six process tags", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain('return { label: "排队中", tone: "queued" };');
+    expect(source).toContain('return { label: "执行中", tone: "running" };');
+    expect(source).toContain('return { label: "待补充", tone: "waiting" };');
+    expect(source).toContain('return { label: "已完成", tone: "success" };');
+    expect(source).toContain(
+      'return { label: "失败 / 超时", tone: "failed" };',
+    );
+    expect(source).toContain(
+      'status === "failed" || status === "timeout"',
+    );
+    expect(source).toContain(
+      'return { label: "已中断", tone: "interrupted" };',
+    );
+    expect(source).toContain(
+      'return { label: "已取消", tone: "cancelled" };',
+    );
+  });
+
+  it("labels an interrupted agent run as abnormal text", async () => {
+    const task = makeTask({
+      id: "TSK-INTERRUPTED-LABEL",
+      workspaceId: "ws-1",
+      title: "中断任务状态",
+      status: "progress",
+      priority: "P1",
+      receiverType: "agent",
+      receiverId: "agent-a",
+      receiverName: "执行分身 A",
+      createdBy: "admin",
+      agentRunIds: ["run-interrupted"],
+      messages: [
+        {
+          id: "run-interrupted",
+          at: "2026-11-04T08:00:00.000Z",
+          authorId: "agent-a",
+          authorName: "执行分身 A",
+          kind: "agent",
+          content: "执行已中断。",
+          attachments: [],
+          mentions: [],
+          runId: "run-interrupted",
+          runRole: "owner",
+          state: "interrupted",
+        },
+      ],
+      updatedAt: "2026-11-04T08:00:00.000Z",
+    });
+    const fetchImpl = (input: string) => {
+      if (input.startsWith("/api/collab/auth/me")) {
+        return Promise.resolve(
+          payload({ user: { id: "admin", name: "平台 Admin", role: "admin" } }),
+        );
+      }
+      if (input.startsWith("/api/collab/team/workspaces")) {
+        return Promise.resolve(
+          payload({
+            workspaces: [
+              { id: "ws-1", title: "项目一", path: "/p1", isMember: true },
+            ],
+          }),
+        );
+      }
+      if (input.startsWith("/api/collab/tasks/bootstrap")) {
+        return Promise.resolve(
+          payload({
+            tasks: [task],
+            directory: {
+              humans: [],
+              agents: [
+                {
+                  id: "agent-a",
+                  name: "执行分身 A",
+                  kind: "agent",
+                  ownerAuthUserId: "admin",
+                },
+              ],
+              roles: [],
+            },
+          }),
+        );
+      }
+      return Promise.resolve(payload({}));
+    };
+    const harness = loadClientExports({ fetchImpl });
+    const root = mountTaskPage(harness);
+    const tree = await settle(root, harness.runtime);
+    const indicator = findNode(
+      tree,
+      (node) =>
+        node.props?.className === "pmtask-run-state-text interrupted",
+    );
+    expect(indicator?.props?.children).toBe("异常");
+    expect(indicator?.props?.title).toBe("Agent 执行已中断");
+  });
+
+  it("opens a programmatic task navigation without dropping through the board", async () => {
+    const harness = loadClientExports({ fetchImpl: adminFetch });
+    const root = mountTaskPage(harness);
+    let tree = await settle(root, harness.runtime);
+    const mine = findNode(
+      tree,
+      (node) => node.props?.["data-task-id"] === "t-mine",
+    );
+    (mine?.props?.onClick as (() => void) | undefined)?.();
+    tree = await settle(root, harness.runtime, 10);
+    expect(
+      findNode(
+        tree,
+        (node) =>
+          node.props?.className === "pmtask-detail-page" &&
+          containsText(node.props?.children, "我的任务"),
+      ),
+    ).toBeDefined();
+
+    harness.window.__pluginmaxPendingTask = {
+      taskId: "t-joined",
+      workspaceId: "ws-2",
+    };
+    (
+      harness.window.dispatchEvent as (
+        event: { type: string; detail?: unknown },
+      ) => boolean
+    )({
+      type: "pluginmax:route-select",
+      detail: { route: "task" },
+    });
+    tree = await settle(root, harness.runtime, 10);
+    expect(
+      findNode(
+        tree,
+        (node) =>
+          node.props?.className === "pmtask-detail-page" &&
+          containsText(node.props?.children, "同项目别人的任务"),
+      ),
+      "程序化任务导航应直接打开目标详情",
+    ).toBeDefined();
+  });
+
   it("opens task cards in detail without Data Agent selection", () => {
     const source = readFileSync(
       resolve(import.meta.dirname, "../client/index.js"),
@@ -775,16 +915,12 @@ describe("task client", () => {
     expect(source).toContain("canReview &&");
   });
 
-  it("only says a completed task reopens when the message addresses its receiver", () => {
+  it("announces when an instruction starts a todo task", () => {
     const source = readFileSync(CLIENT_PATH, "utf8");
     expect(source).toContain(
-      'const reopensTask =\n            task.status === "done" && deliveryTarget !== "collaborators"',
+      'task.status === "todo"\n              ? "指令已发送，任务进入进行中"',
     );
-    expect(source).toContain(
-      '? "receiver"\n              : addressesReceiver && mentionsCollaborator',
-    );
-    expect(source).toContain("deliveryTarget,\n            },");
-    expect(source).toContain("协作消息已发送，任务状态保持不变");
+    expect(source).not.toContain("const reopensTask =");
   });
 
   it("renders mixed built-in/external runtimes, human reassignment and round instructions", async () => {
@@ -879,7 +1015,8 @@ describe("task client", () => {
           authorId: "tm-3",
           authorName: "CodeBuddy 总结员",
           kind: "agent",
-          content: "最终结论已汇总。",
+          content:
+            "最终结论已汇总。\n\n已更新 [summary.md](</tmp/outputs/run-meta-3/summary.md:1>)。\n\n产出文档：summary.md",
           attachments: [],
           mentions: [],
           runId: "run-meta-3",
@@ -1110,6 +1247,28 @@ describe("task client", () => {
                   summary: "调用工具：web_search",
                   createdAt: "2026-10-23T03:02:10.000Z",
                 },
+                {
+                  id: "event-2",
+                  runId: "run-meta-3",
+                  seq: 2,
+                  type: "tool.call",
+                  source: "external-trace",
+                  visibility: "public",
+                  summary: "调用工具：exec_command",
+                  data: { toolName: "exec_command" },
+                  createdAt: "2026-10-23T03:02:11.000Z",
+                },
+                {
+                  id: "event-3",
+                  runId: "run-meta-3",
+                  seq: 3,
+                  type: "tool.call",
+                  source: "external-trace",
+                  visibility: "public",
+                  summary: "调用工具：exec_command",
+                  data: { toolName: "exec_command" },
+                  createdAt: "2026-10-23T03:02:12.000Z",
+                },
               ],
               gates: [
                 {
@@ -1141,14 +1300,15 @@ describe("task client", () => {
             documents: [
               {
                 id: "doc-meta-1",
-                runId: "run-meta-1",
+                runId: "run-meta-3",
+                runIds: ["run-meta-1", "run-meta-3"],
                 kind: "produced",
                 name: "primary.md",
                 relativePath: "outputs/run-meta-1/primary.md",
                 size: 10,
                 mimeType: "text/markdown",
                 updatedBy: "Codex 调研架构师",
-                updatedAt: "2026-10-23T03:00:00.000Z",
+                updatedAt: "2026-10-23T03:02:30.000Z",
                 available: true,
               },
               {
@@ -1194,7 +1354,7 @@ describe("task client", () => {
 
     for (const [label, value] of [
       ["执行运行时", "CodeBuddy CLI · hy4 标准"],
-      ["模型 / 推理强度", "hy4-reasoning（默认） · 高（默认）"],
+      ["模型 / 推理强度", "Hy4 Reasoning（默认） · 高（默认）"],
     ] as const) {
       expect(
         findNode(
@@ -1215,6 +1375,28 @@ describe("task client", () => {
       ),
       "Agent 回复下不再重复展示运行信息",
     ).toHaveLength(0);
+    const documentLink = findNode(
+      tree,
+      (node) =>
+        node.type === "button" &&
+        node.props?.className === "pmtask-md-doc-link" &&
+        node.props?.children === "summary.md",
+    );
+    expect(
+      documentLink,
+      "消息中的产出文档名称应支持点击下载",
+    ).toBeDefined();
+    expect(documentLink?.props?.title).toBe("下载 summary.md");
+    expect(
+      findNodes(
+        tree,
+        (node) =>
+          node.type === "button" &&
+          node.props?.className === "pmtask-md-doc-link" &&
+          node.props?.children === "summary.md",
+      ),
+      "显式文件路径和产出文档名称都应收敛为下载入口",
+    ).toHaveLength(2);
 
     const executionTab = findNode(
       tree,
@@ -1246,9 +1428,27 @@ describe("task client", () => {
     expect(containsText(executionRecord?.props?.children, "执行过程")).toBe(
       true,
     );
+    expect(containsText(executionRecord?.props?.children, "执行活动")).toBe(
+      false,
+    );
     expect(
-      containsText(executionRecord?.props?.children, "Agent 执行计划"),
-    ).toBe(true);
+      findNode(
+        executionRecord,
+        (node) => node.props?.className === "pmtask-live-output",
+      ),
+      "重复的执行过程正文模块应移除",
+    ).toBeUndefined();
+    expect(
+      findNode(
+        executionRecord,
+        (node) =>
+          String(node.props?.className ?? "")
+            .split(/\s+/)
+            .includes("pmtask-execution-status-tag") &&
+          node.props?.children === "已完成",
+      ),
+      "执行过程标题右侧应使用状态标签",
+    ).toBeDefined();
     expect(
       containsText(executionRecord?.props?.children, "根据事件整理"),
       "执行计划标题不展示摘要来源标签",
@@ -1261,14 +1461,60 @@ describe("task client", () => {
       true,
     );
     expect(
+      findNode(
+        executionRecord,
+        (node) =>
+          String(node.props?.className ?? "")
+            .split(/\s+/)
+            .includes("pmtask-agent-activity") &&
+          containsText(node.props?.children, "搜索资料"),
+      ),
+      "工具调用应转换为可读的关键执行活动",
+    ).toBeDefined();
+    const groupedCommand = findNode(
+      executionRecord,
+      (node) =>
+        String(node.props?.className ?? "")
+          .split(/\s+/)
+          .includes("pmtask-agent-activity") &&
+        containsText(node.props?.children, "运行命令"),
+    );
+    expect(
+      groupedCommand,
+      "连续相同工具调用应合并计数",
+    ).toBeDefined();
+    expect(containsText(groupedCommand?.props?.children, "× 2")).toBe(true);
+    const activityList = findNode(
+      executionRecord,
+      (node) => node.props?.["aria-label"] === "Agent 执行过程",
+    );
+    expect(activityList, "执行过程应使用独立滚动容器").toBeDefined();
+    expect(typeof activityList?.props?.onScroll).toBe("function");
+    const rawEvents = findNode(
+      executionRecord,
+      (node) => node.props?.className === "pmtask-execution-raw",
+    );
+    expect(rawEvents, "原始事件应默认折叠").toBeDefined();
+    expect(rawEvents?.props?.open).not.toBe(true);
+    expect(
       containsText(executionRecord?.props?.children, "调用工具：web_search"),
     ).toBe(true);
     expect(containsText(executionRecord?.props?.children, "运行信息")).toBe(
       true,
     );
-    expect(containsText(executionRecord?.props?.children, "实际搜索")).toBe(
+    expect(containsText(executionRecord?.props?.children, "认证方式")).toBe(
       true,
     );
+    expect(containsText(executionRecord?.props?.children, "搜索工具调用")).toBe(
+      true,
+    );
+    const searchUsageRow = findNode(
+      executionRecord,
+      (node) =>
+        node.props?.className === "pmtask-run-summary-row" &&
+        containsText(node.props?.children, "搜索工具调用"),
+    );
+    expect(containsText(searchUsageRow?.props?.children, "是")).toBe(true);
     expect(containsText(executionRecord?.props?.children, "等待执行授权")).toBe(
       true,
     );
@@ -1276,18 +1522,12 @@ describe("task client", () => {
       containsText(executionRecord?.props?.children, "请求写入最终报告文件"),
     ).toBe(true);
     expect(
-      findNode(
-        executionRecord,
-        (node) =>
-          node.type === "p" &&
-          node.props?.className === "pmtask-locked-hint" &&
-          containsText(
-            node.props?.children,
-            "仅执行后观察：Runtime 只能记录已执行动作，无法事前阻断。",
-          ),
+      containsText(
+        executionRecord?.props?.children,
+        "仅执行后观察：Runtime 只能记录已执行动作，无法事前阻断。",
       ),
-      "observe-only 说明应使用普通文本",
-    ).toBeDefined();
+      "执行过程区域不再展示技术能力说明",
+    ).toBe(false);
     expect(
       findNode(
         executionRecord,
@@ -1464,6 +1704,9 @@ describe("task client", () => {
     const executionSource = readFileSync(CLIENT_PATH, "utf8");
     expect(executionSource).toContain("-webkit-line-clamp:3");
     expect(executionSource).toContain('"未记录本轮指令"');
+    expect(executionSource).toContain(
+      'return text === "" || text === "unknown" ? "未识别" : text;',
+    );
     const firstRoundOption = orderedRoundOptions.find((option) =>
       containsText(option.props?.children, "第 1 轮"),
     );
@@ -1525,6 +1768,12 @@ describe("task client", () => {
     expect(containsText(initialDocuments?.props?.children, "summary.md")).toBe(
       true,
     );
+    expect(containsText(initialDocuments?.props?.children, "primary.md")).toBe(
+      true,
+    );
+    expect(containsText(initialDocuments?.props?.children, "本轮更新")).toBe(
+      true,
+    );
     expect(
       containsText(initialDocuments?.props?.children, "collaborator.md"),
     ).toBe(false);
@@ -1561,6 +1810,12 @@ describe("task client", () => {
     expect(containsText(externalSummary?.props?.children, "accept-edits")).toBe(
       true,
     );
+    expect(
+      containsText(
+        externalSummary?.props?.children,
+        "未记录到结构化搜索调用",
+      ),
+    ).toBe(true);
     expect(
       findNode(
         refreshedExecutionRecord,
@@ -1679,6 +1934,28 @@ describe("task client", () => {
     );
     expect(
       containsText(refreshedDocuments?.props?.children, "primary.md"),
+    ).toBe(true);
+    expect(
+      containsText(refreshedDocuments?.props?.children, "后续已更新"),
+    ).toBe(true);
+    expect(
+      containsText(
+        refreshedDocuments?.props?.children,
+        "该文档已在后续轮次更新",
+      ),
+      "查看早期轮次时应说明文档已被后续更新且当前展示最新版",
+    ).toBe(true);
+    expect(
+      containsText(
+        refreshedDocuments?.props?.children,
+        "当前展示工作区最新版",
+      ),
+    ).toBe(true);
+    expect(
+      containsText(
+        refreshedDocuments?.props?.children,
+        "不是第 1 轮的历史快照",
+      ),
     ).toBe(true);
     expect(
       containsText(refreshedDocuments?.props?.children, "collaborator.md"),
@@ -3701,7 +3978,7 @@ describe("task client", () => {
     expect(source).not.toContain("receiverFilterKey(task)");
   });
 
-  it("keeps plan labels out of the detail while preserving observe-only text", () => {
+  it("summarizes execution activity without technical preamble", () => {
     const source = readFileSync(CLIENT_PATH, "utf8");
     expect(source).toContain('structured: "结构化"');
     expect(source).toContain('summary: "摘要"');
@@ -3709,10 +3986,13 @@ describe("task client", () => {
     expect(source).not.toContain("selectedPlan.summary");
     expect(source).not.toContain("pmtask-gate observe-only");
     expect(source).toContain('"observe-only": "仅执行后观察"');
-    expect(source).toMatch(
-      /selectedExecution\?\.gateEnforcement\s*===\s*"observe-only"/,
-    );
+    expect(source).toContain("function groupedExecutionActivities");
+    expect(source).toContain("查看原始事件（");
     expect(source).toContain(
+      "max-height:165px;overflow-y:auto;overscroll-behavior:contain;",
+    );
+    expect(source).toContain("executionControl.events.slice(-200)");
+    expect(source).not.toContain(
       "仅执行后观察：Runtime 只能记录已执行动作，无法事前阻断。",
     );
     expect(source).not.toContain("不能把它展示为已成功拦截");
@@ -4096,8 +4376,30 @@ describe("task client", () => {
           node.props?.value === "按渠道拆解支付失败、取消和履约超时的订单。",
       ),
     ).toBeDefined();
+    const upload = findNode(
+      modal,
+      (node) =>
+        node.type === "input" &&
+        node.props?.type === "file" &&
+        node.props?.["aria-label"] === "上传任务描述附件",
+    );
+    expect(upload, "任务描述应支持附件上传").toBeDefined();
+    const file = {
+      name: "需求资料.md",
+      size: 128,
+      type: "text/markdown",
+      lastModified: 1,
+    };
+    (upload?.props?.onChange as ((event: unknown) => void) | undefined)?.({
+      target: { files: [file], value: "" },
+    });
+    tree = await settle(root, harness.runtime);
+    expect(containsText(tree, "需求资料.md")).toBe(true);
     const source = readFileSync(CLIENT_PATH, "utf8");
     expect(source).toContain(".pmtask-mask{position:absolute;inset:0;");
+    expect(source).toContain(".pmtask-modal{position:fixed;left:50%;top:50%;");
+    expect(source).toContain("max-height:min(720px,calc(100dvh - 24px))");
+    expect(source).toContain("contentBase64: await readFileAsBase64(file)");
   });
 
   it("searches one prerequisite task by title, id, or receiver", async () => {
@@ -4307,8 +4609,12 @@ describe("task client", () => {
                 name: "Codex CLI",
                 provider: "codex",
                 status: "active",
-                supportedModels: ["gpt-5-codex"],
-                defaultModel: "gpt-5-codex",
+                supportedModels: [
+                  "deepseek-v4-flash",
+                  "deepseek-v4-pro",
+                  "deepseek-flash",
+                ],
+                defaultModel: "deepseek-v4-flash",
               },
             ],
             defaultModel: {
@@ -4428,7 +4734,7 @@ describe("task client", () => {
     );
     expect(builtinModel?.props?.value).toBe("");
     expect(
-      containsText(builtinModel?.props?.children, "deepseek-v4-flash（默认）"),
+      containsText(builtinModel?.props?.children, "DeepSeek V4 Flash（默认）"),
     ).toBe(true);
     expect(builtinReasoning?.props?.disabled).not.toBe(true);
     for (const hint of [
@@ -4473,7 +4779,13 @@ describe("task client", () => {
         node.type === "select" && node.props?.["aria-label"] === "本轮模型",
     );
     expect(externalModel?.props?.disabled).not.toBe(true);
-    expect(containsText(externalModel, "gpt-5-codex（默认）")).toBe(true);
+    for (const model of [
+      "DeepSeek V4 Flash（默认）",
+      "DeepSeek V4 Pro",
+      "DeepSeek Flash",
+    ]) {
+      expect(containsText(externalModel, model)).toBe(true);
+    }
   });
 
   it("places editable runtime overrides directly after an AI teammate owner", async () => {
@@ -4765,6 +5077,18 @@ describe("task client", () => {
         createdBy: "admin",
         updatedAt: "2026-03-08T00:00:06.000Z",
       }),
+      makeTask({
+        id: "TSK-UI-CANCELLED",
+        workspaceId: "ws-1",
+        title: "已取消任务",
+        status: "cancelled",
+        priority: "P2",
+        receiverType: "human",
+        receiverId: "admin",
+        receiverName: "平台 Admin",
+        createdBy: "admin",
+        updatedAt: "2026-03-08T00:00:07.000Z",
+      }),
     ];
     const fetchImpl = (input: string) => {
       if (input.startsWith("/api/collab/auth/me")) {
@@ -4859,6 +5183,35 @@ describe("task client", () => {
     const done = await renderDetail("TSK-UI-DONE");
     expect(actionNode(done, "归档")).toBeDefined();
     expect(actionNode(done, "取消任务")).toBeUndefined();
+    const doneComposer = findNode(
+      done,
+      (node) => node.props?.className === "pmtask-composer disabled",
+    );
+    expect(doneComposer, "已完成任务应保留但禁用对话框").toBeDefined();
+    expect(doneComposer?.props?.["aria-disabled"]).toBe(true);
+    expect(
+      findNode(
+        doneComposer,
+        (node) => node.props?.className === "pmtask-composer-input",
+      )?.props,
+    ).toMatchObject({ disabled: true, readOnly: true });
+
+    const cancelled = await renderDetail("TSK-UI-CANCELLED");
+    const cancelledComposer = findNode(
+      cancelled,
+      (node) => node.props?.className === "pmtask-composer disabled",
+    );
+    expect(cancelledComposer, "已取消任务应保留但禁用对话框").toBeDefined();
+    expect(
+      findNode(
+        cancelledComposer,
+        (node) => node.props?.className === "pmtask-composer-input",
+      )?.props?.disabled,
+    ).toBe(true);
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain(
+      "const composerLocked = archived || isSettledStatus(task.status);",
+    );
   });
 
   it("aligns the current user's messages right and labels them 我", async () => {
@@ -5075,6 +5428,16 @@ describe("task client", () => {
                 updatedAt: "2026-03-08T01:30:00.000Z",
                 available: true,
               },
+              {
+                id: "doc-upload",
+                runId: "run-1",
+                kind: "uploaded",
+                name: "案例原文.pdf",
+                relativePath: "uploads/案例原文.pdf",
+                updatedBy: "周宁",
+                updatedAt: "2026-03-08T00:30:00.000Z",
+                available: true,
+              },
             ],
           }),
         );
@@ -5103,11 +5466,28 @@ describe("task client", () => {
       tree,
       (node) => node.props?.className === "pmtask-detail-doc",
     );
-    expect(docs).toHaveLength(1);
-    expect(containsText(docs[0]?.props?.children, "新产出")).toBe(true);
-    expect(containsText(docs[0]?.props?.children, "第 2 轮")).toBe(true);
-    expect(containsText(docs[0]?.props?.children, "run-2")).toBe(true);
-    expect(containsText(docs[0]?.props?.children, "v2")).toBe(true);
+    expect(docs).toHaveLength(2);
+    const producedDoc = findNode(
+      docs,
+      (node) => containsText(node.props?.children, "report.md"),
+    );
+    expect(containsText(producedDoc?.props?.children, "新产出")).toBe(true);
+    expect(containsText(producedDoc?.props?.children, "第 2 轮")).toBe(true);
+    expect(containsText(producedDoc?.props?.children, "run-2")).toBe(true);
+    expect(containsText(producedDoc?.props?.children, "v2")).toBe(true);
+    expect(
+      findNode(
+        producedDoc,
+        (node) => node.props?.className === "pmtask-doc-kind",
+      ),
+      "文件标题旁只保留版本标签，不显示产出或上传标记",
+    ).toBeUndefined();
+    expect(containsText(tree, "产出文档")).toBe(true);
+    expect(containsText(tree, "上传附件")).toBe(true);
+    expect(containsText(tree, "案例原文.pdf")).toBe(true);
+    expect(containsText(tree, "第 1 轮")).toBe(true);
+    expect(containsText(tree, "run-1")).toBe(true);
+    expect(containsText(tree, "已合并 2 个旧版本")).toBe(false);
   });
 
   it("keeps mention intent local and sends follow-up answers through the existing message chain", async () => {
@@ -5717,24 +6097,52 @@ describe("task client", () => {
           ) &&
           containsText(node.props?.children, "停止执行"),
       ),
-      "任务详情顶部应提供停止执行入口",
-    ).toBeDefined();
-    const stop = findNode(
+      "停止执行入口不应放在任务详情顶部",
+    ).toBeUndefined();
+    const composer = findNode(
       tree,
+      (node) => node.props?.className === "pmtask-composer",
+    );
+    const stop = findNode(
+      composer,
       (node) =>
         node.type === "button" &&
-        node.props?.className === "pmtask-execution-stop" &&
-        node.props?.children === "停止执行",
+        node.props?.className === "pmtask-composer-stop",
     );
-    expect(stop, "运行中的任务应提供停止执行入口").toBeDefined();
-    expect(stop?.props?.title).toContain("2 个正在执行");
+    expect(stop, "运行中的任务应在对话框操作区提供停止入口").toBeDefined();
+    expect(stop?.props?.title).toContain("2 个正在运行");
+    expect(stop?.props?.["aria-label"]).toBe("停止执行");
     expect(
-      findNodes(
+      findNode(
         tree,
-        (node) => node.props?.className === "pmtask-typing-row",
+        (node) =>
+          node.type === "button" &&
+          node.props?.className === "pmtask-execution-stop",
       ),
+      "AI 执行记录侧栏不应重复显示停止入口",
+    ).toBeUndefined();
+    const typingStrip = findNode(
+      tree,
+      (node) => node.props?.className === "pmtask-typing-strip",
+    );
+    expect(
+      typingStrip,
       "运行中的 AI 伙伴应显示正在输入动效",
-    ).toHaveLength(2);
+    ).toBeDefined();
+    expect(
+      findNode(
+        typingStrip,
+        (node) =>
+          String(node.props?.className ?? "").includes("pmtask-avatar") ||
+          String(node.props?.className ?? "").includes("pmtask-ring"),
+      ),
+      "正在输入状态不应显示头像",
+    ).toBeUndefined();
+    const typingChildren = typingStrip?.props?.children as
+      | TreeNode[]
+      | undefined;
+    expect(typingChildren?.[0]?.props?.children).toContain("正在输入");
+    expect(typingChildren?.[1]?.props?.className).toBe("pmtask-typing-dots");
     expect(containsText(tree, "正在输入")).toBe(true);
     (stop?.props?.onClick as (() => void) | undefined)?.();
     tree = await settle(root, harness.runtime);
@@ -5742,14 +6150,16 @@ describe("task client", () => {
     expect(
       findNode(
         tree,
-        (node) => node.props?.className === "pmtask-execution-stop",
+        (node) =>
+          node.type === "button" &&
+          node.props?.className === "pmtask-composer-stop",
       ),
-      "所有执行停止后不再显示停止按钮",
+      "所有执行停止后对话框不再显示停止按钮",
     ).toBeUndefined();
     expect(
       findNodes(
         tree,
-        (node) => node.props?.className === "pmtask-typing-row",
+        (node) => node.props?.className === "pmtask-typing-strip",
       ),
       "停止后应移除正在输入动效",
     ).toHaveLength(0);
@@ -5764,6 +6174,11 @@ describe("task client", () => {
       "停止后对话中应显示已停止反馈",
     ).toHaveLength(2);
     expect(containsText(tree, "已停止执行")).toBe(true);
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain(
+      ".pmtask-typing-strip{order:3;flex:none;display:flex;align-items:center;gap:8px;min-height:26px;padding:3px 8px;border:0;background:transparent;",
+    );
+    expect(source).toContain(".pmtask-composer-stop{height:30px;");
   });
 
   it("uses one composer for discussion and instruction while keeping data routes separate", async () => {

@@ -207,6 +207,10 @@ export const externalAgentRuntimeSchema = z
     defaultModel: z.string().trim().min(1).max(160).optional(),
     /** 上下文装配可用输入预算；不包含模型输出预留。 */
     contextWindowTokens: z.number().int().min(1_000).max(10_000_000).optional(),
+    /** Codex CLI 文件系统沙箱；其他 Runner 由自身权限模型负责。 */
+    sandboxMode: z.enum(["read-only", "workspace-write"]).optional(),
+    /** Codex workspace-write 的直接网络访问开关。 */
+    networkAccess: z.boolean().optional(),
     status: z.enum(["active", "disabled", "archived"]).default("active"),
     visibility: z.enum(["workspace", "platform"]).default("platform"),
     ownerUserId: z.string().min(1).max(160),

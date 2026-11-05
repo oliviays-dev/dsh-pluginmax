@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { createInterface } from "node:readline";
 import type { AgentExecutionMetadata, ExternalAgentRuntime } from "./types.js";
 
@@ -539,10 +539,12 @@ export class ExternalAgentProcessRunner implements ExternalAgentRunner {
           ...args,
           "exec",
           "--json",
+          "-c",
+          `sandbox_workspace_write.network_access=${runtime.networkAccess === false ? "false" : "true"}`,
           "--cd",
           request.workspacePath,
           "--sandbox",
-          "read-only",
+          runtime.sandboxMode ?? "workspace-write",
           ...(outputFileName === undefined
             ? []
             : ["--output-last-message", outputFileName]),
@@ -1157,6 +1159,85 @@ export function externalSessionId(runId: string): string {
   return `external-${runId}-${randomUUID()}`
     .replace(/[^a-zA-Z0-9._-]/g, "-")
     .slice(0, 200);
+}
+
+/**
+ * Resolve the model pool Codex itself will accept. Explicit Runtime settings
+ * win; otherwise read the model catalog referenced by CODEX_HOME/config.toml.
+ */
+export async function discoverCodexRuntimeModels(
+  runtime: Pick<
+    ExternalAgentRuntime,
+    "provider" | "supportedModels" | "defaultModel"
+  >,
+  options: { readonly codexHome?: string | undefined } = {},
+): Promise<{
+  readonly supportedModels: readonly string[];
+  readonly defaultModel?: string | undefined;
+}> {
+  if (runtime.provider !== "codex") {
+    return {
+      supportedModels: runtime.supportedModels ?? [],
+      ...(runtime.defaultModel === undefined
+        ? {}
+        : { defaultModel: runtime.defaultModel }),
+    };
+  }
+  if ((runtime.supportedModels ?? []).length > 0) {
+    return {
+      supportedModels: runtime.supportedModels!,
+      ...(runtime.defaultModel === undefined
+        ? {}
+        : { defaultModel: runtime.defaultModel }),
+    };
+  }
+  const codexHome =
+    options.codexHome?.trim() ||
+    process.env.CODEX_HOME?.trim() ||
+    join(homedir(), ".codex");
+  try {
+    const config = await readFile(join(codexHome, "config.toml"), "utf8");
+    const configuredModel =
+      /^\s*model\s*=\s*"([^"]+)"\s*$/m.exec(config)?.[1]?.trim() ?? "";
+    const catalogRef =
+      /^\s*model_catalog_json\s*=\s*"([^"]+)"\s*$/m.exec(config)?.[1]?.trim() ??
+      "";
+    if (catalogRef === "") {
+      return { supportedModels: [] };
+    }
+    const catalogPath = isAbsolute(catalogRef)
+      ? catalogRef
+      : join(codexHome, catalogRef);
+    const catalog = JSON.parse(await readFile(catalogPath, "utf8")) as {
+      readonly models?: readonly {
+        readonly slug?: unknown;
+        readonly display_name?: unknown;
+      }[];
+    };
+    const supportedModels = [
+      ...new Set(
+        (catalog.models ?? [])
+          .map((model) =>
+            typeof model.slug === "string" ? model.slug.trim() : "",
+          )
+          .filter((model) => model !== ""),
+      ),
+    ];
+    if (supportedModels.length === 0) return { supportedModels: [] };
+    return {
+      supportedModels,
+      defaultModel: supportedModels.includes(configuredModel)
+        ? configuredModel
+        : (runtime.defaultModel ?? supportedModels[0]),
+    };
+  } catch {
+    return {
+      supportedModels: runtime.supportedModels ?? [],
+      ...(runtime.defaultModel === undefined
+        ? {}
+        : { defaultModel: runtime.defaultModel }),
+    };
+  }
 }
 
 export function probeExternalRuntime(

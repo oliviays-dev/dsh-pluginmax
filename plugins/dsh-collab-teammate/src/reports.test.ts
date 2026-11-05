@@ -277,6 +277,27 @@ describe("work report generation", () => {
     expect(prompt).toContain("不得编造任务 ID");
   });
 
+  it("injects effective work-report skill instructions into the prompt", () => {
+    const prompt = buildWorkReportPrompt({
+      ...generationContext(),
+      skills: [
+        {
+          id: "custom-work-report",
+          name: "精简工作日报",
+          version: "1.0.0",
+          instructions: "# 精简工作日报\n先结论，后证据，最多 500 字。",
+          source: "user",
+          bindingSource: "user",
+          scenes: ["work-report"],
+        },
+      ],
+    });
+    expect(prompt).toContain("## 已加载 Skill");
+    expect(prompt).toContain("custom-work-report@1.0.0");
+    expect(prompt).toContain("先结论，后证据");
+    expect(prompt).toContain("严格遵循下方已加载 Skill");
+  });
+
   it("falls back to a template snapshot that keeps task references", () => {
     const fallback = fallbackWorkReport(generationContext());
     expect(fallback.contentMarkdown).toContain("## 今日结论");
@@ -315,10 +336,26 @@ describe("work report generation", () => {
         },
       }),
     });
-    const generated = await runtime.generate(generationContext());
+    const generated = await runtime.generate({
+      ...generationContext(),
+      skills: [
+        {
+          id: "custom-work-report",
+          name: "精简工作日报",
+          version: "1.0.0",
+          instructions: "先结论，后证据。",
+          source: "user",
+          bindingSource: "user",
+          scenes: ["work-report"],
+        },
+      ],
+    });
     expect(generated.contentMarkdown).toContain("完成 TSK-1");
     expect(generated.excerpt).toBe("完成 TSK-1。");
     expect(generated.sourceRefs).toContain("run-1");
+    expect(generated.sourceRefs).toContain(
+      "skill:custom-work-report@1.0.0",
+    );
     expect(created).toHaveLength(1);
     const run = started[0] as {
       name: string;

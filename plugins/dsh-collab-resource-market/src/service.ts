@@ -108,7 +108,7 @@ export type PublisherFilter = "official" | "certified" | "community";
 export type CompatibilityStatus = "compatible" | "incompatible";
 export type CompatibilityFilter = CompatibilityStatus;
 export type MarketSort = "recommended" | "updated" | "name";
-export type MarketSource = "seed" | "provider";
+export type MarketSource = "seed" | "provider" | "user";
 
 export interface MarketListInput {
   query?: string;
@@ -184,6 +184,7 @@ export interface McpView extends McpAsset {
 
 export interface CustomResourceView extends CustomResourceRecord {
   source: "user";
+  status?: "enabled" | "available";
 }
 
 export const resourceMarketDomainSpec = {
@@ -323,7 +324,56 @@ export class ResourceMarketService {
         ),
       )
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-      .map((record) => ({ ...record, source: "user" as const }));
+      .map((record) => ({
+        ...record,
+        source: "user" as const,
+        ...(record.type === "skill"
+          ? {
+              status:
+                this.install(principal.userId, "skill", record.id)?.status ===
+                "enabled"
+                  ? ("enabled" as const)
+                  : ("available" as const),
+            }
+          : {}),
+      }));
+  }
+
+  private customSkillAssets(
+    principal: MarketPrincipal,
+  ): readonly SkillAsset[] {
+    return this.customResourcesFor(principal, { type: "skill" }).map(
+      (record) => {
+        const manifest = record.manifest ?? {};
+        const instructions =
+          typeof manifest.instructions === "string"
+            ? manifest.instructions.trim()
+            : "";
+        const triggers = Array.isArray(manifest.triggers)
+          ? manifest.triggers.filter(
+              (item): item is string => typeof item === "string",
+            )
+          : [];
+        return {
+          id: record.id,
+          name: record.name,
+          category: "自定义",
+          description: record.description,
+          publisher: {
+            id: record.ownerId,
+            name: record.publisherName,
+            verified: false,
+            kind: "community" as const,
+          },
+          version: record.version,
+          icon: "sparkles",
+          permissions: [...record.permissions],
+          usage: "自定义 Skill",
+          ...(instructions === "" ? {} : { instructions }),
+          ...(triggers.length === 0 ? {} : { triggers }),
+        };
+      },
+    );
   }
 
   private matches(haystack: string, query: string, category: string): boolean {
@@ -678,6 +728,15 @@ export class ResourceMarketService {
     input: CustomResourceInput,
   ): Promise<CustomResourceView> {
     const principal = normalizePrincipal(principalInput);
+    if (input.type === "skill") {
+      const instructions = input.manifest?.instructions;
+      if (typeof instructions !== "string" || instructions.trim() === "") {
+        throw new ResourceMarketError(
+          "invalid_input",
+          "Skill 清单必须包含非空的 instructions",
+        );
+      }
+    }
     const now = this.now();
     const record: CustomResourceRecord = {
       id: `custom-${randomUUID()}`,
@@ -710,6 +769,11 @@ export class ResourceMarketService {
       throw new ResourceMarketError("not_found", "自定义资源不存在");
     }
     await this.tables.customAssets.delete(resourceId);
+    if (record.type === "skill") {
+      await this.tables.installs.delete(
+        installKey(record.ownerId, "skill", resourceId),
+      );
+    }
   }
 
   async installSkill(
@@ -720,7 +784,14 @@ export class ResourceMarketService {
     const provider = this.options.skillProvider?.();
     const catalog =
       provider === undefined ? SKILLS : await provider.list(principal);
-    if (!catalog.some((skill) => skill.id === skillId)) {
+    const custom = this.tables.customAssets.get(skillId);
+    const customSkill =
+      custom !== undefined &&
+      custom.ownerId === principal.userId &&
+      custom.type === "skill" &&
+      typeof custom.manifest?.instructions === "string" &&
+      custom.manifest.instructions.trim() !== "";
+    if (!catalog.some((skill) => skill.id === skillId) && !customSkill) {
       throw new ResourceMarketError("not_found", "Skill 不存在");
     }
     const providerRecord = await provider?.install?.(principal, skillId);
@@ -736,6 +807,79 @@ export class ResourceMarketService {
       record,
     );
     return record;
+  }
+
+  async uninstallSkill(
+    principalInput: string | MarketPrincipal,
+    skillId: string,
+  ): Promise<void> {
+    const principal = normalizePrincipal(principalInput);
+    const existing = this.install(principal.userId, "skill", skillId);
+    if (existing === undefined) {
+      throw new ResourceMarketError("not_found", "Skill 尚未安装");
+    }
+    await this.tables.installs.delete(
+      installKey(principal.userId, "skill", skillId),
+    );
+  }
+
+  async installedSkills(
+    principalInput: string | MarketPrincipal,
+  ): Promise<SkillView[]> {
+    const principal = normalizePrincipal(principalInput);
+    const provider = this.options.skillProvider?.();
+    const catalog =
+      provider === undefined ? SKILLS : await provider.list(principal);
+    return [...catalog, ...this.customSkillAssets(principal)]
+      .filter(
+        (skill) =>
+          this.install(principal.userId, "skill", skill.id)?.status === "enabled",
+      )
+      .map((skill) => ({
+        ...skill,
+        source:
+          this.tables.customAssets.get(skill.id) === undefined
+            ? provider === undefined
+              ? "seed"
+              : "provider"
+            : "user",
+        status: "enabled" as const,
+      }));
+  }
+
+  async resolveSkills(
+    principalInput: string | MarketPrincipal,
+    skillIds: readonly string[],
+    options: { readonly requireInstallation?: boolean } = {},
+  ): Promise<SkillView[]> {
+    if (skillIds.length === 0) return [];
+    const principal = normalizePrincipal(principalInput);
+    const provider = this.options.skillProvider?.();
+    const catalog =
+      provider === undefined ? SKILLS : await provider.list(principal);
+    const available = [...catalog, ...this.customSkillAssets(principal)].map(
+      (skill) => ({
+        ...skill,
+        source:
+          this.tables.customAssets.get(skill.id) === undefined
+            ? provider === undefined
+              ? ("seed" as const)
+              : ("provider" as const)
+            : ("user" as const),
+        status:
+          this.install(principal.userId, "skill", skill.id)?.status === "enabled"
+            ? ("enabled" as const)
+            : ("available" as const),
+      }),
+    );
+    const byId = new Map(available.map((skill) => [skill.id, skill]));
+    return [...new Set(skillIds)]
+      .map((skillId) => byId.get(skillId))
+      .filter(
+        (skill): skill is SkillView =>
+          skill !== undefined &&
+          (options.requireInstallation === false || skill.status === "enabled"),
+      );
   }
 
   async mcps(

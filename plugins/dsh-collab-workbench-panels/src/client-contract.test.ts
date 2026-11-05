@@ -128,12 +128,16 @@ describe("built-in workbench panel providers", () => {
     expect(source).toContain("AI_LOAD_METRIC_LABELS");
     expect(source).toContain("primaryMetric");
     expect(source).toContain("pmwb2-ai-load-head");
-    expect(source).toContain('task: "任务（个）"');
+    expect(source).toContain('task: "任务数"');
     expect(source).toContain("pmwb2-ai-load-runtime-trend");
     expect(source).toContain("runtimeTrend.percent");
-    expect(source).toContain("minmax(48px,0.82fr)");
-    expect(source).toContain("minmax(39px,0.62fr)");
+    expect(source).toContain("minmax(52px,0.82fr)");
+    expect(source).toContain("minmax(44px,0.62fr)");
     expect(source).toContain("minmax(80px,1fr) minmax(0,2.6fr)");
+    expect(source).toContain(
+      "font-size:11px;line-height:1.5;font-variant-numeric:tabular-nums",
+    );
+    expect(source).toContain("font-size:12px;line-height:1.5");
     expect(source).toContain("justify-self:end;text-align:right");
     expect(source).toContain("overflow:auto;background:var(--dsw-alias-bg-layer-2)");
     expect(source).toContain("pmwb2-ai-load-divider");
@@ -142,7 +146,7 @@ describe("built-in workbench panel providers", () => {
     expect(source).not.toContain('item?.systemKey !== "data-agent"');
     expect(source).toContain('"AI伙伴时间范围"');
     expect(source).toContain("titleActions");
-    expect(source).toContain('lastActivity: "最近运行时间"');
+    expect(source).toContain('lastActivity: "最近运行"');
     expect(source).toContain("AiPartnerAvatar");
     expect(source).toContain("__pluginmaxPendingTeammate");
     expect(source).toContain('detail: { route: "teammates" }');
@@ -210,6 +214,46 @@ describe("built-in workbench panel providers", () => {
     expect(source).toContain('"已标记为未读"');
     expect(source).toContain('"标为未读"');
     expect(source).toContain("/api/collab/workbench/brief/unread");
-    expect(source).toContain("onUnread: (item) =>");
+    expect(source).toContain("ctx.showUnreadAction === true && read");
+    expect(source).not.toContain("markRead: onRead");
+    expect(source).not.toContain("markUnread: onUnread");
+    expect(source).toContain("const readStateStore = {");
+    expect(source).toContain("readStateStore.commit(next)");
+    expect(source).toContain("const current = readStateStore.getSnapshot()");
+    expect(source).toContain("isRead,");
+    expect(source).toContain(
+      "window.setTimeout(() => navigateTo(item.deepLink), 0);",
+    );
+    expect(source).toContain("react.useSyncExternalStore(");
+    expect(source).toContain(
+      "react.useState(readCurrentUserId)",
+    );
+    expect(source).toContain(
+      'view === "all" && item.readState === "read"',
+    );
+    expect(source).toContain("showUnreadAction: view === \"all\"");
+  });
+
+  it("renders todo cards with id, title, description and metadata layout", () => {
+    const source = readFileSync(CLIENT, "utf8");
+    expect(source).toContain(".pmwb-item.pmwb-item-todo");
+    expect(source).toContain("pmwb-todo-actions-main");
+    expect(source).toContain("pmwb-todo-name");
+    expect(source).toContain("pmwb-todo-description");
+    expect(source).toContain("pmwb-todo-meta");
+    expect(source).toContain("@container (max-width:280px)");
+    expect(source).toContain(
+      "font-size:14px;font-weight:650;line-height:1.3",
+    );
+    expect(source).toContain(
+      "font-size:13px;line-height:1.6",
+    );
+    expect(source).toContain(
+      "font-size:12px;line-height:1.5",
+    );
+    expect(source).toContain("no-description");
+    expect(source).not.toContain("暂无任务描述");
+    expect(source).toContain("item.receiverOwnerName");
+    expect(source).toContain("item.due ? formatDate(item.due) : \"不限\"");
   });
 });

@@ -86,6 +86,16 @@ export interface WorkReportRunContext {
   readonly endedAt?: string | undefined;
 }
 
+export interface WorkReportSkillContext {
+  readonly id: string;
+  readonly name: string;
+  readonly version: string;
+  readonly instructions: string;
+  readonly source: "seed" | "provider" | "user";
+  readonly bindingSource: "platform" | "user";
+  readonly scenes: readonly string[];
+}
+
 export interface WorkReportGenerationContext {
   readonly teammate: Pick<
     Teammate,
@@ -94,6 +104,7 @@ export interface WorkReportGenerationContext {
   readonly reportDate: string;
   readonly tasks: readonly WorkReportTaskContext[];
   readonly runs: readonly WorkReportRunContext[];
+  readonly skills?: readonly WorkReportSkillContext[] | undefined;
 }
 
 export interface GeneratedWorkReport {
@@ -193,6 +204,9 @@ function taskLine(task: WorkReportTaskContext): string {
 export function buildWorkReportPrompt(
   context: WorkReportGenerationContext,
 ): string {
+  const skills = (context.skills ?? []).filter(
+    (skill) => skill.instructions.trim() !== "",
+  );
   const active = context.tasks.filter(
     (task) => task.status === "progress" || task.status === "review",
   );
@@ -224,10 +238,23 @@ export function buildWorkReportPrompt(
     "",
     "硬性要求：",
     "1. 只使用给定任务、运行与来源信息，不得编造任务 ID、结论或数据；",
-    `2. 必须按以下四级标题输出，标题原样保留：${REPORT_SECTIONS.join("、")}；`,
+    skills.length > 0
+      ? "2. 必须严格遵循下方已加载 Skill 的输出结构和写作约束；"
+      : `2. 必须按以下四级标题输出，标题原样保留：${REPORT_SECTIONS.join("、")}；`,
     "3. 用中文写作，结论具体可执行，每一条结论都要能追溯到任务 ID；",
     "4. 输出 Markdown，不要输出代码块包裹整篇内容。",
     "",
+    ...(skills.length === 0
+      ? []
+      : [
+          "## 已加载 Skill",
+          ...skills.flatMap((skill) => [
+            `### ${skill.name}（${skill.id}@${skill.version}）`,
+            `来源：${skill.bindingSource === "platform" ? "平台基线" : "用户扩展"}；场景：${skill.scenes.join("、") || "general"}`,
+            skill.instructions,
+            "",
+          ]),
+        ]),
     "## 进行中与待验收",
     lines(active.map(taskLine)),
     "",
@@ -289,7 +316,12 @@ export function fallbackWorkReport(
     title: `${context.reportDate} 工作日报`,
     excerpt: summary.slice(0, 300),
     contentMarkdown: content,
-    sourceRefs: context.tasks.map((task) => task.id),
+    sourceRefs: [
+      ...context.tasks.map((task) => task.id),
+      ...(context.skills ?? []).map(
+        (skill) => `skill:${skill.id}@${skill.version}`,
+      ),
+    ],
   };
 }
 
@@ -397,6 +429,9 @@ export class WorkReportRuntime {
         sourceRefs: [
           ...context.tasks.map((task) => task.id),
           ...context.runs.map((run) => run.runId),
+          ...(context.skills ?? []).map(
+            (skill) => `skill:${skill.id}@${skill.version}`,
+          ),
         ],
       };
     } finally {

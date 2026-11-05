@@ -347,6 +347,18 @@ export function createResourceMarketRoutes(
             });
             return;
           }
+          if (request.method === "DELETE") {
+            const skillId = query(request).get("id") ?? "";
+            if (skillId === "") {
+              throw new ResourceMarketError(
+                "invalid_input",
+                "skill id is required",
+              );
+            }
+            await service.uninstallSkill(user, skillId);
+            sendJson(response, 200, { ok: true });
+            return;
+          }
           if (request.method !== "POST") {
             throw new ResourceMarketError(
               "invalid_input",
@@ -357,6 +369,28 @@ export function createResourceMarketRoutes(
           sendJson(response, 200, {
             ok: true,
             install: await service.installSkill(user.userId, input.skillId),
+          });
+        } catch (cause) {
+          routeError(response, cause);
+        }
+      },
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/resources/skills/installed",
+      handler: async (request, response) => {
+        try {
+          assertSameOrigin(request);
+          if (request.method !== "GET") {
+            throw new ResourceMarketError(
+              "invalid_input",
+              "method not allowed",
+            );
+          }
+          const user = principal(request);
+          sendJson(response, 200, {
+            ok: true,
+            skills: await service.installedSkills(user),
           });
         } catch (cause) {
           routeError(response, cause);

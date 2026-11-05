@@ -195,6 +195,10 @@ window.__ModuleLoader__.load({
       .pmtask-run-state.cancelled{border-radius:2px;background:var(--dsw-alias-state-error-primary,#e5534b);}
       .pmtask-run-state.waiting,.pmtask-run-state.failed{background:var(--dsw-alias-state-warning-primary,#e2a737);}
       .pmtask-run-state.interrupted{background:var(--dsw-alias-label-tertiary);}
+      .pmtask-run-state-text{display:inline-flex;align-items:center;height:18px;padding:0 3px;font-size:10.5px;font-weight:600;line-height:1;white-space:nowrap;}
+      .pmtask-run-state-text.failed,.pmtask-run-state-text.interrupted{color:var(--dsw-alias-state-error-primary,#e5534b);}
+      .pmtask-run-state-text.waiting{color:var(--dsw-alias-state-warning-primary,#e2a737);}
+      .pmtask-run-state-text.cancelled{color:var(--dsw-alias-label-tertiary);}
       @keyframes pmtask-spin{to{transform:rotate(360deg);}}
       .pmtask-title{font-size:13px;font-weight:650;line-height:1.35;overflow-wrap:anywhere;}
       .pmtask-desc{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1.45;}
@@ -320,6 +324,13 @@ window.__ModuleLoader__.load({
       .pmtask-attachment{display:inline-flex;align-items:center;gap:5px;max-width:260px;height:24px;border-radius:6px;padding:0 6px 0 8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:10.5px;}
       .pmtask-attachment>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
       .pmtask-attachment button{width:18px;height:18px;display:grid;place-items:center;border:0;border-radius:4px;background:transparent;color:inherit;cursor:pointer;}
+      .pmtask-description-field{gap:7px;}
+      .pmtask-create-attachments{display:flex;align-items:center;gap:7px;flex-wrap:wrap;min-height:25px;}
+      .pmtask-attachment-upload{height:25px;display:inline-flex;align-items:center;padding:0 8px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:10.5px;cursor:pointer;}
+      .pmtask-attachment-upload:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
+      .pmtask-attachment-upload.disabled{opacity:.5;pointer-events:none;}
+      .pmtask-attachment-upload input{position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none;}
+      .pmtask-attachment-hint{color:var(--dsw-alias-label-tertiary);font-size:10px;}
       .pmtask-compose-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;}
       .pmtask-compose-hint{margin-right:auto;color:var(--dsw-alias-label-tertiary);font-size:10.5px;}
       .pmtask-mention{border-radius:4px;padding:0 3px;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 12%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7);}
@@ -410,8 +421,7 @@ window.__ModuleLoader__.load({
       .pmtask-detail-page .pmtask-history-message .pmtask-bubble{border:1px solid var(--dsw-alias-border-l2);border-radius:3px 8px 8px 8px;background:var(--dsw-alias-bg-layer-2);}
       .pmtask-detail-page .pmtask-history-message.is-mine .pmtask-bubble{border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 38%,transparent);border-radius:8px 3px 8px 8px;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 12%,var(--dsw-alias-bg-layer-1));}
       .pmtask-detail-page .pmtask-history-message.is-mine .pmtask-attachments{justify-content:flex-end;}
-      .pmtask-typing-row{display:flex;align-items:flex-start;gap:9px;padding:4px 0;}
-      .pmtask-typing-bubble{display:inline-flex;align-items:center;gap:8px;min-height:34px;padding:7px 11px;border:1px solid var(--dsw-alias-border-l2);border-radius:3px 8px 8px 8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:11.5px;}
+      .pmtask-typing-strip{order:3;flex:none;display:flex;align-items:center;gap:8px;min-height:26px;padding:3px 8px;border:0;background:transparent;color:var(--dsw-alias-label-secondary);font-size:11.5px;}
       .pmtask-typing-dots{display:inline-flex;align-items:center;gap:3px;height:12px;}
       .pmtask-typing-dots i{width:4px;height:4px;border-radius:50%;background:var(--dsw-alias-accent-primary,#4f8ef7);animation:pmtask-typing-dot 1.1s ease-in-out infinite;}
       .pmtask-typing-dots i:nth-child(2){animation-delay:.15s;}
@@ -508,10 +518,16 @@ window.__ModuleLoader__.load({
       .pmtask-basic-edit-actions{display:flex;justify-content:flex-end;gap:6px;padding-top:2px;}
       .pmtask-content-editor{height:100%;min-height:0;overflow:auto;display:grid;align-content:start;gap:10px;padding:14px 16px 18px;}
       .pmtask-detail-doc-list{display:grid;gap:7px;}
+      .pmtask-detail-doc-groups{display:grid;gap:18px;}
+      .pmtask-doc-group{display:grid;gap:8px;}
+      .pmtask-doc-group-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-bottom:5px;border-bottom:1px solid var(--dsw-alias-border-l2);}
+      .pmtask-doc-group-head h4{margin:0;color:var(--dsw-alias-label-secondary);font-size:11px;font-weight:650;}
+      .pmtask-doc-group-head span{color:var(--dsw-alias-label-tertiary);font-size:9.5px;font-variant-numeric:tabular-nums;}
       .pmtask-detail-doc{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:9px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-2);}
       .pmtask-detail-doc-main{min-width:0;display:grid;gap:4px;}
       .pmtask-detail-doc-title{display:flex;align-items:center;gap:6px;min-width:0;}
       .pmtask-detail-doc-title strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;}
+      .pmtask-doc-version-badge{flex:none;padding:1px 5px;border-radius:4px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary);font-size:9px;font-weight:650;line-height:1.45;}
       .pmtask-detail-doc-meta{display:flex;align-items:center;gap:5px 8px;flex-wrap:wrap;color:var(--dsw-alias-label-tertiary);font-size:9.5px;line-height:1.45;}
       .pmtask-detail-doc-ai{padding:1px 4px;border-radius:3px;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 12%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7);font-size:8.5px;}
       .pmtask-detail-doc-download{width:28px;height:28px;display:grid;place-items:center;padding:0;border:1px solid var(--dsw-alias-border-l3);border-radius:5px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);cursor:pointer;}
@@ -547,8 +563,14 @@ window.__ModuleLoader__.load({
       .pmtask-detail-effect.workflow{color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 78%,var(--dsw-alias-label-secondary));}
       .pmtask-detail-composer-actions{display:flex;align-items:center;gap:6px;margin-left:auto;}
       .pmtask-detail-composer-actions .pmtask-btn{height:30px;}
+      .pmtask-composer-stop{height:30px;display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:0 9px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 35%,var(--dsw-alias-border-l3));border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:11px;font-weight:500;white-space:nowrap;cursor:pointer;}
+      .pmtask-composer-stop:hover:not(:disabled){border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 70%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 9%,var(--dsw-alias-bg-layer-1));}
+      .pmtask-composer-stop:disabled{opacity:.5;cursor:not-allowed;}
+      .pmtask-composer-stop svg{width:12px;height:12px;flex:none;fill:currentColor;}
       .pmtask-detail-page .pmtask-detail-main>.pmtask-comments{display:none;}
       .pmtask-composer{position:relative;margin-top:0;border:1px solid var(--dsw-alias-border-l3);border-radius:8px;background:var(--dsw-alias-bg-layer-2);overflow:visible;}
+      .pmtask-composer.disabled{border-style:dashed;background:color-mix(in srgb,var(--dsw-alias-bg-layer-2) 72%,var(--dsw-alias-bg-base));}
+      .pmtask-composer.disabled .pmtask-composer-toolbar,.pmtask-composer.disabled .pmtask-detail-composer-foot{opacity:.68;}
       .pmtask-composer-toolbar{position:relative;display:flex;align-items:center;gap:5px;padding:8px 10px 0;}
       .pmtask-tool-btn{width:28px;height:28px;display:grid;place-items:center;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:15px;cursor:pointer;}
       .pmtask-tool-btn:hover{background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);}
@@ -589,6 +611,8 @@ window.__ModuleLoader__.load({
       .pmtask-markdown{display:grid;gap:7px;min-width:0;overflow-wrap:anywhere;}
       .pmtask-md-heading{margin:0;font-weight:700;line-height:1.35;color:var(--dsw-alias-label-primary);}
       .pmtask-md-paragraph{margin:0;white-space:pre-wrap;}
+      .pmtask-md-doc-link{display:inline;min-width:0;max-width:100%;padding:0;border:0;background:transparent;color:var(--dsw-alias-accent-primary,#4f8ef7);font:inherit;text-align:left;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;cursor:pointer;overflow-wrap:anywhere;}
+      .pmtask-md-doc-link:hover{text-decoration-style:solid;}
       .pmtask-md-list{margin:0;padding-left:20px;display:grid;gap:4px;}
       .pmtask-md-list li{padding-left:1px;}
       .pmtask-md-code{padding:1px 4px;border-radius:3px;background:color-mix(in srgb,var(--dsw-alias-label-primary) 10%,transparent);font:0.92em/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
@@ -639,6 +663,9 @@ window.__ModuleLoader__.load({
       .pmtask-doc-name:disabled:hover span{text-decoration:none;}
       .pmtask-doc-meta{margin-top:3px;overflow:hidden;color:var(--dsw-alias-label-tertiary);font-size:10.5px;text-overflow:ellipsis;white-space:nowrap;}
       .pmtask-doc-kind{flex:none;border-radius:4px;padding:1px 5px;background:color-mix(in srgb,var(--dsw-alias-label-tertiary) 18%,transparent);color:var(--dsw-alias-label-secondary);font-size:9.5px;font-weight:600;}
+      .pmtask-doc-version-tag{width:max-content;margin-top:4px;padding:1px 5px;border-radius:4px;background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#e2a737) 12%,transparent);color:var(--dsw-alias-state-warning-primary,#e2a737);font-size:9.5px;font-weight:600;}
+      .pmtask-doc-version-tag.latest{background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#34d47e) 11%,transparent);color:var(--dsw-alias-state-success-primary,#2f9b6d);}
+      .pmtask-doc-version-note{margin-top:4px;color:var(--dsw-alias-state-warning-primary,#e2a737);font-size:10px;line-height:1.45;white-space:normal;}
       .pmtask-doc-empty{padding:12px;border:1px dashed var(--dsw-alias-border-l2);border-radius:6px;color:var(--dsw-alias-label-secondary);font-size:11.5px;text-align:center;}
       .pmtask-execution-record{min-width:0;max-width:100%;overflow:hidden;}
       .pmtask-execution-runs{min-width:0;max-width:100%;display:grid;gap:6px;margin-bottom:8px;}
@@ -668,6 +695,13 @@ window.__ModuleLoader__.load({
       .pmtask-execution-block:first-child{padding-top:0;border-top:0;}
       .pmtask-execution-block h4{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0;color:var(--dsw-alias-label-primary);font-size:12px;font-weight:700;}
       .pmtask-execution-block h4 span{min-width:0;overflow:hidden;color:var(--dsw-alias-label-tertiary);font-size:10px;font-weight:400;text-overflow:ellipsis;white-space:nowrap;}
+      .pmtask-execution-block h4 .pmtask-execution-status-tag{flex:none;display:inline-flex;align-items:center;height:20px;padding:0 7px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-layer-2);font-size:9.5px;font-weight:600;line-height:1;}
+      .pmtask-execution-status-tag.queued,.pmtask-execution-status-tag.running{border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 34%,transparent);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 10%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7);}
+      .pmtask-execution-status-tag.waiting{border-color:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#e2a737) 38%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#e2a737) 10%,transparent);color:var(--dsw-alias-state-warning-primary,#e2a737);}
+      .pmtask-execution-status-tag.success{border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary,#34d47e) 38%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#34d47e) 10%,transparent);color:var(--dsw-alias-state-success-primary,#2f9b6d);}
+      .pmtask-execution-status-tag.failed{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 42%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 10%,transparent);color:var(--dsw-alias-state-error-primary,#e5534b);}
+      .pmtask-execution-status-tag.interrupted{border-color:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#e2a737) 38%,transparent);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-state-warning-primary,#e2a737);}
+      .pmtask-execution-status-tag.cancelled{color:var(--dsw-alias-label-secondary);}
       .pmtask-plan-list{display:grid;gap:6px;margin:0;padding:0;list-style:none;}
       .pmtask-plan-step{display:grid;grid-template-columns:18px minmax(0,1fr) auto;align-items:start;gap:7px;padding:7px 8px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);font-size:11.5px;line-height:1.45;}
       .pmtask-plan-step-dot{width:8px;height:8px;margin-top:4px;border-radius:50%;background:var(--dsw-alias-label-tertiary);}
@@ -676,8 +710,26 @@ window.__ModuleLoader__.load({
       .pmtask-plan-step.failed .pmtask-plan-step-dot{background:var(--dsw-alias-state-error-primary,#e5534b);}
       .pmtask-plan-step-title{min-width:0;overflow-wrap:anywhere;}
       .pmtask-plan-step-status{color:var(--dsw-alias-label-tertiary);white-space:nowrap;font-size:10.5px;}
-      .pmtask-execution-events{display:grid;gap:5px;margin:0;padding:0;list-style:none;}
-      .pmtask-execution-event{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:6px 7px;border-left:2px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.45;}
+      .pmtask-activity-label{color:var(--dsw-alias-label-tertiary);font-size:10px;font-weight:600;}
+      .pmtask-agent-activities{display:grid;gap:1px;max-height:165px;overflow-y:auto;overscroll-behavior:contain;margin:0;padding:0 2px 0 0;list-style:none;scrollbar-gutter:stable;}
+      .pmtask-agent-activity{display:grid;grid-template-columns:14px minmax(0,1fr) auto;align-items:start;gap:7px;min-height:30px;padding:6px 7px;border-radius:5px;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.45;}
+      .pmtask-agent-activity:hover{background:var(--dsw-alias-bg-layer-2);}
+      .pmtask-agent-activity .pmtask-spinner{width:10px;height:10px;margin-top:3px;border-width:1.5px;}
+      .pmtask-agent-activity-dot{width:6px;height:6px;margin:5px 0 0 3px;border-radius:50%;background:var(--dsw-alias-label-tertiary);}
+      .pmtask-agent-activity.summary .pmtask-agent-activity-dot{background:var(--dsw-alias-accent-primary,#4f8ef7);}
+      .pmtask-agent-activity.warning .pmtask-agent-activity-dot,.pmtask-agent-activity.error .pmtask-agent-activity-dot{background:var(--dsw-alias-state-error-primary,#e5534b);}
+      .pmtask-agent-activity.artifact .pmtask-agent-activity-dot{background:var(--dsw-alias-state-success-primary,#34d47e);}
+      .pmtask-agent-activity-copy{min-width:0;overflow:hidden;color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;}
+      .pmtask-agent-activity-copy span{color:var(--dsw-alias-label-tertiary);font-size:10px;}
+      .pmtask-agent-activity time{color:var(--dsw-alias-label-tertiary);font-size:9.5px;white-space:nowrap;}
+      .pmtask-execution-raw{margin-top:2px;color:var(--dsw-alias-label-tertiary);font-size:10.5px;}
+      .pmtask-execution-raw summary{padding:5px 7px;border-radius:5px;cursor:pointer;list-style:none;}
+      .pmtask-execution-raw summary::-webkit-details-marker{display:none;}
+      .pmtask-execution-raw summary::before{content:"›";display:inline-block;width:13px;transition:transform .15s ease;}
+      .pmtask-execution-raw[open] summary::before{transform:rotate(90deg);}
+      .pmtask-execution-raw summary:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);}
+      .pmtask-execution-events{display:grid;gap:2px;max-height:260px;overflow:auto;margin:2px 0 0;padding:2px 0;list-style:none;}
+      .pmtask-execution-event{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:5px 7px;border-left:2px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:1.45;}
       .pmtask-execution-event strong{min-width:0;overflow-wrap:anywhere;color:var(--dsw-alias-label-primary);font-weight:500;}
       .pmtask-execution-event time{color:var(--dsw-alias-label-tertiary);white-space:nowrap;}
       .pmtask-gate{display:grid;gap:8px;padding:10px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-warning-primary,#e2a737) 40%,transparent);border-radius:7px;background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#e2a737) 8%,transparent);}
@@ -687,8 +739,8 @@ window.__ModuleLoader__.load({
       .pmtask-gate-actions .pmtask-btn{height:30px;padding:0 10px;font-size:11.5px;}
       .pmtask-comment-list>.pmtask-empty,.pmtask-history>.pmtask-empty{padding:36px;border:1px dashed var(--dsw-alias-border-l2);border-radius:8px;color:var(--dsw-alias-label-secondary);text-align:center;font-size:13px;}
       .pmtask-detail-section>.pmtask-empty{padding:28px 10px;}
-      .pmtask-mask{position:absolute;inset:0;z-index:1000;display:grid;place-items:center;padding:20px;background:rgba(0,0,0,.24);backdrop-filter:blur(2px);}
-      .pmtask-modal{width:min(620px,calc(100vw - 40px));max-height:min(720px,calc(100vh - 40px));overflow:auto;display:grid;gap:12px;padding:16px;border:1px solid var(--dsw-alias-border-l3);border-radius:10px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));box-shadow:0 22px 54px rgba(0,0,0,.22);}
+      .pmtask-mask{position:absolute;inset:0;z-index:1000;background:rgba(0,0,0,.24);}
+      .pmtask-modal{position:fixed;left:50%;top:50%;z-index:1001;width:min(620px,calc(100vw - 40px));max-height:min(720px,calc(100dvh - 24px));overflow:auto;display:grid;gap:12px;padding:16px;border:1px solid var(--dsw-alias-border-l3);border-radius:10px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));box-shadow:0 22px 54px rgba(0,0,0,.22);transform:translate(-50%,-50%);overscroll-behavior:contain;scrollbar-gutter:stable;}
       .pmtask-modal-head{display:flex;align-items:center;justify-content:space-between;gap:10px;}
       .pmtask-modal-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;}
       .pmtask-execution-overrides{grid-column:1 / -1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;padding:10px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-2);}
@@ -713,7 +765,7 @@ window.__ModuleLoader__.load({
       .pmtask-empty{padding:46px 18px;text-align:center;color:var(--dsw-alias-label-secondary);font-size:12.5px;}
       @media(max-width:900px){.pmtask-detail-layout{grid-template-columns:1fr}.pmtask-detail-main{border-right:0;border-bottom:0.5px solid var(--dsw-alias-border-l2);}.pmtask-detail-top .pmtask-crumb{flex-basis:100%;order:3}.pmtask-grid-demo{grid-template-columns:repeat(2,minmax(0,1fr));}.pmtask-detail-page .pmtask-detail-layout{height:auto;min-height:0;overflow:visible;}.pmtask-detail-page .pmtask-detail-main{min-height:620px;overflow:visible;}.pmtask-detail-page .pmtask-detail-conversation{max-height:520px;}.pmtask-detail-page .pmtask-detail-side{display:block;overflow:visible;border-top:1px solid var(--dsw-alias-border-l2);}.pmtask-detail-page .pmtask-detail-side-scroll{overflow:visible;}.pmtask-detail-side-head,.pmtask-detail-tabs{position:static;}}
       @media(max-width:700px){.pmtask-head{flex-direction:column}.pmtask-modal-grid,.pmtask-execution-overrides{grid-template-columns:1fr}.pmtask-detail-page .pmtask-detail-layout{display:block}.pmtask-detail-page .pmtask-detail-main{min-height:0;padding:10px}.pmtask-detail-page .pmtask-detail-conversation{max-height:none;overflow:visible}.pmtask-detail-page .pmtask-detail-main>.pmtask-intro{padding:10px}.pmtask-detail-page .pmtask-history-message .pmtask-message-body{max-width:82%}.pmtask-detail-info-grid{grid-template-columns:1fr}.pmtask-detail-info.wide{grid-column:auto}.pmtask-detail-tab{font-size:10px}.pmtask-detail-actions{padding-bottom:2px}.pmtask-detail-runtime-current{display:none}}
-      @media(max-width:700px){.pmtask-detail-composer-foot{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center}.pmtask-detail-intent-group{grid-column:1;grid-row:1}.pmtask-detail-effect{grid-column:1/-1;grid-row:2;white-space:normal}.pmtask-detail-composer-actions{grid-column:2;grid-row:1;margin-left:0}.pmtask-detail-composer-actions .pmtask-btn{height:28px;padding:0 9px;font-size:11px}}
+      @media(max-width:700px){.pmtask-detail-composer-foot{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center}.pmtask-detail-intent-group{grid-column:1;grid-row:1}.pmtask-detail-effect{grid-column:1/-1;grid-row:2;white-space:normal}.pmtask-detail-composer-actions{grid-column:2;grid-row:1;margin-left:0}.pmtask-detail-composer-actions .pmtask-btn,.pmtask-composer-stop{height:28px;padding:0 9px;font-size:11px}}
       @container (max-width:900px){.pmtask-board{grid-template-columns:repeat(4,220px);}}
       @container (max-width:980px){
         .pmtask-detail-page .pmtask-detail-layout{display:block;height:auto;min-height:0;overflow:visible;}
@@ -736,7 +788,7 @@ window.__ModuleLoader__.load({
         .pmtask-detail-intent-group{grid-column:1;grid-row:1;}
         .pmtask-detail-effect{grid-column:1/-1;grid-row:2;white-space:normal;}
         .pmtask-detail-composer-actions{grid-column:2;grid-row:1;margin-left:0;}
-        .pmtask-detail-composer-actions .pmtask-btn{height:28px;padding:0 9px;font-size:11px;}
+        .pmtask-detail-composer-actions .pmtask-btn,.pmtask-composer-stop{height:28px;padding:0 9px;font-size:11px;}
       }
     `;
 
@@ -1056,9 +1108,15 @@ window.__ModuleLoader__.load({
 
     function executionMetaLabel(value) {
       if (typeof value === "boolean") return value ? "是" : "否";
-      if (value === null) return "未知";
+      if (value === null) return "未识别";
       const text = typeof value === "string" ? value.trim() : "";
-      return text === "" || text === "unknown" ? "未采集" : text;
+      return text === "" || text === "unknown" ? "未识别" : text;
+    }
+
+    function searchToolUsageLabel(value) {
+      if (value === true || value === "true") return "是";
+      if (value === false || value === "false") return "否";
+      return "未记录到结构化搜索调用";
     }
 
     function RunExecutionSummary({ execution, state }) {
@@ -1096,11 +1154,11 @@ window.__ModuleLoader__.load({
           ["推理强度", execution.reasoningEffort],
           ["Runtime", execution.runtime],
           ["版本", execution.runtimeVersion],
-          ["认证", execution.authMode],
+          ["认证方式", execution.authMode],
           ["沙箱", execution.sandbox],
           ["搜索启用", execution.searchEnabled],
           ["网络", execution.networkAccess],
-          ["实际搜索", execution.searchUsed],
+          ["搜索工具调用", execution.searchUsed],
           ["计划", planVisibilityLabel(execution.planVisibility)],
           ["工具门禁", gateEnforcementLabel(execution.gateEnforcement)],
         ].map(([label, value]) =>
@@ -1108,7 +1166,13 @@ window.__ModuleLoader__.load({
             "div",
             { className: "pmtask-run-summary-row", key: label },
             h("span", null, label),
-            h("strong", null, executionMetaLabel(value)),
+            h(
+              "strong",
+              null,
+              label === "搜索工具调用"
+                ? searchToolUsageLabel(value)
+                : executionMetaLabel(value),
+            ),
           ),
         ),
       );
@@ -1137,6 +1201,31 @@ window.__ModuleLoader__.load({
       return RUN_STATUS_LABEL[status] ?? status ?? "未知";
     }
 
+    function executionProcessStatus(status) {
+      if (status === "queued") {
+        return { label: "排队中", tone: "queued" };
+      }
+      if (status === "running") {
+        return { label: "执行中", tone: "running" };
+      }
+      if (status === "waiting_input") {
+        return { label: "待补充", tone: "waiting" };
+      }
+      if (status === "succeeded") {
+        return { label: "已完成", tone: "success" };
+      }
+      if (status === "failed" || status === "timeout") {
+        return { label: "失败 / 超时", tone: "failed" };
+      }
+      if (status === "interrupted") {
+        return { label: "已中断", tone: "interrupted" };
+      }
+      if (status === "cancelled") {
+        return { label: "已取消", tone: "cancelled" };
+      }
+      return undefined;
+    }
+
     function runRoleLabel(role) {
       if (role === "owner") return "主执行";
       if (role === "assist") return "协作";
@@ -1149,6 +1238,15 @@ window.__ModuleLoader__.load({
         (message) =>
           message?.runId !== undefined &&
           RUNNING_MESSAGE_STATES.includes(message.state),
+      );
+    }
+
+    function documentBelongsToRun(document, runId) {
+      return (
+        runId !== undefined &&
+        (document?.runId === runId ||
+          (Array.isArray(document?.runIds) &&
+            document.runIds.includes(runId)))
       );
     }
 
@@ -1197,6 +1295,127 @@ window.__ModuleLoader__.load({
       if (state === "timeout") return { kind: "failed", label: "执行超时" };
       if (state === "failed") return { kind: "failed", label: "执行失败" };
       return undefined;
+    }
+
+    function executionEventActivity(item) {
+      const summary = String(item?.summary ?? "").trim();
+      const data =
+        typeof item?.data === "object" && item.data !== null ? item.data : {};
+      const toolName =
+        typeof data.toolName === "string" ? data.toolName.toLowerCase() : "";
+      const argumentsText =
+        typeof data.arguments === "string" ? data.arguments : "";
+      const haystack = `${toolName} ${argumentsText} ${summary}`.toLowerCase();
+      if (item?.type === "tool.result") return undefined;
+      if (item?.type === "error") {
+        return {
+          label: "执行失败",
+          kind: "error",
+          detail: summary,
+          at: item.createdAt,
+        };
+      }
+      if (item?.type === "warning") {
+        return {
+          label: "处理执行异常",
+          kind: "warning",
+          detail: summary,
+          at: item.createdAt,
+        };
+      }
+      if (item?.type === "artifact") {
+        return {
+          label: "生成交付物",
+          kind: "artifact",
+          detail: summary,
+          at: item.createdAt,
+        };
+      }
+      if (
+        item?.type === "tool.call" ||
+        item?.type === "tool.result"
+      ) {
+        const label =
+          /search|web_search/.test(haystack)
+            ? "搜索资料"
+            : /fetch|browser|网页|url|http/.test(haystack)
+              ? "读取网页"
+              : /write|edit|patch|修改|写入/.test(haystack)
+                ? "修改文件"
+                : /read|glob|grep|file|文件/.test(haystack)
+                  ? "读取文件"
+                  : /subagent|delegate|委派/.test(haystack)
+                    ? "委派子任务"
+                    : /exec|command|shell|terminal|命令/.test(haystack)
+                      ? "运行命令"
+                      : toolName
+                        ? `调用 ${toolName}`
+                        : "调用工具";
+        return {
+          label,
+          kind: "tool",
+          detail: summary,
+          at: item.createdAt,
+        };
+      }
+      if (item?.type === "progress.summary") {
+        if (
+          /modulenotfounderror|importerror|traceback|error|not found|no module/i.test(
+            summary,
+          )
+        ) {
+          return {
+            label: "检查依赖失败",
+            kind: "warning",
+            detail: summary,
+            at: item.createdAt,
+          };
+        }
+        if (
+          /pytesseract|easyocr|fitz|pypdfium|pdf2image|q[l]?manage|sips|\/usr\/bin|\b\d{4}-\d{2}-\d{2}\b/i.test(
+            summary,
+          )
+        ) {
+          return {
+            label: "检查文档解析环境",
+            kind: "tool",
+            detail: summary,
+            at: item.createdAt,
+          };
+        }
+        const label = summary
+          .split(/[。！？\n]/)
+          .map((value) => value.trim())
+          .find(Boolean);
+        if (label !== undefined && label !== "") {
+          return {
+            label:
+              label.length > 72 ? `${label.slice(0, 72)}…` : label,
+            kind: "summary",
+            detail: summary,
+            at: item.createdAt,
+          };
+        }
+      }
+      return undefined;
+    }
+
+    function groupedExecutionActivities(events) {
+      const groups = [];
+      for (const item of events) {
+        const activity = executionEventActivity(item);
+        if (activity === undefined) continue;
+        const previous = groups.at(-1);
+        if (previous?.label === activity.label) {
+          previous.count += 1;
+          previous.at = activity.at;
+          previous.detail = activity.detail;
+          previous.kind = activity.kind;
+        } else {
+          groups.push({ ...activity, count: 1 });
+        }
+      }
+      return groups.slice(-200);
     }
 
     function workflowSourceLabel() {
@@ -1485,11 +1704,11 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function renderInlineMarkdown(text) {
+    function renderInlineMarkdown(text, options = {}) {
       const value = String(text ?? "");
       const nodes = [];
       const pattern =
-        /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(~~[^~\n]+~~)|(\*[^*\n]+\*)|(_[^_\n]+_)|(\[[^\]\n]+\]\(https?:\/\/[^)\s]+\))/g;
+        /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(~~[^~\n]+~~)|(\*[^*\n]+\*)|(_[^_\n]+_)|(\[[^\]\n]+\]\([^)\n]+\))/g;
       let cursor = 0;
       let match = pattern.exec(value);
       let index = 0;
@@ -1516,7 +1735,7 @@ window.__ModuleLoader__.load({
             h(
               "strong",
               { key: `strong-${index}` },
-              ...renderInlineMarkdown(token.slice(2, -2)),
+              ...renderInlineMarkdown(token.slice(2, -2), options),
             ),
           );
         } else if (token.startsWith("~~")) {
@@ -1524,13 +1743,52 @@ window.__ModuleLoader__.load({
             h(
               "del",
               { key: `del-${index}` },
-              ...renderInlineMarkdown(token.slice(2, -2)),
+              ...renderInlineMarkdown(token.slice(2, -2), options),
             ),
           );
         } else if (token.startsWith("[")) {
           const separator = token.lastIndexOf("](");
           const label = token.slice(1, separator);
           const href = token.slice(separator + 2, -1);
+          const decodedHref = (() => {
+            try {
+              return decodeURIComponent(href);
+            } catch {
+              return href;
+            }
+          })()
+            .replace(/^</, "")
+            .replace(/>$/, "")
+            .replace(/:\d+$/, "");
+          const linkedDocument = (options.documents ?? []).find(
+            (document) =>
+              label.trim() === document.name ||
+              decodedHref.endsWith(document.name) ||
+              decodedHref.endsWith(document.relativePath),
+          );
+          if (href.startsWith("pmtask-document:") || linkedDocument) {
+            const relativePath =
+              linkedDocument?.relativePath ??
+              decodeURIComponent(href.slice("pmtask-document:".length));
+            nodes.push(
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "pmtask-md-doc-link",
+                  key: `doc-link-${index}`,
+                  title: `下载 ${label}`,
+                  onClick: () =>
+                    options.onDocumentClick?.({ relativePath }),
+                },
+                linkedDocument?.name ?? label,
+              ),
+            );
+            cursor = match.index + token.length;
+            index += 1;
+            match = pattern.exec(value);
+            continue;
+          }
           let safeHref = null;
           try {
             const url = new URL(href);
@@ -1558,7 +1816,7 @@ window.__ModuleLoader__.load({
             h(
               "em",
               { key: `em-${index}` },
-              ...renderInlineMarkdown(token.slice(1, -1)),
+              ...renderInlineMarkdown(token.slice(1, -1), options),
             ),
           );
         }
@@ -1595,8 +1853,28 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function MarkdownText({ text }) {
-      const lines = String(text ?? "").split(/\r?\n/);
+    function MarkdownText({ text, documents = [], onDocumentClick }) {
+      const inlineOptions = { documents, onDocumentClick };
+      const documentNames = (documents ?? [])
+        .filter(
+          (document) =>
+            typeof document?.name === "string" &&
+            typeof document?.relativePath === "string" &&
+            document.relativePath !== "",
+        )
+        .sort((left, right) => right.name.length - left.name.length);
+      let linkedText = String(text ?? "");
+      for (const document of documentNames) {
+        const escapedName = document.name.replace(
+          /[.*+?^${}()|[\]\\]/g,
+          "\\$&",
+        );
+        linkedText = linkedText.replace(
+          new RegExp(`(产出文档[：:]\\s*)${escapedName}`, "g"),
+          `$1[${document.name}](pmtask-document:${encodeURIComponent(document.relativePath)})`,
+        );
+      }
+      const lines = linkedText.split(/\r?\n/);
       const blocks = [];
       let index = 0;
       while (index < lines.length) {
@@ -1650,7 +1928,7 @@ window.__ModuleLoader__.load({
                       h(
                         "th",
                         { key: `th-${column}`, style: cellStyle(column) },
-                        ...renderInlineMarkdown(cell),
+                        ...renderInlineMarkdown(cell, inlineOptions),
                       ),
                     ),
                   ),
@@ -1668,7 +1946,10 @@ window.__ModuleLoader__.load({
                             h(
                               "td",
                               { key: `td-${column}`, style: cellStyle(column) },
-                              ...renderInlineMarkdown(row[column] ?? ""),
+                              ...renderInlineMarkdown(
+                                row[column] ?? "",
+                                inlineOptions,
+                              ),
                             ),
                           ),
                         ),
@@ -1714,7 +1995,7 @@ window.__ModuleLoader__.load({
                 className: "pmtask-md-heading",
                 key: `heading-${blocks.length}`,
               },
-              ...renderInlineMarkdown(heading[2]),
+              ...renderInlineMarkdown(heading[2], inlineOptions),
             ),
           );
           index += 1;
@@ -1734,7 +2015,10 @@ window.__ModuleLoader__.load({
             h(
               "blockquote",
               { className: "pmtask-md-quote", key: `quote-${blocks.length}` },
-              ...renderInlineMarkdown(quoteLines.join("\n")),
+              ...renderInlineMarkdown(
+                quoteLines.join("\n"),
+                inlineOptions,
+              ),
             ),
           );
           continue;
@@ -1756,7 +2040,7 @@ window.__ModuleLoader__.load({
                 h(
                   "li",
                   { key: `li-${itemIndex}` },
-                  ...renderInlineMarkdown(item),
+                  ...renderInlineMarkdown(item, inlineOptions),
                 ),
               ),
             ),
@@ -1780,7 +2064,7 @@ window.__ModuleLoader__.load({
                 h(
                   "li",
                   { key: `li-${itemIndex}` },
-                  ...renderInlineMarkdown(item),
+                  ...renderInlineMarkdown(item, inlineOptions),
                 ),
               ),
             ),
@@ -1809,10 +2093,10 @@ window.__ModuleLoader__.load({
             { className: "pmtask-md-paragraph", key: `p-${blocks.length}` },
             paragraph.flatMap((item, itemIndex) =>
               itemIndex === 0
-                ? renderInlineMarkdown(item)
+                ? renderInlineMarkdown(item, inlineOptions)
                 : [
                     h("br", { key: `br-${itemIndex}` }),
-                    ...renderInlineMarkdown(item),
+                    ...renderInlineMarkdown(item, inlineOptions),
                   ],
             ),
           ),
@@ -2508,6 +2792,30 @@ window.__ModuleLoader__.load({
         const onRouteSelect = (event) => {
           const route = event?.detail?.route;
           if (typeof route === "string" && route !== "task") return;
+          if (route === "task") {
+            const pending = window.__pluginmaxPendingTask;
+            if (
+              pending !== null &&
+              typeof pending === "object" &&
+              typeof pending.taskId === "string" &&
+              pending.taskId !== ""
+            ) {
+              window.__pluginmaxPendingTask = null;
+              if (
+                typeof pending.workspaceId === "string" &&
+                pending.workspaceId !== ""
+              ) {
+                setWorkspaceFilter(pending.workspaceId);
+              }
+              setArchivedOnly(false);
+              setTaskView("board");
+              setSelectedId(pending.taskId);
+              setHighlightedId(pending.taskId);
+              setPendingAssignee(null);
+              setAssignOpen(false);
+              return;
+            }
+          }
           setSelectedId("");
           setHighlightedId("");
           setPendingAssignee(null);
@@ -3133,12 +3441,18 @@ window.__ModuleLoader__.load({
           "aria-label": indicator.label,
         });
       }
+      const text =
+        indicator.kind === "cancelled"
+          ? "已停止"
+          : indicator.kind === "waiting"
+            ? "待补充"
+            : "异常";
       return h("span", {
-        className: `pmtask-run-state ${indicator.kind}`,
+        className: `pmtask-run-state-text ${indicator.kind}`,
         role: "status",
         title: indicator.label,
         "aria-label": indicator.label,
-      });
+      }, text);
     }
 
     function TaskColumn({
@@ -3689,6 +4003,30 @@ window.__ModuleLoader__.load({
       return text === "" || text === "unknown" ? "" : text;
     }
 
+    function modelDisplayName(value) {
+      const model = String(value ?? "").trim();
+      if (model === "") return "";
+      const known = {
+        deepseek: "DeepSeek",
+        openai: "OpenAI",
+        gpt: "GPT",
+        glm: "GLM",
+        api: "API",
+        cli: "CLI",
+        ai: "AI",
+      };
+      return model
+        .split(/[-_\s]+/)
+        .filter(Boolean)
+        .map((part) => {
+          const lower = part.toLowerCase();
+          if (known[lower] !== undefined) return known[lower];
+          if (/^v\d+$/i.test(part)) return part.toUpperCase();
+          return `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`;
+        })
+        .join(" ");
+    }
+
     function runtimeForAgent(agent, runtimeId, runtimes, runtimeName = "") {
       const matched = (runtimes ?? []).find(
         (candidate) =>
@@ -3754,9 +4092,9 @@ window.__ModuleLoader__.load({
             modelValue === runtime.defaultModel));
       const model =
         modelValue !== ""
-          ? `${modelValue}${modelIsDefault ? "（默认）" : ""}`
+          ? `${modelDisplayName(modelValue)}${modelIsDefault ? "（默认）" : ""}`
           : runtime?.defaultModel
-            ? `${runtime.defaultModel}（默认）`
+            ? `${modelDisplayName(runtime.defaultModel)}（默认）`
             : executionDetailState === "loading"
               ? "加载中"
               : "未采集";
@@ -3840,12 +4178,16 @@ window.__ModuleLoader__.load({
                   { value: "" },
                   defaultModelLabel === undefined
                     ? "沿用 Runtime 默认模型"
-                    : `${defaultModelLabel}（默认）`,
+                    : `${modelDisplayName(defaultModelLabel)}（默认）`,
                 ),
                 ...choices
                   .filter((option) => option !== defaultModelLabel)
                   .map((option) =>
-                    h("option", { value: option, key: option }, option),
+                    h(
+                      "option",
+                      { value: option, key: option },
+                      modelDisplayName(option),
+                    ),
                   ),
               )
             : h("input", {
@@ -4574,6 +4916,9 @@ window.__ModuleLoader__.load({
       const [executionDetailState, setExecutionDetailState] =
         react.useState("idle");
       const [executionControl, setExecutionControl] = react.useState(null);
+      const activityScrollRef = react.useRef(null);
+      const activityPinnedRef = react.useRef(true);
+      const activityScrollRunRef = react.useRef("");
       const [taskRuns, setTaskRuns] = react.useState([]);
       const [selectedRunId, setSelectedRunId] = react.useState("");
       const [stoppingExecution, setStoppingExecution] = react.useState(false);
@@ -4588,7 +4933,6 @@ window.__ModuleLoader__.load({
       const [documentsReady, setDocumentsReady] = react.useState(true);
       const messageRef = react.useRef(null);
       const historyRef = react.useRef(null);
-      const liveOutputRef = react.useRef(null);
       const directoryOptions = [
         ...directory.humans.map((item) => ({ ...item, type: "human" })),
         ...directory.agents.map((item) => ({ ...item, type: "agent" })),
@@ -4722,7 +5066,14 @@ window.__ModuleLoader__.load({
           source.trim() === "" && attachments.length > 0
             ? `已上传附件：${attachments.map((file) => file.name).join("、")}`
             : source.trim();
-        if (readOnly || content === "") return;
+        if (
+          readOnly ||
+          isArchived(task) ||
+          isSettledStatus(task.status) ||
+          content === ""
+        ) {
+          return;
+        }
         if (composerIntentValue === "discussion") {
           if (!canDiscuss) return;
           if (attachments.length > 0) {
@@ -4779,13 +5130,9 @@ window.__ModuleLoader__.load({
                 : addressesReceiver
                   ? "receiver"
                   : "collaborators";
-          const reopensTask =
-            task.status === "done" && deliveryTarget !== "collaborators";
           const sentNotice =
-            task.status === "done"
-              ? reopensTask
-                ? "已追加要求并重新开启，指令已发送"
-                : "协作消息已发送，任务状态保持不变"
+            task.status === "todo"
+              ? "指令已发送，任务进入进行中"
               : task.receiverType === "agent"
                 ? "执行指令已发送"
                 : `已发送给 ${receiverDisplay(task)}`;
@@ -5085,17 +5432,13 @@ window.__ModuleLoader__.load({
                 executionDetailState === "error"
               ? "unavailable"
               : "loading";
-      const executionText =
-        executionLive?.progress?.text?.trim() ||
-        selectedRunMessage?.content ||
-        selectedRun?.output?.summary ||
-        "暂无执行输出";
       const executionStatus =
         executionLive?.run?.status ??
         selectedRun?.status ??
         selectedRunMessage?.state ??
         "idle";
       const executionRunning = RUNNING_MESSAGE_STATES.includes(executionStatus);
+      const executionProcessTag = executionProcessStatus(executionStatus);
       const activeExecutionRuns = executionRunOptions.filter((run) =>
         RUNNING_MESSAGE_STATES.includes(run.status),
       );
@@ -5110,6 +5453,16 @@ window.__ModuleLoader__.load({
                 ]),
               ).values(),
             ];
+      const typingStatusText =
+        typingParticipants.length === 0
+          ? ""
+          : typingParticipants.every((run) => run.status === "queued")
+            ? `${typingParticipants.map((run) => run.participantName).join("、")} 已接收任务，准备执行`
+            : typingParticipants.length === 1
+              ? typingParticipants[0].status === "waiting_input"
+                ? `${typingParticipants[0].participantName} 等待补充信息`
+                : `${typingParticipants[0].participantName} 正在输入`
+              : `${typingParticipants.map((run) => run.participantName).join("、")} 正在输入`;
       const canStopAllExecution =
         (canCommand || canReview) &&
         activeExecutionRuns.length > 0 &&
@@ -5138,9 +5491,32 @@ window.__ModuleLoader__.load({
         }
       };
       const selectedPlan = executionControl?.plan ?? null;
+      const visiblePlanSteps =
+        selectedPlan?.steps?.filter(
+          (step) =>
+            !(
+              (selectedPlan.steps?.length ?? 0) === 1 &&
+              String(step.title ?? "").trim() === "执行"
+            ),
+        ) ?? [];
       const selectedExecutionEvents = Array.isArray(executionControl?.events)
-        ? executionControl.events.slice(-12).reverse()
+        ? executionControl.events.slice(-200).reverse()
         : [];
+      const visibleExecutionActivities = groupedExecutionActivities(
+        [...selectedExecutionEvents].reverse(),
+      );
+      react.useEffect(() => {
+        const node = activityScrollRef.current;
+        if (node === null || visibleExecutionActivities.length === 0) return;
+        const runChanged = activityScrollRunRef.current !== selectedRunId;
+        if (runChanged) {
+          activityScrollRunRef.current = selectedRunId;
+          activityPinnedRef.current = true;
+        }
+        if (runChanged || activityPinnedRef.current) {
+          node.scrollTop = node.scrollHeight;
+        }
+      }, [selectedRunId, visibleExecutionActivities.length]);
       const pendingExecutionGates = Array.isArray(executionControl?.gates)
         ? executionControl.gates.filter((gate) => gate.status === "pending")
         : [];
@@ -5175,7 +5551,7 @@ window.__ModuleLoader__.load({
         }
       };
       const selectedRunDocuments = documents.filter(
-        (document) => document.runId === selectedRunId,
+        (document) => documentBelongsToRun(document, selectedRunId),
       );
       const latestRunId = task.agentRunIds.at(-1);
       const taskLevelDocuments = documents.filter(
@@ -5211,14 +5587,6 @@ window.__ModuleLoader__.load({
           if (timer !== undefined) window.clearInterval(timer);
         };
       }, [documentSignature, executionRunning]);
-      react.useEffect(() => {
-        const node = liveOutputRef.current;
-        if (node === null) return undefined;
-        const frame = window.requestAnimationFrame(() => {
-          node.scrollTop = node.scrollHeight;
-        });
-        return () => window.cancelAnimationFrame(frame);
-      }, [executionText]);
       const action = async (name, label, extra = {}) => {
         try {
           const endpoint =
@@ -5287,6 +5655,8 @@ window.__ModuleLoader__.load({
       };
       const lockedTip = archived
         ? "任务已归档，复原后可操作"
+        : task.status === "done"
+          ? "任务已完成，对话框已禁用"
         : task.status === "cancelled"
           ? "任务已取消，仅可查看历史或归档"
           : undefined;
@@ -5465,53 +5835,57 @@ window.__ModuleLoader__.load({
         ? "可分析方案、准备材料；审批与提交请前往工作流节点。"
         : "可讨论分析、准备材料；节点推进与提交请前往工作流节点。";
       const composerHint = archived
-        ? "任务已归档 · 复原后可继续发送指令"
+        ? "任务已归档 · 对话框已禁用"
+        : task.status === "done"
+          ? "任务已完成 · 对话框已禁用"
         : task.status === "cancelled"
-          ? "任务已取消 · 仅可查看历史或归档"
+          ? "任务已取消 · 对话框已禁用"
           : !canCommand
             ? `${commandLockReason}；可在讨论中 @ AI 伙伴发起协作执行`
             : isWorkflowTask
               ? workflowDiscussionHint
               : task.receiverType === "unassigned"
                 ? "暂无责任人 · 任务待指派"
-                : task.status === "done"
-                  ? `任务已完成 · 发送指令会追加要求并在同一条会话重开一轮（${receiverDisplay(task)}）`
-                  : task.receiverType === "agent"
-                    ? `发送给 ${receiverDisplay(task)}${task.status === "progress" && taskHasActiveRun(task) ? " · Agent 执行中" : task.status === "progress" ? " · 最近一次 Agent 运行未完成" : ""}`
-                    : `发送给 ${receiverDisplay(task)}`;
+                : task.receiverType === "agent"
+                  ? `发送给 ${receiverDisplay(task)}${task.status === "progress" && taskHasActiveRun(task) ? " · Agent 执行中" : task.status === "progress" ? " · 最近一次 Agent 运行未完成" : ""}`
+                  : `发送给 ${receiverDisplay(task)}`;
       const discussionMentionsAgent =
         composerIntentValue === "discussion" &&
         pickedMentions.some(
           (item) =>
             item.type === "agent" && message.includes(`@${item.name}`),
         );
-      const composerEffectText = isWorkflowTask
-        ? discussionMentionsAgent
-          ? "将向 @ 的 AI 伙伴发起一轮协作执行；其余内容仅记录"
-          : workflowDiscussionHint
-        : composerIntentValue === "discussion"
+      const composerLocked = archived || isSettledStatus(task.status);
+      const composerEffectText = composerLocked
+        ? "当前任务状态下不可发送消息"
+        : isWorkflowTask
           ? discussionMentionsAgent
             ? "将向 @ 的 AI 伙伴发起一轮协作执行；其余内容仅记录"
-            : canCommand
-              ? "仅记录讨论，不进入本次执行上下文"
-              : `仅记录讨论 · ${commandLockReason}`
-          : task.status === "done"
-            ? "将追加要求、重新开启任务，并同步之前关键共识"
+            : workflowDiscussionHint
+          : composerIntentValue === "discussion"
+            ? discussionMentionsAgent
+              ? "将向 @ 的 AI 伙伴发起一轮协作执行；其余内容仅记录"
+              : canCommand
+                ? "仅记录讨论，不进入本次执行上下文"
+                : `仅记录讨论 · ${commandLockReason}`
             : task.receiverType === "agent"
               ? "将触发一次 Agent Run，并同步之前关键共识"
               : "将通知负责人，并同步之前关键共识";
-      const composerPlaceholder = isWorkflowTask
-        ? isApprovalTask
-          ? "询问审批依据、方案风险或需要准备的材料"
-          : "讨论节点方案、风险或需要准备的交付物"
-        : composerIntentValue === "discussion"
-          ? canCommand
-            ? "参与讨论；未 @ AI 时仅记录，@ AI 伙伴会发起协作执行"
-            : `参与讨论；${commandLockReason}，@ AI 伙伴可发起协作执行`
+      const composerPlaceholder = composerLocked
+        ? archived
+          ? "任务已归档，对话框已禁用"
           : task.status === "done"
-            ? "补充新的执行要求；发送后会重新开启任务，并同步之前关键共识"
+            ? "任务已完成，对话框已禁用"
+            : "任务已取消，对话框已禁用"
+        : isWorkflowTask
+          ? isApprovalTask
+            ? "询问审批依据、方案风险或需要准备的材料"
+            : "讨论节点方案、风险或需要准备的交付物"
+          : composerIntentValue === "discussion"
+            ? canCommand
+              ? "参与讨论；未 @ AI 时仅记录，@ AI 伙伴会发起协作执行"
+              : `参与讨论；${commandLockReason}，@ AI 伙伴可发起协作执行`
             : "补充要求或推进说明，发送后将交给任务负责人，并通知到 @ 的人员 / AI 伙伴";
-      const composerLocked = archived || task.status === "cancelled";
       const executionPolicyView = executionPolicyForm(task);
       const runtimeView = taskRuntimeView(
         task,
@@ -5541,7 +5915,7 @@ window.__ModuleLoader__.load({
             authorName: task.createdByName,
             kind: "human",
             content: task.description,
-            attachments: [],
+            attachments: task.attachments ?? [],
             mentions: [],
             messageType: isWorkflowTask ? "workflow-task" : "instruction",
           },
@@ -5629,22 +6003,6 @@ window.__ModuleLoader__.load({
         return h(ReceiverAvatar, { option, kind, name: item.authorName });
       };
       const detailActions = [];
-      if (
-        !archived &&
-        activeExecutionRuns.length > 0 &&
-        (canCommand || canReview) &&
-        !stoppingExecution
-      ) {
-        detailActions.push(
-          h(DetailActionButton, {
-            key: "stop-execution",
-            label: "停止执行",
-            tone: "caution",
-            title: `停止当前任务中 ${activeExecutionRuns.length} 个正在运行的 AI 伙伴`,
-            onClick: () => void stopAllExecution(),
-          }),
-        );
-      }
       if (archived) {
         detailActions.push(
           h(DetailActionButton, {
@@ -6042,11 +6400,15 @@ window.__ModuleLoader__.load({
         ) {
           latestDocumentsByName.set(key, {
             document,
-            hiddenVersions:
-              current === undefined ? 0 : current.hiddenVersions + 1,
+            versionCount:
+              (current?.versionCount ?? 0) +
+              Math.max(1, document.runIds?.length ?? 1),
           });
         } else {
-          current.hiddenVersions += 1;
+          current.versionCount += Math.max(
+            1,
+            document.runIds?.length ?? 1,
+          );
         }
       }
       const latestDocuments = [...latestDocumentsByName.values()].sort(
@@ -6054,6 +6416,103 @@ window.__ModuleLoader__.load({
           String(right.document.updatedAt ?? "").localeCompare(
             String(left.document.updatedAt ?? ""),
           ),
+      );
+      const renderDocumentGroup = (label, items) =>
+        h(
+          "section",
+          {
+            className: "pmtask-doc-group",
+            "data-document-group": label,
+          },
+          h(
+            "div",
+            { className: "pmtask-doc-group-head" },
+            h("h4", null, label),
+            h("span", null, String(items.length)),
+          ),
+          h(
+            "div",
+            { className: "pmtask-detail-doc-list" },
+            ...items.map(({ document, versionCount }) => {
+              const run = document.runId
+                ? runsById.get(document.runId)
+                : undefined;
+              const producer = document.updatedBy || "AI伙伴";
+              return h(
+                "article",
+                {
+                  className: "pmtask-detail-doc",
+                  key: document.id,
+                },
+                h(
+                  "div",
+                  { className: "pmtask-detail-doc-main" },
+                  h(
+                    "div",
+                    { className: "pmtask-detail-doc-title" },
+                    h("strong", { title: document.name }, document.name),
+                    versionCount > 1
+                      ? h(
+                          "span",
+                          { className: "pmtask-doc-version-badge" },
+                          `v${versionCount}`,
+                        )
+                      : null,
+                  ),
+                  h(
+                    "div",
+                    { className: "pmtask-detail-doc-meta" },
+                    h("span", null, producer),
+                    run !== undefined || document.kind !== "uploaded"
+                      ? h("span", { className: "pmtask-detail-doc-ai" }, "AI")
+                      : null,
+                    h("span", null, localTime(document.updatedAt)),
+                    h(
+                      "span",
+                      null,
+                      run
+                        ? `第 ${run.roundNumber} 轮 · ${run.id}`
+                        : document.runId || "任务级文档",
+                    ),
+                  ),
+                ),
+                h(
+                  "button",
+                  {
+                    className: "pmtask-detail-doc-download",
+                    type: "button",
+                    disabled: !document.available,
+                    title: document.available
+                      ? `下载 ${document.name}`
+                      : "该附件未存储到工作区",
+                    "aria-label": `下载 ${document.name}`,
+                    onClick: () => void downloadDocument(document),
+                  },
+                  h(
+                    "svg",
+                    {
+                      viewBox: "0 0 24 24",
+                      fill: "none",
+                      stroke: "currentColor",
+                      strokeWidth: 2,
+                      strokeLinecap: "round",
+                      strokeLinejoin: "round",
+                      "aria-hidden": "true",
+                    },
+                    h("path", { d: "M12 3v12" }),
+                    h("path", { d: "m7 10 5 5 5-5" }),
+                    h("path", { d: "M5 21h14" }),
+                  ),
+                ),
+              );
+            }),
+          ),
+        );
+      const producedDocuments = latestDocuments.filter(
+        ({ document }) => document.kind === "produced",
+      );
+      const uploadedDocuments = latestDocuments.filter(
+        ({ document }) => document.kind === "uploaded",
       );
       const documentsPane = h(
         "div",
@@ -6080,94 +6539,12 @@ window.__ModuleLoader__.load({
             )
           : h(
               "div",
-              { className: "pmtask-detail-doc-list" },
-              ...latestDocuments.map(({ document, hiddenVersions }) => {
-                const run = document.runId
-                  ? runsById.get(document.runId)
-                  : undefined;
-                const producer = document.updatedBy || "AI伙伴";
-                return h(
-                  "article",
-                  {
-                    className: "pmtask-detail-doc",
-                    key: document.id,
-                  },
-                  h(
-                    "div",
-                    { className: "pmtask-detail-doc-main" },
-                    h(
-                      "div",
-                      { className: "pmtask-detail-doc-title" },
-                      h("strong", { title: document.name }, document.name),
-                      h(
-                        "span",
-                        { className: "pmtask-doc-kind" },
-                        hiddenVersions > 0
-                          ? `v${hiddenVersions + 1}`
-                          : document.kind === "uploaded"
-                            ? "上传"
-                            : "产出",
-                      ),
-                    ),
-                    h(
-                      "div",
-                      { className: "pmtask-detail-doc-meta" },
-                      h("span", null, producer),
-                      run !== undefined || document.kind !== "uploaded"
-                        ? h("span", { className: "pmtask-detail-doc-ai" }, "AI")
-                        : null,
-                      h("span", null, localTime(document.updatedAt)),
-                      h(
-                        "span",
-                        null,
-                        run
-                          ? `第 ${run.roundNumber} 轮 · ${run.id}`
-                          : document.runId || "任务级文档",
-                      ),
-                    ),
-                  ),
-                  h(
-                    "button",
-                    {
-                      className: "pmtask-detail-doc-download",
-                      type: "button",
-                      disabled: !document.available,
-                      title: document.available
-                        ? `下载 ${document.name}`
-                        : "该附件未存储到工作区",
-                      "aria-label": `下载 ${document.name}`,
-                      onClick: () => void downloadDocument(document),
-                    },
-                    h(
-                      "svg",
-                      {
-                        viewBox: "0 0 24 24",
-                        fill: "none",
-                        stroke: "currentColor",
-                        strokeWidth: 2,
-                        strokeLinecap: "round",
-                        strokeLinejoin: "round",
-                        "aria-hidden": "true",
-                      },
-                      h("path", { d: "M12 3v12" }),
-                      h("path", { d: "m7 10 5 5 5-5" }),
-                      h("path", { d: "M5 21h14" }),
-                    ),
-                  ),
-                );
-              }),
-              latestDocuments.reduce(
-                (total, item) => total + item.hiddenVersions,
-                0,
-              ) > 0
-                ? h(
-                    "div",
-                    { className: "pmtask-side-empty" },
-                    `已合并 ${latestDocuments.reduce(
-                      (total, item) => total + item.hiddenVersions,
-                      0,
-                    )} 个旧版本`,
-                  )
+              { className: "pmtask-detail-doc-groups" },
+              producedDocuments.length > 0
+                ? renderDocumentGroup("产出文档", producedDocuments)
+                : null,
+              uploadedDocuments.length > 0
+                ? renderDocumentGroup("上传附件", uploadedDocuments)
                 : null,
             ),
       );
@@ -6811,11 +7188,33 @@ window.__ModuleLoader__.load({
                               ),
                         ),
                   ),
-              composerLocked
-                ? null
-                : h(
+              !composerLocked && typingParticipants.length > 0
+                ? h(
                     "div",
-                    { className: "pmtask-composer" },
+                    {
+                      className: "pmtask-typing-strip",
+                      role: "status",
+                      "aria-live": "polite",
+                    },
+                    h("span", null, typingStatusText),
+                    h(
+                      "span",
+                      {
+                        className: "pmtask-typing-dots",
+                        "aria-hidden": "true",
+                      },
+                      h("i"),
+                      h("i"),
+                      h("i"),
+                    ),
+                  )
+                : null,
+              h(
+                    "div",
+                    {
+                      className: `pmtask-composer${composerLocked ? " disabled" : ""}`,
+                      "aria-disabled": composerLocked,
+                    },
                     h(
                       "div",
                       { className: "pmtask-composer-toolbar" },
@@ -6919,7 +7318,7 @@ window.__ModuleLoader__.load({
                                 "select",
                                 {
                                   value: item.intent,
-                                  disabled: readOnly,
+                                  disabled: readOnly || composerLocked,
                                   "aria-label": `${item.name} 的同步用途`,
                                   onChange: (event) =>
                                     setPickedMentions((current) =>
@@ -6942,7 +7341,7 @@ window.__ModuleLoader__.load({
                                 "button",
                                 {
                                   type: "button",
-                                  disabled: readOnly,
+                                  disabled: readOnly || composerLocked,
                                   "aria-label": `移除同步 ${item.name}`,
                                   onClick: () =>
                                     setPickedMentions((current) =>
@@ -6964,9 +7363,11 @@ window.__ModuleLoader__.load({
                       className: "pmtask-composer-input",
                       rows: 4,
                       value: message,
+                      disabled: composerLocked,
                       readOnly: composerLocked,
                       placeholder: composerPlaceholder,
                       onChange: (event) => {
+                        if (composerLocked) return;
                         const value = event.target.value;
                         setMessage(value);
                         const cursor =
@@ -6978,6 +7379,7 @@ window.__ModuleLoader__.load({
                         setMentionQuery(token?.[1] ?? "");
                       },
                       onKeyDown: (event) => {
+                        if (composerLocked) return;
                         if (
                           event.key === "Enter" &&
                           (event.metaKey || event.ctrlKey)
@@ -7005,6 +7407,7 @@ window.__ModuleLoader__.load({
                                 "button",
                                 {
                                   type: "button",
+                                  disabled: composerLocked,
                                   "aria-label": `移除附件 ${file.name}`,
                                   onClick: () =>
                                     setAttachments((current) =>
@@ -7035,7 +7438,7 @@ window.__ModuleLoader__.load({
                           {
                             className: `pmtask-detail-intent${composerIntentValue === "discussion" ? " active" : ""}`,
                             type: "button",
-                            disabled: !canDiscuss,
+                            disabled: composerLocked || !canDiscuss,
                             onClick: () => setComposerIntent("discussion"),
                           },
                           h(
@@ -7062,7 +7465,7 @@ window.__ModuleLoader__.load({
                               {
                                 className: `pmtask-detail-intent${composerIntentValue === "execution" ? " active" : ""}`,
                                 type: "button",
-                                disabled: !canExecute,
+                                disabled: composerLocked || !canExecute,
                                 title: canExecute
                                   ? "发起指令并驱动任务推进"
                                   : commandLockReason,
@@ -7105,6 +7508,7 @@ window.__ModuleLoader__.load({
                           {
                             className: "pmtask-btn secondary",
                             type: "button",
+                            disabled: composerLocked,
                             onClick: () => {
                               setMessage("");
                               setAttachments([]);
@@ -7114,6 +7518,35 @@ window.__ModuleLoader__.load({
                           },
                           "清空",
                         ),
+                        activeExecutionRuns.length > 0 &&
+                        (canCommand || canReview)
+                          ? h(
+                              "button",
+                              {
+                                className: "pmtask-composer-stop",
+                                type: "button",
+                                disabled: composerLocked || stoppingExecution,
+                                title: `停止当前任务中 ${activeExecutionRuns.length} 个正在运行的 AI 伙伴`,
+                                "aria-label": "停止执行",
+                                onClick: () => void stopAllExecution(),
+                              },
+                              h(
+                                "svg",
+                                {
+                                  viewBox: "0 0 16 16",
+                                  "aria-hidden": "true",
+                                },
+                                h("rect", {
+                                  x: 4,
+                                  y: 4,
+                                  width: 8,
+                                  height: 8,
+                                  rx: 1.5,
+                                }),
+                              ),
+                              stoppingExecution ? "停止中" : "停止",
+                            )
+                          : null,
                         h(
                           "button",
                           {
@@ -7230,7 +7663,27 @@ window.__ModuleLoader__.load({
                             h(
                               "div",
                               { className: "pmtask-bubble" },
-                              h(MarkdownText, { text: entry.item.content }),
+                              h(MarkdownText, {
+                                text: entry.item.content,
+                                documents: documents.filter(
+                                  (document) =>
+                                    document.runId === undefined ||
+                                    entry.item.runId === undefined ||
+                                    documentBelongsToRun(
+                                      document,
+                                      entry.item.runId,
+                                    ),
+                                ),
+                                onDocumentClick: ({ relativePath }) => {
+                                  const document = documents.find(
+                                    (candidate) =>
+                                      candidate.relativePath === relativePath,
+                                  );
+                                  if (document !== undefined) {
+                                    void downloadDocument(document);
+                                  }
+                                },
+                              }),
                               ["queued", "running", "waiting_input"].includes(
                                 entry.item.state,
                               )
@@ -7284,45 +7737,6 @@ window.__ModuleLoader__.load({
                             h("time", null, localTime(entry.event.at)),
                           ),
                         ),
-                  ),
-                  ...typingParticipants.map((run) =>
-                    h(
-                      "div",
-                      {
-                        className: "pmtask-typing-row",
-                        key: `typing:${run.participantId}`,
-                        role: "status",
-                        "aria-live": "polite",
-                      },
-                      historyAvatar({
-                        kind: "agent",
-                        authorId: run.participantId,
-                        authorName: run.participantName,
-                      }),
-                      h(
-                        "div",
-                        { className: "pmtask-typing-bubble" },
-                        h(
-                          "span",
-                          null,
-                          run.status === "queued"
-                            ? `${run.participantName} 已接收任务，准备执行`
-                            : run.status === "waiting_input"
-                              ? `${run.participantName} 等待补充信息`
-                              : `${run.participantName} 正在输入`,
-                        ),
-                        h(
-                          "span",
-                          {
-                            className: "pmtask-typing-dots",
-                            "aria-hidden": "true",
-                          },
-                          h("i"),
-                          h("i"),
-                          h("i"),
-                        ),
-                      ),
-                    ),
                   ),
                   history.length === 0
                     ? h(
@@ -7776,22 +8190,6 @@ window.__ModuleLoader__.load({
                                 ? "暂无"
                                 : `${executionRunOptions.length} 轮`,
                             ),
-                            (canCommand || canReview) &&
-                            activeExecutionRuns.length > 0
-                              ? h(
-                                  "button",
-                                  {
-                                    className: "pmtask-execution-stop",
-                                    type: "button",
-                                    disabled: stoppingExecution,
-                                    title: `停止当前任务中 ${activeExecutionRuns.length} 个正在执行的 AI 伙伴`,
-                                    onClick: () => void stopAllExecution(),
-                                  },
-                                  stoppingExecution
-                                    ? "停止中…"
-                                    : "停止执行",
-                                )
-                              : null,
                           ),
                           executionRunOptions.length === 0
                             ? h(
@@ -7983,8 +8381,24 @@ window.__ModuleLoader__.load({
                                           "div",
                                           { className: "pmtask-doc-list" },
                                           ...visibleRunDocuments.map(
-                                            (document) =>
-                                              h(
+                                            (document) => {
+                                              const updatedLater =
+                                                document.kind === "produced" &&
+                                                selectedRunId !== "" &&
+                                                document.runId !== undefined &&
+                                                document.runId !==
+                                                  selectedRunId &&
+                                                documentBelongsToRun(
+                                                  document,
+                                                  selectedRunId,
+                                                );
+                                              const updatedHere =
+                                                document.kind === "produced" &&
+                                                document.runId ===
+                                                  selectedRunId &&
+                                                (document.runIds?.length ?? 0) >
+                                                  1;
+                                              return h(
                                                 "div",
                                                 {
                                                   className: "pmtask-doc",
@@ -8029,6 +8443,25 @@ window.__ModuleLoader__.load({
                                                       document.name,
                                                     ),
                                                   ),
+                                                  updatedLater
+                                                    ? h(
+                                                        "span",
+                                                        {
+                                                          className:
+                                                            "pmtask-doc-version-tag",
+                                                        },
+                                                        "后续已更新",
+                                                      )
+                                                    : updatedHere
+                                                      ? h(
+                                                          "span",
+                                                          {
+                                                            className:
+                                                              "pmtask-doc-version-tag latest",
+                                                          },
+                                                          "本轮更新",
+                                                        )
+                                                      : null,
                                                   h(
                                                     "div",
                                                     {
@@ -8037,6 +8470,16 @@ window.__ModuleLoader__.load({
                                                     },
                                                     `${document.updatedBy} · ${localTime(document.updatedAt)}`,
                                                   ),
+                                                  updatedLater
+                                                    ? h(
+                                                        "div",
+                                                        {
+                                                          className:
+                                                            "pmtask-doc-version-note",
+                                                        },
+                                                        `该文档已在后续轮次更新；当前展示工作区最新版，不是第 ${selectedRunOption?.roundNumber ?? "本"} 轮的历史快照。`,
+                                                      )
+                                                    : null,
                                                 ),
                                                 document.available
                                                   ? h(
@@ -8074,7 +8517,8 @@ window.__ModuleLoader__.load({
                                                       ),
                                                     )
                                                   : null,
-                                              ),
+                                              );
+                                            },
                                           ),
                                         ),
                                   ),
@@ -8085,33 +8529,16 @@ window.__ModuleLoader__.load({
                                       "h4",
                                       null,
                                       "执行过程",
-                                      h(
-                                        "span",
-                                        null,
-                                        runStatusLabel(executionStatus),
-                                      ),
+                                      executionProcessTag
+                                        ? h(
+                                            "span",
+                                            {
+                                              className: `pmtask-execution-status-tag ${executionProcessTag.tone}`,
+                                            },
+                                            executionProcessTag.label,
+                                          )
+                                        : null,
                                     ),
-                                    h(
-                                      "div",
-                                      {
-                                        className: "pmtask-live-output",
-                                        ref: liveOutputRef,
-                                      },
-                                      h(MarkdownText, { text: executionText }),
-                                    ),
-                                  ),
-                                  h(
-                                    "section",
-                                    { className: "pmtask-execution-block" },
-                                    h("h4", null, "Agent 执行计划"),
-                                    selectedExecution?.gateEnforcement ===
-                                      "observe-only"
-                                      ? h(
-                                          "p",
-                                          { className: "pmtask-locked-hint" },
-                                          "仅执行后观察：Runtime 只能记录已执行动作，无法事前阻断。",
-                                        )
-                                      : null,
                                     pendingExecutionGates.length === 0
                                       ? null
                                       : h(
@@ -8157,91 +8584,178 @@ window.__ModuleLoader__.load({
                                             ),
                                           ),
                                         ),
-                                    selectedPlan === null
+                                    visiblePlanSteps.length > 0
                                       ? h(
-                                          "div",
-                                          { className: "pmtask-side-empty" },
-                                          "当前 Run 尚未产生 Agent Execution Plan。",
-                                        )
-                                      : [
+                                          Fragment,
+                                          null,
+                                          h(
+                                            "span",
+                                            {
+                                              className:
+                                                "pmtask-activity-label",
+                                            },
+                                            "执行步骤",
+                                          ),
                                           h(
                                             "ol",
                                             { className: "pmtask-plan-list" },
-                                            ...(selectedPlan.steps ?? []).map(
-                                              (step) =>
+                                            ...visiblePlanSteps.map((step) =>
+                                              h(
+                                                "li",
+                                                {
+                                                  className: `pmtask-plan-step ${step.status}`,
+                                                  key: step.id,
+                                                },
+                                                h("span", {
+                                                  className:
+                                                    "pmtask-plan-step-dot",
+                                                  "aria-hidden": "true",
+                                                }),
+                                                h(
+                                                  "span",
+                                                  {
+                                                    className:
+                                                      "pmtask-plan-step-title",
+                                                  },
+                                                  step.title,
+                                                  step.detail
+                                                    ? h(
+                                                        "small",
+                                                        null,
+                                                        step.detail,
+                                                      )
+                                                    : null,
+                                                ),
+                                                h(
+                                                  "span",
+                                                  {
+                                                    className:
+                                                      "pmtask-plan-step-status",
+                                                  },
+                                                  runStatusLabel(step.status),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        )
+                                      : null,
+                                    visibleExecutionActivities.length === 0
+                                      ? h(
+                                          "div",
+                                          { className: "pmtask-side-empty" },
+                                          "当前 Run 尚未产生可读执行过程记录。",
+                                        )
+                                      : h(
+                                          "ol",
+                                          {
+                                            className:
+                                              "pmtask-agent-activities",
+                                            "aria-label": "Agent 执行过程",
+                                            ref: activityScrollRef,
+                                            onScroll: (event) => {
+                                              const node = event.currentTarget;
+                                              activityPinnedRef.current =
+                                                node.scrollHeight -
+                                                  node.scrollTop -
+                                                  node.clientHeight <
+                                                24;
+                                            },
+                                          },
+                                          ...visibleExecutionActivities.map(
+                                            (activity, index) =>
+                                              h(
+                                                "li",
+                                                {
+                                                  className: `pmtask-agent-activity ${activity.kind}`,
+                                                  key: `${activity.label}:${activity.at}:${index}`,
+                                                  title: activity.detail,
+                                                },
+                                                executionRunning &&
+                                                index ===
+                                                  visibleExecutionActivities.length -
+                                                    1
+                                                  ? h("span", {
+                                                      className:
+                                                        "pmtask-spinner",
+                                                      "aria-hidden": "true",
+                                                    })
+                                                  : h("span", {
+                                                      className:
+                                                        "pmtask-agent-activity-dot",
+                                                      "aria-hidden": "true",
+                                                    }),
+                                                h(
+                                                  "span",
+                                                  {
+                                                    className:
+                                                      "pmtask-agent-activity-copy",
+                                                  },
+                                                  activity.label,
+                                                  activity.count > 1
+                                                    ? h(
+                                                        "span",
+                                                        null,
+                                                        ` × ${activity.count}`,
+                                                      )
+                                                    : null,
+                                                ),
+                                                h(
+                                                  "time",
+                                                  {
+                                                    dateTime: activity.at,
+                                                  },
+                                                  localTime(activity.at),
+                                                ),
+                                              ),
+                                          ),
+                                        ),
+                                    selectedExecutionEvents.length > 0
+                                      ? h(
+                                          "details",
+                                          {
+                                            className:
+                                              "pmtask-execution-raw",
+                                          },
+                                          h(
+                                            "summary",
+                                            null,
+                                            `查看原始事件（${selectedExecutionEvents.length}）`,
+                                          ),
+                                          h(
+                                            "ul",
+                                            {
+                                              className:
+                                                "pmtask-execution-events",
+                                            },
+                                            ...selectedExecutionEvents.map(
+                                              (item) =>
                                                 h(
                                                   "li",
                                                   {
-                                                    className: `pmtask-plan-step ${step.status}`,
-                                                    key: step.id,
-                                                  },
-                                                  h("span", {
                                                     className:
-                                                      "pmtask-plan-step-dot",
-                                                    "aria-hidden": "true",
-                                                  }),
+                                                      "pmtask-execution-event",
+                                                    key: item.id,
+                                                  },
                                                   h(
-                                                    "span",
-                                                    {
-                                                      className:
-                                                        "pmtask-plan-step-title",
-                                                    },
-                                                    step.title,
-                                                    step.detail
-                                                      ? h(
-                                                          "small",
-                                                          null,
-                                                          step.detail,
-                                                        )
-                                                      : null,
+                                                    "strong",
+                                                    null,
+                                                    item.summary,
                                                   ),
                                                   h(
-                                                    "span",
+                                                    "time",
                                                     {
-                                                      className:
-                                                        "pmtask-plan-step-status",
+                                                      dateTime:
+                                                        item.createdAt,
                                                     },
-                                                    runStatusLabel(step.status),
+                                                    localTime(
+                                                      item.createdAt,
+                                                    ),
                                                   ),
                                                 ),
                                             ),
                                           ),
-                                          selectedExecutionEvents.length === 0
-                                            ? null
-                                            : h(
-                                                "ul",
-                                                {
-                                                  className:
-                                                    "pmtask-execution-events",
-                                                },
-                                                ...selectedExecutionEvents.map(
-                                                  (item) =>
-                                                    h(
-                                                      "li",
-                                                      {
-                                                        className:
-                                                          "pmtask-execution-event",
-                                                        key: item.id,
-                                                      },
-                                                      h(
-                                                        "strong",
-                                                        null,
-                                                        item.summary,
-                                                      ),
-                                                      h(
-                                                        "time",
-                                                        {
-                                                          dateTime:
-                                                            item.createdAt,
-                                                        },
-                                                        localTime(
-                                                          item.createdAt,
-                                                        ),
-                                                      ),
-                                                    ),
-                                                ),
-                                              ),
-                                        ],
+                                        )
+                                      : null,
                                   ),
                                   h(
                                     "section",
@@ -8620,11 +9134,15 @@ window.__ModuleLoader__.load({
                   "option",
                   { value: "" },
                   selectedRuntime?.defaultModel
-                    ? `Runtime 默认（${selectedRuntime.defaultModel}）`
+                    ? `Runtime 默认（${modelDisplayName(selectedRuntime.defaultModel)}）`
                     : "沿用 Runtime 默认模型",
                 ),
                 ...modelChoices.map((model) =>
-                  h("option", { value: model, key: model }, model),
+                  h(
+                    "option",
+                    { value: model, key: model },
+                    modelDisplayName(model),
+                  ),
                 ),
               ),
             ),
@@ -8803,6 +9321,9 @@ window.__ModuleLoader__.load({
         model: "",
         reasoningEffort: "",
       });
+      const [descriptionAttachments, setDescriptionAttachments] =
+        react.useState([]);
+      const [submitting, setSubmitting] = react.useState(false);
       const receiverValue =
         form.receiverType === "unassigned"
           ? "unassigned:"
@@ -8865,30 +9386,45 @@ window.__ModuleLoader__.load({
           "form",
           {
             className: "pmtask-modal",
-            onSubmit: (event) => {
+            onSubmit: async (event) => {
               event.preventDefault();
+              if (submitting) return;
               const acceptance = form.acceptance
                 .split("\n")
                 .map((item) => item.trim())
                 .filter(Boolean);
-              void onCreated({
-                ...form,
-                title: form.title.trim(),
-                description: form.description.trim(),
-                acceptance: acceptance.length
-                  ? acceptance
-                  : ["按描述完成并自查"],
-                receiverId:
-                  form.receiverType === "unassigned"
-                    ? undefined
-                    : form.receiverId,
-                receiverName:
-                  form.receiverType === "unassigned"
-                    ? undefined
-                    : form.receiverName,
-                dependsOn: form.dependsOn === "" ? [] : [form.dependsOn],
-                executionPolicy: buildExecutionPolicy(form),
-              });
+              setSubmitting(true);
+              try {
+                const attachments = await Promise.all(
+                  descriptionAttachments.map(async (file) => ({
+                    name: file.name,
+                    size: file.size,
+                    ...(file.type === "" ? {} : { mimeType: file.type }),
+                    contentBase64: await readFileAsBase64(file),
+                  })),
+                );
+                await onCreated({
+                  ...form,
+                  title: form.title.trim(),
+                  description: form.description.trim(),
+                  acceptance: acceptance.length
+                    ? acceptance
+                    : ["按描述完成并自查"],
+                  receiverId:
+                    form.receiverType === "unassigned"
+                      ? undefined
+                      : form.receiverId,
+                  receiverName:
+                    form.receiverType === "unassigned"
+                      ? undefined
+                      : form.receiverName,
+                  dependsOn: form.dependsOn === "" ? [] : [form.dependsOn],
+                  executionPolicy: buildExecutionPolicy(form),
+                  attachments,
+                });
+              } finally {
+                setSubmitting(false);
+              }
             },
           },
           h(
@@ -9238,21 +9774,92 @@ window.__ModuleLoader__.load({
             ),
           ),
           h(
-            "label",
-            { className: "pmtask-field" },
-            "描述",
+            "div",
+            { className: "pmtask-field pmtask-description-field" },
+            h("span", null, "描述"),
             h("textarea", {
               className: "pmtask-area",
               rows: 4,
               value: form.description,
               required: true,
               placeholder: "补充背景、期望结果、边界和风险。",
+              "aria-label": "任务描述",
               onChange: (event) =>
                 setForm((current) => ({
                   ...current,
                   description: event.target.value,
                 })),
             }),
+            h(
+              "div",
+              { className: "pmtask-create-attachments" },
+              h(
+                "label",
+                {
+                  className: `pmtask-attachment-upload${submitting ? " disabled" : ""}`,
+                },
+                h("input", {
+                  type: "file",
+                  multiple: true,
+                  disabled: submitting,
+                  "aria-label": "上传任务描述附件",
+                  onChange: (event) => {
+                    const picked = Array.from(event.target.files ?? []);
+                    setDescriptionAttachments((current) =>
+                      [...current, ...picked]
+                        .filter(
+                          (file, index, files) =>
+                            files.findIndex(
+                              (candidate) =>
+                                candidate.name === file.name &&
+                                candidate.size === file.size &&
+                                candidate.lastModified === file.lastModified,
+                            ) === index,
+                        )
+                        .slice(0, 20),
+                    );
+                    event.target.value = "";
+                  },
+                }),
+                "添加附件",
+              ),
+              descriptionAttachments.length > 0
+                ? h(
+                    "div",
+                    { className: "pmtask-attachments" },
+                    ...descriptionAttachments.map((file, index) =>
+                      h(
+                        "span",
+                        {
+                          className: "pmtask-attachment",
+                          key: `${file.name}:${file.size}:${file.lastModified}`,
+                        },
+                        h("span", null, file.name),
+                        h(
+                          "button",
+                          {
+                            type: "button",
+                            disabled: submitting,
+                            "aria-label": `移除附件 ${file.name}`,
+                            onClick: () =>
+                              setDescriptionAttachments((current) =>
+                                current.filter(
+                                  (_candidate, candidateIndex) =>
+                                    candidateIndex !== index,
+                                ),
+                              ),
+                          },
+                          "×",
+                        ),
+                      ),
+                    ),
+                  )
+                : h(
+                    "span",
+                    { className: "pmtask-attachment-hint" },
+                    "可上传资料、表格、图片或参考文件，最多 20 个",
+                  ),
+            ),
           ),
           h(
             "label",
@@ -9288,6 +9895,7 @@ window.__ModuleLoader__.load({
                 className: "pmtask-btn",
                 type: "submit",
                 disabled:
+                  submitting ||
                   form.title.trim() === "" ||
                   form.description.trim() === "" ||
                   form.workspaceId === "" ||
@@ -9297,7 +9905,7 @@ window.__ModuleLoader__.load({
                     selectedAgent?.execution === "external" &&
                     selectedRuntime?.status !== "active"),
               },
-              "派发",
+              submitting ? "正在派发…" : "派发",
             ),
           ),
         ),

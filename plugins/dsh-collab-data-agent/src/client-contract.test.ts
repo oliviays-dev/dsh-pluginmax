@@ -258,6 +258,8 @@ describe("Data Agent client contract", () => {
     expect(source).toContain('"pluginmax.teammate.data-agent-settings"');
     expect(source).toContain('"智能体配置"');
     expect(source).toContain("在 AI伙伴资料编辑中切换");
+    expect(source).toContain('props?.mode === "summary"');
+    expect(source).toContain("编辑配置");
   });
 
   it("supports native runtime clarification without a fixed HTML action", () => {

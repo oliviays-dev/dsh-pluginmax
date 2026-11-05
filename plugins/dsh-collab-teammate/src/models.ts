@@ -49,6 +49,38 @@ export const resettableScopeSchema = z.enum([
 ]);
 
 const ruleSchema = z.string().trim().min(1).max(500);
+const skillSceneSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(80)
+  .regex(/^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/);
+
+export const templateSkillBindingSchema = z.object({
+  skillId: idSchema,
+  versionConstraint: z.string().trim().min(1).max(80).default("*"),
+  mode: z.enum(["required", "default", "optional"]),
+  scenes: z.array(skillSceneSchema).max(20).default([]),
+  enabled: z.boolean().default(true),
+});
+
+export const teammateExtensionPolicySchema = z.object({
+  allowAdditionalSkills: z.boolean().default(true),
+  allowDisableDefaultSkills: z.boolean().default(false),
+  allowSceneOverrides: z.boolean().default(false),
+  protectedScenes: z.array(skillSceneSchema).max(20).default([]),
+  protectedSkillIds: z.array(idSchema).max(20).default([]),
+});
+
+export const instanceSkillExtensionSchema = z.object({
+  skillId: idSchema,
+  versionConstraint: z.string().trim().min(1).max(80).default("*"),
+  scenes: z.array(skillSceneSchema).max(20).default([]),
+  mode: z.enum(["additive", "primary"]).default("additive"),
+  status: z.enum(["active", "paused"]).default("active"),
+  addedBy: idSchema,
+  addedAt: isoTimeSchema,
+});
 
 export const teammateSchema = z.object({
   id: idSchema,
@@ -61,6 +93,7 @@ export const teammateSchema = z.object({
   soul: z.string().max(200_000).default(""),
   scenarios: z.array(ruleSchema).max(50).default([]),
   goals: z.array(ruleSchema).max(50).default([]),
+  skillExtensions: z.array(instanceSkillExtensionSchema).max(30).default([]),
   avatar: z.string().max(400_000).default(""),
   state: teammateStateSchema,
   version: versionSchema,
@@ -100,6 +133,14 @@ export const teammateTemplateSchema = z.object({
   scenarios: z.array(ruleSchema).max(50).default([]),
   goals: z.array(ruleSchema).max(50).default([]),
   tools: z.array(ruleSchema).max(100).default([]),
+  skillBindings: z.array(templateSkillBindingSchema).max(30).default([]),
+  extensionPolicy: teammateExtensionPolicySchema.default({
+    allowAdditionalSkills: true,
+    allowDisableDefaultSkills: false,
+    allowSceneOverrides: false,
+    protectedScenes: [],
+    protectedSkillIds: [],
+  }),
   state: teammateTemplateStateSchema,
   version: versionSchema,
   systemKey: systemAgentKeySchema.optional(),
@@ -149,6 +190,13 @@ export type SystemAgentProtection = z.infer<
   typeof systemAgentProtectionSchema
 >;
 export type TeammateResettableScope = z.infer<typeof resettableScopeSchema>;
+export type TemplateSkillBinding = z.infer<typeof templateSkillBindingSchema>;
+export type TeammateExtensionPolicy = z.infer<
+  typeof teammateExtensionPolicySchema
+>;
+export type InstanceSkillExtension = z.infer<
+  typeof instanceSkillExtensionSchema
+>;
 export type Teammate = z.infer<typeof teammateSchema>;
 export type TeammateTemplate = z.infer<typeof teammateTemplateSchema>;
 export type TeammateEvent = z.infer<typeof teammateEventSchema>;

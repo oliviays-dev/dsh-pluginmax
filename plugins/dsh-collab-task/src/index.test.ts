@@ -1030,6 +1030,14 @@ describe("dsh-collab-task service", () => {
     expect(completed.events.at(-1)?.message).toBe(
       "Research Agent 完成产出物，自动提交验收",
     );
+    const rejected = await tasks.reject(
+      olivia,
+      created.id,
+      "请补充来源说明",
+    );
+    expect(rejected.receiverType).toBe("agent");
+    expect(rejected.receiverId).toBe("tm-1");
+    expect(rejected.events.at(-1)?.message).not.toContain("负责人恢复为");
   });
 
   it("records queued and completed agent executions on the task", async () => {
@@ -1982,6 +1990,81 @@ describe("dsh-collab-task service", () => {
     expect(documents[0]?.runId).toBe("run-after-settle");
   });
 
+  it("attributes a previously generated file to the run that updated it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "task-documents-"));
+    const now = Date.now();
+    const outputDirectory = join(
+      root,
+      ".pluginmax",
+      "task-outputs",
+      "TSK-UPDATE",
+      "run-original",
+    );
+    await mkdir(outputDirectory, { recursive: true });
+    const outputPath = join(outputDirectory, "战略分析.md");
+    await writeFile(outputPath, "# 更新后的报告\n", "utf8");
+    await utimes(
+      outputPath,
+      new Date(now - 30_000),
+      new Date(now - 30_000),
+    );
+    await mkdir(
+      join(
+        root,
+        ".pluginmax",
+        "task-outputs",
+        "TSK-OTHER",
+        "run-original",
+      ),
+      { recursive: true },
+    );
+    await writeFile(
+      join(
+        root,
+        ".pluginmax",
+        "task-outputs",
+        "TSK-OTHER",
+        "run-original",
+        "其他任务.md",
+      ),
+      "# 其他任务\n",
+      "utf8",
+    );
+
+    const documents = await collectDocuments({
+      root,
+      taskId: "TSK-UPDATE",
+      windows: windowsFromRuns(
+        [
+          {
+            id: "run-original",
+            startedAt: new Date(now - 10 * 60_000).toISOString(),
+            endedAt: new Date(now - 8 * 60_000).toISOString(),
+            actor: "Original Agent",
+          },
+          {
+            id: "run-update",
+            startedAt: new Date(now - 2 * 60_000).toISOString(),
+            endedAt: new Date(now).toISOString(),
+            actor: "Update Agent",
+          },
+        ],
+        "Agent",
+        now,
+      ),
+    });
+
+    expect(documents).toHaveLength(1);
+    expect(documents[0]).toMatchObject({
+      runId: "run-update",
+      relativePath:
+        ".pluginmax/task-outputs/TSK-UPDATE/run-original/战略分析.md",
+      updatedBy: "Update Agent",
+      name: "战略分析.md",
+      available: true,
+    });
+  });
+
   it("ignores files touched outside every run window", async () => {
     const root = await mkdtemp(join(tmpdir(), "task-documents-"));
     const now = Date.now();
@@ -2291,6 +2374,74 @@ describe("dsh-collab-task service", () => {
     ).toBe("# 行业分析\n\n完整正文。\n");
   });
 
+  it("stores description attachments while creating a task", async () => {
+    const root = await mkdtemp(join(tmpdir(), "task-create-attachment-"));
+    const tasks = service();
+    const routes = createTaskRoutes(
+      tasks,
+      {
+        resolveToken: (candidate) =>
+          candidate === "token"
+            ? { userId: "admin", role: "admin" }
+            : undefined,
+        users: () => [{ id: "admin", name: "Admin", role: "admin" }],
+        members: () => [{ userId: "admin", memberRole: "owner" }],
+      },
+      undefined,
+      undefined,
+      undefined,
+      {
+        get: () => ({ id: "workspace-1", path: root }),
+        list: () => [{ id: "workspace-1", path: root }],
+      },
+    );
+    const createRoute = routes.find(
+      (route) => route.path === "/api/collab/tasks/create",
+    )!;
+    const response = fakeResponse();
+    await createRoute.handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/create",
+        token: "token",
+        body: {
+          workspaceId: "workspace-1",
+          title: "带资料的任务",
+          priority: "P2",
+          receiverType: "human",
+          receiverId: "admin",
+          receiverName: "Admin",
+          description: "根据附件整理需求。",
+          acceptance: ["形成需求说明"],
+          attachments: [
+            {
+              name: "需求.md",
+              mimeType: "text/markdown",
+              contentBase64: Buffer.from("# 需求\n\n正文").toString("base64"),
+            },
+          ],
+        },
+      }),
+      response.response,
+    );
+    const result = response.read();
+    expect(result.status).toBe(200);
+    const created = result.body?.task as TaskRecord;
+    expect(created.attachments).toContainEqual(
+      expect.objectContaining({
+        name: "需求.md",
+        mimeType: "text/markdown",
+        storedPath: expect.stringContaining(".pluginmax/task-uploads/"),
+      }),
+    );
+    expect(
+      await readFile(
+        join(root, created.attachments[0]?.storedPath ?? "missing"),
+        "utf8",
+      ),
+    ).toBe("# 需求\n\n正文");
+  });
+
   it("falls back to the task owner name and sanitizes upload names", () => {
     const now = Date.now();
     const [window] = windowsFromRuns(
@@ -2311,6 +2462,16 @@ describe("dsh-collab-task service", () => {
   it("lists stored uploads and keeps the newest copy of a file", () => {
     const uploaded = attachmentDocuments(
       {
+        createdByName: "Admin",
+        createdAt: "2026-09-23T00:30:00.000Z",
+        attachments: [
+          {
+            name: "任务说明.pdf",
+            size: 24,
+            mimeType: "application/pdf",
+            storedPath: ".pluginmax/task-uploads/TSK-1/任务说明.pdf",
+          },
+        ],
         messages: [
           {
             id: "message-1",
@@ -2343,9 +2504,18 @@ describe("dsh-collab-task service", () => {
       },
       true,
       new Map([["message-1", "run-upload-1"]]),
+      "run-upload-task",
     );
-    expect(uploaded).toHaveLength(2);
+    expect(uploaded).toHaveLength(3);
     expect(uploaded[0]).toMatchObject({
+      runId: "run-upload-task",
+      kind: "uploaded",
+      name: "任务说明.pdf",
+      relativePath: ".pluginmax/task-uploads/TSK-1/任务说明.pdf",
+      updatedBy: "Admin",
+      available: true,
+    });
+    expect(uploaded[1]).toMatchObject({
       runId: "run-upload-1",
       kind: "uploaded",
       name: "需求.md",
@@ -2354,7 +2524,7 @@ describe("dsh-collab-task service", () => {
       updatedAt: "2026-09-23T01:00:00.000Z",
       available: true,
     });
-    expect(uploaded[1]).toMatchObject({
+    expect(uploaded[2]).toMatchObject({
       name: "旧附件.txt",
       relativePath: "",
       available: false,
@@ -2363,6 +2533,8 @@ describe("dsh-collab-task service", () => {
     const merged = mergeDocuments([
       {
         id: "produced:需求.md",
+        runId: "run-old",
+        runIds: ["run-old"],
         kind: "produced",
         name: "需求.md",
         relativePath: "需求.md",
@@ -2374,6 +2546,8 @@ describe("dsh-collab-task service", () => {
       },
       {
         id: "produced:需求.md",
+        runId: "run-new",
+        runIds: ["run-new"],
         kind: "produced",
         name: "需求.md",
         relativePath: "需求.md",
@@ -2385,7 +2559,11 @@ describe("dsh-collab-task service", () => {
       },
     ]);
     expect(merged).toHaveLength(1);
-    expect(merged[0]?.size).toBe(32);
+    expect(merged[0]).toMatchObject({
+      size: 32,
+      runId: "run-new",
+      runIds: ["run-old", "run-new"],
+    });
   });
 });
 
@@ -2764,6 +2942,7 @@ describe("teammate task assignment", () => {
 
   it("dispatches through Principal Runtime and issues an action ticket", async () => {
     const tasks = new TaskService({ tasks: memoryTable() });
+    const root = await mkdtemp(join(tmpdir(), "task-context-documents-"));
     const dispatched: Array<Record<string, unknown>> = [];
     const tickets: Array<Record<string, unknown>> = [];
     const prepared: Array<Record<string, unknown>> = [];
@@ -2779,6 +2958,13 @@ describe("teammate task assignment", () => {
       description: "Run with Principal identity",
       acceptance: ["Completed"],
     });
+    const previousOutput = [
+      "<!-- pluginmax-document: 已有报告.md -->",
+      "# 已有报告",
+      "",
+      "既有正文。",
+      "<!-- /pluginmax-document -->",
+    ].join("\n");
     const dispatch = createTaskDispatcher({
       service: tasks,
       team: {
@@ -2802,7 +2988,7 @@ describe("teammate task assignment", () => {
             ? {
                 id: "run-previous",
                 instanceId: task.id,
-                status: "queued" as const,
+                status: "succeeded" as const,
                 payload: {
                   context: {
                     taskReceiverId: "tm-principal",
@@ -2810,12 +2996,29 @@ describe("teammate task assignment", () => {
                     taskSessionEpoch: "0",
                   },
                 },
+                output: { summary: previousOutput },
               }
             : undefined,
+        runs: () => [
+          {
+            id: "run-previous",
+            status: "succeeded" as const,
+            createdAt: "2026-11-04T08:20:00.000Z",
+            endedAt: "2026-11-04T08:21:00.000Z",
+            payload: {
+              context: {
+                taskReceiverId: "tm-principal",
+                taskRunRole: "owner",
+                taskSessionEpoch: "0",
+              },
+            },
+            output: { summary: previousOutput },
+          },
+        ],
       }),
       workspaces: {
-        get: () => ({ id: "workspace-1", path: "/tmp/workspace-1" }),
-        list: () => [{ id: "workspace-1", path: "/tmp/workspace-1" }],
+        get: () => ({ id: "workspace-1", path: root }),
+        list: () => [{ id: "workspace-1", path: root }],
       },
       teammates: () => ({
         assignable: () => [],
@@ -2858,7 +3061,8 @@ describe("teammate task assignment", () => {
       {
         id: "run-previous",
         instanceId: task.id,
-        status: "queued",
+        status: "succeeded",
+        output: { summary: previousOutput },
         payload: {
           context: {
             taskReceiverId: "tm-principal",
@@ -2881,11 +3085,20 @@ describe("teammate task assignment", () => {
       sessionId: "de-task-context",
       payload: {
         context: {
-          instruction: "system\n\ntask context",
+          instruction: expect.stringContaining("system\n\ntask context"),
           contextPackId: "pack-task-1",
         },
       },
     });
+    const instruction = (
+      dispatched[0]?.payload as
+        | { context?: { instruction?: string } }
+        | undefined
+    )?.context?.instruction;
+    expect(instruction).toContain("## 当前任务文档");
+    expect(instruction).toContain(
+      `.pluginmax/task-outputs/${task.id}/run-previous/已有报告.md`,
+    );
     expect(dispatched[0]?.employeeId).toBeUndefined();
     expect(tickets[0]).toMatchObject({
       principalId: "principal-ai-tm-principal",
@@ -3225,15 +3438,22 @@ describe("workflow agent run reconciliation", () => {
 interface CapturedRun {
   id: string;
   instanceId: string;
-  status: "queued";
+  status: "queued" | "succeeded";
   payload: { context: Record<string, string> };
+  createdAt?: string;
+  endedAt?: string;
+  output?: { summary: string };
   /** 真实 harness 在 worker 启动时把会话 id 写回 run；这里模拟成确定值。 */
   sessionId?: string;
 }
 
 function contextHarness(
-  options: { readonly execution?: "builtin" | "external" } = {},
+  options: {
+    readonly execution?: "builtin" | "external";
+    readonly workspacePath?: string;
+  } = {},
 ) {
+  const workspacePath = options.workspacePath ?? "/tmp/workspace-1";
   const tasks = service();
   const dispatched: Array<{
     profileId: string;
@@ -3292,10 +3512,11 @@ function contextHarness(
         return run;
       },
       run: (runId: string) => runs.get(runId),
+      runs: () => [...runs.values()],
     }),
     {
-      get: () => ({ id: "workspace-1", path: "/tmp/workspace-1" }),
-      list: () => [{ id: "workspace-1", path: "/tmp/workspace-1" }],
+      get: () => ({ id: "workspace-1", path: workspacePath }),
+      list: () => [{ id: "workspace-1", path: workspacePath }],
     },
     () => ({
       assignable: () => [
@@ -3663,6 +3884,80 @@ describe("task context delivery", () => {
     expect(second).toContain("需形成 md 文档报告。");
     expect(dispatched[1]?.payload.context.firstDelivery).toBe("true");
   });
+
+  it("lists prior task output paths in owner instructions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "task-owner-documents-"));
+    const { tasks, route, dispatched, runs } = contextHarness({
+      execution: "external",
+      workspacePath: root,
+    });
+    const created = fakeResponse();
+    await route("/api/collab/tasks/create").handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/create",
+        body: {
+          workspaceId: "workspace-1",
+          title: "更新已有报告",
+          priority: "P2",
+          receiverType: "agent",
+          receiverId: "tm-1",
+          receiverName: "测小白",
+          description: "生成战略分析报告。",
+          acceptance: ["报告可审阅"],
+        },
+      }),
+      created.response,
+    );
+    const task = (created.read().body?.task ?? {}) as { id: string };
+    const previousRun: CapturedRun = {
+      id: "run-existing-report",
+      instanceId: task.id,
+      status: "succeeded",
+      payload: {
+        context: {
+          taskReceiverId: "tm-1",
+          taskRunRole: "owner",
+          taskSessionEpoch: "0",
+        },
+      },
+      createdAt: "2026-11-04T08:30:00.000Z",
+      endedAt: "2026-11-04T08:31:00.000Z",
+      output: {
+        summary: [
+          "<!-- pluginmax-document: 战略分析.md -->",
+          "# 战略分析",
+          "",
+          "旧版正文。",
+          "<!-- /pluginmax-document -->",
+        ].join("\n"),
+      },
+    };
+    runs.set(previousRun.id, previousRun);
+    await tasks.attachAgentRun(task.id, previousRun, "测小白");
+
+    const followUp = fakeResponse();
+    await route("/api/collab/tasks/message").handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/message",
+        body: { taskId: task.id, content: "在原文件上补充最新调研。" },
+      }),
+      followUp.response,
+    );
+
+    expect(followUp.read().status).toBe(200);
+    const instruction = dispatched[1]?.payload.context.instruction ?? "";
+    const relativePath = `.pluginmax/task-outputs/${task.id}/${previousRun.id}/战略分析.md`;
+    expect(instruction).toContain("## 当前任务文档");
+    expect(instruction).toContain(
+      "不要只按工作区根目录的文件搜索结果判断文件不存在",
+    );
+    expect(instruction).toContain(relativePath);
+    expect(await readFile(join(root, relativePath), "utf8")).toContain(
+      "旧版正文。",
+    );
+  });
 });
 
 describe("task continuation re-dispatch", () => {
@@ -3934,14 +4229,14 @@ describe("task continuation re-dispatch", () => {
     expect(dispatched).toHaveLength(1);
   });
 
-  it("reopens a completed task when a new instruction arrives, in the same session", async () => {
+  it("rejects new instructions after a task is completed", async () => {
     const harness = contextHarness();
-    const { dispatched } = harness;
+    const { tasks, dispatched } = harness;
     const task = await createAssignedTask(harness);
     await settleFirstRound(harness, task.id);
     expect(await approveTask(harness, task.id)).toBe("done");
 
-    // 通过之后追加要求：发送一条新指令。
+    // 完成态下对话框禁用，服务端也不允许再追加执行指令。
     const followUp = fakeResponse();
     await harness.route("/api/collab/tasks/message").handler(
       fakeRequest({
@@ -3952,17 +4247,12 @@ describe("task continuation re-dispatch", () => {
       followUp.response,
     );
     const result = followUp.read();
-    expect(result.status).toBe(200);
-    // 任务被重开并立刻进入新一轮执行。
-    expect((result.body?.task as { status?: string } | undefined)?.status).toBe(
-      "progress",
-    );
-    expect(dispatched).toHaveLength(2);
-    expect(dispatched[1]?.payload.context.firstDelivery).toBe("false");
-    expect(dispatched[1]?.payload.context.taskReceiverId).toBe("tm-1");
-    expect(dispatched[1]?.payload.context.instruction).toContain(
+    expect(result.status).toBe(409);
+    expect(tasks.get(task.id).status).toBe("done");
+    expect(tasks.get(task.id).messages.at(-1)?.content).not.toContain(
       "再补一节回滚方案",
     );
+    expect(dispatched).toHaveLength(1);
   });
 
   it("reopens a completed task on reassignment and re-runs the agent", async () => {
@@ -4431,7 +4721,7 @@ describe("task cross-agent mention", () => {
     expect(route("/api/collab/tasks/message")).toBeDefined();
   });
 
-  it("keeps a completed task done when only collaborator agents are mentioned", async () => {
+  it("rejects collaborator messages after a task is completed", async () => {
     const harness = contextHarness();
     const { tasks, dispatched } = harness;
     const task = await createAssignedTask(harness);
@@ -4451,20 +4741,9 @@ describe("task cross-agent mention", () => {
       ],
     });
 
-    expect(result.status).toBe(200);
-    expect(result.body?.dispatched).toBe(false);
-    expect((result.body?.task as { status?: string } | undefined)?.status).toBe(
-      "done",
-    );
+    expect(result.status).toBe(409);
     expect(tasks.get(task.id).status).toBe("done");
-    expect(dispatched).toHaveLength(2);
-    expect(
-      tasks
-        .get(task.id)
-        .events.filter((event) => event.kind === "message")
-        .slice(-2)
-        .map((event) => event.message),
-    ).toEqual(["柯真 01 测试 开始协作执行", "陆行01 开发 开始协作执行"]);
+    expect(dispatched).toHaveLength(0);
   });
 
   it("still runs the assignee when the message also mentions it", async () => {
@@ -4495,9 +4774,6 @@ describe("task cross-agent mention", () => {
     const harness = contextHarness();
     const { tasks, dispatched } = harness;
     const task = await createAssignedTask(harness);
-    const admin = { id: "admin", name: "Admin", kind: "human" as const };
-    await tasks.start(admin, task.id);
-    await tasks.approve(admin, task.id);
     dispatched.length = 0;
 
     const result = await postMessage(harness, {
@@ -4868,7 +5144,7 @@ describe("task queue and待确认", () => {
     expect(rejected.receiverName).toBe("小白 PD");
     expect(rejected.reviewSubmitter).toBeUndefined();
     expect(rejected.messages.at(-1)?.content).toBe("请补充证据链");
-    expect(rejected.events.at(-1)?.message).toContain("负责人恢复为 小白 PD");
+    expect(rejected.events.at(-1)?.message).not.toContain("负责人恢复为");
     // 退回后任务已回到「待处理」，再次退回属于状态冲突。
     await expect(
       tasks.confirm(olivia, { taskId: created.id, action: "reject" }),

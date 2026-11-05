@@ -40,6 +40,7 @@ import {
   type RuntimeToolName,
 } from "./types.js";
 import {
+  discoverCodexRuntimeModels,
   ExternalAgentProcessRunner,
   externalSessionId,
   probeExternalRuntime,
@@ -817,6 +818,8 @@ export class ExternalAgentRuntimeService {
       readonly supportedModels?: readonly string[] | undefined;
       readonly defaultModel?: string | undefined;
       readonly contextWindowTokens?: number | undefined;
+      readonly sandboxMode?: ExternalAgentRuntime["sandboxMode"] | undefined;
+      readonly networkAccess?: boolean | undefined;
       readonly status?: ExternalAgentRuntime["status"] | undefined;
       readonly visibility?: ExternalAgentRuntime["visibility"] | undefined;
     },
@@ -870,6 +873,8 @@ export class ExternalAgentRuntimeService {
           supportedModels: (record.supportedModels ?? []).join(","),
           defaultModel: record.defaultModel,
           contextWindowTokens: record.contextWindowTokens,
+          sandboxMode: record.sandboxMode ?? "workspace-write",
+          networkAccess: record.networkAccess !== false,
           visibility: record.visibility,
         },
       });
@@ -891,6 +896,8 @@ export class ExternalAgentRuntimeService {
       readonly supportedModels?: readonly string[] | undefined;
       readonly defaultModel?: string | null | undefined;
       readonly contextWindowTokens?: number | null | undefined;
+      readonly sandboxMode?: ExternalAgentRuntime["sandboxMode"] | undefined;
+      readonly networkAccess?: boolean | undefined;
       readonly status?: ExternalAgentRuntime["status"] | undefined;
     },
   ): Promise<ExternalAgentRuntime> {
@@ -947,6 +954,14 @@ export class ExternalAgentRuntimeService {
         (input.contextWindowTokens ?? undefined) !== current.contextWindowTokens
           ? "contextWindowTokens"
           : "",
+        input.sandboxMode !== undefined &&
+        input.sandboxMode !== (current.sandboxMode ?? "workspace-write")
+          ? "sandboxMode"
+          : "",
+        input.networkAccess !== undefined &&
+        input.networkAccess !== (current.networkAccess !== false)
+          ? "networkAccess"
+          : "",
         input.status !== undefined && input.status !== current.status
           ? "status"
           : "",
@@ -969,6 +984,10 @@ export class ExternalAgentRuntimeService {
           input.contextWindowTokens === null
             ? undefined
             : (input.contextWindowTokens ?? current.contextWindowTokens),
+        sandboxMode:
+          input.sandboxMode ?? current.sandboxMode ?? "workspace-write",
+        networkAccess:
+          input.networkAccess ?? current.networkAccess ?? true,
         status: input.status ?? current.status,
         updatedAt: iso(this.now()),
         ...(commandChanged || argsChanged || customArgsChanged
@@ -1003,6 +1022,8 @@ export class ExternalAgentRuntimeService {
           supportedModels: (next.supportedModels ?? []).join(","),
           defaultModel: next.defaultModel,
           contextWindowTokens: next.contextWindowTokens,
+          sandboxMode: next.sandboxMode,
+          networkAccess: next.networkAccess,
         },
       });
       return next;
@@ -2240,7 +2261,11 @@ export class AgentTaskRuntime {
           runtime: externalRuntime.name,
           sandbox:
             externalRuntime.protocol === "codex-jsonl"
-              ? "read-only / network restricted"
+              ? `${externalRuntime.sandboxMode ?? "workspace-write"} / network ${
+                  externalRuntime.networkAccess === false
+                    ? "restricted"
+                    : "enabled"
+                }`
               : "unknown",
         });
         await this.saveRun({
@@ -2623,7 +2648,11 @@ export class AgentRegistryService {
               authMode: "unknown",
               sandbox:
                 externalRuntime?.protocol === "codex-jsonl"
-                  ? "read-only / network restricted"
+                  ? `${externalRuntime.sandboxMode ?? "workspace-write"} / network ${
+                      externalRuntime.networkAccess === false
+                        ? "restricted"
+                        : "enabled"
+                    }`
                   : "unknown",
             }
           : {
@@ -3515,9 +3544,27 @@ export function createAgentRoutes(
           const includeArchived = ["1", "true"].includes(
             (queryParam(request, "includeArchived") ?? "").toLowerCase(),
           );
+          const runtimes = runtimeService.list(workspaceId, {
+            includeArchived,
+          });
+          const runtimesWithModels = await Promise.all(
+            runtimes.map(async (runtime) => {
+              const models = await discoverCodexRuntimeModels(runtime);
+              return {
+                ...runtime,
+                supportedModels:
+                  models.supportedModels.length > 0
+                    ? models.supportedModels
+                    : (runtime.supportedModels ?? []),
+                ...(models.defaultModel === undefined
+                  ? {}
+                  : { defaultModel: models.defaultModel }),
+              };
+            }),
+          );
           sendJson(response, 200, {
             ok: true,
-            runtimes: runtimeService.list(workspaceId, { includeArchived }),
+            runtimes: runtimesWithModels,
             canManage: isManager(actor),
             defaultModel: defaultModel?.()?.currentSelection(),
           });
@@ -3558,6 +3605,10 @@ export function createAgentRoutes(
                 .min(1_000)
                 .max(10_000_000)
                 .optional(),
+              sandboxMode: z
+                .enum(["read-only", "workspace-write"])
+                .optional(),
+              networkAccess: z.boolean().optional(),
               status: z.enum(["active", "disabled", "archived"]).optional(),
               visibility: z.enum(["workspace", "platform"]).optional(),
             })
@@ -3615,6 +3666,10 @@ export function createAgentRoutes(
                 .max(10_000_000)
                 .nullable()
                 .optional(),
+              sandboxMode: z
+                .enum(["read-only", "workspace-write"])
+                .optional(),
+              networkAccess: z.boolean().optional(),
               status: z.enum(["active", "disabled", "archived"]).optional(),
             })
             .parse(await readBody(request));

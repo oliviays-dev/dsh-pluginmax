@@ -17,7 +17,10 @@ describe("Workbench V2 client contract", () => {
     const source = readFileSync(CLIENT, "utf8");
     expect(source).toContain("padding:10px 20px 8px");
     expect(source).toContain(
-      ".pmwb2-head h1{margin:0;overflow:hidden;text-overflow:ellipsis;font-size:20px;line-height:1.25;white-space:nowrap;}",
+      ".pmwb2-head h1{margin:0;overflow:hidden;text-overflow:ellipsis;font-size:19px;line-height:1.3;white-space:nowrap;}",
+    );
+    expect(source).toContain(
+      ".pmwb2-card-title strong{display:block;overflow:hidden;text-overflow:ellipsis;font-size:14px;line-height:1.3;font-weight:650;white-space:nowrap;}",
     );
   });
 

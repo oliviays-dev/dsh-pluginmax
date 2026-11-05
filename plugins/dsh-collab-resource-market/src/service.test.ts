@@ -396,7 +396,11 @@ describe("ResourceMarketService", () => {
       version: "0.1.0",
       publisherName: "Alice",
       permissions: ["采购摘要只读"],
-      manifest: { schemaVersion: 1 },
+      manifest: {
+        schemaVersion: 1,
+        instructions: "# 采购摘要\n只输出可核实的采购结论。",
+        triggers: ["procurement-review"],
+      },
     });
     expect(created).toMatchObject({
       ownerId: "alice",
@@ -426,5 +430,53 @@ describe("ResourceMarketService", () => {
       created.id,
     );
     expect(service.customResources("alice")).toHaveLength(0);
+  });
+
+  it("installs custom skills and resolves their versioned instructions", async () => {
+    const service = new ResourceMarketService(tables(), {
+      workbench: () => ({
+        entitlements: () => [],
+        enablePlugin: async () => undefined,
+      }),
+    });
+    const created = await service.registerCustomResource("alice", {
+      type: "skill",
+      name: "工作日报",
+      description: "主管可读的短日报",
+      version: "1.0.0",
+      publisherName: "Alice",
+      permissions: ["task:read", "run:read"],
+      manifest: {
+        schemaVersion: 1,
+        instructions: "# 工作日报\n先结论，后证据。",
+        triggers: ["work-report"],
+      },
+    });
+
+    await service.installSkill("alice", created.id);
+    const installed = await service.installedSkills("alice");
+    expect(installed).toEqual([
+      expect.objectContaining({
+        id: created.id,
+        name: "工作日报",
+        source: "user",
+        status: "enabled",
+        instructions: expect.stringContaining("先结论"),
+        triggers: ["work-report"],
+      }),
+    ]);
+    await expect(
+      service.resolveSkills("alice", [created.id]),
+    ).resolves.toEqual([
+      expect.objectContaining({ id: created.id, version: "1.0.0" }),
+    ]);
+    await expect(service.installedSkills("bob")).resolves.toEqual([]);
+    await service.uninstallSkill("alice", created.id);
+    await expect(service.installedSkills("alice")).resolves.toEqual([]);
+    await expect(service.uninstallSkill("alice", created.id)).rejects.toMatchObject({
+      code: "not_found",
+    });
+    await service.removeCustomResource("alice", created.id);
+    await expect(service.installedSkills("alice")).resolves.toEqual([]);
   });
 });

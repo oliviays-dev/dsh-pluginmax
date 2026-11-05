@@ -98,6 +98,34 @@ describe("agent run delivery", () => {
   });
 });
 
+describe("task message lifecycle", () => {
+  it("starts a todo task when a human sends an instruction", async () => {
+    const tasks = new TaskService({ tasks: memoryTable() });
+    const created = await tasks.create(actor, {
+      workspaceId: "workspace-1",
+      title: "Start from message",
+      priority: "P2",
+      receiverType: "human",
+      receiverId: "admin",
+      receiverName: "Admin",
+      description: "Proceed when instructed.",
+      acceptance: ["Instruction handled"],
+    });
+    expect(created.status).toBe("todo");
+
+    const updated = await tasks.addMessage(actor, {
+      taskId: created.id,
+      content: "现在开始执行",
+    });
+
+    expect(updated.status).toBe("progress");
+    expect(updated.messages.at(-1)?.content).toBe("现在开始执行");
+    expect(updated.events.at(-1)?.message).toContain(
+      "发送指令，任务进入进行中",
+    );
+  });
+});
+
 describe("task execution policy", () => {
   it("stores and updates the phase-one execution policy", async () => {
     const tasks = new TaskService({ tasks: memoryTable() });

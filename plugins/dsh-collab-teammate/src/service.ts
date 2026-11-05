@@ -3,6 +3,7 @@ import {
   teammateEventSchema,
   teammateSchema,
   teammateTemplateSchema,
+  teammateExtensionPolicySchema,
   type Teammate,
   type TeammateEvent,
   type TeammateSource,
@@ -10,6 +11,9 @@ import {
   type TeammateTemplate,
   type TeammateTemplateState,
   type ProfileTemplate,
+  type TemplateSkillBinding,
+  type TeammateExtensionPolicy,
+  type InstanceSkillExtension,
 } from "./models.js";
 
 export interface KvTableLike<V> {
@@ -50,6 +54,8 @@ export interface TeammateServiceOptions {
 export type TeammateInstanceView = Teammate & {
   readonly templateName: string;
   readonly templateSource: TeammateSource;
+  readonly skillBindings: readonly TemplateSkillBinding[];
+  readonly extensionPolicy: TeammateExtensionPolicy;
 };
 
 /** 供运行态使用的一次性投影：实例覆盖优先，定义字段始终从模版读取。 */
@@ -62,6 +68,8 @@ export interface TeammateEffectiveDefinition {
   readonly scenarios: readonly string[];
   readonly goals: readonly string[];
   readonly tools: readonly string[];
+  readonly skillBindings: readonly TemplateSkillBinding[];
+  readonly extensionPolicy: TeammateExtensionPolicy;
   readonly source: TeammateSource;
   readonly templateId?: string | undefined;
   readonly personaAlias?: string | undefined;
@@ -130,6 +138,8 @@ export interface CreateTeammateTemplateInput {
   readonly scenarios?: readonly string[] | undefined;
   readonly goals?: readonly string[] | undefined;
   readonly tools?: readonly string[] | undefined;
+  readonly skillBindings?: readonly TemplateSkillBinding[] | undefined;
+  readonly extensionPolicy?: TeammateExtensionPolicy | undefined;
   /** 迁移期兼容外部 `persona-*` 引用；新模版通常不传。 */
   readonly personaAlias?: string | undefined;
   readonly systemKey?: TeammateTemplate["systemKey"];
@@ -145,6 +155,8 @@ export interface UpdateTeammateTemplateInput {
   readonly scenarios?: readonly string[] | undefined;
   readonly goals?: string[] | undefined;
   readonly tools?: string[] | undefined;
+  readonly skillBindings?: readonly TemplateSkillBinding[] | undefined;
+  readonly extensionPolicy?: TeammateExtensionPolicy | undefined;
 }
 
 /**
@@ -167,6 +179,8 @@ const STATE_LABELS: Record<TeammateState, string> = {
   inactive: "失效",
   archived: "归档",
 };
+
+const DEFAULT_EXTENSION_POLICY = teammateExtensionPolicySchema.parse({});
 
 const STATE_ORDER: Record<TeammateState, number> = {
   active: 0,
@@ -422,6 +436,15 @@ export class TeammateTemplateService {
       throw new TeammateError("invalid_input", "模版名称不能为空");
     }
     this.assertUniqueName({ source: input.source, name });
+    if (
+      input.source === "personal" &&
+      (input.skillBindings ?? []).some((binding) => binding.mode === "required")
+    ) {
+      throw new TeammateError(
+        "forbidden",
+        "企业强制 Skill 只能配置在平台模版中",
+      );
+    }
     const timestamp = this.timestamp();
     return teammateTemplateSchema.parse({
       id: input.id ?? teammateTemplateId(),
@@ -434,6 +457,10 @@ export class TeammateTemplateService {
       scenarios: input.scenarios ?? [],
       goals: input.goals ?? [],
       tools: input.tools ?? [],
+      skillBindings: input.skillBindings ?? [],
+      ...(input.extensionPolicy === undefined
+        ? {}
+        : { extensionPolicy: input.extensionPolicy }),
       state: input.active === false ? "disabled" : "active",
       version: "v1.0",
       ...(input.systemKey === undefined
@@ -522,6 +549,16 @@ export class TeammateTemplateService {
         throw new TeammateError("invalid_input", "模版名称不能为空");
       }
       this.assertUniqueName({ id: current.id, source: current.source, name });
+      const skillBindings = input.skillBindings ?? current.skillBindings;
+      if (
+        current.source === "personal" &&
+        skillBindings.some((binding) => binding.mode === "required")
+      ) {
+        throw new TeammateError(
+          "forbidden",
+          "企业强制 Skill 只能配置在平台模版中",
+        );
+      }
       const next = teammateTemplateSchema.parse({
         ...current,
         name,
@@ -531,6 +568,8 @@ export class TeammateTemplateService {
         scenarios: input.scenarios ?? current.scenarios,
         goals: input.goals ?? current.goals,
         tools: input.tools ?? current.tools,
+        skillBindings,
+        extensionPolicy: input.extensionPolicy ?? current.extensionPolicy,
         version: nextVersion(current.version),
         updatedAt: this.timestamp(),
       });
@@ -852,6 +891,8 @@ export class TeammateService {
       scenarios: template?.scenarios ?? teammate.scenarios,
       goals: template?.goals ?? teammate.goals,
       tools: template?.tools ?? [],
+      skillBindings: template?.skillBindings ?? [],
+      extensionPolicy: template?.extensionPolicy ?? DEFAULT_EXTENSION_POLICY,
       source: template?.source ?? teammate.source,
       ...(template === undefined ? {} : { templateId: template.id }),
       ...(template?.personaAlias === undefined
@@ -877,6 +918,8 @@ export class TeammateService {
       soul: definition.soul,
       scenarios: [...definition.scenarios],
       goals: [...definition.goals],
+      skillBindings: [...definition.skillBindings],
+      extensionPolicy: definition.extensionPolicy,
       source: definition.source,
       ownerName,
       templateName: template?.name ?? teammate.name,
@@ -1465,6 +1508,37 @@ export class TeammateService {
         name === current.name
           ? "更新了 AI伙伴描述"
           : `将 AI伙伴名称改为「${name}」`,
+      );
+      return teammate;
+    });
+  }
+
+  updateSkillExtensions(
+    actor: TeammateActor,
+    input: {
+      readonly teammateId: string;
+      readonly skillExtensions: readonly InstanceSkillExtension[];
+    },
+  ): Promise<Teammate> {
+    return this.enqueue(async () => {
+      const current = this.requireTeammate(input.teammateId);
+      if (!canManageInstance(current, actor)) {
+        throw new TeammateError(
+          "forbidden",
+          "只有 AI伙伴负责人或平台管理员可以维护 Skill 扩展",
+        );
+      }
+      const teammate = teammateSchema.parse({
+        ...current,
+        skillExtensions: input.skillExtensions,
+        updatedAt: this.timestamp(),
+      });
+      await this.options.tables.teammates.put(teammate.id, teammate);
+      await this.record(
+        teammate,
+        actor,
+        "updated",
+        `更新了 AI伙伴 Skill 扩展（${teammate.skillExtensions.length} 项）`,
       );
       return teammate;
     });

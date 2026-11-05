@@ -77,9 +77,9 @@ interface ClientExports {
       supportedTools?: readonly string[] | undefined;
       customArgs?: readonly string[] | undefined;
       customArgsText?: string | undefined;
-      searchEnabled: boolean;
-      permissionMode: string;
-      maxTurns: string;
+      searchEnabled?: boolean | undefined;
+      permissionMode?: string | undefined;
+      maxTurns?: string | undefined;
       ignoredOutputFormat: boolean;
       advancedArgs?:
         | readonly {
@@ -130,6 +130,8 @@ interface ClientExports {
       supportedTools?: readonly string[] | undefined;
       customArgs?: readonly string[] | undefined;
       contextWindowTokens?: number | undefined;
+      sandboxMode?: string | undefined;
+      networkAccess?: boolean | undefined;
     }): readonly string[];
     externalCommandPreview(form: {
       provider: string;
@@ -141,10 +143,19 @@ interface ClientExports {
       defaultModel?: string | undefined;
       supportedTools?: readonly string[] | undefined;
       customArgsText?: string | undefined;
-      searchEnabled: boolean;
-      permissionMode: string;
-      maxTurns: string;
+      searchEnabled?: boolean | undefined;
+      permissionMode?: string | undefined;
+      maxTurns?: string | undefined;
       contextWindowTokens?: string | undefined;
+      advancedArgs?:
+        | readonly {
+            kind: string;
+            name: string;
+            value: string;
+          }[]
+        | undefined;
+      sandboxMode?: string | undefined;
+      networkAccess?: boolean | undefined;
     }): string;
   };
 }
@@ -219,6 +230,7 @@ describe("AI Teammate runtime client", () => {
       "当前工作",
       "工作计划",
       "工作日报",
+      "Skills",
       "角色权限",
       "历史记录",
     ]);
@@ -226,6 +238,7 @@ describe("AI Teammate runtime client", () => {
       "current",
       "plan",
       "report",
+      "skills",
       "roles",
       "audit",
     ]);
@@ -368,13 +381,30 @@ describe("AI Teammate runtime client", () => {
     );
   });
 
-  it("mounts Data Agent workspace settings inside the agent definition", () => {
+  it("mounts Data Agent settings as a read-only summary with a config dialog", () => {
     const source = readFileSync(CLIENT_PATH, "utf8");
     expect(source).toContain('"pluginmax.teammate.data-agent-settings"');
     expect(source).toContain('selectedTemplate.systemKey === "data-agent"');
+    expect(source).toContain('mode: "summary"');
+    expect(source).toContain('mode: "full"');
+    expect(source).toContain("onEdit: () => setDataAgentConfigOpen(true)");
+    expect(source).toContain("dataAgentConfigOpen");
     expect(source).toContain(
       'identity?.workspaceId ?? workspaces[0]?.id ?? ""',
     );
+  });
+
+  it("places Data Agent summary and Skills immediately before template instances", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    const soul = source.indexOf('"SOUL.md（生效人格）"');
+    const dataAgent = source.indexOf('mode: "summary"');
+    const skills = source.indexOf('"Skills · 企业预装清单"');
+    const instances = source.indexOf('"使用该模版的 AI伙伴"');
+    expect(soul).toBeGreaterThan(-1);
+    expect(dataAgent).toBeGreaterThan(soul);
+    expect(skills).toBeGreaterThan(dataAgent);
+    expect(instances).toBeGreaterThan(skills);
+    expect(source).not.toContain("继承给使用该定义的 AI伙伴");
   });
 
   it("labels external runtime status and splits the archived view", () => {
@@ -490,6 +520,11 @@ describe("AI Teammate runtime client", () => {
     expect(source).toContain("支持的模型池");
     expect(source).toContain("默认模型");
     expect(source).toContain("加入模型池");
+    expect(source).toContain("文件修改权限");
+    expect(source).toContain("可写任务工作区");
+    expect(source).toContain("允许访问公开网络");
+    expect(source).toContain("sandboxMode: externalForm.sandboxMode");
+    expect(source).toContain("networkAccess: externalForm.networkAccess");
     expect(source).toContain("supportedModels: externalForm.supportedModels");
     expect(source).toContain("supportedTools: externalForm.supportedTools");
     expect(source).toContain("启动命令预览");
@@ -603,6 +638,37 @@ describe("AI Teammate runtime client", () => {
       "回合上限：8",
       "额外参数：3 项",
     ]);
+    expect(
+      test?.externalCommandPreview({
+        provider: "codex",
+        protocol: "codex-jsonl",
+        command: "codex",
+        modelMode: "default",
+        model: "",
+        supportedModels: [],
+        defaultModel: "",
+        contextWindowTokens: "128000",
+        supportedTools: ["web_search"],
+        sandboxMode: "workspace-write",
+        networkAccess: true,
+        customArgsText: "",
+        advancedArgs: [],
+      }),
+    ).toContain("sandbox_workspace_write.network_access=true");
+    expect(
+      test?.runtimeConfigurationLabels({
+        provider: "codex",
+        args: ["--search"],
+        supportedModels: ["deepseek-flash"],
+        defaultModel: "deepseek-flash",
+        supportedTools: ["web_search"],
+        contextWindowTokens: 128_000,
+        sandboxMode: "workspace-write",
+        networkAccess: true,
+      }),
+    ).toEqual(
+      expect.arrayContaining(["沙箱：可写工作区", "网络：开启"]),
+    );
   });
 
   it("validates structured runtime configuration before save", () => {
@@ -729,6 +795,60 @@ describe("AI Teammate runtime client", () => {
     expect(source).toContain("/api/collab/teammates/project-roles?teammateId=");
     expect(source).not.toContain("/api/collab/employee/roles?employeeId=");
     expect(source).not.toContain("还没有绑定员工档案");
+  });
+
+  it("presents one skill inventory across definitions and instances", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain("/api/collab/resources/skills/installed");
+    expect(source).toContain("/api/collab/teammates/skills?teammateId=");
+    expect(source).toContain("已加载 Skills");
+    expect(source).toContain("预装 Skills");
+    expect(source).toContain("Skills · 企业预装清单");
+    expect(source).toContain("不含实例扩展");
+    expect(source).toContain("企业预装 Skills");
+    expect(source).toContain("个人模版 Skills");
+    expect(source).toContain("从资源库添加");
+    expect(source).toContain("pmtm-drawer");
+    expect(source).toContain("我的资源库");
+    expect(source).not.toContain("只显示已安装到账号资源库");
+    expect(source).toContain("配置企业 Skill：");
+    expect(source).toContain("企业强制");
+    expect(source).toContain('selectedTemplate.source === "platform"');
+    expect(source).toContain("适用能力");
+    expect(source).toContain("由 Skill 包定义");
+    expect(source).not.toContain("生效场景");
+    expect(source).not.toContain("场景用于告诉运行时何时加载该 Skill");
+    expect(source).toContain("skillBindingDraft");
+    expect(source).toContain("用户扩展策略");
+    expect(source).toContain("允许实例补充 Skill");
+    expect(source).not.toContain("禁止替换主 Skill 的场景");
+    expect(source).not.toContain("允许用户停用默认 Skill");
+    expect(source).not.toContain("允许用户在指定场景选择主处理器");
+    expect(source).toContain("平台预装");
+    expect(source).toContain("暂无预装SKILL");
+    expect(source).toContain("自定义扩展");
+    expect(source).not.toContain("可添加的 Skills");
+    expect(source).toContain("可从资源市场安装时选择此 AI 伙伴");
+    expect(source).not.toContain("pmtm-skill-art");
+    expect(source).toContain('"data-skill-tag": "version"');
+    expect(source).toContain('"data-skill-tag": "category"');
+    expect(source).toContain('"data-skill-tag": "usage"');
+    expect(source).toContain('"data-skill-tag": "developer"');
+    expect(source).not.toContain('h("strong", null, "版本")');
+    expect(source).not.toContain('h("strong", null, "使用量")');
+    expect(source).toContain("-webkit-line-clamp:3");
+    expect(source).toMatch(/\.pmtm-skill-card\{[^}]*min-height:0/);
+    expect(source).toContain('className: "pmtm-skill-actions"');
+    expect(source).toContain("onClick: onDetails");
+    expect(source).toContain("event.stopPropagation()");
+    expect(source).toContain("renderSkillDetailDialog");
+    expect(source).toContain("const cleanSkillName =");
+    expect(source).toContain("平台基线|我的扩展");
+    expect(source).not.toContain('className: "pmtm-skill-source');
+    expect(source).not.toContain('className: "pmtm-skill-scenes"');
+    expect(source).toContain("data-skill-source");
+    expect(source).not.toContain("蓝色为智能体定义继承的企业能力");
+    expect(source).not.toContain('"Skill 清单"');
   });
 
   it("requires an explicit action to create or save", () => {

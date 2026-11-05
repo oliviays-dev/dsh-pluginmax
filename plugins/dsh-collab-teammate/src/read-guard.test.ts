@@ -44,13 +44,23 @@ class FakeResponse {
   }
 }
 
-function fakeRequest(method: string, url: string, token: string): IncomingMessage {
+function fakeRequest(
+  method: string,
+  url: string,
+  token: string,
+  body?: unknown,
+): IncomingMessage {
+  const text = body === undefined ? "" : JSON.stringify(body);
   return {
     method,
     url,
     headers: {
       host: "127.0.0.1:33124",
       authorization: `Bearer ${token}`,
+      ...(text === "" ? {} : { "content-type": "application/json" }),
+    },
+    async *[Symbol.asyncIterator]() {
+      if (text !== "") yield Buffer.from(text);
     },
   } as unknown as IncomingMessage;
 }
@@ -68,6 +78,7 @@ function teammateFixture(overrides: Partial<Teammate> & { id: string }): Teammat
     soul: "",
     scenarios: [],
     goals: [],
+    skillExtensions: [],
     avatar: "",
     state: "active",
     version: "v1.0",
@@ -193,6 +204,36 @@ function setup() {
       throw new Error("not used");
     },
   };
+  const skillCatalog = {
+    installedSkills: async () => [
+      {
+        id: "custom-daily",
+        name: "精简工作日报",
+        version: "1.0.0",
+        instructions: "先结论，后证据。",
+        triggers: ["work-report"],
+        source: "user" as const,
+        status: "enabled" as const,
+      },
+    ],
+    resolveSkills: async (
+      _principal: unknown,
+      skillIds: readonly string[],
+    ) =>
+      skillIds.includes("custom-daily")
+        ? [
+            {
+              id: "custom-daily",
+              name: "精简工作日报",
+              version: "1.0.0",
+              instructions: "先结论，后证据。",
+              triggers: ["work-report"],
+              source: "user" as const,
+              status: "enabled" as const,
+            },
+          ]
+        : [],
+  };
   const team = {
     resolveToken: (token: string) => principals[token],
     users: () =>
@@ -219,6 +260,7 @@ function setup() {
     undefined,
     undefined,
     () => projectAssignments,
+    () => skillCatalog,
   );
   return { routes };
 }
@@ -229,12 +271,13 @@ async function call(
   query: string,
   token: string,
   method = "GET",
+  body?: unknown,
 ): Promise<{ status: number; json: Record<string, unknown> }> {
   const route = routes.find((candidate) => candidate.path === path);
   if (route === undefined) throw new Error(`missing route: ${path}`);
   const response = new FakeResponse();
   await route.handler(
-    fakeRequest(method, `${path}${query}`, token),
+    fakeRequest(method, `${path}${query}`, token, body),
     response as unknown as ServerResponse,
   );
   return { status: response.status, json: response.json<Record<string, unknown>>() };
@@ -272,6 +315,50 @@ describe("AI Teammate 明细接口读取收口", () => {
         status: "active",
       }),
     ]);
+  });
+
+  it("lets the instance owner extend and remove an installed skill", async () => {
+    const { routes } = setup();
+    const extended = await call(
+      routes,
+      "/api/collab/teammates/skills/extend",
+      "",
+      "token-peter",
+      "POST",
+      {
+        teammateId: "tm-1",
+        skillId: "custom-daily",
+        mode: "primary",
+      },
+    );
+    expect(extended.status).toBe(200);
+    expect(extended.json).toMatchObject({
+      ok: true,
+      extensions: [
+        expect.objectContaining({
+          skillId: "custom-daily",
+          scenes: ["work-report"],
+          mode: "primary",
+        }),
+      ],
+      effective: [
+        expect.objectContaining({
+          id: "custom-daily",
+          bindingSource: "user",
+          mode: "primary",
+        }),
+      ],
+    });
+    const removed = await call(
+      routes,
+      "/api/collab/teammates/skills/remove",
+      "",
+      "token-peter",
+      "POST",
+      { teammateId: "tm-1", skillId: "custom-daily" },
+    );
+    expect(removed.status).toBe(200);
+    expect(removed.json.extensions).toEqual([]);
   });
 
   it("所有者、任务协作方、会议协作方、管理员可读取，平台托管历史实例不可越权读取", async () => {

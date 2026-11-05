@@ -77,6 +77,7 @@ window.__ModuleLoader__.load({
 .pmrm-iconbtn,.pmrm-btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;border:1px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:11px;cursor:pointer;}
 .pmrm-iconbtn{width:32px;height:32px;padding:0;}.pmrm-btn{min-height:28px;padding:2px 10px;}
 .pmrm-btn.primary{border-color:transparent;background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground);font-weight:650;}
+.pmrm-btn.danger{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 42%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 10%,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-state-error-primary,#e5534b);}
 .pmrm-btn:disabled{opacity:.5;cursor:not-allowed;}
 .pmrm-iconbtn svg,.pmrm-btn svg{width:13px;height:13px;}
 .pmrm-main{min-width:0;min-height:0;display:block;overflow:hidden;}
@@ -121,6 +122,18 @@ window.__ModuleLoader__.load({
 .pmrm-card-meta{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:8px;color:var(--dsw-alias-label-tertiary);font-size:9px;}
 .pmrm-card-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:9px;padding-top:8px;border-top:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-tertiary);font-size:9.5px;}
 .pmrm-card-actions{display:flex;align-items:center;gap:5px;flex-wrap:wrap;justify-content:flex-end;}
+.pmrm-skill-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:11px;}
+.pmrm-skill-card{display:flex;flex-direction:column;gap:9px;min-width:0;min-height:0;padding:11px;overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);}
+.pmrm-skill-card:hover{border-color:var(--dsw-alias-border-l4,var(--dsw-alias-border-l3));}
+.pmrm-skill-card[role="button"]{cursor:pointer;}
+.pmrm-skill-card[role="button"]:focus-visible{border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 55%,var(--dsw-alias-border-l3));outline:none;}
+.pmrm-skill-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:9px;min-width:0;}
+.pmrm-skill-body{display:flex;flex-direction:column;gap:5px;min-width:0;padding-top:1px;}
+.pmrm-skill-name{min-width:0;margin:0;color:var(--dsw-alias-label-primary);font-size:12px;font-weight:650;line-height:1.4;overflow-wrap:anywhere;}
+.pmrm-skill-desc{margin:0;color:var(--dsw-alias-label-secondary);font-size:10px;line-height:1.55;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}
+.pmrm-skill-tags{display:flex;align-items:center;gap:5px;flex-wrap:wrap;}
+.pmrm-skill-tag{min-width:0;padding:2px 6px;border:1px solid var(--dsw-alias-border-l2);border-radius:4px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-tertiary);font-size:9px;line-height:1.4;overflow-wrap:anywhere;}
+.pmrm-skill-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap;align-self:start;}
 .pmrm-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;}
 .pmrm-resource{display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:9px;padding:11px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);}
 .pmrm-resource .pmrm-mark{width:36px;height:36px;}
@@ -169,9 +182,23 @@ window.__ModuleLoader__.load({
 .pmrm-custom-form textarea{min-height:72px;resize:vertical;}
 .pmrm-custom-note{padding:9px;border:1px solid color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 26%,transparent);border-radius:6px;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 7%,transparent);color:var(--dsw-alias-label-secondary);font-size:9.5px;line-height:1.55;}
 .pmrm-custom-grid{display:grid;gap:8px;margin-top:10px;}
+.pmrm-install-summary{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-1);}
+.pmrm-install-summary strong{font-size:11.5px;}
+.pmrm-install-summary span{color:var(--dsw-alias-label-tertiary);font-size:9.5px;}
+.pmrm-install-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:13px 0 7px;}
+.pmrm-install-toolbar strong{font-size:11px;}
+.pmrm-install-toolbar-actions{display:flex;align-items:center;gap:6px;}
+.pmrm-install-agents{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;max-height:280px;overflow:auto;}
+.pmrm-install-agent{display:flex;align-items:center;gap:8px;min-width:0;padding:9px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-1);cursor:pointer;}
+.pmrm-install-agent.selected{border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 50%,var(--dsw-alias-border-l3));background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 8%,var(--dsw-alias-bg-layer-1));}
+.pmrm-install-agent input{width:14px;height:14px;flex:none;margin:0;accent-color:var(--dsw-alias-accent-primary,#4f8ef7);}
+.pmrm-install-agent-copy{display:grid;gap:2px;min-width:0;}
+.pmrm-install-agent-copy strong,.pmrm-install-agent-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pmrm-install-agent-copy strong{font-size:10.5px;}
+.pmrm-install-agent-copy small{color:var(--dsw-alias-label-tertiary);font-size:9px;}
 .pmrm-toast{position:fixed;left:50%;bottom:28px;z-index:80;transform:translateX(-50%);padding:8px 12px;border:1px solid var(--dsw-alias-border-l3);border-radius:8px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 12px 30px rgba(0,0,0,.24);font-size:11px;}
-@media(max-width:1000px){.pmrm-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.pmrm-list{grid-template-columns:1fr;}}
-@media(max-width:700px){.pmrm{margin:-14px;}.pmrm-content{padding:14px;}.pmrm-grid{grid-template-columns:1fr;}.pmrm-search{width:100%;order:5;margin:0;}.pmrm-detail{top:0;width:100vw;}.pmrm-brand small{display:none;}.pmrm-preview-canvas{grid-template-columns:1fr;}.pmrm-preview-panel{grid-column:span 1;}.pmrm-custom-form{grid-template-columns:1fr;}.pmrm-category-strip .pmrm-custom-action{margin-left:0;}.pmrm-modal{width:100%;max-height:94vh;}}
+@media(max-width:1000px){.pmrm-grid,.pmrm-skill-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.pmrm-list{grid-template-columns:1fr;}}
+@media(max-width:700px){.pmrm{margin:-14px;}.pmrm-content{padding:14px;}.pmrm-grid,.pmrm-skill-grid,.pmrm-install-agents{grid-template-columns:1fr;}.pmrm-search{width:100%;order:5;margin:0;}.pmrm-detail{top:0;width:100vw;}.pmrm-brand small{display:none;}.pmrm-preview-canvas{grid-template-columns:1fr;}.pmrm-preview-panel{grid-column:span 1;}.pmrm-custom-form{grid-template-columns:1fr;}.pmrm-category-strip .pmrm-custom-action{margin-left:0;}.pmrm-modal{width:100%;max-height:94vh;}}
 `;
 
     function token() {
@@ -274,6 +301,146 @@ window.__ModuleLoader__.load({
       return "Skill";
     }
 
+    function cleanSkillName(name) {
+      return String(name ?? "")
+        .replace(
+          /\s*[（(](?:平台基线|我的扩展|平台集成|企业指定|自定义扩展|用户扩展|平台预装)[)）]\s*$/g,
+          "",
+        )
+        .trim();
+    }
+
+    function u16(bytes, offset) {
+      return bytes[offset] | (bytes[offset + 1] << 8);
+    }
+
+    function u32(bytes, offset) {
+      return (
+        (bytes[offset] |
+          (bytes[offset + 1] << 8) |
+          (bytes[offset + 2] << 16) |
+          (bytes[offset + 3] << 24)) >>>
+        0
+      );
+    }
+
+    async function inflateZipEntry(bytes) {
+      if (typeof DecompressionStream !== "function") {
+        throw new Error("当前浏览器不支持 ZIP 解压");
+      }
+      const stream = new Blob([bytes])
+        .stream()
+        .pipeThrough(new DecompressionStream("deflate-raw"));
+      return new Uint8Array(await new Response(stream).arrayBuffer());
+    }
+
+    async function readSkillZip(file) {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let eocd = -1;
+      for (
+        let offset = bytes.length - 22;
+        offset >= Math.max(0, bytes.length - 65_557);
+        offset -= 1
+      ) {
+        if (u32(bytes, offset) === 0x06054b50) {
+          eocd = offset;
+          break;
+        }
+      }
+      if (eocd < 0) throw new Error("ZIP 目录不完整");
+      const entryCount = u16(bytes, eocd + 10);
+      const centralOffset = u32(bytes, eocd + 16);
+      if (entryCount === 0 || entryCount > 500) {
+        throw new Error("ZIP 中没有可读取的 Skill 文件");
+      }
+      const decoder = new TextDecoder();
+      const entries = new Map();
+      let offset = centralOffset;
+      for (let index = 0; index < entryCount; index += 1) {
+        if (u32(bytes, offset) !== 0x02014b50) {
+          throw new Error("ZIP 中央目录格式不正确");
+        }
+        const method = u16(bytes, offset + 10);
+        const compressedSize = u32(bytes, offset + 20);
+        const nameLength = u16(bytes, offset + 28);
+        const extraLength = u16(bytes, offset + 30);
+        const commentLength = u16(bytes, offset + 32);
+        const localOffset = u32(bytes, offset + 42);
+        const name = decoder.decode(
+          bytes.slice(offset + 46, offset + 46 + nameLength),
+        );
+        if (u32(bytes, localOffset) !== 0x04034b50) {
+          throw new Error(`ZIP 文件头损坏：${name}`);
+        }
+        const localNameLength = u16(bytes, localOffset + 26);
+        const localExtraLength = u16(bytes, localOffset + 28);
+        const dataOffset =
+          localOffset + 30 + localNameLength + localExtraLength;
+        const compressed = bytes.slice(
+          dataOffset,
+          dataOffset + compressedSize,
+        );
+        const content =
+          method === 0
+            ? compressed
+            : method === 8
+              ? await inflateZipEntry(compressed)
+              : undefined;
+        if (content !== undefined && !name.endsWith("/")) {
+          entries.set(name, decoder.decode(content));
+        }
+        offset += 46 + nameLength + extraLength + commentLength;
+      }
+      const byBaseName = (target) =>
+        [...entries.entries()].find(
+          ([name]) =>
+            name === target ||
+            name.endsWith(`/${target}`) ||
+            name.endsWith(`\\${target}`),
+        )?.[1];
+      const manifestText = byBaseName("skill.json");
+      const markdown = byBaseName("SKILL.md");
+      if (manifestText === undefined && markdown === undefined) {
+        throw new Error("ZIP 中必须包含 skill.json 或 SKILL.md");
+      }
+      if (manifestText !== undefined) {
+        const parsed = JSON.parse(manifestText);
+        if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+          throw new Error("skill.json 必须是 JSON 对象");
+        }
+        return { manifest: parsed, markdown: markdown ?? "" };
+      }
+      return {
+        manifest: {
+          schemaVersion: 1,
+          kind: "agent-skill",
+          instructions: markdown,
+          triggers: ["work-report"],
+        },
+        markdown,
+      };
+    }
+
+    async function parseSkillFile(file) {
+      if (/\.zip$/i.test(file.name)) return readSkillZip(file);
+      const text = await file.text();
+      const markdown = /\.(md|markdown)$/i.test(file.name) ||
+        !text.trim().startsWith("{");
+      if (!markdown) {
+        const parsed = JSON.parse(text);
+        return { manifest: parsed, markdown: "" };
+      }
+      return {
+        manifest: {
+          schemaVersion: 1,
+          kind: "agent-skill",
+          instructions: text,
+          triggers: ["work-report"],
+        },
+        markdown: text,
+      };
+    }
+
     function assetStatusLabel(kind, status) {
       if (kind === "skill") {
         return status === "enabled" ? "已启用" : "可启用";
@@ -302,6 +469,103 @@ window.__ModuleLoader__.load({
         return " warn";
       }
       return "";
+    }
+
+    function SkillMarketCard({
+      item,
+      custom = false,
+      onOpen,
+      onInstall,
+      onUninstall,
+      actionDisabled = false,
+    }) {
+      const installed = item.status === "enabled";
+      const developer = custom ? item.publisherName : item.publisher?.name;
+      const category = custom ? "自定义" : item.category;
+      const usage =
+        custom || item.usage === "自定义 Skill"
+          ? "未统计"
+          : item.usage || "未统计";
+      return h(
+        "article",
+        {
+          className: "pmrm-skill-card",
+          "data-skill-id": item.id,
+          role: "button",
+          tabIndex: 0,
+          onClick: () => onOpen?.(item),
+          onKeyDown: (event) => {
+            if (event.target !== event.currentTarget) return;
+            if (event.key !== "Enter" && event.key !== " ") return;
+            event.preventDefault();
+            onOpen?.(item);
+          },
+        },
+        h(
+          "div",
+          { className: "pmrm-skill-head" },
+          h(
+            "div",
+            { className: "pmrm-skill-body" },
+            h(
+              "h3",
+              { className: "pmrm-skill-name" },
+              cleanSkillName(item.name),
+            ),
+            h(
+              "p",
+              { className: "pmrm-skill-desc" },
+              item.description || "暂无 Skill 说明。",
+            ),
+          ),
+          onInstall || onUninstall
+            ? h(
+                "div",
+                { className: "pmrm-skill-actions" },
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    className: installed ? "pmrm-btn" : "pmrm-btn primary",
+                    disabled:
+                      actionDisabled ||
+                      (installed ? onUninstall === undefined : onInstall === undefined),
+                    onClick: (event) => {
+                      event.stopPropagation();
+                      if (installed) onUninstall?.(item);
+                      else onInstall?.(item);
+                    },
+                  },
+                  installed ? "卸载" : "安装",
+                ),
+              )
+            : null,
+        ),
+        h(
+          "div",
+          { className: "pmrm-skill-tags" },
+          h(
+            "span",
+            { className: "pmrm-skill-tag", "data-skill-tag": "version" },
+            `v${item.version}`,
+          ),
+          h(
+            "span",
+            { className: "pmrm-skill-tag", "data-skill-tag": "category" },
+            category || "未分类",
+          ),
+          h(
+            "span",
+            { className: "pmrm-skill-tag", "data-skill-tag": "usage" },
+            usage,
+          ),
+          h(
+            "span",
+            { className: "pmrm-skill-tag", "data-skill-tag": "developer" },
+            developer || "未知",
+          ),
+        ),
+      );
     }
 
     function ResourceAssetCard({
@@ -390,7 +654,7 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function CustomResourceCard({ item, onOpen }) {
+    function CustomResourceCard({ item, onOpen, onAction }) {
       return h(
         "article",
         { className: "pmrm-resource" },
@@ -409,7 +673,13 @@ window.__ModuleLoader__.load({
             "div",
             { className: "pmrm-resource-title" },
             h("h3", null, item.name),
-            h("span", { className: "pmrm-status" }, "已注册"),
+            h(
+              "span",
+              {
+                className: `pmrm-status${item.status === "enabled" ? " ok" : ""}`,
+              },
+              item.status === "enabled" ? "已安装" : "已注册",
+            ),
           ),
           h("p", null, item.description || "用户注册的自定义资源"),
           h(
@@ -425,6 +695,21 @@ window.__ModuleLoader__.load({
         h(
           "div",
           { className: "pmrm-resource-actions" },
+            item.type === "skill"
+              ? h(
+                  "button",
+                  {
+                    type: "button",
+                    className:
+                      item.status === "enabled"
+                        ? "pmrm-btn"
+                        : "pmrm-btn primary",
+                    disabled: item.status === "enabled",
+                    onClick: () => onAction?.(item),
+                  },
+                  item.status === "enabled" ? "已安装" : "安装",
+                )
+              : null,
           h(
             "button",
             {
@@ -463,6 +748,15 @@ window.__ModuleLoader__.load({
       const [customResources, setCustomResources] = react.useState([]);
       const [detail, setDetail] = react.useState(null);
       const [preview, setPreview] = react.useState(null);
+      const [installTarget, setInstallTarget] = react.useState(null);
+      const [installAgents, setInstallAgents] = react.useState([]);
+      const [installAgentIds, setInstallAgentIds] = react.useState([]);
+      const [installLoading, setInstallLoading] = react.useState(false);
+      const [installError, setInstallError] = react.useState("");
+      const [uninstallTarget, setUninstallTarget] = react.useState(null);
+      const [uninstallAgents, setUninstallAgents] = react.useState([]);
+      const [uninstallLoading, setUninstallLoading] = react.useState(false);
+      const [uninstallError, setUninstallError] = react.useState("");
       const [registerOpen, setRegisterOpen] = react.useState(false);
       const [registerManifest, setRegisterManifest] = react.useState(null);
       const [registerForm, setRegisterForm] = react.useState({
@@ -693,6 +987,8 @@ window.__ModuleLoader__.load({
           if (event.key === "Escape") {
             setDetail(null);
             setPreview(null);
+            setInstallTarget(null);
+            setUninstallTarget(null);
             setRegisterOpen(false);
           }
         };
@@ -826,30 +1122,236 @@ window.__ModuleLoader__.load({
         void loadWorkbenchContext();
       };
 
-      const installSkill = async (skill) => {
+      const openInstallDialog = async (skill, custom = false) => {
         if (busy) return;
-        setBusy(true);
+        setInstallTarget({ skill, custom });
+        setInstallAgentIds([]);
+        setInstallAgents([]);
+        setInstallError("");
+        setInstallLoading(true);
         try {
+          const [current, listing] = await Promise.all([
+            request("/api/collab/auth/me"),
+            request("/api/collab/teammates"),
+          ]);
+          const userId = current?.user?.id ?? "";
+          setCurrentUserId(userId);
+          setInstallAgents(
+            (listing.teammates ?? [])
+              .filter(
+                (item) =>
+                  item.ownerUserId === userId &&
+                  item.state === "active" &&
+                  item.archived !== true,
+              )
+              .sort((left, right) => left.name.localeCompare(right.name)),
+          );
+        } catch (cause) {
+          setInstallError(
+            cause instanceof Error ? cause.message : String(cause),
+          );
+        } finally {
+          setInstallLoading(false);
+        }
+      };
+
+      const confirmInstall = async () => {
+        if (busy || installTarget === null) return;
+        setBusy(true);
+        setInstallError("");
+        try {
+          const skill = installTarget.skill;
           await request("/api/collab/resources/skills", {
             method: "POST",
             body: JSON.stringify({ skillId: skill.id }),
           });
-          setSkills((items) =>
-            items.map((item) =>
-              item.id === skill.id ? { ...item, status: "enabled" } : item,
+          if (installTarget.custom) {
+            setCustomResources((items) =>
+              items.map((item) =>
+                item.id === skill.id ? { ...item, status: "enabled" } : item,
+              ),
+            );
+            setDetail((current) =>
+              current?.kind === "custom" && current.value.id === skill.id
+                ? {
+                    ...current,
+                    value: { ...current.value, status: "enabled" },
+                  }
+                : current,
+            );
+          } else {
+            setSkills((items) =>
+              items.map((item) =>
+                item.id === skill.id ? { ...item, status: "enabled" } : item,
+              ),
+            );
+            setDetail((current) =>
+              current?.kind === "skill" && current.value.id === skill.id
+                ? {
+                    ...current,
+                    value: { ...current.value, status: "enabled" },
+                  }
+                : current,
+            );
+          }
+
+          const scenes =
+            (installTarget.custom
+              ? skill.manifest?.triggers
+              : skill.triggers) ?? ["general"];
+          const results = await Promise.allSettled(
+            installAgentIds.map((teammateId) =>
+              request("/api/collab/teammates/skills/extend", {
+                method: "POST",
+                body: JSON.stringify({
+                  teammateId,
+                  skillId: skill.id,
+                  mode: "additive",
+                  scenes:
+                    Array.isArray(scenes) && scenes.length > 0
+                      ? scenes
+                      : ["general"],
+                }),
+              }),
             ),
           );
-          setDetail((current) =>
-            current?.kind === "skill" && current.value.id === skill.id
-              ? {
-                  ...current,
-                  value: { ...current.value, status: "enabled" },
-                }
-              : current,
-          );
-          showToast(`已启用「${skill.name}」`);
+          const succeeded = results.filter(
+            (result) => result.status === "fulfilled",
+          ).length;
+          const failed = results.length - succeeded;
+          setInstallTarget(null);
+          if (installAgentIds.length === 0) {
+            showToast(`已将「${cleanSkillName(skill.name)}」安装到 Skill 资源库`);
+          } else if (failed === 0) {
+            showToast(
+              `已安装，并添加到 ${String(succeeded)} 个 AI 伙伴`,
+            );
+          } else {
+            showToast(
+              `已安装；${String(succeeded)} 个 AI 伙伴成功，${String(failed)} 个失败`,
+            );
+          }
         } catch (cause) {
-          showToast(cause.message);
+          const message =
+            cause instanceof Error ? cause.message : String(cause);
+          setInstallError(message);
+          showToast(message);
+        } finally {
+          setBusy(false);
+        }
+      };
+
+      const openUninstallDialog = async (skill, custom = false) => {
+        if (busy) return;
+        setUninstallTarget({ skill, custom });
+        setUninstallAgents([]);
+        setUninstallError("");
+        setUninstallLoading(true);
+        try {
+          const [current, listing] = await Promise.all([
+            request("/api/collab/auth/me"),
+            request("/api/collab/teammates"),
+          ]);
+          const userId = current?.user?.id ?? "";
+          const agents = (listing.teammates ?? []).filter(
+            (item) =>
+              item.ownerUserId === userId &&
+              item.state === "active" &&
+              item.archived !== true,
+          );
+          const configs = await Promise.all(
+            agents.map((agent) =>
+              request(
+                `/api/collab/teammates/skills?teammateId=${encodeURIComponent(agent.id)}`,
+              ),
+            ),
+          );
+          setUninstallAgents(
+            agents.filter((_, index) =>
+              (configs[index]?.extensions ?? []).some(
+                (extension) => extension.skillId === skill.id,
+              ),
+            ),
+          );
+        } catch (cause) {
+          setUninstallError(
+            cause instanceof Error ? cause.message : String(cause),
+          );
+        } finally {
+          setUninstallLoading(false);
+        }
+      };
+
+      const confirmUninstall = async () => {
+        if (busy || uninstallTarget === null) return;
+        setBusy(true);
+        setUninstallError("");
+        try {
+          const skill = uninstallTarget.skill;
+          const removals = await Promise.allSettled(
+            uninstallAgents.map((agent) =>
+              request("/api/collab/teammates/skills/remove", {
+                method: "POST",
+                body: JSON.stringify({
+                  teammateId: agent.id,
+                  skillId: skill.id,
+                }),
+              }),
+            ),
+          );
+          const failedRemovals = removals.filter(
+            (result) => result.status === "rejected",
+          );
+          if (failedRemovals.length > 0) {
+            throw new Error(
+              `有 ${String(failedRemovals.length)} 个 AI 伙伴移除失败，资源库保留未卸载`,
+            );
+          }
+          await request(
+            `/api/collab/resources/skills?id=${encodeURIComponent(skill.id)}`,
+            { method: "DELETE" },
+          );
+          if (uninstallTarget.custom) {
+            setCustomResources((items) =>
+              items.map((item) =>
+                item.id === skill.id ? { ...item, status: "available" } : item,
+              ),
+            );
+            setDetail((current) =>
+              current?.kind === "custom" && current.value.id === skill.id
+                ? {
+                    ...current,
+                    value: { ...current.value, status: "available" },
+                  }
+                : current,
+            );
+          } else {
+            setSkills((items) =>
+              items.map((item) =>
+                item.id === skill.id ? { ...item, status: "available" } : item,
+              ),
+            );
+            setDetail((current) =>
+              current?.kind === "skill" && current.value.id === skill.id
+                ? {
+                    ...current,
+                    value: { ...current.value, status: "available" },
+                  }
+                : current,
+            );
+          }
+          const count = uninstallAgents.length;
+          setUninstallTarget(null);
+          showToast(
+            count === 0
+              ? `已卸载「${cleanSkillName(skill.name)}」`
+              : `已从 ${String(count)} 个 AI 伙伴移除，并卸载「${cleanSkillName(skill.name)}」`,
+          );
+        } catch (cause) {
+          const message =
+            cause instanceof Error ? cause.message : String(cause);
+          setUninstallError(message);
+          showToast(message);
         } finally {
           setBusy(false);
         }
@@ -1036,7 +1538,13 @@ window.__ModuleLoader__.load({
               name: registerForm.name,
               description: registerForm.description,
               version: registerForm.version,
-              publisherName: registerForm.publisherName.trim() || currentUserId,
+              ...(registerForm.publisherName.trim() === "" &&
+              currentUserId === ""
+                ? {}
+                : {
+                    publisherName:
+                      registerForm.publisherName.trim() || currentUserId,
+                  }),
               permissions: registerForm.permissions
                 .split(/[\n,，]/)
                 .map((item) => item.trim())
@@ -1160,11 +1668,27 @@ window.__ModuleLoader__.load({
       };
 
       const customCards = customResources.map((item) =>
-        h(CustomResourceCard, {
-          item,
-          key: item.id,
-          onOpen: (resource) => setDetail({ kind: "custom", value: resource }),
-        }),
+        item.type === "skill"
+          ? h(SkillMarketCard, {
+              item,
+              custom: true,
+              key: item.id,
+              actionDisabled: busy,
+              onOpen: (resource) =>
+                setDetail({ kind: "custom", value: resource }),
+              onInstall: (resource) =>
+                void openInstallDialog(resource, true),
+              onUninstall: (resource) =>
+                void openUninstallDialog(resource, true),
+            })
+          : h(CustomResourceCard, {
+              item,
+              key: item.id,
+              onOpen: (resource) =>
+                setDetail({ kind: "custom", value: resource }),
+              onAction: (resource) =>
+                void openInstallDialog(resource, true),
+            }),
       );
       const customSection =
         category === "自定义"
@@ -1179,7 +1703,12 @@ window.__ModuleLoader__.load({
               ),
               h(
                 "div",
-                { className: "pmrm-list pmrm-custom-grid" },
+                {
+                  className:
+                    currentCustomType === "skill"
+                      ? "pmrm-skill-grid"
+                      : "pmrm-list pmrm-custom-grid",
+                },
                 ...customCards,
                 customCards.length === 0
                   ? h(
@@ -1207,13 +1736,16 @@ window.__ModuleLoader__.load({
         ),
         h(
           "div",
-          { className: "pmrm-list" },
+          { className: "pmrm-skill-grid" },
           ...skills.map((skill) =>
-            h(ResourceAssetCard, {
-              kind: "skill",
+            h(SkillMarketCard, {
               item: skill,
               key: skill.id,
+              actionDisabled: busy,
               onOpen: (item) => setDetail({ kind: "skill", value: item }),
+              onInstall: (item) => void openInstallDialog(item, false),
+              onUninstall: (item) =>
+                void openUninstallDialog(item, false),
             }),
           ),
           skills.length === 0 && !loading && category !== "自定义"
@@ -1570,9 +2102,11 @@ window.__ModuleLoader__.load({
         action = () => void copyTemplate(detail.value);
       } else if (detail?.kind === "skill") {
         actionLabel =
-          detail.value.status === "enabled" ? "已启用" : "启用 Skill";
-        actionDisabled ||= detail.value.status === "enabled";
-        action = () => void installSkill(detail.value);
+          detail.value.status === "enabled" ? "卸载 Skill" : "安装 Skill";
+        action = () =>
+          void (detail.value.status === "enabled"
+            ? openUninstallDialog(detail.value, false)
+            : openInstallDialog(detail.value, false));
       } else if (detail?.kind === "mcp") {
         actionLabel =
           detail.value.status === "connected"
@@ -1601,9 +2135,19 @@ window.__ModuleLoader__.load({
           );
         action = () => void enablePlugin(detail.value);
       } else if (detail?.kind === "custom") {
-        actionLabel = "删除资源";
-        actionDisabled = busy;
-        action = () => void deleteCustomResource(detail.value);
+        if (detail.value.type === "skill") {
+          actionLabel =
+            detail.value.status === "enabled" ? "卸载 Skill" : "安装";
+          actionDisabled = busy;
+          action = () =>
+            void (detail.value.status === "enabled"
+              ? openUninstallDialog(detail.value, true)
+              : openInstallDialog(detail.value, true));
+        } else {
+          actionLabel = "删除资源";
+          actionDisabled = busy;
+          action = () => void deleteCustomResource(detail.value);
+        }
       }
 
       const detailBody =
@@ -1641,7 +2185,11 @@ window.__ModuleLoader__.load({
                 h(
                   "div",
                   null,
-                  h("strong", null, detail.value.name),
+                  h(
+                    "strong",
+                    null,
+                    cleanSkillName(detail.value.name),
+                  ),
                   h(
                     "p",
                     null,
@@ -2084,6 +2632,330 @@ window.__ModuleLoader__.load({
               ),
             );
 
+      const installModal =
+        installTarget === null
+          ? null
+          : h(
+              "div",
+              {
+                className: "pmrm-modal-backdrop",
+                onClick: (event) => {
+                  if (event.target === event.currentTarget && !busy)
+                    setInstallTarget(null);
+                },
+              },
+              h(
+                "div",
+                {
+                  className: "pmrm-modal",
+                  role: "dialog",
+                  "aria-modal": "true",
+                  "aria-label": "安装 Skill",
+                },
+                h(
+                  "div",
+                  { className: "pmrm-modal-head" },
+                  h(
+                    "div",
+                    null,
+                    h("h2", null, "安装 Skill"),
+                    h(
+                      "p",
+                      null,
+                      cleanSkillName(installTarget.skill.name),
+                    ),
+                  ),
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "pmrm-iconbtn",
+                      disabled: busy,
+                      onClick: () => setInstallTarget(null),
+                      "aria-label": "关闭安装窗口",
+                    },
+                    ICONS.close,
+                  ),
+                ),
+                h(
+                  "div",
+                  { className: "pmrm-modal-body" },
+                  installError === ""
+                    ? null
+                    : h("div", { className: "pmrm-error" }, installError),
+                  h(
+                    "div",
+                    { className: "pmrm-install-summary" },
+                    h(
+                      "div",
+                      null,
+                      h("strong", null, "我的 Skill 资源库"),
+                      h("span", null, "始终安装到当前账号"),
+                    ),
+                    h("span", null, "已包含"),
+                  ),
+                  h(
+                    "div",
+                    { className: "pmrm-install-toolbar" },
+                    h("strong", null, "同时添加到 AI 伙伴（可选）"),
+                    h(
+                      "div",
+                      { className: "pmrm-install-toolbar-actions" },
+                      h(
+                        "button",
+                        {
+                          type: "button",
+                          className: "pmrm-btn",
+                          disabled: installLoading || installAgents.length === 0,
+                          onClick: () =>
+                            setInstallAgentIds(
+                              installAgents.map((agent) => agent.id),
+                            ),
+                        },
+                        "全选",
+                      ),
+                      h(
+                        "button",
+                        {
+                          type: "button",
+                          className: "pmrm-btn",
+                          disabled:
+                            installLoading || installAgentIds.length === 0,
+                          onClick: () => setInstallAgentIds([]),
+                        },
+                        "清空",
+                      ),
+                    ),
+                  ),
+                  installLoading
+                    ? h(
+                        "div",
+                        { className: "pmrm-card-meta" },
+                        "正在读取可管理的 AI 伙伴…",
+                      )
+                    : installAgents.length === 0
+                      ? h(
+                          "div",
+                          { className: "pmrm-panel-row" },
+                          h(
+                            "span",
+                            null,
+                            "当前没有可管理的 AI 伙伴，将仅安装到 Skill 资源库。",
+                          ),
+                        )
+                      : h(
+                          "div",
+                          { className: "pmrm-install-agents" },
+                          ...installAgents.map((agent) => {
+                            const checked = installAgentIds.includes(agent.id);
+                            return h(
+                              "label",
+                              {
+                                key: agent.id,
+                                className: `pmrm-install-agent${checked ? " selected" : ""}`,
+                              },
+                              h("input", {
+                                type: "checkbox",
+                                checked,
+                                onChange: (event) =>
+                                  setInstallAgentIds((current) =>
+                                    event.target.checked
+                                      ? [...new Set([...current, agent.id])]
+                                      : current.filter(
+                                          (id) => id !== agent.id,
+                                        ),
+                                  ),
+                              }),
+                              h(
+                                "span",
+                                { className: "pmrm-install-agent-copy" },
+                                h("strong", null, agent.name),
+                                h(
+                                  "small",
+                                  null,
+                                  `${agent.role || "未设置角色"} · ${agent.templateName || agent.templateSource || "AI伙伴"}`,
+                                ),
+                              ),
+                            );
+                          }),
+                        ),
+                ),
+                h(
+                  "div",
+                  { className: "pmrm-modal-foot" },
+                  h(
+                    "span",
+                    {
+                      className: "pmrm-card-meta",
+                      style: { marginRight: "auto" },
+                    },
+                    installAgentIds.length === 0
+                      ? "仅安装到资源库"
+                      : `安装到资源库，并添加到 ${String(installAgentIds.length)} 个 AI 伙伴`,
+                  ),
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "pmrm-btn",
+                      disabled: busy,
+                      onClick: () => setInstallTarget(null),
+                    },
+                    "取消",
+                  ),
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "pmrm-btn primary",
+                      disabled: busy || installLoading,
+                      onClick: () => void confirmInstall(),
+                    },
+                    busy
+                      ? "安装中…"
+                      : installAgentIds.length === 0
+                        ? "确认安装"
+                        : "安装并添加",
+                  ),
+                ),
+              ),
+            );
+
+      const uninstallModal =
+        uninstallTarget === null
+          ? null
+          : h(
+              "div",
+              {
+                className: "pmrm-modal-backdrop",
+                onClick: (event) => {
+                  if (event.target === event.currentTarget && !busy)
+                    setUninstallTarget(null);
+                },
+              },
+              h(
+                "div",
+                {
+                  className: "pmrm-modal",
+                  role: "dialog",
+                  "aria-modal": "true",
+                  "aria-label": "卸载 Skill",
+                },
+                h(
+                  "div",
+                  { className: "pmrm-modal-head" },
+                  h(
+                    "div",
+                    null,
+                    h("h2", null, "卸载 Skill"),
+                    h(
+                      "p",
+                      null,
+                      cleanSkillName(uninstallTarget.skill.name),
+                    ),
+                  ),
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "pmrm-iconbtn",
+                      disabled: busy,
+                      onClick: () => setUninstallTarget(null),
+                      "aria-label": "关闭卸载窗口",
+                    },
+                    ICONS.close,
+                  ),
+                ),
+                h(
+                  "div",
+                  { className: "pmrm-modal-body" },
+                  uninstallError === ""
+                    ? null
+                    : h("div", { className: "pmrm-error" }, uninstallError),
+                  h(
+                    "div",
+                    { className: "pmrm-custom-note" },
+                    "卸载会移除当前账号的 Skill 安装。若该 Skill 正在 AI 伙伴中使用，将先从对应实例移除，再卸载资源库安装。",
+                  ),
+                  uninstallLoading
+                    ? h(
+                        "div",
+                        { className: "pmrm-card-meta" },
+                        "正在检查 AI 伙伴引用…",
+                      )
+                    : uninstallAgents.length === 0
+                      ? h(
+                          "div",
+                          { className: "pmrm-panel-row" },
+                          h("span", null, "当前没有 AI 伙伴使用该 Skill。"),
+                        )
+                      : h(
+                          react.Fragment,
+                          null,
+                          h(
+                            "div",
+                            { className: "pmrm-install-toolbar" },
+                            h(
+                              "strong",
+                              null,
+                              `将从 ${String(uninstallAgents.length)} 个 AI 伙伴移除`,
+                            ),
+                          ),
+                          h(
+                            "div",
+                            { className: "pmrm-install-agents" },
+                            ...uninstallAgents.map((agent) =>
+                              h(
+                                "div",
+                                {
+                                  key: agent.id,
+                                  className: "pmrm-install-agent selected",
+                                },
+                                h(
+                                  "span",
+                                  { className: "pmrm-install-agent-copy" },
+                                  h("strong", null, agent.name),
+                                  h(
+                                    "small",
+                                    null,
+                                    `${agent.role || "未设置角色"} · ${agent.templateName || agent.templateSource || "AI伙伴"}`,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                ),
+                h(
+                  "div",
+                  { className: "pmrm-modal-foot" },
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "pmrm-btn",
+                      disabled: busy,
+                      onClick: () => setUninstallTarget(null),
+                    },
+                    "取消",
+                  ),
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "pmrm-btn danger",
+                      disabled:
+                        busy ||
+                        uninstallLoading ||
+                        uninstallError !== "",
+                      onClick: () => void confirmUninstall(),
+                    },
+                    busy ? "卸载中…" : "确认卸载",
+                  ),
+                ),
+              ),
+            );
+
       const registerModal =
         registerOpen === false
           ? null
@@ -2129,7 +3001,9 @@ window.__ModuleLoader__.load({
                   h(
                     "div",
                     { className: "pmrm-custom-note" },
-                    "平台不会执行上传的 JavaScript，也不会修改 DSH Client Modules 图。注册内容用于后续治理审核与资产登记。",
+                    currentCustomType === "skill"
+                      ? "Skill 只包含指令、输出约定与触发场景，不执行脚本。上传后安装到当前账号，再由智能体定义或 AI 伙伴实例引用。"
+                      : "平台不会执行上传的 JavaScript，也不会修改 DSH Client Modules 图。注册内容用于后续治理审核与资产登记。",
                   ),
                   h(
                     "div",
@@ -2209,20 +3083,26 @@ window.__ModuleLoader__.load({
                     h(
                       "label",
                       { className: "full" },
-                      "上传 JSON 清单（可选）",
+                      currentCustomType === "skill"
+                        ? "上传 Skill ZIP、SKILL.md 或 .skill.json"
+                        : "上传 JSON 清单（可选）",
                       h("input", {
                         type: "file",
-                        accept: "application/json,.json",
+                        accept:
+                          currentCustomType === "skill"
+                            ? ".zip,.json,.md,.markdown,application/zip,application/json,text/markdown,text/plain"
+                            : "application/json,.json",
                         onChange: async (event) => {
                           const file = event.target.files?.[0];
                           event.target.value = "";
                           if (file === undefined) return;
-                          if (file.size > 64 * 1024) {
-                            showToast("JSON 清单不能超过 64KB");
+                          if (file.size > 2 * 1024 * 1024) {
+                            showToast("Skill 包 / 清单文件不能超过 2MB");
                             return;
                           }
                           try {
-                            const parsed = JSON.parse(await file.text());
+                            const { manifest: parsed, markdown } =
+                              await parseSkillFile(file);
                             if (
                               parsed === null ||
                               typeof parsed !== "object" ||
@@ -2231,7 +3111,49 @@ window.__ModuleLoader__.load({
                               throw new Error("清单必须是 JSON 对象");
                             }
                             setRegisterManifest(parsed);
-                            showToast(`已读取清单「${file.name}」`);
+                            const heading =
+                              markdown === ""
+                                ? ""
+                                : /^#\s+(.+)$/m
+                                    .exec(markdown)?.[1]
+                                    ?.trim();
+                            if (typeof parsed.name === "string" || heading) {
+                              setRegisterForm((current) => ({
+                                ...current,
+                                name: current.name || parsed.name || heading,
+                              }));
+                            }
+                            if (typeof parsed.description === "string") {
+                              setRegisterForm((current) => ({
+                                ...current,
+                                description:
+                                  current.description || parsed.description,
+                              }));
+                            }
+                            if (typeof parsed.version === "string") {
+                              setRegisterForm((current) => ({
+                                ...current,
+                                version: parsed.version,
+                              }));
+                            }
+                            if (
+                              typeof parsed.publisherName === "string" &&
+                              parsed.publisherName.trim() !== ""
+                            ) {
+                              setRegisterForm((current) => ({
+                                ...current,
+                                publisherName: parsed.publisherName,
+                              }));
+                            }
+                            if (Array.isArray(parsed.permissions)) {
+                              setRegisterForm((current) => ({
+                                ...current,
+                                permissions: parsed.permissions
+                                  .filter((item) => typeof item === "string")
+                                  .join(", "),
+                              }));
+                            }
+                            showToast(`已读取 Skill 文件「${file.name}」`);
                           } catch (cause) {
                             setRegisterManifest(null);
                             showToast(`清单读取失败：${cause.message}`);
@@ -2393,6 +3315,8 @@ window.__ModuleLoader__.load({
         ),
         detailView,
         previewModal,
+        installModal,
+        uninstallModal,
         registerModal,
         toast !== ""
           ? h("div", { className: "pmrm-toast", role: "status" }, toast)

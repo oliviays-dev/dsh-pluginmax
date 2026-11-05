@@ -399,7 +399,7 @@ describe("agent profile registry", () => {
       runtime: "Codex CLI · 搜索只读（历史配置回填）",
       runtimeVersion: "unknown",
       authMode: "unknown",
-      sandbox: "read-only / network restricted",
+      sandbox: "workspace-write / network enabled",
     });
     expect(
       service.runs({ workspaceId: "main", instanceId: "inst-1" })[0]?.execution,
@@ -498,6 +498,12 @@ describe("external agent runtime", () => {
       protocol: "codex-jsonl",
       command: "codex",
       visibility: "workspace",
+      sandboxMode: "read-only",
+      networkAccess: false,
+    });
+    expect(workspaceRuntime).toMatchObject({
+      sandboxMode: "read-only",
+      networkAccess: false,
     });
     expect(service.list("main")).toHaveLength(2);
     expect(service.list("other").map((item) => item.id)).not.toContain(
@@ -511,8 +517,14 @@ describe("external agent runtime", () => {
     const renamed = await service.update(owner, {
       runtimeId: runtime.id,
       name: "Codex Renamed",
+      sandboxMode: "workspace-write",
+      networkAccess: true,
     });
-    expect(renamed.status).toBe("disabled");
+    expect(renamed).toMatchObject({
+      status: "disabled",
+      sandboxMode: "workspace-write",
+      networkAccess: true,
+    });
   });
 
   it("stores runtime tool capabilities and a coherent model pool", async () => {
