@@ -880,7 +880,7 @@ window.__ModuleLoader__.load({
           : props.sourceType === "workbench" ||
               props.sourceType === "workbench-v2"
             ? "工作台"
-            : "沟通";
+            : "对话";
       const sourceLabel = manualOnly
         ? "手工添加"
         : `${sourceKind} · ${props.sourceTitle ?? "当前会话"}`;
@@ -1413,7 +1413,7 @@ window.__ModuleLoader__.load({
                             h(
                               "span",
                               null,
-                              "可以手动添加一条，或继续查看其他沟通来源。",
+                              "可以手动添加一条，或继续查看其他对话来源。",
                             ),
                           )
                       : h(
@@ -1873,7 +1873,7 @@ window.__ModuleLoader__.load({
                       h(
                         "strong",
                         null,
-                        sourceKind === "沟通" ? "沟通原话" : "来源摘录",
+                        sourceKind === "对话" ? "对话原话" : "来源摘录",
                       ),
                       editorCandidate.sourceExcerpt ??
                         incomingSelectionText ??
@@ -1922,11 +1922,11 @@ window.__ModuleLoader__.load({
               h(
                 "div",
                 { className: "pmtc-head-copy" },
-                h("h2", { className: "pmtc-title" }, "从本次沟通整理任务草稿"),
+                h("h2", { className: "pmtc-title" }, "从本次对话整理任务草稿"),
                 h(
                   "p",
                   { className: "pmtc-subtitle" },
-                  "轻量确认留在沟通里；复杂编辑再去任务管理。",
+                  "轻量确认留在对话里；复杂编辑再去任务管理。",
                 ),
               ),
               h(
@@ -2015,8 +2015,8 @@ window.__ModuleLoader__.load({
                 "div",
                 { className: "pmtc-note" },
                 incomingSelectionText === ""
-                  ? `来源：${props.sourceTitle ?? "当前沟通"}。已带入 ${pickedMessageIds.length} 条对话。`
-                  : `来源：${props.sourceTitle ?? "当前沟通"}。已带入当前选中文本。`,
+                  ? `来源：${props.sourceTitle ?? "当前对话"}。已带入 ${pickedMessageIds.length} 条对话。`
+                  : `来源：${props.sourceTitle ?? "当前对话"}。已带入当前选中文本。`,
               )
             : null,
           loading
@@ -2048,7 +2048,7 @@ window.__ModuleLoader__.load({
                       type: "button",
                       onClick: () => props.onClose?.(),
                     },
-                    "保持当前沟通",
+                    "保持当前对话",
                   ),
                   h(
                     "button",
@@ -2543,7 +2543,7 @@ window.__ModuleLoader__.load({
                         role: "menu",
                       },
                       ...[
-                        ["communication", "沟通"],
+                        ["communication", "对话"],
                         ["data-agent", "数据洞察"],
                         ["task-drafts", "任务草稿"],
                       ].map(([type, label]) =>
@@ -2705,7 +2705,7 @@ window.__ModuleLoader__.load({
                       h(
                         "span",
                         null,
-                        "可以从沟通中整理，也可以手工创建一条草稿。",
+                        "可以从对话中整理，也可以手工创建一条草稿。",
                       ),
                       h(
                         "button",
@@ -5545,7 +5545,7 @@ window.__ModuleLoader__.load({
                     "span",
                     null,
                     searchValue === ""
-                      ? "从沟通来源保存草稿，或直接新建一条草稿。"
+                      ? "从对话来源保存草稿，或直接新建一条草稿。"
                       : "清除搜索条件后查看当前项目草稿。",
                   ),
                   h(

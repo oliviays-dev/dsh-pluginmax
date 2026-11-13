@@ -303,6 +303,13 @@ export interface TeammateRuntimeDeps {
     readonly id: string;
     readonly name: string;
   }[];
+  readonly team?: () =>
+    | {
+        members(workspaceId: string): readonly {
+          readonly userId: string;
+        }[];
+      }
+    | undefined;
 }
 
 export interface EnsureRuntimeInput {
@@ -1378,7 +1385,10 @@ export class TeammateRuntime {
    * 可被指派的实例投影。归属看模版；ownerName 永远表示实例创建人。
    * 字段集是 task / workflow 的跨插件契约，不在投影外暴露模版对象。
    */
-  assignable(actor: TeammateActor): readonly {
+  assignable(
+    actor: TeammateActor,
+    workspaceId?: string,
+  ): readonly {
     readonly id: string;
     readonly name: string;
     readonly ownerUserId: string;
@@ -1395,7 +1405,9 @@ export class TeammateRuntime {
       .filter(
         (teammate) =>
           teammate.state === "active" &&
-          teammate.ownerUserId === actor.userId,
+          (teammate.ownerUserId === actor.userId ||
+            (workspaceId !== undefined &&
+              teammate.projectBinding?.workspaceId === workspaceId)),
       )
       .map((teammate) => ({
         id: teammate.id,
@@ -1414,6 +1426,38 @@ export class TeammateRuntime {
           ? {}
           : { externalRuntimeId: teammate.externalRuntimeId }),
       }));
+  }
+
+  ensureProjectManagerAgent(input: {
+    readonly workspaceId: string;
+    readonly projectName: string;
+    readonly actor: TeammateActor;
+  }): Promise<Teammate> {
+    return this.deps.teammates.ensureProjectManagerAgent(input);
+  }
+
+  projectManagerFor(workspaceId: string): Teammate | undefined {
+    return this.deps.teammates.projectManagerFor(workspaceId);
+  }
+
+  renameProjectManager(input: {
+    readonly workspaceId: string;
+    readonly projectName: string;
+    readonly actor: TeammateActor;
+  }): Promise<Teammate | undefined> {
+    return this.deps.teammates.renameProjectManager(input);
+  }
+
+  isProjectManagedAgent(ref: string): boolean {
+    const teammate = this.deps.teammates
+      .list()
+      .find(
+        (item) =>
+          item.id === ref ||
+          item.employeeId === ref ||
+          item.principalId === ref,
+      );
+    return teammate?.projectBinding !== undefined;
   }
 
   /**
@@ -1910,10 +1954,24 @@ export class TeammateRuntime {
         `AI Principal 当前状态为 ${principal.status}，请先恢复后再派发`,
       );
     }
+    const projectBinding = teammate.projectBinding;
+    const canBindAsProjectMember =
+      projectBinding?.workspaceId === input.workspaceId &&
+      (input.actor.role === "admin" ||
+        this.deps
+          .team?.()
+          ?.members(input.workspaceId)
+          .some((member) => member.userId === input.actor.userId) === true);
     await this.deps.teammates.bindPrincipal(
       input.actor,
       teammate.id,
       principal.id,
+      !canBindAsProjectMember
+        ? undefined
+        : {
+            allowProjectMember: true,
+            projectWorkspaceId: projectBinding.workspaceId,
+          },
     );
 
     await this.syncPersona(personaId, definition);

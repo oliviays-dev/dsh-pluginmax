@@ -33,6 +33,14 @@ interface ClientExports {
         workspaceId?: string;
       };
     }): Record<string, string | undefined>;
+    groupBriefItems<T extends { section?: string }>(
+      items: readonly T[],
+    ): {
+      progress: T[];
+      anomaly: T[];
+      attention: T[];
+    };
+    briefPlainText(value: string): string;
   };
 }
 
@@ -259,8 +267,9 @@ describe("workbench client navigation", () => {
     expect(source).toContain('"data-data-agent-card": "true"');
     expect(source).not.toContain("onClick: openItem");
     expect(source).not.toContain("onClick: () => ctx.openBriefItem(item)");
-    expect(source).toContain('item.actionLabel || "查看明细"');
-    expect(source).toContain('"详情"');
+    expect(source).toContain("onClick: () => ctx.openBriefDetail(item)");
+    expect(source).toContain('item.actionLabel || "前往处理"');
+    expect(source).toContain("renderBriefDetailDrawer");
     expect(source).toContain(
       'ctx.openLink({ ...item.deepLink, tab: "minutes" })',
     );
@@ -295,5 +304,42 @@ describe("workbench client navigation", () => {
       "data-data-agent-card": "true",
       "data-workspace-id": "WS-1",
     });
+  });
+
+  it("groups daily brief items into the concise workbench sections", () => {
+    const harness = createHarness();
+    loadClient(harness);
+
+    const grouped = harness.exports.__test?.groupBriefItems([
+      {
+        itemId: "progress-1",
+        section: "conclusion",
+        workspaceName: "订单项目",
+      },
+      {
+        itemId: "anomaly-1",
+        section: "risk",
+        workspaceName: "订单项目",
+      },
+      {
+        itemId: "attention-1",
+        section: "escalation",
+        workspaceName: "库存项目",
+      },
+    ]);
+
+    expect(grouped?.progress).toHaveLength(1);
+    expect(grouped?.anomaly).toHaveLength(1);
+    expect(grouped?.attention).toHaveLength(1);
+    expect(
+      harness.exports.__test?.briefPlainText(
+        "## 结果\n\n- **交期确认**：12 天\n- 覆盖 `29/37` 单",
+      ),
+    ).toBe("结果 交期确认：12 天 覆盖 29/37 单");
+    expect(
+      harness.exports.__test?.briefPlainText(
+        "指标 sell_through_rate 保持 **稳定**",
+      ),
+    ).toBe("指标 sell_through_rate 保持 稳定");
   });
 });

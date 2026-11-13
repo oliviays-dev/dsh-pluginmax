@@ -14,6 +14,7 @@ import {
   type TemplateSkillBinding,
   type TeammateExtensionPolicy,
   type InstanceSkillExtension,
+  type ProjectAgentBinding,
 } from "./models.js";
 
 export interface KvTableLike<V> {
@@ -100,6 +101,12 @@ export interface CreateTeammateInput {
   readonly profileTemplateId?: string | undefined;
   readonly execution?: "builtin" | "external" | undefined;
   readonly externalRuntimeId?: string | undefined;
+}
+
+export interface EnsureProjectManagerInput {
+  readonly workspaceId: string;
+  readonly projectName: string;
+  readonly actor: TeammateActor;
 }
 
 export interface UpdateTeammateInput {
@@ -193,6 +200,7 @@ const STATE_ORDER: Record<TeammateState, number> = {
 const SYSTEM_AGENT_ORDER: Record<string, number> = {
   "data-agent": 0,
   "meeting-facilitator": 1,
+  "project-manager": 2,
 };
 
 function systemAgentOrder(
@@ -202,12 +210,15 @@ function systemAgentOrder(
 }
 
 const DEFAULT_NAME = "未命名 AI伙伴";
-const DEFAULT_ROLE = "角色待定";
-const DEFAULT_SOUL =
-  "定义这名 AI伙伴是谁、如何判断、遇到什么情况需要升级给本人。";
 
 function randomId(): string {
   return `tm-${randomUUID()}`;
+}
+
+function projectManagerName(projectName: string): string {
+  const suffix = "项目PM";
+  const normalized = projectName.replace(/\s+/g, " ").trim() || "未命名项目";
+  return `${normalized.slice(0, 120 - suffix.length)}${suffix}`;
 }
 
 const TEMPLATE_STATE_TRANSITIONS: Record<
@@ -229,6 +240,12 @@ export function isProtectedSystemTeammate(
   teammate: Pick<Teammate, "systemKey" | "protected">,
 ): boolean {
   return teammate.systemKey !== undefined || teammate.protected !== undefined;
+}
+
+export function isProjectManagedTeammate(
+  teammate: Pick<Teammate, "projectBinding">,
+): boolean {
+  return teammate.projectBinding !== undefined;
 }
 
 function teammateTemplateId(): string {
@@ -339,6 +356,8 @@ export class TeammateTemplateService {
     readonly systemKey: NonNullable<TeammateTemplate["systemKey"]>;
     readonly tools: readonly string[];
     readonly soul?: string | undefined;
+    readonly skillBindings?: readonly TemplateSkillBinding[] | undefined;
+    readonly extensionPolicy?: TeammateExtensionPolicy | undefined;
   }): Promise<TeammateTemplate | undefined> {
     return this.enqueue(async () => {
       const current = this.options.tables.templates.get(input.templateId);
@@ -370,11 +389,21 @@ export class TeammateTemplateService {
         (current.soul.trim() === "" ||
           hasLegacyAlwaysReportSoul ||
           missingGeneralDataSoul);
+      const shouldUpdateSkills =
+        input.skillBindings !== undefined &&
+        JSON.stringify(current.skillBindings) !==
+          JSON.stringify(input.skillBindings);
+      const shouldUpdatePolicy =
+        input.extensionPolicy !== undefined &&
+        JSON.stringify(current.extensionPolicy) !==
+          JSON.stringify(input.extensionPolicy);
       if (
         !hasLegacyMcpGrant &&
         !missingNativeClarification &&
         missingProtectedTools.length === 0 &&
-        !shouldUpdateSoul
+        !shouldUpdateSoul &&
+        !shouldUpdateSkills &&
+        !shouldUpdatePolicy
       ) {
         return current;
       }
@@ -396,11 +425,11 @@ export class TeammateTemplateService {
               ...new Set([
                 ...current.tools,
                 ...missingProtectedTools,
-                ...input.tools.filter(
-                  (tool) => tool === "ask_user_question",
-                ),
+                ...input.tools.filter((tool) => tool === "ask_user_question"),
               ]),
             ],
+        skillBindings: input.skillBindings ?? current.skillBindings,
+        extensionPolicy: input.extensionPolicy ?? current.extensionPolicy,
         version: nextVersion(current.version),
         updatedAt: this.timestamp(),
       });
@@ -526,10 +555,7 @@ export class TeammateTemplateService {
   ): Promise<TeammateTemplate> {
     return this.enqueue(async () => {
       const current = this.require(input.templateId);
-      if (
-        isProtectedSystemTemplate(current) &&
-        actor.role !== "admin"
-      ) {
+      if (isProtectedSystemTemplate(current) && actor.role !== "admin") {
         throw new TeammateError(
           "system_agent_protected",
           "系统 Agent 定义仅允许平台管理员维护",
@@ -780,8 +806,7 @@ export class TeammateService {
       this.values(this.options.tables.teammates)
         .filter(
           (item) =>
-            item.state !== "archived" &&
-            this.templateKeyOf(item) === personaId,
+            item.state !== "archived" && this.templateKeyOf(item) === personaId,
         )
         .map((item) => this.normalizedTeammateName(item.name)),
     );
@@ -907,8 +932,10 @@ export class TeammateService {
     const ownerName =
       teammate.ownerUserId === PLATFORM_OWNER_USER_ID
         ? PLATFORM_OWNER_NAME
-        : (this.options.users?.().find((user) => user.id === teammate.ownerUserId)
-            ?.name ?? teammate.ownerName);
+        : (this.options
+            .users?.()
+            .find((user) => user.id === teammate.ownerUserId)?.name ??
+          teammate.ownerName);
     return {
       ...teammate,
       name: definition.name,
@@ -935,6 +962,7 @@ export class TeammateService {
     actor?: TeammateActor,
     options?: {
       readonly scope?: "mine" | "all" | undefined;
+      readonly visibleWorkspaceIds?: ReadonlySet<string> | undefined;
       /**
        * 每个实例的"最近使用"时间（ISO 字符串）。语义是真实使用：绑定到该实例的
        * Agent 运行、以该实例身份参与的会议、以及实例编辑时间取最大值；缺省时
@@ -944,22 +972,25 @@ export class TeammateService {
     },
   ): readonly TeammateInstanceView[] {
     const includeAll =
-      actor !== undefined &&
-      actor.role === "admin" &&
-      options?.scope === "all";
+      actor !== undefined && actor.role === "admin" && options?.scope === "all";
     const visible = this.values(this.options.tables.teammates).filter(
       (teammate) => {
         if (actor === undefined) return true;
         if (includeAll) return true;
-        return teammate.ownerUserId === actor.userId;
+        if (teammate.ownerUserId === actor.userId) return true;
+        return (
+          teammate.projectBinding !== undefined &&
+          options?.visibleWorkspaceIds?.has(
+            teammate.projectBinding.workspaceId,
+          ) === true
+        );
       },
     );
     const lastUsedAt = options?.lastUsedAt;
     return visible
       .map((teammate) => this.viewOf(teammate))
       .sort((left, right) => {
-        const systemOrder =
-          systemAgentOrder(left) - systemAgentOrder(right);
+        const systemOrder = systemAgentOrder(left) - systemAgentOrder(right);
         if (systemOrder !== 0) return systemOrder;
         // 运行态列表：先按实例状态（生效 > 草稿 > 暂停 > 失效 > 已归档），
         // 同一状态内按最近使用倒序，最后用来源与名称兜底保证稳定。
@@ -978,8 +1009,7 @@ export class TeammateService {
 
   list(): readonly Teammate[] {
     return this.values(this.options.tables.teammates).sort((left, right) => {
-      const systemOrder =
-        systemAgentOrder(left) - systemAgentOrder(right);
+      const systemOrder = systemAgentOrder(left) - systemAgentOrder(right);
       if (systemOrder !== 0) return systemOrder;
       const leftSource = this.templateOf(left)?.source ?? left.source;
       const rightSource = this.templateOf(right)?.source ?? right.source;
@@ -1018,10 +1048,7 @@ export class TeammateService {
         throw new TeammateError("not_found", "平台系统 Agent 模版不存在");
       }
       if (template.state !== "active") {
-        throw new TeammateError(
-          "conflict",
-          "平台系统 Agent 模版当前不可用",
-        );
+        throw new TeammateError("conflict", "平台系统 Agent 模版当前不可用");
       }
       const timestamp = this.timestamp();
       const teammate = teammateSchema.parse({
@@ -1045,11 +1072,7 @@ export class TeammateService {
           archivable: false,
           templateSwitchable: false,
         },
-        resettableScopes: [
-          "workspace-config",
-          "memory",
-          "platform-definition",
-        ],
+        resettableScopes: ["workspace-config", "memory", "platform-definition"],
         createdBy: actor.userId,
         createdAt: timestamp,
         updatedAt: timestamp,
@@ -1065,6 +1088,128 @@ export class TeammateService {
     });
   }
 
+  projectManagerFor(workspaceId: string): Teammate | undefined {
+    return this.values(this.options.tables.teammates).find(
+      (teammate) =>
+        teammate.projectBinding?.workspaceId === workspaceId &&
+        teammate.projectBinding.roleKey === "project-manager" &&
+        teammate.state !== "archived",
+    );
+  }
+
+  /**
+   * 项目级托管项目经理：同一 workspace 只有一个实例，owner 固定为平台，
+   * 可见性与指派范围由 projectBinding 决定。
+   */
+  ensureProjectManagerAgent(
+    input: EnsureProjectManagerInput,
+  ): Promise<Teammate> {
+    return this.enqueue(async () => {
+      if (input.actor.role === "guest") {
+        throw new TeammateError("forbidden", "访客不能初始化项目经理");
+      }
+      const template = this.templates?.findSystem("project-manager");
+      if (template === undefined || template.state !== "active") {
+        throw new TeammateError(
+          "not_found",
+          "平台项目经理 AI伙伴模板不存在或未生效",
+        );
+      }
+      const name = projectManagerName(input.projectName);
+      const existing = this.values(this.options.tables.teammates).find(
+        (teammate) =>
+          teammate.projectBinding?.workspaceId === input.workspaceId &&
+          teammate.projectBinding.roleKey === "project-manager",
+      );
+      if (existing !== undefined) {
+        const next = teammateSchema.parse({
+          ...existing,
+          name,
+          state: existing.state === "archived" ? "active" : existing.state,
+          updatedAt: this.timestamp(),
+        });
+        if (JSON.stringify(next) !== JSON.stringify(existing)) {
+          await this.options.tables.teammates.put(next.id, next);
+          await this.record(
+            next,
+            input.actor,
+            "updated",
+            `同步项目级 AI伙伴名称为「${name}」`,
+          );
+        }
+        return next;
+      }
+      const binding: ProjectAgentBinding = {
+        workspaceId: input.workspaceId,
+        roleKey: "project-manager",
+        managedBy: "platform",
+        visibility: "project",
+      };
+      const timestamp = this.timestamp();
+      const teammate = teammateSchema.parse({
+        id: `tm-project-${input.workspaceId.replace(/[^a-zA-Z0-9._-]/g, "-")}`,
+        source: "platform",
+        name,
+        ownerUserId: PLATFORM_OWNER_USER_ID,
+        ownerName: PLATFORM_OWNER_NAME,
+        role: template.role,
+        description: "",
+        soul: "",
+        scenarios: [],
+        goals: [],
+        avatar: "",
+        state: "active",
+        version: "v1.0",
+        templateId: template.id,
+        systemKey: "project-manager",
+        projectBinding: binding,
+        protected: {
+          deletable: false,
+          archivable: false,
+          templateSwitchable: false,
+        },
+        resettableScopes: ["workspace-config", "memory", "platform-definition"],
+        createdBy: input.actor.userId,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      });
+      await this.options.tables.teammates.put(teammate.id, teammate);
+      await this.record(
+        teammate,
+        input.actor,
+        "created",
+        `为项目创建平台预置项目经理「${name}」`,
+      );
+      return teammate;
+    });
+  }
+
+  renameProjectManager(input: {
+    readonly workspaceId: string;
+    readonly projectName: string;
+    readonly actor: TeammateActor;
+  }): Promise<Teammate | undefined> {
+    return this.enqueue(async () => {
+      const current = this.projectManagerFor(input.workspaceId);
+      if (current === undefined) return undefined;
+      const name = projectManagerName(input.projectName);
+      if (current.name === name) return current;
+      const next = teammateSchema.parse({
+        ...current,
+        name,
+        updatedAt: this.timestamp(),
+      });
+      await this.options.tables.teammates.put(next.id, next);
+      await this.record(
+        next,
+        input.actor,
+        "updated",
+        `项目改名后同步项目经理名称：「${current.name}」 → 「${next.name}」`,
+      );
+      return next;
+    });
+  }
+
   /**
    * 只写入平台系统 Agent 模板，不创建全平台共享实例。
    */
@@ -1077,6 +1222,8 @@ export class TeammateService {
     scenarios?: readonly string[];
     goals?: readonly string[];
     tools?: readonly string[];
+    skillBindings?: readonly TemplateSkillBinding[] | undefined;
+    extensionPolicy?: TeammateExtensionPolicy | undefined;
     systemKey: NonNullable<TeammateTemplate["systemKey"]>;
   }): Promise<TeammateTemplate> {
     if (this.templates === undefined) {
@@ -1096,6 +1243,8 @@ export class TeammateService {
           scenarios: input.scenarios,
           goals: input.goals,
           tools: input.tools,
+          skillBindings: input.skillBindings,
+          extensionPolicy: input.extensionPolicy,
           systemKey: input.systemKey,
           active: true,
         },
@@ -1105,6 +1254,8 @@ export class TeammateService {
       systemKey: input.systemKey,
       tools: input.tools ?? [],
       soul: input.soul,
+      skillBindings: input.skillBindings,
+      extensionPolicy: input.extensionPolicy,
     });
     return this.templates.get(template.id) ?? template;
   }
@@ -1185,9 +1336,7 @@ export class TeammateService {
         (await this.templates.findOrCreate(
           { userId: "system", name: "系统", role: "admin" },
           {
-            ...(input.templateId === undefined
-              ? {}
-              : { id: input.templateId }),
+            ...(input.templateId === undefined ? {} : { id: input.templateId }),
             source: "platform",
             name: input.name,
             role: input.role,
@@ -1421,7 +1570,10 @@ export class TeammateService {
             description: input.description?.trim() ?? template.description,
             soul: input.soul ?? template.soul,
             scenarios: input.scenarios ?? template.scenarios,
-            goals: input.goals === undefined ? [...template.goals] : [...input.goals],
+            goals:
+              input.goals === undefined
+                ? [...template.goals]
+                : [...input.goals],
             tools: [...template.tools],
           });
         }
@@ -1439,7 +1591,7 @@ export class TeammateService {
         externalRuntimeId: input.externalRuntimeId ?? current.externalRuntimeId,
         name: input.name.trim() || DEFAULT_NAME,
         description: definitionTouched
-          ? template?.description ?? current.description
+          ? (template?.description ?? current.description)
           : (input.description?.trim() ?? current.description),
         avatar: input.avatar ?? current.avatar,
         state: wasDraft ? "inactive" : current.state,
@@ -1662,10 +1814,18 @@ export class TeammateService {
     actor: TeammateActor,
     teammateId: string,
     principalId: string,
+    options?: {
+      readonly allowProjectMember?: boolean;
+      readonly projectWorkspaceId?: string;
+    },
   ): Promise<Teammate> {
     return this.enqueue(async () => {
       const current = this.requireTeammate(teammateId);
-      if (!canManageInstance(current, actor)) {
+      const canBindProjectAgent =
+        options?.allowProjectMember === true &&
+        options.projectWorkspaceId !== undefined &&
+        current.projectBinding?.workspaceId === options.projectWorkspaceId;
+      if (!canManageInstance(current, actor) && !canBindProjectAgent) {
         throw new TeammateError(
           "forbidden",
           "只有 AI伙伴负责人或平台管理员可以绑定 Principal",
@@ -1808,7 +1968,8 @@ export class TeammateService {
         ownerUserId === PLATFORM_OWNER_USER_ID
           ? PLATFORM_OWNER_NAME
           : input.ownerName?.trim() ||
-            this.options.users?.().find((user) => user.id === ownerUserId)?.name ||
+            this.options.users?.().find((user) => user.id === ownerUserId)
+              ?.name ||
             ownerUserId;
       const teammate = teammateSchema.parse({
         id: randomId(),
@@ -1852,14 +2013,17 @@ export interface TeammateTemplateMigrationOptions {
 }
 
 function legacyGroupKey(teammate: Teammate): string {
-  return teammate.profileTemplateId ?? teammate.personaId ?? `instance:${teammate.id}`;
+  return (
+    teammate.profileTemplateId ??
+    teammate.personaId ??
+    `instance:${teammate.id}`
+  );
 }
 
 function templateIdForGroup(groupKey: string, usedIds: Set<string>): string {
-  const sanitized =
-    /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(groupKey)
-      ? groupKey
-      : `tpl-${groupKey.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
+  const sanitized = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(groupKey)
+    ? groupKey
+    : `tpl-${groupKey.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
   if (!usedIds.has(sanitized)) return sanitized;
   for (let index = 2; ; index += 1) {
     const candidate = `${sanitized}-${index}`;
@@ -1867,7 +2031,9 @@ function templateIdForGroup(groupKey: string, usedIds: Set<string>): string {
   }
 }
 
-function legacyTemplateState(state: Teammate["state"]): TeammateTemplate["state"] {
+function legacyTemplateState(
+  state: Teammate["state"],
+): TeammateTemplate["state"] {
   if (state === "active") return "active";
   return state === "archived" ? "archived" : "disabled";
 }
@@ -1911,9 +2077,7 @@ export async function migrateTeammateTemplates(
     group.push(teammate);
     groups.set(key, group);
   }
-  const usedIds = new Set(
-    [...options.templates.entries()].map(([key]) => key),
-  );
+  const usedIds = new Set([...options.templates.entries()].map(([key]) => key));
   const templateIds = new Map<string, string>();
   const actor = { userId: "system", name: "系统", role: "admin" as const };
 

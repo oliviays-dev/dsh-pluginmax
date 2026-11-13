@@ -52,8 +52,8 @@ describe("shared side-panel service", () => {
     const service = loadService();
     service.registerType({
       type: "communication",
-      defaultTitle: "沟通",
-      newTabTitle: (ordinal) => `新沟通 ${ordinal}`,
+      defaultTitle: "对话",
+      newTabTitle: (ordinal) => `新对话 ${ordinal}`,
     });
     service.registerType({
       type: "data-agent",
@@ -75,7 +75,7 @@ describe("shared side-panel service", () => {
     expect(dataAgent).toMatch(/^data-agent:uuid-/);
     expect(taskDraft).toBe("task-drafts");
     expect(taskDraftAgain).toBe(taskDraft);
-    expect(service.describeTab(communication).title).toBe("新沟通 1");
+    expect(service.describeTab(communication).title).toBe("新对话 1");
     expect(service.describeTab(dataAgent).title).toBe("新数据洞察 1");
     expect(service.getSnapshot()).toMatchObject({
       open: true,

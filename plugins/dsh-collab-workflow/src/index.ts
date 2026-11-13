@@ -12,6 +12,9 @@ import {
 } from "@pluginmax/shared";
 import { parseWorkflowMarkdown, evaluateExpression } from "./parser.js";
 import {
+  dispatchModeForNode,
+  instanceApprovalInputSchema,
+  instanceAssignmentInputSchema,
   nodeStateSchema,
   workflowDefinitionSchema,
   workflowEventSchema,
@@ -19,9 +22,16 @@ import {
   workflowInstanceSchema,
   workflowSubmissionSchema,
   type Approver,
+  type ApprovalBinding,
+  type AssignmentBinding,
+  type AssignmentTarget,
   type DeliverableRequirement,
   type DeliverableState,
+  type DispatchMode,
   type Executor,
+  type InstanceApprovalInput,
+  type InstanceAssignmentInput,
+  type TemplatePortability,
   type WorkflowDefinition,
   type WorkflowEdge,
   type WorkflowGraph,
@@ -29,13 +39,21 @@ import {
   type WorkflowEvent,
   type WorkflowNode,
   type WorkflowNodeState,
+  type WorkflowScope,
   type WorkflowSubmission,
   type WorkflowVariable,
 } from "./types.js";
 
 export type {
+  ApprovalBinding,
   Approver,
+  AssignmentBinding,
+  AssignmentTarget,
+  DispatchMode,
   Executor,
+  InstanceApprovalInput,
+  InstanceAssignmentInput,
+  TemplatePortability,
   WorkflowDefinition,
   WorkflowEdge,
   WorkflowEvent,
@@ -43,6 +61,7 @@ export type {
   WorkflowInstance,
   WorkflowNode,
   WorkflowNodeState,
+  WorkflowScope,
   WorkflowSubmission,
   WorkflowVariable,
 };
@@ -162,6 +181,24 @@ export interface WorkflowPrincipalRuntimeLike {
     readonly contextType: "workflow";
     readonly contextId: string;
   }): Promise<unknown>;
+}
+
+export interface WorkflowPermissionServiceLike {
+  resolve(input: {
+    readonly workspaceId: string;
+    readonly principalId: string;
+    readonly requestedActions: readonly string[];
+    readonly requestedTools?: readonly string[];
+    readonly requestedResources?: readonly string[];
+  }):
+    | {
+        readonly allowed: boolean;
+        readonly reasons: readonly string[];
+      }
+    | Promise<{
+        readonly allowed: boolean;
+        readonly reasons: readonly string[];
+      }>;
 }
 
 export interface WorkflowEmployeeTarget {
@@ -329,13 +366,21 @@ export interface WorkflowTaskRef {
   readonly receiverType: "unassigned" | "human" | "agent" | "role";
   readonly receiverId?: string | undefined;
   readonly receiverName?: string | undefined;
-  readonly status: "todo" | "progress" | "review" | "done" | "cancelled";
+  readonly status:
+    | "todo"
+    | "progress"
+    | "abnormal"
+    | "review"
+    | "done"
+    | "cancelled";
   readonly nodeAttempt?: number | undefined;
   readonly reviewRequired?: boolean | undefined;
   readonly autoApproveReview?: boolean | undefined;
   readonly workflow?:
     | {
         readonly outcome?: string | undefined;
+        readonly dispatchMode?: "assigned" | "claim" | undefined;
+        readonly candidatePool?: readonly AssignmentTarget[] | undefined;
         readonly approvalPolicy?: "all" | "any" | undefined;
         readonly approverIds?: readonly string[] | undefined;
       }
@@ -637,8 +682,10 @@ interface WorkflowContext {
   get(key: "collabTeammateRuntime"): WorkflowTeammateRuntimeLike | undefined;
   get(key: "collabTeammates"): WorkflowTeammateServiceLike | undefined;
   get(key: "collabAssignment"): WorkflowRoleServiceLike | undefined;
+  get(key: "collabProjects"): WorkflowProjectServiceLike | undefined;
   get(key: "collabPrincipal"): WorkflowPrincipalServiceLike | undefined;
   get(key: "collabPrincipalRuntime"): WorkflowPrincipalRuntimeLike | undefined;
+  get(key: "collabPermission"): WorkflowPermissionServiceLike | undefined;
   get(key: "collabContext"): WorkflowContextServiceLike | undefined;
   get(key: "collabMemory"):
     | {
@@ -764,6 +811,40 @@ interface WorkflowRoleServiceLike {
   }[];
 }
 
+interface WorkflowProjectServiceLike {
+  project(workspaceId: string):
+    | {
+        readonly projectRoles: readonly {
+          readonly id: string;
+          readonly code: string;
+          readonly name: string;
+          readonly permissions: readonly string[];
+        }[];
+        readonly roleMappingPresets?: Readonly<
+          Record<
+            string,
+            {
+              readonly roleId: string;
+              readonly assignees: readonly AssignmentTarget[];
+            }
+          >
+        >;
+      }
+    | undefined;
+  appendAudit?(input: {
+    readonly workspaceId: string;
+    readonly actorId: string;
+    readonly actorName: string;
+    readonly actorRole: string;
+    readonly category: "template";
+    readonly action: string;
+    readonly targetId?: string | undefined;
+    readonly targetName?: string | undefined;
+    readonly summary: string;
+    readonly detail?: Readonly<Record<string, string>> | undefined;
+  }): Promise<unknown>;
+}
+
 /** AI Teammate 实例清单：仅用于把执行者 id 解析成可读名字。 */
 interface WorkflowTeammateServiceLike {
   list(): readonly {
@@ -864,9 +945,32 @@ function values<V>(table: KvTableLike<V>): V[] {
   return [...table.entries()].map(([, value]) => value);
 }
 
+function definitionScope(
+  definition: Pick<WorkflowDefinition, "scope"> | { scope?: unknown },
+): WorkflowScope {
+  return definition.scope === "project" ? "project" : "platform";
+}
+
+function normalizeDefinition(
+  definition: WorkflowDefinition,
+): WorkflowDefinition {
+  return { ...definition, scope: definitionScope(definition) };
+}
+
+function normalizeInstance(instance: WorkflowInstance): WorkflowInstance {
+  return {
+    ...instance,
+    assignmentBindings: instance.assignmentBindings ?? {},
+    approvalBindings: instance.approvalBindings ?? {},
+  };
+}
+
 const taskProjectedEventKinds = new Set([
   "node.completed",
   "node.cancelled",
+  "node.claimed",
+  "node.claim_rejected",
+  "node.auto_dispatched",
   "approval.approved",
   "approval.rejected",
   "approval.delegated",
@@ -1055,6 +1159,19 @@ export function validateRuntimeGraph(
     issues.push({ level: "error", message: "workflow has no start node" });
   }
   for (const node of graph.nodes) {
+    const dispatchMode = dispatchModeForNode(node);
+    if (dispatchMode === "claim" && node.executor.kind !== "role") {
+      issues.push({
+        level: "error",
+        message: `节点「${node.name}」使用 claim 时执行人必须是项目角色；固定人、Agent 和 AI伙伴只能使用 assigned`,
+      });
+    }
+    if (dispatchMode === "claim" && node.type === "approval") {
+      issues.push({
+        level: "error",
+        message: `审批节点「${node.name}」不能使用 claim 派发模式`,
+      });
+    }
     if (node.type !== "subworkflow" || node.subworkflowKey === undefined)
       continue;
     const found = activeDefinitions.some(
@@ -1154,6 +1271,7 @@ export interface WorkflowServiceTables {
 export interface StartWorkflowInput {
   readonly workspaceId: string;
   readonly definitionId?: string | undefined;
+  readonly definitionVersion?: number | undefined;
   readonly title: string;
   readonly sessionId?: string | undefined;
   readonly relatedSessionIds?: readonly string[] | undefined;
@@ -1172,6 +1290,81 @@ export interface StartWorkflowInput {
         }
       >
     | undefined;
+  /** 实例创建时节点执行绑定；未提供的节点由 preflight 推导或阻塞。 */
+  readonly assignmentBindings?:
+    | Record<string, InstanceAssignmentInput>
+    | undefined;
+  /** 审批人与执行人独立映射，不能复用执行绑定自动代签。 */
+  readonly approvalBindings?:
+    | Record<string, InstanceApprovalInput>
+    | undefined;
+}
+
+export interface WorkflowPreflightRisk {
+  readonly level: "blocking" | "warning";
+  readonly code:
+    | "definition_not_found"
+    | "role_not_found"
+    | "role_has_no_members"
+    | "assignee_not_project_member"
+    | "assignee_required"
+    | "candidate_pool_required"
+    | "candidate_not_project_member"
+    | "candidate_ai_not_supported"
+    | "dispatch_mode_invalid"
+    | "binding_not_portable"
+    | "approver_not_project_member"
+    | "ai_not_available"
+    | "ai_runtime_not_ready"
+    | "ai_profile_not_ready"
+    | "ai_permission_denied"
+    | "unknown_node";
+  readonly nodeId?: string;
+  readonly message: string;
+  readonly actions?: readonly (
+    | "remap"
+    | "add_project_member"
+    | "enable_ai_runtime"
+    | "configure_ai_profile"
+  )[];
+}
+
+export interface WorkflowPreflightNode {
+  readonly nodeId: string;
+  readonly nodeName: string;
+  readonly nodeType: WorkflowNode["type"];
+  readonly source: AssignmentBinding["source"];
+  readonly dispatchMode: DispatchMode;
+  readonly status: "resolved" | "unresolved";
+  readonly primaryAssignee?: AssignmentTarget;
+  readonly candidatePool?: readonly AssignmentTarget[];
+  readonly approvers?: readonly AssignmentTarget[];
+  readonly risks: readonly WorkflowPreflightRisk[];
+}
+
+export interface WorkflowPreflightResult {
+  readonly definitionId: string;
+  readonly definitionVersion: number;
+  readonly scope: WorkflowScope;
+  readonly nodes: readonly WorkflowPreflightNode[];
+  readonly risks: readonly WorkflowPreflightRisk[];
+  readonly canStart: boolean;
+}
+
+interface ResolvedWorkflowPreflight {
+  readonly result: WorkflowPreflightResult;
+  readonly assignmentBindings: Record<string, AssignmentBinding>;
+  readonly approvalBindings: Record<string, ApprovalBinding>;
+  readonly approvalActors: Record<string, readonly Approver[]>;
+  readonly roleIdByReference: ReadonlyMap<string, string>;
+}
+
+interface ResolvedNodePreflight {
+  readonly node: WorkflowPreflightNode;
+  readonly assignmentBinding?: AssignmentBinding | undefined;
+  readonly approvalBinding?: ApprovalBinding | undefined;
+  readonly approvalActors?: readonly Approver[] | undefined;
+  readonly roleMappings: readonly (readonly [string, string])[];
 }
 
 export class WorkflowService {
@@ -1190,11 +1383,14 @@ export class WorkflowService {
       readonly workspaces?: () => WorkflowWorkspaceRegistryLike | undefined;
       /** 项目角色目录：解析 role:<id> 执行者与角色成员。 */
       readonly roles?: () => WorkflowRoleServiceLike | undefined;
+      /** 项目角色业务键：跨项目模板按 code 解析本地角色 ID。 */
+      readonly projects?: () => WorkflowProjectServiceLike | undefined;
       /** Principal 引用解析：principal:<id> 在解析模板前降为兼容主体。 */
       readonly principals?: () => WorkflowPrincipalServiceLike | undefined;
       readonly principalRuntime?: () =>
         | WorkflowPrincipalRuntimeLike
         | undefined;
+      readonly permission?: () => WorkflowPermissionServiceLike | undefined;
       readonly context?: () => WorkflowContextServiceLike | undefined;
       /** AI Teammate 运行时：Agent 节点派发前按需开通运行身份。 */
       readonly teammateRuntime?: () => WorkflowTeammateRuntimeLike | undefined;
@@ -1265,7 +1461,12 @@ export class WorkflowService {
   validate(
     sourceMd: string,
     workspaceId?: string | undefined,
-    options?: { checkVersionConflict?: boolean } | undefined,
+    options?:
+      | {
+          checkVersionConflict?: boolean;
+          scope?: WorkflowScope | undefined;
+        }
+      | undefined,
   ): {
     graph?: WorkflowGraph;
     issues: ValidationIssue[];
@@ -1285,7 +1486,13 @@ export class WorkflowService {
       ...validateRuntimeGraph(parsed.graph, values(this.tables.definitions)),
     );
     if (options?.checkVersionConflict !== false) {
-      issues.push(...this.versionConflictIssues(parsed.graph));
+      issues.push(
+        ...this.versionConflictIssues(
+          parsed.graph,
+          options?.scope,
+          workspaceId,
+        ),
+      );
     }
     const team = this.options.team?.();
     if (team !== undefined) {
@@ -1454,10 +1661,21 @@ export class WorkflowService {
     return issues;
   }
 
-  private versionConflictIssues(graph: WorkflowGraph): ValidationIssue[] {
+  private versionConflictIssues(
+    graph: WorkflowGraph,
+    scope?: WorkflowScope | undefined,
+    workspaceId?: string | undefined,
+  ): ValidationIssue[] {
     const existingVersions = new Set(
       this.sharedDefinitions()
-        .filter((definition) => definition.key === graph.key)
+        .filter(
+          (definition) =>
+            definition.key === graph.key &&
+            (scope === undefined || definitionScope(definition) === scope) &&
+            (scope !== "project" ||
+              workspaceId === undefined ||
+              definition.workspaceId === workspaceId),
+        )
         .map((definition) => definition.version),
     );
     if (!existingVersions.has(graph.version)) return [];
@@ -1513,9 +1731,32 @@ export class WorkflowService {
     return validateWorkspaceActorReferences(graph, team.members(workspaceId));
   }
 
+  private responsibleReferenceIssues(
+    graph: WorkflowGraph,
+    workspaceId: string,
+  ): ValidationIssue[] {
+    const team = this.options.team?.();
+    if (team === undefined) return [];
+    const memberIds = new Set(
+      team.members(workspaceId).map((member) => member.userId),
+    );
+    return graph.nodes.flatMap((node) =>
+      node.responsible?.kind === "user" &&
+      !memberIds.has(node.responsible.id)
+        ? [
+            {
+              level: "error" as const,
+              message: `节点「${node.name}」的负责人 ${node.responsible.id} 不是当前项目成员`,
+            },
+          ]
+        : [],
+    );
+  }
+
   definitions(workspaceId: string): WorkflowDefinition[] {
     return values(this.tables.definitions)
       .filter((definition) => definition.workspaceId === workspaceId)
+      .map(normalizeDefinition)
       .sort(
         (left, right) =>
           right.updatedAt.localeCompare(left.updatedAt) ||
@@ -1524,27 +1765,97 @@ export class WorkflowService {
       );
   }
 
+  /** 幂等补齐历史 Definition 的 scope，不改变更新时间或版本链。 */
+  migrateLegacyDefinitions(): Promise<number> {
+    return this.enqueue(async () => {
+      let migrated = 0;
+      for (const [id, definition] of this.tables.definitions.entries()) {
+        if (definition.scope === "project" || definition.scope === "platform") {
+          continue;
+        }
+        const next = workflowDefinitionSchema.parse({
+          ...definition,
+          scope: "platform",
+        });
+        await this.tables.definitions.put(id, next);
+        migrated += 1;
+      }
+      return migrated;
+    });
+  }
+
   sharedDefinitions(): WorkflowDefinition[] {
-    return values(this.tables.definitions).sort(
-      (left, right) =>
-        right.updatedAt.localeCompare(left.updatedAt) ||
-        left.key.localeCompare(right.key) ||
-        right.version - left.version,
+    return values(this.tables.definitions)
+      .map(normalizeDefinition)
+      .sort(
+        (left, right) =>
+          right.updatedAt.localeCompare(left.updatedAt) ||
+          left.key.localeCompare(right.key) ||
+          right.version - left.version,
+      );
+  }
+
+  visibleDefinitions(
+    workspaceId: string,
+    scope?: WorkflowScope | undefined,
+  ): WorkflowDefinition[] {
+    return this.sharedDefinitions().filter(
+      (definition) =>
+        (scope === undefined || definitionScope(definition) === scope) &&
+        (definitionScope(definition) === "platform" ||
+          definition.workspaceId === workspaceId),
     );
   }
 
   definition(definitionId: string): WorkflowDefinition | undefined {
-    return this.tables.definitions.get(definitionId);
+    const definition = this.tables.definitions.get(definitionId);
+    return definition === undefined
+      ? undefined
+      : normalizeDefinition(definition);
+  }
+
+  definitionVisibleTo(
+    definition: WorkflowDefinition,
+    workspaceId: string,
+  ): boolean {
+    return (
+      definitionScope(definition) === "platform" ||
+      definition.workspaceId === workspaceId
+    );
+  }
+
+  private definitionVersionPeers(
+    definition: Pick<WorkflowDefinition, "scope" | "workspaceId" | "key">,
+  ): WorkflowDefinition[] {
+    return this.sharedDefinitions().filter(
+      (candidate) =>
+        candidate.key === definition.key &&
+        definitionScope(candidate) === definitionScope(definition) &&
+        (definitionScope(definition) === "platform" ||
+          candidate.workspaceId === definition.workspaceId),
+    );
   }
 
   importDefinition(
     actor: WorkflowActor,
-    input: { workspaceId: string; sourceMd: string; activate?: boolean },
+    input: {
+      workspaceId: string;
+      sourceMd: string;
+      scope?: WorkflowScope | undefined;
+      activate?: boolean;
+    },
   ): Promise<WorkflowDefinition> {
-    if (!isManager(actor)) {
+    const scope = input.scope ?? "project";
+    if (
+      (scope === "project" && !isManager(actor)) ||
+      (scope === "platform" &&
+        (actor.kind !== "user" || actor.globalRole !== "admin"))
+    ) {
       throw new WorkflowError(
         "forbidden",
-        "workspace owner or admin is required",
+        scope === "platform"
+          ? "platform admin is required"
+          : "workspace owner or admin is required",
       );
     }
     return this.enqueue(async () => {
@@ -1561,9 +1872,11 @@ export class WorkflowService {
         );
       }
       const graph = workflowGraphSchema.parse(check.graph);
-      const existing = this.sharedDefinitions().filter(
-        (definition) => definition.key === graph.key,
-      );
+      const existing = this.definitionVersionPeers({
+        scope,
+        workspaceId: input.workspaceId,
+        key: graph.key,
+      });
       if (existing.some((definition) => definition.version === graph.version)) {
         throw new WorkflowError(
           "conflict",
@@ -1584,6 +1897,7 @@ export class WorkflowService {
       }
       const record: WorkflowDefinition = {
         id: randomUUID(),
+        scope,
         workspaceId: input.workspaceId,
         key: graph.key,
         version: graph.version,
@@ -1613,12 +1927,14 @@ export class WorkflowService {
           instance.sessionId === filter.sessionId ||
           instance.relatedSessionIds.includes(filter.sessionId),
       )
+      .map(normalizeInstance)
       .map((instance) => this.refreshStatus(instance))
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
 
   instance(instanceId: string): WorkflowInstance | undefined {
-    return this.tables.instances.get(instanceId);
+    const instance = this.tables.instances.get(instanceId);
+    return instance === undefined ? undefined : normalizeInstance(instance);
   }
 
   instanceView(instanceId: string): WorkflowInstance | undefined {
@@ -1651,7 +1967,11 @@ export class WorkflowService {
       if (node.type !== "approval") continue;
       const state = instance.nodes[node.id];
       if (state === undefined) continue;
-      const approverIds = [...new Set(node.approvers.map((item) => item.id))];
+      const approverIds = [
+        ...new Set(
+          Object.values(state.approvals).map((item) => item.approver.id),
+        ),
+      ];
       for (const taskId of state.taskIds) {
         const task = bridge.get(taskId);
         if (task === undefined) continue;
@@ -1911,16 +2231,21 @@ export class WorkflowService {
   private roleSnapshotFor(
     graph: WorkflowGraph,
     workspaceId: string,
+    roleIdByReference: ReadonlyMap<string, string> = new Map(),
   ): WorkflowInstance["roleSnapshot"] {
     return Object.fromEntries(
       this.referencedRoleIds(graph).map((roleId) => {
-        const seat = this.projectRole(workspaceId, roleId);
-        const members = this.projectRoleMembers(workspaceId, roleId);
+        const resolvedRoleId = roleIdByReference.get(roleId) ?? roleId;
+        const seat = this.projectRoleDefinition(workspaceId, {
+          id: resolvedRoleId,
+        });
+        const members = this.projectRoleMembers(workspaceId, resolvedRoleId);
         return [
-          roleId,
+          resolvedRoleId,
           {
-            roleId,
-            name: seat?.label ?? roleId,
+            roleId: resolvedRoleId,
+            ...(seat?.code === undefined ? {} : { code: seat.code }),
+            name: seat?.label ?? resolvedRoleId,
             permissions: [...(seat?.permissions ?? [])],
             members: members.map((member) => ({
               kind: member.kind,
@@ -1988,6 +2313,351 @@ export class WorkflowService {
     return members
       .filter((member) => member.status !== "released")
       .map((member) => ({ kind: member.assigneeKind, id: member.assigneeId }));
+  }
+
+  private projectRoleDefinition(
+    workspaceId: string,
+    reference: {
+      readonly id?: string | undefined;
+      readonly roleCode?: string | undefined;
+    },
+  ):
+    | {
+        readonly id: string;
+        readonly code?: string | undefined;
+        readonly label: string;
+        readonly permissions: readonly string[];
+      }
+    | undefined {
+    let projectRoles:
+      | readonly {
+          readonly id: string;
+          readonly code: string;
+          readonly name: string;
+          readonly permissions: readonly string[];
+        }[]
+      = [];
+    try {
+      projectRoles = this.options.projects?.()?.project(workspaceId)?.projectRoles ?? [];
+    } catch {
+      projectRoles = [];
+    }
+    const code = reference.roleCode?.trim().toUpperCase();
+    const id = reference.id?.trim();
+    const role =
+      (code === undefined
+        ? undefined
+        : projectRoles.find(
+            (candidate) => candidate.code.trim().toUpperCase() === code,
+          )) ??
+      (id === undefined
+        ? undefined
+        : projectRoles.find((candidate) => candidate.id === id)) ??
+      (id === undefined
+        ? undefined
+        : projectRoles.find(
+            (candidate) =>
+              candidate.code.trim().toUpperCase() === id.toUpperCase(),
+          ));
+    if (role !== undefined) {
+      return {
+        id: role.id,
+        code: role.code,
+        label: role.name,
+        permissions: role.permissions,
+      };
+    }
+    if (id === undefined) return undefined;
+    const seat = (() => {
+      try {
+        return this.options
+          .roles?.()
+          ?.config(workspaceId)
+          .seats.find((candidate) => candidate.id === id);
+      } catch {
+        return undefined;
+      }
+    })();
+    return seat === undefined
+      ? undefined
+      : {
+          id: seat.id,
+          label: seat.label,
+          permissions: seat.permissions ?? [],
+        };
+  }
+
+  private projectAgentIds(workspaceId: string): Set<string> {
+    const ids = new Set<string>();
+    const roles = this.options.roles?.();
+    if (roles === undefined) return ids;
+    try {
+      for (const seat of roles.config(workspaceId).seats) {
+        for (const member of roles.members?.(workspaceId, seat.id) ?? []) {
+          if (member.status !== "released" && member.assigneeKind === "agent") {
+            ids.add(member.assigneeId);
+          }
+        }
+      }
+    } catch {
+      return ids;
+    }
+    return ids;
+  }
+
+  private projectUser(workspaceId: string, userId: string) {
+    return this.options
+      .team?.()
+      ?.members(workspaceId)
+      .find((member) => member.userId === userId);
+  }
+
+  private assignmentTargetName(target: AssignmentTarget, workspaceId: string) {
+    if (target.kind === "user") {
+      return (
+        this.options
+          .team?.()
+          ?.users()
+          .find((user) => user.id === target.id)?.name ??
+        this.projectUser(workspaceId, target.id)?.name ??
+        target.name ??
+        target.id
+      );
+    }
+    return (
+      this.options
+        .teammates?.()
+        ?.list()
+        .find(
+          (item) =>
+            item.id === target.id ||
+            (item.employeeId !== undefined && item.employeeId === target.id),
+        )?.name ??
+      this.options.agent?.()?.profile(workspaceId, target.id)?.name ??
+      target.name ??
+      target.id
+    );
+  }
+
+  private async assignmentTargetRisks(
+    workspaceId: string,
+    nodeId: string,
+    target: AssignmentTarget,
+    options: {
+      readonly allowLegacyAgentProfile?: boolean;
+      readonly allowEmployeeTargetWithoutTeammate?: boolean;
+      readonly requireProjectMembership?: boolean;
+    } = {},
+  ): Promise<WorkflowPreflightRisk[]> {
+    if (target.kind === "user") {
+      return this.projectUser(workspaceId, target.id) === undefined
+        ? [
+            {
+              level: "blocking",
+              code: "assignee_not_project_member",
+              nodeId,
+              message: `执行人 ${target.name ?? target.id} 不是当前项目成员`,
+              actions: ["remap", "add_project_member"],
+            },
+          ]
+        : [];
+    }
+    const risks: WorkflowPreflightRisk[] = [];
+    const projectAgents = this.projectAgentIds(workspaceId);
+    const teammate = this.options
+      .teammates?.()
+      ?.list()
+      .find(
+        (item) =>
+          item.id === target.id ||
+          (item.employeeId !== undefined && item.employeeId === target.id),
+      );
+    const projectMember =
+      projectAgents.has(target.id) ||
+      (teammate?.id !== undefined && projectAgents.has(teammate.id));
+    if (
+      options.requireProjectMembership !== false &&
+      !projectMember
+    ) {
+      risks.push({
+        level: "blocking",
+        code: "assignee_not_project_member",
+        nodeId,
+        message: `AI伙伴 ${target.name ?? target.id} 不是当前项目成员`,
+        actions: ["remap", "add_project_member"],
+      });
+    }
+    const employees = this.options.employee?.();
+    const employeeId = teammate?.employeeId ?? target.id;
+    const employeeTarget = employees?.workflowTarget(employeeId, workspaceId);
+    if (teammate === undefined && employeeTarget === undefined) {
+      if (options.allowLegacyAgentProfile === true) {
+        const profile = this.options
+          .agent?.()
+          ?.profile(workspaceId, target.id);
+        return profile === undefined ||
+          profile.status !== "active" ||
+          profile.runtimeKind !== "task-worker"
+          ? [
+              ...risks,
+              {
+                level: "blocking",
+                code: "ai_profile_not_ready",
+                nodeId,
+                message:
+                  profile === undefined
+                    ? `Agent Profile「${target.id}」不存在`
+                    : `Agent Profile「${profile.name}」不可用`,
+                actions: ["configure_ai_profile", "remap"],
+              },
+            ]
+          : risks;
+      }
+      risks.push({
+        level: "blocking",
+        code: "ai_not_available",
+        nodeId,
+        message: `AI伙伴 ${target.name ?? target.id} 不存在`,
+        actions: ["remap", "enable_ai_runtime"],
+      });
+      return risks;
+    }
+    if (
+      teammate === undefined &&
+      options.allowEmployeeTargetWithoutTeammate !== true
+    ) {
+      risks.push({
+        level: "blocking",
+        code: "ai_not_available",
+        nodeId,
+        message: `AI伙伴 ${target.name ?? target.id} 不存在`,
+        actions: ["remap", "enable_ai_runtime"],
+      });
+      return risks;
+    }
+    const teammateName =
+      teammate?.name ??
+      employeeTarget?.employee.displayName ??
+      target.name ??
+      target.id;
+    if (teammate !== undefined && teammate.state !== "active") {
+      risks.push({
+        level: "blocking",
+        code: "ai_not_available",
+        nodeId,
+        message: `AI伙伴「${teammateName}」当前不可用`,
+        actions: ["remap", "enable_ai_runtime"],
+      });
+    }
+    if (employeeTarget !== undefined) {
+      const blockReason = employees?.workflowDispatchBlockReason(
+        employeeTarget.employee.id,
+        workspaceId,
+      );
+      if (blockReason !== undefined) {
+        risks.push({
+          level: "blocking",
+          code: "ai_runtime_not_ready",
+          nodeId,
+          message: blockReason,
+          actions: ["enable_ai_runtime"],
+        });
+      }
+    }
+    const principals = this.options.principals?.();
+    const principal =
+      (teammate === undefined
+        ? undefined
+        : principals?.resolveSubject("teammate", teammate.id)) ??
+      principals?.resolveSubject("employee", employeeId);
+    if (employeeTarget?.profile.legacyAgentProfileId !== undefined) {
+      const profile = this.options
+        .agent?.()
+        ?.profile(workspaceId, employeeTarget.profile.legacyAgentProfileId);
+      if (
+        profile === undefined ||
+        profile.status !== "active" ||
+        profile.runtimeKind !== "task-worker"
+      ) {
+        risks.push({
+          level: "blocking",
+          code: "ai_profile_not_ready",
+          nodeId,
+          message:
+            profile === undefined
+              ? `AI伙伴「${teammateName}」缺少 Task Worker Profile`
+              : `AI伙伴「${teammateName}」的 Agent Profile 不可用`,
+          actions: ["configure_ai_profile"],
+        });
+      }
+    } else if (principal === undefined || principal.status !== "active") {
+      risks.push({
+        level: "blocking",
+        code: "ai_runtime_not_ready",
+        nodeId,
+        message: `AI伙伴「${teammateName}」缺少有效的 Principal Runtime 身份`,
+        actions: ["enable_ai_runtime"],
+      });
+    } else {
+      const runtime = this.options
+        .principalRuntime?.()
+        ?.profile(principal.id, workspaceId);
+      const profileId =
+        employeeTarget?.profile.legacyAgentProfileId ??
+        (runtime?.status === "active" ? runtime.agentProfileId : undefined);
+      if (runtime === undefined || runtime.status !== "active" || profileId === undefined) {
+        risks.push({
+          level: "blocking",
+          code: "ai_runtime_not_ready",
+          nodeId,
+          message: `AI伙伴「${teammateName}」缺少启用的 Runtime Profile`,
+          actions: ["enable_ai_runtime"],
+        });
+      } else {
+        const profile = this.options.agent?.()?.profile(workspaceId, profileId);
+        if (
+          profile === undefined ||
+          profile.status !== "active" ||
+          profile.runtimeKind !== "task-worker"
+        ) {
+          risks.push({
+            level: "blocking",
+            code: "ai_profile_not_ready",
+            nodeId,
+            message:
+              profile === undefined
+                ? `AI伙伴「${teammateName}」缺少 Task Worker Profile`
+                : `AI伙伴「${teammateName}」的 Agent Profile 不可用`,
+            actions: ["configure_ai_profile"],
+          });
+        }
+      }
+    }
+    const permission = this.options.permission?.();
+    if (
+      permission !== undefined &&
+      principal !== undefined &&
+      principal.status === "active"
+    ) {
+      const decision = await permission.resolve({
+        workspaceId,
+        principalId: principal.id,
+        requestedActions: ["read", "write"],
+        requestedResources: ["workflow"],
+      });
+      if (!decision.allowed) {
+        risks.push({
+          level: "blocking",
+          code: "ai_permission_denied",
+          nodeId,
+          message:
+            decision.reasons.join("；") ||
+            `AI伙伴「${teammateName}」缺少节点执行权限`,
+          actions: ["enable_ai_runtime"],
+        });
+      }
+    }
+    return risks;
   }
 
   /**
@@ -2072,6 +2742,29 @@ export class WorkflowService {
         id: fallback.id,
         name: fallback.label ?? fallback.id,
       } as const;
+    }
+    const binding = instance.assignmentBindings[node.id];
+    if (binding !== undefined) {
+      if (
+        binding.dispatchMode === "assigned" &&
+        binding.primaryAssignee !== undefined
+      ) {
+        return {
+          type:
+            binding.primaryAssignee.kind === "user" ? "human" : "agent",
+          id: binding.primaryAssignee.id,
+          name:
+            binding.primaryAssignee.name ??
+            binding.primaryAssignee.id,
+        } as const;
+      }
+      if (binding.dispatchMode === "claim" && binding.source.kind === "role") {
+        return {
+          type: "role",
+          id: binding.source.id ?? node.executor.id,
+          name: binding.source.label ?? node.executor.label ?? node.executor.id,
+        } as const;
+      }
     }
     const executor = node.executor;
     if (executor.kind === "user") {
@@ -2193,15 +2886,31 @@ export class WorkflowService {
             : "完成后无需人工 Review，直接完成";
       const approverNames =
         node.type === "approval"
-          ? node.approvers.map((item) => item.name).join("、")
+          ? Object.values(state.approvals)
+              .map((item) => item.approver.name)
+              .join("、")
           : "";
+      const resolvedApproverIds = [
+        ...new Set(
+          Object.values(state.approvals).map(
+            (item) => item.approver.id,
+          ),
+        ),
+      ];
+      const assignmentBinding = instance.assignmentBindings[node.id];
       try {
         const created = await bridge.create(this.taskSystemActor(), {
           workspaceId: instance.workspaceId,
           title: `${instance.title} · ${node.name}`,
           type: "工作流",
           priority: "P2",
-          status: node.type === "approval" ? "review" : "progress",
+          status:
+            node.type === "approval"
+              ? "review"
+              : assignmentBinding?.dispatchMode === "claim" &&
+                  receiver.type === "role"
+                ? "todo"
+                : "progress",
           receiverType: receiver.type,
           receiverId: receiver.id,
           receiverName: receiver.name,
@@ -2236,12 +2945,18 @@ export class WorkflowService {
             nodeName: node.name,
             nodeAttempt: state.attempts,
             reviewRequired,
+            ...(assignmentBinding === undefined
+              ? {}
+              : {
+                  dispatchMode: assignmentBinding.dispatchMode,
+                  ...(assignmentBinding.candidatePool === undefined
+                    ? {}
+                    : { candidatePool: assignmentBinding.candidatePool }),
+                }),
             ...(node.type === "approval"
               ? {
                   approvalPolicy: node.approvalPolicy,
-                  approverIds: [
-                    ...new Set(node.approvers.map((item) => item.id)),
-                  ],
+                  approverIds: resolvedApproverIds,
                 }
               : {}),
           },
@@ -2271,7 +2986,13 @@ export class WorkflowService {
     } else {
       const task = bridge.get(taskId);
       if (node.type === "approval" && task !== undefined) {
-        const approverIds = [...new Set(node.approvers.map((item) => item.id))];
+        const approverIds = [
+          ...new Set(
+            Object.values(state.approvals).map(
+              (item) => item.approver.id,
+            ),
+          ),
+        ];
         const currentApproverIds = task.workflow?.approverIds ?? [];
         const approversChanged =
           currentApproverIds.length !== approverIds.length ||
@@ -2475,6 +3196,101 @@ export class WorkflowService {
     }
   }
 
+  /** 候选池任务原子领取成功后，把执行权冻结到实际领取人。 */
+  async handleTaskClaimed(
+    task: {
+      readonly id: string;
+      readonly workspaceId: string;
+      readonly workflow?:
+        | {
+            readonly instanceId: string;
+            readonly nodeId: string;
+            readonly dispatchMode?: "assigned" | "claim" | undefined;
+            readonly candidatePool?:
+              | readonly AssignmentTarget[]
+              | undefined;
+          }
+        | undefined;
+    },
+    actor: WorkflowActor,
+  ): Promise<void> {
+    if (task.workflow?.dispatchMode !== "claim") return;
+    await this.enqueue(async () => {
+      const instance = this.instance(task.workflow!.instanceId);
+      if (instance === undefined) return;
+      const state = instance.nodes[task.workflow!.nodeId];
+      if (state === undefined || !state.taskIds.includes(task.id)) return;
+      const binding = instance.assignmentBindings[task.workflow!.nodeId];
+      if (
+        actor.kind !== "user" ||
+        binding?.dispatchMode !== "claim" ||
+        binding.candidatePool?.some(
+          (candidate) =>
+            candidate.kind === "user" && candidate.id === actor.id,
+        ) !== true
+      ) {
+        throw new WorkflowError("forbidden", "当前用户不在任务候选池中");
+      }
+      const updated = await this.putInstance({
+        ...instance,
+        nodes: {
+          ...instance.nodes,
+          [task.workflow!.nodeId]: {
+            ...state,
+            status: "running",
+            assignedTo: actor.name,
+            receiverOverride: {
+              type: "human",
+              id: actor.id,
+              name: actor.name,
+              at: iso(this.now()),
+            },
+          },
+        },
+      });
+      await this.appendEvent(updated, {
+        nodeId: task.workflow!.nodeId,
+        kind: "node.claimed",
+        actor,
+        message: `${actor.name} 认领了候选池任务`,
+        data: {
+          taskId: task.id,
+          dispatchMode: "claim",
+        },
+      });
+    });
+  }
+
+  async handleTaskClaimRejected(
+    task: {
+      readonly id: string;
+      readonly workflow?:
+        | {
+            readonly instanceId: string;
+            readonly nodeId: string;
+            readonly dispatchMode?: "assigned" | "claim" | undefined;
+          }
+        | undefined;
+    },
+    actor: WorkflowActor,
+    reason: string,
+  ): Promise<void> {
+    if (task.workflow?.dispatchMode !== "claim") return;
+    await this.enqueue(async () => {
+      const instance = this.instance(task.workflow!.instanceId);
+      if (instance === undefined) return;
+      const state = instance.nodes[task.workflow!.nodeId];
+      if (state === undefined || !state.taskIds.includes(task.id)) return;
+      await this.appendEvent(instance, {
+        nodeId: task.workflow!.nodeId,
+        kind: "node.claim_rejected",
+        actor,
+        message: reason,
+        data: { taskId: task.id },
+      });
+    });
+  }
+
   /**
    * 任务改派落库后再启动工作流自己的 Agent run。任务先保存，调度器才能
    * 从最新责任人生成正确的节点标题，也不会再落到一条普通任务会话。
@@ -2672,7 +3488,7 @@ export class WorkflowService {
       return;
     }
     if (outcome === undefined) {
-      const targetStatus = this.projectedTaskStatus(node, state);
+      const targetStatus = this.projectedTaskStatus(node, state, instance);
       if (projectedAfterAssign.status !== targetStatus) {
         await this.syncTaskStatus(
           task.id,
@@ -2743,8 +3559,16 @@ export class WorkflowService {
   private projectedTaskStatus(
     node: WorkflowNode | undefined,
     state: WorkflowNodeState,
+    instance: WorkflowInstance,
   ): "todo" | "progress" | "review" {
     if (node?.type === "approval") return "review";
+    if (
+      node !== undefined &&
+      state.status === "ready" &&
+      instance.assignmentBindings[node.id]?.dispatchMode === "claim"
+    ) {
+      return "todo";
+    }
     if (state.status === "blocked") return "todo";
     if (
       state.status === "ready" &&
@@ -2837,10 +3661,31 @@ export class WorkflowService {
     return next;
   }
 
-  startInstance(
-    actor: WorkflowActor,
-    input: StartWorkflowInput,
-  ): Promise<WorkflowInstance> {
+  private definitionForPreflight(
+    workspaceId: string,
+    definitionId?: string | undefined,
+    definitionVersion?: number | undefined,
+  ): WorkflowDefinition {
+    const definitions = this.visibleDefinitions(workspaceId);
+    const definition =
+      definitionId === undefined
+        ? definitions.find((item) => item.status === "active")
+        : definitions.find((item) => item.id === definitionId);
+    if (
+      definition === undefined ||
+      definition.status !== "active" ||
+      (definitionVersion !== undefined &&
+        definition.version !== definitionVersion)
+    ) {
+      throw new WorkflowError(
+        "not_found",
+        "active workflow definition not found for this project",
+      );
+    }
+    return definition;
+  }
+
+  private requireWorkflowStarter(actor: WorkflowActor): void {
     if (
       actor.kind !== "user" &&
       actor.workspaceRole === undefined &&
@@ -2856,40 +3701,703 @@ export class WorkflowService {
     ) {
       throw new WorkflowError("forbidden", "workspace member is required");
     }
+  }
+
+  private async auditUnresolvedPreflight(
+    actor: WorkflowActor,
+    workspaceId: string,
+    resolved: ResolvedWorkflowPreflight,
+  ): Promise<void> {
+    const blocking = resolved.result.risks.filter(
+      (risk) => risk.level === "blocking",
+    );
+    if (blocking.length === 0) return;
+    try {
+      await this.options.projects?.()?.appendAudit?.({
+        workspaceId,
+        actorId: actor.id,
+        actorName: actor.name ?? actor.id,
+        actorRole: actor.globalRole ?? actor.workspaceRole ?? "member",
+        category: "template",
+        action: "workflow.assignment.unresolved",
+        targetId: resolved.result.definitionId,
+        summary: `工作流启动被阻断：${blocking.length} 项执行人映射未解析`,
+        detail: {
+          模板版本: String(resolved.result.definitionVersion),
+          未解析节点: blocking
+            .map((risk) => risk.nodeId ?? "unknown")
+            .filter((value, index, values) => values.indexOf(value) === index)
+            .join(","),
+          阻断原因: blocking.map((risk) => risk.message).join("；"),
+        },
+      });
+    } catch {
+      // Audit is best-effort and must not replace the actionable preflight error.
+    }
+  }
+
+  private async resolveNodePreflight(
+    actor: WorkflowActor,
+    workspaceId: string,
+    node: WorkflowNode,
+    assignmentInput: InstanceAssignmentInput | undefined,
+    approvalInput: InstanceApprovalInput | undefined,
+    resolvedAt: string,
+  ): Promise<ResolvedNodePreflight> {
+    const risks: WorkflowPreflightRisk[] = [];
+    const roleMappings: Array<readonly [string, string]> = [];
+    const source: AssignmentBinding["source"] = {
+      kind: node.executor.kind,
+      id: node.executor.id,
+      ...(node.executor.label === undefined
+        ? {}
+        : { label: node.executor.label }),
+      ...(node.executor.roleCode === undefined
+        ? {}
+        : { roleCode: node.executor.roleCode }),
+    };
+    let dispatchMode: DispatchMode =
+      node.type === "approval" ? "assigned" : dispatchModeForNode(node);
+    let primaryAssignee: AssignmentTarget | undefined;
+    let candidatePool: AssignmentTarget[] | undefined;
+    let assignmentBinding: AssignmentBinding | undefined;
+    let approvalBinding: ApprovalBinding | undefined;
+    let approvalActors: Approver[] | undefined;
+
+    if (node.type !== "approval" && node.executor.kind !== "system") {
+      dispatchMode = assignmentInput?.dispatchMode ?? dispatchMode;
+      if (dispatchMode === "claim" && node.executor.kind !== "role") {
+        risks.push({
+          level: "blocking",
+          code: "dispatch_mode_invalid",
+          nodeId: node.id,
+          message: `节点「${node.name}」的固定执行人只能使用 assigned`,
+        });
+      }
+      let rolePresetAssignees: readonly AssignmentTarget[] | undefined;
+      if (node.executor.kind === "role") {
+        const role = this.projectRoleDefinition(workspaceId, {
+          id: node.executor.id,
+          roleCode: node.executor.roleCode,
+        });
+        if (role === undefined) {
+          risks.push({
+            level: "blocking",
+            code: "role_not_found",
+            nodeId: node.id,
+            message: `节点「${node.name}」引用的项目角色 ${node.executor.roleCode ?? node.executor.id} 不存在`,
+            actions: ["remap"],
+          });
+        } else {
+          source.id = role.id;
+          source.label = role.label;
+          if (role.code !== undefined) source.roleCode = role.code;
+          roleMappings.push([node.executor.id, role.id]);
+          if (node.executor.roleCode !== undefined) {
+            roleMappings.push([node.executor.roleCode, role.id]);
+          }
+          const members = this.projectRoleMembers(workspaceId, role.id);
+          rolePresetAssignees = (() => {
+            try {
+              return this.options.projects?.()?.project(workspaceId)
+                ?.roleMappingPresets?.[role.id]?.assignees;
+            } catch {
+              return undefined;
+            }
+          })();
+          if (members.length === 0) {
+            risks.push({
+              level: "blocking",
+              code: "role_has_no_members",
+              nodeId: node.id,
+              message: `节点「${node.name}」引用的项目角色「${role.label}」没有成员`,
+              actions: ["add_project_member", "remap"],
+            });
+          }
+          if (dispatchMode === "claim") {
+            candidatePool = (
+              assignmentInput?.candidatePool ??
+              rolePresetAssignees ??
+              members
+                .filter((member) => member.kind === "user")
+                .map((member) => ({
+                  kind: "user" as const,
+                  id: member.id,
+                  name: this.assignmentTargetName(
+                    { kind: "user", id: member.id },
+                    workspaceId,
+                  ),
+                }))
+            ).map((target) => ({
+              ...target,
+              name: this.assignmentTargetName(target, workspaceId),
+            }));
+          }
+        }
+      }
+      if (dispatchMode === "assigned") {
+        primaryAssignee =
+          assignmentInput?.primaryAssignee ??
+          rolePresetAssignees?.[0];
+        if (primaryAssignee === undefined) {
+          if (node.executor.kind === "user") {
+            primaryAssignee = {
+              kind: "user",
+              id: node.executor.id,
+              name:
+                node.executor.label ??
+                this.assignmentTargetName(
+                  { kind: "user", id: node.executor.id },
+                  workspaceId,
+                ),
+            };
+          } else if (
+            node.executor.kind === "agent" ||
+            node.executor.kind === "employee"
+          ) {
+            primaryAssignee = {
+              kind: "agent",
+              id: node.executor.id,
+              name:
+                node.executor.label ??
+                this.assignmentTargetName(
+                  { kind: "agent", id: node.executor.id },
+                  workspaceId,
+                ),
+            };
+          }
+        }
+        if (primaryAssignee === undefined) {
+          risks.push({
+            level: "blocking",
+            code: "assignee_required",
+            nodeId: node.id,
+            message: `节点「${node.name}」使用 assigned，必须选择一个主执行人`,
+            actions: ["remap"],
+          });
+        } else {
+          primaryAssignee = {
+            ...primaryAssignee,
+            name: this.assignmentTargetName(primaryAssignee, workspaceId),
+          };
+          if (
+            node.executor.portability === "required" &&
+            assignmentInput?.primaryAssignee !== undefined &&
+            assignmentInput.primaryAssignee.id !== node.executor.id
+          ) {
+            risks.push({
+              level: "blocking",
+              code: "binding_not_portable",
+              nodeId: node.id,
+              message: `节点「${node.name}」要求固定绑定 ${node.executor.id}，不能重新映射`,
+              actions: ["remap"],
+            });
+          }
+          const directLegacyAgent =
+            assignmentInput === undefined &&
+            node.executor.kind === "agent";
+          if (directLegacyAgent) {
+            const agent = this.options.agent?.();
+            if (agent === undefined) {
+              risks.push({
+                level: "warning",
+                code: "ai_profile_not_ready",
+                nodeId: node.id,
+                message: `Agent 注册表暂不可用，无法校验 Agent Profile「${primaryAssignee.id}」`,
+              });
+            } else {
+              const profile = agent.profile(workspaceId, primaryAssignee.id);
+              if (
+                profile === undefined ||
+                profile.status !== "active" ||
+                profile.runtimeKind !== "task-worker"
+              ) {
+                risks.push({
+                  level: "blocking",
+                  code: "ai_profile_not_ready",
+                  nodeId: node.id,
+                  message:
+                    profile === undefined
+                      ? `Agent Profile「${primaryAssignee.id}」不存在`
+                      : `Agent Profile「${profile.name}」不可用`,
+                  actions: ["configure_ai_profile", "remap"],
+                });
+              }
+            }
+          } else {
+            risks.push(
+              ...(await this.assignmentTargetRisks(
+                workspaceId,
+                node.id,
+                primaryAssignee,
+                {
+                  allowEmployeeTargetWithoutTeammate:
+                    node.executor.kind === "employee",
+                  requireProjectMembership: node.executor.kind !== "employee",
+                },
+              )),
+            );
+          }
+        }
+      } else {
+        candidatePool = (
+          candidatePool ?? assignmentInput?.candidatePool ??
+          []
+        ).map((target) => ({
+          ...target,
+          name: this.assignmentTargetName(target, workspaceId),
+        }));
+        if (candidatePool.length === 0) {
+          risks.push({
+            level: "blocking",
+            code: "candidate_pool_required",
+            nodeId: node.id,
+            message: `节点「${node.name}」使用 claim，至少需要一个候选池成员`,
+            actions: ["remap", "add_project_member"],
+          });
+        }
+        for (const target of candidatePool) {
+          if (target.kind !== "user") {
+            risks.push({
+              level: "blocking",
+              code: "candidate_ai_not_supported",
+              nodeId: node.id,
+              message: `节点「${node.name}」的候选池暂不支持 AI伙伴`,
+              actions: ["remap"],
+            });
+            continue;
+          }
+          const targetRisk = await this.assignmentTargetRisks(
+            workspaceId,
+            node.id,
+            target,
+          );
+          for (const risk of targetRisk) {
+            risks.push({
+              ...risk,
+              code: "candidate_not_project_member",
+            });
+          }
+        }
+      }
+      const sourceChanged =
+        primaryAssignee !== undefined &&
+        primaryAssignee.id !== node.executor.id;
+      assignmentBinding = {
+        nodeId: node.id,
+        source,
+        dispatchMode,
+        status: risks.some((risk) => risk.level === "blocking")
+          ? "unresolved"
+          : "resolved",
+        ...(primaryAssignee === undefined ? {} : { primaryAssignee }),
+        ...(candidatePool === undefined ? {} : { candidatePool }),
+        resolvedBy: actor.id,
+        resolvedAt,
+        ...(sourceChanged
+          ? {
+              sourceChanged: {
+                reason: "instance_mapping_override",
+                originalId: node.executor.id,
+                ...(node.executor.label === undefined
+                  ? {}
+                  : { originalLabel: node.executor.label }),
+              },
+            }
+          : {}),
+      };
+    }
+
+    if (node.type === "approval") {
+      const selected = approvalInput?.approvers;
+      const resolvedApprovers: AssignmentTarget[] = [];
+      approvalActors = [];
+      if (selected !== undefined) {
+        if (
+          node.approvers.some(
+            (approver) => approver.portability === "required",
+          )
+        ) {
+          risks.push({
+            level: "blocking",
+            code: "binding_not_portable",
+            nodeId: node.id,
+            message: `审批节点「${node.name}」包含固定审批人，不能重新映射`,
+            actions: ["remap"],
+          });
+        }
+        if (selected.length === 0) {
+          risks.push({
+            level: "blocking",
+            code: "assignee_required",
+            nodeId: node.id,
+            message: `审批节点「${node.name}」至少需要一个审批人`,
+            actions: ["remap"],
+          });
+        }
+        for (const target of selected) {
+          const named = {
+            ...target,
+            name: this.assignmentTargetName(target, workspaceId),
+          };
+          resolvedApprovers.push(named);
+          approvalActors.push({
+            kind: named.kind,
+            id: named.id,
+            name: named.name ?? named.id,
+          });
+          risks.push(
+            ...(await this.assignmentTargetRisks(
+              workspaceId,
+              node.id,
+              named,
+            )),
+          );
+        }
+      } else {
+        for (const approver of node.approvers) {
+          if (approver.kind === "role") {
+            const role = this.projectRoleDefinition(workspaceId, {
+              id: approver.id,
+              roleCode: approver.roleCode,
+            });
+            if (role === undefined) {
+              risks.push({
+                level: "blocking",
+                code: "role_not_found",
+                nodeId: node.id,
+                message: `审批节点「${node.name}」引用的项目角色 ${approver.roleCode ?? approver.id} 不存在`,
+                actions: ["remap"],
+              });
+              continue;
+            }
+            roleMappings.push([approver.id, role.id]);
+            if (approver.roleCode !== undefined) {
+              roleMappings.push([approver.roleCode, role.id]);
+            }
+            const members = this.projectRoleMembers(workspaceId, role.id);
+            if (members.length === 0) {
+              risks.push({
+                level: "blocking",
+                code: "role_has_no_members",
+                nodeId: node.id,
+                message: `审批节点「${node.name}」引用的角色「${role.label}」没有成员`,
+                actions: ["add_project_member", "remap"],
+              });
+            }
+            approvalActors.push({
+              kind: "role",
+              id: role.id,
+              name: role.label,
+            });
+            for (const member of members) {
+              resolvedApprovers.push({
+                kind: member.kind,
+                id: member.id,
+                name: this.assignmentTargetName(member, workspaceId),
+              });
+            }
+            continue;
+          }
+          const target: AssignmentTarget = {
+            kind:
+              approver.kind === "employee" ? "agent" : approver.kind,
+            id: approver.id,
+            name:
+              approver.name ||
+              this.assignmentTargetName(
+                {
+                  kind:
+                    approver.kind === "employee" ? "agent" : approver.kind,
+                  id: approver.id,
+                },
+                workspaceId,
+              ),
+          };
+          resolvedApprovers.push(target);
+          approvalActors.push({
+            kind: approver.kind,
+            id: approver.id,
+            name: target.name ?? approver.name,
+          });
+          const targetRisks = await this.assignmentTargetRisks(
+            workspaceId,
+            node.id,
+            target,
+            {
+              allowLegacyAgentProfile:
+                selected === undefined && approver.kind === "agent",
+              requireProjectMembership:
+                selected !== undefined || approver.kind !== "agent",
+            },
+          );
+          for (const risk of targetRisks) {
+            risks.push({
+              ...risk,
+              code: "approver_not_project_member",
+            });
+          }
+        }
+      }
+      approvalBinding = {
+        nodeId: node.id,
+        source: node.approvers,
+        status: risks.some((risk) => risk.level === "blocking")
+          ? "unresolved"
+          : "resolved",
+        approvers: resolvedApprovers,
+        resolvedBy: actor.id,
+        resolvedAt,
+      };
+    }
+
+    return {
+      node: {
+        nodeId: node.id,
+        nodeName: node.name,
+        nodeType: node.type,
+        source,
+        dispatchMode,
+        status: risks.some((risk) => risk.level === "blocking")
+          ? "unresolved"
+          : "resolved",
+        ...(primaryAssignee === undefined ? {} : { primaryAssignee }),
+        ...(candidatePool === undefined ? {} : { candidatePool }),
+        ...(approvalBinding === undefined
+          ? {}
+          : { approvers: approvalBinding.approvers }),
+        risks,
+      },
+      ...(assignmentBinding === undefined ? {} : { assignmentBinding }),
+      ...(approvalBinding === undefined ? {} : { approvalBinding }),
+      ...(approvalActors === undefined ? {} : { approvalActors }),
+      roleMappings,
+    };
+  }
+
+  private async resolvePreflight(
+    actor: WorkflowActor,
+    input: {
+      readonly workspaceId: string;
+      readonly definitionId?: string | undefined;
+      readonly definitionVersion?: number | undefined;
+      readonly assignmentBindings?:
+        | Record<string, InstanceAssignmentInput>
+        | undefined;
+      readonly approvalBindings?:
+        | Record<string, InstanceApprovalInput>
+        | undefined;
+    },
+  ): Promise<ResolvedWorkflowPreflight> {
+    const definition = this.definitionForPreflight(
+      input.workspaceId,
+      input.definitionId,
+      input.definitionVersion,
+    );
+    const knownNodeIds = new Set(definition.graph.nodes.map((node) => node.id));
+    const risks: WorkflowPreflightRisk[] = [];
+    for (const nodeId of [
+      ...Object.keys(input.assignmentBindings ?? {}),
+      ...Object.keys(input.approvalBindings ?? {}),
+    ]) {
+      if (knownNodeIds.has(nodeId)) continue;
+      risks.push({
+        level: "blocking",
+        code: "unknown_node",
+        nodeId,
+        message: `绑定引用的节点「${nodeId}」不在该模板里`,
+      });
+    }
+    const resolvedAt = iso(this.now());
+    const resolved = await Promise.all(
+      definition.graph.nodes.map((node) =>
+        this.resolveNodePreflight(
+          actor,
+          input.workspaceId,
+          node,
+          input.assignmentBindings?.[node.id],
+          input.approvalBindings?.[node.id],
+          resolvedAt,
+        ),
+      ),
+    );
+    for (const item of resolved) risks.push(...item.node.risks);
+    const assignmentBindings = Object.fromEntries(
+      resolved.flatMap((item) =>
+        item.assignmentBinding === undefined
+          ? []
+          : [[item.node.nodeId, item.assignmentBinding] as const],
+      ),
+    );
+    const approvalBindings = Object.fromEntries(
+      resolved.flatMap((item) =>
+        item.approvalBinding === undefined
+          ? []
+          : [[item.node.nodeId, item.approvalBinding] as const],
+      ),
+    );
+    const approvalActors = Object.fromEntries(
+      resolved.flatMap((item) =>
+        item.approvalActors === undefined
+          ? []
+          : [[item.node.nodeId, item.approvalActors] as const],
+      ),
+    );
+    return {
+      result: {
+        definitionId: definition.id,
+        definitionVersion: definition.version,
+        scope: definitionScope(definition),
+        nodes: resolved.map((item) => item.node),
+        risks,
+        canStart: !risks.some((risk) => risk.level === "blocking"),
+      },
+      assignmentBindings,
+      approvalBindings,
+      approvalActors,
+      roleIdByReference: new Map(
+        resolved.flatMap((item) => item.roleMappings),
+      ),
+    };
+  }
+
+  async preflightInstance(
+    actor: WorkflowActor,
+    input: {
+      readonly workspaceId: string;
+      readonly definitionId?: string | undefined;
+      readonly definitionVersion?: number | undefined;
+      readonly assignmentBindings?:
+        | Record<string, InstanceAssignmentInput>
+        | undefined;
+      readonly approvalBindings?:
+        | Record<string, InstanceApprovalInput>
+        | undefined;
+    },
+  ): Promise<WorkflowPreflightResult> {
+    this.requireWorkflowStarter(actor);
+    return (await this.resolvePreflight(actor, input)).result;
+  }
+
+  private applyResolvedBindings(
+    instance: WorkflowInstance,
+    resolved: ResolvedWorkflowPreflight,
+  ): WorkflowInstance {
+    const nodes = { ...instance.nodes };
+    for (const [nodeId, binding] of Object.entries(
+      resolved.assignmentBindings,
+    )) {
+      const state = nodes[nodeId];
+      if (
+        state === undefined ||
+        binding.dispatchMode !== "assigned" ||
+        binding.primaryAssignee === undefined
+      ) {
+        continue;
+      }
+      const requiresOverride =
+        binding.source.kind === "role" ||
+        binding.source.id === undefined ||
+        binding.source.id !== binding.primaryAssignee.id;
+      if (!requiresOverride) continue;
+      nodes[nodeId] = {
+        ...state,
+        receiverOverride: {
+          type:
+            binding.primaryAssignee.kind === "user" ? "human" : "agent",
+          id: binding.primaryAssignee.id,
+          ...(binding.primaryAssignee.name === undefined
+            ? {}
+            : { name: binding.primaryAssignee.name }),
+          at: binding.resolvedAt,
+        },
+        assignedTo:
+          binding.primaryAssignee.name ?? binding.primaryAssignee.id,
+      };
+    }
+    for (const [nodeId, actors] of Object.entries(resolved.approvalActors)) {
+      const state = nodes[nodeId];
+      if (state === undefined) continue;
+      nodes[nodeId] = {
+        ...state,
+        approvals: Object.fromEntries(
+          actors.map((approver) => [
+            `${nodeId}:${approver.id}`,
+            { approver, status: "pending" as const },
+          ]),
+        ),
+        assignedTo: actors[0]?.name ?? actors[0]?.id ?? state.assignedTo,
+      };
+    }
+    return { ...instance, nodes };
+  }
+
+  startInstance(
+    actor: WorkflowActor,
+    input: StartWorkflowInput,
+  ): Promise<WorkflowInstance> {
+    this.requireWorkflowStarter(actor);
     return this.enqueue(async () => {
-      const definitions = this.sharedDefinitions();
-      const definition =
-        input.definitionId === undefined
-          ? definitions.find((item) => item.status === "active")
-          : definitions.find((item) => item.id === input.definitionId);
-      if (definition === undefined) {
-        throw new WorkflowError(
-          "not_found",
-          "active workflow definition not found",
+      const requestedDefinition = this.definitionForPreflight(
+        input.workspaceId,
+        input.definitionId,
+        input.definitionVersion,
+      );
+      const assignmentInputs: Record<string, InstanceAssignmentInput> = {
+        ...input.assignmentBindings,
+      };
+      const approvalInputs: Record<string, InstanceApprovalInput> = {
+        ...input.approvalBindings,
+      };
+      for (const [nodeId, assignee] of Object.entries(input.assignees ?? {})) {
+        const node = requestedDefinition.graph.nodes.find(
+          (item) => item.id === nodeId,
+        );
+        if (node?.type === "approval") {
+          if (approvalInputs[nodeId] === undefined) {
+            approvalInputs[nodeId] = {
+              approvers: [assignee],
+            };
+          }
+        } else if (assignmentInputs[nodeId] === undefined) {
+          assignmentInputs[nodeId] = {
+            dispatchMode: "assigned",
+            primaryAssignee: assignee,
+          };
+        }
+      }
+      const resolvedPreflight = await this.resolvePreflight(actor, {
+        workspaceId: input.workspaceId,
+        definitionId: input.definitionId,
+        definitionVersion: input.definitionVersion,
+        assignmentBindings: assignmentInputs,
+        approvalBindings: approvalInputs,
+      });
+      const definition = this.definitionForPreflight(
+        input.workspaceId,
+        resolvedPreflight.result.definitionId,
+        resolvedPreflight.result.definitionVersion,
+      );
+      const responsibleErrors = this.responsibleReferenceIssues(
+        definition.graph,
+        input.workspaceId,
+      ).filter((issue) => issue.level === "error");
+      if (!resolvedPreflight.result.canStart) {
+        await this.auditUnresolvedPreflight(
+          actor,
+          input.workspaceId,
+          resolvedPreflight,
         );
       }
-      const identityErrors = this.actorReferenceIssues(
-        definition.graph,
-        input.workspaceId,
-      ).filter((issue) => issue.level === "error");
-      const agentErrors = this.agentReferenceIssues(
-        definition.graph,
-        input.workspaceId,
-      ).filter((issue) => issue.level === "error");
-      const roleErrors = this.roleReferenceIssues(
-        definition.graph,
-        input.workspaceId,
-      ).filter((issue) => issue.level === "error");
-      if (
-        identityErrors.length > 0 ||
-        agentErrors.length > 0 ||
-        roleErrors.length > 0
-      ) {
+      if (!resolvedPreflight.result.canStart || responsibleErrors.length > 0) {
         throw new WorkflowError(
           "invalid_input",
-          [...identityErrors, ...agentErrors, ...roleErrors]
-            .map((issue) => issue.message)
-            .join("; "),
+          [
+            ...resolvedPreflight.result.risks
+              .filter((risk) => risk.level === "blocking")
+              .map((risk) => risk.message),
+            ...responsibleErrors.map((issue) => issue.message),
+          ].join("; "),
         );
       }
       const related = [
@@ -2906,8 +4414,9 @@ export class WorkflowService {
       const roleSnapshot = this.roleSnapshotFor(
         definition.graph,
         input.workspaceId,
+        resolvedPreflight.roleIdByReference,
       );
-      const instance: WorkflowInstance = {
+      const instanceBase: WorkflowInstance = {
         id: randomUUID(),
         workspaceId: input.workspaceId,
         definitionId: definition.id,
@@ -2920,6 +4429,8 @@ export class WorkflowService {
           : { sessionId: input.sessionId }),
         relatedSessionIds: related,
         roleSnapshot,
+        assignmentBindings: resolvedPreflight.assignmentBindings,
+        approvalBindings: resolvedPreflight.approvalBindings,
         context: {
           ...Object.fromEntries(
             definition.graph.variables.map((item) => [item.name, item.value]),
@@ -2936,61 +4447,10 @@ export class WorkflowService {
         createdAt: timestamp,
         updatedAt: timestamp,
       };
-      // 实例创建时可对「指派给项目角色」的节点指定具体执行人；
-      // 没指定的角色节点保持角色不变，执行时按当刻成员展开。
-      for (const [nodeId, assignee] of Object.entries(input.assignees ?? {})) {
-        const node = definition.graph.nodes.find((item) => item.id === nodeId);
-        if (node === undefined) {
-          throw new WorkflowError(
-            "invalid_input",
-            `指定执行人的节点「${nodeId}」不在该模板里`,
-          );
-        }
-        const nodeRoleIds = [
-          ...(node.executor.kind === "role" ? [node.executor.id] : []),
-          ...node.approvers
-            .filter((approver) => approver.kind === "role")
-            .map((approver) => approver.id),
-        ];
-        if (nodeRoleIds.length === 0) {
-          throw new WorkflowError(
-            "invalid_input",
-            `节点「${node.name}」的执行人不是项目角色，无需在创建实例时指定执行人`,
-          );
-        }
-        if (node.type === "approval") {
-          // 审批节点：把「角色审批人」就地换成指定的那个人 / teammate。
-          const approver = {
-            kind:
-              assignee.kind === "user" ? ("user" as const) : ("agent" as const),
-            id: assignee.id,
-            name: assignee.name ?? assignee.id,
-          };
-          const state = instance.nodes[nodeId]!;
-          instance.nodes[nodeId] = {
-            ...state,
-            approvals: Object.fromEntries(
-              Object.entries(state.approvals).map(([key, approval]) =>
-                approval.approver.kind === "role"
-                  ? [key, { ...approval, approver }]
-                  : [key, approval],
-              ),
-            ),
-            assignedTo: approver.name,
-          };
-          continue;
-        }
-        instance.nodes[nodeId] = {
-          ...instance.nodes[nodeId]!,
-          receiverOverride: {
-            type: assignee.kind === "user" ? "human" : "agent",
-            id: assignee.id,
-            ...(assignee.name === undefined ? {} : { name: assignee.name }),
-            at: timestamp,
-          },
-          assignedTo: assignee.name ?? assignee.id,
-        };
-      }
+      const instance = this.applyResolvedBindings(
+        instanceBase,
+        resolvedPreflight,
+      );
       for (const nodeId of definition.graph.startNodeIds) {
         instance.nodes[nodeId] = {
           ...instance.nodes[nodeId]!,
@@ -3008,6 +4468,38 @@ export class WorkflowService {
         message: `启动工作流：${input.title}`,
         data: { definition: `${definition.name} v${definition.version}` },
       });
+      for (const binding of Object.values(
+        resolvedPreflight.assignmentBindings,
+      )) {
+        await this.appendEvent(instance, {
+          nodeId: binding.nodeId,
+          kind: "assignment.resolved",
+          actor,
+          message: `已解析节点「${definition.graph.nodes.find((node) => node.id === binding.nodeId)?.name ?? binding.nodeId}」的执行人`,
+          data: {
+            templateBinding: binding.source,
+            resolvedBinding: {
+              primaryAssignee: binding.primaryAssignee,
+              candidatePool: binding.candidatePool,
+            },
+            dispatchMode: binding.dispatchMode,
+          },
+        });
+        if (binding.sourceChanged !== undefined) {
+          await this.appendEvent(instance, {
+            nodeId: binding.nodeId,
+            kind: "assignment.remapped",
+            actor,
+            message: `节点「${definition.graph.nodes.find((node) => node.id === binding.nodeId)?.name ?? binding.nodeId}」执行人已重新映射`,
+            data: {
+              templateBinding: binding.source,
+              resolvedBinding: binding.primaryAssignee,
+              sourceChanged: binding.sourceChanged,
+              dispatchMode: binding.dispatchMode,
+            },
+          });
+        }
+      }
       const started = await this.putInstance(instance);
       const tasksCreated = await this.syncNodeTasks(started);
       const dispatched = await this.autoDispatchAgentNodes(actor, tasksCreated);
@@ -3029,7 +4521,7 @@ export class WorkflowService {
       const state = current.nodes[node.id];
       if (state?.status !== "ready" || node.subworkflowKey === undefined)
         continue;
-      const definitions = this.sharedDefinitions();
+      const definitions = this.visibleDefinitions(current.workspaceId);
       const childDefinition = definitions.find(
         (item) =>
           item.key === node.subworkflowKey &&
@@ -3052,11 +4544,36 @@ export class WorkflowService {
         });
         continue;
       }
+      const childPreflight = await this.resolvePreflight(actor, {
+        workspaceId: current.workspaceId,
+        definitionId: childDefinition.id,
+        definitionVersion: childDefinition.version,
+      });
+      if (!childPreflight.result.canStart) {
+        current.nodes[node.id] = {
+          ...state,
+          status: "blocked",
+          note: childPreflight.result.risks
+            .filter((risk) => risk.level === "blocking")
+            .map((risk) => risk.message)
+            .join("；"),
+        };
+        current = await this.putInstance(current);
+        await this.appendEvent(current, {
+          nodeId: node.id,
+          kind: "subworkflow.unresolved",
+          actor,
+          message: `子流程存在未解析执行人：${node.subworkflowKey}`,
+          data: { risks: childPreflight.result.risks },
+        });
+        continue;
+      }
       const child = await this.createChildInstance(
         actor,
         current,
         node,
         childDefinition,
+        childPreflight,
       );
       current.nodes[node.id] = {
         ...current.nodes[node.id]!,
@@ -3080,9 +4597,10 @@ export class WorkflowService {
     parent: WorkflowInstance,
     node: WorkflowNode,
     definition: WorkflowDefinition,
+    resolvedPreflight: ResolvedWorkflowPreflight,
   ): Promise<WorkflowInstance> {
     const timestamp = iso(this.now());
-    const child: WorkflowInstance = {
+    const childBase: WorkflowInstance = {
       id: randomUUID(),
       workspaceId: parent.workspaceId,
       definitionId: definition.id,
@@ -3094,7 +4612,13 @@ export class WorkflowService {
         ? {}
         : { sessionId: parent.sessionId }),
       relatedSessionIds: [...parent.relatedSessionIds],
-      roleSnapshot: this.roleSnapshotFor(definition.graph, parent.workspaceId),
+      roleSnapshot: this.roleSnapshotFor(
+        definition.graph,
+        parent.workspaceId,
+        resolvedPreflight.roleIdByReference,
+      ),
+      assignmentBindings: resolvedPreflight.assignmentBindings,
+      approvalBindings: resolvedPreflight.approvalBindings,
       context: Object.fromEntries(
         definition.graph.variables.map((item) => [item.name, item.value]),
       ),
@@ -3110,6 +4634,10 @@ export class WorkflowService {
       createdAt: timestamp,
       updatedAt: timestamp,
     };
+    const child = this.applyResolvedBindings(
+      childBase,
+      resolvedPreflight,
+    );
     for (const nodeId of definition.graph.startNodeIds) {
       child.nodes[nodeId] = {
         ...child.nodes[nodeId]!,
@@ -3583,10 +5111,12 @@ export class WorkflowService {
       trigger: "manual-dispatch" | "auto-on-ready";
     },
   ): Promise<{ instance: WorkflowInstance; run?: AgentRunView }> {
-    const { instance, node } = this.requireNode(
+    const resolved = this.requireNode(
       this.instance(input.instanceId),
       input.nodeId,
     );
+    const instance = resolved.instance;
+    const node = this.assignedDispatchNode(instance, resolved.node);
     const state = instance.nodes[node.id]!;
     if (state.executorFallback !== undefined)
       throw new WorkflowError(
@@ -3906,6 +5436,36 @@ export class WorkflowService {
         : this.options
             .principals?.()
             ?.resolveSubject("employee", employeeTarget.employee.id)?.id);
+    const permission = this.options.permission?.();
+    if (permission !== undefined && principalId !== undefined) {
+      const decision = await permission.resolve({
+        workspaceId: instance.workspaceId,
+        principalId,
+        requestedActions: ["read", "write"],
+        requestedResources: [`workflow/${instance.id}/${node.id}`],
+      });
+      if (!decision.allowed) {
+        const message =
+          decision.reasons.join("；") ||
+          "项目权限与节点负责人权限交集不足";
+        if (!isAuto) throw new WorkflowError("forbidden", message);
+        const blocked = await this.putInstance({
+          ...instance,
+          nodes: {
+            ...instance.nodes,
+            [node.id]: { ...state, status: "blocked", note: message },
+          },
+        });
+        await this.appendEvent(blocked, {
+          nodeId: node.id,
+          kind: "agent.dispatch_failed",
+          actor: { kind: "system", id: "workflow", name: "系统" },
+          message,
+          data: { principalId },
+        });
+        return { instance: blocked };
+      }
+    }
     if (employeeTarget !== undefined) {
       if (employees === undefined || actor.kind !== "user") {
         const message = "AI伙伴运行需要有效的真人操作上下文";
@@ -4193,6 +5753,20 @@ export class WorkflowService {
             }),
       },
     });
+    if (isAuto) {
+      await this.appendEvent(updated, {
+        nodeId: node.id,
+        kind: "node.auto_dispatched",
+        actor: { kind: "system", id: "workflow", name: "系统" },
+        message: `节点「${node.name}」已自动派发`,
+        data: {
+          runId: run.id,
+          primaryAssignee:
+            instance.assignmentBindings[node.id]?.primaryAssignee,
+          dispatchMode: "assigned",
+        },
+      });
+    }
     await this.syncAgentRun(updated, node.id, run);
     return { instance: updated, run };
   }
@@ -4206,12 +5780,21 @@ export class WorkflowService {
     if (definition === undefined) return instance;
     let current = instance;
     for (const node of definition.graph.nodes) {
+      const dispatchNode = this.assignedDispatchNode(current, node);
       if (
-        node.type !== "task" ||
-        !["agent", "employee"].includes(node.executor.kind)
+        dispatchNode.type !== "task" ||
+        !["agent", "employee"].includes(dispatchNode.executor.kind)
       )
         continue;
-      if (node.execution !== "task-worker" || node.trigger !== "auto-on-ready")
+      const binding = current.assignmentBindings[node.id];
+      const assignedAi =
+        binding?.dispatchMode === "assigned" &&
+        binding.primaryAssignee?.kind === "agent" &&
+        !["agent", "employee"].includes(node.executor.kind);
+      if (
+        dispatchNode.execution !== "task-worker" ||
+        (dispatchNode.trigger !== "auto-on-ready" && !assignedAi)
+      )
         continue;
       if (current.nodes[node.id]?.status !== "ready") continue;
       // 已转交 owner 人工处理的节点不再自动派发。
@@ -4658,9 +6241,35 @@ export class WorkflowService {
     if (actor.kind !== "user") return false;
     if (isManager(actor)) return true;
     if (node.type === "service" || node.type === "subworkflow") return false;
+    const assignmentBinding = instance.assignmentBindings[node.id];
+    if (
+      assignmentBinding?.primaryAssignee?.kind === "user" &&
+      assignmentBinding.primaryAssignee.id === actor.id
+    ) {
+      return true;
+    }
+    if (
+      assignmentBinding?.candidatePool?.some(
+        (candidate) => candidate.kind === "user" && candidate.id === actor.id,
+      ) === true
+    ) {
+      return true;
+    }
+    if (
+      instance.approvalBindings[node.id]?.approvers.some(
+        (approver) => approver.kind === "user" && approver.id === actor.id,
+      ) === true
+    ) {
+      return true;
+    }
     // 项目角色执行人 / 审批人：该项目该角色当前任一成员都能操作节点（或签）。
     const roleIds = [
-      ...(node.executor.kind === "role" ? [node.executor.id] : []),
+      ...(assignmentBinding?.source.kind === "role" &&
+      assignmentBinding.source.id !== undefined
+        ? [assignmentBinding.source.id]
+        : node.executor.kind === "role"
+          ? [node.executor.id]
+          : []),
       ...node.approvers
         .filter((approver) => approver.kind === "role")
         .map((approver) => approver.id),
@@ -4685,11 +6294,53 @@ export class WorkflowService {
     );
   }
 
-  private isAgentWorkerNode(node: WorkflowNode): boolean {
+  private assignedDispatchNode(
+    instance: WorkflowInstance,
+    node: WorkflowNode,
+  ): WorkflowNode {
+    const binding = instance.assignmentBindings[node.id];
+    if (
+      binding?.dispatchMode !== "assigned" ||
+      binding.primaryAssignee?.kind !== "agent" ||
+      ["agent", "employee"].includes(node.executor.kind)
+    ) {
+      return node;
+    }
+    const teammate = this.options
+      .teammates?.()
+      ?.list()
+      .find(
+        (item) =>
+          item.id === binding.primaryAssignee!.id ||
+          (item.employeeId !== undefined &&
+            item.employeeId === binding.primaryAssignee!.id),
+      );
+    const employeeId = teammate?.employeeId ?? binding.primaryAssignee.id;
+    const employeeTarget = this.options
+      .employee?.()
+      ?.workflowTarget(employeeId, instance.workspaceId);
+    return {
+      ...node,
+      executor: {
+        kind: employeeTarget === undefined ? "agent" : "employee",
+        id: binding.primaryAssignee.id,
+        label: binding.primaryAssignee.name ?? binding.primaryAssignee.id,
+      },
+      execution: "task-worker",
+      trigger: "auto-on-ready",
+    };
+  }
+
+  private isAgentWorkerNode(
+    node: WorkflowNode,
+    instance?: WorkflowInstance | undefined,
+  ): boolean {
+    const dispatchNode =
+      instance === undefined ? node : this.assignedDispatchNode(instance, node);
     return (
-      node.type === "task" &&
-      ["agent", "employee"].includes(node.executor.kind) &&
-      node.execution === "task-worker"
+      dispatchNode.type === "task" &&
+      ["agent", "employee"].includes(dispatchNode.executor.kind) &&
+      dispatchNode.execution === "task-worker"
     );
   }
 
@@ -5228,7 +6879,7 @@ export class WorkflowService {
       const synced = this.syncDeliverableStates(instance);
       const currentState = synced.nodes[input.nodeId]!;
       const agentIntervention =
-        input.force === true && this.isAgentWorkerNode(node);
+        input.force === true && this.isAgentWorkerNode(node, instance);
       if (currentState.status !== "ready" && !agentIntervention) {
         throw new WorkflowError(
           "conflict",
@@ -5314,7 +6965,7 @@ export class WorkflowService {
         this.instance(input.instanceId),
         input.nodeId,
       );
-      if (!this.isAgentWorkerNode(node)) {
+      if (!this.isAgentWorkerNode(node, instance)) {
         throw new WorkflowError(
           "invalid_input",
           "只有 Agent 或 AI伙伴节点支持人工取消",
@@ -5698,22 +7349,30 @@ export class WorkflowService {
       status: "active" | "disabled" | "archived";
     },
   ): Promise<WorkflowDefinition> {
-    if (!isManager(actor)) {
-      throw new WorkflowError(
-        "forbidden",
-        "workspace owner or admin is required",
-      );
-    }
     return this.enqueue(async () => {
       const definition = this.definition(input.definitionId);
       if (definition === undefined) {
         throw new WorkflowError("not_found", "workflow definition not found");
       }
+      const scope = definitionScope(definition);
+      if (
+        (scope === "platform" &&
+          (actor.kind !== "user" || actor.globalRole !== "admin")) ||
+        (scope === "project" &&
+          (definition.workspaceId !== input.workspaceId ||
+            !isManager(actor)))
+      ) {
+        throw new WorkflowError(
+          "forbidden",
+          scope === "platform"
+            ? "platform admin is required"
+            : "workspace owner or admin is required for the owning project",
+        );
+      }
       const timestamp = iso(this.now());
       if (input.status === "active") {
-        for (const item of this.sharedDefinitions().filter(
+        for (const item of this.definitionVersionPeers(definition).filter(
           (candidate) =>
-            candidate.key === definition.key &&
             candidate.status === "active" &&
             candidate.id !== definition.id,
         )) {
@@ -5748,6 +7407,67 @@ export class WorkflowService {
                 ? "停用"
                 : "归档"
           }模板：${next.name} v${next.version}`,
+        },
+      );
+      return next;
+    });
+  }
+
+  setDefinitionScope(
+    actor: WorkflowActor,
+    input: {
+      definitionId: string;
+      scope: WorkflowScope;
+    },
+  ): Promise<WorkflowDefinition> {
+    if (actor.kind !== "user" || actor.globalRole !== "admin") {
+      throw new WorkflowError("forbidden", "platform admin is required");
+    }
+    return this.enqueue(async () => {
+      const definition = this.definition(input.definitionId);
+      if (definition === undefined) {
+        throw new WorkflowError("not_found", "workflow definition not found");
+      }
+      if (definitionScope(definition) === input.scope) return definition;
+      const peers = this.definitionVersionPeers({
+        scope: input.scope,
+        workspaceId: definition.workspaceId,
+        key: definition.key,
+      }).filter((candidate) => candidate.id !== definition.id);
+      if (peers.some((candidate) => candidate.version === definition.version)) {
+        throw new WorkflowError(
+          "conflict",
+          `target scope already has ${definition.key} v${definition.version}`,
+        );
+      }
+      const timestamp = iso(this.now());
+      if (definition.status === "active") {
+        for (const peer of peers.filter(
+          (candidate) => candidate.status === "active",
+        )) {
+          await this.tables.definitions.put(peer.id, {
+            ...peer,
+            status: "archived",
+            updatedAt: timestamp,
+          });
+        }
+      }
+      const next = workflowDefinitionSchema.parse({
+        ...definition,
+        scope: input.scope,
+        updatedAt: timestamp,
+      });
+      await this.tables.definitions.put(next.id, next);
+      await this.appendEvent(
+        { id: next.id, workspaceId: next.workspaceId },
+        {
+          kind: "definition.scope",
+          actor,
+          message: `将模板「${next.name}」v${next.version} 作用域切换为 ${input.scope}`,
+          data: {
+            previousScope: definitionScope(definition),
+            scope: input.scope,
+          },
         },
       );
       return next;
@@ -6129,10 +7849,21 @@ export function createWorkflowRoutes(
         assertMethod(request, response, "GET");
         const workspaceId = requireWorkspace(request);
         const actor = browserActor(requireTeam(), request, workspaceId);
+        const scopeValue = queryParam(request, "scope");
+        if (
+          scopeValue !== undefined &&
+          scopeValue !== "project" &&
+          scopeValue !== "platform"
+        ) {
+          throw new WorkflowError(
+            "invalid_input",
+            "scope must be project or platform",
+          );
+        }
         sendJson(response, 200, {
           ok: true,
           definitions: service
-            .sharedDefinitions()
+            .visibleDefinitions(workspaceId, scopeValue)
             .map((definition) => enrichExecutorLabels(definition, workspaceId)),
           actor,
         });
@@ -6144,15 +7875,29 @@ export function createWorkflowRoutes(
       handler: async (request, response) => {
         assertMethod(request, response, "POST");
         const body = z
-          .object({ workspaceId: z.string(), sourceMd: z.string() })
+          .object({
+            workspaceId: z.string(),
+            sourceMd: z.string(),
+            scope: z.enum(["project", "platform"]).default("project"),
+          })
           .parse(await readBody(request));
         const actor = browserActor(requireTeam(), request, body.workspaceId);
-        if (!isManager(actor))
+        if (
+          (body.scope === "project" && !isManager(actor)) ||
+          (body.scope === "platform" &&
+            (actor.globalRole !== "admin" || actor.kind !== "user"))
+        )
           throw new WorkflowError(
             "forbidden",
-            "workspace owner or admin is required",
+            body.scope === "platform"
+              ? "platform admin is required"
+              : "workspace owner or admin is required",
           );
-        const result = service.validate(body.sourceMd);
+        const result = service.validate(
+          body.sourceMd,
+          body.scope === "platform" ? undefined : body.workspaceId,
+          { scope: body.scope },
+        );
         sendJson(response, 200, { ok: true, ...result });
       },
     },
@@ -6165,6 +7910,7 @@ export function createWorkflowRoutes(
           .object({
             workspaceId: z.string(),
             sourceMd: z.string(),
+            scope: z.enum(["project", "platform"]).default("project"),
             activate: z.boolean().default(true),
           })
           .parse(await readBody(request));
@@ -6460,6 +8206,35 @@ export function createWorkflowRoutes(
     },
     {
       kind: "exact",
+      path: "/api/collab/workflow/instances/preflight",
+      handler: async (request, response) => {
+        assertMethod(request, response, "POST");
+        const body = z
+          .object({
+            workspaceId: z.string().min(1),
+            definitionId: z.string().min(1).optional(),
+            definitionVersion: z.number().int().positive().optional(),
+            assignmentBindings: z
+              .record(
+                z.string().min(1).max(160),
+                instanceAssignmentInputSchema,
+              )
+              .default({}),
+            approvalBindings: z
+              .record(
+                z.string().min(1).max(160),
+                instanceApprovalInputSchema,
+              )
+              .default({}),
+          })
+          .parse(await readBody(request));
+        const actor = browserActor(requireTeam(), request, body.workspaceId);
+        const result = await service.preflightInstance(actor, body);
+        sendJson(response, 200, { ok: true, ...result });
+      },
+    },
+    {
+      kind: "exact",
       path: "/api/collab/workflow/instances/start",
       handler: async (request, response) => {
         assertMethod(request, response, "POST");
@@ -6467,6 +8242,7 @@ export function createWorkflowRoutes(
           .object({
             workspaceId: z.string(),
             definitionId: z.string().optional(),
+            definitionVersion: z.number().int().positive().optional(),
             title: z.string().min(1).max(160),
             sessionId: z.string().optional(),
             relatedSessionIds: z.array(z.string()).default([]),
@@ -6485,6 +8261,18 @@ export function createWorkflowRoutes(
                   id: z.string().min(1).max(160),
                   name: z.string().min(1).max(160).optional(),
                 }),
+              )
+              .default({}),
+            assignmentBindings: z
+              .record(
+                z.string().min(1).max(160),
+                instanceAssignmentInputSchema,
+              )
+              .default({}),
+            approvalBindings: z
+              .record(
+                z.string().min(1).max(160),
+                instanceApprovalInputSchema,
               )
               .default({}),
           })
@@ -6678,6 +8466,23 @@ export function createWorkflowRoutes(
         sendJson(response, 200, { ok: true, definition });
       },
     },
+    {
+      kind: "exact",
+      path: "/api/collab/workflow/definitions/scope",
+      handler: async (request, response) => {
+        assertMethod(request, response, "POST");
+        const body = z
+          .object({
+            workspaceId: z.string().min(1),
+            definitionId: z.string().min(1),
+            scope: z.enum(["project", "platform"]),
+          })
+          .parse(await readBody(request));
+        const actor = browserActor(requireTeam(), request, body.workspaceId);
+        const definition = await service.setDefinitionScope(actor, body);
+        sendJson(response, 200, { ok: true, definition });
+      },
+    },
   ];
 
   return routes.map((route) => ({
@@ -6786,8 +8591,13 @@ export async function apply(
       teammateRuntime: () => ctx.get("collabTeammateRuntime"),
       teammates: () => ctx.get("collabTeammates"),
       roles: () => ctx.get("collabAssignment"),
+      projects: () => ctx.get("collabProjects"),
       principals: () => ctx.get("collabPrincipal"),
       principalRuntime: () => ctx.get("collabPrincipalRuntime"),
+      permission: () =>
+        ctx.get("collabPermission") as
+          | WorkflowPermissionServiceLike
+          | undefined,
       onEvent: (event) => {
         try {
           (
@@ -6856,6 +8666,7 @@ export async function apply(
       },
     },
   );
+  await service.migrateLegacyDefinitions();
   ctx.provide("collabWorkflow", service);
   ctx.effect(() => () => void domain.close());
   ctx.inject(["collabContext"], (child) => {
@@ -7009,6 +8820,31 @@ export async function apply(
         },
       ) =>
         service.handleTaskAssignedAfterPersist(task, taskWorkflowActor(actor)),
+      claimed: (
+        task: Parameters<WorkflowService["handleTaskClaimed"]>[0],
+        actor: {
+          id: string;
+          name: string;
+          kind: "human" | "agent" | "system";
+          role?: WorkflowActor["globalRole"];
+        },
+      ) =>
+        service.handleTaskClaimed(task, taskWorkflowActor(actor)),
+      claimRejected: (
+        task: Parameters<WorkflowService["handleTaskClaimRejected"]>[0],
+        actor: {
+          id: string;
+          name: string;
+          kind: "human" | "agent" | "system";
+          role?: WorkflowActor["globalRole"];
+        },
+        reason: string,
+      ) =>
+        service.handleTaskClaimRejected(
+          task,
+          taskWorkflowActor(actor),
+          reason,
+        ),
       decide: (
         task: Parameters<WorkflowService["handleTaskDecision"]>[0],
         actor: {

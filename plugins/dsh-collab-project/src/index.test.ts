@@ -285,6 +285,8 @@ function createHarness(options: HarnessOptions = {}) {
     { id: "mia", name: "Mia", role: "member" },
   ];
   const addedMembers: Array<{ userId: string; role: string }> = [];
+  const allowWorkspaceOwnerCalls: string[] = [];
+  const selfOwnerBootstrapCalls: string[] = [];
   const identityAudit: Array<{
     id: string;
     at: string;
@@ -318,7 +320,17 @@ function createHarness(options: HarnessOptions = {}) {
         userId: string;
         role: "owner" | "member" | "guest";
       },
+      options?: {
+        readonly allowWorkspaceOwner?: boolean;
+        readonly allowSelfOwnerBootstrap?: boolean;
+      },
     ) {
+      if (options?.allowWorkspaceOwner === true) {
+        allowWorkspaceOwnerCalls.push(input.userId);
+      }
+      if (options?.allowSelfOwnerBootstrap === true) {
+        selfOwnerBootstrapCalls.push(input.userId);
+      }
       addedMembers.push({ userId: input.userId, role: input.role });
       const next = {
         userId: input.userId,
@@ -550,9 +562,24 @@ function createHarness(options: HarnessOptions = {}) {
           },
         ]
       : [];
+  const projectManagers = new Map<
+    string,
+    {
+      id: string;
+      name: string;
+      ownerUserId: string;
+      ownerName: string;
+      source: "platform";
+      avatar: string;
+    }
+  >();
   const teammates = {
-    assignable: (actor?: { userId: string }) =>
+    assignable: (actor?: { userId: string }, workspaceId?: string) =>
       [
+        ...(workspaceId === undefined ||
+        projectManagers.get(workspaceId) === undefined
+          ? []
+          : [projectManagers.get(workspaceId)!]),
         {
           id: "teammate-1",
           name: "Research Avatar",
@@ -595,13 +622,37 @@ function createHarness(options: HarnessOptions = {}) {
         },
       ].filter(
         (teammate) =>
-          actor === undefined || teammate.ownerUserId === actor.userId,
+          actor === undefined ||
+          teammate.ownerUserId === actor.userId ||
+          teammate.id === projectManagers.get(workspaceId ?? "")?.id,
       ),
     isSystemAgent: (ref: string) =>
       ref === "teammate-4" ||
       ref === "principal-ai-teammate-4" ||
       ref === "teammate-5" ||
-      ref === "principal-ai-teammate-5",
+      ref === "principal-ai-teammate-5" ||
+      [...projectManagers.values()].some((teammate) => teammate.id === ref),
+    isProjectManagedAgent: (ref: string) =>
+      [...projectManagers.values()].some((teammate) => teammate.id === ref),
+    ensureProjectManagerAgent: async (input: {
+      workspaceId: string;
+      projectName: string;
+    }) => {
+      const existing = projectManagers.get(input.workspaceId);
+      if (existing !== undefined) return existing;
+      const created = {
+        id: `tm-project-${input.workspaceId}`,
+        name: `${input.projectName}项目PM`,
+        ownerUserId: "platform",
+        ownerName: "平台",
+        source: "platform" as const,
+        avatar: "",
+      };
+      projectManagers.set(input.workspaceId, created);
+      return created;
+    },
+    projectManagerFor: (workspaceId: string) =>
+      projectManagers.get(workspaceId),
   };
   const meetingOutputs =
     options.outputs === true
@@ -861,9 +912,12 @@ function createHarness(options: HarnessOptions = {}) {
     members,
     users,
     addedMembers,
+    allowWorkspaceOwnerCalls,
+    selfOwnerBootstrapCalls,
     identityAudit,
     taskMarks,
     team,
+    teammates,
     workspaces,
     assignments,
     routes,
@@ -875,7 +929,7 @@ describe("project service", () => {
     const harness = createHarness();
     await harness.service.seedDefaults();
     await harness.service.seedDefaults();
-    expect(harness.service.roles()).toHaveLength(13);
+    expect(harness.service.roles()).toHaveLength(14);
     expect(harness.service.templates()).toHaveLength(3);
     expect(harness.service.role("role-owner")?.name).toBe("项目负责人");
     expect(harness.service.template("tpl-plugin-dev")?.roleIds).toContain(
@@ -913,6 +967,44 @@ describe("project service", () => {
     expect(first.code).toBe("PRJ000001");
     const second = await harness.service.upsertProject({ workspaceId: "ws-2" });
     expect(second.code).toBe("PRJ000002");
+  });
+
+  it("stores and removes project role mapping presets", async () => {
+    const harness = createHarness();
+    await harness.service.upsertProject({
+      workspaceId: "ws-1",
+      projectRoles: [
+        {
+          id: "role-reviewer",
+          name: "评审组",
+          code: "REVIEWER",
+          category: "评审",
+          description: "",
+          permissions: ["read", "write"],
+        },
+      ],
+    });
+    const saved = await harness.service.saveRoleMappingPreset({
+      workspaceId: "ws-1",
+      roleId: "role-reviewer",
+      assignees: [
+        { kind: "user", id: "olivia", name: "Olivia" },
+        { kind: "agent", id: "tm-reviewer", name: "评审伙伴" },
+      ],
+      updatedBy: "olivia",
+    });
+    expect(saved.roleMappingPresets["role-reviewer"]).toMatchObject({
+      roleId: "role-reviewer",
+      assignees: [
+        { kind: "user", id: "olivia", name: "Olivia" },
+        { kind: "agent", id: "tm-reviewer", name: "评审伙伴" },
+      ],
+    });
+    const removed = await harness.service.removeRoleMappingPreset({
+      workspaceId: "ws-1",
+      roleId: "role-reviewer",
+    });
+    expect(removed.roleMappingPresets["role-reviewer"]).toBeUndefined();
   });
 
   it("assigns stable PRJ codes when auto-provisioning projects", async () => {
@@ -1063,7 +1155,9 @@ describe("project routes", () => {
       taskId: "TSK-1",
     });
     expect(
-      body.outputs.find((output: { name: string }) => output.name === "input.pdf"),
+      body.outputs.find(
+        (output: { name: string }) => output.name === "input.pdf",
+      ),
     ).toMatchObject({
       sourceKind: "task",
       authorName: "Peter",
@@ -1081,16 +1175,17 @@ describe("project routes", () => {
       contentRole: "input",
     });
     expect(
-      body.outputs.find((output: { minuteVersionId?: string }) =>
-        output.minuteVersionId === "minute-version-1",
+      body.outputs.find(
+        (output: { minuteVersionId?: string }) =>
+          output.minuteVersionId === "minute-version-1",
       ),
     ).toMatchObject({
       sourceKind: "meeting",
       contentRole: "output",
     });
     expect(
-      body.outputs.find((output: { sourceKind: string }) =>
-        output.sourceKind === "data-agent",
+      body.outputs.find(
+        (output: { sourceKind: string }) => output.sourceKind === "data-agent",
       ),
     ).toMatchObject({
       sourceKind: "data-agent",
@@ -1212,8 +1307,18 @@ describe("project routes", () => {
       }),
     );
     expect(detail.status).toBe(200);
-    expect(detail.json().roles).toEqual([]);
-    expect(detail.json().members).toEqual([]);
+    expect(
+      detail
+        .json()
+        .roles.filter((role: { system?: boolean }) => role.system !== true),
+    ).toEqual([]);
+    expect(detail.json().members).toEqual([
+      expect.objectContaining({
+        id: "tm-project-ws-2",
+        kind: "agent",
+        name: "员工平台项目PM",
+      }),
+    ]);
     expect(detail.json().viewer.canManage).toBe(true);
   });
 
@@ -1242,9 +1347,9 @@ describe("project routes", () => {
     expect(response.status).toBe(200);
     const body = response.json();
     expect(body.project.counts).toMatchObject({
-      members: 3,
+      members: 4,
       humans: 2,
-      aiPartners: 1,
+      aiPartners: 2,
     });
     const peter = body.members.find((member: any) => member.id === "peter");
     expect(peter).toMatchObject({
@@ -1297,6 +1402,7 @@ describe("project routes", () => {
       },
     ]);
     expect(body.roles.map((role: any) => role.id)).toEqual([
+      "role-pm",
       "role-owner",
       "role-dev",
     ]);
@@ -1413,10 +1519,9 @@ describe("project routes", () => {
         },
       }),
     );
-    expect(
-      crossOwnerAgent.status,
-      JSON.stringify(crossOwnerAgent.json()),
-    ).toBe(200);
+    expect(crossOwnerAgent.status, JSON.stringify(crossOwnerAgent.json())).toBe(
+      200,
+    );
     expect(
       harness.assignments
         .seats("ws-1")
@@ -1650,6 +1755,7 @@ describe("project routes", () => {
             event.action === "member.leave" && event.targetId === "peter",
         ),
     ).toBe(true);
+    expect(harness.allowWorkspaceOwnerCalls).toContain("peter");
   });
 
   it("requires a project manager for edits and validates the owner", async () => {
@@ -1816,6 +1922,7 @@ describe("project routes", () => {
       harness.assignments.config("ws-1").seats.map((seat) => seat.id),
     ).toEqual([
       "role-owner",
+      "role-pm",
       "role-plan",
       "role-sourcing",
       "role-contract",
@@ -1853,6 +1960,7 @@ describe("project routes", () => {
     }
     const templateRoleIds = [
       "role-owner",
+      "role-pm",
       "role-req",
       "role-dev",
       "role-review",
@@ -2044,7 +2152,7 @@ describe("project routes", () => {
     expect(
       sources.map((source: { workspaceId: string }) => source.workspaceId),
     ).toEqual(["ws-2"]);
-    expect(sources[0].roles).toHaveLength(4);
+    expect(sources[0].roles).toHaveLength(5);
 
     // peter 是 ws-1 的成员，但不是 ws-2 的成员：不能把 ws-2 当复用来源。
     const asOwner = await call(
@@ -2374,7 +2482,9 @@ describe("project routes", () => {
         }),
       );
     }
-    expect(harness.service.project("ws-1")?.projectRoles).toEqual([]);
+    expect(
+      harness.service.project("ws-1")?.projectRoles.map((role) => role.id),
+    ).toEqual(["role-pm"]);
     const detailRoute = findRoute(
       harness.routes,
       "/api/collab/projects/detail",
@@ -2391,7 +2501,75 @@ describe("project routes", () => {
         .json()
         .roles.filter((role: { system?: boolean }) => role.system !== true),
     ).toEqual([]);
-    expect(harness.service.project("ws-1")?.projectRoles).toEqual([]);
+    expect(
+      harness.service.project("ws-1")?.projectRoles.map((role) => role.id),
+    ).toEqual(["role-pm"]);
+  });
+
+  it("saves role mapping presets for project managers and validates members", async () => {
+    const harness = createHarness();
+    await harness.service.seedDefaults();
+    const applyRoute = findRoute(
+      harness.routes,
+      "/api/collab/projects/templates/apply",
+    );
+    await call(
+      applyRoute,
+      fakeRequest("POST", "/api/collab/projects/templates/apply", {
+        token: "admin-token",
+        body: { workspaceId: "ws-1", templateId: "tpl-plugin-dev" },
+      }),
+    );
+    const saveRoute = findRoute(
+      harness.routes,
+      "/api/collab/projects/role-mappings/save",
+    );
+    const saved = await call(
+      saveRoute,
+      fakeRequest("POST", "/api/collab/projects/role-mappings/save", {
+        token: "admin-token",
+        body: {
+          workspaceId: "ws-1",
+          roleId: "role-owner",
+          assignees: [{ kind: "user", id: "olivia", name: "Olivia" }],
+        },
+      }),
+    );
+    expect(saved.status).toBe(200);
+    expect(
+      harness.service.project("ws-1")?.roleMappingPresets["role-owner"],
+    ).toMatchObject({
+      assignees: [{ kind: "user", id: "olivia", name: "Olivia" }],
+    });
+
+    const outsider = await call(
+      saveRoute,
+      fakeRequest("POST", "/api/collab/projects/role-mappings/save", {
+        token: "admin-token",
+        body: {
+          workspaceId: "ws-1",
+          roleId: "role-owner",
+          assignees: [{ kind: "user", id: "outsider", name: "Outsider" }],
+        },
+      }),
+    );
+    expect(outsider.status).toBe(400);
+
+    const removeRoute = findRoute(
+      harness.routes,
+      "/api/collab/projects/role-mappings/remove",
+    );
+    const removed = await call(
+      removeRoute,
+      fakeRequest("POST", "/api/collab/projects/role-mappings/remove", {
+        token: "admin-token",
+        body: { workspaceId: "ws-1", roleId: "role-owner" },
+      }),
+    );
+    expect(removed.status).toBe(200);
+    expect(
+      harness.service.project("ws-1")?.roleMappingPresets["role-owner"],
+    ).toBeUndefined();
   });
 
   it("keeps template and role library writes behind the platform admin", async () => {
@@ -2471,10 +2649,16 @@ describe("project routes", () => {
     expect(response.status).toBe(200);
     const report = response.json().report;
     expect(report.date).toBe("2026-10-16");
-    expect(report.generatedBy).toBe("项目 AI");
-    expect(report.content).toContain("## 今日结论");
-    expect(report.content).toContain("## 风险与待确认");
+    expect(report.generatedBy).toBe("一切皆插件项目PM");
+    expect(report.generatedByTeammateId).toBe("tm-project-ws-1");
+    expect(report.content).toContain("## RAG 结论");
+    expect(report.content).toContain("综合健康度判定为「风险」");
+    expect(report.content).toContain("## 指标快照");
+    expect(report.content).toContain("## 关键结果");
+    expect(report.content).toContain("## 风险与异常");
+    expect(report.content).toContain("## 待确认与下一步");
     expect(report.content).toContain("工作流「GUI 回归」当前阻塞");
+    expect(report.content).toContain("P1 任务 `TSK-1`");
     expect(report.content).toContain("`TSK-1`");
     expect(
       harness.service
@@ -2486,6 +2670,28 @@ describe("project routes", () => {
         ),
     ).toBe(true);
 
+    const weekly = await call(
+      generate,
+      fakeRequest("POST", "/api/collab/projects/reports/generate", {
+        token: "admin-token",
+        body: {
+          workspaceId: "ws-1",
+          reportType: "weekly",
+          triggerSource: "chat",
+        },
+      }),
+    );
+    expect(weekly.status).toBe(200);
+    expect(weekly.json().report).toMatchObject({
+      reportType: "weekly",
+      triggerSource: "chat",
+      skillId: "skill-project-reporting",
+      skillVersion: "1.0.0",
+    });
+    expect(weekly.json().report.content).toContain("## 本周结论");
+    expect(weekly.json().report.content).toContain("## 下周计划");
+    expect(weekly.json().report.sourceRefs).toContain("task:TSK-1");
+
     const list = findRoute(harness.routes, "/api/collab/projects/reports");
     const listed = await call(
       list,
@@ -2494,7 +2700,7 @@ describe("project routes", () => {
       }),
     );
     expect(listed.status).toBe(200);
-    expect(listed.json().reports).toHaveLength(1);
+    expect(listed.json().reports).toHaveLength(2);
 
     const denied = await call(
       generate,
@@ -2523,11 +2729,33 @@ describe("project routes", () => {
     );
     expect(response.status).toBe(201);
     expect(response.json().workspaceId).toBe("ws-2");
+    expect(response.json().projectManager).toMatchObject({
+      id: "tm-project-ws-2",
+      name: "新项目项目PM",
+      source: "platform",
+    });
     expect(harness.service.project("ws-2")).toMatchObject({
       ownerId: "peter",
       ownerName: "Peter",
       templateId: "tpl-plugin-dev",
     });
+    expect(
+      harness.service
+        .project("ws-2")
+        ?.projectRoles.some((role) => role.id === "role-pm"),
+    ).toBe(true);
+    expect(
+      harness.assignments
+        .seats("ws-2")
+        .some(
+          (seat) =>
+            seat.seatId === "role-pm" &&
+            seat.assigneeKind === "agent" &&
+            seat.assigneeId === "tm-project-ws-2" &&
+            seat.status !== "released",
+        ),
+    ).toBe(true);
+    expect(harness.selfOwnerBootstrapCalls).toContain("peter");
   });
 });
 
@@ -2546,6 +2774,7 @@ describe("report content", () => {
         targetDate: "2026-10-31",
         description: "",
         projectRoles: [],
+        roleMappingPresets: {},
         rolesInitialized: true,
         rolesRevision: 1,
         createdAt: "2026-10-01T00:00:00.000Z",
@@ -2563,13 +2792,34 @@ describe("report content", () => {
           createdAt: "2026-10-01T00:00:00.000Z",
           updatedAt: "2026-10-02T00:00:00.000Z",
         },
+        {
+          id: "TSK-8",
+          title: "替代供应商交期确认",
+          status: "done",
+          priority: "P2",
+          receiverType: "human",
+          receiverName: "Olivia",
+          createdAt: "2026-10-15T00:00:00.000Z",
+          updatedAt: "2026-10-16T02:00:00.000Z",
+          comments: [
+            {
+              id: "comment-1",
+              at: "2026-10-16T02:00:00.000Z",
+              authorName: "Olivia",
+              content: "替代供应商交期 12 天，可覆盖受影响订单 29 张。",
+              isKeyConsensus: true,
+            },
+          ],
+        },
       ],
       workflows: [],
       today: "2026-10-16",
     });
-    expect(content).toContain("整体进度 40%");
+    expect(content).toContain("实际 40%");
+    expect(content).toContain("计划 50%，偏差 -10 个百分点");
     expect(content).toContain("已超过截止日期 2026-10-10");
-    expect(content).toContain("- 最近更新的任务：");
+    expect(content).toContain("替代供应商交期 12 天");
+    expect(content).not.toContain("- 最近更新的任务：");
     const healthy = buildProjectReportContent({
       project: {
         workspaceId: "ws-1",
@@ -2583,6 +2833,7 @@ describe("report content", () => {
         targetDate: "",
         description: "",
         projectRoles: [],
+        roleMappingPresets: {},
         rolesInitialized: true,
         rolesRevision: 1,
         createdAt: "2026-10-01T00:00:00.000Z",
@@ -2593,7 +2844,58 @@ describe("report content", () => {
       workflows: [],
       today: "2026-10-16",
     });
-    expect(healthy).toContain("- 暂无阻塞项");
+    expect(healthy).toContain("综合健康度判定为「健康」");
+    expect(healthy).toContain("未捕获到已确认的任务或工作流结果");
+    expect(healthy).toContain("无法计算计划进度与偏差");
+  });
+
+  it("flags schedule variance, stalled nodes and pending approvals", () => {
+    const content = buildProjectReportContent({
+      project: {
+        workspaceId: "ws-1",
+        code: "PRJ-001",
+        ownerId: "olivia",
+        ownerName: "Olivia",
+        status: "进行中",
+        health: "健康",
+        progress: 40,
+        startDate: "2026-10-01",
+        targetDate: "2026-10-31",
+        description: "",
+        projectRoles: [],
+        roleMappingPresets: {},
+        rolesInitialized: true,
+        rolesRevision: 1,
+        createdAt: "2026-10-01T00:00:00.000Z",
+        updatedAt: "2026-10-01T00:00:00.000Z",
+      },
+      workspace: { id: "ws-1", title: "一切皆插件", path: "/tmp/ws-1" },
+      tasks: [],
+      workflows: [
+        {
+          id: "wf-stalled",
+          definitionKey: "approval-flow",
+          definitionVersion: 1,
+          title: "交付审批",
+          status: "running",
+          updatedAt: "2026-10-16T00:00:00.000Z",
+          nodes: {
+            approval: {
+              status: "running",
+              enteredAt: "2026-10-10T00:00:00.000Z",
+              approvals: {
+                owner: { status: "pending" },
+              },
+            },
+          },
+        },
+      ],
+      today: "2026-10-16",
+    });
+    expect(content).toContain("综合健康度判定为「风险」");
+    expect(content).toContain("实际进度 40% 落后计划 10 个百分点");
+    expect(content).toContain("节点“approval”已停留 6 天");
+    expect(content).toContain("有 1 个待审批项");
   });
 });
 
@@ -2602,6 +2904,7 @@ describe("plugin registration", () => {
     readonly ctx: Record<string, unknown>;
     readonly provided: string[];
     readonly registered: string[];
+    readonly tools: string[];
     readonly isDisposed: () => boolean;
   }
 
@@ -2611,6 +2914,7 @@ describe("plugin registration", () => {
   ): ApplyHarness {
     const provided: string[] = [];
     const registered: string[] = [];
+    const tools: string[] = [];
     let disposed = false;
     const ctx: Record<string, any> = {
       effect: () => undefined,
@@ -2623,11 +2927,19 @@ describe("plugin registration", () => {
           return () => undefined;
         },
       },
+      tools: {
+        get: () => undefined,
+        register: (definition: { name: string }) => {
+          tools.push(definition.name);
+          return () => undefined;
+        },
+      },
       get: (key: string) => {
         const extra = extraGet(key);
         if (extra !== undefined) return extra;
         if (key === "workspaceRegistry") return harness.workspaces;
         if (key === "collabAssignment") return harness.assignments;
+        if (key === "collabTeammateRuntime") return harness.teammates;
         if (key === "collabTasks") return { list: () => [] };
         if (key === "collabWorkflow") return { instances: () => [] };
         return undefined;
@@ -2649,6 +2961,7 @@ describe("plugin registration", () => {
           collabTeam: harness.team,
           get: ctx.get,
           webServer: ctx.webServer,
+          tools: ctx.tools,
           effect: (register: () => () => void) => register(),
         });
         return { dispose: () => undefined };
@@ -2658,6 +2971,7 @@ describe("plugin registration", () => {
       ctx,
       provided,
       registered,
+      tools,
       isDisposed: () => disposed,
     };
   }
@@ -2672,6 +2986,10 @@ describe("plugin registration", () => {
     expect(applyHarness.registered).toContain(
       "/api/collab/projects/members/save",
     );
+    expect(applyHarness.registered).toContain(
+      "/api/collab/projects/role-mappings/save",
+    );
+    expect(applyHarness.tools).toContain("project_report_generate");
     expect(projectDomainSpec.name).toBe("collab_project");
     expect(applyHarness.isDisposed()).toBe(false);
   });

@@ -450,8 +450,13 @@ expect_code 200 "$code" "project member save"
 
 code="$(api POST /projects/reports/generate "$TOKEN" "{\"workspaceId\":\"$PROJECT_ID\"}" "http://127.0.0.1:$PORT")"
 expect_code 200 "$code" "project report generation"
-grep -q '今日结论' "$BODY" || {
-  echo "project report is missing the 今日结论 section" >&2
+grep -q 'RAG 结论' "$BODY" || {
+  echo "project report is missing the RAG 结论 section" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+grep -q 'Pluginmax smoke项目PM' "$BODY" || {
+  echo "project report is missing the project manager attribution" >&2
   cat "$BODY" >&2
   exit 1
 }
@@ -604,7 +609,7 @@ elif grep -q 'phone-tablet' "$BODY"; then
   exit 1
 fi
 
-code="$(api POST /resources/custom "$TOKEN" '{"type":"skill","name":"Smoke 自定义 Skill","description":"metadata only","version":"0.1.0","publisherName":"Smoke","permissions":["只读摘要"],"manifest":{"schemaVersion":1}}' "http://127.0.0.1:$PORT")"
+code="$(api POST /resources/custom "$TOKEN" '{"type":"skill","name":"Smoke 自定义 Skill","description":"metadata and instructions","version":"0.1.0","publisherName":"Smoke","permissions":["只读摘要"],"manifest":{"schemaVersion":1,"instructions":"# Smoke Skill\n\n输出可核验的摘要。","triggers":["smoke"]}}' "http://127.0.0.1:$PORT")"
 expect_code 201 "$code" "custom resource registration"
 grep -q '"source":"user"' "$BODY" || {
   echo "custom resource registration did not return a user asset" >&2

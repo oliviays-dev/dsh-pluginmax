@@ -75,6 +75,11 @@ interface TaskLike {
   readonly priority: string;
   readonly description: string;
   readonly acceptance: readonly string[];
+  readonly steps: readonly {
+    readonly id: string;
+    readonly label: string;
+    readonly done: boolean;
+  }[];
   readonly due?: string | undefined;
   readonly createdBy: string;
   readonly createdByName: string;
@@ -304,6 +309,7 @@ function taskProjection(task: TaskLike) {
     priority: task.priority,
     description: task.description,
     acceptance: task.acceptance,
+    steps: task.steps,
     due: task.due ?? null,
     createdBy: task.createdBy,
     createdByName: task.createdByName,
@@ -426,6 +432,7 @@ async function executeTool(input: {
             (task) =>
               task.needsInput ||
               task.status === "progress" ||
+              task.status === "abnormal" ||
               task.status === "review",
           );
         } else {

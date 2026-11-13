@@ -5,6 +5,7 @@ import {
   taskExecutionPolicySchema,
   type TaskCreationFromDraftResult,
   type TaskDraftForCreation,
+  type TaskExecutionProjection,
 } from "@pluginmax/contracts";
 import {
   taskAttachmentSchema,
@@ -18,6 +19,7 @@ import {
   taskStatusSchema,
   taskDeliveryTargetSchema,
   type TaskDeliveryTarget,
+  type TaskExecutionAnomaly,
   type TaskExecutionMetadata,
   type TaskRecord,
   type TaskStatus,
@@ -61,6 +63,24 @@ export interface TaskPrincipalServiceLike {
     principalId: string,
     subjectTypes: readonly ("auth-user" | "employee" | "teammate" | "hrm")[],
   ): string | undefined;
+}
+
+export interface TaskPermissionServiceLike {
+  resolve(input: {
+    readonly workspaceId: string;
+    readonly principalId: string;
+    readonly requestedActions: readonly string[];
+    readonly requestedTools?: readonly string[];
+    readonly requestedResources?: readonly string[];
+  }):
+    | {
+        readonly allowed: boolean;
+        readonly reasons: readonly string[];
+      }
+    | Promise<{
+        readonly allowed: boolean;
+        readonly reasons: readonly string[];
+      }>;
 }
 
 export interface TaskAgentRun {
@@ -159,6 +179,12 @@ function agentRunMessageContent(
 export interface WorkflowTaskActionHandler {
   assign(task: TaskRecord, actor: TaskActor): Promise<void> | void;
   assigned?(task: TaskRecord, actor: TaskActor): Promise<void> | void;
+  claimed?(task: TaskRecord, actor: TaskActor): Promise<void> | void;
+  claimRejected?(
+    task: TaskRecord,
+    actor: TaskActor,
+    reason: string,
+  ): Promise<void> | void;
   decide(
     task: TaskRecord,
     actor: TaskActor,
@@ -506,6 +532,7 @@ export function pickNextTask<T extends QueueTaskLike>(input: {
 
 export class TaskService {
   private workflowActions: WorkflowTaskActionHandler | undefined;
+  private claimQueue: Promise<unknown> = Promise.resolve();
   private readonly changeListeners = new Set<
     (task: TaskRecord) => void | Promise<void>
   >();
@@ -520,11 +547,22 @@ export class TaskService {
        */
       readonly onChange?: (task: TaskRecord) => void;
       readonly principals?: () => TaskPrincipalServiceLike | undefined;
+      readonly permissions?: () => TaskPermissionServiceLike | undefined;
+      readonly executionProjection?: (
+        taskId: string,
+        workspaceId: string,
+      ) => TaskExecutionProjection | undefined;
     } = {},
   ) {}
 
   private now(): string {
     return nowIso(this.options.now ?? (() => new Date()));
+  }
+
+  private enqueueClaim<T>(operation: () => Promise<T>): Promise<T> {
+    const next = this.claimQueue.then(operation, operation);
+    this.claimQueue = next.catch(() => undefined);
+    return next;
   }
 
   private require(taskIdValue: string): TaskRecord {
@@ -584,11 +622,154 @@ export class TaskService {
     return undefined;
   }
 
+  private executionAnomalyForRun(
+    task: TaskRecord,
+    run: TaskAgentRun,
+    steps: TaskRecord["steps"] = task.steps,
+  ): TaskExecutionAnomaly | undefined {
+    const at = this.now();
+    const failedRun =
+      run.status === "failed"
+        ? {
+            code: "run_failed" as const,
+            message: run.error?.trim() || "Agent 执行失败，需要人工介入",
+          }
+        : run.status === "timeout"
+          ? {
+              code: "run_timeout" as const,
+              message: run.error?.trim() || "Agent 执行超时，需要人工介入",
+            }
+          : run.status === "interrupted"
+            ? {
+                code: "run_interrupted" as const,
+                message:
+                  run.error?.trim() || "Agent 执行被中断，需要人工介入",
+              }
+            : undefined;
+    if (failedRun !== undefined) {
+      return { ...failedRun, runId: run.id, at };
+    }
+    if (run.status !== "succeeded") return undefined;
+
+    const workspaceTasks = this.list(task.workspaceId);
+    const byId = new Map(workspaceTasks.map((item) => [item.id, item]));
+    if (!dependenciesSatisfied(task, byId)) {
+      return {
+        code: "dependency_unmet",
+        message: "前置任务尚未完成，不能自动进入待验收",
+        runId: run.id,
+        at,
+      };
+    }
+    const projectionFor = this.options.executionProjection;
+    if (projectionFor === undefined) return undefined;
+    const projection = projectionFor(task.id, task.workspaceId);
+    if (projection === undefined) {
+      return {
+        code: "missing_execution_evidence",
+        message: "本轮缺少可验证的执行记录，不能自动提交验收",
+        runId: run.id,
+        at,
+      };
+    }
+    if (
+      projection.selectedRunId !== undefined &&
+      projection.selectedRunId !== run.id
+    ) {
+      return {
+        code: "missing_execution_evidence",
+        message: "执行记录与当前 Run 不一致，需要人工确认结果归属",
+        runId: run.id,
+        at,
+      };
+    }
+    if (
+      task.workflow === undefined &&
+      task.autoSubmitReview &&
+      !steps.some((step) => step.done)
+    ) {
+      return {
+        code: "missing_acceptance",
+        message:
+          "Agent 本轮没有显式确认任何验收项，需要人工检查交付物后处理",
+        runId: run.id,
+        at,
+      };
+    }
+    const plan = projection.plan;
+    if (
+      plan?.status === "failed" ||
+      plan?.steps.some((step) => step.status === "failed") === true
+    ) {
+      return {
+        code: "plan_failed",
+        message: "执行计划存在失败步骤，不能自动提交验收",
+        runId: run.id,
+        at,
+      };
+    }
+    const events = projection.events.filter((event) => event.runId === run.id);
+    const executionError = events.find(
+      (event) => event.type === "error" || event.type === "step.failed",
+    );
+    if (executionError !== undefined) {
+      return {
+        code: "plan_failed",
+        message: executionError.summary,
+        runId: run.id,
+        at,
+      };
+    }
+    const toolFailure = events.find(
+      (event) =>
+        event.type === "tool.result" && event.data?.isError === true,
+    );
+    if (toolFailure !== undefined) {
+      return {
+        code: "tool_failed",
+        message:
+          typeof toolFailure.data?.output === "string" &&
+          toolFailure.data.output.trim() !== ""
+            ? toolFailure.data.output
+            : "工具调用失败，需要人工介入",
+        runId: run.id,
+        at,
+      };
+    }
+    const deniedGate = projection.gates.find(
+      (gate) => gate.runId === run.id && gate.status === "denied",
+    );
+    if (deniedGate !== undefined) {
+      return {
+        code: "tool_failed",
+        message: deniedGate.reason,
+        runId: run.id,
+        at,
+      };
+    }
+    if (
+      task.executionPolicy?.evidence.requireToolEvents === true &&
+      !events.some((event) => event.type === "tool.call")
+    ) {
+      return {
+        code: "missing_execution_evidence",
+        message: "执行策略要求记录工具调用，但本轮没有可验证的工具事件",
+        runId: run.id,
+        at,
+      };
+    }
+    return undefined;
+  }
+
   private requireExecutor(task: TaskRecord, actor: TaskActor): TaskRecord {
     if (task.workflow !== undefined) {
       throw new TaskError("conflict", "工作流任务的执行反馈由工作流节点处理");
     }
-    if (task.status !== "todo" && task.status !== "progress") {
+    if (
+      task.status !== "todo" &&
+      task.status !== "progress" &&
+      task.status !== "abnormal"
+    ) {
       throw new TaskError("conflict", "任务当前不可执行反馈");
     }
     const principalId = actor.principalId ?? this.principalForActor(actor)?.id;
@@ -604,6 +785,32 @@ export class TaskService {
       throw new TaskError("forbidden", "只有当前任务执行者可以反馈进展");
     }
     return task;
+  }
+
+  private async requireHumanExecutionScope(
+    task: TaskRecord,
+    actor: TaskActor,
+    actions: readonly string[],
+  ): Promise<void> {
+    if (task.receiverType !== "human") return;
+    const permission = this.options.permissions?.();
+    if (permission === undefined) return;
+    const principalId = actor.principalId ?? this.principalForActor(actor)?.id;
+    if (principalId === undefined) {
+      throw new TaskError("forbidden", "任务负责人缺少 Principal");
+    }
+    const decision = await permission.resolve({
+      workspaceId: task.workspaceId,
+      principalId,
+      requestedActions: actions,
+      requestedResources: [`task/${task.id}`],
+    });
+    if (!decision.allowed) {
+      throw new TaskError(
+        "forbidden",
+        decision.reasons.join("；") || "项目权限与负责人权限交集不足",
+      );
+    }
   }
 
   private completedSteps(
@@ -787,6 +994,82 @@ export class TaskService {
     return { ...task, events: [...task.events, event] };
   }
 
+  async recordActivity(
+    actor: TaskActor,
+    input: {
+      readonly taskId: string;
+      readonly eventId: string;
+      readonly message: string;
+      readonly taskRefs?:
+        | readonly {
+            readonly taskId: string;
+            readonly title: string;
+          }[]
+        | undefined;
+    },
+  ): Promise<TaskRecord> {
+    const parsed = z
+      .object({
+        taskId: z.string().min(1).max(160),
+        eventId: z.string().min(1).max(160),
+        message: z.string().trim().min(1).max(2_000),
+        taskRefs: z
+          .array(
+            z.object({
+              taskId: z.string().min(1).max(160),
+              title: z.string().trim().min(1).max(500),
+            }),
+          )
+          .max(100)
+          .optional(),
+      })
+      .parse(input);
+    const task = this.requireActive(this.require(parsed.taskId));
+    const existing = task.events.find(
+      (event) => event.id === parsed.eventId,
+    );
+    if (existing !== undefined) {
+      if (
+        parsed.taskRefs === undefined ||
+        (existing.taskRefs !== undefined &&
+          existing.taskRefs.length > 0)
+      ) {
+        return task;
+      }
+      return this.put({
+        ...task,
+        events: task.events.map((event) =>
+          event.id === parsed.eventId
+            ? {
+                ...event,
+                message: parsed.message,
+                taskRefs: parsed.taskRefs,
+              }
+            : event,
+        ),
+        updatedAt: this.now(),
+      });
+    }
+    const principal = this.principalForActor(actor);
+    const event = taskEventSchema.parse({
+      id: parsed.eventId,
+      at: this.now(),
+      actorId: actor.id,
+      ...(principal === undefined ? {} : { actorPrincipalId: principal.id }),
+      actorName: actor.name,
+      kind: "plan",
+      message: parsed.message,
+      ...(parsed.taskRefs === undefined
+        ? {}
+        : { taskRefs: parsed.taskRefs }),
+    });
+    return this.put({
+      ...task,
+      events: [...task.events, event],
+      updatedAt: this.now(),
+    });
+  }
+
   list(workspaceId: string): TaskRecord[] {
     return tableValues(this.tables.tasks)
       .map(parseTask)
@@ -812,7 +1095,8 @@ export class TaskService {
       if (task.receiverType !== "role" || task.receiverId === undefined) {
         continue;
       }
-      if (!["todo", "progress", "review"].includes(task.status)) continue;
+      if (!["todo", "progress", "abnormal", "review"].includes(task.status))
+        continue;
       const roleName = roles.get(task.receiverId);
       if (roleName === undefined) continue;
       const {
@@ -934,8 +1218,17 @@ export class TaskService {
     input: {
       readonly draft: TaskDraftForCreation;
       readonly creationKey: string;
+      readonly type?: string | undefined;
+      readonly status?:
+        | "todo"
+        | "progress"
+        | "abnormal"
+        | "review"
+        | "done"
+        | undefined;
       readonly executionPolicy?: unknown;
       readonly autoSubmitReview?: boolean | undefined;
+      readonly autoApproveReview?: boolean | undefined;
     },
   ): Promise<TaskCreationFromDraftResult> {
     const draft = parse(taskDraftForCreationSchema, input.draft);
@@ -968,9 +1261,9 @@ export class TaskService {
       {
         workspaceId: draft.workspaceId,
         title: draft.title,
-        type: "任务",
+        type: input.type ?? "任务",
         priority: draft.priority,
-        status: "todo",
+        status: input.status ?? "todo",
         receiverType: draft.receiverType,
         ...(draft.receiverId === undefined
           ? {}
@@ -987,6 +1280,7 @@ export class TaskService {
           draft.receiverType === "agent"
             ? (input.autoSubmitReview ?? true)
             : false,
+        autoApproveReview: input.autoApproveReview === true,
         ...(executionPolicy === undefined ? {} : { executionPolicy }),
       },
       {
@@ -1231,30 +1525,57 @@ export class TaskService {
   }
 
   async claim(actor: TaskActor, taskIdValue: string): Promise<TaskRecord> {
-    const task = requireOpen(this.requireActive(this.require(taskIdValue)));
-    if (task.receiverType !== "role") {
-      throw new TaskError("conflict", "only role tasks can be claimed");
-    }
-    const principal = this.principalForActor(actor);
-    const { reassignmentReason: _previousReason, ...base } = task;
-    const updated = this.event(
-      {
-        ...base,
-        receiverType: "human",
-        receiverState: "active",
-        receiverId: actor.id,
-        ...(principal === undefined
-          ? {}
-          : { receiverPrincipalId: principal.id }),
-        receiverName: actor.name,
-        status: "progress",
-        updatedAt: this.now(),
-      },
-      actor,
-      "claimed",
-      `${actor.name} 认领了角色任务`,
-    );
-    return this.put(updated);
+    return this.enqueueClaim(async () => {
+      const current = this.requireActive(this.require(taskIdValue));
+      if (
+        current.status === "progress" &&
+        current.receiverType === "human" &&
+        current.workflow?.dispatchMode === "claim"
+      ) {
+        throw new TaskError("conflict", "任务已被其他候选人领取");
+      }
+      const task = requireOpen(current);
+      if (task.receiverType !== "role") {
+        throw new TaskError("conflict", "only role tasks can be claimed");
+      }
+      if (task.workflow?.dispatchMode === "claim") {
+        if (actor.kind !== "human") {
+          throw new TaskError("forbidden", "只有真人候选成员可以认领任务");
+        }
+        if (
+          task.workflow.candidatePool?.some(
+            (candidate) =>
+              candidate.kind === "user" && candidate.id === actor.id,
+          ) !== true
+        ) {
+          const reason = "当前用户不在任务候选池中";
+          await this.workflowActions?.claimRejected?.(task, actor, reason);
+          throw new TaskError("forbidden", reason);
+        }
+      }
+      const principal = this.principalForActor(actor);
+      const { reassignmentReason: _previousReason, ...base } = task;
+      const updated = this.event(
+        {
+          ...base,
+          receiverType: "human",
+          receiverState: "active",
+          receiverId: actor.id,
+          ...(principal === undefined
+            ? {}
+            : { receiverPrincipalId: principal.id }),
+          receiverName: actor.name,
+          status: "progress",
+          updatedAt: this.now(),
+        },
+        actor,
+        "claimed",
+        `${actor.name} 认领了角色任务`,
+      );
+      const saved = await this.put(updated);
+      await this.workflowActions?.claimed?.(saved, actor);
+      return saved;
+    });
   }
 
   async changeStatus(actor: TaskActor, input: unknown): Promise<TaskRecord> {
@@ -1274,6 +1595,7 @@ export class TaskService {
     if (task.receiverType === "role") {
       throw new TaskError("conflict", "角色任务必须先由当前角色成员认领");
     }
+    await this.requireHumanExecutionScope(task, actor, ["read", "write"]);
     return this.setStatus(actor, task, "progress", "开始处理");
   }
 
@@ -1647,7 +1969,7 @@ export class TaskService {
   async projectStatus(
     actor: TaskActor,
     taskIdValue: string,
-    status: "todo" | "progress" | "review",
+    status: "todo" | "progress" | "abnormal" | "review",
     message: string,
   ): Promise<TaskRecord> {
     const task = this.require(taskIdValue);
@@ -1664,9 +1986,13 @@ export class TaskService {
           progress:
             status === "review"
               ? Math.max(86, task.progress)
+              : status === "abnormal"
+                ? task.progress
               : status === "progress"
                 ? Math.max(task.progress, progressForSteps(task.steps))
                 : Math.min(5, task.progress),
+          executionAnomaly:
+            status === "abnormal" ? task.executionAnomaly : undefined,
           updatedAt: this.now(),
         },
         actor,
@@ -1789,6 +2115,24 @@ export class TaskService {
       existing === undefined
         ? [...task.messages, message]
         : task.messages.map((item) => (item.runId === run.id ? message : item));
+    const workflowAnomaly =
+      run.status === "failed"
+        ? {
+            code: "run_failed" as const,
+            message: run.error?.trim() || "Agent 执行失败，需要人工介入",
+          }
+        : run.status === "timeout"
+          ? {
+              code: "run_timeout" as const,
+              message: run.error?.trim() || "Agent 执行超时，需要人工介入",
+            }
+          : run.status === "interrupted"
+            ? {
+                code: "run_interrupted" as const,
+                message:
+                  run.error?.trim() || "Agent 执行被中断，需要人工介入",
+              }
+            : undefined;
     return this.put(
       this.event(
         {
@@ -1797,17 +2141,17 @@ export class TaskService {
             ? task.agentRunIds
             : [...task.agentRunIds, run.id],
           messages,
-          status:
-            task.status === "done" ||
-            task.status === "cancelled" ||
-            !["queued", "running", "waiting_input"].includes(run.status)
-              ? task.status === "progress" &&
-                ["failed", "timeout", "cancelled", "interrupted"].includes(
-                  run.status,
-                )
-                ? "todo"
-                : task.status
+          status: workflowAnomaly
+            ? "abnormal"
+            : task.status === "done" ||
+                task.status === "cancelled" ||
+                !["queued", "running", "waiting_input"].includes(run.status)
+              ? task.status
               : "progress",
+          executionAnomaly:
+            workflowAnomaly === undefined
+              ? undefined
+              : { ...workflowAnomaly, runId: run.id, at: this.now() },
           updatedAt: this.now(),
         },
         actor,
@@ -1823,10 +2167,11 @@ export class TaskService {
     );
   }
 
-  private submitStandaloneTask(
+  private async submitStandaloneTask(
     actor: TaskActor,
     task: TaskRecord,
   ): Promise<TaskRecord> {
+    await this.requireHumanExecutionScope(task, actor, ["read", "write"]);
     if (!task.autoSubmitReview) {
       if (!task.steps.every((step) => step.done)) {
         throw new TaskError("conflict", "标记任务完成前需勾选全部验收标准");
@@ -1879,6 +2224,8 @@ export class TaskService {
           : status === "done" || status === "cancelled"
             ? { reviewSubmitter: undefined }
             : {}),
+        executionAnomaly:
+          status === "abnormal" ? task.executionAnomaly : undefined,
         updatedAt: this.now(),
       },
       actor,
@@ -1989,6 +2336,7 @@ export class TaskService {
         ),
         steps,
         needsInput: false,
+        executionAnomaly: undefined,
         messages: [...task.messages, message],
         updatedAt: this.now(),
       },
@@ -2020,6 +2368,7 @@ export class TaskService {
           ...task,
           status: "progress",
           needsInput: true,
+          executionAnomaly: undefined,
           messages: [...task.messages, message],
           updatedAt: this.now(),
         },
@@ -2055,6 +2404,37 @@ export class TaskService {
       deliveryTarget: "receiver",
       state: "succeeded",
     });
+    const latestRunId =
+      this.options.executionProjection?.(task.id, task.workspaceId)
+        ?.selectedRunId ?? "unrecorded";
+    const anomaly = this.executionAnomalyForRun(
+      task,
+      {
+        id: latestRunId,
+        instanceId: task.id,
+        status: "succeeded",
+      },
+      steps,
+    );
+    if (anomaly !== undefined) {
+      return this.put(
+        this.event(
+          {
+            ...task,
+            status: "abnormal",
+            progress: Math.max(task.progress, progressForSteps(steps), 86),
+            steps,
+            needsInput: false,
+            executionAnomaly: anomaly,
+            messages: [...task.messages, message],
+            updatedAt: this.now(),
+          },
+          actor,
+          "status",
+          `${actor.name} 提交交付物，但执行过程异常：${anomaly.message}`,
+        ),
+      );
+    }
     task = await this.put(
       this.event(
         {
@@ -2063,6 +2443,7 @@ export class TaskService {
           progress: Math.max(task.progress, progressForSteps(steps), 86),
           steps,
           needsInput: false,
+          executionAnomaly: undefined,
           messages: [...task.messages, message],
           updatedAt: this.now(),
         },
@@ -2164,7 +2545,12 @@ export class TaskService {
     }
     const isActive =
       task.archivedAt === undefined &&
-      (task.status === "todo" || task.status === "progress");
+      (task.status === "todo" ||
+        task.status === "progress" ||
+        task.status === "abnormal");
+    const executionAnomaly = isActive
+      ? this.executionAnomalyForRun(task, run)
+      : undefined;
     // 审批 Task 必须由明确的通过/退回动作驱动，Agent 执行成功不能代表审批结论。
     const isApprovalTask = task.workflow?.approvalPolicy !== undefined;
     const workflowReviewRequired = task.workflow?.reviewRequired !== false;
@@ -2174,6 +2560,7 @@ export class TaskService {
       isActive &&
       task.workflow !== undefined &&
       !isApprovalTask &&
+      executionAnomaly === undefined &&
       workflowReviewRequired;
     const workflowDirect =
       run.status === "succeeded" &&
@@ -2181,15 +2568,17 @@ export class TaskService {
       isActive &&
       task.workflow !== undefined &&
       !isApprovalTask &&
+      executionAnomaly === undefined &&
       (!workflowReviewRequired || task.autoApproveReview === true);
     const autoReview =
       run.status === "succeeded" &&
       task.receiverType === "agent" &&
       isActive &&
       task.workflow === undefined &&
+      executionAnomaly === undefined &&
       task.autoSubmitReview;
     const steps =
-      autoReview || workflowReview || workflowDirect
+      workflowReview || workflowDirect
         ? task.steps.map((step) => ({ ...step, done: true }))
         : task.steps;
     // 反馈项：Agent 判断信息不足时需要人工补充，直接交回实例 owner 并打标。
@@ -2222,24 +2611,32 @@ export class TaskService {
             : task.needsInput,
         messages,
         steps,
+        executionAnomaly,
         progress: workflowDirect
           ? 100
           : autoReview || workflowReview
             ? Math.max(86, progressForSteps(steps))
             : task.progress,
-        status: workflowDirect
-          ? "done"
-          : autoReview || workflowReview
-            ? "review"
-            : task.status === "todo"
-              ? "progress"
-              : task.status,
+        status:
+          executionAnomaly !== undefined
+            ? "abnormal"
+            : workflowDirect
+              ? "done"
+              : autoReview || workflowReview
+                ? "review"
+                : run.status === "queued" || run.status === "running"
+                  ? "progress"
+                  : task.status === "todo"
+                    ? "progress"
+                    : task.status,
         updatedAt: this.now(),
       },
       actor,
       "message",
-      run.status === "succeeded"
-        ? `${receiverName} 返回了执行反馈`
+      executionAnomaly !== undefined
+        ? `${receiverName} 执行异常，需要人工介入：${executionAnomaly.message}`
+        : run.status === "succeeded"
+          ? `${receiverName} 返回了执行反馈`
         : needsInput
           ? `${receiverName} 需要补充信息，已转交 ${handoff?.name ?? "负责人"} 处理`
           : ["failed", "timeout", "cancelled", "interrupted"].includes(
@@ -2248,7 +2645,10 @@ export class TaskService {
             ? `${receiverName} 执行未完成`
             : `${receiverName} 开始执行任务`,
     );
-    if (!autoReview && !workflowReview && !workflowDirect)
+    if (
+      executionAnomaly !== undefined ||
+      (!autoReview && !workflowReview && !workflowDirect)
+    )
       return this.put(withRun);
     if (workflowReview) {
       const completed = await this.put(

@@ -10,6 +10,7 @@ import {
 } from "@pluginmax/contracts";
 import {
   AgentExecutionService,
+  executionToolCategory,
   type ExecutionProfileLike,
   type ExecutionRunLike,
   type ExecutionRuntimeLike,
@@ -38,6 +39,25 @@ class FakeTable<V> {
     return this.values.size;
   }
 }
+
+describe("execution tool categories", () => {
+  it("maps provider-safe Data Agent tool names to product policy categories", () => {
+    expect(executionToolCategory("entity_read")).toBe("tool.entity.read");
+    expect(executionToolCategory("data_catalog_search")).toBe(
+      "tool.data.catalog.search",
+    );
+    expect(executionToolCategory("data.catalog.search")).toBe(
+      "tool.data.catalog.search",
+    );
+    expect(executionToolCategory("dataset_query_readonly")).toBe(
+      "tool.dataset.query.readonly",
+    );
+    expect(executionToolCategory("str_replace_editor")).toBe("fs.write");
+    expect(executionToolCategory("read_file")).toBe("fs.read");
+    expect(executionToolCategory("write_file")).toBe("fs.write");
+    expect(executionToolCategory("list_files")).toBe("fs.read");
+  });
+});
 
 interface TestOutbox {
   readonly id: string;
@@ -179,6 +199,40 @@ describe("AgentExecutionService", () => {
     expect(finalized.snapshot.planVisibility).toBe("summary");
   });
 
+  it("lets task policy grant web and write categories to a restricted builtin profile", () => {
+    const execution = service();
+    const policy = legacyTaskExecutionPolicy();
+    policy.sourcePolicy.allow.push("public-web");
+    policy.toolPolicy.requireApproval.push("fs.write", "shell.execute");
+    const preflight = execution.preflight({
+      taskId: "task-1",
+      workspaceId: "workspace-1",
+      principalId: "principal-agent",
+      policy,
+      profile: {
+        id: "data-agent",
+        name: "Data Agent",
+        allowedTools: ["entity.read", "data.catalog.search"],
+      },
+    });
+    expect(preflight.compatible).toBe(true);
+    expect(preflight.runtime.capabilities.search).toBe("supported");
+    expect(preflight.envelopePreview.resolved.searchEnabled).toBe(true);
+    expect(preflight.envelopePreview.resolved.allowedToolCategories).toEqual(
+      expect.arrayContaining([
+        "tool.entity.read",
+        "tool.data.catalog.search",
+        "web.search",
+        "web.fetch",
+        "fs.write",
+        "shell.execute",
+      ]),
+    );
+    expect(preflight.envelopePreview.resolved.approvalToolCategories).toEqual(
+      expect.arrayContaining(["fs.write", "shell.execute"]),
+    );
+  });
+
   it("uses declared runtime tools, model pool, and task-level launch overrides", async () => {
     const execution = service();
     const declaredRuntime: ExecutionRuntimeLike = {
@@ -312,6 +366,82 @@ describe("AgentExecutionService", () => {
       "completed",
       "active",
     ]);
+  });
+
+  it("records tool results and ignores reasoning in progress summaries", async () => {
+    const execution = service();
+    await execution.beginRun({ run, profile });
+    await execution.recordSessionEvents(
+      "run-1",
+      [
+        {
+          type: "tool/result",
+          data: {
+            message: {
+              source: {
+                kind: "tool",
+                callId: "call-write",
+              },
+              content: [
+                {
+                  type: "tool-result",
+                  toolCallId: "call-write",
+                  isError: false,
+                  content: [
+                    {
+                      type: "text",
+                      text: "已写入 .pluginmax/runtime-auth-check.md",
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+        {
+          type: "assistant/message",
+          data: {
+            message: {
+              content: [
+                { type: "reasoning", text: "不应进入公开摘要" },
+                { type: "text", text: "公开回复" },
+              ],
+            },
+          },
+        },
+      ],
+      0,
+    );
+
+    const events = execution.listEvents("run-1");
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool.result",
+        summary: "已写入 .pluginmax/runtime-auth-check.md",
+        data: {
+          callId: "call-write",
+          output: "已写入 .pluginmax/runtime-auth-check.md",
+          isError: false,
+        },
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "progress.summary",
+        summary: "公开回复",
+      }),
+    );
+    expect(events.map((event) => event.summary).join("\n")).not.toContain(
+      "不应进入公开摘要",
+    );
+  });
+
+  it("denies tools until the run has an execution envelope", async () => {
+    const execution = service();
+    expect(execution.gateDisposition("run-1", "fs.write")).toBe("deny");
+
+    await execution.beginRun({ run, profile });
+    expect(execution.gateDisposition("run-1", "fs.read")).toBe("allow");
   });
 
   it("blocks a tool on a decision gate and records the final decision", async () => {

@@ -114,9 +114,7 @@ export interface WorkbenchTables {
 
 interface TeamServiceLike {
   users(): readonly { readonly id: string; readonly name: string }[];
-  members(
-    workspaceId: string,
-  ): readonly {
+  members(workspaceId: string): readonly {
     readonly userId: string;
     readonly role?: string;
     readonly memberRole?: "owner" | "member" | "guest";
@@ -138,7 +136,8 @@ interface TaskRecordLike {
   readonly workspaceId: string;
   readonly title: string;
   readonly type: string;
-  readonly status: "todo" | "progress" | "review" | "done" | "cancelled";
+  readonly status:
+    "todo" | "progress" | "abnormal" | "review" | "done" | "cancelled";
   readonly priority: "P0" | "P1" | "P2" | "P3";
   readonly receiverType: "unassigned" | "human" | "agent" | "role";
   readonly receiverId?: string;
@@ -390,6 +389,11 @@ export interface WorkbenchDisplayBriefItem {
   readonly id: string;
   readonly title: string;
   readonly body: string;
+  readonly section?: BriefItemRecord["section"];
+  readonly tag?: BriefItemRecord["tag"];
+  readonly reason?: string;
+  readonly priorityScore?: number;
+  readonly occurredAt?: string;
   readonly statusLabel?: string | undefined;
   readonly actionLabel?: string | undefined;
   readonly deepLink?: {
@@ -455,6 +459,7 @@ export interface ModuleOptions {
 const STATUS_LABEL: Record<TaskRecordLike["status"], string> = {
   todo: "待处理",
   progress: "进行中",
+  abnormal: "异常",
   review: "待验收",
   done: "已完成",
   cancelled: "已取消",
@@ -656,9 +661,7 @@ export class WorkbenchService {
     };
   }
 
-  private async activeDisplayProfile(
-    principal: WorkbenchPrincipal,
-  ): Promise<
+  private async activeDisplayProfile(principal: WorkbenchPrincipal): Promise<
     | {
         readonly profile: WorkbenchDisplayProfile;
         readonly workspace: WorkspaceLike;
@@ -972,16 +975,19 @@ export class WorkbenchService {
     const profileMetrics = (display?.profile.metrics ?? []).filter((metric) =>
       METRIC_DEFINITIONS.some((definition) => definition.id === metric),
     );
+    const storedMetrics = (
+      this.tables.metrics.get(principal.userId)?.selected ?? []
+    ).filter((metric) =>
+      METRIC_DEFINITIONS.some((definition) => definition.id === metric),
+    );
     const selected =
-      profileMetrics.length > 0
-        ? [...new Set(profileMetrics)].slice(0, 5)
-        : this.metricPreference(principal);
-    const availableMetrics =
-      profileMetrics.length > 0
-        ? METRIC_DEFINITIONS.filter((metric) =>
-            profileMetrics.includes(metric.id),
-          )
-        : METRIC_DEFINITIONS;
+      storedMetrics.length > 0
+        ? [...new Set(storedMetrics)].slice(0, 5)
+        : profileMetrics.length > 0
+          ? [...new Set(profileMetrics)].slice(0, 5)
+          : this.metricPreference(principal);
+    // Profile 选择只决定默认展示项，不应限制配置面板中的可选指标全集。
+    const availableMetrics = METRIC_DEFINITIONS;
     let items: WorkbenchMetricItem[] = availableMetrics.map((metric) => ({
       ...metric,
       dataMode: "demo",
@@ -990,7 +996,7 @@ export class WorkbenchService {
     let sourceNote = "演示种子 · 非生产";
     const provider =
       display?.profile.metric === undefined
-        ? this.dataMetricProvider ?? this.deps.dataMetrics?.()
+        ? (this.dataMetricProvider ?? this.deps.dataMetrics?.())
         : { workbenchMetric: display.profile.metric };
     if (provider !== undefined) {
       const workspaces = this.accessibleWorkspaces(principal);
@@ -1016,9 +1022,7 @@ export class WorkbenchService {
                 (member.memberRole ?? member.role) === "member" ||
                 (member.memberRole ?? member.role) === "guest"
                   ? ((member.memberRole ?? member.role) as
-                      | "owner"
-                      | "member"
-                      | "guest")
+                      "owner" | "member" | "guest")
                   : "guest",
             },
           });
@@ -1106,19 +1110,24 @@ export class WorkbenchService {
       const roleSeats = this.myRoleSeats(principal, workspace.id);
       for (const task of service.list(workspace.id)) {
         if (task.archivedAt !== undefined) continue;
-        if (task.status !== "todo" && task.status !== "review") continue;
+        if (
+          task.status !== "todo" &&
+          task.status !== "abnormal" &&
+          task.status !== "review"
+        )
+          continue;
         const reviewAssignedToMe =
           task.status === "review" &&
           (task.workflow?.approverIds ?? []).some(
             (id) =>
-              id === principal.userId ||
-              agentIds.has(id) ||
-              roleSeats.has(id),
+              id === principal.userId || agentIds.has(id) || roleSeats.has(id),
           );
         // 待验收任务的接收人可能是 AI伙伴，但验收动作属于实例 owner。
         // 因此 review 必须始终进入 owner 的待办，不受「仅我 / 我和 AI 伙伴」范围影响。
         const visibleAgentIds =
-          options.scope === "me_and_ai" || task.status === "review"
+          options.scope === "me_and_ai" ||
+          task.status === "review" ||
+          task.status === "abnormal"
             ? agentIds
             : new Set<string>();
         if (
@@ -1328,7 +1337,8 @@ export class WorkbenchService {
     // 否则「关注会议纪要」在重点关注里永远看不到。
     if (index.meetings.size > 0 || index.projects.size > 0) {
       try {
-        for (const meeting of this.meetingsModule(principal).data?.items ?? []) {
+        for (const meeting of this.meetingsModule(principal).data?.items ??
+          []) {
           const refs: FollowCoverRef[] = [];
           if (index.meetings.has(meeting.id)) {
             refs.push({ type: "meeting", id: meeting.id });
@@ -1552,9 +1562,7 @@ export class WorkbenchService {
           id: meeting.id,
           title: meeting.title,
           summaryText:
-            minutesSummary === ""
-              ? fallbackSummary
-              : clip(minutesPlain, 180),
+            minutesSummary === "" ? fallbackSummary : clip(minutesPlain, 180),
           status: closedStatus ? "closed" : "active",
           statusLabel: closedStatus ? "已散会" : "进行中",
           workspaceId: workspace.id,
@@ -1705,8 +1713,12 @@ export class WorkbenchService {
         ? undefined
         : [...task.agentRunIds]
             .map((runId) => snapshot.runs.get(runId))
-            .filter((candidate): candidate is AgentRunLike => candidate !== undefined)
-            .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+            .filter(
+              (candidate): candidate is AgentRunLike => candidate !== undefined,
+            )
+            .sort((left, right) =>
+              right.createdAt.localeCompare(left.createdAt),
+            )[0];
     const summary = run?.output?.summary?.trim() ?? "";
     if (summary === "") return item;
     const conclusion = clip(summary, 4_000);
@@ -2549,13 +2561,15 @@ export class WorkbenchService {
         : matched.some((candidate) => candidate.section === "escalation")
           ? "escalation"
           : "conclusion";
-      const visible = matched.slice(0, 6).map(
-        (candidate) =>
-          `- ${clip(candidate.title, 80)}：${clip(
-            candidate.statusLabel || candidate.conclusion,
-            140,
-          )}`,
-      );
+      const visible = matched
+        .slice(0, 6)
+        .map(
+          (candidate) =>
+            `- ${clip(candidate.title, 80)}：${clip(
+              candidate.statusLabel || candidate.conclusion,
+              140,
+            )}`,
+        );
       if (matched.length > visible.length) {
         visible.push(`- 另有 ${matched.length - visible.length} 条命中事项`);
       }
@@ -2601,6 +2615,18 @@ export class WorkbenchService {
     }
     if (candidate.condition.kind === "task-review") return "task_review";
     return candidate.tag === "nudge" ? "task_nudge" : "task_escalation";
+  }
+
+  private briefIncludeTypeForRecord(item: BriefItemRecord): BriefIncludeType {
+    if (item.condition.kind === "run-terminal") return "run_terminal";
+    if (item.condition.kind === "workflow-blocked") {
+      return "workflow_blocked";
+    }
+    if (item.condition.kind === "workflow-approval") {
+      return "workflow_approval";
+    }
+    if (item.condition.kind === "task-review") return "task_review";
+    return item.tag === "nudge" ? "task_nudge" : "task_escalation";
   }
 
   private nodeName(
@@ -2655,22 +2681,20 @@ export class WorkbenchService {
         const route = item.deepLink?.route ?? "task";
         return {
           itemId: `${display.profile.id}:${item.id}`,
-          section: "risk",
-          tag: "data",
+          section: item.section ?? "risk",
+          tag: item.tag ?? "data",
           title: item.title,
           conclusion: item.body,
-          reason: `来自工作台显示 Profile：${display.profile.title}`,
+          reason:
+            item.reason ?? `来自工作台显示 Profile：${display.profile.title}`,
           executorName: principal.name ?? principal.userId,
           executorRole: "工作台 Profile",
-          sourceDomain:
-            route === "workflow"
-              ? "workflow"
-              : "task",
+          sourceDomain: route === "workflow" ? "workflow" : "task",
           sourceId: refId,
           statusLabel: item.statusLabel ?? "待处理",
           actionLabel: item.actionLabel ?? "查看明细",
-          priorityScore: 8,
-          occurredAt: now.toISOString(),
+          priorityScore: item.priorityScore ?? 8,
+          occurredAt: item.occurredAt ?? now.toISOString(),
           deepLink: {
             route,
             refId,
@@ -2682,7 +2706,9 @@ export class WorkbenchService {
           condition: { kind: "task-escalation", refId },
         };
       });
-      const existing = this.readerItems(principal.userId);
+      const existing = this.readerItems(principal.userId).filter((item) =>
+        item.itemId.startsWith(`${display.profile.id}:`),
+      );
       const merged = mergeBriefItems({
         readerId: principal.userId,
         existing,
@@ -2716,8 +2742,7 @@ export class WorkbenchService {
         ...(reader?.lastSeenAt === undefined
           ? {}
           : { lastSeenAt: reader.lastSeenAt }),
-        includeTypes:
-          reader?.includeTypes ?? [...DEFAULT_BRIEF_INCLUDE_TYPES],
+        includeTypes: reader?.includeTypes ?? [...DEFAULT_BRIEF_INCLUDE_TYPES],
         customRules: reader?.customRules ?? [],
         updatedAt: now.toISOString(),
       });
@@ -2742,8 +2767,9 @@ export class WorkbenchService {
           settings: {
             mode: reader?.briefMode ?? "lastLeave",
             manualWindowFrom: reader?.manualWindowFrom,
-            includeTypes:
-              reader?.includeTypes ?? [...DEFAULT_BRIEF_INCLUDE_TYPES],
+            includeTypes: reader?.includeTypes ?? [
+              ...DEFAULT_BRIEF_INCLUDE_TYPES,
+            ],
             customRules: reader?.customRules ?? [],
           },
         },
@@ -2771,10 +2797,7 @@ export class WorkbenchService {
       includeTypes.has(this.briefIncludeTypeFor(candidate)),
     );
     candidates.push(
-      ...this.customBriefCandidates(
-        allCandidates,
-        reader?.customRules ?? [],
-      ),
+      ...this.customBriefCandidates(allCandidates, reader?.customRules ?? []),
     );
     const activeCustomItems = new Set(
       candidates
@@ -2783,7 +2806,14 @@ export class WorkbenchService {
     );
     const stored = this.readerItems(principal.userId);
     const existing = this.migrateLegacyConclusionItems(
-      this.migrateLegacyRiskItems(stored, snapshot),
+      this.migrateLegacyRiskItems(
+        stored.filter(
+          (item) =>
+            item.itemId.startsWith("D:rule:") ||
+            includeTypes.has(this.briefIncludeTypeForRecord(item)),
+        ),
+        snapshot,
+      ),
       snapshot,
     )
       .filter(
@@ -2833,8 +2863,7 @@ export class WorkbenchService {
       ...(reader?.lastSeenAt === undefined
         ? {}
         : { lastSeenAt: reader.lastSeenAt }),
-      includeTypes:
-        reader?.includeTypes ?? [...DEFAULT_BRIEF_INCLUDE_TYPES],
+      includeTypes: reader?.includeTypes ?? [...DEFAULT_BRIEF_INCLUDE_TYPES],
       customRules: reader?.customRules ?? [],
       updatedAt: now.toISOString(),
     });
@@ -2890,10 +2919,8 @@ export class WorkbenchService {
       ...(input.mode === "manual" && input.manualWindowFrom !== undefined
         ? { manualWindowFrom: input.manualWindowFrom }
         : {}),
-      includeTypes:
-        input.includeTypes ?? existing?.includeTypes ?? [
-          ...DEFAULT_BRIEF_INCLUDE_TYPES,
-        ],
+      includeTypes: input.includeTypes ??
+        existing?.includeTypes ?? [...DEFAULT_BRIEF_INCLUDE_TYPES],
       customRules: input.customRules ?? existing?.customRules ?? [],
       updatedAt: now,
     });
@@ -2902,10 +2929,8 @@ export class WorkbenchService {
       ...(input.mode === "manual" && input.manualWindowFrom !== undefined
         ? { manualWindowFrom: input.manualWindowFrom }
         : {}),
-      includeTypes:
-        input.includeTypes ?? existing?.includeTypes ?? [
-          ...DEFAULT_BRIEF_INCLUDE_TYPES,
-        ],
+      includeTypes: input.includeTypes ??
+        existing?.includeTypes ?? [...DEFAULT_BRIEF_INCLUDE_TYPES],
       customRules: input.customRules ?? existing?.customRules ?? [],
     };
   }
@@ -2963,8 +2988,7 @@ export class WorkbenchService {
       ...(existing?.lastMergeAt === undefined
         ? {}
         : { lastMergeAt: existing.lastMergeAt }),
-      includeTypes:
-        existing?.includeTypes ?? [...DEFAULT_BRIEF_INCLUDE_TYPES],
+      includeTypes: existing?.includeTypes ?? [...DEFAULT_BRIEF_INCLUDE_TYPES],
       customRules: existing?.customRules ?? [],
       lastSeenAt: now,
       updatedAt: now,
@@ -2980,7 +3004,9 @@ export class WorkbenchService {
     try {
       switch (moduleId) {
         case "metrics":
-          return (await this.metricsModuleLive(principal)) as WorkbenchModule<T>;
+          return (await this.metricsModuleLive(
+            principal,
+          )) as WorkbenchModule<T>;
         case "brief":
           return (await this.briefModule(
             principal,
@@ -2989,9 +3015,7 @@ export class WorkbenchService {
         case "todo":
           return this.todoModule(
             principal,
-            options.todoScope === undefined
-              ? {}
-              : { scope: options.todoScope },
+            options.todoScope === undefined ? {} : { scope: options.todoScope },
           ) as WorkbenchModule<T>;
         case "focus":
           return this.focusModule(principal) as WorkbenchModule<T>;
@@ -3154,11 +3178,7 @@ export interface MeetingMinutesPayload {
    * `confirmed` -> `pending_confirm` -> `legacy_run` -> `close_summary` -> `none`.
    */
   minutesSource:
-    | "confirmed"
-    | "pending_confirm"
-    | "legacy_run"
-    | "close_summary"
-    | "none";
+    "confirmed" | "pending_confirm" | "legacy_run" | "close_summary" | "none";
   /** True when `summaryText` is an unconfirmed agenda version. */
   minutesPending: boolean;
   /** Backward-compatible flag: the summary came from AI minutes (any source
@@ -3195,4 +3215,3 @@ function workflowStatusLabel(status: WorkflowInstanceLike["status"]): string {
       return status;
   }
 }
-

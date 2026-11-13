@@ -376,10 +376,7 @@ window.__ModuleLoader__.load({
         const localExtraLength = u16(bytes, localOffset + 28);
         const dataOffset =
           localOffset + 30 + localNameLength + localExtraLength;
-        const compressed = bytes.slice(
-          dataOffset,
-          dataOffset + compressedSize,
-        );
+        const compressed = bytes.slice(dataOffset, dataOffset + compressedSize);
         const content =
           method === 0
             ? compressed
@@ -405,7 +402,11 @@ window.__ModuleLoader__.load({
       }
       if (manifestText !== undefined) {
         const parsed = JSON.parse(manifestText);
-        if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+        if (
+          parsed === null ||
+          typeof parsed !== "object" ||
+          Array.isArray(parsed)
+        ) {
           throw new Error("skill.json 必须是 JSON 对象");
         }
         return { manifest: parsed, markdown: markdown ?? "" };
@@ -424,8 +425,8 @@ window.__ModuleLoader__.load({
     async function parseSkillFile(file) {
       if (/\.zip$/i.test(file.name)) return readSkillZip(file);
       const text = await file.text();
-      const markdown = /\.(md|markdown)$/i.test(file.name) ||
-        !text.trim().startsWith("{");
+      const markdown =
+        /\.(md|markdown)$/i.test(file.name) || !text.trim().startsWith("{");
       if (!markdown) {
         const parsed = JSON.parse(text);
         return { manifest: parsed, markdown: "" };
@@ -529,7 +530,9 @@ window.__ModuleLoader__.load({
                     className: installed ? "pmrm-btn" : "pmrm-btn primary",
                     disabled:
                       actionDisabled ||
-                      (installed ? onUninstall === undefined : onInstall === undefined),
+                      (installed
+                        ? onUninstall === undefined
+                        : onInstall === undefined),
                     onClick: (event) => {
                       event.stopPropagation();
                       if (installed) onUninstall?.(item);
@@ -695,21 +698,19 @@ window.__ModuleLoader__.load({
         h(
           "div",
           { className: "pmrm-resource-actions" },
-            item.type === "skill"
-              ? h(
-                  "button",
-                  {
-                    type: "button",
-                    className:
-                      item.status === "enabled"
-                        ? "pmrm-btn"
-                        : "pmrm-btn primary",
-                    disabled: item.status === "enabled",
-                    onClick: () => onAction?.(item),
-                  },
-                  item.status === "enabled" ? "已安装" : "安装",
-                )
-              : null,
+          item.type === "skill"
+            ? h(
+                "button",
+                {
+                  type: "button",
+                  className:
+                    item.status === "enabled" ? "pmrm-btn" : "pmrm-btn primary",
+                  disabled: item.status === "enabled",
+                  onClick: () => onAction?.(item),
+                },
+                item.status === "enabled" ? "已安装" : "安装",
+              )
+            : null,
           h(
             "button",
             {
@@ -759,6 +760,8 @@ window.__ModuleLoader__.load({
       const [uninstallError, setUninstallError] = react.useState("");
       const [registerOpen, setRegisterOpen] = react.useState(false);
       const [registerManifest, setRegisterManifest] = react.useState(null);
+      const [officialEditSkill, setOfficialEditSkill] = react.useState(null);
+      const [canManageSkills, setCanManageSkills] = react.useState(false);
       const [registerForm, setRegisterForm] = react.useState({
         name: "",
         description: "",
@@ -791,6 +794,7 @@ window.__ModuleLoader__.load({
             setSkills(
               selectedCategory === "自定义" ? [] : (result.skills ?? []),
             );
+            setCanManageSkills(result.canManage === true);
             setError("");
           } catch (cause) {
             setError(cause.message);
@@ -1195,10 +1199,9 @@ window.__ModuleLoader__.load({
             );
           }
 
-          const scenes =
-            (installTarget.custom
-              ? skill.manifest?.triggers
-              : skill.triggers) ?? ["general"];
+          const scenes = (installTarget.custom
+            ? skill.manifest?.triggers
+            : skill.triggers) ?? ["general"];
           const results = await Promise.allSettled(
             installAgentIds.map((teammateId) =>
               request("/api/collab/teammates/skills/extend", {
@@ -1221,11 +1224,11 @@ window.__ModuleLoader__.load({
           const failed = results.length - succeeded;
           setInstallTarget(null);
           if (installAgentIds.length === 0) {
-            showToast(`已将「${cleanSkillName(skill.name)}」安装到 Skill 资源库`);
-          } else if (failed === 0) {
             showToast(
-              `已安装，并添加到 ${String(succeeded)} 个 AI 伙伴`,
+              `已将「${cleanSkillName(skill.name)}」安装到 Skill 资源库`,
             );
+          } else if (failed === 0) {
+            showToast(`已安装，并添加到 ${String(succeeded)} 个 AI 伙伴`);
           } else {
             showToast(
               `已安装；${String(succeeded)} 个 AI 伙伴成功，${String(failed)} 个失败`,
@@ -1515,6 +1518,7 @@ window.__ModuleLoader__.load({
       };
 
       const openRegister = () => {
+        setOfficialEditSkill(null);
         setRegisterForm({
           name: "",
           description: "",
@@ -1526,11 +1530,67 @@ window.__ModuleLoader__.load({
         setRegisterOpen(true);
       };
 
+      const openOfficialSkillEdit = (skill) => {
+        setOfficialEditSkill(skill);
+        setRegisterForm({
+          name: skill.name,
+          description: skill.description,
+          version: skill.version,
+          publisherName: "Pluginmax 官方",
+          permissions: (skill.permissions ?? []).join("，"),
+        });
+        setRegisterManifest({
+          instructions: skill.instructions ?? "",
+          triggers: skill.triggers ?? [],
+        });
+        setRegisterOpen(true);
+      };
+
       const submitCustomResource = async (event) => {
         event.preventDefault();
         if (busy || registerForm.name.trim() === "") return;
         setBusy(true);
         try {
+          if (officialEditSkill !== null) {
+            const result = await request(
+              "/api/collab/resources/skills/official/save",
+              {
+                method: "POST",
+                body: JSON.stringify({
+                  id: officialEditSkill.id,
+                  name: registerForm.name,
+                  description: registerForm.description,
+                  version: registerForm.version,
+                  permissions: registerForm.permissions
+                    .split(/[\n,，]/)
+                    .map((item) => item.trim())
+                    .filter(Boolean),
+                  instructions:
+                    typeof registerManifest?.instructions === "string"
+                      ? registerManifest.instructions
+                      : "",
+                  triggers: Array.isArray(registerManifest?.triggers)
+                    ? registerManifest.triggers
+                    : [],
+                }),
+              },
+            );
+            setRegisterOpen(false);
+            setOfficialEditSkill(null);
+            const refreshed = await request(
+              `/api/collab/resources/skills?${new URLSearchParams({
+                q: result.resource.name,
+              }).toString()}`,
+            );
+            const latest =
+              (refreshed.skills ?? []).find(
+                (skill) => skill.id === result.resource.id,
+              ) ?? result.resource;
+            setSkills(refreshed.skills ?? []);
+            setDetail({ kind: "skill", value: latest });
+            showToast(`已发布官方 Skill「${latest.name}」`);
+            return;
+          }
           const result = await request("/api/collab/resources/custom", {
             method: "POST",
             body: JSON.stringify({
@@ -1559,6 +1619,7 @@ window.__ModuleLoader__.load({
             ...items.filter((item) => item.id !== result.resource.id),
           ]);
           setRegisterOpen(false);
+          setOfficialEditSkill(null);
           showToast(`已注册「${result.resource.name}」`);
         } catch (cause) {
           showToast(cause.message);
@@ -1676,8 +1737,7 @@ window.__ModuleLoader__.load({
               actionDisabled: busy,
               onOpen: (resource) =>
                 setDetail({ kind: "custom", value: resource }),
-              onInstall: (resource) =>
-                void openInstallDialog(resource, true),
+              onInstall: (resource) => void openInstallDialog(resource, true),
               onUninstall: (resource) =>
                 void openUninstallDialog(resource, true),
             })
@@ -1686,8 +1746,7 @@ window.__ModuleLoader__.load({
               key: item.id,
               onOpen: (resource) =>
                 setDetail({ kind: "custom", value: resource }),
-              onAction: (resource) =>
-                void openInstallDialog(resource, true),
+              onAction: (resource) => void openInstallDialog(resource, true),
             }),
       );
       const customSection =
@@ -1744,8 +1803,7 @@ window.__ModuleLoader__.load({
               actionDisabled: busy,
               onOpen: (item) => setDetail({ kind: "skill", value: item }),
               onInstall: (item) => void openInstallDialog(item, false),
-              onUninstall: (item) =>
-                void openUninstallDialog(item, false),
+              onUninstall: (item) => void openUninstallDialog(item, false),
             }),
           ),
           skills.length === 0 && !loading && category !== "自定义"
@@ -2185,11 +2243,7 @@ window.__ModuleLoader__.load({
                 h(
                   "div",
                   null,
-                  h(
-                    "strong",
-                    null,
-                    cleanSkillName(detail.value.name),
-                  ),
+                  h("strong", null, cleanSkillName(detail.value.name)),
                   h(
                     "p",
                     null,
@@ -2493,6 +2547,21 @@ window.__ModuleLoader__.load({
               h(
                 "div",
                 { className: "pmrm-detail-foot" },
+                canManageSkills &&
+                  detail?.kind === "skill" &&
+                  detail.value.publisher?.kind === "official"
+                  ? h(
+                      "button",
+                      {
+                        type: "button",
+                        className: "pmrm-btn secondary",
+                        style: { width: "100%", marginBottom: "8px" },
+                        disabled: busy,
+                        onClick: () => openOfficialSkillEdit(detail.value),
+                      },
+                      "编辑官方 Skill",
+                    )
+                  : null,
                 h(
                   "button",
                   {
@@ -2659,11 +2728,7 @@ window.__ModuleLoader__.load({
                     "div",
                     null,
                     h("h2", null, "安装 Skill"),
-                    h(
-                      "p",
-                      null,
-                      cleanSkillName(installTarget.skill.name),
-                    ),
+                    h("p", null, cleanSkillName(installTarget.skill.name)),
                   ),
                   h(
                     "button",
@@ -2706,7 +2771,8 @@ window.__ModuleLoader__.load({
                         {
                           type: "button",
                           className: "pmrm-btn",
-                          disabled: installLoading || installAgents.length === 0,
+                          disabled:
+                            installLoading || installAgents.length === 0,
                           onClick: () =>
                             setInstallAgentIds(
                               installAgents.map((agent) => agent.id),
@@ -2761,9 +2827,7 @@ window.__ModuleLoader__.load({
                                   setInstallAgentIds((current) =>
                                     event.target.checked
                                       ? [...new Set([...current, agent.id])]
-                                      : current.filter(
-                                          (id) => id !== agent.id,
-                                        ),
+                                      : current.filter((id) => id !== agent.id),
                                   ),
                               }),
                               h(
@@ -2848,11 +2912,7 @@ window.__ModuleLoader__.load({
                     "div",
                     null,
                     h("h2", null, "卸载 Skill"),
-                    h(
-                      "p",
-                      null,
-                      cleanSkillName(uninstallTarget.skill.name),
-                    ),
+                    h("p", null, cleanSkillName(uninstallTarget.skill.name)),
                   ),
                   h(
                     "button",
@@ -2945,9 +3005,7 @@ window.__ModuleLoader__.load({
                       type: "button",
                       className: "pmrm-btn danger",
                       disabled:
-                        busy ||
-                        uninstallLoading ||
-                        uninstallError !== "",
+                        busy || uninstallLoading || uninstallError !== "",
                       onClick: () => void confirmUninstall(),
                     },
                     busy ? "卸载中…" : "确认卸载",
@@ -2968,7 +3026,10 @@ window.__ModuleLoader__.load({
                   className: "pmrm-modal",
                   role: "dialog",
                   "aria-modal": "true",
-                  "aria-label": "注册自定义资源",
+                  "aria-label":
+                    officialEditSkill === null
+                      ? "注册自定义资源"
+                      : "编辑官方 Skill",
                   onSubmit: (event) => void submitCustomResource(event),
                 },
                 h(
@@ -2977,7 +3038,13 @@ window.__ModuleLoader__.load({
                   h(
                     "div",
                     null,
-                    h("h2", null, "注册自定义资源"),
+                    h(
+                      "h2",
+                      null,
+                      officialEditSkill === null
+                        ? "注册自定义资源"
+                        : "编辑官方 Skill",
+                    ),
                     h(
                       "p",
                       null,
@@ -3080,6 +3147,29 @@ window.__ModuleLoader__.load({
                           })),
                       }),
                     ),
+                    officialEditSkill === null
+                      ? null
+                      : h(
+                          "label",
+                          { className: "full" },
+                          "Skill 指令正文",
+                          h("textarea", {
+                            required: true,
+                            style: { minHeight: "220px" },
+                            value:
+                              typeof registerManifest?.instructions === "string"
+                                ? registerManifest.instructions
+                                : "",
+                            onChange: (event) =>
+                              setRegisterManifest((current) => ({
+                                ...(typeof current === "object" &&
+                                current !== null
+                                  ? current
+                                  : {}),
+                                instructions: event.target.value,
+                              })),
+                          }),
+                        ),
                     h(
                       "label",
                       { className: "full" },
@@ -3114,9 +3204,7 @@ window.__ModuleLoader__.load({
                             const heading =
                               markdown === ""
                                 ? ""
-                                : /^#\s+(.+)$/m
-                                    .exec(markdown)?.[1]
-                                    ?.trim();
+                                : /^#\s+(.+)$/m.exec(markdown)?.[1]?.trim();
                             if (typeof parsed.name === "string" || heading) {
                               setRegisterForm((current) => ({
                                 ...current,
@@ -3180,9 +3268,19 @@ window.__ModuleLoader__.load({
                     {
                       type: "submit",
                       className: "pmrm-btn primary",
-                      disabled: busy || registerForm.name.trim() === "",
+                      disabled:
+                        busy ||
+                        registerForm.name.trim() === "" ||
+                        (officialEditSkill !== null &&
+                          typeof registerManifest?.instructions !== "string"),
                     },
-                    busy ? "注册中…" : "注册资源",
+                    busy
+                      ? officialEditSkill === null
+                        ? "注册中…"
+                        : "发布中…"
+                      : officialEditSkill === null
+                        ? "注册资源"
+                        : "发布官方 Skill",
                   ),
                 ),
               ),

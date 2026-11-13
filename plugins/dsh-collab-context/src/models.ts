@@ -5,6 +5,7 @@ export const sceneTypeSchema = z.enum([
   "task",
   "meeting",
   "chat",
+  "group",
   "workflow-node",
 ]);
 export type SceneType = z.infer<typeof sceneTypeSchema>;
@@ -12,6 +13,8 @@ export const chatCarrierSchema = z.enum([
   "native-session",
   "meeting-ai",
   "data-agent",
+  "native-group",
+  "meeting-group",
 ]);
 export type ChatCarrier = z.infer<typeof chatCarrierSchema>;
 
@@ -69,10 +72,15 @@ export const sceneSessionBindingSchema = z.object({
   chatCarrier: chatCarrierSchema.optional(),
   workspaceId: z.string().trim().min(1).max(200).optional(),
   objectId: z.string().trim().min(1).max(200),
+  participantBindingId: z.string().trim().min(1).max(240).default("default"),
   agentPrincipalId: z.string().trim().min(1).max(180),
   sessionId: z.string().trim().min(1).max(200),
   generation: z.number().int().nonnegative(),
-  status: z.enum(["active", "archived", "reset"]),
+  revision: z.number().int().nonnegative().default(1),
+  status: z.enum(["preparing", "active", "archived", "reset"]),
+  lastContextSeq: z.number().int().nonnegative().default(0),
+  contextUsageRatio: z.number().min(0).max(1).optional(),
+  compactionCount: z.number().int().nonnegative().default(0),
   createdAt: z.string().datetime({ precision: 3 }),
   updatedAt: z.string().datetime({ precision: 3 }),
   lastRunId: z.string().trim().min(1).max(180).optional(),
@@ -104,11 +112,13 @@ export const contextRequestSchema = z.object({
   workspaceId: z.string().trim().min(1).max(200).optional(),
   projectContextId: z.string().trim().min(1).max(200).optional(),
   objectId: z.string().trim().min(1).max(200),
+  participantBindingId: z.string().trim().min(1).max(240).optional(),
   agentPrincipalId: z.string().trim().min(1).max(180),
   agentProfileId: z.string().trim().min(1).max(180).optional(),
   teammateId: z.string().trim().min(1).max(180).optional(),
   actorPrincipalId: z.string().trim().min(1).max(180),
   runId: z.string().trim().min(1).max(180).optional(),
+  contextBoundarySeq: z.number().int().nonnegative().optional(),
   input: z.object({
     type: z.enum([
       "user-message",
@@ -214,9 +224,13 @@ export const contextPackSchema = z.object({
   chatCarrier: chatCarrierSchema.optional(),
   chatChannelId: z.string().trim().min(1).max(200).optional(),
   objectId: z.string().trim().min(1).max(200),
+  participantBindingId: z.string().trim().min(1).max(240).optional(),
   actorPrincipalId: z.string().trim().min(1).max(180).optional(),
   agentProfileId: z.string().trim().min(1).max(180).optional(),
   sessionBindingId: z.string().trim().min(1).max(240),
+  contextBoundarySeq: z.number().int().nonnegative().optional(),
+  contextPolicyVersion: z.number().int().nonnegative().optional(),
+  contextUsageRatio: z.number().min(0).max(1).optional(),
   agent: agentIdentitySnapshotSchema,
   sections: z.array(contextSectionSchema).max(50),
   sessionSupplement: z
@@ -291,6 +305,7 @@ export const contextReceiptSchema = z.object({
   chatCarrier: chatCarrierSchema.optional(),
   chatChannelId: z.string().trim().min(1).max(200).optional(),
   objectId: z.string().trim().min(1).max(200),
+  participantBindingId: z.string().trim().min(1).max(240).optional(),
   workspaceId: z.string().trim().min(1).max(200).optional(),
   projectContextId: z.string().trim().min(1).max(200).optional(),
   agentPrincipalId: z.string().trim().min(1).max(180),
@@ -308,6 +323,9 @@ export const contextReceiptSchema = z.object({
       .enum(["stateless-runtime", "session-rebuilt"])
       .optional(),
   }),
+  contextBoundarySeq: z.number().int().nonnegative().optional(),
+  contextPolicyVersion: z.number().int().nonnegative().optional(),
+  contextUsageRatio: z.number().min(0).max(1).optional(),
   included: z
     .array(
       z.object({
@@ -351,14 +369,81 @@ export const contextReceiptSchema = z.object({
 });
 export type ContextReceipt = z.infer<typeof contextReceiptSchema>;
 
+const contextPolicyValueFields = {
+  warningRatio: z.number().min(0.1).max(0.99).default(0.7),
+  compactRatio: z.number().min(0.1).max(0.99).default(0.85),
+  rolloverRatio: z.number().min(0.1).max(1).default(0.95),
+  preserveRecentMessages: z.number().int().min(0).max(100).default(12),
+  maxTriggerDepth: z.number().int().min(1).max(20).default(3),
+  maxConcurrentAgentsPerScene: z.number().int().min(1).max(20).default(3),
+} as const;
+
+const contextPolicyOverrideSchema = z
+  .object(contextPolicyValueFields)
+  .partial();
+
+export const contextPolicyValuesSchema = z
+  .object(contextPolicyValueFields)
+  .refine(
+    (value) =>
+      value.warningRatio < value.compactRatio &&
+      value.compactRatio < value.rolloverRatio,
+    {
+      message:
+        "context policy ratios must satisfy warning < compact < rollover",
+      path: ["rolloverRatio"],
+    },
+  );
+export type ContextPolicyValues = z.infer<typeof contextPolicyValuesSchema>;
+
+export const contextPolicyConfigSchema = z
+  .object({
+    id: z.string().trim().min(1).max(200),
+    version: z.number().int().nonnegative(),
+    scope: z.literal("platform"),
+    defaults: contextPolicyValuesSchema,
+    sceneOverrides: z
+      .object({
+        chat: contextPolicyOverrideSchema.optional(),
+        group: contextPolicyOverrideSchema.optional(),
+        meeting: contextPolicyOverrideSchema.optional(),
+      })
+      .default({}),
+    updatedByPrincipalId: z.string().trim().min(1).max(180).optional(),
+    updatedAt: z.string().datetime({ precision: 3 }),
+  })
+  .superRefine((value, ctx) => {
+    for (const [scene, override] of Object.entries(value.sceneOverrides)) {
+      if (override === undefined) continue;
+      const merged = { ...value.defaults, ...override };
+      const warningRatio = merged.warningRatio ?? 0.7;
+      const compactRatio = merged.compactRatio ?? 0.85;
+      const rolloverRatio = merged.rolloverRatio ?? 0.95;
+      if (
+        warningRatio >= compactRatio ||
+        compactRatio >= rolloverRatio
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          message:
+            "scene context policy ratios must satisfy warning < compact < rollover",
+          path: ["sceneOverrides", scene],
+        });
+      }
+    }
+  });
+export type ContextPolicyConfig = z.infer<typeof contextPolicyConfigSchema>;
+
 export const contextDomainSpec = {
   name: "collab_context",
-  version: 1,
+  version: 2,
+  compatibleVersions: [1],
   tables: {
     sessions: { valueSchema: sceneSessionBindingSchema },
     identities: { valueSchema: agentIdentitySnapshotSchema },
     chat_channels: { valueSchema: aiChatChannelSchema },
     packs: { valueSchema: contextPackSchema },
     receipts: { valueSchema: contextReceiptSchema },
+    policies: { valueSchema: contextPolicyConfigSchema },
   },
 } as const;

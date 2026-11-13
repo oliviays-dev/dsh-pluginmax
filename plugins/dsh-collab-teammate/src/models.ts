@@ -29,7 +29,11 @@ export const PROFILE_TEMPLATE_STATES = [
   "archived",
 ] as const;
 export const TEAMMATE_TEMPLATE_STATES = PROFILE_TEMPLATE_STATES;
-export const SYSTEM_AGENT_KEYS = ["data-agent", "meeting-facilitator"] as const;
+export const SYSTEM_AGENT_KEYS = [
+  "data-agent",
+  "meeting-facilitator",
+  "project-manager",
+] as const;
 
 export const teammateSourceSchema = z.enum(TEAMMATE_SOURCES);
 export const teammateStateSchema = z.enum(TEAMMATE_STATES);
@@ -82,6 +86,13 @@ export const instanceSkillExtensionSchema = z.object({
   addedAt: isoTimeSchema,
 });
 
+export const projectAgentBindingSchema = z.object({
+  workspaceId: idSchema,
+  roleKey: z.literal("project-manager"),
+  managedBy: z.literal("platform").default("platform"),
+  visibility: z.literal("project").default("project"),
+});
+
 export const teammateSchema = z.object({
   id: idSchema,
   source: teammateSourceSchema,
@@ -104,6 +115,8 @@ export const teammateSchema = z.object({
   templateId: idSchema.optional(),
   /** 平台固定系统身份；普通入口不得换模版或归档，平台管理员可维护模版定义。 */
   systemKey: systemAgentKeySchema.optional(),
+  /** 项目级托管 Agent 的稳定归属；同一项目同一角色只能有一个实例。 */
+  projectBinding: projectAgentBindingSchema.optional(),
   protected: systemAgentProtectionSchema.optional(),
   resettableScopes: z.array(resettableScopeSchema).max(8).optional(),
   personaId: idSchema.optional(),
@@ -186,9 +199,7 @@ export type TeammateSource = z.infer<typeof teammateSourceSchema>;
 export type TeammateState = z.infer<typeof teammateStateSchema>;
 export type TeammateTemplateState = z.infer<typeof teammateTemplateStateSchema>;
 export type SystemAgentKey = z.infer<typeof systemAgentKeySchema>;
-export type SystemAgentProtection = z.infer<
-  typeof systemAgentProtectionSchema
->;
+export type SystemAgentProtection = z.infer<typeof systemAgentProtectionSchema>;
 export type TeammateResettableScope = z.infer<typeof resettableScopeSchema>;
 export type TemplateSkillBinding = z.infer<typeof templateSkillBindingSchema>;
 export type TeammateExtensionPolicy = z.infer<
@@ -197,6 +208,7 @@ export type TeammateExtensionPolicy = z.infer<
 export type InstanceSkillExtension = z.infer<
   typeof instanceSkillExtensionSchema
 >;
+export type ProjectAgentBinding = z.infer<typeof projectAgentBindingSchema>;
 export type Teammate = z.infer<typeof teammateSchema>;
 export type TeammateTemplate = z.infer<typeof teammateTemplateSchema>;
 export type TeammateEvent = z.infer<typeof teammateEventSchema>;
@@ -218,7 +230,10 @@ export const teammateAuditActorTypeSchema = z.enum(TEAMMATE_AUDIT_ACTOR_TYPES);
 export const teammateWorkReportSchema = z.object({
   id: idSchema,
   teammateId: idSchema,
-  reportDate: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/),
+  reportDate: z
+    .string()
+    .trim()
+    .regex(/^\d{4}-\d{2}-\d{2}$/),
   generatedAt: isoTimeSchema,
   author: z.object({
     type: teammateWorkReportAuthorTypeSchema,

@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { randomUUID } from "node:crypto";
 import {
   bearerToken,
   readJsonBody,
@@ -15,17 +16,21 @@ import {
 import {
   projectHealthSchema,
   projectMemberKindSchema,
+  projectReportTypeSchema,
   projectRoleDefinitionSchema,
   projectStatusSchema,
   roleCategorySchema,
+  roleMappingAssigneeSchema,
   rolePermissionSchema,
   type ProjectAuditRecord,
   type ProjectRecord,
   type ProjectRoleDefinition,
   type ProjectReportRecord,
+  type ProjectReportType,
   type ProjectRoleRecord,
   type ProjectTemplateRecord,
   type RolePermission,
+  type RoleMappingAssignee,
 } from "./types.js";
 
 export const name = "dsh-collab-project";
@@ -39,6 +44,8 @@ export type {
   ProjectReportRecord,
   ProjectRoleRecord,
   ProjectTemplateRecord,
+  RoleMappingAssignee,
+  RoleMappingPreset,
 } from "./types.js";
 
 interface WebRouteLike {
@@ -83,7 +90,10 @@ interface TeamServiceLike {
       readonly userId: string;
       readonly role: MemberRole;
     },
-    options?: { readonly allowWorkspaceOwner?: boolean },
+    options?: {
+      readonly allowWorkspaceOwner?: boolean;
+      readonly allowSelfOwnerBootstrap?: boolean;
+    },
   ): Promise<unknown>;
   removeMember(
     actorId: string,
@@ -243,12 +253,35 @@ interface TeammateLike {
 }
 
 interface TeammateRuntimeLike {
-  assignable(actor: {
-    readonly userId: string;
-    readonly name: string;
-    readonly role: GlobalRole;
-  }): readonly TeammateLike[];
+  assignable(
+    actor: {
+      readonly userId: string;
+      readonly name: string;
+      readonly role: GlobalRole;
+    },
+    workspaceId?: string,
+  ): readonly TeammateLike[];
   isSystemAgent?(ref: string): boolean;
+  isProjectManagedAgent?(ref: string): boolean;
+  ensureProjectManagerAgent?(input: {
+    readonly workspaceId: string;
+    readonly projectName: string;
+    readonly actor: {
+      readonly userId: string;
+      readonly name: string;
+      readonly role: GlobalRole;
+    };
+  }): Promise<TeammateLike>;
+  projectManagerFor?(workspaceId: string): TeammateLike | undefined;
+  renameProjectManager?(input: {
+    readonly workspaceId: string;
+    readonly projectName: string;
+    readonly actor: {
+      readonly userId: string;
+      readonly name: string;
+      readonly role: GlobalRole;
+    };
+  }): Promise<TeammateLike | undefined>;
 }
 
 interface TaskLike {
@@ -261,6 +294,27 @@ interface TaskLike {
   readonly receiverName?: string | undefined;
   readonly due?: string | undefined;
   readonly archivedAt?: string | undefined;
+  readonly progress?: number | undefined;
+  readonly receiverState?: "active" | "needs_reassignment" | undefined;
+  readonly reassignmentReason?: string | undefined;
+  readonly needsInput?: boolean | undefined;
+  readonly queueState?: "idle" | "blocked" | "paused" | undefined;
+  readonly executionAnomaly?:
+    | {
+        readonly code: string;
+        readonly message: string;
+        readonly at: string;
+      }
+    | undefined;
+  readonly comments?:
+    | readonly {
+        readonly id: string;
+        readonly at: string;
+        readonly authorName: string;
+        readonly content: string;
+        readonly isKeyConsensus?: boolean | undefined;
+      }[]
+    | undefined;
   readonly workflow?:
     | {
         readonly instanceId?: string | undefined;
@@ -353,7 +407,29 @@ interface WorkflowInstanceLike {
   readonly definitionVersion: number;
   readonly title: string;
   readonly status: string;
+  readonly createdAt?: string | undefined;
   readonly updatedAt: string;
+  readonly nodes?:
+    | Readonly<
+        Record<
+          string,
+          {
+            readonly status: string;
+            readonly attempts?: number | undefined;
+            readonly enteredAt?: string | undefined;
+            readonly approvals?: Readonly<
+              Record<
+                string,
+                {
+                  readonly status: string;
+                  readonly at?: string | undefined;
+                }
+              >
+            >;
+          }
+        >
+      >
+    | undefined;
   readonly roleSnapshot?: Record<
     string,
     { readonly roleId?: string } | undefined
@@ -495,7 +571,54 @@ interface ProjectDependencies {
   readonly meetingMinutes?: () => MeetingMinutesServiceLike | undefined;
   readonly dataAgent?: () => DataAgentOutputServiceLike | undefined;
   readonly principals?: () => PrincipalServiceLike | undefined;
+  readonly skillCatalog?: () => ProjectSkillCatalogLike | undefined;
   readonly now?: () => Date;
+}
+
+interface ProjectReportAgentRunLike {
+  readonly id: string;
+  readonly workspaceId: string;
+  readonly source: "workflow" | "task" | "meeting" | "chat";
+  readonly instanceId: string;
+  readonly createdBy: string;
+  readonly sessionId?: string | undefined;
+  readonly status: string;
+}
+
+interface ProjectReportAgentServiceLike {
+  runs(filter?: {
+    readonly workspaceId?: string | undefined;
+    readonly instanceId?: string | undefined;
+  }): readonly ProjectReportAgentRunLike[];
+}
+
+interface ProjectSkillCatalogLike {
+  resolveSkills(
+    principal: { readonly userId: string },
+    skillIds: readonly string[],
+    options?: { readonly requireInstallation?: boolean },
+  ): Promise<readonly { readonly id: string; readonly version: string }[]>;
+}
+
+interface ProjectToolExecLike {
+  readonly signal?: AbortSignal | undefined;
+  readonly agent?: {
+    readonly session?: { readonly id?: string };
+  };
+}
+
+interface ProjectToolDefinitionLike {
+  readonly name: string;
+  readonly description: string;
+  readonly parameters: Readonly<Record<string, unknown>>;
+  readonly output: {
+    readonly schema: { readonly type: "string" };
+    render(
+      args: unknown,
+      value: string,
+    ): Array<{ readonly type: "text"; readonly text: string }>;
+  };
+  execute(args: unknown, exec: ProjectToolExecLike): Promise<string>;
 }
 
 interface ProjectContext {
@@ -505,6 +628,10 @@ interface ProjectContext {
   effect(register: () => () => void): void;
   provide(key: "collabProjects", value: ProjectService): unknown;
   webServer: { register(route: WebRouteLike): unknown };
+  tools?: {
+    get?(name: string): unknown;
+    register(definition: ProjectToolDefinitionLike): () => void;
+  };
   get(key: string): unknown;
   inject(
     keys: readonly ["collabTeam"],
@@ -1110,8 +1237,9 @@ async function projectOutputs(
     });
   }
 
-  let dataAgentReports: ReturnType<DataAgentOutputServiceLike["projectReports"]> =
-    [];
+  let dataAgentReports: ReturnType<
+    DataAgentOutputServiceLike["projectReports"]
+  > = [];
   try {
     dataAgentReports = dataAgent?.projectReports(workspaceId) ?? [];
   } catch {
@@ -1254,7 +1382,8 @@ function teammateDirectory(
   const list: TeammateLike[] = [];
   const seenTeammates = new Set<string>();
   for (const teammateActor of actors) {
-    for (const teammate of teammates?.assignable(teammateActor) ?? []) {
+    for (const teammate of teammates?.assignable(teammateActor, workspaceId) ??
+      []) {
       if (seenTeammates.has(teammate.id)) continue;
       seenTeammates.add(teammate.id);
       list.push(teammate);
@@ -1467,7 +1596,11 @@ function buildMembers(
         };
       }),
     agents: agentDirectory
-      .filter((teammate) => teammates?.isSystemAgent?.(teammate.id) !== true)
+      .filter(
+        (teammate) =>
+          teammates?.isSystemAgent?.(teammate.id) !== true ||
+          teammates?.isProjectManagedAgent?.(teammate.id) === true,
+      )
       .filter((teammate) => !agentMemberIds.has(teammate.id))
       .map((teammate) => {
         const principalId =
@@ -1715,106 +1848,537 @@ interface ReportInput {
   readonly tasks: readonly TaskLike[];
   readonly workflows: readonly WorkflowInstanceLike[];
   readonly today: string;
+  readonly reportType?: ProjectReportType | undefined;
 }
 
-const TASK_STATUS_LABEL: Record<string, string> = {
-  todo: "待处理",
-  progress: "进行中",
-  review: "待验收",
-  done: "已完成",
-  cancelled: "已取消",
+type ProjectRagStatus = "健康" | "关注" | "风险";
+
+interface ProjectReportFinding {
+  readonly score: number;
+  readonly text: string;
+}
+
+interface ProjectReportAssessment {
+  readonly tasks: readonly TaskLike[];
+  readonly openTasks: readonly TaskLike[];
+  readonly completedTasks: readonly TaskLike[];
+  readonly inProgressTasks: readonly TaskLike[];
+  readonly reviewTasks: readonly TaskLike[];
+  readonly overdueTasks: readonly TaskLike[];
+  readonly abnormalTasks: readonly TaskLike[];
+  readonly unassignedTasks: readonly TaskLike[];
+  readonly needsInputTasks: readonly TaskLike[];
+  readonly blockedWorkflows: readonly WorkflowInstanceLike[];
+  readonly failedWorkflows: readonly WorkflowInstanceLike[];
+  readonly waitingWorkflows: readonly WorkflowInstanceLike[];
+  readonly completedWorkflows: readonly WorkflowInstanceLike[];
+  readonly expectedProgress: number | undefined;
+  readonly progressVariance: number | undefined;
+  readonly riskFindings: readonly ProjectReportFinding[];
+  readonly attentionFindings: readonly ProjectReportFinding[];
+  readonly keyResults: readonly string[];
+  readonly nextActions: readonly string[];
+  readonly rag: ProjectRagStatus;
+  readonly ragBasis: readonly string[];
+  readonly coverageNotes: readonly string[];
+}
+
+const TASK_PRIORITY_RANK: Record<string, number> = {
+  P1: 0,
+  P2: 1,
+  P3: 2,
 };
 
-const WORKFLOW_STATUS_LABEL: Record<string, string> = {
-  running: "进行中",
-  waiting: "等待中",
-  blocked: "阻塞",
-  completed: "已完成",
-  cancelled: "已取消",
-  failed: "失败",
-};
+const DAY_MS = 24 * 60 * 60 * 1_000;
 
-/**
- * 项目日报正文：按当前项目快照确定性生成，不依赖模型。
- * 结构与 demo 一致：今日结论 / 关键进展 / 风险与待确认 / 下一步。
- */
-export function buildProjectReportContent(input: ReportInput): string {
-  const tasks = activeTasks(input.tasks);
-  const inProgress = tasks.filter((task) => task.status === "progress");
-  const review = tasks.filter((task) => task.status === "review");
-  const blockedWorkflows = input.workflows.filter(
-    (workflow) => workflow.status === "blocked",
+function reportDateDay(date: string): number | undefined {
+  const value = Date.parse(`${dateOf(date)}T00:00:00.000Z`);
+  return Number.isFinite(value) ? Math.floor(value / DAY_MS) : undefined;
+}
+
+function reportDaysBetween(from: string, to: string): number | undefined {
+  const start = reportDateDay(from);
+  const end = reportDateDay(to);
+  return start === undefined || end === undefined ? undefined : end - start;
+}
+
+function reportPriorityRank(task: TaskLike): number {
+  return TASK_PRIORITY_RANK[task.priority] ?? 9;
+}
+
+function reportTaskSort(left: TaskLike, right: TaskLike): number {
+  return (
+    reportPriorityRank(left) - reportPriorityRank(right) ||
+    right.updatedAt.localeCompare(left.updatedAt)
   );
-  const runningWorkflows = input.workflows.filter((workflow) =>
-    ["running", "waiting"].includes(workflow.status),
+}
+
+function reportWorkflowSort(
+  left: WorkflowInstanceLike,
+  right: WorkflowInstanceLike,
+): number {
+  return right.updatedAt.localeCompare(left.updatedAt);
+}
+
+function reportDatePresent(date: string | undefined): date is string {
+  return (
+    date !== undefined &&
+    /^\d{4}-\d{2}-\d{2}/.test(date) &&
+    Number.isFinite(Date.parse(`${dateOf(date)}T00:00:00.000Z`))
   );
-  const overdue = tasks.filter(
+}
+
+function reportPlannedProgress(
+  project: ProjectRecord,
+  today: string,
+): number | undefined {
+  if (
+    !reportDatePresent(project.startDate) ||
+    !reportDatePresent(project.targetDate)
+  ) {
+    return undefined;
+  }
+  const totalDays = reportDaysBetween(project.startDate, project.targetDate);
+  if (totalDays === undefined || totalDays <= 0) return undefined;
+  const elapsedDays = reportDaysBetween(project.startDate, today);
+  if (elapsedDays === undefined) return undefined;
+  return Math.max(
+    0,
+    Math.min(100, Math.round((elapsedDays / totalDays) * 100)),
+  );
+}
+
+function reportSignedPoints(value: number): string {
+  return `${value > 0 ? "+" : ""}${value} 个百分点`;
+}
+
+function reportTrim(value: string, maxLength: number): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length <= maxLength
+    ? normalized
+    : `${normalized.slice(0, maxLength - 1)}…`;
+}
+
+function reportTaskResult(task: TaskLike): string {
+  const consensus = [...(task.comments ?? [])]
+    .filter(
+      (comment) =>
+        comment.isKeyConsensus === true && comment.content.trim() !== "",
+    )
+    .sort((left, right) => right.at.localeCompare(left.at))[0];
+  const detail =
+    consensus === undefined ? "" : `：${reportTrim(consensus.content, 140)}`;
+  return `- \`${task.id}\` ${reportTrim(task.title, 120)}${detail}`;
+}
+
+function addReportFinding(
+  findings: ProjectReportFinding[],
+  score: number,
+  text: string,
+): void {
+  if (!findings.some((finding) => finding.text === text)) {
+    findings.push({ score, text });
+  }
+}
+
+function assessProjectReport(input: ReportInput): ProjectReportAssessment {
+  const today = dateOf(input.today);
+  const tasks = activeTasks(input.tasks).filter(
+    (task) => task.status !== "cancelled",
+  );
+  const openTasks = tasks.filter((task) => task.status !== "done");
+  const completedTasks = tasks
+    .filter(
+      (task) => task.status === "done" && dateOf(task.updatedAt) === today,
+    )
+    .sort(reportTaskSort);
+  const inProgressTasks = openTasks.filter(
+    (task) => task.status === "progress",
+  );
+  const reviewTasks = openTasks.filter((task) => task.status === "review");
+  const overdueTasks = openTasks.filter(
+    (task) => reportDatePresent(task.due) && dateOf(task.due) < today,
+  );
+  const abnormalTasks = openTasks.filter(
     (task) =>
-      task.due !== undefined &&
-      task.due !== "" &&
-      task.due.slice(0, 10) < input.today &&
-      task.status !== "done" &&
-      task.status !== "cancelled",
+      task.status === "abnormal" ||
+      task.executionAnomaly !== undefined ||
+      task.receiverState === "needs_reassignment" ||
+      task.queueState === "blocked",
   );
-  const highlights = [...tasks]
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-    .slice(0, 3)
-    .map(
-      (task) =>
-        `- \`${task.id}\` ${task.title}（${TASK_STATUS_LABEL[task.status] ?? task.status}）`,
-    );
-  const workflowHighlights = [...input.workflows]
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-    .slice(0, 3)
-    .map(
+  const unassignedTasks = openTasks.filter(
+    (task) => task.receiverType === "unassigned",
+  );
+  const needsInputTasks = openTasks.filter((task) => task.needsInput === true);
+  const blockedWorkflows = input.workflows
+    .filter((workflow) => workflow.status === "blocked")
+    .sort(reportWorkflowSort);
+  const failedWorkflows = input.workflows
+    .filter((workflow) => workflow.status === "failed")
+    .sort(reportWorkflowSort);
+  const waitingWorkflows = input.workflows
+    .filter((workflow) => workflow.status === "waiting")
+    .sort(reportWorkflowSort);
+  const completedWorkflows = input.workflows
+    .filter(
       (workflow) =>
-        `- 工作流「${workflow.title}」（${
-          WORKFLOW_STATUS_LABEL[workflow.status] ?? workflow.status
-        }）`,
+        workflow.status === "completed" && dateOf(workflow.updatedAt) === today,
+    )
+    .sort(reportWorkflowSort);
+
+  const riskFindings: ProjectReportFinding[] = [];
+  const attentionFindings: ProjectReportFinding[] = [];
+  const riskTaskIds = new Set<string>();
+  const attentionTaskIds = new Set<string>();
+  const riskWorkflowIds = new Set<string>();
+  const hasExecutionRisk = (task: TaskLike): boolean =>
+    task.status === "abnormal" ||
+    task.executionAnomaly !== undefined ||
+    task.receiverState === "needs_reassignment" ||
+    task.queueState === "blocked";
+  const p1Overdue = overdueTasks.filter((task) => task.priority === "P1");
+  const nonP1Overdue = overdueTasks.filter((task) => task.priority !== "P1");
+  for (const task of p1Overdue) {
+    if (hasExecutionRisk(task)) continue;
+    addReportFinding(
+      riskFindings,
+      100,
+      `- P1 任务 \`${task.id}\`「${task.title}」已超过截止日期 ${dateOf(task.due ?? "")}。`,
     );
-  const risks: string[] = [];
-  for (const workflow of blockedWorkflows.slice(0, 3)) {
-    risks.push(
-      `- 工作流「${workflow.title}」当前阻塞，需要确认责任人与解除条件。`,
+    riskTaskIds.add(task.id);
+  }
+  for (const task of nonP1Overdue) {
+    if (hasExecutionRisk(task)) continue;
+    addReportFinding(
+      attentionFindings,
+      65,
+      `- 任务 \`${task.id}\`「${task.title}」已超过截止日期 ${dateOf(task.due ?? "")}。`,
+    );
+    attentionTaskIds.add(task.id);
+  }
+  for (const task of abnormalTasks) {
+    const reason =
+      task.executionAnomaly?.message ??
+      task.reassignmentReason ??
+      (task.queueState === "blocked" ? "依赖未满足" : "任务状态异常");
+    addReportFinding(
+      riskFindings,
+      task.priority === "P1" ? 98 : 85,
+      `- 任务 \`${task.id}\`「${task.title}」需要处理：${reportTrim(reason, 160)}。`,
+    );
+    (task.priority === "P1" ? riskTaskIds : attentionTaskIds).add(task.id);
+  }
+  for (const workflow of blockedWorkflows) {
+    addReportFinding(
+      riskFindings,
+      92,
+      `- 工作流「${workflow.title}」当前阻塞，需确认责任人与解除条件。`,
+    );
+    riskWorkflowIds.add(workflow.id);
+  }
+  for (const workflow of failedWorkflows) {
+    addReportFinding(
+      riskFindings,
+      96,
+      `- 工作流「${workflow.title}」执行失败，需决定重试或人工接管。`,
+    );
+    riskWorkflowIds.add(workflow.id);
+  }
+  for (const workflow of waitingWorkflows) {
+    addReportFinding(
+      attentionFindings,
+      60,
+      `- 工作流「${workflow.title}」处于等待状态。`,
     );
   }
-  for (const task of overdue.slice(0, 3)) {
-    risks.push(
-      `- \`${task.id}\` 已超过截止日期 ${task.due?.slice(0, 10) ?? ""}，仍处于 ${
-        TASK_STATUS_LABEL[task.status] ?? task.status
-      }。`,
+  for (const workflow of input.workflows) {
+    for (const [nodeId, node] of Object.entries(workflow.nodes ?? {})) {
+      if (
+        !riskWorkflowIds.has(workflow.id) &&
+        (node.status === "blocked" || node.status === "failed")
+      ) {
+        addReportFinding(
+          riskFindings,
+          node.status === "failed" ? 94 : 88,
+          `- 工作流「${workflow.title}」节点“${nodeId}”${node.status === "failed" ? "执行失败" : "阻塞"}。`,
+        );
+      }
+      const idleDays =
+        node.enteredAt === undefined
+          ? undefined
+          : reportDaysBetween(node.enteredAt, today);
+      if (
+        !riskWorkflowIds.has(workflow.id) &&
+        idleDays !== undefined &&
+        idleDays >= 3 &&
+        ["running", "waiting", "blocked", "failed"].includes(node.status)
+      ) {
+        addReportFinding(
+          riskFindings,
+          82,
+          `- 工作流「${workflow.title}」节点“${nodeId}”已停留 ${idleDays} 天。`,
+        );
+      }
+      const pendingApprovalCount = Object.values(node.approvals ?? {}).filter(
+        (approval) => approval.status === "pending",
+      ).length;
+      if (pendingApprovalCount > 0) {
+        addReportFinding(
+          attentionFindings,
+          pendingApprovalCount > 1 ? 72 : 58,
+          `- 工作流「${workflow.title}」节点“${nodeId}”有 ${pendingApprovalCount} 个待审批项。`,
+        );
+      }
+    }
+  }
+  for (const task of unassignedTasks) {
+    if (riskTaskIds.has(task.id) || attentionTaskIds.has(task.id)) continue;
+    addReportFinding(
+      task.priority === "P1" ? riskFindings : attentionFindings,
+      task.priority === "P1" ? 86 : 55,
+      `- ${task.priority} 任务 \`${task.id}\`「${task.title}」尚未分配负责人。`,
+    );
+    (task.priority === "P1" ? riskTaskIds : attentionTaskIds).add(task.id);
+  }
+  for (const task of needsInputTasks) {
+    if (riskTaskIds.has(task.id) || attentionTaskIds.has(task.id)) continue;
+    addReportFinding(
+      attentionFindings,
+      62,
+      `- 任务 \`${task.id}\`「${task.title}」等待补充信息。`,
+    );
+    attentionTaskIds.add(task.id);
+  }
+  if (reviewTasks.length > 0) {
+    addReportFinding(
+      attentionFindings,
+      52,
+      `- ${reviewTasks.length} 项任务处于待验收状态，尚未形成最终结果。`,
+    );
+  }
+
+  const expectedProgress = reportPlannedProgress(input.project, today);
+  const progressVariance =
+    expectedProgress === undefined
+      ? undefined
+      : input.project.progress - expectedProgress;
+  if (progressVariance !== undefined) {
+    if (progressVariance <= -15) {
+      addReportFinding(
+        riskFindings,
+        90,
+        `- 实际进度 ${input.project.progress}% 落后计划 ${Math.abs(progressVariance)} 个百分点。`,
+      );
+    } else if (progressVariance <= -5) {
+      addReportFinding(
+        attentionFindings,
+        57,
+        `- 实际进度 ${input.project.progress}% 落后计划 ${Math.abs(progressVariance)} 个百分点。`,
+      );
+    }
+  }
+  const targetOverdueDays =
+    reportDatePresent(input.project.targetDate) &&
+    input.project.status !== "已完成"
+      ? reportDaysBetween(input.project.targetDate, today)
+      : undefined;
+  if (targetOverdueDays !== undefined && targetOverdueDays > 0) {
+    addReportFinding(
+      riskFindings,
+      89,
+      `- 项目已超过目标日期 ${input.project.targetDate} 共 ${targetOverdueDays} 天。`,
     );
   }
   if (input.project.health !== "健康") {
-    risks.push(
-      `- 项目健康度为「${input.project.health}」，需要关注跨团队依赖。`,
+    addReportFinding(
+      input.project.health === "风险" ? riskFindings : attentionFindings,
+      input.project.health === "风险" ? 84 : 54,
+      `- 人工健康度标记为「${input.project.health}」。`,
     );
   }
-  if (risks.length === 0) {
-    risks.push("- 暂无阻塞项，保持当前节奏并继续观察关键路径。");
+
+  riskFindings.sort((left, right) => right.score - left.score);
+  attentionFindings.sort((left, right) => right.score - left.score);
+  const rag: ProjectRagStatus =
+    riskFindings.length > 0
+      ? "风险"
+      : attentionFindings.length > 0
+        ? "关注"
+        : "健康";
+  const ragBasis = [...riskFindings, ...attentionFindings]
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 4)
+    .map((finding) => finding.text.replace(/^-\s*/, ""));
+  const coverageNotes: string[] = [];
+  if (expectedProgress === undefined) {
+    coverageNotes.push("未设置完整起止日期，无法计算计划进度与偏差。");
   }
-  return [
-    "## 今日结论",
-    "",
-    `${input.workspace.title} 当前处于「${input.project.status}」状态，整体进度 ${input.project.progress}%，健康度${input.project.health}。`,
-    "",
-    "## 关键进展",
-    "",
-    `- 活跃任务 ${tasks.length} 项，其中进行中 ${inProgress.length} 项、待验收 ${review.length} 项。`,
-    `- 关联工作流 ${input.workflows.length} 个，其中进行中 ${runningWorkflows.length} 个、阻塞 ${blockedWorkflows.length} 个。`,
-    ...(highlights.length === 0 ? [] : ["- 最近更新的任务：", ...highlights]),
-    ...(workflowHighlights.length === 0
+  if (input.project.targetDate === "") {
+    coverageNotes.push("未设置目标日期，无法判断交付窗口。");
+  }
+
+  const keyResults = [
+    ...completedTasks.slice(0, 4).map(reportTaskResult),
+    ...completedWorkflows
+      .slice(0, 2)
+      .map((workflow) => `- 工作流「${workflow.title}」已完成。`),
+  ];
+  if (keyResults.length === 0) {
+    keyResults.push("- 报告日未捕获到已确认的任务或工作流结果。");
+  }
+
+  const nextActions: string[] = [];
+  const addAction = (text: string): void => {
+    if (
+      nextActions.length < 5 &&
+      !nextActions.some((action) => action === text)
+    ) {
+      nextActions.push(text);
+    }
+  };
+  for (const task of p1Overdue.slice(0, 2)) {
+    addAction(`- 处理 P1 逾期任务 \`${task.id}\`，明确改期或当日解除阻塞。`);
+  }
+  for (const task of abnormalTasks.slice(0, 2)) {
+    addAction(
+      `- 复核异常任务 \`${task.id}\` 的最近一次执行记录并决定重试或改派。`,
+    );
+  }
+  for (const workflow of [...blockedWorkflows, ...failedWorkflows].slice(
+    0,
+    2,
+  )) {
+    addAction(`- 处理工作流「${workflow.title}」的阻塞或失败节点。`);
+  }
+  if (reviewTasks.length > 0) {
+    addAction(`- 完成 ${reviewTasks.length} 项待验收任务的验收或退回。`);
+  }
+  if (needsInputTasks.length > 0) {
+    addAction(
+      `- 为 ${needsInputTasks.length} 项等待信息的任务补充必要上下文。`,
+    );
+  }
+  if (unassignedTasks.length > 0) {
+    addAction(`- 为 ${unassignedTasks.length} 项未分配任务指定负责人。`);
+  }
+  if (coverageNotes.length > 0) {
+    addAction("- 补充项目起止日期，恢复计划进度与偏差评估。");
+  }
+  if (nextActions.length === 0) {
+    addAction("- 保持当前节奏，在下一检查点复核关键交付结果。");
+  }
+
+  return {
+    tasks,
+    openTasks,
+    completedTasks,
+    inProgressTasks,
+    reviewTasks,
+    overdueTasks,
+    abnormalTasks,
+    unassignedTasks,
+    needsInputTasks,
+    blockedWorkflows,
+    failedWorkflows,
+    waitingWorkflows,
+    completedWorkflows,
+    expectedProgress,
+    progressVariance,
+    riskFindings,
+    attentionFindings,
+    keyResults,
+    nextActions,
+    rag,
+    ragBasis,
+    coverageNotes,
+  };
+}
+
+/**
+ * 项目日报正文：按 senior-pm 的 RAG、计划偏差和风险登记册思路生成。
+ * 只汇总已确认结果与需要关注的异常，不把“最近更新的任务”当作进展。
+ */
+export function buildProjectReportContent(input: ReportInput): string {
+  const assessment = assessProjectReport(input);
+  const reportType = input.reportType ?? "daily";
+  const scheduleLine =
+    assessment.expectedProgress === undefined ||
+    assessment.progressVariance === undefined
+      ? `- 进度：实际 ${input.project.progress}%；未设置完整起止日期，计划偏差不可用。`
+      : `- 进度：实际 ${input.project.progress}%，计划 ${assessment.expectedProgress}%，偏差 ${reportSignedPoints(assessment.progressVariance)}。`;
+  const taskLine =
+    `- 任务：报告日确认完成 ${assessment.completedTasks.length} 项，` +
+    `当前未完成 ${assessment.openTasks.length} 项，逾期 ${assessment.overdueTasks.length} 项。`;
+  const workflowLine =
+    `- 工作流：报告日确认完成 ${assessment.completedWorkflows.length} 个，` +
+    `阻塞 ${assessment.blockedWorkflows.length} 个、失败 ${assessment.failedWorkflows.length} 个、等待 ${assessment.waitingWorkflows.length} 个。`;
+  const riskLines =
+    assessment.riskFindings.length === 0
+      ? assessment.attentionFindings.length === 0
+        ? []
+        : ["- 未命中高风险规则。"]
+      : assessment.riskFindings.slice(0, 8).map((finding) => finding.text);
+  const attentionLines =
+    assessment.attentionFindings.length === 0
       ? []
-      : ["- 最近更新的工作流：", ...workflowHighlights]),
+      : assessment.attentionFindings.slice(0, 5).map((finding) => finding.text);
+  const headings =
+    reportType === "weekly"
+      ? {
+          conclusion: "本周结论",
+          snapshot: "目标与里程碑进展",
+          results: "关键结果",
+          risks: "阻塞、依赖与需决策事项",
+          next: "下周计划",
+        }
+      : reportType === "progress"
+        ? {
+            conclusion: "当前状态",
+            snapshot: "与计划的差异",
+            results: "已完成",
+            risks: "风险与依赖",
+            next: "需要支持或决策",
+          }
+        : {
+            conclusion: "RAG 结论",
+            snapshot: "指标快照",
+            results: "关键结果",
+            risks: "风险与异常",
+            next: "待确认与下一步",
+          };
+  return [
+    `## ${headings.conclusion}`,
     "",
-    "## 风险与待确认",
+    `${input.workspace.title} 截至 ${dateOf(input.today)} 处于「${input.project.status}」状态，综合健康度判定为「${assessment.rag}」。`,
     "",
-    ...risks,
+    ...assessment.ragBasis.map((reason) => `- 判定依据：${reason}`),
+    ...(assessment.ragBasis.length === 0
+      ? ["- 判定依据：未命中进度、任务或工作流风险规则。"]
+      : []),
     "",
-    "## 下一步",
+    `## ${headings.snapshot}`,
     "",
-    "- 在项目周会中确认负责人、截止时间和下一检查点。",
-    `- 目标日期 ${input.project.targetDate === "" ? "未设置" : input.project.targetDate}，按当前进度校准交付范围。`,
+    scheduleLine,
+    taskLine,
+    workflowLine,
+    ...assessment.coverageNotes.map((note) => `- 数据缺口：${note}`),
+    "",
+    `## ${headings.results}`,
+    "",
+    ...assessment.keyResults,
+    "",
+    `## ${headings.risks}`,
+    "",
+    ...riskLines,
+    ...attentionLines,
+    ...(assessment.riskFindings.length === 0 &&
+    assessment.attentionFindings.length === 0
+      ? ["- 当前未命中风险、异常、逾期或等待规则。"]
+      : []),
+    "",
+    `## ${headings.next}`,
+    "",
+    ...assessment.nextActions,
   ].join("\n");
 }
 
@@ -1869,6 +2433,17 @@ const projectRoleSaveSchema = z.object({
 });
 
 const projectRoleRemoveSchema = z.object({
+  workspaceId: z.string().trim().min(1).max(160),
+  roleId: z.string().trim().min(1).max(160),
+});
+
+const roleMappingSaveSchema = z.object({
+  workspaceId: z.string().trim().min(1).max(160),
+  roleId: z.string().trim().min(1).max(160),
+  assignees: z.array(roleMappingAssigneeSchema).min(1).max(100),
+});
+
+const roleMappingRemoveSchema = z.object({
   workspaceId: z.string().trim().min(1).max(160),
   roleId: z.string().trim().min(1).max(160),
 });
@@ -2241,7 +2816,23 @@ export function createProjectRoutes(
     if (template === undefined) {
       throw new ProjectError("not_found", "项目模版不存在");
     }
-    const roles = templateProjectRoles(service, template);
+    const templateRoles = templateProjectRoles(service, template);
+    const systemProjectManager = service.role("role-pm");
+    const roles =
+      systemProjectManager === undefined ||
+      templateRoles.some((role) => role.id === systemProjectManager.id)
+        ? templateRoles
+        : [
+            {
+              id: systemProjectManager.id,
+              name: systemProjectManager.name,
+              code: systemProjectManager.code,
+              category: systemProjectManager.category,
+              description: systemProjectManager.description,
+              permissions: [...systemProjectManager.permissions],
+            },
+            ...templateRoles,
+          ];
     if (roles.length === 0) {
       throw new ProjectError("invalid_input", "项目模版没有可用的项目角色");
     }
@@ -2345,6 +2936,24 @@ export function createProjectRoutes(
       const assignments = dependencies.assignments();
       let project = await ensureProjectRecord(workspace);
       project = await ensureProjectRoleCopy(service, assignments, project);
+      const memberRole = memberRoleOf(team, workspaceId, current.userId);
+      let projectManager = dependencies
+        .teammates()
+        ?.projectManagerFor?.(workspaceId);
+      let managerWarning: string | undefined;
+      if (
+        projectManager === undefined &&
+        (current.role === "admin" || memberRole === "owner")
+      ) {
+        const manager = await provisionProjectManager(
+          current,
+          workspace,
+          project,
+        );
+        project = manager.project;
+        projectManager = manager.teammate;
+        managerWarning = manager.warning;
+      }
       let config: WorkspaceRoleConfigLike | undefined;
       try {
         config = assignments?.config(workspaceId);
@@ -2377,7 +2986,7 @@ export function createProjectRoutes(
         ...project.projectRoles.map((role) => ({
           ...role,
           memberCount: memberCountBySeat.get(role.id) ?? 0,
-          system: false,
+          system: role.id === "role-pm",
         })),
         ...seats
           .filter((seat) => SYSTEM_SEAT_IDS.has(seat.id))
@@ -2412,7 +3021,6 @@ export function createProjectRoutes(
       );
       const tasks = tasksOf(workspaceId);
       const workflows = workflowsOf(workspaceId);
-      const memberRole = memberRoleOf(team, workspaceId, current.userId);
       sendJson(response, 200, {
         ok: true,
         project: projectView({
@@ -2433,10 +3041,13 @@ export function createProjectRoutes(
         members: memberDirectory.members,
         directory: memberDirectory.directory,
         roles: roleList,
+        roleMappingPresets: project.roleMappingPresets,
         roleLibrary: service.roles(),
         templates: service.templates(),
         tasks: activeTasks(tasks),
         workflows,
+        projectManager: projectManager ?? null,
+        ...(managerWarning === undefined ? {} : { managerWarning }),
         viewer: {
           id: current.userId,
           role: current.role,
@@ -2520,6 +3131,88 @@ export function createProjectRoutes(
     }
   };
 
+  const provisionProjectManager = async (
+    current: TeamPrincipalLike,
+    workspace: WorkspaceLike,
+    initialProject: ProjectRecord,
+  ): Promise<{
+    project: ProjectRecord;
+    teammate: TeammateLike | undefined;
+    warning?: string;
+  }> => {
+    const teammates = dependencies.teammates();
+    if (teammates?.ensureProjectManagerAgent === undefined) {
+      return {
+        project: initialProject,
+        teammate: undefined,
+        warning: "AI伙伴服务不可用，项目经理未初始化",
+      };
+    }
+    const userName =
+      team.users().find((user) => user.id === current.userId)?.name ??
+      current.userId;
+    const teammateActor = {
+      userId: current.userId,
+      name: userName,
+      role: globalRoleOf(current.role),
+    };
+    let project = initialProject;
+    let teammate: TeammateLike | undefined;
+    try {
+      teammate = await teammates.ensureProjectManagerAgent({
+        workspaceId: workspace.id,
+        projectName: workspace.title,
+        actor: teammateActor,
+      });
+      const systemRole = service.role("role-pm");
+      if (
+        systemRole !== undefined &&
+        !project.projectRoles.some((role) => role.id === "role-pm")
+      ) {
+        const timestamp = nowIso(now);
+        project = await service.upsertProject({
+          workspaceId: workspace.id,
+          projectRoles: [
+            {
+              id: systemRole.id,
+              name: systemRole.name,
+              code: systemRole.code,
+              category: systemRole.category,
+              description: systemRole.description,
+              permissions: [...systemRole.permissions],
+            },
+            ...project.projectRoles,
+          ],
+          rolesInitialized: true,
+          rolesRevision: project.rolesRevision + 1,
+          rolesUpdatedAt: timestamp,
+          rolesUpdatedBy: current.userId,
+        });
+      }
+      const assignments = dependencies.assignments();
+      if (assignments !== undefined && systemRole !== undefined) {
+        const roleActor = actorOf(current, team, workspace.id);
+        await syncProjectSeats(service, assignments, roleActor, project, now);
+        await assignments.assign(roleActor, {
+          workspaceId: workspace.id,
+          seatId: "role-pm",
+          assigneeKind: "agent",
+          assigneeId: teammate.id,
+        });
+      }
+      return { project, teammate };
+    } catch (cause) {
+      return {
+        project,
+        teammate,
+        warning:
+          cause instanceof Error
+            ? `项目经理初始化失败：${cause.message}`
+            : "项目经理初始化失败",
+      };
+    }
+  };
+
   /**
    * 新建项目：把一个已存在的本地目录注册为 DSH 工作区（项目），
    * 创建者成为项目成员与项目负责人；可选同时应用项目模版。
@@ -2563,11 +3256,18 @@ export function createProjectRoutes(
         throw new ProjectError("forbidden", "该项目已存在成员，无法认领");
       }
       if (members.length === 0) {
-        await team.addMember(current.userId, {
-          workspaceId: created.id,
-          userId: current.userId,
-          role: "owner",
-        });
+        await team.addMember(
+          current.userId,
+          {
+            workspaceId: created.id,
+            userId: current.userId,
+            role: "owner",
+          },
+          {
+            allowWorkspaceOwner: true,
+            allowSelfOwnerBootstrap: members.length === 0,
+          },
+        );
       }
       const userName =
         team.users().find((user) => user.id === current.userId)?.name ??
@@ -2596,10 +3296,32 @@ export function createProjectRoutes(
           body.templateId,
         );
       }
+      const manager = await provisionProjectManager(current, created, project);
+      project = manager.project;
+      await appendProjectAudit(current, created.id, {
+        category: manager.teammate === undefined ? "project" : "member",
+        action:
+          manager.teammate === undefined
+            ? "project.manager.provision_failed"
+            : "project.manager.provision",
+        targetId: manager.teammate?.id ?? "role-pm",
+        targetName: manager.teammate?.name ?? "项目经理",
+        summary:
+          manager.teammate === undefined
+            ? "初始化平台预置项目经理失败"
+            : `已初始化平台预置项目经理「${manager.teammate.name}」`,
+        detail: {
+          项目角色: "role-pm",
+          状态: manager.teammate === undefined ? "failed" : "ready",
+          ...(manager.warning === undefined ? {} : { 警告: manager.warning }),
+        },
+      });
       sendJson(response, 201, {
         ok: true,
         workspaceId: created.id,
         project,
+        projectManager: manager.teammate,
+        ...(manager.warning === undefined ? {} : { warning: manager.warning }),
       });
     } catch (cause) {
       routeError(response, cause);
@@ -2751,6 +3473,12 @@ export function createProjectRoutes(
       if (workspace === undefined) {
         throw new ProjectError("not_found", "项目不存在");
       }
+      if (body.role.id === "role-pm") {
+        throw new ProjectError(
+          "invalid_input",
+          "平台预置项目经理角色不能通过此入口编辑",
+        );
+      }
       const assignments = dependencies.assignments();
       await ensureProjectRoleCopy(
         service,
@@ -2878,6 +3606,9 @@ export function createProjectRoutes(
         throw new ProjectError("not_found", "项目不存在");
       }
       const assignments = dependencies.assignments();
+      if (body.roleId === "role-pm") {
+        throw new ProjectError("invalid_input", "平台预置项目经理角色不能删除");
+      }
       const before = await ensureProjectRecord(workspace);
       const removedRole = before.projectRoles.find(
         (role) => role.id === body.roleId,
@@ -2906,6 +3637,110 @@ export function createProjectRoutes(
         },
       });
       sendJson(response, 200, { ok: true, project });
+    } catch (cause) {
+      routeError(response, cause);
+    }
+  };
+
+  const roleMappingSave = async (
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> => {
+    try {
+      assertSameOrigin(request);
+      const body = await readBodyAs(request, roleMappingSaveSchema);
+      const current = requireProjectManager(request, team, body.workspaceId);
+      const workspace = workspaces.get(body.workspaceId);
+      if (workspace === undefined) {
+        throw new ProjectError("not_found", "项目不存在");
+      }
+      const assignments = dependencies.assignments();
+      if (assignments === undefined) {
+        throw new ProjectError("invalid_input", "项目角色服务不可用");
+      }
+      let project = await ensureProjectRecord(workspace);
+      project = await ensureProjectRoleCopy(service, assignments, project);
+      const role = project.projectRoles.find(
+        (candidate) => candidate.id === body.roleId,
+      );
+      if (role === undefined) {
+        throw new ProjectError("not_found", "项目角色不存在");
+      }
+      const projectAgents = new Set(
+        activeSeats(assignments, body.workspaceId)
+          .filter((assignment) => assignment.assigneeKind === "agent")
+          .map((assignment) => assignment.assigneeId),
+      );
+      const seen = new Set<string>();
+      const assignees: RoleMappingAssignee[] = [];
+      for (const assignee of body.assignees) {
+        const key = `${assignee.kind}:${assignee.id}`;
+        if (seen.has(key)) continue;
+        if (assignee.kind === "user") {
+          const member = team
+            .members(body.workspaceId)
+            .find((candidate) => candidate.userId === assignee.id);
+          if (member === undefined) {
+            throw new ProjectError(
+              "invalid_input",
+              `用户 ${assignee.name ?? assignee.id} 不是当前项目成员`,
+            );
+          }
+        } else if (!projectAgents.has(assignee.id)) {
+          throw new ProjectError(
+            "invalid_input",
+            `AI伙伴 ${assignee.name ?? assignee.id} 不是当前项目成员`,
+          );
+        }
+        seen.add(key);
+        assignees.push(assignee);
+      }
+      const saved = await service.saveRoleMappingPreset({
+        workspaceId: body.workspaceId,
+        roleId: role.id,
+        assignees,
+        updatedBy: current.userId,
+      });
+      await appendProjectAudit(current, body.workspaceId, {
+        category: "role",
+        action: "role.mapping.save",
+        targetId: role.id,
+        targetName: role.name,
+        summary: `保存角色「${role.name}」的实例映射预设`,
+        detail: {
+          映射成员: assignees.map((item) => item.name ?? item.id).join("、"),
+        },
+      });
+      sendJson(response, 200, { ok: true, project: saved });
+    } catch (cause) {
+      routeError(response, cause);
+    }
+  };
+
+  const roleMappingRemove = async (
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> => {
+    try {
+      assertSameOrigin(request);
+      const body = await readBodyAs(request, roleMappingRemoveSchema);
+      const current = requireProjectManager(request, team, body.workspaceId);
+      const workspace = workspaces.get(body.workspaceId);
+      if (workspace === undefined) {
+        throw new ProjectError("not_found", "项目不存在");
+      }
+      await ensureProjectRecord(workspace);
+      const saved = await service.removeRoleMappingPreset({
+        workspaceId: body.workspaceId,
+        roleId: body.roleId,
+      });
+      await appendProjectAudit(current, body.workspaceId, {
+        category: "role",
+        action: "role.mapping.remove",
+        targetId: body.roleId,
+        summary: "移除角色实例映射预设",
+      });
+      sendJson(response, 200, { ok: true, project: saved });
     } catch (cause) {
       routeError(response, cause);
     }
@@ -3075,7 +3910,26 @@ export function createProjectRoutes(
       );
       const usedIds = new Set(project.projectRoles.map((role) => role.id));
       let generated = 0;
-      const normalized: ProjectRoleDefinition[] = body.roles.map((role) => {
+      const systemProjectManager = service.role("role-pm");
+      const submittedRoles = [...body.roles];
+      if (
+        systemProjectManager !== undefined &&
+        !submittedRoles.some(
+          (role) =>
+            role.id === "role-pm" ||
+            role.code.trim().toUpperCase() === "PROJECT_MANAGER",
+        )
+      ) {
+        submittedRoles.push({
+          id: systemProjectManager.id,
+          name: systemProjectManager.name,
+          code: systemProjectManager.code,
+          category: systemProjectManager.category,
+          description: systemProjectManager.description,
+          permissions: [...systemProjectManager.permissions],
+        });
+      }
+      const normalized: ProjectRoleDefinition[] = submittedRoles.map((role) => {
         const code = role.code.trim().toUpperCase();
         const name = role.name.trim();
         const nameKey = name.toLowerCase();
@@ -3088,6 +3942,20 @@ export function createProjectRoutes(
         seenCodes.add(code);
         seenNames.add(nameKey);
         const existing = effectiveByCode.get(code);
+        if (
+          systemProjectManager !== undefined &&
+          (role.id === "role-pm" || existing?.id === "role-pm")
+        ) {
+          usedIds.add("role-pm");
+          return {
+            id: "role-pm",
+            name: systemProjectManager.name,
+            code: systemProjectManager.code,
+            category: systemProjectManager.category,
+            description: systemProjectManager.description,
+            permissions: [...systemProjectManager.permissions],
+          };
+        }
         let id = existing?.id ?? role.id;
         if (existing === undefined && usedIds.has(id)) {
           generated += 1;
@@ -3270,11 +4138,18 @@ export function createProjectRoutes(
         );
       }
       const timestamp = nowIso(now);
+      const nextRoleIds = new Set(normalized.map((role) => role.id));
+      const roleMappingPresets = Object.fromEntries(
+        Object.entries(project.roleMappingPresets).filter(([roleId]) =>
+          nextRoleIds.has(roleId),
+        ),
+      );
       let saved: ProjectRecord;
       try {
         saved = await service.upsertProject({
           workspaceId: body.workspaceId,
           projectRoles: normalized,
+          roleMappingPresets,
           rolesInitialized: true,
           rolesRevision: project.rolesRevision + 1,
           rolesUpdatedAt: timestamp,
@@ -3861,6 +4736,13 @@ export function createProjectRoutes(
         z.object({
           workspaceId: z.string().trim().min(1).max(160),
           date: z.string().trim().min(8).max(20).optional(),
+          reportType: projectReportTypeSchema.default("daily"),
+          periodStart: z.string().trim().max(20).optional(),
+          periodEnd: z.string().trim().max(20).optional(),
+          triggerSource: z
+            .enum(["button", "chat", "task", "schedule", "system", "api"])
+            .default("button"),
+          triggerRef: z.string().trim().max(180).optional(),
         }),
       );
       const current = requireProjectManager(request, team, body.workspaceId);
@@ -3870,32 +4752,90 @@ export function createProjectRoutes(
       }
       const date = body.date ?? today();
       const timestamp = nowIso(now);
-      const project = await ensureProjectRecord(workspace);
+      let project = await ensureProjectRecord(workspace);
+      let projectManager = dependencies
+        .teammates()
+        ?.projectManagerFor?.(body.workspaceId);
+      if (projectManager === undefined) {
+        const manager = await provisionProjectManager(
+          current,
+          workspace,
+          project,
+        );
+        project = manager.project;
+        projectManager = manager.teammate;
+      }
+      const tasks = tasksOf(body.workspaceId);
+      const workflows = workflowsOf(body.workspaceId);
+      const runId = `report-run-${randomUUID()}`;
+      const reportTypeLabel =
+        body.reportType === "weekly"
+          ? "项目周报"
+          : body.reportType === "progress"
+            ? "进度汇报"
+            : "项目日报";
+      const reportSkill = (
+        await dependencies
+          .skillCatalog?.()
+          ?.resolveSkills(
+            { userId: current.userId },
+            ["skill-project-reporting"],
+            { requireInstallation: false },
+          )
+      )?.[0];
       const report = await service.saveReport({
         workspaceId: body.workspaceId,
         date,
+        reportType: body.reportType,
+        ...(body.periodStart === undefined
+          ? {}
+          : { periodStart: body.periodStart }),
+        ...(body.periodEnd === undefined ? {} : { periodEnd: body.periodEnd }),
         generatedAt: `${date.slice(5)} ${timestamp.slice(11, 16)}`,
-        generatedBy: "项目 AI",
+        generatedBy: projectManager?.name ?? "项目 AI",
+        ...(projectManager === undefined
+          ? {}
+          : { generatedByTeammateId: projectManager.id }),
+        runId,
+        skillId: "skill-project-reporting",
+        skillVersion: reportSkill?.version ?? "1.0.0",
+        triggerSource: body.triggerSource,
+        sourceRefs: [
+          ...tasks.map((task) => `task:${task.id}`),
+          ...workflows.map((workflow) => `workflow:${workflow.id}`),
+        ],
         content: buildProjectReportContent({
           project,
           workspace,
-          tasks: tasksOf(body.workspaceId),
-          workflows: workflowsOf(body.workspaceId),
+          tasks,
+          workflows,
           today: date,
+          reportType: body.reportType,
         }),
       });
       await appendProjectAudit(current, body.workspaceId, {
         category: "report",
         action: "report.generate",
         targetId: date,
-        targetName: `${date} 项目日报`,
-        summary: `生成 ${date} 项目日报`,
+        targetName: `${date} ${reportTypeLabel}`,
+        summary: `生成 ${date} ${reportTypeLabel}`,
         detail: {
           日期: date,
+          报告类型: body.reportType,
+          触发来源: body.triggerSource,
+          运行ID: runId,
           撰写人: report.generatedBy,
+          ...(projectManager === undefined
+            ? {}
+            : { 项目经理: projectManager.name }),
         },
       });
-      sendJson(response, 200, { ok: true, report });
+      sendJson(response, 200, {
+        ok: true,
+        report,
+        runId,
+        projectManager: projectManager ?? null,
+      });
     } catch (cause) {
       routeError(response, cause);
     }
@@ -4000,6 +4940,16 @@ export function createProjectRoutes(
     },
     {
       kind: "exact",
+      path: "/api/collab/projects/role-mappings/save",
+      handler: roleMappingSave,
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/projects/role-mappings/remove",
+      handler: roleMappingRemove,
+    },
+    {
+      kind: "exact",
       path: "/api/collab/projects/members/save",
       handler: membersSave,
     },
@@ -4096,8 +5046,7 @@ export async function apply(ctx: ProjectContext): Promise<void> {
   ctx.effect(() => () => void domain.close());
   ctx.inject(["collabTeam"], (child) => {
     const workspaces = child.get("workspaceRegistry") as
-      | WorkspaceRegistryLike
-      | undefined;
+      WorkspaceRegistryLike | undefined;
     if (workspaces === undefined) return;
     /** 启动时为已有工作区补齐项目记录与编号（幂等，已有编号不变）。 */
     void (async () => {
@@ -4122,8 +5071,7 @@ export async function apply(ctx: ProjectContext): Promise<void> {
       tasks: () => child.get("collabTasks") as TaskServiceLike | undefined,
       taskDocuments: () =>
         child.get("collabTaskDocuments") as
-          | TaskDocumentQueryServiceLike
-          | undefined,
+          TaskDocumentQueryServiceLike | undefined,
       workflows: () =>
         child.get("collabWorkflow") as WorkflowServiceLike | undefined,
       meetings: () =>
@@ -4132,15 +5080,177 @@ export async function apply(ctx: ProjectContext): Promise<void> {
         child.get("collabMeetingFiles") as MeetingFileServiceLike | undefined,
       meetingMinutes: () =>
         child.get("collabMeetingMinutes") as
-          | MeetingMinutesServiceLike
-          | undefined,
+          MeetingMinutesServiceLike | undefined,
       dataAgent: () =>
         child.get("collabDataAgent") as DataAgentOutputServiceLike | undefined,
       principals: () =>
         child.get("collabPrincipal") as PrincipalServiceLike | undefined,
+      skillCatalog: () =>
+        child.get("collabResourceMarket") as
+          ProjectSkillCatalogLike | undefined,
     }).map((route) => child.webServer.register(route) as () => void);
+    const toolDisposer =
+      child.tools?.get?.("project_report_generate") === undefined
+        ? child.tools?.register({
+            name: "project_report_generate",
+            description:
+              "Generate the current project manager agent's daily, weekly, or progress report from authorized project facts.",
+            parameters: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                reportType: {
+                  type: "string",
+                  enum: ["daily", "weekly", "progress"],
+                },
+                date: { type: "string" },
+                periodStart: { type: "string" },
+                periodEnd: { type: "string" },
+                focus: { type: "string" },
+              },
+              required: ["reportType"],
+            },
+            output: {
+              schema: { type: "string" },
+              render: (_args, value) => [
+                { type: "text" as const, text: String(value) },
+              ],
+            },
+            execute: async (rawArgs, exec) => {
+              exec.signal?.throwIfAborted();
+              const args = z
+                .object({
+                  reportType: projectReportTypeSchema,
+                  date: z.string().trim().min(8).max(20).optional(),
+                  periodStart: z.string().trim().max(20).optional(),
+                  periodEnd: z.string().trim().max(20).optional(),
+                  focus: z.string().trim().max(500).optional(),
+                })
+                .parse(rawArgs);
+              const sessionId = exec.agent?.session?.id;
+              if (sessionId === undefined) {
+                throw new Error("当前工具调用没有可用的会话上下文");
+              }
+              const agent = child.get("collabAgent") as
+                ProjectReportAgentServiceLike | undefined;
+              const run = agent
+                ?.runs()
+                .find(
+                  (candidate) =>
+                    candidate.sessionId === sessionId &&
+                    !["succeeded", "failed", "cancelled"].includes(
+                      candidate.status,
+                    ),
+                );
+              if (run === undefined) {
+                throw new Error("当前工具调用没有可用的 Agent Run");
+              }
+              const workspace = workspaces.get(run.workspaceId);
+              if (workspace === undefined) {
+                throw new Error("当前运行不属于有效项目");
+              }
+              const runtime = child.get("collabTeammateRuntime") as
+                TeammateRuntimeLike | undefined;
+              const projectManager = runtime?.projectManagerFor?.(workspace.id);
+              if (
+                projectManager === undefined ||
+                run.instanceId !== projectManager.id
+              ) {
+                throw new Error(
+                  "只有当前项目的项目经理 Agent 可以生成项目汇报",
+                );
+              }
+              const timestamp = new Date().toISOString();
+              const date = args.date ?? timestamp.slice(0, 10);
+              const project = await service.ensureProject({
+                workspaceId: workspace.id,
+                ...ownerOfWorkspace(child.collabTeam, workspace.id),
+              });
+              const tasks =
+                (child.get("collabTasks") as TaskServiceLike | undefined)?.list(
+                  workspace.id,
+                ) ?? [];
+              const workflows =
+                (
+                  child.get("collabWorkflow") as WorkflowServiceLike | undefined
+                )?.instances(workspace.id) ?? [];
+              const runId = `report-run-${randomUUID()}`;
+              const reportSkill = (
+                await (
+                  child.get("collabResourceMarket") as
+                    ProjectSkillCatalogLike | undefined
+                )?.resolveSkills(
+                  { userId: run.createdBy },
+                  ["skill-project-reporting"],
+                  { requireInstallation: false },
+                )
+              )?.[0];
+              const report = await service.saveReport({
+                workspaceId: workspace.id,
+                date,
+                reportType: args.reportType,
+                ...(args.periodStart === undefined
+                  ? {}
+                  : { periodStart: args.periodStart }),
+                ...(args.periodEnd === undefined
+                  ? {}
+                  : { periodEnd: args.periodEnd }),
+                generatedAt: `${date.slice(5)} ${timestamp.slice(11, 16)}`,
+                generatedBy: projectManager.name,
+                generatedByTeammateId: projectManager.id,
+                runId,
+                skillId: "skill-project-reporting",
+                skillVersion: reportSkill?.version ?? "1.0.0",
+                triggerSource: run.source === "task" ? "task" : "chat",
+                sourceRefs: [
+                  ...tasks.map((task) => `task:${task.id}`),
+                  ...workflows.map((workflow) => `workflow:${workflow.id}`),
+                ],
+                content: buildProjectReportContent({
+                  project,
+                  workspace,
+                  tasks,
+                  workflows,
+                  today: date,
+                  reportType: args.reportType,
+                }),
+              });
+              const actorUser = child.collabTeam
+                .users()
+                .find((user) => user.id === run.createdBy);
+              await service.appendAudit({
+                workspaceId: workspace.id,
+                actorId: run.createdBy,
+                actorName: actorUser?.name ?? run.createdBy,
+                actorRole: actorUser?.role ?? "member",
+                category: "report",
+                action: "report.generate",
+                targetId: date,
+                targetName: `${date} 项目汇报`,
+                summary: `项目经理 Agent 生成 ${date} ${args.reportType} 汇报`,
+                detail: {
+                  报告类型: args.reportType,
+                  触发来源: run.source === "task" ? "task" : "chat",
+                  运行ID: runId,
+                  项目经理: projectManager.name,
+                  ...(args.focus === undefined ? {} : { 关注点: args.focus }),
+                },
+              });
+              return JSON.stringify({
+                ok: true,
+                runId,
+                report,
+                projectManager: {
+                  id: projectManager.id,
+                  name: projectManager.name,
+                },
+              });
+            },
+          })
+        : undefined;
     child.effect(() => () => {
       for (const dispose of disposers) dispose();
+      toolDisposer?.();
     });
   });
   /*
@@ -4149,8 +5259,7 @@ export async function apply(ctx: ProjectContext): Promise<void> {
    */
   ctx.inject(["collabTeam", "workspaceController"], (child) => {
     const workspaces = child.get("workspaceRegistry") as
-      | WorkspaceRegistryLike
-      | undefined;
+      WorkspaceRegistryLike | undefined;
     const controller =
       child.workspaceController ??
       (child.get("workspaceController") as WorkspaceControllerLike | undefined);

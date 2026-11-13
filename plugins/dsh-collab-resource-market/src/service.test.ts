@@ -465,18 +465,73 @@ describe("ResourceMarketService", () => {
         triggers: ["work-report"],
       }),
     ]);
-    await expect(
-      service.resolveSkills("alice", [created.id]),
-    ).resolves.toEqual([
-      expect.objectContaining({ id: created.id, version: "1.0.0" }),
-    ]);
+    await expect(service.resolveSkills("alice", [created.id])).resolves.toEqual(
+      [expect.objectContaining({ id: created.id, version: "1.0.0" })],
+    );
     await expect(service.installedSkills("bob")).resolves.toEqual([]);
     await service.uninstallSkill("alice", created.id);
     await expect(service.installedSkills("alice")).resolves.toEqual([]);
-    await expect(service.uninstallSkill("alice", created.id)).rejects.toMatchObject({
+    await expect(
+      service.uninstallSkill("alice", created.id),
+    ).rejects.toMatchObject({
       code: "not_found",
     });
     await service.removeCustomResource("alice", created.id);
     await expect(service.installedSkills("alice")).resolves.toEqual([]);
+  });
+
+  it("lets only platform admins publish the official project reporting skill", async () => {
+    const service = new ResourceMarketService(tables(), {
+      workbench: () => undefined,
+    });
+    await expect(
+      service.saveOfficialSkill(
+        { userId: "alice", role: "member" },
+        {
+          id: "skill-project-reporting",
+          name: "项目汇报生成",
+          description: "生成项目日报、周报和进度汇报",
+          instructions: "# 项目汇报生成\n先结论，后证据。",
+        },
+      ),
+    ).rejects.toMatchObject({ code: "forbidden" });
+
+    const saved = await service.saveOfficialSkill(
+      { userId: "admin", role: "admin" },
+      {
+        id: "skill-project-reporting",
+        name: "项目汇报生成",
+        description: "生成项目日报、周报和进度汇报",
+        version: "1.1.0",
+        permissions: ["project:read"],
+        instructions: "# 项目汇报生成\n先结论，后证据。",
+        triggers: ["project-report", "weekly-report"],
+      },
+    );
+    expect(saved).toMatchObject({
+      id: "skill-project-reporting",
+      ownerId: "platform",
+      version: "1.1.0",
+    });
+    const listed = await service.skills({ userId: "alice", role: "member" });
+    expect(listed).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "skill-project-reporting",
+          name: "项目汇报生成",
+          version: "1.1.0",
+          instructions: expect.stringContaining("先结论"),
+        }),
+      ]),
+    );
+    await service.installSkill("alice", "skill-project-reporting");
+    await expect(
+      service.resolveSkills("alice", ["skill-project-reporting"]),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: "skill-project-reporting",
+        version: "1.1.0",
+      }),
+    ]);
   });
 });

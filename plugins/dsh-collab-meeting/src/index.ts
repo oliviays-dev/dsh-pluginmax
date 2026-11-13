@@ -84,6 +84,7 @@ const meetingSchema = z.object({
   workspaceId: idSchema,
   title: titleSchema,
   kind: z.enum(["meeting", "ai"]).default("meeting"),
+  conversationMode: z.enum(["group"]).optional(),
   teammateInstanceId: idSchema.optional(),
   /** New 1:1 chats resolve projects from the AI partner's own participation. */
   aiContextMode: z.literal("participant-projects-v1").optional(),
@@ -112,6 +113,9 @@ const meetingSchema = z.object({
   summary: textSchema.optional(),
   archivedAt: isoTimeSchema.optional(),
   archivedBy: idSchema.optional(),
+  agentRuntimeState: z.enum(["active", "agentsStopped"]).optional(),
+  agentRuntimeStoppedBy: idSchema.optional(),
+  agentRuntimeStoppedAt: isoTimeSchema.optional(),
 });
 
 const participantSchema = z.object({
@@ -146,6 +150,9 @@ const participantSchema = z.object({
   principalType: z.enum(["direct", "delegation", "runtime"]).optional(),
   leader: z.boolean().default(false),
   status: z.enum(["pending", "active", "left"]),
+  executionState: z.enum(["active", "stopped"]).optional(),
+  executionStoppedBy: idSchema.optional(),
+  executionStoppedAt: isoTimeSchema.optional(),
   /**
    * `seat` stays in the enum only so legacy records still parse; seat-driven
    * participants are never created or read anymore.
@@ -174,6 +181,7 @@ const messageSchema = z.object({
   senderName: displayNameSchema,
   content: textSchema,
   mentions: z.array(idSchema).default([]),
+  triggerDepth: z.number().int().nonnegative().optional(),
   /**
    * Attribute an AI message to its instance, delegate, and run. Optional so
    * existing human/system records load unchanged.
@@ -746,6 +754,7 @@ interface ChatAgentInputLike {
 interface ChatAgentServiceLike {
   dispatch(input: ChatAgentInputLike): Promise<AgentRunLike>;
   run(runId: string): AgentRunLike | undefined;
+  cancel?(runId: string): Promise<unknown>;
   runs?(filter: {
     readonly workspaceId?: string | undefined;
     readonly instanceId?: string | undefined;
@@ -764,8 +773,8 @@ interface ContextPackLike {
 }
 
 interface MeetingChatContextAdapterLike {
-  readonly scene: "chat";
-  readonly chatCarrier: "meeting-ai";
+  readonly scene: "chat" | "group";
+  readonly chatCarrier?: "meeting-ai" | undefined;
   resolve(input: {
     readonly workspaceId?: string;
     readonly objectId: string;
@@ -795,6 +804,8 @@ interface MeetingChatContextAdapterLike {
     readonly objectId: string;
     readonly agentPrincipalId: string;
     readonly asOf: string;
+    readonly lastContextSeq?: number;
+    readonly contextBoundarySeq?: number;
   }): Promise<{
     readonly text: string;
     readonly sourceRefs: readonly {
@@ -856,6 +867,22 @@ interface ContextServiceLike {
       readonly externalSessionId?: string;
     };
   }): Promise<unknown>;
+  commitRunContext?(input: {
+    readonly runId: string;
+    readonly contextPackId?: string;
+  }): Promise<unknown>;
+  contextPolicy?(): {
+    readonly defaults: {
+      readonly maxTriggerDepth: number;
+      readonly maxConcurrentAgentsPerScene: number;
+    };
+    readonly sceneOverrides: {
+      readonly group?: {
+        readonly maxTriggerDepth?: number | undefined;
+        readonly maxConcurrentAgentsPerScene?: number | undefined;
+      };
+    };
+  };
 }
 
 interface MemoryIngestLike {
@@ -1636,6 +1663,13 @@ export class MeetingService {
    * 仅由写入路径调用，读取 / 轮询路径绝不触发；实现方负责异步与去重。
    */
   onTranscriptChanged: ((meetingId: string) => void) | undefined;
+  onAgentMention:
+    | ((
+        message: MeetingMessage,
+        targets: readonly MeetingParticipant[],
+      ) => void)
+    | undefined;
+  agentTriggerDepthLimit: (() => number) | undefined;
 
   /**
    * Fired exactly once when a meeting transitions to `closed`. Phase 1 uses it
@@ -1738,6 +1772,111 @@ export class MeetingService {
       updatedAt: nowIso(this.options.now),
     });
     await this.tables.meetings.put(next.id, next);
+    return next;
+  }
+
+  async setAgentRuntimeState(
+    meetingId: string,
+    state: "active" | "agentsStopped",
+    stoppedBy?: string,
+  ): Promise<Meeting> {
+    const meeting = this.get(meetingId);
+    const base = { ...meeting };
+    delete base.agentRuntimeStoppedBy;
+    delete base.agentRuntimeStoppedAt;
+    const next = parseMeeting({
+      ...base,
+      agentRuntimeState: state,
+      ...(state === "agentsStopped" && stoppedBy !== undefined
+        ? {
+            agentRuntimeStoppedBy: stoppedBy,
+            agentRuntimeStoppedAt: nowIso(this.options.now),
+          }
+        : {}),
+      updatedAt: nowIso(this.options.now),
+    });
+    await this.tables.meetings.put(next.id, next);
+    return next;
+  }
+
+  async setParticipantExecutionState(
+    participantId: string,
+    state: "active" | "stopped",
+    stoppedBy?: string,
+  ): Promise<MeetingParticipant> {
+    const currentValue = this.tables.participants.get(participantId);
+    if (currentValue === undefined) {
+      throw new MeetingError("not_found", "meeting participant not found");
+    }
+    const current = parseParticipant(currentValue);
+    const base = { ...current };
+    delete base.executionStoppedBy;
+    delete base.executionStoppedAt;
+    const next = parseParticipant({
+      ...base,
+      executionState: state,
+      ...(state === "stopped" && stoppedBy !== undefined
+        ? {
+            executionStoppedBy: stoppedBy,
+            executionStoppedAt: nowIso(this.options.now),
+          }
+        : {}),
+      updatedAt: nowIso(this.options.now),
+    });
+    await this.tables.participants.put(next.id, next);
+    return next;
+  }
+
+  async convertAiConversationToGroup(
+    actor: MeetingActor,
+    input: {
+      readonly meetingId: string;
+      readonly title?: string;
+    },
+  ): Promise<Meeting> {
+    const parsedActor = parseOrInvalid(actorSchema, actor);
+    const meeting = this.get(input.meetingId);
+    if (meeting.kind !== "ai") {
+      throw new MeetingError("conflict", "conversation is already a group");
+    }
+    if (
+      parsedActor.kind !== "user" ||
+      (parsedActor.id !== meeting.createdBy &&
+        parsedActor.id !== meeting.ownerUserId &&
+        parsedActor.globalRole !== "admin")
+    ) {
+      throw new MeetingError(
+        "forbidden",
+        "only the conversation owner can convert it to a group",
+      );
+    }
+    const teammateParticipant = this.participants(meeting.id).find(
+      (participant) =>
+        participant.status === "active" &&
+        participant.kind !== "human" &&
+        participant.teammateInstanceId === meeting.teammateInstanceId,
+    );
+    if (teammateParticipant !== undefined) {
+      await this.tables.participants.put(teammateParticipant.id, {
+        ...teammateParticipant,
+        autoSpeak: "mentions",
+        updatedAt: nowIso(this.options.now),
+      });
+    }
+    const next = parseMeeting({
+      ...meeting,
+      kind: "meeting",
+      conversationMode: "group",
+      ...(input.title === undefined || input.title.trim() === ""
+        ? {}
+        : { title: input.title.trim() }),
+      updatedAt: nowIso(this.options.now),
+    });
+    await this.tables.meetings.put(next.id, next);
+    await this.appendSystemMessage(
+      next.id,
+      "聊天已转换为群聊，后续 AI 仅在明确 @ 时回复。",
+    );
     return next;
   }
 
@@ -1938,7 +2077,10 @@ export class MeetingService {
       senderKind: "system",
       senderId: "system",
       senderName: "系统",
-      content: `${operator} 已邀请 ${displayName} 入会。`,
+      content:
+        meeting.conversationMode === "group"
+          ? `${operator} 已邀请 ${displayName} 加入群聊。`
+          : `${operator} 已邀请 ${displayName} 入会。`,
       mentions: [],
       deliveries: [],
       createdAt: timestamp,
@@ -2493,6 +2635,8 @@ export class MeetingService {
     );
     const targets = current.filter(
       (participant) =>
+        (meeting.agentRuntimeState ?? "active") === "active" &&
+        (participant.executionState ?? "active") === "active" &&
         participant.status === "active" &&
         AI_PARTICIPANT_KINDS.includes(participant.kind) &&
         participant.refId !== sender.refId &&
@@ -2512,6 +2656,7 @@ export class MeetingService {
       senderName: sender.displayName,
       content: parsedContent,
       mentions: [...mentionedIds],
+      triggerDepth: 0,
       ...(options.attachments === undefined
         ? {}
         : { attachments: options.attachments }),
@@ -2561,6 +2706,45 @@ export class MeetingService {
       throw new MeetingError("conflict", `delegation is ${delegationStatus}`);
     }
     const parsedContent = parseOrInvalid(textSchema, content);
+    const pending = [...this.transcript(meeting.id)]
+      .reverse()
+      .find((candidate) =>
+        candidate.deliveries.some(
+          (delivery) =>
+            delivery.participantId === current.id &&
+            delivery.status === "pending",
+        ),
+      );
+    const triggerDepth = (pending?.triggerDepth ?? 0) + 1;
+    const participants = this.participants(meeting.id);
+    const mentioned = participants.filter(
+      (candidate) =>
+        candidate.status === "active" &&
+        candidate.id !== current.id &&
+        candidate.displayName.trim() !== "" &&
+        parsedContent.includes(`@${candidate.displayName.trim()}`),
+    );
+    const mentionedIds = mentioned.map((candidate) => candidate.id);
+    const triggerDepthLimit = this.agentTriggerDepthLimit?.() ?? 3;
+    const activeMentionedAi = mentioned.filter(
+      (candidate) =>
+        AI_PARTICIPANT_KINDS.includes(candidate.kind) &&
+        (candidate.executionState ?? "active") === "active",
+    );
+    const groupRuntimeActive =
+      (meeting.agentRuntimeState ?? "active") === "active";
+    const depthAllowsHandoff = triggerDepth < triggerDepthLimit;
+    const mentionTargets =
+      meeting.conversationMode === "group" &&
+      depthAllowsHandoff &&
+      groupRuntimeActive
+        ? activeMentionedAi
+        : [];
+    const depthBlocked =
+      meeting.conversationMode === "group" &&
+      !depthAllowsHandoff &&
+      groupRuntimeActive &&
+      activeMentionedAi.length > 0;
     const timestamp = nowIso(this.options.now);
     const provenance =
       current.kind === "ai_representative"
@@ -2589,25 +2773,37 @@ export class MeetingService {
       senderId: current.refId,
       senderName: current.displayName,
       content: parsedContent,
-      mentions: [],
+      mentions: mentionedIds,
+      triggerDepth,
       ...(provenance === undefined ? {} : { provenance }),
-      deliveries: [],
+      deliveries: depthBlocked
+        ? activeMentionedAi.map((candidate) => ({
+            participantId: candidate.id,
+            targetId: candidate.refId,
+            status: "failed" as const,
+            at: timestamp,
+            error: "已达到触发链最大深度，本次未继续接力",
+          }))
+        : mentionTargets.map((candidate) => ({
+            participantId: candidate.id,
+            targetId: candidate.refId,
+            status: "pending" as const,
+          })),
       createdAt: timestamp,
     };
     await this.tables.messages.put(message.id, parseMessage(message));
-    const pending = [...this.transcript(meeting.id)]
-      .reverse()
-      .find((candidate) =>
-        candidate.deliveries.some(
-          (delivery) =>
-            delivery.participantId === current.id &&
-            delivery.status === "pending",
-        ),
-      );
     if (pending !== undefined) {
       await this.markDelivery(pending.id, current.id, "delivered");
     }
     this.onTranscriptChanged?.(meeting.id);
+    if (depthBlocked) {
+      await this.appendSystemMessage(
+        meeting.id,
+        `为避免重复接力，已结束本次连锁回复（达到触发链最大深度 ${triggerDepthLimit}）。`,
+      );
+    } else if (mentionTargets.length > 0) {
+      this.onAgentMention?.(message, mentionTargets);
+    }
     return message;
   }
 
@@ -2864,7 +3060,9 @@ export class MeetingService {
         parsed.systemKey === "meeting-facilitator" ||
         parsed.teammateInstanceId === MEETING_FACILITATOR_TEAMMATE_ID
           ? "会议 Facilitator 已加入会议。"
-          : `${parsed.displayName} 已作为 AI 成员加入会议。`,
+          : meeting.conversationMode === "group"
+            ? `${parsed.displayName} 已作为 AI 成员加入群聊。`
+            : `${parsed.displayName} 已作为 AI 成员加入会议。`,
       );
     return participant;
   }
@@ -3597,6 +3795,47 @@ export function createMeetingRoutes(
       );
     return caller;
   };
+  const cancelChatRuns = async (
+    meetingId: string,
+    participantId?: string,
+  ): Promise<void> => {
+    const chatAgent = dependencies.chatAgent?.();
+    if (chatAgent?.runs === undefined || chatAgent.cancel === undefined) return;
+    const activeStatuses = new Set([
+      "queued",
+      "running",
+      "waiting_input",
+    ]);
+    const activeRuns = chatAgent
+      .runs({
+        instanceId: meetingId,
+        nodeId: MEETING_AI_CHAT_NODE_ID,
+      })
+      .filter(
+        (run) =>
+          run.source === "chat" &&
+          activeStatuses.has(run.status) &&
+          (participantId === undefined ||
+            String(run.payload.context.participantId ?? "") === participantId),
+      );
+    await Promise.allSettled(
+      activeRuns.map(async (run) => {
+        const messageId = String(run.payload.context.messageId ?? "");
+        const runParticipantId = String(
+          run.payload.context.participantId ?? "",
+        );
+        await chatAgent.cancel?.(run.id);
+        if (messageId !== "" && runParticipantId !== "") {
+          await meetings.markDelivery(
+            messageId,
+            runParticipantId,
+            "failed",
+            "已按停止指令取消",
+          );
+        }
+      }),
+    );
+  };
   const ownerCaller = (meeting: Meeting, actor: MeetingActor): void => {
     const owner = meeting.ownerUserId ?? meeting.createdBy;
     if (actor.kind !== "user" || (actor.id !== owner && !managerActor(actor)))
@@ -3785,6 +4024,7 @@ export function createMeetingRoutes(
       }) ?? [];
     const agentPrincipalId = ensured.principalId ?? teammateId;
     const context = dependencies.context?.();
+    const isGroupConversation = input.meeting.conversationMode === "group";
     const fallbackChannelId = [
       input.meeting.workspaceId,
       input.actor.id,
@@ -3793,7 +4033,7 @@ export function createMeetingRoutes(
       .join(":")
       .replace(/[^a-zA-Z0-9._-]/g, "-");
     const chatChannel =
-      context === undefined
+      context === undefined || isGroupConversation
         ? undefined
         : await context.ensureChatChannel({
             workspaceId: input.meeting.workspaceId,
@@ -3807,36 +4047,71 @@ export function createMeetingRoutes(
     const contextPack =
       context === undefined
         ? undefined
-        : await context.prepare({
-            requestId: `meeting-ai:${input.meeting.id}:${input.message.id}`,
-            mode: "execute",
-            scene: "chat",
-            chatCarrier: "meeting-ai",
-            chatChannelId,
-            workspaceId: input.meeting.workspaceId,
-            objectId: chatChannelId,
-            agentPrincipalId,
-            teammateId,
-            actorPrincipalId: input.actor.id,
-            input: {
-              type: "user-message",
-              messageId: input.message.id,
-              content:
-                projectContext.text === ""
-                  ? input.message.content
-                  : `${input.message.content}\n\n[participating-projects]\n${projectContext.text}`,
-              attachments: [],
-            },
-            explicitRefs: [],
-            pinnedMemoryIds: [],
-            excludedSourceIds: [],
-            runtimeCapabilities: {
-              contextWindowTokens: 32_000,
-              maxOutputTokens: 4_000,
-              supportsSystemSections: true,
-              isStateless: ensured.execution === "external",
-            },
-          });
+        : await context.prepare(
+            isGroupConversation
+              ? {
+                  requestId: `meeting-group:${input.meeting.id}:${input.message.id}:${input.participant.id}`,
+                  mode: "execute",
+                  scene: "group",
+                  workspaceId: input.meeting.workspaceId,
+                  objectId: input.meeting.id,
+                  participantBindingId: input.participant.id,
+                  agentPrincipalId,
+                  teammateId,
+                  actorPrincipalId: input.actor.id,
+                  input: {
+                    type: "user-message",
+                    messageId: input.message.id,
+                    content:
+                      projectContext.text === ""
+                        ? input.message.content
+                        : `${input.message.content}\n\n[participating-projects]\n${projectContext.text}`,
+                    attachments: [],
+                  },
+                  explicitRefs: [],
+                  pinnedMemoryIds: [],
+                  excludedSourceIds: [],
+                  contextBoundarySeq: input.message.sequence,
+                  runtimeCapabilities: {
+                    contextWindowTokens: 32_000,
+                    maxOutputTokens: 4_000,
+                    supportsSystemSections: true,
+                    isStateless: ensured.execution === "external",
+                  },
+                }
+              : {
+                  requestId: `meeting-ai:${input.meeting.id}:${input.message.id}`,
+                  mode: "execute",
+                  scene: "chat",
+                  chatCarrier: "meeting-ai",
+                  chatChannelId,
+                  workspaceId: input.meeting.workspaceId,
+                  objectId: chatChannelId,
+                  participantBindingId: input.participant.id,
+                  agentPrincipalId,
+                  teammateId,
+                  actorPrincipalId: input.actor.id,
+                  input: {
+                    type: "user-message",
+                    messageId: input.message.id,
+                    content:
+                      projectContext.text === ""
+                        ? input.message.content
+                        : `${input.message.content}\n\n[participating-projects]\n${projectContext.text}`,
+                    attachments: [],
+                  },
+                  explicitRefs: [],
+                  pinnedMemoryIds: [],
+                  excludedSourceIds: [],
+                  contextBoundarySeq: input.message.sequence,
+                  runtimeCapabilities: {
+                    contextWindowTokens: 32_000,
+                    maxOutputTokens: 4_000,
+                    supportsSystemSections: true,
+                    isStateless: ensured.execution === "external",
+                  },
+                },
+          );
     const contextSession =
       context !== undefined && contextPack?.sessionBindingId !== undefined
         ? context.session?.(contextPack.sessionBindingId)
@@ -3848,7 +4123,9 @@ export function createMeetingRoutes(
       source: "chat",
       instanceId: input.meeting.id,
       nodeId: MEETING_AI_CHAT_NODE_ID,
-      dispatchKey: `meeting-ai:${input.meeting.id}:${input.message.id}`,
+      dispatchKey: isGroupConversation
+        ? `meeting-group:${input.meeting.id}:${input.message.id}:${input.participant.id}`
+        : `meeting-ai:${input.meeting.id}:${input.message.id}`,
       trigger: "manual-dispatch",
       attempt: 1,
       runSeq: previousRuns.length + 1,
@@ -3877,7 +4154,7 @@ export function createMeetingRoutes(
         : { sessionId: contextSession.sessionId }),
       payload: {
         instanceTitle: input.meeting.title,
-        nodeName: "AI 1:1 对话",
+        nodeName: isGroupConversation ? "AI 群聊" : "AI 1:1 对话",
         nodeDescription: "",
         profileName: input.participant.displayName,
         deliverables: [],
@@ -3920,6 +4197,42 @@ export function createMeetingRoutes(
         "meeting minutes service is unavailable",
       );
     return service;
+  };
+  meetings.onAgentMention = (message, targets) => {
+    const meeting = meetings.get(message.meetingId);
+    for (const target of targets) {
+      const actorId =
+        target.principalUserId ??
+        target.ownerId ??
+        meeting.ownerUserId ??
+        meeting.createdBy;
+      const actor: MeetingActor = {
+        kind: "user",
+        id: actorId,
+        workspaceRole: "member",
+      };
+      void dispatchAiChat({ meeting, participant: target, message, actor }).then(
+        (run) => {
+          if (run === undefined) {
+            dependencies.runtime?.()?.dispatch(message, [target]);
+          }
+        },
+        async (cause) => {
+          const reason =
+            cause instanceof Error ? cause.message : "AI 接力派发失败";
+          await meetings.markDelivery(
+            message.id,
+            target.id,
+            "failed",
+            reason,
+          );
+          await meetings.postSystemMessage(
+            meeting.id,
+            `${target.displayName} 暂时无法回复：${reason}`,
+          );
+        },
+      );
+    }
   };
   /**
    * Facilitator 是会议成员：关闭席位时把它从成员列表移除（置 left），
@@ -4271,6 +4584,146 @@ export function createMeetingRoutes(
     },
     {
       method: "POST",
+      path: "/api/collab/meeting/agent-control",
+      handler: async (request: IncomingMessage, response: ServerResponse) => {
+        const body = parseOrInvalid(
+          z.object({
+            meetingId: z.string().min(1).max(160),
+            participantId: z.string().min(1).max(160).optional(),
+            action: z.enum(["stop", "resume"]),
+          }),
+          await readBody(request),
+        );
+        const meeting = meetings.get(body.meetingId);
+        const actor = meetingActor(meeting, request);
+        activeHumanCaller(meeting, actor);
+        const runtime = dependencies.runtime?.();
+        const canResumeOwn =
+          body.participantId === undefined
+            ? meeting.agentRuntimeStoppedBy === actor.id
+            : meetings
+                .participants(meeting.id)
+                .find((item) => item.id === body.participantId)
+                ?.executionStoppedBy === actor.id;
+        const canResume =
+          canResumeOwn ||
+          managerActor(actor) ||
+          meeting.ownerUserId === actor.id ||
+          meeting.createdBy === actor.id;
+        if (body.action === "resume" && !canResume) {
+          throw new MeetingError(
+            "forbidden",
+            "only the stopper, meeting owner, or admin can resume agents",
+          );
+        }
+        if (body.participantId !== undefined) {
+          const participant = meetings
+            .participants(meeting.id)
+            .find((item) => item.id === body.participantId);
+          if (
+            participant === undefined ||
+            participant.kind === "human" ||
+            participant.status !== "active"
+          ) {
+            throw new MeetingError(
+              "not_found",
+              "active AI participant not found",
+            );
+          }
+          const alreadyStopped =
+            body.action === "stop" &&
+            participant.executionState === "stopped";
+          const alreadyActive =
+            body.action === "resume" &&
+            (participant.executionState ?? "active") === "active";
+          if (alreadyStopped || alreadyActive) {
+            sendJson(response, 200, {
+              ok: true,
+              meeting,
+              participant,
+            });
+            return;
+          }
+          if (body.action === "stop") runtime?.cancelParticipant(participant.id);
+          const updated = await meetings.setParticipantExecutionState(
+            participant.id,
+            body.action === "stop" ? "stopped" : "active",
+            actor.id,
+          );
+          if (body.action === "stop") {
+            await cancelChatRuns(meeting.id, participant.id);
+          }
+          await meetings.postSystemMessage(
+            meeting.id,
+            body.action === "stop"
+              ? `${participant.displayName} 已被 ${actor.id} 定向停止。`
+              : `${participant.displayName} 已恢复运行。`,
+          );
+          sendJson(response, 200, {
+            ok: true,
+            meeting: meetings.get(meeting.id),
+            participant: updated,
+          });
+          return;
+        }
+        const targetRuntimeState =
+          body.action === "stop" ? "agentsStopped" : "active";
+        const currentRuntimeState = meeting.agentRuntimeState ?? "active";
+        if (currentRuntimeState === targetRuntimeState) {
+          sendJson(response, 200, {
+            ok: true,
+            meeting,
+          });
+          return;
+        }
+        if (body.action === "stop") runtime?.cancelMeeting(meeting.id);
+        const updatedMeeting = await meetings.setAgentRuntimeState(
+          meeting.id,
+          body.action === "stop" ? "agentsStopped" : "active",
+          actor.id,
+        );
+        if (body.action === "stop") {
+          await cancelChatRuns(meeting.id);
+        }
+        await meetings.postSystemMessage(
+          meeting.id,
+          body.action === "stop"
+            ? `${actor.id} 已停止本对话全部 AI。`
+            : `${actor.id} 已恢复本对话 AI。`,
+        );
+        sendJson(response, 200, {
+          ok: true,
+          meeting: updatedMeeting,
+        });
+      },
+    },
+    {
+      method: "POST",
+      path: "/api/collab/meeting/convert-to-group",
+      handler: async (request: IncomingMessage, response: ServerResponse) => {
+        const body = parseOrInvalid(
+          z.object({
+            meetingId: z.string().min(1).max(160),
+            title: titleSchema.optional(),
+          }),
+          await readBody(request),
+        );
+        const meeting = meetings.get(body.meetingId);
+        const actor = meetingActor(meeting, request);
+        activeHumanCaller(meeting, actor);
+        const converted = await meetings.convertAiConversationToGroup(actor, {
+          meetingId: meeting.id,
+          ...(body.title === undefined ? {} : { title: body.title }),
+        });
+        sendJson(response, 200, {
+          ok: true,
+          meeting: converted,
+          participants: meetings.participants(converted.id),
+        });
+      },
+    },
+    {
+      method: "POST",
       path: "/api/collab/meeting/join",
       handler: async (request: IncomingMessage, response: ServerResponse) => {
         const body = parseOrInvalid(
@@ -4296,7 +4749,6 @@ export function createMeetingRoutes(
         const meetingId = requireQuery(request, "meetingId");
         const meeting = meetings.get(meetingId);
         meetingActor(meeting, request);
-        assertGroupMeeting(meeting);
         const currentByUser = new Map(
           meetings
             .participants(meeting.id)
@@ -4394,9 +4846,45 @@ export function createMeetingRoutes(
               (delivery) => delivery.participantId === participant.id,
             ),
           );
-        if (meeting.kind === "ai") {
-          for (const participant of delivered) {
+        const groupPolicy =
+          meeting.conversationMode === "group"
+            ? dependencies.context?.()?.contextPolicy?.()
+            : undefined;
+        const groupConcurrencyLimit =
+          groupPolicy?.sceneOverrides.group?.maxConcurrentAgentsPerScene ??
+          groupPolicy?.defaults.maxConcurrentAgentsPerScene ??
+          3;
+        const dispatchTargets =
+          meeting.conversationMode === "group"
+            ? delivered.slice(0, groupConcurrencyLimit)
+            : delivered;
+        for (const participant of delivered.slice(dispatchTargets.length)) {
+          await meetings.markDelivery(
+            message.id,
+            participant.id,
+            "failed",
+            "AI 并发上限已达到，本次未运行",
+          );
+        }
+        if (meeting.kind === "ai" || meeting.conversationMode === "group") {
+          for (const participant of dispatchTargets) {
             if (participant.kind === "human") continue;
+            const currentMeeting = meetings.get(meeting.id);
+            const currentParticipant = meetings
+              .participants(meeting.id)
+              .find((candidate) => candidate.id === participant.id);
+            if (
+              (currentMeeting.agentRuntimeState ?? "active") !== "active" ||
+              (currentParticipant?.executionState ?? "active") !== "active"
+            ) {
+              await meetings.markDelivery(
+                message.id,
+                participant.id,
+                "failed",
+                "已按停止指令取消",
+              );
+              continue;
+            }
             try {
               const run = await dispatchAiChat({
                 meeting,
@@ -4434,7 +4922,7 @@ export function createMeetingRoutes(
         // 只有任务域不可用时才退回一次性 worker。
         const bridgeReady =
           taskService !== undefined && taskDispatch !== undefined;
-        for (const participant of delivered) {
+        for (const participant of dispatchTargets) {
           if (participant.kind === "human") continue;
           if (!bridgeReady || participant.teammateInstanceId === undefined) {
             runtime?.dispatch(message, [participant]);
@@ -4813,6 +5301,15 @@ export function createMeetingRoutes(
             "forbidden",
             "only the owner can trigger this agent",
           );
+        if (
+          (meeting.agentRuntimeState ?? "active") !== "active" ||
+          (participant.executionState ?? "active") !== "active"
+        ) {
+          throw new MeetingError(
+            "conflict",
+            "agent runtime is stopped for this meeting",
+          );
+        }
         const runtime = dependencies.runtime?.();
         if (runtime === undefined)
           throw new MeetingError("not_found", "meeting runtime is unavailable");
@@ -6385,10 +6882,21 @@ export async function apply(ctx: MeetingContext): Promise<void | (() => void)> {
     void minutesRuntime.waitIdle();
   });
   let disposeChatContextAdapter: (() => void) | undefined;
+  let disposeGroupContextAdapter: (() => void) | undefined;
   let disposeMeetingContextAdapter: (() => void) | undefined;
   const contextFiber = ctx.inject(["collabContext"], () => {
-    const collabContext = ctx.get("collabContext");
+    const collabContext = ctx.get("collabContext") as
+      | ContextServiceLike
+      | undefined;
     if (collabContext === undefined) return;
+    meetings.agentTriggerDepthLimit = () => {
+      const policy = collabContext.contextPolicy?.();
+      return (
+        policy?.sceneOverrides.group?.maxTriggerDepth ??
+        policy?.defaults.maxTriggerDepth ??
+        3
+      );
+    };
     const chatCarrier = (objectId: string, channelId?: string) => {
       const resolvedChannelId = channelId ?? objectId;
       const channel = collabContext.chatChannel?.(resolvedChannelId);
@@ -6398,6 +6906,7 @@ export async function apply(ctx: MeetingContext): Promise<void | (() => void)> {
       };
     };
     disposeChatContextAdapter?.();
+    disposeGroupContextAdapter?.();
     disposeMeetingContextAdapter?.();
     disposeChatContextAdapter = collabContext.registerAdapter({
       scene: "chat",
@@ -6424,6 +6933,12 @@ export async function apply(ctx: MeetingContext): Promise<void | (() => void)> {
         const { channel, meeting } = chatCarrier(input.objectId);
         const transcript = meetings
           .transcript(meeting.id)
+          .filter(
+            (message) =>
+              message.sequence > (input.lastContextSeq ?? 0) &&
+              (input.contextBoundarySeq === undefined ||
+                message.sequence <= input.contextBoundarySeq),
+          )
           .slice(-TRANSCRIPT_WINDOW)
           .map((message) => `${message.senderName}: ${message.content}`)
           .join("\n");
@@ -6441,6 +6956,74 @@ export async function apply(ctx: MeetingContext): Promise<void | (() => void)> {
           "不得提及或读取其他用户的一对一对话。",
           "直接回复用户，不生成会议纪要或任务交付报告。",
           "只输出面向用户的最终答复；不得输出思考过程、工具排查过程、内心权衡或英文自述。",
+        ].join("\n"),
+        allowedWriteback: ["agent-private-memory", "run-evidence"],
+      }),
+    });
+    disposeGroupContextAdapter = collabContext.registerAdapter({
+      scene: "group",
+      resolve: async (input) => {
+        const meeting = meetings.get(input.objectId);
+        const actorIsParticipant = meetings
+          .participants(meeting.id)
+          .some(
+            (participant) =>
+              participant.status === "active" &&
+              participant.kind === "human" &&
+              participant.refId === input.actorPrincipalId,
+          );
+        return {
+          allowed:
+            meeting.kind === "meeting" &&
+            meeting.conversationMode === "group" &&
+            actorIsParticipant &&
+            (input.workspaceId === undefined ||
+              input.workspaceId === meeting.workspaceId),
+          workspaceId: meeting.workspaceId,
+          sceneRevision: meeting.updatedAt,
+          sourceRefs: [{ type: "chat", id: meeting.id }],
+        };
+      },
+      loadFacts: async (input) => {
+        const meeting = meetings.get(input.objectId);
+        const transcript = meetings
+          .transcript(meeting.id)
+          .filter(
+            (message) =>
+              message.sequence > (input.lastContextSeq ?? 0) &&
+              (input.contextBoundarySeq === undefined ||
+                message.sequence <= input.contextBoundarySeq),
+          )
+          .slice(-TRANSCRIPT_WINDOW)
+          .map((message) => `${message.senderName}: ${message.content}`)
+          .join("\n");
+        return {
+          text:
+            transcript === ""
+              ? `# ${meeting.title}\n（暂无新增群聊消息）`
+              : `# ${meeting.title}\n${transcript}`,
+          structured: {
+            id: meeting.id,
+            title: meeting.title,
+            participants: meetings.participants(meeting.id).map((item) => ({
+              id: item.id,
+              displayName: item.displayName,
+              kind: item.kind,
+              ownerName: item.ownerName,
+            })),
+          },
+          sourceRefs: [{ type: "chat", id: meeting.id }],
+          historyText: transcript,
+        };
+      },
+      policy: async () => ({
+        version: "group-chat-v1",
+        instructions: [
+          "这是多人群聊。",
+          "你只在被明确 @ 时回复。",
+          "回复中可以 @ 人类或其他 AI；只有 mention 元数据会触发目标 AI。",
+          "不得读取其他 Agent 的私有记忆、Owner 嘱咐或 Session。",
+          "保持回复简洁，直接说明结论、风险或需要谁确认。",
         ].join("\n"),
         allowedWriteback: ["agent-private-memory", "run-evidence"],
       }),
@@ -6469,10 +7052,18 @@ export async function apply(ctx: MeetingContext): Promise<void | (() => void)> {
         readonly objectId: string;
         readonly agentPrincipalId: string;
         readonly asOf: string;
+        readonly lastContextSeq?: number;
+        readonly contextBoundarySeq?: number;
       }) => {
         const meeting = meetings.get(input.objectId);
         const transcript = meetings
           .transcript(meeting.id)
+          .filter(
+            (message) =>
+              message.sequence > (input.lastContextSeq ?? 0) &&
+              (input.contextBoundarySeq === undefined ||
+                message.sequence <= input.contextBoundarySeq),
+          )
           .slice(-TRANSCRIPT_WINDOW);
         const text = [
           `# ${meeting.title}`,
@@ -6518,6 +7109,7 @@ export async function apply(ctx: MeetingContext): Promise<void | (() => void)> {
   });
   ctx.effect(() => () => {
     disposeChatContextAdapter?.();
+    disposeGroupContextAdapter?.();
     disposeMeetingContextAdapter?.();
   });
   registerMeetingInterfaces(ctx, meetings);
@@ -6595,7 +7187,7 @@ export async function apply(ctx: MeetingContext): Promise<void | (() => void)> {
     } catch {
       return;
     }
-    if (meeting.kind !== "ai") return;
+    if (meeting.kind !== "ai" && meeting.conversationMode !== "group") return;
     if (run.status === "succeeded") {
       const reply = run.output?.summary?.trim() ?? "";
       if (reply === "") {
@@ -6610,6 +7202,15 @@ export async function apply(ctx: MeetingContext): Promise<void | (() => void)> {
       }
       await meetings.postWorkerReply(participantId, reply);
       await meetings.markDelivery(messageId, participantId, "delivered");
+      const contextPackId = String(
+        run.payload.context.contextPackId ?? "",
+      );
+      await (
+        ctx.get("collabContext") as ContextServiceLike | undefined
+      )?.commitRunContext?.({
+        runId,
+        ...(contextPackId === "" ? {} : { contextPackId }),
+      });
       handledChatRuns.add(runId);
       return;
     }
@@ -6619,6 +7220,19 @@ export async function apply(ctx: MeetingContext): Promise<void | (() => void)> {
       run.status === "cancelled" ||
       run.status === "interrupted"
     ) {
+      const stoppedCancellation = meetings
+        .transcript(meeting.id)
+        .find((item) => item.id === messageId)
+        ?.deliveries.find(
+          (delivery) =>
+            delivery.participantId === participantId &&
+            delivery.status === "failed" &&
+            delivery.error === "已按停止指令取消",
+        );
+      if (stoppedCancellation !== undefined) {
+        handledChatRuns.add(runId);
+        return;
+      }
       const reason = run.error ?? `AI对话运行${run.status}`;
       await meetings.markDelivery(messageId, participantId, "failed", reason);
       await meetings.postSystemMessage(

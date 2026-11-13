@@ -2536,7 +2536,9 @@ window.__ModuleLoader__.load({
         react.useState(false);
       const [skillBindingDraft, setSkillBindingDraft] = react.useState(null);
       const [skillLibraryOpen, setSkillLibraryOpen] = react.useState(false);
-      const [skillLibrarySelected, setSkillLibrarySelected] = react.useState([]);
+      const [skillLibrarySelected, setSkillLibrarySelected] = react.useState(
+        [],
+      );
       const [busy, setBusy] = react.useState(false);
       const [error, setError] = react.useState("");
       const [notice, setNotice] = react.useState("");
@@ -4154,13 +4156,10 @@ window.__ModuleLoader__.load({
         const busyKey = `skill:${skill.id}`;
         setSkillConfigBusy(busyKey);
         try {
-          const result = await request(
-            "/api/collab/teammates/skills/remove",
-            {
-              method: "POST",
-              body: { teammateId: teammate.id, skillId: skill.id },
-            },
-          );
+          const result = await request("/api/collab/teammates/skills/remove", {
+            method: "POST",
+            body: { teammateId: teammate.id, skillId: skill.id },
+          });
           setInstanceSkillConfig(result);
           await loadDetail(teammate.id);
           succeed(`已移除「${cleanSkillName(skill.name)}」的实例扩展。`);
@@ -4482,7 +4481,9 @@ window.__ModuleLoader__.load({
                         null,
                         tab === "definition"
                           ? `${item.role || ROLE_PLACEHOLDER} · ${String(instanceIds.length)} 个 AI伙伴 · 预装 Skills ${String((item.skillBindings ?? []).length)}`
-                          : `${item.role || ROLE_PLACEHOLDER} · ${item.ownerName}`,
+                          : item.projectBinding !== undefined
+                            ? `${item.role || ROLE_PLACEHOLDER} · 项目 ${item.projectName || item.projectBinding.workspaceId} · ${item.projectBinding.workspaceId.slice(0, 8)}`
+                            : `${item.role || ROLE_PLACEHOLDER} · ${item.ownerName}`,
                       ),
                       h(
                         "span",
@@ -5369,7 +5370,9 @@ window.__ModuleLoader__.load({
           optional: enterprise ? "企业可选" : "按需启用",
           additive: "自定义增量",
           primary: "自定义主处理器",
-        })[mode] ?? mode ?? "未设置";
+        })[mode] ??
+        mode ??
+        "未设置";
       const skillSceneLabel = (scene) =>
         ({
           "work-report": "工作日报",
@@ -5650,7 +5653,11 @@ window.__ModuleLoader__.load({
                   "div",
                   { className: "pmtm-field card" },
                   h("span", { className: "label" }, "版本"),
-                  h("span", { className: "value" }, skill.version ? `v${skill.version}` : "未标注"),
+                  h(
+                    "span",
+                    { className: "value" },
+                    skill.version ? `v${skill.version}` : "未标注",
+                  ),
                 ),
                 h(
                   "div",
@@ -5746,13 +5753,7 @@ window.__ModuleLoader__.load({
           };
         const baselineRows =
           baseline.length === 0
-            ? [
-                h(
-                  "div",
-                  { className: "pmtm-empty" },
-                  "暂无预装SKILL",
-                ),
-              ]
+            ? [h("div", { className: "pmtm-empty" }, "暂无预装SKILL")]
             : baseline.map((binding) =>
                 renderSkillCard({
                   skillId: binding.skillId,
@@ -5836,11 +5837,7 @@ window.__ModuleLoader__.load({
             h(
               "div",
               { className: "pmtm-skill-group-head" },
-              h(
-                "div",
-                { className: "pmtm-skill-group-title" },
-                "平台预装",
-              ),
+              h("div", { className: "pmtm-skill-group-title" }, "平台预装"),
               h(
                 "span",
                 { className: "pmtm-skill-group-meta" },
@@ -5855,11 +5852,7 @@ window.__ModuleLoader__.load({
             h(
               "div",
               { className: "pmtm-skill-group-head" },
-              h(
-                "div",
-                { className: "pmtm-skill-group-title" },
-                "自定义扩展",
-              ),
+              h("div", { className: "pmtm-skill-group-title" }, "自定义扩展"),
               h(
                 "span",
                 { className: "pmtm-skill-group-meta" },
@@ -6011,18 +6004,18 @@ window.__ModuleLoader__.load({
             ),
           ),
           projectRolesLoading && projectRoles.length === 0
-              ? h("div", { className: "pmtm-empty" }, "角色加载中…")
-              : groups.size === 0
-                ? h(
-                    "div",
-                    { className: "pmtm-empty" },
-                    "该 AI伙伴当前没有项目角色。",
-                  )
-                : h(
-                    "div",
-                    { className: "pmtm-role-list" },
-                    ...[...groups.entries()].map(groupCard),
-                  ),
+            ? h("div", { className: "pmtm-empty" }, "角色加载中…")
+            : groups.size === 0
+              ? h(
+                  "div",
+                  { className: "pmtm-empty" },
+                  "该 AI伙伴当前没有项目角色。",
+                )
+              : h(
+                  "div",
+                  { className: "pmtm-role-list" },
+                  ...[...groups.entries()].map(groupCard),
+                ),
         );
       };
 
@@ -6515,14 +6508,9 @@ window.__ModuleLoader__.load({
 
       const renderActions = (teammate) => {
         const protectedSystem =
-          teammate.systemKey !== undefined ||
-          teammate.protected !== undefined;
+          teammate.systemKey !== undefined || teammate.protected !== undefined;
         const protectedBadge = protectedSystem
-          ? h(
-              "span",
-              { className: "pmtm-built-in-chip" },
-              "平台内置 · 受保护",
-            )
+          ? h("span", { className: "pmtm-built-in-chip" }, "平台内置 · 受保护")
           : null;
         if (tab === "definition") {
           if (selectedTemplate === null || !canManageSelectedTemplate) {
@@ -6729,6 +6717,18 @@ window.__ModuleLoader__.load({
           h(
             "div",
             { className: "pmtm-grid" },
+            teammate.projectBinding === undefined
+              ? null
+              : h(
+                  "div",
+                  { className: "pmtm-field card wide" },
+                  h("span", { className: "label" }, "所属项目"),
+                  h(
+                    "span",
+                    { className: "value" },
+                    teammate.projectName || teammate.projectBinding.workspaceId,
+                  ),
+                ),
             h(
               "div",
               { className: "pmtm-field wide" },
@@ -7274,9 +7274,7 @@ window.__ModuleLoader__.load({
                       { className: "pmtm-runtime-summary" },
                       ...runtimeConfigurationLabels(
                         selectedExternalRuntime,
-                      ).map((label) =>
-                        h("span", { key: label }, label),
-                      ),
+                      ).map((label) => h("span", { key: label }, label)),
                     ),
                   ),
                   runtimeDetailActions(selectedExternalRuntime),
@@ -7319,9 +7317,7 @@ window.__ModuleLoader__.load({
                         "strong",
                         null,
                         String(
-                          externalRuntimeBindingCount(
-                            selectedExternalRuntime,
-                          ),
+                          externalRuntimeBindingCount(selectedExternalRuntime),
                         ),
                       ),
                     ),
@@ -7344,7 +7340,11 @@ window.__ModuleLoader__.load({
                             ? "最近探测通过"
                             : "最近探测失败",
                         ),
-                        h("span", null, selectedExternalRuntime.lastProbeMessage),
+                        h(
+                          "span",
+                          null,
+                          selectedExternalRuntime.lastProbeMessage,
+                        ),
                       ),
                 ),
               );
@@ -7707,11 +7707,7 @@ window.__ModuleLoader__.load({
                           ? h(
                               "div",
                               { className: "pmtm-field" },
-                              h(
-                                "span",
-                                { className: "label" },
-                                "文件修改权限",
-                              ),
+                              h("span", { className: "label" }, "文件修改权限"),
                               h(
                                 "select",
                                 {
@@ -7730,11 +7726,7 @@ window.__ModuleLoader__.load({
                                   { value: "workspace-write" },
                                   "可写任务工作区",
                                 ),
-                                h(
-                                  "option",
-                                  { value: "read-only" },
-                                  "只读",
-                                ),
+                                h("option", { value: "read-only" }, "只读"),
                               ),
                               h(
                                 "span",
@@ -7743,66 +7735,65 @@ window.__ModuleLoader__.load({
                               ),
                             )
                           : externalForm.provider === "workbuddy"
-                          ? h(
-                              "label",
-                              { className: "pmtm-field" },
-                              h("span", { className: "label" }, "文件修改权限"),
-                              h(
-                                "select",
-                                {
-                                  className: "pmtm-select",
-                                  value: externalForm.permissionMode,
-                                  onChange: (event) =>
-                                    setExternalForm({
-                                      ...externalForm,
-                                      permissionMode: event.target.value,
-                                    }),
-                                },
-                                h("option", { value: "default" }, "默认权限"),
-                                h(
-                                  "option",
-                                  { value: "plan" },
-                                  "计划模式，不直接修改",
-                                ),
-                                h(
-                                  "option",
-                                  { value: "acceptEdits" },
-                                  "自动接受文件修改",
-                                ),
-                              ),
-                            )
-                          : h(
-                              "div",
-                              { className: "pmtm-field" },
-                              h("span", { className: "label" }, "执行沙箱"),
-                              h(
-                                "div",
-                                { className: "pmtm-config-facts" },
+                            ? h(
+                                "label",
+                                { className: "pmtm-field" },
                                 h(
                                   "span",
-                                  null,
-                                  externalForm.provider === "codex"
-                                    ? "可写工作区 / 网络开启"
-                                    : "由通用命令自行负责",
+                                  { className: "label" },
+                                  "文件修改权限",
+                                ),
+                                h(
+                                  "select",
+                                  {
+                                    className: "pmtm-select",
+                                    value: externalForm.permissionMode,
+                                    onChange: (event) =>
+                                      setExternalForm({
+                                        ...externalForm,
+                                        permissionMode: event.target.value,
+                                      }),
+                                  },
+                                  h("option", { value: "default" }, "默认权限"),
+                                  h(
+                                    "option",
+                                    { value: "plan" },
+                                    "计划模式，不直接修改",
+                                  ),
+                                  h(
+                                    "option",
+                                    { value: "acceptEdits" },
+                                    "自动接受文件修改",
+                                  ),
+                                ),
+                              )
+                            : h(
+                                "div",
+                                { className: "pmtm-field" },
+                                h("span", { className: "label" }, "执行沙箱"),
+                                h(
+                                  "div",
+                                  { className: "pmtm-config-facts" },
+                                  h(
+                                    "span",
+                                    null,
+                                    externalForm.provider === "codex"
+                                      ? "可写工作区 / 网络开启"
+                                      : "由通用命令自行负责",
+                                  ),
                                 ),
                               ),
-                            ),
                         externalForm.provider === "codex"
                           ? h(
                               "label",
                               { className: "pmtm-field" },
-                              h(
-                                "span",
-                                { className: "label" },
-                                "网络访问",
-                              ),
+                              h("span", { className: "label" }, "网络访问"),
                               h(
                                 "label",
                                 { className: "pmtm-capability-option" },
                                 h("input", {
                                   type: "checkbox",
-                                  checked:
-                                    externalForm.networkAccess !== false,
+                                  checked: externalForm.networkAccess !== false,
                                   onChange: (event) =>
                                     setExternalForm({
                                       ...externalForm,
@@ -8347,11 +8338,7 @@ window.__ModuleLoader__.load({
                   style: { marginTop: 6 },
                 },
                 boundSkills.length === 0
-                  ? h(
-                      "div",
-                      { className: "pmtm-empty" },
-                      "暂无已添加 Skill",
-                    )
+                  ? h("div", { className: "pmtm-empty" }, "暂无已添加 Skill")
                   : boundSkills.map((skill) => {
                       const binding = bindingById.get(skill.id);
                       return renderSkillCard({
@@ -8361,11 +8348,11 @@ window.__ModuleLoader__.load({
                         onDetails: () => setSkillDetail({ skill }),
                         onConfigure: enterpriseTemplate
                           ? () =>
-                            setSkillBindingDraft({
-                              skillId: skill.id,
-                              mode: binding.mode,
-                              scenes: (binding.scenes ?? []).join(", "),
-                            })
+                              setSkillBindingDraft({
+                                skillId: skill.id,
+                                mode: binding.mode,
+                                scenes: (binding.scenes ?? []).join(", "),
+                              })
                           : undefined,
                         onRemove: () => toggleBinding(skill, false),
                       });
@@ -8387,25 +8374,25 @@ window.__ModuleLoader__.load({
               h("span", { className: "label" }, "用户扩展策略"),
               ...[["allowAdditionalSkills", "允许实例补充 Skill"]].map(
                 ([key, label]) =>
-                h(
-                  "label",
-                  {
-                    key,
-                    style: {
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 7,
-                      fontSize: 10.5,
+                  h(
+                    "label",
+                    {
+                      key,
+                      style: {
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 7,
+                        fontSize: 10.5,
+                      },
                     },
-                  },
-                  h("input", {
-                    type: "checkbox",
-                    checked: policy[key] === true,
-                    onChange: (event) =>
-                      updatePolicy({ [key]: event.target.checked }),
-                  }),
-                  h("span", null, label),
-                ),
+                    h("input", {
+                      type: "checkbox",
+                      checked: policy[key] === true,
+                      onChange: (event) =>
+                        updatePolicy({ [key]: event.target.checked }),
+                    }),
+                    h("span", null, label),
+                  ),
               ),
             ),
             h(
@@ -8592,19 +8579,16 @@ window.__ModuleLoader__.load({
               ? h(
                   "div",
                   { style: { gridColumn: "1 / -1" } },
-                  props.renderSlot?.(
-                    "pluginmax.teammate.data-agent-settings",
-                    {
-                      teammate: selectedTemplate,
-                      workspaceId:
-                        identity?.workspaceId ?? workspaces[0]?.id ?? "",
-                      mode: "summary",
-                      onEdit: () => setDataAgentConfigOpen(true),
-                      onSaved: () => {
-                        void loadDetail(selectedId);
-                      },
+                  props.renderSlot?.("pluginmax.teammate.data-agent-settings", {
+                    teammate: selectedTemplate,
+                    workspaceId:
+                      identity?.workspaceId ?? workspaces[0]?.id ?? "",
+                    mode: "summary",
+                    onEdit: () => setDataAgentConfigOpen(true),
+                    onSaved: () => {
+                      void loadDetail(selectedId);
                     },
-                  ),
+                  }),
                 )
               : null,
             h(
@@ -8735,9 +8719,10 @@ window.__ModuleLoader__.load({
             ),
           ),
           renderActions(teammate),
-          (canManagePlatform === true || teammate.ownerUserId === currentUser?.id) &&
-          teammate.systemKey === undefined &&
-          teammate.protected === undefined
+          (canManagePlatform === true ||
+            teammate.ownerUserId === currentUser?.id) &&
+            teammate.systemKey === undefined &&
+            teammate.protected === undefined
             ? h(
                 "section",
                 { className: "pmtm-block", style: { marginTop: 14 } },
@@ -9297,8 +9282,7 @@ window.__ModuleLoader__.load({
                         : renderDefinition(selected),
               ),
             ),
-        dataAgentConfigOpen &&
-        selectedTemplate?.systemKey === "data-agent"
+        dataAgentConfigOpen && selectedTemplate?.systemKey === "data-agent"
           ? h(
               "div",
               {
@@ -9333,18 +9317,15 @@ window.__ModuleLoader__.load({
                 h(
                   "div",
                   { className: "pmtm-dialog-body" },
-                  props.renderSlot?.(
-                    "pluginmax.teammate.data-agent-settings",
-                    {
-                      teammate: selectedTemplate,
-                      workspaceId:
-                        identity?.workspaceId ?? workspaces[0]?.id ?? "",
-                      mode: "full",
-                      onSaved: () => {
-                        void loadDetail(selectedId);
-                      },
+                  props.renderSlot?.("pluginmax.teammate.data-agent-settings", {
+                    teammate: selectedTemplate,
+                    workspaceId:
+                      identity?.workspaceId ?? workspaces[0]?.id ?? "",
+                    mode: "full",
+                    onSaved: () => {
+                      void loadDetail(selectedId);
                     },
-                  ),
+                  }),
                 ),
               ),
             )
@@ -9409,11 +9390,7 @@ window.__ModuleLoader__.load({
                           ),
                       },
                       selectedTemplate.source === "platform"
-                        ? h(
-                            "option",
-                            { value: "required" },
-                            "企业强制",
-                          )
+                        ? h("option", { value: "required" }, "企业强制")
                         : null,
                       h("option", { value: "default" }, "默认自动加入"),
                       h("option", { value: "optional" }, "可选提供"),
@@ -9476,8 +9453,7 @@ window.__ModuleLoader__.load({
                       className: "pmtm-btn small",
                       onClick: () => {
                         const binding = (form?.skillBindings ?? []).find(
-                          (item) =>
-                            item.skillId === skillBindingDraft.skillId,
+                          (item) => item.skillId === skillBindingDraft.skillId,
                         );
                         if (binding === undefined) {
                           setSkillBindingDraft(null);
@@ -9532,11 +9508,7 @@ window.__ModuleLoader__.load({
                 h(
                   "div",
                   { className: "pmtm-drawer-head" },
-                  h(
-                    "div",
-                    null,
-                    h("h2", null, "我的资源库"),
-                  ),
+                  h("div", null, h("h2", null, "我的资源库")),
                   h(
                     "button",
                     {
@@ -9588,11 +9560,7 @@ window.__ModuleLoader__.load({
                               h(
                                 "span",
                                 { className: "pmtm-library-item-title" },
-                                h(
-                                  "strong",
-                                  null,
-                                  cleanSkillName(skill.name),
-                                ),
+                                h("strong", null, cleanSkillName(skill.name)),
                               ),
                               h(
                                 "p",
@@ -9605,27 +9573,27 @@ window.__ModuleLoader__.load({
                                 h(
                                   "span",
                                   { className: "pmtm-skill-tag" },
-                                    skill.version
-                                      ? `v${skill.version}`
-                                      : "未标注",
-                                  ),
-                                  h(
-                                    "span",
-                                    { className: "pmtm-skill-tag" },
+                                  skill.version
+                                    ? `v${skill.version}`
+                                    : "未标注",
+                                ),
+                                h(
+                                  "span",
+                                  { className: "pmtm-skill-tag" },
                                   skill.category ?? "未分类",
                                 ),
                                 h(
                                   "span",
                                   { className: "pmtm-skill-tag" },
-                                    typeof skill.usage === "string" &&
-                                      skill.usage.trim() !== "" &&
-                                      skill.usage !== "自定义 Skill"
-                                      ? skill.usage
-                                      : "未统计",
-                                  ),
-                                  h(
-                                    "span",
-                                    { className: "pmtm-skill-tag" },
+                                  typeof skill.usage === "string" &&
+                                    skill.usage.trim() !== "" &&
+                                    skill.usage !== "自定义 Skill"
+                                    ? skill.usage
+                                    : "未统计",
+                                ),
+                                h(
+                                  "span",
+                                  { className: "pmtm-skill-tag" },
                                   skill.publisher?.name ?? "未知",
                                 ),
                               ),
@@ -9665,9 +9633,7 @@ window.__ModuleLoader__.load({
                             skillBindings: [
                               ...existing,
                               ...selected
-                                .filter(
-                                  (skill) => !existingIds.has(skill.id),
-                                )
+                                .filter((skill) => !existingIds.has(skill.id))
                                 .map((skill) => ({
                                   skillId: skill.id,
                                   versionConstraint: "*",

@@ -1,4 +1,4 @@
-import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, extname, join, relative, sep } from "node:path";
 import type { TaskRecord } from "./types.js";
 
@@ -46,6 +46,8 @@ const IGNORED_FILES = new Set([
 ]);
 
 const RUN_SETTLE_GRACE_MS = 15 * 60_000;
+const EVIDENCE_DOCUMENT_CHAR_LIMIT = 20_000;
+const EVIDENCE_TOTAL_CHAR_LIMIT = 48_000;
 
 const MIME_TYPES: Record<string, string> = {
   ".md": "text/markdown; charset=utf-8",
@@ -99,6 +101,73 @@ const TEXT_DOCUMENT_EXTENSIONS = new Set([
 
 export function mimeTypeFor(name: string): string {
   return MIME_TYPES[extname(name).toLowerCase()] ?? "application/octet-stream";
+}
+
+export interface WorkspaceEvidenceDocument {
+  readonly name: string;
+  readonly relativePath: string;
+  readonly content: string;
+}
+
+/**
+ * Loads the project's explicit demo-data index and the Markdown evidence files
+ * it routes to. Keeping this content in the first prompt avoids asking an
+ * external runtime to search the workspace through a shell merely to discover
+ * already-authorized business fixtures.
+ */
+export async function loadWorkspaceEvidenceDocuments(
+  root: string,
+): Promise<WorkspaceEvidenceDocument[]> {
+  let dirents;
+  try {
+    dirents = await readdir(root, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const markdownFiles = dirents
+    .filter((entry) => entry.isFile() && extname(entry.name).toLowerCase() === ".md")
+    .map((entry) => entry.name);
+  const indexName = markdownFiles.find((name) => /资料索引\.md$/i.test(name));
+  if (indexName === undefined) return [];
+
+  let indexContent;
+  try {
+    indexContent = await readFile(join(root, indexName), "utf8");
+  } catch {
+    return [];
+  }
+  const referenced = [
+    ...indexContent.matchAll(/`([^`\r\n]+\.md)`/gi),
+  ]
+    .map((match) => basename((match[1] ?? "").trim()))
+    .filter((name) => name !== "" && markdownFiles.includes(name));
+  const names = [...new Set([indexName, ...referenced])].slice(0, 4);
+  const documents: WorkspaceEvidenceDocument[] = [];
+  let remaining = EVIDENCE_TOTAL_CHAR_LIMIT;
+  for (const name of names) {
+    if (remaining <= 0) break;
+    let content;
+    try {
+      content = (await readFile(join(root, name), "utf8")).trim();
+    } catch {
+      continue;
+    }
+    if (content === "") continue;
+    const clipped = content.slice(
+      0,
+      Math.min(EVIDENCE_DOCUMENT_CHAR_LIMIT, remaining),
+    );
+    documents.push({
+      name,
+      relativePath: name,
+      content:
+        clipped.length < content.length
+          ? `${clipped}\n\n…（资料过长，已截断；完整内容仍在任务工作区）`
+          : clipped,
+    });
+    remaining -= clipped.length;
+  }
+  return documents;
 }
 
 /** Directory holding the bytes of files uploaded by task participants. */

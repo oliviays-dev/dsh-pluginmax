@@ -41,6 +41,9 @@
       "path": "plugins/dsh-collab-task"
     },
     {
+      "path": "plugins/dsh-collab-router-worker"
+    },
+    {
       "path": "plugins/dsh-collab-task-capture"
     },
     {

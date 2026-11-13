@@ -614,6 +614,15 @@ describe("project management client", () => {
     ]);
   });
 
+  it("exposes daily, weekly and progress report generation", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain("项目日报");
+    expect(source).toContain("项目周报");
+    expect(source).toContain("进度汇报");
+    expect(source).toContain("reportType");
+    expect(source).toContain('triggerSource: "button"');
+  });
+
   it("computes project role draft diffs by code", () => {
     const { exports: client } = loadClientExports();
     const helpers = client.__test;

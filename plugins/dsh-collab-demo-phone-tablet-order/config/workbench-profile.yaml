@@ -37,12 +37,31 @@ metrics:
 brief:
   title: "每日简报"
   summary: |
-    华东手机/平板订单异常率升至 7.6%，异常 126 单，预计影响金额约 64.3 万元。
-    请 Data Agent 完成初步判断，并由订单履约计划员跟进支付失败、取消和履约超时。
+    本期识别 3 项经营结果、2 项异常和 1 项待确认决策。
+    重点围绕华东 126 单订单异常推进处置，并确认成品仓再平衡方案。
   items:
+    - type: "conclusion"
+      title: "替代供应方案已确认"
+      body: "替代供应商 B 交期确认 12 天，可覆盖 29/37 张受影响订单。"
+      statusLabel: "已确认"
+      actionLabel: "查看方案"
+    - type: "progress"
+      title: "支付失败原因已完成归因"
+      body: "52 单支付失败中，31 单可自动重试，21 单需人工核对支付凭证。"
+      statusLabel: "待复核"
+      actionLabel: "查看归因"
+    - type: "progress"
+      title: "成品仓再平衡草案已完成"
+      body: "75 单可转本地仓履约，预计减少履约超时 24 单。"
+      statusLabel: "待确认"
+      actionLabel: "查看草案"
     - type: "data-exception"
       title: "华东手机/平板订单异常"
       body: "支付失败 52 单（41.3%）、履约超时 43 单（34.1%）、取消 31 单（24.6%）；异常集中在数码成品订单。"
+      actionLabel: "分析原因"
+    - type: "data-exception"
+      title: "履约超时集中在华东仓"
+      body: "履约超时 43 单，占全部异常 34.1%，主要集中在华东仓现货订单。"
       actionLabel: "分析原因"
     - type: "decision"
       title: "是否需要创建成品仓订单再平衡工单"

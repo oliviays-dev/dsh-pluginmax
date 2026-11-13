@@ -208,7 +208,10 @@ export function buildWorkReportPrompt(
     (skill) => skill.instructions.trim() !== "",
   );
   const active = context.tasks.filter(
-    (task) => task.status === "progress" || task.status === "review",
+    (task) =>
+      task.status === "progress" ||
+      task.status === "abnormal" ||
+      task.status === "review",
   );
   const completed = context.tasks.filter((task) => task.status === "done");
   const planned = context.tasks.filter((task) => task.status === "todo");
@@ -278,7 +281,10 @@ export function fallbackWorkReport(
 ): GeneratedWorkReport {
   const completed = context.tasks.filter((task) => task.status === "done");
   const active = context.tasks.filter(
-    (task) => task.status === "progress" || task.status === "review",
+    (task) =>
+      task.status === "progress" ||
+      task.status === "abnormal" ||
+      task.status === "review",
   );
   const planned = context.tasks.filter((task) => task.status === "todo");
   const summary =

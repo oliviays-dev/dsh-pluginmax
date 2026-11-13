@@ -43,14 +43,6 @@ window.__ModuleLoader__.load({
       ["task", "任务数"],
       ["token", "Token"],
     ];
-    const DEFAULT_AI_LOAD_SETTINGS = {
-      primaryMetric: "runtime",
-      columns: AI_LOAD_COLUMN_OPTIONS.map(([key]) => ({
-        key,
-        visible: true,
-      })),
-    };
-
     function normalizeAiLoadSettings(value) {
       const source =
         value !== null && typeof value === "object" ? value : {};
@@ -1106,6 +1098,46 @@ window.__ModuleLoader__.load({
           });
           return;
         }
+        if (panel.pluginId === "pluginmax.kpi-overview") {
+          setPanelSettings({
+            id: panel.id,
+            pluginId: panel.pluginId,
+            title: panel.title || pluginName(plugins, panel.pluginId),
+            span: panel.span,
+            metricBusy: true,
+            metricError: "",
+            selectedMetrics: [],
+            metricItems: [],
+          });
+          const tzOffset = -new Date().getTimezoneOffset();
+          void request(
+            `/api/collab/workbench/module?moduleId=metrics&tzOffset=${tzOffset}`,
+          )
+            .then((result) => {
+              setPanelSettings((current) =>
+                current?.id === panel.id
+                  ? {
+                      ...current,
+                      metricBusy: false,
+                      selectedMetrics: [...(result.module?.data?.selected ?? [])],
+                      metricItems: [...(result.module?.data?.items ?? [])],
+                    }
+                  : current,
+              );
+            })
+            .catch((cause) => {
+              setPanelSettings((current) =>
+                current?.id === panel.id
+                  ? {
+                      ...current,
+                      metricBusy: false,
+                      metricError: cause.message,
+                    }
+                  : current,
+              );
+            });
+          return;
+        }
         if (panel.pluginId !== "pluginmax.daily-brief") {
           setPanelSettings({
             id: panel.id,
@@ -1256,7 +1288,7 @@ window.__ModuleLoader__.load({
         }
       };
 
-      const applyPanelSettings = () => {
+      const applyPanelSettings = async () => {
         if (panelSettings === null) return;
         if (
           panelSettings.pluginId === "pluginmax.team-load" &&
@@ -1265,6 +1297,32 @@ window.__ModuleLoader__.load({
           showToast("请至少保留一列 AI伙伴指标");
           return;
         }
+        if (
+          panelSettings.pluginId === "pluginmax.kpi-overview" &&
+          panelSettings.selectedMetrics.length === 0
+        ) {
+          showToast("请至少选择 1 项核心指标");
+          return;
+        }
+        if (panelSettings.pluginId === "pluginmax.kpi-overview") {
+          setBusy(true);
+          try {
+            await request("/api/collab/workbench/metrics", {
+              method: "POST",
+              body: JSON.stringify({
+                selected: panelSettings.selectedMetrics,
+              }),
+            });
+          } catch (cause) {
+            showToast(`保存指标失败：${cause.message}`);
+            setBusy(false);
+            return;
+          }
+          setBusy(false);
+        }
+        const instanceId = panelSettings.id;
+        const isMetricsPanel =
+          panelSettings.pluginId === "pluginmax.kpi-overview";
         commit(
           draftPanels.map((panel) =>
             panel.id === panelSettings.id
@@ -1285,6 +1343,14 @@ window.__ModuleLoader__.load({
           ),
         );
         setPanelSettings(null);
+        if (isMetricsPanel) {
+          window.dispatchEvent(
+            new CustomEvent("pluginmax:workbench-v2-refresh", {
+              detail: { instanceId },
+            }),
+          );
+          showToast("指标显示已更新");
+        }
       };
 
       const beginPanelResize = (event, panel, axis) => {
@@ -2543,6 +2609,92 @@ window.__ModuleLoader__.load({
                       ),
                     ),
                   ),
+                  panelSettings.pluginId === "pluginmax.kpi-overview"
+                    ? h(
+                        "div",
+                        { className: "pmwb2-ai-settings" },
+                        h(
+                          "div",
+                          null,
+                          h("div", { className: "pmwb2-label" }, "显示指标"),
+                          h(
+                            "p",
+                            { className: "pmwb2-field-hint" },
+                            "选择 1-5 项需要在核心指标中显示的指标。",
+                          ),
+                        ),
+                        panelSettings.metricBusy
+                          ? h(
+                              "div",
+                              { className: "pmwb2-loading" },
+                              "正在加载指标…",
+                            )
+                          : panelSettings.metricError
+                            ? h(
+                                "div",
+                                { className: "pmwb2-error" },
+                                panelSettings.metricError,
+                              )
+                            : h(
+                                react.Fragment,
+                                null,
+                                h(
+                                  "div",
+                                  { className: "pmwb2-check-grid" },
+                                  ...panelSettings.metricItems.map((metric) => {
+                                    const checked =
+                                      panelSettings.selectedMetrics.includes(
+                                        metric.id,
+                                      );
+                                    return h(
+                                      "label",
+                                      {
+                                        className: "pmwb2-check",
+                                        key: metric.id,
+                                        title: metric.description,
+                                      },
+                                      h("input", {
+                                        type: "checkbox",
+                                        checked,
+                                        disabled:
+                                          !checked &&
+                                          panelSettings.selectedMetrics
+                                            .length >= 5,
+                                        onChange: () =>
+                                          setPanelSettings((current) => {
+                                            if (current === null) return current;
+                                            const selected =
+                                              current.selectedMetrics.includes(
+                                                metric.id,
+                                              )
+                                                ? current.selectedMetrics.filter(
+                                                    (id) => id !== metric.id,
+                                                  )
+                                                : current.selectedMetrics.length >=
+                                                    5
+                                                  ? current.selectedMetrics
+                                                  : [
+                                                      ...current.selectedMetrics,
+                                                      metric.id,
+                                                    ];
+                                            return {
+                                              ...current,
+                                              selectedMetrics: selected,
+                                            };
+                                          }),
+                                      }),
+                                      metric.label,
+                                    );
+                                  }),
+                                ),
+                                h(
+                                  "p",
+                                  { className: "pmwb2-field-hint" },
+                                  `已选择 ${panelSettings.selectedMetrics.length}/5 项`,
+                                ),
+                              ),
+                      )
+                    : null,
                   panelSettings.pluginId === "pluginmax.team-load"
                     ? h(
                         "div",
@@ -2715,9 +2867,15 @@ window.__ModuleLoader__.load({
                     {
                       type: "button",
                       className: "pmwb2-btn primary",
-                      onClick: applyPanelSettings,
+                      disabled:
+                        busy ||
+                        (panelSettings.pluginId === "pluginmax.kpi-overview" &&
+                          (panelSettings.metricBusy ||
+                            panelSettings.metricError !== "" ||
+                            panelSettings.selectedMetrics.length === 0)),
+                      onClick: () => void applyPanelSettings(),
                     },
-                    "应用设置",
+                    busy ? "保存中…" : "应用设置",
                   ),
                 ),
               ),

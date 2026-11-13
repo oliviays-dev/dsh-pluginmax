@@ -12,6 +12,8 @@ import {
   type AiChatChannel,
   type ChatCarrier,
   type ContextPack,
+  type ContextPolicyConfig,
+  type ContextPolicyValues,
   type ContextRequest,
   type ContextReceipt,
   type SceneType,
@@ -43,6 +45,7 @@ export type {
   AiChatChannel,
   ChatCarrier,
   ContextPack,
+  ContextPolicyConfig,
   ContextRequest,
   ContextReceipt,
   SceneType,
@@ -53,6 +56,7 @@ interface ContextDomainLike {
   table(name: "sessions"): KvTableLike<SceneSessionBinding>;
   table(name: "identities"): KvTableLike<AgentIdentitySnapshot>;
   table(name: "chat_channels"): KvTableLike<AiChatChannel>;
+  table(name: "policies"): KvTableLike<ContextPolicyConfig>;
   table(name: "packs"): KvTableLike<ContextPack>;
   table(name: "receipts"): KvTableLike<ContextReceipt>;
   close(): Promise<void>;
@@ -160,6 +164,21 @@ function queryValue(request: IncomingMessage, key: string): string {
   );
 }
 
+async function readBody(request: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of request) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += buffer.length;
+    if (size > 200_000) {
+      throw new ContextError("invalid_input", "request body is too large");
+    }
+    chunks.push(buffer);
+  }
+  if (chunks.length === 0) return {};
+  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+}
+
 const PRIVATE_CHAT_WORKSPACE_ID = "system.default";
 
 function browserActor(
@@ -235,9 +254,72 @@ const receiptQuerySchema = z.object({
 const receiptListQuerySchema = z.object({
   workspaceId: z.string().trim().min(1).max(200),
   scene: z
-    .enum(["project", "task", "meeting", "chat", "workflow-node"])
+    .enum(["project", "task", "meeting", "chat", "group", "workflow-node"])
     .optional(),
   limit: z.coerce.number().int().positive().max(500).optional(),
+});
+
+const contextPolicyUpdateSchema = z.object({
+  expectedVersion: z.number().int().nonnegative(),
+  defaults: z
+    .object({
+      warningRatio: z.number().min(0.1).max(0.99).optional(),
+      compactRatio: z.number().min(0.1).max(0.99).optional(),
+      rolloverRatio: z.number().min(0.1).max(1).optional(),
+      preserveRecentMessages: z.number().int().min(0).max(100).optional(),
+      maxTriggerDepth: z.number().int().min(1).max(20).optional(),
+      maxConcurrentAgentsPerScene: z.number().int().min(1).max(20).optional(),
+    })
+    .default({}),
+  sceneOverrides: z
+    .object({
+      chat: z
+        .object({
+          warningRatio: z.number().min(0.1).max(0.99).optional(),
+          compactRatio: z.number().min(0.1).max(0.99).optional(),
+          rolloverRatio: z.number().min(0.1).max(1).optional(),
+          preserveRecentMessages: z.number().int().min(0).max(100).optional(),
+          maxTriggerDepth: z.number().int().min(1).max(20).optional(),
+          maxConcurrentAgentsPerScene: z
+            .number()
+            .int()
+            .min(1)
+            .max(20)
+            .optional(),
+        })
+        .optional(),
+      group: z
+        .object({
+          warningRatio: z.number().min(0.1).max(0.99).optional(),
+          compactRatio: z.number().min(0.1).max(0.99).optional(),
+          rolloverRatio: z.number().min(0.1).max(1).optional(),
+          preserveRecentMessages: z.number().int().min(0).max(100).optional(),
+          maxTriggerDepth: z.number().int().min(1).max(20).optional(),
+          maxConcurrentAgentsPerScene: z
+            .number()
+            .int()
+            .min(1)
+            .max(20)
+            .optional(),
+        })
+        .optional(),
+      meeting: z
+        .object({
+          warningRatio: z.number().min(0.1).max(0.99).optional(),
+          compactRatio: z.number().min(0.1).max(0.99).optional(),
+          rolloverRatio: z.number().min(0.1).max(1).optional(),
+          preserveRecentMessages: z.number().int().min(0).max(100).optional(),
+          maxTriggerDepth: z.number().int().min(1).max(20).optional(),
+          maxConcurrentAgentsPerScene: z
+            .number()
+            .int()
+            .min(1)
+            .max(20)
+            .optional(),
+        })
+        .optional(),
+    })
+    .optional(),
 });
 
 function createContextRoutes(
@@ -348,6 +430,81 @@ function createContextRoutes(
         }
       },
     },
+    {
+      kind: "exact",
+      path: "/api/collab/context/policy",
+      handler: async (request, response) => {
+        try {
+          const currentTeam = resolveTeam();
+          const actor = browserActor(
+            currentTeam,
+            request,
+            queryValue(request, "workspaceId") || PRIVATE_CHAT_WORKSPACE_ID,
+          );
+          if (actor.role !== "admin") {
+            throw new ContextError(
+              "forbidden",
+              "platform admin is required to manage context policy",
+            );
+          }
+          if (request.method === "GET") {
+            sendJson(response, 200, {
+              ok: true,
+              policy: service.contextPolicy(),
+            });
+            return;
+          }
+          if (request.method !== "PUT") {
+            throw new ContextError("invalid_input", "method not supported");
+          }
+          const body = contextPolicyUpdateSchema.parse(await readBody(request));
+          const policy = await service.updateContextPolicy({
+            expectedVersion: body.expectedVersion,
+            defaults: body.defaults as Partial<ContextPolicyValues>,
+            ...(body.sceneOverrides === undefined
+              ? {}
+              : {
+                  sceneOverrides:
+                    body.sceneOverrides as ContextPolicyConfig["sceneOverrides"],
+                }),
+            updatedByPrincipalId: actor.userId,
+          });
+          sendJson(response, 200, { ok: true, policy });
+        } catch (cause) {
+          routeError(response, cause);
+        }
+      },
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/context/policy/reset",
+      handler: async (request, response) => {
+        try {
+          const body = z
+            .object({ expectedVersion: z.number().int().nonnegative() })
+            .parse(await readBody(request));
+          const currentTeam = resolveTeam();
+          const actor = browserActor(
+            currentTeam,
+            request,
+            queryValue(request, "workspaceId") || PRIVATE_CHAT_WORKSPACE_ID,
+          );
+          if (actor.role !== "admin") {
+            throw new ContextError(
+              "forbidden",
+              "platform admin is required to manage context policy",
+            );
+          }
+          const policy = await service.resetContextPolicy({
+            expectedVersion: body.expectedVersion,
+            updatedByPrincipalId: actor.userId,
+          });
+          sendJson(response, 200, { ok: true, policy });
+        } catch (cause) {
+          routeError(response, cause);
+        }
+      },
+    },
   ];
 }
 
@@ -358,6 +515,7 @@ export async function apply(ctx: ContextContext): Promise<void> {
       sessions: domain.table("sessions"),
       identities: domain.table("identities"),
       chatChannels: domain.table("chat_channels"),
+      policies: domain.table("policies"),
       packs: domain.table("packs"),
       receipts: domain.table("receipts"),
     },

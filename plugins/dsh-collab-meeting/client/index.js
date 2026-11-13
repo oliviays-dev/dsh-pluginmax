@@ -23,6 +23,15 @@ window.__ModuleLoader__.load({
       memberRole: "member",
       ownerId: "system",
     };
+    const CONTEXT_POLICY_DEFAULTS = {
+      warningRatio: 0.7,
+      compactRatio: 0.85,
+      rolloverRatio: 0.95,
+      preserveRecentMessages: 12,
+      maxTriggerDepth: 3,
+      maxConcurrentAgentsPerScene: 3,
+    };
+    const CONTEXT_POLICY_SCENES = ["chat", "group", "meeting"];
 
     /* ── module-level store (open/close shared by toggle + panel) ── */
 
@@ -44,7 +53,7 @@ window.__ModuleLoader__.load({
               ? "数据洞察"
               : type === "task-drafts"
                 ? "任务草稿"
-                : "沟通",
+                : "对话",
           sessionId: "",
         });
         const typeOf = (tab) =>
@@ -127,7 +136,7 @@ window.__ModuleLoader__.load({
               ...defaultTab(type),
               title:
                 type === "communication"
-                  ? `新沟通 ${ordinal}`
+                  ? `新对话 ${ordinal}`
                   : type === "data-agent"
                     ? `新数据洞察 ${ordinal}`
                     : "任务草稿",
@@ -740,7 +749,7 @@ window.__ModuleLoader__.load({
                     },
                   },
                   ...[
-                    ["communication", "沟通"],
+                    ["communication", "对话"],
                     ["data-agent", "数据洞察"],
                     ["task-drafts", "任务草稿"],
                   ].map(([type, label]) =>
@@ -1324,6 +1333,30 @@ window.__ModuleLoader__.load({
       );
 
     const sendIcon = () => svgIcon(["m22 2-7 20-4-9-9-4Z", "M22 2 11 13"], 13);
+    const settingsIcon = () =>
+      svgIcon(
+        [
+          "M4 21v-7",
+          "M4 10V3",
+          "M12 21v-9",
+          "M12 8V3",
+          "M20 21v-5",
+          "M20 12V3",
+          "M1 14h6",
+          "M9 8h6",
+          "M17 16h6",
+        ],
+        15,
+      );
+    const groupChatIcon = () =>
+      svgIcon(
+        [
+          "M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z",
+          "M8 9h8",
+          "M8 13h5",
+        ],
+        13,
+      );
 
     const downloadIcon = () =>
       svgIcon(["M12 3v12", "m7 10 5 5 5-5", "M5 21h14"], 12);
@@ -1589,7 +1622,7 @@ window.__ModuleLoader__.load({
 
     /**
      * 会话头像：系统=灰底、人类=缩写圆角方块、AI=光环 + 生成式头像。
-     * 中间沟通区与右侧栏共用，样式与 AI Teammates / 任务管理页一致。
+     * 中间对话区与右侧栏共用，样式与 AI Teammates / 任务管理页一致。
      */
     const chatAvatar = (message, mine, teammates) => {
       if (message.senderKind === "system")
@@ -3181,7 +3214,7 @@ window.__ModuleLoader__.load({
           {
             type: "button",
             key: item.id,
-            "aria-label": `打开沟通 ${item.title}`,
+            "aria-label": `打开对话 ${item.title}`,
             "data-ai-unavailable": unavailable ? "true" : undefined,
             title: unavailable ? unavailableReason : undefined,
             style: Object.assign(
@@ -3244,8 +3277,8 @@ window.__ModuleLoader__.load({
             minHeight: 34,
           }),
           value: query,
-          placeholder: "搜索沟通",
-          "aria-label": "搜索沟通",
+          placeholder: "搜索对话",
+          "aria-label": "搜索对话",
           onChange: (event) => setQuery(event.target.value),
         }),
         h(
@@ -3260,7 +3293,7 @@ window.__ModuleLoader__.load({
             ? [
                 h("div", {
                   style: panelStyles.meta,
-                  children: "暂无有历史记录的沟通",
+                  children: "暂无有历史记录的对话",
                 }),
               ]
             : matched.map((item) => communicationRowNode(item))),
@@ -3272,7 +3305,7 @@ window.__ModuleLoader__.load({
         h("div", { style: panelStyles.listSection }, [
           h("div", {
             style: panelStyles.sectionTitle,
-            children: "与 AI 伙伴开始对话",
+            children: "与 AI 伙伴开始聊天",
           }),
           h(
             "div",
@@ -3303,7 +3336,7 @@ window.__ModuleLoader__.load({
                             ? panelStyles.dropdownItemUnavailable
                             : {},
                         ),
-                        "aria-label": `与 ${teammate.name} 开始对话`,
+                        "aria-label": `与 ${teammate.name} 开始聊天`,
                         "aria-disabled": unavailable || undefined,
                         "data-ai-unavailable": unavailable
                           ? "true"
@@ -3333,8 +3366,8 @@ window.__ModuleLoader__.load({
                           children: unavailable
                             ? unavailableReason
                             : teammate.ownerName
-                              ? `${teammate.ownerName} 的 AI · 默认对话`
-                              : "AI 伙伴 · 默认对话",
+                              ? `${teammate.ownerName} 的 AI · 聊天`
+                              : "AI 伙伴 · 聊天",
                         }),
                       ]),
                     );
@@ -3363,7 +3396,7 @@ window.__ModuleLoader__.load({
                 style: panelStyles.search,
                 value: newMeetingTitle,
                 placeholder: "输入会议主题",
-                "aria-label": "新沟通会议主题",
+                "aria-label": "新对话会议主题",
                 onChange: (event) => setNewMeetingTitle(event.target.value),
               }),
             ]),
@@ -3374,7 +3407,7 @@ window.__ModuleLoader__.load({
                 {
                   style: panelStyles.search,
                   value: newWorkspaceId,
-                  "aria-label": "新沟通关联项目",
+                  "aria-label": "新对话关联项目",
                   onChange: (event) => setNewWorkspaceId(event.target.value),
                 },
                 ...workspaceOptions.map((workspace) =>
@@ -3407,10 +3440,10 @@ window.__ModuleLoader__.load({
       );
       const headerTitle =
         panelView === "list"
-          ? "沟通"
+          ? "对话"
           : panelView === "new"
-            ? "新建沟通"
-            : (meeting?.title ?? "沟通");
+            ? "新建对话"
+            : (meeting?.title ?? "对话");
       const headerMeta =
         panelView === "detail" && meeting
           ? isAiConversation
@@ -3454,8 +3487,8 @@ window.__ModuleLoader__.load({
                     {
                       type: "button",
                       style: panelStyles.iconBtn,
-                      title: "返回沟通列表",
-                      "aria-label": "返回沟通列表",
+                      title: "返回对话列表",
+                      "aria-label": "返回对话列表",
                       onClick: () => setPanelView("list"),
                     },
                     backIcon(),
@@ -3476,8 +3509,8 @@ window.__ModuleLoader__.load({
                           ref: switcherButtonRef,
                           type: "button",
                           style: panelStyles.iconGhost,
-                          title: "搜索 / 切换沟通",
-                          "aria-label": "切换沟通",
+                          title: "搜索 / 切换对话",
+                          "aria-label": "切换对话",
                           "aria-haspopup": "dialog",
                           "aria-expanded": switcherOpen,
                           onClick: () => setSwitcherOpen((value) => !value),
@@ -3503,8 +3536,8 @@ window.__ModuleLoader__.load({
                 {
                   type: "button",
                   style: panelStyles.iconBtn,
-                  title: "新建沟通",
-                  "aria-label": "新建沟通",
+                  title: "新建对话",
+                  "aria-label": "新建对话",
                   onClick: () => {
                     setPanelView("new");
                     setNewMeetingTitle("");
@@ -3519,7 +3552,7 @@ window.__ModuleLoader__.load({
                   {
                     ref: switcherPanelRef,
                     role: "dialog",
-                    "aria-label": "切换沟通",
+                    "aria-label": "切换对话",
                     style: panelStyles.dropdown,
                   },
                   h("input", {
@@ -3532,8 +3565,8 @@ window.__ModuleLoader__.load({
                       minHeight: 34,
                     }),
                     value: query,
-                    placeholder: "搜索沟通",
-                    "aria-label": "搜索并切换沟通",
+                    placeholder: "搜索对话",
+                    "aria-label": "搜索并切换对话",
                     autoFocus: true,
                     onChange: (event) => setQuery(event.target.value),
                   }),
@@ -3548,7 +3581,7 @@ window.__ModuleLoader__.load({
                       ? [
                           h("div", {
                             style: panelStyles.meta,
-                            children: "没有匹配的历史沟通",
+                            children: "没有匹配的历史对话",
                           }),
                         ]
                       : matched.map((item) => communicationRowNode(item))),
@@ -3568,7 +3601,7 @@ window.__ModuleLoader__.load({
                         setSwitcherOpen(false);
                         setPanelView("list");
                       },
-                      children: "查看沟通列表",
+                      children: "查看对话列表",
                     }),
                   ),
                 )
@@ -4575,7 +4608,7 @@ window.__ModuleLoader__.load({
         height: "calc(100vh - 18px)",
         // 壳层页面高度是 auto（只设了 min-height），`height:100%` 解析不到，
         // 于是整页随消息一起被撑高、输入框被推走。用视口上限把高度兜住，
-        // 中间沟通列改为内部滚动，输入框自然吸底。
+        // 中间对话列改为内部滚动，输入框自然吸底。
         maxHeight: "calc(100vh - 18px)",
         minHeight: 0,
         padding: 18,
@@ -5938,6 +5971,15 @@ window.__ModuleLoader__.load({
       const [createOpen, setCreateOpen] = react.useState(false);
       const [createMode, setCreateMode] = react.useState("meeting");
       const [createTeammateId, setCreateTeammateId] = react.useState("");
+      const [contextPolicyOpen, setContextPolicyOpen] = react.useState(false);
+      const [contextPolicyDraft, setContextPolicyDraft] = react.useState(null);
+      const [contextPolicyScene, setContextPolicyScene] = react.useState(
+        "defaults",
+      );
+      const [contextPolicyBusy, setContextPolicyBusy] = react.useState(false);
+      const [contextPolicyError, setContextPolicyError] = react.useState("");
+      const [contextPolicyResetConfirm, setContextPolicyResetConfirm] =
+        react.useState(false);
       // 状态反馈条 3 秒后自动消失。
       react.useEffect(() => {
         if (notice === "" && error === "") return undefined;
@@ -6368,6 +6410,15 @@ window.__ModuleLoader__.load({
         return () => window.clearInterval(timer);
       }, [route, meetingId, minutes]);
 
+      react.useEffect(() => {
+        const groupConversation =
+          detail?.meeting?.kind === "meeting" &&
+          detail?.meeting?.conversationMode === "group";
+        if (groupConversation && centerTab === "minutes") {
+          setCenterTab("conversation");
+        }
+      }, [detail?.meeting?.kind, detail?.meeting?.conversationMode, centerTab]);
+
       // 会议成员变动签名：邀请/移除后详情刷新时，同时刷新邀请弹窗里的候选列表，
       // 避免弹窗沿用打开时那份过期名单。
       const rosterKey = (detail?.participants ?? [])
@@ -6411,6 +6462,171 @@ window.__ModuleLoader__.load({
 
       const post = (path, body) =>
         request(path, { method: "POST", body: JSON.stringify(body) });
+      const policyToDraft = (policy) => ({
+        version: policy?.version ?? 0,
+        defaults: {
+          ...CONTEXT_POLICY_DEFAULTS,
+          ...(policy?.defaults ?? {}),
+        },
+        sceneOverrides: {
+          ...(policy?.sceneOverrides ?? {}),
+        },
+      });
+      const openContextPolicySettings = async () => {
+        setContextPolicyOpen(true);
+        setContextPolicyScene("defaults");
+        setContextPolicyError("");
+        setContextPolicyResetConfirm(false);
+        setContextPolicyBusy(true);
+        try {
+          const result = await request(
+            `/api/collab/context/policy?workspaceId=${encodeURIComponent(SYSTEM_DEFAULT_WORKSPACE_ID)}`,
+          );
+          setContextPolicyDraft(policyToDraft(result.policy));
+        } catch (cause) {
+          setContextPolicyError(errText(cause));
+          setContextPolicyDraft(null);
+        } finally {
+          setContextPolicyBusy(false);
+        }
+      };
+      const contextPolicyValuesForScene = (draft, scene) => {
+        if (draft === null) return CONTEXT_POLICY_DEFAULTS;
+        if (scene === "defaults") return draft.defaults;
+        return {
+          ...draft.defaults,
+          ...(draft.sceneOverrides[scene] ?? {}),
+        };
+      };
+      const updateContextPolicyField = (key, value) => {
+        setContextPolicyDraft((current) => {
+          if (current === null) return current;
+          const next = Number(value);
+          if (!Number.isFinite(next)) return current;
+          if (contextPolicyScene === "defaults") {
+            return {
+              ...current,
+              defaults: { ...current.defaults, [key]: next },
+            };
+          }
+          return {
+            ...current,
+            sceneOverrides: {
+              ...current.sceneOverrides,
+              [contextPolicyScene]: {
+                ...contextPolicyValuesForScene(
+                  current,
+                  contextPolicyScene,
+                ),
+                [key]: next,
+              },
+            },
+          };
+        });
+      };
+      const toggleContextPolicyInheritance = (inherit) => {
+        if (contextPolicyScene === "defaults") return;
+        setContextPolicyDraft((current) => {
+          if (current === null) return current;
+          const sceneOverrides = { ...current.sceneOverrides };
+          if (inherit) delete sceneOverrides[contextPolicyScene];
+          else
+            sceneOverrides[contextPolicyScene] = {
+              ...contextPolicyValuesForScene(current, contextPolicyScene),
+            };
+          return { ...current, sceneOverrides };
+        });
+      };
+      const saveContextPolicy = async () => {
+        if (contextPolicyDraft === null) return;
+        if (!contextPolicyDraftValid(contextPolicyDraft)) {
+          setContextPolicyError("阈值必须满足：提醒 < 压缩 < 滚动");
+          return;
+        }
+        setContextPolicyBusy(true);
+        setContextPolicyError("");
+        try {
+          const result = await request("/api/collab/context/policy", {
+            method: "PUT",
+            body: JSON.stringify({
+              expectedVersion: contextPolicyDraft.version,
+              defaults: contextPolicyDraft.defaults,
+              sceneOverrides: contextPolicyDraft.sceneOverrides,
+            }),
+          });
+          setContextPolicyDraft(policyToDraft(result.policy));
+          setNotice("上下文设置已保存，将在下一次 AI 触发时生效");
+        } catch (cause) {
+          setContextPolicyError(
+            cause?.status === 409
+              ? "配置已被其他管理员更新，请关闭后重新打开设置再保存"
+              : errText(cause),
+          );
+        } finally {
+          setContextPolicyBusy(false);
+        }
+      };
+      const contextPolicyDraftValid = (draft) =>
+        ["defaults", ...CONTEXT_POLICY_SCENES].every((scene) => {
+          const values = contextPolicyValuesForScene(draft, scene);
+          return (
+            values.warningRatio < values.compactRatio &&
+            values.compactRatio < values.rolloverRatio
+          );
+        });
+      const resetContextPolicy = async () => {
+        if (contextPolicyDraft === null) return;
+        setContextPolicyBusy(true);
+        setContextPolicyError("");
+        try {
+          const result = await request("/api/collab/context/policy/reset", {
+            method: "POST",
+            body: JSON.stringify({
+              expectedVersion: contextPolicyDraft.version,
+            }),
+          });
+          setContextPolicyDraft(policyToDraft(result.policy));
+          setNotice("上下文设置已恢复默认");
+          setContextPolicyResetConfirm(false);
+        } catch (cause) {
+          setContextPolicyError(
+            cause?.status === 409
+              ? "配置已被其他管理员更新，请关闭后重新打开设置再恢复"
+              : errText(cause),
+          );
+        } finally {
+          setContextPolicyBusy(false);
+        }
+      };
+      const contextPolicyFieldNode = (label, key, options = {}) => {
+        const values = contextPolicyValuesForScene(
+          contextPolicyDraft,
+          contextPolicyScene,
+        );
+        const value = values[key];
+        return h("label", { style: PS.field }, [
+          h("span", { children: label }),
+          h("input", {
+            type: "number",
+            style: PS.input,
+            value:
+              options.percent === true
+                ? Math.round(Number(value) * 100)
+                : String(value),
+            min: options.min,
+            max: options.max,
+            step: options.step ?? 1,
+            "aria-label": label,
+            onChange: (event) =>
+              updateContextPolicyField(
+                key,
+                options.percent === true
+                  ? Number(event.target.value) / 100
+                  : event.target.value,
+              ),
+          }),
+        ]);
+      };
       const rememberEmptyMeeting = (id) => {
         if (id === "") return;
         setRecentEmptyMeetingIds((current) => {
@@ -6449,6 +6665,8 @@ window.__ModuleLoader__.load({
         item.kind === "ai" &&
         item.workspaceId === SYSTEM_DEFAULT_WORKSPACE_ID &&
         item.aiContextMode !== "participant-projects-v1";
+      const isChatConversationItem = (item) =>
+        item.kind === "ai" || item.conversationMode === "group";
       // AI伙伴 1:1 以伙伴实例为唯一维度，项目只用于运行时取数。
       const activeAiConversationByTeammate = new Map();
       for (const item of meetings) {
@@ -6557,8 +6775,8 @@ window.__ModuleLoader__.load({
         const matchesType = (item) =>
           communicationFilter === "all" ||
           (communicationFilter === "ai"
-            ? item.kind === "ai"
-            : item.kind !== "ai");
+            ? isChatConversationItem(item)
+            : !isChatConversationItem(item));
         const matchesSearch = (item) =>
           normalizeSearchText(search) === "" || meetingSearchScore(item) > 0;
         const matchesConversation = (item) =>
@@ -6640,7 +6858,7 @@ window.__ModuleLoader__.load({
       react.useEffect(() => {
         if (
           route !== "meetings" ||
-          detail?.meeting?.kind !== "ai" ||
+          !isChatConversationItem(detail?.meeting ?? {}) ||
           detail?.meeting?.status !== "active"
         ) {
           return undefined;
@@ -6677,7 +6895,7 @@ window.__ModuleLoader__.load({
           ? sortRowsByUpdatedAt(left, right)
           : sortRowsByRelevance(left, right);
 
-      // 「全部」与「AI伙伴」都只列当前数据范围内实际存在的沟通记录。
+      // 「全部」与「聊天」都只列当前数据范围内实际存在的对话记录。
       // 「AI伙伴」是「全部」的 AI 子集，不再补入尚无历史消息的伙伴。
       const conversationTeammateRows =
         communicationFilter === "meeting"
@@ -6715,13 +6933,13 @@ window.__ModuleLoader__.load({
       // 已归档的会议单独成组：默认列表只显示未归档的，由「已归档 N」入口切换。
       const archivedMeetings = meetings.filter(
         (item) =>
-          item.kind !== "ai" &&
+          !isChatConversationItem(item) &&
           item.status === "archived" &&
           (pinnedMeetingIds.has(item.id) || meetingHasConversation(item)) &&
           (communicationFilter === "all" ||
             (communicationFilter === "ai"
-              ? item.kind === "ai"
-              : item.kind !== "ai")),
+              ? isChatConversationItem(item)
+              : !isChatConversationItem(item))),
       );
       const rankedArchivedRows = archivedMeetings
         .map((item) => ({
@@ -6733,12 +6951,38 @@ window.__ModuleLoader__.load({
         .filter((row) => matchesSearch(row.score))
         .sort(sortRowsForDisplay);
 
+      const groupConversations =
+        communicationFilter === "meeting"
+          ? []
+          : meetings.filter(
+              (item) =>
+                item.kind !== "ai" &&
+                item.conversationMode === "group" &&
+                item.status !== "archived" &&
+                (pinnedMeetingIds.has(item.id) ||
+                  meetingHasConversation(item) ||
+                  (item.status === "active" &&
+                    (item.id === meetingId ||
+                      recentEmptyMeetingIds.has(item.id)))),
+            );
+      const groupConversationRows = showArchived
+        ? []
+        : groupConversations
+            .map((item) => ({
+              id: `meeting:${item.id}`,
+              item,
+              updatedAt: meetingActivityTime(item),
+              score: meetingSearchScore(item),
+            }))
+            .filter((row) => matchesSearch(row.score))
+            .sort(sortRowsForDisplay);
       const regularMeetings =
         communicationFilter === "ai"
           ? []
           : meetings.filter(
               (item) =>
                 item.kind !== "ai" &&
+                item.conversationMode !== "group" &&
                 item.status !== "archived" &&
                 (pinnedMeetingIds.has(item.id) ||
                   meetingHasConversation(item) ||
@@ -6775,11 +7019,13 @@ window.__ModuleLoader__.load({
           : [...openMeetingRows].sort(sortRowsForDisplay);
       const rankedConversationRows = [
         ...rankedTeammateRows,
+        ...groupConversationRows,
         ...rankedOpenMeetingRows,
       ].sort(sortRowsForDisplay);
       const visibleResultCount = showArchived
         ? rankedArchivedRows.length
         : rankedTeammateRows.length +
+          groupConversationRows.length +
           rankedOpenMeetingRows.length +
           closedMeetingRows.length;
       // 邀请弹窗只用一个控件：人和 AI Teammate 合成同一份候选清单。
@@ -6819,6 +7065,8 @@ window.__ModuleLoader__.load({
       }, [meetingId, transcript.length, centerTab]);
       const meeting = detail?.meeting;
       const isAiConversation = meeting?.kind === "ai";
+      const isGroupConversation =
+        meeting?.kind === "meeting" && meeting?.conversationMode === "group";
       const aiConversationTeammate = isAiConversation
         ? teammates.find((item) => item.id === meeting?.teammateInstanceId)
         : undefined;
@@ -7428,11 +7676,17 @@ window.__ModuleLoader__.load({
                 "aria-label": "会议工作区页签",
                 style: PS.centerTabs,
               },
-              ...[
-                ["conversation", "对话"],
-                ["minutes", "纪要"],
-                ["settings", "设置"],
-              ].map(([key, label]) =>
+              ...(isGroupConversation
+                ? [
+                    ["conversation", "对话"],
+                    ["settings", "设置"],
+                  ]
+                : [
+                    ["conversation", "对话"],
+                    ["minutes", "纪要"],
+                    ["settings", "设置"],
+                  ]
+              ).map(([key, label]) =>
                 h("button", {
                   key,
                   type: "button",
@@ -7469,7 +7723,10 @@ window.__ModuleLoader__.load({
                 }),
               ]),
               h("div", { style: PS.summaryFact }, [
-                h("span", { style: PS.summaryLabel, children: "会议状态" }),
+                h("span", {
+                  style: PS.summaryLabel,
+                  children: isGroupConversation ? "群聊状态" : "会议状态",
+                }),
                 h("span", {
                   style: PS.summaryValue,
                   children: meetingStatusLabel(meeting.status),
@@ -7477,76 +7734,95 @@ window.__ModuleLoader__.load({
               ]),
             ),
             h("div", { style: PS.group }, [
-              h("div", { style: PS.groupTitle, children: "会议名称" }),
+              h("div", {
+                style: PS.groupTitle,
+                children: isGroupConversation ? "群聊名称" : "会议名称",
+              }),
               h("input", {
                 style: PS.input,
                 value: centerTitleDraft,
-                placeholder: "会议名称",
-                "aria-label": "中心会议名称",
+                placeholder: isGroupConversation ? "群聊名称" : "会议名称",
+                "aria-label": isGroupConversation
+                  ? "中心群聊名称"
+                  : "中心会议名称",
                 disabled: meeting.status === "archived",
                 onChange: (event) => setCenterTitleDraft(event.target.value),
               }),
             ]),
             h("div", { style: PS.group }, [
-              h("div", { style: PS.groupTitle, children: "会议议程" }),
+              h("div", {
+                style: PS.groupTitle,
+                children: isGroupConversation ? "群聊说明" : "会议议程",
+              }),
               h("textarea", {
                 style: Object.assign({}, PS.textarea, { minHeight: 120 }),
                 value: centerAgendaDraft,
-                placeholder: "暂无议程，可在此补充",
+                placeholder: isGroupConversation
+                  ? "暂无群聊说明，可在此补充"
+                  : "暂无议程，可在此补充",
                 disabled: meeting.status === "archived",
                 onChange: (event) => setCenterAgendaDraft(event.target.value),
               }),
             ]),
-            h("div", { style: PS.group }, [
-              h("div", {
-                style: PS.groupTitle,
-                children: "AI 会议 Facilitator",
-              }),
-              h(
-                "label",
-                {
-                  style: {
-                    alignItems: "center",
-                    background: "var(--dsw-alias-bg-layer-1)",
-                    border: "0.5px solid var(--dsw-alias-border-l3)",
-                    borderRadius: 6,
-                    cursor:
-                      meeting.status === "archived" || busy !== ""
-                        ? "not-allowed"
-                        : "pointer",
-                    display: "flex",
-                    gap: 8,
-                    opacity:
-                      meeting.status === "archived" || busy !== "" ? 0.55 : 1,
-                    padding: "8px 9px",
-                  },
-                },
-                h("input", {
-                  type: "checkbox",
-                  checked: activeFacilitator !== undefined,
-                  disabled: meeting.status === "archived" || busy !== "",
-                  onChange: (event) =>
-                    void run("facilitator", () =>
-                      event.target.checked
-                        ? post("/api/collab/meeting/facilitator/open", {
-                            meetingId,
-                          })
-                        : post("/api/collab/meeting/facilitator/close", {
-                            meetingId,
-                          }),
+            ...(isGroupConversation
+              ? []
+              : [
+                  h("div", { style: PS.group }, [
+                    h("div", {
+                      style: PS.groupTitle,
+                      children: "AI 会议 Facilitator",
+                    }),
+                    h(
+                      "label",
+                      {
+                        style: {
+                          alignItems: "center",
+                          background: "var(--dsw-alias-bg-layer-1)",
+                          border: "0.5px solid var(--dsw-alias-border-l3)",
+                          borderRadius: 6,
+                          cursor:
+                            meeting.status === "archived" || busy !== ""
+                              ? "not-allowed"
+                              : "pointer",
+                          display: "flex",
+                          gap: 8,
+                          opacity:
+                            meeting.status === "archived" || busy !== ""
+                              ? 0.55
+                              : 1,
+                          padding: "8px 9px",
+                        },
+                      },
+                      h("input", {
+                        type: "checkbox",
+                        checked: activeFacilitator !== undefined,
+                        disabled:
+                          meeting.status === "archived" || busy !== "",
+                        onChange: (event) =>
+                          void run("facilitator", () =>
+                            event.target.checked
+                              ? post("/api/collab/meeting/facilitator/open", {
+                                  meetingId,
+                                })
+                              : post("/api/collab/meeting/facilitator/close", {
+                                  meetingId,
+                                }),
+                          ),
+                      }),
+                      h("span", {
+                        style: { flex: 1, fontSize: 12 },
+                        children: "启用 AI 会议 Facilitator",
+                      }),
+                      h("span", {
+                        style: PS.meta,
+                        children:
+                          activeFacilitator === undefined
+                            ? "未启用"
+                            : "已启用",
+                      }),
                     ),
-                }),
-                h("span", {
-                  style: { flex: 1, fontSize: 12 },
-                  children: "启用 AI 会议 Facilitator",
-                }),
-                h("span", {
-                  style: PS.meta,
-                  children:
-                    activeFacilitator === undefined ? "未启用" : "已启用",
-                }),
-              ),
-            ]),
+                  ]),
+                ]),
             h("div", { style: PS.group }, [
               h(
                 "div",
@@ -7559,7 +7835,7 @@ window.__ModuleLoader__.load({
                 },
                 h("div", {
                   style: Object.assign({}, PS.groupTitle, { flex: 1 }),
-                  children: `会议成员（${centerMemberRows.length}）`,
+                  children: `${isGroupConversation ? "群聊" : "会议"}成员（${centerMemberRows.length}）`,
                 }),
                 joined && meeting.status === "active"
                   ? h("button", {
@@ -7638,7 +7914,9 @@ window.__ModuleLoader__.load({
                         style: PS.meta,
                         children:
                           participant.kind === "human"
-                            ? "会议成员"
+                            ? isGroupConversation
+                              ? "群聊成员"
+                              : "会议成员"
                             : participant.kind === "facilitator"
                               ? "会议服务"
                               : participant.principalName
@@ -7646,6 +7924,28 @@ window.__ModuleLoader__.load({
                                 : "AI 伙伴",
                       }),
                     ]),
+                    ai
+                      ? h("button", {
+                          type: "button",
+                          style: PS.ghostBtn,
+                          disabled: busy !== "",
+                          onClick: () =>
+                            run(`agent-control:${participant.id}`, () =>
+                              post("/api/collab/meeting/agent-control", {
+                                meetingId,
+                                participantId: participant.id,
+                                action:
+                                  participant.executionState === "stopped"
+                                    ? "resume"
+                                    : "stop",
+                              }),
+                            ),
+                          children:
+                            participant.executionState === "stopped"
+                              ? "恢复"
+                              : "停止",
+                        })
+                      : null,
                     h("button", {
                       type: "button",
                       style: PS.ghostBtn,
@@ -7658,11 +7958,16 @@ window.__ModuleLoader__.load({
               ),
             ]),
             h("div", { style: PS.group }, [
-              h("div", { style: PS.groupTitle, children: "会议操作" }),
+              h("div", {
+                style: PS.groupTitle,
+                children: isGroupConversation ? "群聊操作" : "会议操作",
+              }),
               h(
                 "div",
                 { style: { display: "flex", flexWrap: "wrap", gap: 8 } },
-                joined && meeting.status === "active"
+                !isGroupConversation &&
+                joined &&
+                meeting.status === "active"
                   ? h("button", {
                       type: "button",
                       style: PS.ghostBtn,
@@ -7680,7 +7985,7 @@ window.__ModuleLoader__.load({
                         setCloseOpen(true);
                         setCloseSummary("");
                       },
-                      children: "关闭会议",
+                      children: isGroupConversation ? "关闭群聊" : "关闭会议",
                     })
                   : null,
                 meeting.status === "closed"
@@ -7692,7 +7997,7 @@ window.__ModuleLoader__.load({
                         run("archive", () =>
                           post("/api/collab/meeting/archive", { meetingId }),
                         ),
-                      children: "归档会议",
+                      children: isGroupConversation ? "归档群聊" : "归档会议",
                     })
                   : null,
               ),
@@ -7700,7 +8005,9 @@ window.__ModuleLoader__.load({
             meeting.status === "archived"
               ? h("div", {
                   style: PS.meta,
-                  children: "已归档会议不可编辑。",
+                  children: isGroupConversation
+                    ? "已归档群聊不可编辑。"
+                    : "已归档会议不可编辑。",
                 })
               : h(
                   "div",
@@ -7715,7 +8022,11 @@ window.__ModuleLoader__.load({
                         centerAgendaDraft === (meeting.agenda ?? "")),
                     onClick: () => void saveCenterSettings(),
                     children:
-                      busy === "meeting-settings" ? "保存中…" : "保存设置",
+                      busy === "meeting-settings"
+                        ? "保存中…"
+                        : isGroupConversation
+                          ? "保存群聊信息"
+                          : "保存设置",
                   }),
                 ),
           ])
@@ -7739,7 +8050,7 @@ window.__ModuleLoader__.load({
                 "div",
                 {
                   role: "group",
-                  "aria-label": "当前沟通头部",
+                  "aria-label": "当前对话头部",
                   style: PS.chatHead,
                 },
                 [
@@ -7801,7 +8112,7 @@ window.__ModuleLoader__.load({
                       isAiConversation
                         ? h("span", { style: { flex: 1, minWidth: 0 } })
                         : null,
-                      !isAiConversation
+                      !isAiConversation && !isGroupConversation
                         ? h("span", {
                             style: meetingStatusTone(meeting.status),
                             children: meetingStatusLabel(meeting.status),
@@ -7847,7 +8158,23 @@ window.__ModuleLoader__.load({
                                   accountName || `用户-${actorId.slice(0, 6)}`,
                               }),
                             ),
-                          children: "加入会议",
+                          children: isGroupConversation
+                            ? "加入群聊"
+                            : "加入会议",
+                        })
+                      : null,
+                    isAiConversation &&
+                    joined &&
+                    meeting.status === "active"
+                      ? h("button", {
+                          type: "button",
+                          style: PS.ghostBtn,
+                          disabled: busy !== "",
+                          onClick: () => {
+                            setInviteIds(new Set());
+                            setInviteOpen(true);
+                          },
+                          children: "添加参与方",
                         })
                       : null,
                     centerTabBar,
@@ -8035,7 +8362,7 @@ window.__ModuleLoader__.load({
                 ...(compactLayout ? { width: "100%" } : {}),
               }),
             },
-            h("div", { style: PS.meta, children: "选择或创建一个会议" }),
+            h("div", { style: PS.meta, children: "选择或创建一个对话" }),
           );
 
       /** 方案 B：在"只看已加入项目"与"全量（管理员）"之间切换。 */
@@ -8045,6 +8372,33 @@ window.__ModuleLoader__.load({
         setWorkspaceFilter("all");
       };
 
+      const projectScopeFilter = h(
+        "select",
+        {
+          style: Object.assign({}, PS.select, {
+            height: 34,
+            minWidth: 128,
+            padding: "0 10px",
+            width: "min(220px, 24vw)",
+          }),
+          value: workspaceFilter,
+          "aria-label": "项目范围筛选",
+          title: "项目范围筛选",
+          onChange: (event) => {
+            setWorkspaceFilter(event.target.value);
+            setMeetingId("");
+          },
+        },
+        h("option", { value: "all", children: "全部项目" }),
+        ...visibleWorkspaces.map((workspace) =>
+          h("option", {
+            key: workspace.id,
+            value: workspace.id,
+            children: workspaceLabel(workspace),
+          }),
+        ),
+      );
+
       const meetingListHeader = h("div", { style: PS.listHeader }, [
         h(
           "div",
@@ -8052,35 +8406,23 @@ window.__ModuleLoader__.load({
             style: {
               display: "grid",
               gap: 6,
-              gridTemplateColumns: "112px minmax(0,1fr) 32px",
+              gridTemplateColumns: "auto minmax(0,1fr) 32px",
             },
           },
-          h(
-            "select",
-            {
-              style: Object.assign({}, PS.select, {
-                height: 32,
-                minWidth: 0,
-                padding: "0 8px",
-                width: "100%",
-              }),
-              value: workspaceFilter,
-              "aria-label": "项目筛选",
-              title: "项目筛选",
-              onChange: (event) => {
-                setWorkspaceFilter(event.target.value);
-                setMeetingId("");
-              },
+          h("button", {
+            type: "button",
+            style: Object.assign({}, PS.primaryBtn, {
+              height: 32,
+              padding: "0 11px",
+            }),
+            disabled: visibleWorkspaces.length === 0,
+            onClick: () => {
+              setCreateMode(communicationFilter === "ai" ? "ai" : "meeting");
+              setCreateTeammateId("");
+              setCreateOpen(true);
             },
-            h("option", { value: "all", children: "全部项目" }),
-            ...visibleWorkspaces.map((workspace) =>
-              h("option", {
-                key: workspace.id,
-                value: workspace.id,
-                children: workspaceLabel(workspace),
-              }),
-            ),
-          ),
+            children: "新建对话",
+          }),
           h(
             "label",
             {
@@ -8099,7 +8441,7 @@ window.__ModuleLoader__.load({
               ref: searchInputRef,
               style: PS.searchField,
               value: search,
-              placeholder: "搜索 AI伙伴、Owner、会议、项目",
+              placeholder: "搜索聊天、AI伙伴、Owner、会议、项目",
               "aria-label": "通用搜索",
               onChange: (event) => setSearch(event.target.value),
             }),
@@ -8120,12 +8462,12 @@ window.__ModuleLoader__.load({
           "div",
           {
             role: "group",
-            "aria-label": "沟通类型筛选",
+            "aria-label": "对话类型筛选",
             style: PS.typeTags,
           },
           ...[
             ["all", "全部"],
-            ["ai", "AI伙伴"],
+            ["ai", "聊天"],
             ["meeting", "会议"],
           ].map(([key, label]) =>
             h("button", {
@@ -8195,7 +8537,7 @@ window.__ModuleLoader__.load({
         const unreadCount = Number(row.conversation?.unreadCount ?? 0);
         const preview = meetingPreviewText(
           row.conversation,
-          loading ? "正在打开默认对话…" : "暂无消息",
+          loading ? "正在打开聊天…" : "暂无消息",
         );
         const speaker = meetingLastMessageText(row.conversation)
           ? meetingLastMessageSpeaker(row.conversation, teammate.name)
@@ -8205,7 +8547,7 @@ window.__ModuleLoader__.load({
           {
             type: "button",
             key: row.id,
-            "aria-label": `打开与 ${teammate.name} 的默认对话`,
+            "aria-label": `打开与 ${teammate.name} 的聊天`,
             "aria-disabled": !canOpen || undefined,
             "data-ai-unavailable": unavailable ? "true" : undefined,
             title: unavailable ? unavailableReason : undefined,
@@ -8313,6 +8655,8 @@ window.__ModuleLoader__.load({
       const meetingRowNode = (row) => {
         const item = row.item;
         const aiConversation = item.kind === "ai";
+        const groupConversation =
+          item.kind !== "ai" && item.conversationMode === "group";
         const teammate = aiConversation
           ? teammateById.get(item.teammateInstanceId)
           : undefined;
@@ -8336,7 +8680,9 @@ window.__ModuleLoader__.load({
             "data-data-agent-title": item.title,
             "data-workspace-id": item.workspaceId,
             "data-ai-unavailable": unavailable ? "true" : undefined,
-            "aria-label": `打开会议 ${item.title}`,
+            "aria-label": groupConversation
+              ? `打开群聊 ${item.title}`
+              : `打开会议 ${item.title}`,
             role: "group",
             title: unavailable ? unavailableReason : undefined,
             style: Object.assign(
@@ -8355,9 +8701,17 @@ window.__ModuleLoader__.load({
               "span",
               {
                 style: PS.threadAvatar,
-                title: aiConversation ? "AI 对话" : "会议",
+                title: aiConversation
+                  ? "聊天"
+                  : groupConversation
+                    ? "群聊"
+                    : "会议",
               },
-              aiConversation ? avatarArt(teammate?.avatar) : videoIcon(13),
+              aiConversation
+                ? avatarArt(teammate?.avatar)
+                : groupConversation
+                  ? groupChatIcon()
+                  : videoIcon(13),
             ),
             h(
               "div",
@@ -8515,9 +8869,9 @@ window.__ModuleLoader__.load({
               children:
                 normalizedQuery === ""
                   ? communicationFilter === "ai"
-                    ? "暂无有历史记录的 AI伙伴沟通"
-                    : "暂无沟通"
-                  : "没有匹配的沟通",
+                    ? "暂无有历史记录的聊天"
+                    : "暂无对话"
+                  : "没有匹配的对话",
             }),
           ];
         }
@@ -8534,23 +8888,11 @@ window.__ModuleLoader__.load({
         },
         [
           h("div", { style: PS.top }, [
-            h("h1", { style: PS.title, children: "沟通" }),
+            h("h1", { style: PS.title, children: "对话" }),
             h("div", { style: PS.topActions }, [
               meetingFilters,
-              h("button", {
-                type: "button",
-                style: PS.primaryBtn,
-                disabled: visibleWorkspaces.length === 0,
-                onClick: () => {
-                  setCreateMode(
-                    communicationFilter === "ai" ? "ai" : "meeting",
-                  );
-                  setCreateTeammateId("");
-                  setCreateOpen(true);
-                },
-                children: "新建沟通",
-              }),
-              // 已归档入口：放在「新建沟通」右侧；进入归档列表后变成「返回会议列表」。
+              projectScopeFilter,
+              // 已归档入口：放在项目范围筛选右侧；进入归档列表后变成「返回会议列表」。
               archivedMeetings.length > 0
                 ? h("button", {
                     type: "button",
@@ -8580,9 +8922,70 @@ window.__ModuleLoader__.load({
                       : `已归档 ${archivedMeetings.length}`,
                   })
                 : null,
+              meeting !== undefined && meeting.kind !== "ai" && joined
+                ? h("button", {
+                    type: "button",
+                    style: Object.assign({}, PS.select, {
+                      cursor: "pointer",
+                      flexShrink: 0,
+                      height: 34,
+                      padding: "0 12px",
+                      fontSize: 12.5,
+                      whiteSpace: "nowrap",
+                      ...(meeting.agentRuntimeState === "agentsStopped"
+                        ? {
+                            borderColor:
+                              "color-mix(in srgb,var(--dsw-alias-danger,#e5484d) 45%,transparent)",
+                            color: "var(--dsw-alias-danger, #e5484d)",
+                          }
+                        : {}),
+                    }),
+                    disabled: busy !== "",
+                    title:
+                      meeting.agentRuntimeState === "agentsStopped"
+                        ? "恢复本对话全部 AI"
+                        : "停止本对话全部 AI",
+                    onClick: () =>
+                      run(
+                        "agent-control",
+                        () =>
+                          post("/api/collab/meeting/agent-control", {
+                            meetingId: meeting.id,
+                            action:
+                              meeting.agentRuntimeState === "agentsStopped"
+                                ? "resume"
+                                : "stop",
+                          }),
+                      ),
+                    children:
+                      meeting.agentRuntimeState === "agentsStopped"
+                        ? "恢复 AI"
+                        : "停止全部 AI",
+                  })
+                : null,
+              isPlatformAdmin
+                ? h(
+                    "button",
+                    {
+                      type: "button",
+                      style: PS.sidebarBtn,
+                      title: "对话上下文设置",
+                      "aria-label": "对话上下文设置",
+                      onClick: () => void openContextPolicySettings(),
+                    },
+                    settingsIcon(),
+                  )
+                : null,
               props.renderActions?.() ?? null,
             ]),
           ]),
+          meeting?.agentRuntimeState === "agentsStopped"
+            ? h(
+                "div",
+                { style: Object.assign({}, PS.banner, PS.notice) },
+                "本对话 AI 已全部停止。恢复后只处理新的 @ 消息。",
+              )
+            : null,
           banner,
           closeOpen
             ? h(
@@ -8855,10 +9258,10 @@ window.__ModuleLoader__.load({
                   h("div", { style: PS.briefSection }, [
                     h("div", {
                       style: PS.briefSectionTitle,
-                      children: "最近沟通",
+                      children: "最近对话",
                     }),
                     recentBriefMessages.length === 0
-                      ? h("div", { style: PS.meta, children: "暂无沟通记录" })
+                      ? h("div", { style: PS.meta, children: "暂无对话记录" })
                       : h(
                           "div",
                           { style: { display: "grid", gap: 5 } },
@@ -8906,6 +9309,220 @@ window.__ModuleLoader__.load({
                 ]),
               )
             : null,
+          contextPolicyOpen
+            ? h(
+                "div",
+                { style: PS.overlay },
+                h(
+                  "div",
+                  {
+                    role: "dialog",
+                    "aria-label": "对话上下文设置",
+                    style: Object.assign({}, PS.modal, {
+                      maxWidth: 560,
+                    }),
+                  },
+                  [
+                    h("div", {
+                      style: PS.title,
+                      children: "对话上下文设置",
+                    }),
+                    h("div", {
+                      style: PS.meta,
+                      children:
+                        "平台级策略，仅平台管理员可修改。保存后从下一次 AI 触发开始生效。",
+                    }),
+                    contextPolicyBusy && contextPolicyDraft === null
+                      ? h("div", { style: PS.meta, children: "正在加载设置…" })
+                      : null,
+                    contextPolicyError === ""
+                      ? null
+                      : h("div", {
+                          style: {
+                            color: "var(--dsw-alias-danger, #e5484d)",
+                            fontSize: 12,
+                          },
+                          children: contextPolicyError,
+                        }),
+                    contextPolicyDraft
+                      ? h(react.Fragment, null, [
+                          h(
+                            "div",
+                            {
+                              role: "group",
+                              "aria-label": "上下文设置作用域",
+                              style: PS.filterSegment,
+                            },
+                            ...[
+                              ["defaults", "默认"],
+                              ["chat", "聊天"],
+                              ["group", "群聊"],
+                              ["meeting", "会议"],
+                            ].map(([key, label]) =>
+                              h("button", {
+                                key,
+                                type: "button",
+                                style: Object.assign(
+                                  {},
+                                  PS.filterBtn,
+                                  contextPolicyScene === key
+                                    ? PS.filterBtnActive
+                                    : {},
+                                ),
+                                "aria-pressed": contextPolicyScene === key,
+                                onClick: () => setContextPolicyScene(key),
+                                children: label,
+                              }),
+                            ),
+                          ),
+                          contextPolicyScene === "defaults"
+                            ? null
+                            : h(
+                                "label",
+                                {
+                                  style: {
+                                    alignItems: "center",
+                                    display: "flex",
+                                    fontSize: 12,
+                                    gap: 8,
+                                  },
+                                },
+                                h("input", {
+                                  type: "checkbox",
+                                  checked:
+                                    contextPolicyDraft.sceneOverrides[
+                                      contextPolicyScene
+                                    ] === undefined,
+                                  onChange: (event) =>
+                                    toggleContextPolicyInheritance(
+                                      event.target.checked,
+                                    ),
+                                }),
+                                h("span", { children: "继承平台默认值" }),
+                              ),
+                          !(
+                            contextPolicyScene !== "defaults" &&
+                            contextPolicyDraft.sceneOverrides[
+                              contextPolicyScene
+                            ] === undefined
+                          )
+                            ? h("div", { style: { display: "grid", gap: 10 } }, [
+                                contextPolicyFieldNode(
+                                  "上下文提醒（%）",
+                                  "warningRatio",
+                                  {
+                                    percent: true,
+                                    min: 10,
+                                    max: 99,
+                                  },
+                                ),
+                                contextPolicyFieldNode(
+                                  "开始压缩（%）",
+                                  "compactRatio",
+                                  {
+                                    percent: true,
+                                    min: 10,
+                                    max: 99,
+                                  },
+                                ),
+                                contextPolicyFieldNode(
+                                  "Session 滚动（%）",
+                                  "rolloverRatio",
+                                  {
+                                    percent: true,
+                                    min: 10,
+                                    max: 100,
+                                  },
+                                ),
+                                contextPolicyFieldNode(
+                                  "保留最近消息（条）",
+                                  "preserveRecentMessages",
+                                  { min: 0, max: 100 },
+                                ),
+                                contextPolicyFieldNode(
+                                  "触发链最大深度",
+                                  "maxTriggerDepth",
+                                  { min: 1, max: 20 },
+                                ),
+                                contextPolicyFieldNode(
+                                  "单场景并发 Agent 上限",
+                                  "maxConcurrentAgentsPerScene",
+                                  { min: 1, max: 20 },
+                                ),
+                              ])
+                            : null,
+                        ])
+                      : null,
+                    h(
+                      "div",
+                      {
+                        style: {
+                          display: "flex",
+                          gap: 8,
+                          justifyContent: "flex-end",
+                          marginTop: 4,
+                        },
+                      },
+                      contextPolicyResetConfirm
+                        ? [
+                            h("span", {
+                              role: "status",
+                              style: {
+                                color: "var(--dsw-alias-danger, #e5484d)",
+                                fontSize: 12,
+                                marginRight: "auto",
+                              },
+                              children: "恢复后会移除所有场景覆盖，是否继续？",
+                            }),
+                            h("button", {
+                              type: "button",
+                              style: PS.ghostBtn,
+                              disabled: contextPolicyBusy,
+                              onClick: () => setContextPolicyResetConfirm(false),
+                              children: "暂不恢复",
+                            }),
+                            h("button", {
+                              type: "button",
+                              style: PS.primaryBtn,
+                              disabled: contextPolicyBusy,
+                              onClick: () => void resetContextPolicy(),
+                              children: contextPolicyBusy
+                                ? "恢复中…"
+                                : "确认恢复",
+                            }),
+                          ]
+                        : [
+                            h("button", {
+                              type: "button",
+                              style: PS.ghostBtn,
+                              disabled: contextPolicyBusy,
+                              onClick: () =>
+                                setContextPolicyResetConfirm(true),
+                              children: "恢复默认",
+                            }),
+                            h("button", {
+                              type: "button",
+                              style: PS.ghostBtn,
+                              disabled: contextPolicyBusy,
+                              onClick: () => setContextPolicyOpen(false),
+                              children: "取消",
+                            }),
+                            h("button", {
+                              type: "button",
+                              style: PS.primaryBtn,
+                              disabled:
+                                contextPolicyBusy ||
+                                contextPolicyDraft === null ||
+                                !contextPolicyDraftValid(contextPolicyDraft),
+                              onClick: () => void saveContextPolicy(),
+                              children: contextPolicyBusy ? "保存中…" : "保存",
+                            }),
+                          ],
+                    ),
+                  ],
+                ),
+              )
+            : null,
           createOpen
             ? h(
                 "div",
@@ -8914,7 +9531,7 @@ window.__ModuleLoader__.load({
                   "form",
                   {
                     role: "dialog",
-                    "aria-label": "新建沟通",
+                    "aria-label": "新建对话",
                     style: PS.modal,
                     onSubmit: async (event) => {
                       event.preventDefault();
@@ -8984,12 +9601,12 @@ window.__ModuleLoader__.load({
                     },
                   },
                   [
-                    h("div", { style: PS.title, children: "新建沟通" }),
+                    h("div", { style: PS.title, children: "新建对话" }),
                     h(
                       "div",
                       {
                         role: "group",
-                        "aria-label": "新建沟通类型",
+                        "aria-label": "新建对话类型",
                         style: PS.filterSegment,
                       },
                       [
@@ -9015,7 +9632,7 @@ window.__ModuleLoader__.load({
                           ),
                           "aria-pressed": createMode === "ai",
                           onClick: () => setCreateMode("ai"),
-                          children: "AI伙伴 1:1",
+                          children: "聊天",
                         }),
                       ],
                     ),
@@ -9079,7 +9696,7 @@ window.__ModuleLoader__.load({
                                     style: PS.input,
                                     value: selectedCreateTeammateId,
                                     "aria-label":
-                                      "新建 AI 伙伴一对一沟通",
+                                      "新建 AI 伙伴聊天",
                                     onChange: (event) =>
                                       setCreateTeammateId(event.target.value),
                                   },
@@ -9121,7 +9738,7 @@ window.__ModuleLoader__.load({
                             createMode === "ai"
                               ? busy === "create-ai"
                                 ? "创建中…"
-                                : "开始 1:1 沟通"
+                                : "开始聊天"
                               : busy === "create"
                                 ? "创建中…"
                                 : "创建会议",
@@ -9143,6 +9760,13 @@ window.__ModuleLoader__.load({
                     onSubmit: async (event) => {
                       event.preventDefault();
                       await run("invite", async () => {
+                        if (meeting?.kind === "ai") {
+                          await post("/api/collab/meeting/convert-to-group", {
+                            meetingId,
+                            title: meeting.title,
+                          });
+                          setCommunicationFilter("all");
+                        }
                         // 一次性提交：人和 AI 在同一份清单里选好后一起发。
                         const picked = inviteCandidates.filter(
                           (item) =>
@@ -9180,7 +9804,13 @@ window.__ModuleLoader__.load({
                     },
                   },
                   [
-                    h("div", { style: PS.title, children: "邀请成员" }),
+                    h("div", {
+                      style: PS.title,
+                      children:
+                        meeting?.kind === "ai"
+                          ? "添加参与方并转为群聊"
+                          : "邀请成员",
+                    }),
                     h("div", { style: PS.group }, [
                       h("div", {
                         style: PS.groupTitle,
@@ -9411,8 +10041,8 @@ window.__ModuleLoader__.load({
     exports.apply = (ctx) => {
       window.__pluginmaxSidePanel?.registerType?.({
         type: "communication",
-        defaultTitle: "沟通",
-        newTabTitle: (ordinal) => `新沟通 ${ordinal}`,
+        defaultTitle: "对话",
+        newTabTitle: (ordinal) => `新对话 ${ordinal}`,
         singleton: false,
         closable: true,
         draggable: true,

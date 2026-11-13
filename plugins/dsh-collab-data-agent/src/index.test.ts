@@ -233,6 +233,12 @@ describe("Data Agent runtime intent", () => {
         runs: () => [
           {
             id: "run-1",
+            workspaceId: "workspace-1",
+            instanceId: "TSK-1",
+            source: "task",
+            createdBy: "olivia",
+            createdAt: "2026-10-29T12:00:00.000Z",
+            updatedAt: "2026-10-29T12:01:00.000Z",
             status: "interrupted",
             error: "worker aborted",
             execution: { runtime: "codex" },

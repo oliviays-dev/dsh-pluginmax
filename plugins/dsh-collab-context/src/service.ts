@@ -3,6 +3,8 @@ import { z } from "zod";
 import {
   agentIdentitySnapshotSchema,
   aiChatChannelSchema,
+  contextPolicyConfigSchema,
+  contextPolicyValuesSchema,
   contextPackSchema,
   contextReceiptSchema,
   contextRequestSchema,
@@ -13,6 +15,8 @@ import {
   type AiChatChannel,
   type ChatCarrier,
   type ContextPack,
+  type ContextPolicyConfig,
+  type ContextPolicyValues,
   type ContextReceipt,
   type ContextRequest,
   type ContextSection,
@@ -34,6 +38,7 @@ export interface ContextTables {
   readonly sessions: KvTableLike<SceneSessionBinding>;
   readonly identities: KvTableLike<AgentIdentitySnapshot>;
   readonly chatChannels: KvTableLike<AiChatChannel>;
+  readonly policies?: KvTableLike<ContextPolicyConfig>;
   readonly packs: KvTableLike<ContextPack>;
   readonly receipts: KvTableLike<ContextReceipt>;
 }
@@ -80,6 +85,8 @@ export interface SceneContextAdapter {
     readonly objectId: string;
     readonly agentPrincipalId: string;
     readonly asOf: string;
+    readonly lastContextSeq?: number;
+    readonly contextBoundarySeq?: number;
   }): Promise<{
     readonly text: string;
     readonly structured?: Readonly<Record<string, unknown>>;
@@ -192,6 +199,15 @@ const chatChannelInputSchema = z.object({
   carrierRefId: z.string().trim().min(1).max(200),
 });
 
+const DEFAULT_CONTEXT_POLICY_VALUES: ContextPolicyValues = {
+  warningRatio: 0.7,
+  compactRatio: 0.85,
+  rolloverRatio: 0.95,
+  preserveRecentMessages: 12,
+  maxTriggerDepth: 3,
+  maxConcurrentAgentsPerScene: 3,
+};
+
 function nowIso(now: () => Date): string {
   return now().toISOString();
 }
@@ -207,23 +223,23 @@ function tokenEstimate(value: string): number {
 function sessionKey(
   scene: SceneType,
   objectId: string,
+  participantBindingId: string,
   agentPrincipalId: string,
   generation: number,
 ): string {
-  return `${scene}:${objectId}:${agentPrincipalId}:g${generation}`;
+  return `${scene}:${objectId}:${participantBindingId}:${agentPrincipalId}:g${generation}`;
 }
 
 function sessionIdFor(input: {
   readonly scene: SceneType;
   readonly workspaceId?: string;
   readonly objectId: string;
+  readonly participantBindingId: string;
   readonly agentPrincipalId: string;
   readonly generation: number;
 }): string {
-  const scope =
-    input.scene === "chat"
-      ? `${input.workspaceId ?? "private"}-${input.objectId}-${input.agentPrincipalId}`
-      : input.objectId;
+  const bindingTag = sha256(input.participantBindingId).slice(0, 10);
+  const scope = `${input.objectId}-${bindingTag}-${input.agentPrincipalId}`;
   const prefix =
     input.scene === "task"
       ? "de-task"
@@ -231,6 +247,8 @@ function sessionIdFor(input: {
         ? "de-meeting"
         : input.scene === "chat"
           ? "de-chat"
+          : input.scene === "group"
+            ? "de-group"
           : input.scene === "workflow-node"
             ? "de-flow"
             : "de-project";
@@ -291,6 +309,84 @@ export class ContextService {
     return nowIso(this.options.now ?? (() => new Date()));
   }
 
+  private defaultContextPolicy(): ContextPolicyConfig {
+    return parse(contextPolicyConfigSchema, {
+      id: "context-policy-v0",
+      version: 0,
+      scope: "platform",
+      defaults: DEFAULT_CONTEXT_POLICY_VALUES,
+      sceneOverrides: {},
+      updatedAt: this.now(),
+    });
+  }
+
+  contextPolicy(): ContextPolicyConfig {
+    const latest = [...(this.tables.policies?.entries() ?? [])]
+      .map(([, value]) => parse(contextPolicyConfigSchema, value))
+      .sort((left, right) => right.version - left.version)[0];
+    return latest ?? this.defaultContextPolicy();
+  }
+
+  contextPolicyForScene(
+    scene: SceneType,
+    config = this.contextPolicy(),
+  ): ContextPolicyValues {
+    const override =
+      scene === "chat" || scene === "group" || scene === "meeting"
+        ? config.sceneOverrides[scene]
+        : undefined;
+    return parse(contextPolicyValuesSchema, {
+      ...config.defaults,
+      ...override,
+    });
+  }
+
+  async updateContextPolicy(input: {
+    readonly expectedVersion: number;
+    readonly defaults: Partial<ContextPolicyValues>;
+    readonly sceneOverrides?: ContextPolicyConfig["sceneOverrides"];
+    readonly updatedByPrincipalId: string;
+  }): Promise<ContextPolicyConfig> {
+    const policies = this.tables.policies;
+    if (policies === undefined) {
+      throw new ContextError("not_found", "context policy store is unavailable");
+    }
+    const current = this.contextPolicy();
+    if (current.version !== input.expectedVersion) {
+      throw new ContextError(
+        "conflict",
+        "context policy version changed; refresh before saving",
+      );
+    }
+    const timestamp = this.now();
+    const next = parse(contextPolicyConfigSchema, {
+      id: `context-policy-v${current.version + 1}`,
+      version: current.version + 1,
+      scope: "platform",
+      defaults: { ...current.defaults, ...input.defaults },
+      sceneOverrides:
+        input.sceneOverrides === undefined
+          ? current.sceneOverrides
+          : input.sceneOverrides,
+      updatedByPrincipalId: input.updatedByPrincipalId,
+      updatedAt: timestamp,
+    });
+    await policies.put(next.id, next);
+    return next;
+  }
+
+  async resetContextPolicy(input: {
+    readonly expectedVersion: number;
+    readonly updatedByPrincipalId: string;
+  }): Promise<ContextPolicyConfig> {
+    return this.updateContextPolicy({
+      expectedVersion: input.expectedVersion,
+      defaults: DEFAULT_CONTEXT_POLICY_VALUES,
+      sceneOverrides: {},
+      updatedByPrincipalId: input.updatedByPrincipalId,
+    });
+  }
+
   registerAdapter(adapter: SceneContextAdapter): () => void {
     const key = `${adapter.scene}:${adapter.chatCarrier ?? "default"}`;
     if (this.adapters.has(key)) {
@@ -319,16 +415,40 @@ export class ContextService {
     readonly chatCarrier?: ChatCarrier;
     readonly workspaceId?: string;
     readonly objectId: string;
+    readonly participantBindingId?: string;
     readonly agentPrincipalId: string;
   }): Promise<SceneSessionBinding> {
+    const participantBindingId = input.participantBindingId ?? "default";
     const key = sessionKey(
       input.scene,
       input.objectId,
+      participantBindingId,
       input.agentPrincipalId,
       0,
     );
     const existing = this.tables.sessions.get(key);
     if (existing !== undefined) return existing;
+    if (participantBindingId === "default") {
+      const legacyKey = `${input.scene}:${input.objectId}:${input.agentPrincipalId}:g0`;
+      const legacy = this.tables.sessions.get(legacyKey);
+      if (legacy !== undefined && legacy.status === "active") {
+        const timestamp = this.now();
+        const migrated = parse(sceneSessionBindingSchema, {
+          ...legacy,
+          id: key,
+          participantBindingId,
+          revision: (legacy.revision ?? 1) + 1,
+          updatedAt: timestamp,
+        });
+        await this.tables.sessions.put(migrated.id, migrated);
+        await this.tables.sessions.put(legacyKey, {
+          ...legacy,
+          status: "archived",
+          updatedAt: timestamp,
+        });
+        return migrated;
+      }
+    }
     const timestamp = this.now();
     const binding = parse(sceneSessionBindingSchema, {
       id: key,
@@ -340,6 +460,7 @@ export class ContextService {
         ? {}
         : { workspaceId: input.workspaceId }),
       objectId: input.objectId,
+      participantBindingId,
       agentPrincipalId: input.agentPrincipalId,
       sessionId: sessionIdFor({
         scene: input.scene,
@@ -347,11 +468,15 @@ export class ContextService {
           ? {}
           : { workspaceId: input.workspaceId }),
         objectId: input.objectId,
+        participantBindingId,
         agentPrincipalId: input.agentPrincipalId,
         generation: 0,
       }),
       generation: 0,
+      revision: 1,
       status: "active",
+      lastContextSeq: 0,
+      compactionCount: 0,
       createdAt: timestamp,
       updatedAt: timestamp,
     });
@@ -475,14 +600,22 @@ export class ContextService {
         : { chatCarrier: request.chatCarrier }),
       ...(workspaceId === undefined ? {} : { workspaceId }),
       objectId: sessionObjectId,
+      ...(request.participantBindingId === undefined
+        ? {}
+        : { participantBindingId: request.participantBindingId }),
       agentPrincipalId: request.agentPrincipalId,
     });
+    const policyConfig = this.contextPolicy();
     const [facts, policy] = await Promise.all([
       adapter.loadFacts({
         ...(workspaceId === undefined ? {} : { workspaceId }),
         objectId: request.objectId,
         agentPrincipalId: request.agentPrincipalId,
         asOf,
+        lastContextSeq: session.lastContextSeq,
+        ...(request.contextBoundarySeq === undefined
+          ? {}
+          : { contextBoundarySeq: request.contextBoundarySeq }),
       }),
       adapter.policy({
         scene: request.scene,
@@ -818,11 +951,22 @@ export class ContextService {
         ? {}
         : { chatChannelId: request.chatChannelId }),
       objectId: request.objectId,
+      ...(request.participantBindingId === undefined
+        ? {}
+        : { participantBindingId: request.participantBindingId }),
       actorPrincipalId: request.actorPrincipalId,
       ...(request.agentProfileId === undefined
         ? {}
         : { agentProfileId: request.agentProfileId }),
       sessionBindingId: session.id,
+      ...(request.contextBoundarySeq === undefined
+        ? {}
+        : { contextBoundarySeq: request.contextBoundarySeq }),
+      contextPolicyVersion: policyConfig.version,
+      contextUsageRatio: Math.min(
+        1,
+        usedTokens / request.runtimeCapabilities.contextWindowTokens,
+      ),
       agent: parsedIdentity,
       sections: used,
       ...(supplementText === ""
@@ -923,6 +1067,9 @@ export class ContextService {
         ? {}
         : { chatChannelId: pack.chatChannelId }),
       objectId: pack.objectId,
+      ...(pack.participantBindingId === undefined
+        ? {}
+        : { participantBindingId: pack.participantBindingId }),
       actorPrincipalId: pack.actorPrincipalId,
       ...(pack.agentProfileId === undefined
         ? {}
@@ -946,6 +1093,13 @@ export class ContextService {
           ? {}
           : { supplementReason: pack.sessionSupplement.reason }),
       },
+      ...(pack.contextBoundarySeq === undefined
+        ? {}
+        : { contextBoundarySeq: pack.contextBoundarySeq }),
+      contextPolicyVersion: pack.contextPolicyVersion,
+      ...(pack.contextUsageRatio === undefined
+        ? {}
+        : { contextUsageRatio: pack.contextUsageRatio }),
       included: pack.sections.map((section) => ({
         sourceType: section.type,
         sourceId: section.id,
@@ -964,10 +1118,46 @@ export class ContextService {
     await this.tables.receipts.put(input.runId, receipt);
     await this.tables.sessions.put(session.id, {
       ...session,
+      revision: session.revision + 1,
+      ...(pack.contextUsageRatio === undefined
+        ? {}
+        : { contextUsageRatio: pack.contextUsageRatio }),
       lastRunId: input.runId,
       updatedAt: this.now(),
     });
     return receipt;
+  }
+
+  async commitRunContext(input: {
+    readonly runId: string;
+    readonly contextPackId?: string;
+  }): Promise<SceneSessionBinding> {
+    const receipt = this.tables.receipts.get(input.runId);
+    const packId = input.contextPackId ?? receipt?.contextPackId;
+    if (packId === undefined) {
+      throw new ContextError("not_found", "context pack not found");
+    }
+    const pack = this.tables.packs.get(packId);
+    if (pack === undefined) {
+      throw new ContextError("not_found", "context pack not found");
+    }
+    const session = this.tables.sessions.get(pack.sessionBindingId);
+    if (session === undefined) {
+      throw new ContextError("not_found", "context session not found");
+    }
+    if (pack.contextBoundarySeq === undefined) return session;
+    const next = parse(sceneSessionBindingSchema, {
+      ...session,
+      revision: session.revision + 1,
+      lastContextSeq: Math.max(
+        session.lastContextSeq,
+        pack.contextBoundarySeq,
+      ),
+      lastRunId: input.runId,
+      updatedAt: this.now(),
+    });
+    await this.tables.sessions.put(next.id, next);
+    return next;
   }
 
   receipt(runId: string): ContextReceipt | undefined {
@@ -1020,8 +1210,13 @@ export class ContextService {
       access.admin ||
       agentOwner ||
       receipt.actorPrincipalId === access.actorPrincipalId;
-    const privateChatActor = receipt.scene === "chat" && actor;
-    if (!access.admin && !access.workspaceMember && !privateChatActor) {
+    const selfConversationActor =
+      (receipt.scene === "chat" || receipt.scene === "group") && actor;
+    if (
+      !access.admin &&
+      !access.workspaceMember &&
+      !selfConversationActor
+    ) {
       throw new ContextError("forbidden", "workspace membership is required");
     }
     if (!access.admin && receipt.scene === "chat" && !actor) {

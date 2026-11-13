@@ -500,8 +500,7 @@ describe("dsh-collab-teammate service", () => {
             id: `participant-${meetingId}`,
             meetingId,
             kind: "ai_teammate",
-            refId:
-              meetingId === "meeting-old" ? idleOld.id : idleRecent.id,
+            refId: meetingId === "meeting-old" ? idleOld.id : idleRecent.id,
             teammateInstanceId:
               meetingId === "meeting-old" ? idleOld.id : idleRecent.id,
             status: "active",
@@ -625,7 +624,9 @@ describe("dsh-collab-teammate service", () => {
       workspaces: { list: () => [{ id: "main" }] },
       now,
     });
-    const active = snapshot.items.find((item) => item.teammateId === "tm-active");
+    const active = snapshot.items.find(
+      (item) => item.teammateId === "tm-active",
+    );
     const idle = snapshot.items.find((item) => item.teammateId === "tm-idle");
     expect(active?.hasRunIn72h).toBe(true);
     expect(active?.last24h).toMatchObject({
@@ -651,24 +652,18 @@ describe("dsh-collab-teammate service", () => {
       teammates: memoryTable<Teammate>(),
       events: memoryTable<TeammateEvent>(),
     };
-    await tables.teammates.put(
-      "data-agent-admin",
-      {
-        ...definition("data-agent-admin", "platform", "active", "Data Agent"),
-        ownerUserId: "admin",
-        ownerName: "Admin",
-        systemKey: "data-agent",
-      },
-    );
-    await tables.teammates.put(
-      "data-agent-olivia",
-      {
-        ...definition("data-agent-olivia", "platform", "active", "Data Agent"),
-        ownerUserId: "olivia",
-        ownerName: "Olivia",
-        systemKey: "data-agent",
-      },
-    );
+    await tables.teammates.put("data-agent-admin", {
+      ...definition("data-agent-admin", "platform", "active", "Data Agent"),
+      ownerUserId: "admin",
+      ownerName: "Admin",
+      systemKey: "data-agent",
+    });
+    await tables.teammates.put("data-agent-olivia", {
+      ...definition("data-agent-olivia", "platform", "active", "Data Agent"),
+      ownerUserId: "olivia",
+      ownerName: "Olivia",
+      systemKey: "data-agent",
+    });
     const teammates = service(tables);
     const workload = new TeammateWorkloadService({
       teammates,
@@ -1172,6 +1167,86 @@ describe("dsh-collab-teammate service", () => {
     ).rejects.toMatchObject({ code: "system_agent_protected" });
   });
 
+  it("creates one project-bound project manager agent per workspace", async () => {
+    const tables = {
+      teammates: memoryTable<Teammate>(),
+      events: memoryTable<TeammateEvent>(),
+    };
+    const templates = templateService();
+    const teammates = service(tables, templates);
+    await templates.create(admin, {
+      source: "platform",
+      name: "项目经理",
+      role: "项目交付与汇报",
+      systemKey: "project-manager",
+      skillBindings: [
+        {
+          skillId: "skill-project-reporting",
+          versionConstraint: "^1",
+          mode: "required",
+          scenes: [
+            "project-report",
+            "daily-report",
+            "weekly-report",
+            "progress-report",
+          ],
+          enabled: true,
+        },
+      ],
+    });
+    const first = await teammates.ensureProjectManagerAgent({
+      workspaceId: "ws-1",
+      projectName: "采购韧性",
+      actor: admin,
+    });
+    expect(first).toMatchObject({
+      id: "tm-project-ws-1",
+      name: "采购韧性项目PM",
+      ownerUserId: "platform",
+      systemKey: "project-manager",
+      projectBinding: {
+        workspaceId: "ws-1",
+        roleKey: "project-manager",
+        visibility: "project",
+      },
+    });
+    const second = await teammates.ensureProjectManagerAgent({
+      workspaceId: "ws-1",
+      projectName: "采购韧性计划",
+      actor: admin,
+    });
+    expect(second.id).toBe(first.id);
+    expect(second.name).toBe("采购韧性计划项目PM");
+    expect(teammates.projectManagerFor("ws-1")?.id).toBe(first.id);
+    await expect(
+      teammates.bindPrincipal(olivia, first.id, "principal-project", {
+        allowProjectMember: true,
+        projectWorkspaceId: "ws-2",
+      }),
+    ).rejects.toMatchObject({ code: "forbidden" });
+    await expect(
+      teammates.bindPrincipal(olivia, first.id, "principal-project", {
+        allowProjectMember: true,
+        projectWorkspaceId: "ws-1",
+      }),
+    ).resolves.toMatchObject({
+      id: first.id,
+      principalId: "principal-project",
+    });
+    expect(
+      teammates.listInstances(olivia, {
+        visibleWorkspaceIds: new Set(["ws-1"]),
+      }),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: first.id, name: second.name }),
+      ]),
+    );
+    expect(teammates.listInstances(olivia)).not.toContainEqual(
+      expect.objectContaining({ id: first.id }),
+    );
+  });
+
   it("switches an instance template reference without copying definition fields", async () => {
     const templates = templateService();
     const first = await templates.create(admin, {
@@ -1598,11 +1673,7 @@ describe("dsh-collab-teammate service", () => {
     );
     expect(bound.principalId).toBe("principal-ai-data-agent");
     await expect(
-      teammates.bindPrincipal(
-        peter,
-        dataAgent.id,
-        "principal-ai-other",
-      ),
+      teammates.bindPrincipal(peter, dataAgent.id, "principal-ai-other"),
     ).rejects.toMatchObject({ code: "forbidden" });
     await expect(
       teammates.bindPrincipal(
@@ -1899,7 +1970,12 @@ describe("实例列表可见性", () => {
       ownerName: "Owner",
     };
     const platformBuiltIn = {
-      ...definition("tm-platform-built-in", "platform", "active", "平台内置实例"),
+      ...definition(
+        "tm-platform-built-in",
+        "platform",
+        "active",
+        "平台内置实例",
+      ),
       ownerUserId: "platform",
       ownerName: "平台",
       systemKey: "data-agent" as const,
@@ -1973,12 +2049,12 @@ describe("实例列表可见性", () => {
       templateId: template.id,
       systemKey: "data-agent",
     });
-    expect(
-      teammates.listInstances(olivia).map((item) => item.id),
-    ).toEqual([oliviaAgent.id]);
-    expect(
-      teammates.listInstances(peter).map((item) => item.id),
-    ).toEqual([peterAgent.id]);
+    expect(teammates.listInstances(olivia).map((item) => item.id)).toEqual([
+      oliviaAgent.id,
+    ]);
+    expect(teammates.listInstances(peter).map((item) => item.id)).toEqual([
+      peterAgent.id,
+    ]);
     expect(
       await teammates.ensureUserSystemAgent(olivia, "data-agent"),
     ).toMatchObject({ id: oliviaAgent.id });

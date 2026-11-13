@@ -10,5 +10,10 @@
 
 - `packages/work-report.skill.zip`
 - `packages/competitive-analysis.skill.zip`
+- `packages/project-reporting.skill.zip`
 
 安装完成后，在目标 AI 伙伴实例的 `Skills` 页面中追加对应 Skill。
+
+平台预置的项目经理模板默认绑定官方「项目汇报生成」Skill，源文件位于
+`docs/skills/project-reporting/`。普通用户可在资源市场安装后追加到自己的 AI 伙伴；
+平台管理员可在资源市场详情中编辑官方版本。

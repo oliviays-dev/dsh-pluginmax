@@ -5,7 +5,12 @@ import { describe, expect, it } from "vitest";
 const ROOT = resolve(import.meta.dirname, "../../..");
 const SKILLS_ROOT = resolve(ROOT, "docs/skills");
 
-const packages = [
+const packages: readonly {
+  key: string;
+  name: string;
+  trigger: string;
+  publisherName?: string;
+}[] = [
   {
     key: "work-report",
     name: "工作日报",
@@ -16,7 +21,13 @@ const packages = [
     name: "竞品分析",
     trigger: "competitive-analysis",
   },
-] as const;
+  {
+    key: "project-reporting",
+    name: "项目汇报生成",
+    trigger: "project-report",
+    publisherName: "Pluginmax 官方",
+  },
+];
 
 describe("manual skill packages", () => {
   for (const item of packages) {
@@ -35,18 +46,14 @@ describe("manual skill packages", () => {
         instructions: string;
       };
       const markdown = readFileSync(resolve(directory, "SKILL.md"), "utf8");
-      const archive = resolve(
-        SKILLS_ROOT,
-        "packages",
-        `${item.key}.skill.zip`,
-      );
+      const archive = resolve(SKILLS_ROOT, "packages", `${item.key}.skill.zip`);
 
       expect(manifest).toMatchObject({
         schemaVersion: 1,
         kind: "agent-skill",
         name: item.name,
         version: "1.0.0",
-        publisherName: "平台",
+        publisherName: item.publisherName ?? "平台",
       });
       expect(manifest.triggers).toContain(item.trigger);
       expect(manifest.instructions).toContain(`# ${item.name}`);

@@ -233,6 +233,17 @@ const SEARCH_TOOL_NAMES = new Set([
   "browse",
 ]);
 
+const PRODUCT_TOOL_CATEGORIES: Readonly<Record<string, ToolCategory>> = {
+  entity_read: "tool.entity.read",
+  data_catalog_search: "tool.data.catalog.search",
+  dataset_describe: "tool.dataset.describe",
+  query_explain: "tool.query.explain",
+  metric_query: "tool.metric.query",
+  dataset_query_readonly: "tool.dataset.query.readonly",
+  report_render: "tool.report.render",
+  artifact_write: "tool.artifact.write",
+};
+
 function nowIso(now: () => Date): string {
   return now().toISOString();
 }
@@ -257,6 +268,12 @@ function stableJson(value: unknown): string {
 
 export function executionToolCategory(name: string): ToolCategory {
   const normalized = name.toLowerCase();
+  const productCategory =
+    PRODUCT_TOOL_CATEGORIES[normalized] ??
+    PRODUCT_TOOL_CATEGORIES[normalized.replace(/\./g, "_")];
+  if (productCategory !== undefined) {
+    return productCategory;
+  }
   if (normalized === "web_search" || normalized.includes("search")) {
     return "web.search";
   }
@@ -265,6 +282,7 @@ export function executionToolCategory(name: string): ToolCategory {
   }
   if (
     normalized === "write" ||
+    normalized === "write_file" ||
     normalized === "edit" ||
     normalized === "str_replace_editor"
   ) {
@@ -272,6 +290,8 @@ export function executionToolCategory(name: string): ToolCategory {
   }
   if (
     normalized === "read" ||
+    normalized === "read_file" ||
+    normalized === "list_files" ||
     normalized === "read_image" ||
     normalized === "glob" ||
     normalized === "grep"
@@ -391,10 +411,7 @@ function capabilityFor(input: {
   const search = supportsTool(
     "web_search",
     protocol === "builtin"
-      ? configuredTools.includes("web.search") ||
-        configuredTools.includes("web.fetch")
         ? "supported"
-        : "unsupported"
       : searchArgument
         ? "supported"
         : "unknown",
@@ -565,8 +582,7 @@ function gapsFor(input: {
   for (const requirement of input.policy.runtime.requiredCapabilities) {
     const state = capabilityForRequirement(input.runtime, requirement);
     if (state === "supported") continue;
-    const unknownSearch =
-      state === "unknown" && requirement.key === "search";
+    const unknownSearch = state === "unknown" && requirement.key === "search";
     gaps.push({
       code:
         state === "unknown"
@@ -586,7 +602,8 @@ function gapsFor(input: {
   }
   if (
     input.policy.sourcePolicy.allow.includes("public-web") &&
-    input.runtime.capabilities.search === "unsupported"
+    input.runtime.capabilities.search === "unsupported" &&
+    input.runtime.protocol !== "builtin"
   ) {
     gaps.push({
       code: "runtime-capability-missing",
@@ -611,11 +628,7 @@ function effectiveSearch(input: {
   ) {
     return false;
   }
-  const builtinEnabled =
-    input.runtime.protocol === "builtin" &&
-    (input.profile.allowedTools.length === 0 ||
-      input.profile.allowedTools.includes("web_search") ||
-      input.profile.allowedTools.includes("web_fetch"));
+  const builtinEnabled = input.runtime.protocol === "builtin";
   const externalEnabled =
     input.runtime.protocol !== "builtin" &&
     input.runtime.provenance.config &&
@@ -650,15 +663,23 @@ function buildEnvelope(input: {
   readonly runId?: string | undefined;
   readonly at: string;
 }): ExecutionEnvelope {
-  const allowed = [
-    ...new Set(
+  const profileAllowed =
       input.policy.toolPolicy.allow.length === 0
         ? input.capability.toolCategories
         : input.policy.toolPolicy.allow.filter((category) =>
             input.capability.toolCategories.includes(category),
-          ),
-    ),
+        );
+  const policyCategoryGrants = [
+    ...input.policy.toolPolicy.allow,
+    ...input.policy.toolPolicy.requireApproval,
+    ...(input.policy.sourcePolicy.allow.includes("workspace")
+      ? (["fs.read"] as const)
+      : []),
+    ...(input.policy.sourcePolicy.allow.includes("public-web")
+      ? (["web.search", "web.fetch"] as const)
+      : []),
   ];
+  const allowed = [...new Set([...profileAllowed, ...policyCategoryGrants])];
   const denied = [...new Set(input.policy.toolPolicy.deny)];
   const approval = [
     ...new Set([
@@ -761,8 +782,12 @@ function messageText(value: unknown): string {
     .flatMap((item) => {
       if (typeof item !== "object" || item === null) return [];
       const record = item as Record<string, unknown>;
-      return typeof record.text === "string" ? [record.text] : [];
+      if (record.type === "text" && typeof record.text === "string") {
+        return [record.text];
+      }
+      return record.content === undefined ? [] : [messageText(record.content)];
     })
+    .filter((text) => text !== "")
     .join("\n");
 }
 
@@ -797,18 +822,42 @@ function eventSummary(event: SessionEventLike):
     };
   }
   if (event.type === "tool/result") {
-    const callId = typeof data.callId === "string" ? data.callId : "";
-    const message = data.message as { readonly content?: unknown } | undefined;
+    const message = data.message as
+      | {
+          readonly source?: { readonly callId?: unknown };
+          readonly content?: unknown;
+        }
+      | undefined;
+    const callId =
+      typeof data.callId === "string"
+        ? data.callId
+        : typeof message?.source?.callId === "string"
+          ? message.source.callId
+          : "";
+    const output = messageText(message?.content);
+    const toolResult = Array.isArray(message?.content)
+      ? message.content.find(
+          (item) =>
+            typeof item === "object" &&
+            item !== null &&
+            (item as Record<string, unknown>).type === "tool-result",
+        )
+      : undefined;
+    const toolResultError =
+      typeof toolResult === "object" &&
+      toolResult !== null &&
+      (toolResult as Record<string, unknown>).isError === true;
     return {
       type: "tool.result",
-      summary: `工具结果：${callId || "unknown"}`,
+      summary: output.slice(0, 2_000) || "工具执行完成",
       data: {
         callId,
-        output: messageText(message?.content),
+        output,
         isError:
-          typeof data.error === "object" &&
+          toolResultError ||
+          (typeof data.error === "object" &&
           data.error !== null &&
-          Object.keys(data.error).length > 0,
+            Object.keys(data.error).length > 0),
       },
     };
   }
@@ -1101,8 +1150,7 @@ export class AgentExecutionService {
       envelopePreview: envelope,
       gaps,
       suggestedRuntimeIds: [],
-      warnings:
-        [
+      warnings: [
           ...(capability.gateEnforcement === "observe-only"
             ? ["该 Runtime 不能在动作执行前阻断高风险工具"]
             : []),
@@ -1271,14 +1319,16 @@ export class AgentExecutionService {
     category: ToolCategory,
   ): "allow" | "approval" | "deny" {
     const envelope = this.envelopeForRun(runId);
-    if (envelope === undefined) return "allow";
+    if (envelope === undefined) return "deny";
     if (envelope.resolved.deniedToolCategories.includes(category)) {
       return "deny";
     }
     if (envelope.resolved.approvalToolCategories.includes(category)) {
       return "approval";
     }
-    return "allow";
+    return envelope.resolved.allowedToolCategories.includes(category)
+      ? "allow"
+      : "deny";
   }
 
   recordTrace(runId: string, trace: RuntimeTraceLike): Promise<void> {

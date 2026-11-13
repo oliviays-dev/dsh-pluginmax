@@ -56,6 +56,21 @@ export const projectRoleDefinitionSchema = z.object({
 });
 export type ProjectRoleDefinition = z.infer<typeof projectRoleDefinitionSchema>;
 
+export const roleMappingAssigneeSchema = z.object({
+  kind: z.enum(["user", "agent"]),
+  id: idSchema,
+  name: z.string().trim().max(120).optional(),
+});
+export type RoleMappingAssignee = z.infer<typeof roleMappingAssigneeSchema>;
+
+export const roleMappingPresetSchema = z.object({
+  roleId: idSchema,
+  assignees: z.array(roleMappingAssigneeSchema).min(1).max(100),
+  updatedBy: idSchema,
+  updatedAt: isoTimeSchema,
+});
+export type RoleMappingPreset = z.infer<typeof roleMappingPresetSchema>;
+
 /**
  * 项目扩展信息。
  *
@@ -78,6 +93,8 @@ export const projectRecordSchema = z.object({
   templateId: idSchema.optional(),
   /** 项目自己的角色定义副本；由模版初始化，之后可独立增删改。 */
   projectRoles: z.array(projectRoleDefinitionSchema).max(50).default([]),
+  /** 创建默认工作流实例时预填的角色映射；仍由创建者最终确认。 */
+  roleMappingPresets: z.record(z.string(), roleMappingPresetSchema).default({}),
   /** 是否已完成角色初始化（区分「还没初始化」与「用户主动清空」）。 */
   rolesInitialized: z.boolean().default(false),
   /** 角色集版本：每次「确认生效」+1，用于并发编辑保护。 */
@@ -121,11 +138,25 @@ export const projectTemplateRecordSchema = z.object({
 export type ProjectTemplateRecord = z.infer<typeof projectTemplateRecordSchema>;
 
 /** 项目日报：按日期保留快照，同一天重复生成即覆盖。 */
+export const projectReportTypeSchema = z.enum(["daily", "weekly", "progress"]);
+export type ProjectReportType = z.infer<typeof projectReportTypeSchema>;
+
 export const projectReportRecordSchema = z.object({
   workspaceId: idSchema,
+  reportType: projectReportTypeSchema.default("daily"),
   date: z.string().trim().min(8).max(20),
+  periodStart: z.string().trim().max(20).optional(),
+  periodEnd: z.string().trim().max(20).optional(),
   generatedAt: z.string().trim().min(1).max(40),
   generatedBy: z.string().trim().min(1).max(80),
+  generatedByTeammateId: idSchema.optional(),
+  runId: z.string().trim().max(180).optional(),
+  skillId: z.string().trim().max(160).optional(),
+  skillVersion: z.string().trim().max(80).optional(),
+  triggerSource: z
+    .enum(["button", "chat", "task", "schedule", "system", "api"])
+    .default("api"),
+  sourceRefs: z.array(z.string().trim().min(1).max(300)).max(500).default([]),
   content: z.string().max(20_000),
   createdAt: isoTimeSchema,
 });

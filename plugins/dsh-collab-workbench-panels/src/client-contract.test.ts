@@ -32,12 +32,14 @@ describe("built-in workbench panel providers", () => {
     expect(source).toContain("renderOwnerRow");
     expect(source).toContain("renderMeetingRows");
     expect(source).toContain(
+      'grid-template-areas:"name actions" "meta meta" "sub sub" "owner owner"',
+    );
+    expect(source).toContain('className: "pmwb-meeting-title"');
+    expect(source).toContain(
       'navigateTo({ ...item.deepLink, tab: "minutes" })',
     );
     expect(source).toContain('const tab = link.tab === "minutes"');
-    expect(source).toContain(
-      '...(tab === undefined ? {} : { tab })',
-    );
+    expect(source).toContain("...(tab === undefined ? {} : { tab })");
     expect(source).toContain("pmwb-item-focus");
     expect(source).toContain("pmwb-minutes-badge");
     expect(source).toContain('type: "meeting"');
@@ -45,7 +47,7 @@ describe("built-in workbench panel providers", () => {
     expect(source).not.toContain("标为已读");
     expect(source).not.toContain('"已读"');
     expect(source).toContain(
-      "h(FollowButton, {\n            type: item.kind ?? \"task\"",
+      'h(FollowButton, {\n            type: item.kind ?? "task"',
     );
   });
 
@@ -69,6 +71,9 @@ describe("built-in workbench panel providers", () => {
     expect(source).toContain("pmwb2-kpi-panel");
     expect(source).toContain("pmwb2-kpi-card");
     expect(source).toContain("min-height:174px");
+    expect(source).toContain(
+      ".pmwb2-kpi-card:only-child{width:100%;max-width:360px",
+    );
     expect(source).toContain("new ResizeObserver(resize)");
     expect(source).toContain("--pmwb2-kpi-value-size");
     expect(source).toContain(
@@ -89,9 +94,7 @@ describe("built-in workbench panel providers", () => {
     expect(source).not.toContain("cqh");
     expect(source).toContain("Math.max(0.68, Math.min(1, widthScale))");
     expect(source).toContain("justify-content:flex-start");
-    expect(source).toContain(
-      ".pmwb2-kpi-card .pmwb-spark{flex:1 1 auto",
-    );
+    expect(source).toContain(".pmwb2-kpi-card .pmwb-spark{flex:1 1 auto");
     expect(source).toContain(
       ".pmwb2-kpi-card .pmwb-metric-label,.pmwb2-kpi-card .pmwb-metric-value,.pmwb2-kpi-card .pmwb-metric-target{flex:0 0 auto",
     );
@@ -106,13 +109,11 @@ describe("built-in workbench panel providers", () => {
     );
     expect(source).not.toContain("Math.sqrt(widthScale * heightScale)");
     expect(source).toContain(
-      'grid-template-columns:repeat(auto-fit,minmax(180px,1fr))',
+      "grid-template-columns:repeat(auto-fit,minmax(180px,1fr))",
     );
     expect(source).not.toContain("pmwb2-kpi-source");
     expect(source).not.toContain("data.sourceNote");
-    expect(source).toContain(
-      'className: "pmwb2-kpi-panel no-source"',
-    );
+    expect(source).toContain('className: "pmwb2-kpi-panel no-source"');
     expect(source).toContain("height:auto;min-height:0");
     expect(source).toContain(".pmwb2-kpi-panel.no-source");
     expect(source).toContain("pmwb-control-item");
@@ -125,33 +126,43 @@ describe("built-in workbench panel providers", () => {
     expect(source).toContain('last24h: { label: "24 小时"');
     expect(source).toContain('last72h: { label: "72 小时"');
     expect(source).toContain("AI_LOAD_COLUMN_LABELS");
+    expect(source).toContain('runtime: "时长"');
     expect(source).toContain("AI_LOAD_METRIC_LABELS");
     expect(source).toContain("primaryMetric");
     expect(source).toContain("pmwb2-ai-load-head");
     expect(source).toContain('task: "任务数"');
     expect(source).toContain("pmwb2-ai-load-runtime-trend");
-    expect(source).toContain("runtimeTrend.percent");
-    expect(source).toContain("minmax(52px,0.82fr)");
-    expect(source).toContain("minmax(44px,0.62fr)");
-    expect(source).toContain("minmax(80px,1fr) minmax(0,2.6fr)");
     expect(source).toContain(
-      "font-size:11px;line-height:1.5;font-variant-numeric:tabular-nums",
+      "flex-direction:column;align-items:flex-end;gap:0;overflow:hidden",
+    );
+    expect(source).toContain("line-height:1.5;text-align:right;font-variant");
+    expect(source).toContain("runtimeTrend.percent");
+    expect(source).toContain("minmax(38px,0.72fr)");
+    expect(source).toContain("minmax(44px,0.62fr)");
+    expect(source).toContain("minmax(96px,1.22fr) minmax(0,2fr)");
+    expect(source).toContain(
+      "font-size:11px;line-height:1.5;text-align:right;font-variant-numeric:tabular-nums",
     );
     expect(source).toContain("font-size:12px;line-height:1.5");
     expect(source).toContain("justify-self:end;text-align:right");
-    expect(source).toContain("overflow:auto;background:var(--dsw-alias-bg-layer-2)");
+    expect(source).toContain(
+      "overflow:auto;background:var(--dsw-alias-bg-layer-2)",
+    );
     expect(source).toContain("pmwb2-ai-load-divider");
     expect(source).toContain("inactiveSorted");
     expect(source).toContain('item?.state !== "archived"');
     expect(source).not.toContain('item?.systemKey !== "data-agent"');
     expect(source).toContain('"AI伙伴时间范围"');
     expect(source).toContain("titleActions");
-    expect(source).toContain('lastActivity: "最近运行"');
+    expect(source).toContain('lastActivity: "最近"');
+    expect(source).toContain("dateTimeParts(item.lastActivityAt)");
     expect(source).toContain("AiPartnerAvatar");
     expect(source).toContain("__pluginmaxPendingTeammate");
     expect(source).toContain('detail: { route: "teammates" }');
     expect(source).toContain('"data-data-agent-card": "true"');
-    expect(source).toContain('"aria-label": `打开 ${item.name ?? "AI伙伴"} 详情`');
+    expect(source).toContain(
+      '"aria-label": `打开 ${item.name ?? "AI伙伴"} 详情`',
+    );
     expect(source).toContain("openTeammate(item)");
     expect(source).toContain("hasRunIn72h");
     expect(source).toContain("blockers");
@@ -179,7 +190,9 @@ describe("built-in workbench panel providers", () => {
     );
     expect(source).toContain('"data-data-agent-card": "true"');
     expect(source).toContain("onClick: () => openTeammate(item)");
-    expect(source).toContain('"aria-label": `打开 ${item.name ?? "AI伙伴"} 详情`');
+    expect(source).toContain(
+      '"aria-label": `打开 ${item.name ?? "AI伙伴"} 详情`',
+    );
     expect(source).not.toContain("pmwb2-ai-load-open");
     expect(source).not.toContain('"操作"');
   });
@@ -203,9 +216,24 @@ describe("built-in workbench panel providers", () => {
       'new CustomEvent("pluginmax:data-agent-selection"',
     );
     expect(source).toContain('prompt: item?.actionLabel ?? "分析原因"');
-    expect(source).toContain("item.actionLabel.includes(\"分析\")");
+    expect(source).toContain('item.actionLabel.includes("分析")');
     expect(source).toContain("onAnalyze(item)");
     expect(source).toContain("const ICONS = {");
+  });
+
+  it("renders the concise daily brief and opens details in a side drawer", () => {
+    const source = readFileSync(CLIENT, "utf8");
+    expect(source).toContain("groupBriefItems");
+    expect(source).toContain(
+      ".pmwb2-brief-row{width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto 14px;",
+    );
+    expect(source).toContain(".pmwb2-brief-drawer{");
+    expect(source).toContain("onClick: () => openDetail(item)");
+    expect(source).toContain("onDetail: async (item)");
+    expect(source).not.toContain('"本期总结"');
+    expect(source).toContain('"项目关键进展"');
+    expect(source).toContain('"异常提醒"');
+    expect(source).toContain('"待你处理"');
   });
 
   it("supports marking item-level cards as unread", () => {
@@ -225,35 +253,30 @@ describe("built-in workbench panel providers", () => {
       "window.setTimeout(() => navigateTo(item.deepLink), 0);",
     );
     expect(source).toContain("react.useSyncExternalStore(");
+    expect(source).toContain("react.useState(readCurrentUserId)");
     expect(source).toContain(
-      "react.useState(readCurrentUserId)",
+      'view === "all" && detailItem.readState === "read"',
     );
-    expect(source).toContain(
-      'view === "all" && item.readState === "read"',
-    );
-    expect(source).toContain("showUnreadAction: view === \"all\"");
+    expect(source).toContain('showUnreadAction: view === "all"');
   });
 
   it("renders todo cards with id, title, description and metadata layout", () => {
     const source = readFileSync(CLIENT, "utf8");
     expect(source).toContain(".pmwb-item.pmwb-item-todo");
+    expect(source).toContain(
+      'grid-template-areas:"id actions" "name name" "desc desc" "meta meta"',
+    );
     expect(source).toContain("pmwb-todo-actions-main");
     expect(source).toContain("pmwb-todo-name");
     expect(source).toContain("pmwb-todo-description");
     expect(source).toContain("pmwb-todo-meta");
     expect(source).toContain("@container (max-width:280px)");
-    expect(source).toContain(
-      "font-size:14px;font-weight:650;line-height:1.3",
-    );
-    expect(source).toContain(
-      "font-size:13px;line-height:1.6",
-    );
-    expect(source).toContain(
-      "font-size:12px;line-height:1.5",
-    );
+    expect(source).toContain("font-size:14px;font-weight:650;line-height:1.3");
+    expect(source).toContain("font-size:13px;line-height:1.6");
+    expect(source).toContain("font-size:12px;line-height:1.5");
     expect(source).toContain("no-description");
     expect(source).not.toContain("暂无任务描述");
     expect(source).toContain("item.receiverOwnerName");
-    expect(source).toContain("item.due ? formatDate(item.due) : \"不限\"");
+    expect(source).toContain('item.due ? formatDate(item.due) : "不限"');
   });
 });

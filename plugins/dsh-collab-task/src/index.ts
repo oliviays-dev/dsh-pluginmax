@@ -30,12 +30,14 @@ import {
   type KvTableLike,
   type TaskActor,
   type TaskAgentRun,
+  type TaskPermissionServiceLike,
   type TaskPrincipalServiceLike,
 } from "./service.js";
 import type { TaskRecord } from "./types.js";
 import {
   attachmentDocuments,
   collectDocuments,
+  loadWorkspaceEvidenceDocuments,
   materializeAgentOutputDocuments,
   mergeDocuments,
   mimeTypeFor,
@@ -44,6 +46,7 @@ import {
   uploadDirectory,
   windowsFromRuns,
   type TaskDocumentEntry,
+  type WorkspaceEvidenceDocument,
 } from "./documents.js";
 
 export { TaskError, TaskService, taskDomainSpec };
@@ -100,7 +103,10 @@ interface TeammateRuntimeActorLike {
 }
 
 interface TeammateRuntimeLike {
-  assignable(actor: TeammateRuntimeActorLike): readonly {
+  assignable(
+    actor: TeammateRuntimeActorLike,
+    workspaceId?: string,
+  ): readonly {
     readonly id: string;
     readonly name: string;
     readonly ownerUserId: string;
@@ -611,6 +617,11 @@ interface TaskContext {
         input: {
           readonly draft: TaskDraftForCreation;
           readonly creationKey: string;
+          readonly type?: string | undefined;
+          readonly status?: "todo" | "progress" | "review" | "done" | undefined;
+          readonly executionPolicy?: unknown;
+          readonly autoSubmitReview?: boolean | undefined;
+          readonly autoApproveReview?: boolean | undefined;
         },
       ): Promise<TaskCreationFromDraftResult>;
     },
@@ -789,9 +800,7 @@ function requireAccess(
   return actor(principalValue, team);
 }
 
-function teammateActorRole(
-  role: string,
-): TeammateRuntimeActorLike["role"] {
+function teammateActorRole(role: string): TeammateRuntimeActorLike["role"] {
   return role === "admin" ||
     role === "owner" ||
     role === "member" ||
@@ -837,11 +846,12 @@ function directory(
   const memberIds = new Set(
     team.members(workspaceId).map((member) => member.userId),
   );
-  const memberUsers = team
-    .users()
-    .filter((user) => memberIds.has(user.id));
-  const humans = memberUsers
-    .map((user) => ({ id: user.id, name: user.name, role: user.role }));
+  const memberUsers = team.users().filter((user) => memberIds.has(user.id));
+  const humans = memberUsers.map((user) => ({
+    id: user.id,
+    name: user.name,
+    role: user.role,
+  }));
   const employeeDirectory = employees?.list() ?? [];
   const assignedAgentIds = new Set<string>();
   try {
@@ -879,7 +889,8 @@ function directory(
   }> = [];
   const seenTeammateIds = new Set<string>();
   for (const teammateActor of teammateActors) {
-    for (const teammate of teammates?.assignable(teammateActor) ?? []) {
+    for (const teammate of teammates?.assignable(teammateActor, workspaceId) ??
+      []) {
       if (seenTeammateIds.has(teammate.id)) continue;
       const isOwnedByActor = teammate.ownerUserId === actor?.userId;
       const isProjectMember =
@@ -1054,6 +1065,16 @@ function seatMembers(
   } catch {
     return undefined;
   }
+}
+
+function workflowClaimVisibleTo(task: TaskRecord, actor: TaskActor): boolean {
+  if (task.workflow?.dispatchMode !== "claim") return true;
+  if (actor.role === "admin" || task.createdBy === actor.id) return true;
+  return (
+    task.workflow.candidatePool?.some(
+      (candidate) => candidate.kind === "user" && candidate.id === actor.id,
+    ) === true
+  );
 }
 
 function routeError(response: ServerResponse, cause: unknown): void {
@@ -1348,6 +1369,11 @@ function buildTaskContext(
     "<完整文件正文>",
     "<!-- /pluginmax-document -->",
     "",
+    "## 验收确认",
+    "- 完成前调用 task_query（action=get）读取当前任务验收项及其 step id。",
+    "- 只有经过实际检查的验收项才能放入 task_submit_deliverable.completedStepIds；不要用普通文本代替工具确认。",
+    "- 没有显式验收项或执行记录异常时，平台会把任务标记为「异常」，不会自动提交 Review。",
+    "",
     "## 边界",
     "- 「本次需要你响应」中列出的人类要求都必须落实；时间线中的其它已处理讨论才是背景。",
     "- 不要重复处理已经完成的内容，也不要声称完成未提交的交付物。",
@@ -1500,6 +1526,25 @@ function taskDocumentContextLines(
   ];
 }
 
+function workspaceEvidenceContextLines(
+  documents: readonly WorkspaceEvidenceDocument[],
+): readonly string[] {
+  if (documents.length === 0) return [];
+  return [
+    "",
+    "## 优先业务演示资料（平台预加载）",
+    "以下内容来自当前项目工作区，属于已授权的任务业务资料。请优先直接使用，不要为了读取这些文件发起 shell.execute、外部文档或生产系统授权申请。",
+    "资料索引用于确定路由；业务证据文档优先用于回答和生成交付物。资料不足时，只说明缺失字段。",
+    ...documents.flatMap((document) => [
+      "",
+      `### ${document.name}`,
+      `相对路径：${document.relativePath}`,
+      "",
+      document.content,
+    ]),
+  ];
+}
+
 async function dispatchTaskInstruction(
   agent: TaskAgentServiceLike | undefined,
   team: TeamServiceLike | undefined,
@@ -1559,10 +1604,9 @@ async function dispatchTaskInstruction(
     targetRef === undefined
       ? undefined
       : (teammates
-          ?.assignable(runtimeActor)
+          ?.assignable(runtimeActor, task.workspaceId)
           .find(
-            (item) =>
-              item.id === targetRef || item.employeeId === targetRef,
+            (item) => item.id === targetRef || item.employeeId === targetRef,
           )?.id ?? targetRef);
   const ensured =
     teammates !== undefined && teammateRef !== undefined
@@ -1669,8 +1713,7 @@ async function dispatchTaskInstruction(
             ),
         );
   if (blockingGaps.length > 0) {
-    const required = blockingGaps
-      .map((gap) => gap.message);
+    const required = blockingGaps.map((gap) => gap.message);
     throw new TaskError(
       "conflict",
       required.length > 0
@@ -1717,10 +1760,15 @@ async function dispatchTaskInstruction(
       previousDefinitionDigest !== definitionDigest);
   const runSeq = task.agentRunIds.length + 1;
   const ownerTaskDocuments =
-    runRole === "owner"
-      ? await taskDocumentBrief(agent, workspaces, task)
-      : [];
+    runRole === "owner" ? await taskDocumentBrief(agent, workspaces, task) : [];
   const ownerDocumentContext = taskDocumentContextLines(ownerTaskDocuments);
+  const workspaceEvidenceRoot = workspaces?.get(task.workspaceId)?.path;
+  const workspaceEvidence =
+    runRole === "owner" && workspaceEvidenceRoot !== undefined
+      ? await loadWorkspaceEvidenceDocuments(workspaceEvidenceRoot)
+      : [];
+  const workspaceEvidenceContext =
+    workspaceEvidenceContextLines(workspaceEvidence);
   const legacyInstruction =
     runRole === "owner"
       ? [
@@ -1739,6 +1787,7 @@ async function dispatchTaskInstruction(
             ...(definitionChanged ? { definitionChanged: true } : {}),
           }),
           ...ownerDocumentContext,
+          ...workspaceEvidenceContext,
         ].join("\n")
       : buildAssistContext(task, {
           role: runRole,
@@ -1804,7 +1853,11 @@ async function dispatchTaskInstruction(
   const instruction =
     contextPack === undefined
       ? renderedInstruction
-      : [renderedInstruction, ...ownerDocumentContext].join("\n");
+      : [
+          renderedInstruction,
+          ...ownerDocumentContext,
+          ...workspaceEvidenceContext,
+        ].join("\n");
   const timeoutMinutes = target.maxMinutes ?? 30;
   const workspacePath = workspaces?.get(task.workspaceId)?.path;
   const run = await agent.dispatch({
@@ -1973,6 +2026,8 @@ export interface TaskDispatchDependencies {
   readonly principalRuntime?:
     (() => PrincipalRuntimeServiceLike | undefined) | undefined;
   readonly context?: (() => TaskContextServiceLike | undefined) | undefined;
+  readonly permissions?:
+    (() => TaskPermissionServiceLike | undefined) | undefined;
 }
 
 export interface TaskDispatchOutcome {
@@ -2056,22 +2111,25 @@ export function canDriveAgent(input: {
   readonly actor: TaskActor;
   readonly agentRef: string | undefined;
   readonly teammates?: TeammateRuntimeLike | undefined;
+  readonly workspaceId?: string | undefined;
 }): boolean {
-  const { actor, agentRef, teammates } = input;
+  const { actor, agentRef, teammates, workspaceId } = input;
   if (actor.kind !== "human" || agentRef === undefined) return false;
   const owners = agentOwnerIds(teammates, agentRef);
   if (owners.length > 0) return owners.includes(actor.id);
   // 兼容尚未实现 ownerOf 的旧运行时：允许它返回的 assignable 实例。
   return (
     teammates
-      ?.assignable({
-        userId: actor.id,
-        name: actor.name,
-        role: actor.role ?? "member",
-      })
+      ?.assignable(
+        {
+          userId: actor.id,
+          name: actor.name,
+          role: actor.role ?? "member",
+        },
+        workspaceId,
+      )
       .some(
-        (agent) =>
-          agent.id === agentRef || agent.employeeId === agentRef,
+        (agent) => agent.id === agentRef || agent.employeeId === agentRef,
       ) === true
   );
 }
@@ -2091,6 +2149,7 @@ export function canCommandTask(input: {
       actor,
       agentRef: task.receiverId,
       teammates,
+      workspaceId: task.workspaceId,
     });
   }
   return false;
@@ -2224,6 +2283,25 @@ export function createTaskDispatcher(deps: TaskDispatchDependencies): (
 ) => Promise<TaskDispatchOutcome> {
   return async (task, currentActor, trigger, contextOverride) => {
     try {
+      const permission = deps.permissions?.();
+      if (
+        permission !== undefined &&
+        task.receiverType === "agent" &&
+        task.receiverPrincipalId !== undefined
+      ) {
+        const decision = await permission.resolve({
+          workspaceId: task.workspaceId,
+          principalId: task.receiverPrincipalId,
+          requestedActions: ["read", "write"],
+          requestedResources: [`task/${task.id}`],
+        });
+        if (!decision.allowed) {
+          throw new TaskError(
+            "forbidden",
+            decision.reasons.join("；") || "项目权限与负责人权限交集不足",
+          );
+        }
+      }
       const run = await dispatchTaskInstruction(
         deps.agent?.(),
         deps.team,
@@ -2409,7 +2487,9 @@ export function createTaskRoutes(
       const workspaceId = query(request).get("workspaceId") ?? "";
       const currentActor = requireAccess(request, team, workspaceId);
       await reconcileWorkflowAgentRuns(workspaceId);
-      let tasks = service.list(workspaceId);
+      let tasks = service
+        .list(workspaceId)
+        .filter((task) => workflowClaimVisibleTo(task, currentActor));
       const cancelledWithActiveRuns = tasks.filter(
         (task) =>
           task.status === "cancelled" && activeAgentRunIds(task).length > 0,
@@ -2530,9 +2610,7 @@ export function createTaskRoutes(
   };
   const taskHasActiveRun = (task: TaskRecord): boolean =>
     activeAgentRunIds(task).length > 0;
-  const cancelTaskAgentRuns = async (
-    task: TaskRecord,
-  ): Promise<string[]> => {
+  const cancelTaskAgentRuns = async (task: TaskRecord): Promise<string[]> => {
     const runIds = activeAgentRunIds(task);
     if (runIds.length === 0) return [];
     const agentService = agent?.();
@@ -2581,10 +2659,9 @@ export function createTaskRoutes(
       return { task, execution: { status: "not-agent" } };
     }
     const byId = new Map(
-      service.list(task.workspaceId).map((candidate) => [
-        candidate.id,
-        candidate,
-      ]),
+      service
+        .list(task.workspaceId)
+        .map((candidate) => [candidate.id, candidate]),
     );
     if (!dependenciesSatisfied(task, byId)) {
       return { task, execution: { status: "blocked-dependency" } };
@@ -2611,10 +2688,7 @@ export function createTaskRoutes(
       ) {
         continue;
       }
-      await dispatchTaskWhenReady(
-        dependent,
-        actorForTaskAutomation(dependent),
-      );
+      await dispatchTaskWhenReady(dependent, actorForTaskAutomation(dependent));
     }
   };
   service.subscribeChanges((changed) => {
@@ -2640,7 +2714,10 @@ export function createTaskRoutes(
             taskId: query(request).get("taskId") ?? "",
           });
           const task = service.get(params.taskId);
-          requireAccess(request, team, task.workspaceId);
+          const actor = requireAccess(request, team, task.workspaceId);
+          if (!workflowClaimVisibleTo(task, actor)) {
+            throw new TaskError("not_found", "task not found");
+          }
           sendJson(response, 200, {
             ok: true,
             sessionId: taskAgentSessionId(agent?.(), task) ?? "",
@@ -2660,7 +2737,10 @@ export function createTaskRoutes(
             taskId: query(request).get("taskId") ?? "",
           });
           const task = service.get(params.taskId);
-          requireAccess(request, team, task.workspaceId);
+          const actor = requireAccess(request, team, task.workspaceId);
+          if (!workflowClaimVisibleTo(task, actor)) {
+            throw new TaskError("not_found", "task not found");
+          }
           sendJson(response, 200, { ok: true, task });
         } catch (cause) {
           routeError(response, cause);
@@ -2708,9 +2788,7 @@ export function createTaskRoutes(
       kind: "exact",
       path: "/api/collab/tasks/execution/stop",
       handler: mutate(async (_request, currentActor, body) => {
-        const parsed = z
-          .object({ taskId: z.string().min(1) })
-          .parse(body);
+        const parsed = z.object({ taskId: z.string().min(1) }).parse(body);
         const task = service.get(parsed.taskId);
         if (
           task.createdBy !== currentActor.id &&
@@ -2785,54 +2863,57 @@ export function createTaskRoutes(
     {
       kind: "exact",
       path: "/api/collab/tasks/create",
-      handler: mutate(async (_request, currentActor, body) => {
-        const bodyRecord =
-          typeof body === "object" && body !== null
-            ? (body as Record<string, unknown>)
-            : {};
-        const parsedAttachments = z
-          .array(attachmentUploadSchema)
-          .max(20)
-          .safeParse(bodyRecord.attachments ?? []);
-        if (!parsedAttachments.success) {
-          throw new TaskError("invalid_input", "任务附件内容不合法");
-        }
-        let task = await service.create(currentActor, {
-          ...bodyRecord,
-          attachments: parsedAttachments.data.map(
-            ({ contentBase64: _contentBase64, ...attachment }) => attachment,
-          ),
-        });
-        if (parsedAttachments.data.length > 0) {
-          const root = workspaceRoot(task);
-          if (root === undefined) {
-            throw new TaskError("conflict", "任务工作区不可用");
+      handler: mutate(
+        async (_request, currentActor, body) => {
+          const bodyRecord =
+            typeof body === "object" && body !== null
+              ? (body as Record<string, unknown>)
+              : {};
+          const parsedAttachments = z
+            .array(attachmentUploadSchema)
+            .max(20)
+            .safeParse(bodyRecord.attachments ?? []);
+          if (!parsedAttachments.success) {
+            throw new TaskError("invalid_input", "任务附件内容不合法");
           }
-          const uploaded = [];
-          for (const attachment of parsedAttachments.data) {
-            const document = await persistTaskUpload(
-              root,
-              task.id,
-              attachment,
-              currentActor.name,
-            );
-            uploaded.push({
-              name: document.name,
-              size: document.size,
-              mimeType: document.mimeType,
-              storedPath: document.relativePath,
+          let task = await service.create(currentActor, {
+            ...bodyRecord,
+            attachments: parsedAttachments.data.map(
+              ({ contentBase64: _contentBase64, ...attachment }) => attachment,
+            ),
+          });
+          if (parsedAttachments.data.length > 0) {
+            const root = workspaceRoot(task);
+            if (root === undefined) {
+              throw new TaskError("conflict", "任务工作区不可用");
+            }
+            const uploaded = [];
+            for (const attachment of parsedAttachments.data) {
+              const document = await persistTaskUpload(
+                root,
+                task.id,
+                attachment,
+                currentActor.name,
+              );
+              uploaded.push({
+                name: document.name,
+                size: document.size,
+                mimeType: document.mimeType,
+                storedPath: document.relativePath,
+              });
+            }
+            task = await service.setDescriptionAttachments(currentActor, {
+              taskId: task.id,
+              attachments: uploaded,
             });
           }
-          task = await service.setDescriptionAttachments(currentActor, {
-            taskId: task.id,
-            attachments: uploaded,
-          });
-        }
-        if (task.receiverType !== "agent" || task.receiverId === undefined) {
-          return { task };
-        }
-        return dispatchTaskWhenReady(task, currentActor);
-      }, 32 * 1024 * 1024),
+          if (task.receiverType !== "agent" || task.receiverId === undefined) {
+            return { task };
+          }
+          return dispatchTaskWhenReady(task, currentActor);
+        },
+        32 * 1024 * 1024,
+      ),
     },
     {
       kind: "exact",
@@ -2997,7 +3078,9 @@ export function createTaskRoutes(
         // 项目角色任务：只有该角色当前在册的成员可以认领；任意一人认领
         // 并完成即视为任务完成（或签）。角色目录不可用时保持旧行为。
         const members =
-          task.receiverType === "role" && task.receiverId !== undefined
+          task.receiverType === "role" &&
+          task.receiverId !== undefined &&
+          task.workflow?.dispatchMode !== "claim"
             ? seatMembers(assignments, task.workspaceId, task.receiverId)
             : undefined;
         if (
@@ -3024,6 +3107,7 @@ export function createTaskRoutes(
             status: z.enum([
               "todo",
               "progress",
+              "abnormal",
               "review",
               "done",
               "cancelled",
@@ -3103,10 +3187,7 @@ export function createTaskRoutes(
             teammates: teammates?.(),
           })
         ) {
-          throw new TaskError(
-            "forbidden",
-            "只有任务负责人可以发起催办",
-          );
+          throw new TaskError("forbidden", "只有任务负责人可以发起催办");
         }
         const actions: Record<string, () => Promise<TaskRecord>> = {
           start: () => service.start(currentActor, taskIdValue),
@@ -3150,7 +3231,7 @@ export function createTaskRoutes(
         const mentions = Array.isArray(
           (body as { readonly mentions?: unknown } | null)?.mentions,
         )
-          ? ((body as { readonly mentions: readonly unknown[] }).mentions)
+          ? (body as { readonly mentions: readonly unknown[] }).mentions
           : [];
         const allowedAgentRefs = availableAgentRefs(
           currentTask.workspaceId,
@@ -3223,7 +3304,7 @@ export function createTaskRoutes(
         const mentions = Array.isArray(
           (body as { readonly mentions?: unknown } | null)?.mentions,
         )
-          ? ((body as { readonly mentions: readonly unknown[] }).mentions)
+          ? (body as { readonly mentions: readonly unknown[] }).mentions
           : [];
         const allowedAgentRefs = availableAgentRefs(
           currentTask.workspaceId,
@@ -3261,18 +3342,13 @@ export function createTaskRoutes(
           ).values(),
         ];
         for (const mention of mentionedAgents) {
-          task = await dispatchMention(
-            task,
-            currentActor,
-            mention,
-            {
-              messageId: comment.id,
-              content: comment.content,
-              ...(task.workflow === undefined
-                ? {}
-                : { purpose: "workflow-discussion" as const }),
-            },
-          );
+          task = await dispatchMention(task, currentActor, mention, {
+            messageId: comment.id,
+            content: comment.content,
+            ...(task.workflow === undefined
+              ? {}
+              : { purpose: "workflow-discussion" as const }),
+          });
         }
         return { task, dispatched: mentionedAgents.length > 0 };
       }),
@@ -3485,6 +3561,12 @@ export async function apply(ctx: TaskContext): Promise<void> {
           // Domain events are best-effort.
         }
       },
+      permissions: () =>
+        ctx.get("collabPermission") as TaskPermissionServiceLike | undefined,
+      executionProjection: (taskId, workspaceId) =>
+        (
+          ctx.get("collabAgent") as TaskAgentServiceLike | undefined
+        )?.taskExecution?.(taskId, workspaceId),
     },
   );
   ctx.provide("collabTasks", service);
@@ -3622,6 +3704,9 @@ export async function apply(ctx: TaskContext): Promise<void> {
             PrincipalRuntimeServiceLike | undefined,
         context: () =>
           child.get("collabContext") as TaskContextServiceLike | undefined,
+        permissions: () =>
+          child.get("collabPermission") as
+            TaskPermissionServiceLike | undefined,
       }),
     };
     child.provide("collabTaskDispatch", dispatchService);

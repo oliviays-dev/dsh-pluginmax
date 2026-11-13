@@ -40,6 +40,31 @@ window.__ModuleLoader__.load({
     ];
     const MODULE_ORDER = FACTORY_ORDER;
     const READ_MODULES = new Set(["todo", "focus", "meeting-minutes"]);
+    const BRIEF_INCLUDE_OPTIONS = [
+      { id: "task_review", label: "待我验收" },
+      { id: "task_escalation", label: "任务升级" },
+      { id: "task_nudge", label: "被催办" },
+      { id: "run_terminal", label: "执行异常" },
+      { id: "workflow_blocked", label: "流程阻塞" },
+      { id: "workflow_approval", label: "审批等待" },
+    ];
+    const BRIEF_SECTION_META = {
+      progress: {
+        title: "项目关键进展",
+        limit: 3,
+        help: "只展示已确认的结果、决策或业务影响。普通任务动作、执行次数和打开页面不进入首屏。",
+      },
+      anomaly: {
+        title: "异常提醒",
+        limit: 2,
+        help: "只展示命中阈值或状态规则的任务、工作流和运行异常。同一事项会合并为一条。",
+      },
+      attention: {
+        title: "待你处理",
+        limit: 1,
+        help: "只保留需要你决定、验收、授权或协调的事项；普通待办不进入这里。",
+      },
+    };
 
     function itemReadSignature(item) {
       return `${item?.kind ?? "item"}:${item?.id ?? ""}:${item?.updatedAt ?? ""}`;
@@ -223,6 +248,82 @@ ${SCOPE_BUTTON_STYLES}
 .pmwb-decision{margin-top:7px;padding:8px 10px;border-left:2px solid var(--dsw-alias-accent-primary,#4f8ef7);border-radius:0 6px 6px 0;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 9%,transparent);font-size:11.5px;line-height:1.6;color:var(--dsw-alias-label-secondary);}
 .pmwb-decision strong{display:block;margin-bottom:3px;color:var(--dsw-alias-label-primary);}
 .pmwb-brief-meta{margin:8px 0 0;color:var(--dsw-alias-label-tertiary);font-size:11px;}
+.pmwb-brief-v2{display:grid;gap:0;min-width:0;}
+.pmwb-brief-section{position:relative;padding-top:12px;}
+.pmwb-brief-section-head{display:flex;align-items:center;gap:6px;min-height:24px;margin-bottom:5px;}
+.pmwb-brief-section-title{display:flex;align-items:center;gap:5px;margin:0;color:var(--dsw-alias-label-secondary);font-size:11.5px;font-weight:680;line-height:1.3;}
+.pmwb-brief-section-count{padding:0 5px;border-radius:999px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font-size:9.5px;line-height:17px;}
+.pmwb-brief-section-actions{display:flex;align-items:center;gap:3px;margin-left:auto;}
+.pmwb-brief-help-btn{width:21px;height:21px;display:grid;place-items:center;padding:0;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer;}
+.pmwb-brief-help-btn:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);}
+.pmwb-brief-help-btn svg{width:12px;height:12px;}
+.pmwb-brief-help{position:absolute;top:37px;left:0;z-index:8;width:min(310px,calc(100% - 8px));padding:9px 10px;border:1px solid var(--dsw-alias-border-l3);border-radius:7px;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));box-shadow:0 12px 28px rgba(0,0,0,.3);color:var(--dsw-alias-label-secondary);font-size:10.5px;line-height:1.55;}
+.pmwb-brief-help strong{display:block;margin-bottom:2px;color:var(--dsw-alias-label-primary);font-size:11px;}
+.pmwb-brief-linkbtn{display:inline-flex;align-items:center;gap:2px;min-height:22px;padding:0 4px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:10px;cursor:pointer;}
+.pmwb-brief-linkbtn:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
+.pmwb-brief-linkbtn svg{width:11px;height:11px;}
+.pmwb-brief-list{overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-2);}
+.pmwb-brief-row{width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto 14px;align-items:center;gap:9px;min-height:46px;padding:7px 10px;border:0;border-top:1px solid var(--dsw-alias-border-l2);background:transparent;color:inherit;text-align:left;cursor:pointer;}
+.pmwb-brief-row:first-child{border-top:0;}
+.pmwb-brief-row:hover{background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 6%,var(--dsw-alias-bg-layer-2));}
+.pmwb-brief-row.read{opacity:.62;}
+.pmwb-brief-row-main{min-width:0;}
+.pmwb-brief-row-titleline{display:flex;align-items:center;gap:6px;min-width:0;}
+.pmwb-brief-row-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-primary);font-size:11.8px;font-weight:640;line-height:1.42;}
+.pmwb-brief-row-kind{flex:none;padding:0 5px;border-radius:3px;font-size:9px;line-height:16px;font-weight:650;}
+.pmwb-brief-row-kind.anomaly{color:var(--dsw-alias-state-error-primary,#e5534b);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 14%,transparent);}
+.pmwb-brief-row-kind.attention{color:var(--dsw-alias-state-warning-primary,#d29922);background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d29922) 16%,transparent);}
+.pmwb-brief-row-sub{display:block;min-width:0;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:10.5px;line-height:1.45;}
+.pmwb-brief-row-trailing{display:flex;align-items:center;gap:6px;justify-self:end;white-space:nowrap;}
+.pmwb-brief-status{display:inline-flex;align-items:center;height:19px;padding:0 6px;border-radius:4px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-secondary);font-size:9.5px;font-weight:650;}
+.pmwb-brief-status.ok{color:var(--dsw-alias-state-success-primary,#3fb950);background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#3fb950) 14%,transparent);}
+.pmwb-brief-status.warn{color:var(--dsw-alias-state-warning-primary,#d29922);background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d29922) 16%,transparent);}
+.pmwb-brief-status.high{color:var(--dsw-alias-state-error-primary,#e5534b);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 14%,transparent);}
+.pmwb-brief-row-time{color:var(--dsw-alias-label-tertiary);font-size:9.5px;}
+.pmwb-brief-chevron{width:14px;height:14px;color:var(--dsw-alias-label-tertiary);transition:transform .14s ease,color .14s ease;}
+.pmwb-brief-row:hover .pmwb-brief-chevron{color:var(--dsw-alias-label-primary);transform:translateX(1px);}
+.pmwb-brief-empty{padding:14px 10px;border:1px dashed var(--dsw-alias-border-l2);border-radius:7px;color:var(--dsw-alias-label-tertiary);font-size:11px;text-align:center;}
+.pmwb-brief-footer{display:flex;align-items:center;gap:7px;margin-top:10px;padding-top:9px;border-top:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-tertiary);font-size:10px;}
+.pmwb-brief-footer span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pmwb-brief-footer .pmwb-brief-linkbtn{margin-left:auto;flex:none;}
+.pmwb-brief-needs{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 7px;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 13%,transparent);color:var(--dsw-alias-state-error-primary,#e5534b);font-size:10px;font-weight:650;white-space:nowrap;}
+.pmwb-brief-needs::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor;}
+.pmwb-brief-drawer-mask{display:flex;justify-content:flex-end;padding:0;background:rgba(0,0,0,.38);backdrop-filter:blur(2px);}
+.pmwb-brief-drawer{width:min(430px,100vw);height:100%;display:flex;flex-direction:column;border-left:1px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));box-shadow:-20px 0 54px rgba(0,0,0,.3);animation:pmwb-brief-drawer-in .18s ease-out;}
+@keyframes pmwb-brief-drawer-in{from{transform:translateX(18px);opacity:.6;}to{transform:translateX(0);opacity:1;}}
+.pmwb-brief-drawer-head{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--dsw-alias-border-l2);}
+.pmwb-brief-drawer-head h2{flex:1;min-width:0;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;}
+.pmwb-brief-drawer-body{flex:1;min-height:0;display:grid;align-content:start;gap:13px;padding:14px;overflow:auto;}
+.pmwb-brief-drawer-kicker{display:flex;align-items:center;gap:5px;color:var(--dsw-alias-label-tertiary);font-size:10px;}
+.pmwb-brief-drawer-kicker::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--dsw-alias-state-warning-primary,#d29922);}
+.pmwb-brief-drawer-title{margin:0;color:var(--dsw-alias-label-primary);font-size:16px;line-height:1.42;}
+.pmwb-brief-drawer-text{color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1.65;overflow-wrap:anywhere;}
+.pmwb-brief-drawer-block{display:grid;gap:6px;padding-top:11px;border-top:1px solid var(--dsw-alias-border-l2);}
+.pmwb-brief-drawer-block h3{margin:0;color:var(--dsw-alias-label-secondary);font-size:10.5px;font-weight:680;}
+.pmwb-brief-facts{display:grid;grid-template-columns:74px minmax(0,1fr);gap:5px 9px;margin:0;font-size:10.5px;}
+.pmwb-brief-facts dt{color:var(--dsw-alias-label-tertiary);}
+.pmwb-brief-facts dd{margin:0;color:var(--dsw-alias-label-primary);overflow-wrap:anywhere;}
+.pmwb-brief-evidence{width:100%;display:flex;align-items:center;gap:7px;padding:8px 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);text-align:left;font:inherit;font-size:10.5px;cursor:pointer;}
+.pmwb-brief-evidence:hover{border-color:var(--dsw-alias-border-l4,var(--dsw-alias-border-l3));color:var(--dsw-alias-label-primary);}
+.pmwb-brief-evidence span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pmwb-brief-evidence svg{width:13px;height:13px;color:var(--dsw-alias-label-tertiary);}
+.pmwb-brief-recommend{padding:9px 10px;border-left:2px solid var(--dsw-alias-accent-primary,#4f8ef7);border-radius:0 6px 6px 0;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 9%,transparent);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.6;}
+.pmwb-brief-recommend strong{display:block;margin-bottom:2px;color:var(--dsw-alias-label-primary);}
+.pmwb-brief-drawer-foot{display:flex;justify-content:flex-end;gap:7px;padding:10px 14px 12px;border-top:1px solid var(--dsw-alias-border-l2);}
+.pmwb-brief-settings{width:min(680px,100%);}
+.pmwb-brief-tabs{display:flex;gap:14px;padding:0 14px;border-bottom:1px solid var(--dsw-alias-border-l2);}
+.pmwb-brief-tab{position:relative;height:34px;padding:0;border:0;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:11px;cursor:pointer;}
+.pmwb-brief-tab.active{color:var(--dsw-alias-label-primary);}
+.pmwb-brief-tab.active::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--dsw-alias-accent-primary,#4f8ef7);}
+.pmwb-brief-config-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;}
+.pmwb-brief-config-option{display:flex;align-items:center;gap:7px;min-height:30px;padding:5px 7px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);font-size:11px;cursor:pointer;}
+.pmwb-brief-config-option input{margin:0;accent-color:var(--dsw-alias-accent-primary,#4f8ef7);}
+.pmwb-brief-rule{display:grid;gap:6px;padding:9px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-2);}
+.pmwb-brief-rule-head{display:flex;align-items:center;gap:7px;}
+.pmwb-brief-rule-head .pmwb-input{flex:1;}
+.pmwb-brief-rule textarea{width:100%;min-height:70px;resize:vertical;padding:7px 8px;border:1px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:11.5px;line-height:1.55;}
+.pmwb-brief-settings-section{display:grid;gap:7px;}
+.pmwb-brief-settings-label{margin:0;color:var(--dsw-alias-label-secondary);font-size:10.5px;font-weight:680;}
 .pmwb-metrics{display:flex;gap:10px;min-width:0;overflow-x:auto;padding-bottom:2px;}
 .pmwb-metric-source{display:flex;gap:6px;align-items:center;margin-bottom:8px;padding:4px 7px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:1.45;}
 .pmwb-metric-source b{color:var(--dsw-alias-label-secondary);font-weight:650;}
@@ -1063,6 +1164,18 @@ ${SCOPE_BUTTON_STYLES}
         },
         h("path", { d: "M18 6 6 18M6 6l12 12" }),
       ),
+      chevron: h(
+        "svg",
+        {
+          viewBox: "0 0 24 24",
+          fill: "none",
+          stroke: "currentColor",
+          strokeWidth: 2,
+          strokeLinecap: "round",
+          strokeLinejoin: "round",
+        },
+        h("path", { d: "m9 18 6-6-6-6" }),
+      ),
     };
 
     const scrollMemory = { value: 0 };
@@ -1140,50 +1253,54 @@ ${SCOPE_BUTTON_STYLES}
                 className: "pmwb-metric-source",
                 "data-data-mode": data.dataMode,
               },
-              h("b", null, data.dataMode === "unavailable" ? "数据不可用" : "数据来源"),
+              h(
+                "b",
+                null,
+                data.dataMode === "unavailable" ? "数据不可用" : "数据来源",
+              ),
               h("span", null, data.sourceNote),
             )
           : null,
         h(
-        "div",
-        { className: "pmwb-metrics" },
-        ...items.map((metric) =>
-          h(
-            "article",
-            { className: "pmwb-metric", key: metric.id },
+          "div",
+          { className: "pmwb-metrics" },
+          ...items.map((metric) =>
             h(
-              "div",
-              { className: "pmwb-metric-label" },
-              h("span", null, metric.label),
-              metric.trend
-                ? h(
-                    "span",
-                    { className: `pmwb-metric-trend ${metric.trendClass}` },
-                    metric.trend,
-                  )
-                : null,
-            ),
-            h(
-              "div",
-              { className: "pmwb-metric-value" },
-              metric.value,
-              metric.unit ? h("small", null, metric.unit) : null,
-            ),
-            h("div", { className: "pmwb-metric-target" }, metric.target),
-            h(
-              "div",
-              { className: "pmwb-spark", "aria-hidden": "true" },
-              ...(metric.spark ?? []).map((height, index) =>
-                h("span", {
-                  key: `${metric.id}-${index}`,
-                  className:
-                    height >= 62 ? "strong" : height <= 36 ? "warn" : "",
-                  style: { height: `${height}%` },
-                }),
+              "article",
+              { className: "pmwb-metric", key: metric.id },
+              h(
+                "div",
+                { className: "pmwb-metric-label" },
+                h("span", null, metric.label),
+                metric.trend
+                  ? h(
+                      "span",
+                      { className: `pmwb-metric-trend ${metric.trendClass}` },
+                      metric.trend,
+                    )
+                  : null,
+              ),
+              h(
+                "div",
+                { className: "pmwb-metric-value" },
+                metric.value,
+                metric.unit ? h("small", null, metric.unit) : null,
+              ),
+              h("div", { className: "pmwb-metric-target" }, metric.target),
+              h(
+                "div",
+                { className: "pmwb-spark", "aria-hidden": "true" },
+                ...(metric.spark ?? []).map((height, index) =>
+                  h("span", {
+                    key: `${metric.id}-${index}`,
+                    className:
+                      height >= 62 ? "strong" : height <= 36 ? "warn" : "",
+                    style: { height: `${height}%` },
+                  }),
+                ),
               ),
             ),
           ),
-        ),
         ),
       );
     }
@@ -1424,128 +1541,393 @@ ${SCOPE_BUTTON_STYLES}
       return h("div", { className: "pmwb-brief-md" }, ...blocks);
     }
 
+    function briefKindOf(item) {
+      if (item?.section === "risk") return "anomaly";
+      if (item?.section === "escalation") return "attention";
+      return "progress";
+    }
+
+    function groupBriefItems(items) {
+      const groups = {
+        progress: [],
+        anomaly: [],
+        attention: [],
+      };
+      for (const item of items ?? []) {
+        groups[briefKindOf(item)].push(item);
+      }
+      return groups;
+    }
+
+    function briefPlainText(value) {
+      return String(value ?? "")
+        .replace(/```[\s\S]*?```/g, " ")
+        .replace(/^#{1,6}\s*/gm, "")
+        .replace(/^\s*[-*+]\s*/gm, "")
+        .replace(/^\s*\d+[.)]\s*/gm, "")
+        .replace(/\*\*([^*]+)\*\*/g, "$1")
+        .replace(/`([^`]+)`/g, "$1")
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+        .replace(/[*~]+/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    function briefStatusClass(item) {
+      const kind = briefKindOf(item);
+      if (kind === "anomaly") return "high";
+      if (kind === "attention") return "warn";
+      return /验收|待确认|待处理/u.test(item?.statusLabel ?? "")
+        ? "warn"
+        : "ok";
+    }
+
+    function briefTimeLabel(item) {
+      if (typeof item?.deadline === "string" && item.deadline !== "") {
+        return `截止 ${formatDate(item.deadline)}`;
+      }
+      return formatTime(item?.occurredAt);
+    }
+
+    function briefSourceLabel(item) {
+      if (item?.sourceDomain === "workflow") return "工作流";
+      if (item?.sourceDomain === "agent-run") return "执行记录";
+      return "任务";
+    }
+
+    function renderBriefDetailDrawer(item, ctx) {
+      if (item === null || item === undefined) return null;
+      const facts = [
+        ["状态", item.statusLabel || briefTagLabel(item.tag) || "待处理"],
+        ...(item.executorName
+          ? [
+              [
+                item.executorRole === "审批人" ? "审批人" : "责任",
+                `${item.executorName}${item.executorRole ? ` · ${item.executorRole}` : ""}`,
+              ],
+            ]
+          : []),
+        ["时间", formatTime(item.occurredAt)],
+        ...(item.deadline ? [["截止", formatDate(item.deadline)]] : []),
+        ...(item.workspaceName ? [["项目", item.workspaceName]] : []),
+      ];
+      return h(
+        "div",
+        {
+          className: "pmwb-mask open pmwb-brief-drawer-mask",
+          role: "presentation",
+          onClick: (event) => {
+            if (event.target === event.currentTarget) ctx.closeBriefDetail();
+          },
+        },
+        h(
+          "aside",
+          {
+            className: "pmwb-brief-drawer",
+            role: "dialog",
+            "aria-modal": "true",
+            "aria-labelledby": "pmwb-brief-detail-title",
+          },
+          h(
+            "header",
+            { className: "pmwb-brief-drawer-head" },
+            h("h2", { id: "pmwb-brief-detail-title" }, item.title),
+            h(
+              "button",
+              {
+                type: "button",
+                className: "pmwb-iconbtn",
+                "aria-label": "关闭简报详情",
+                title: "关闭",
+                onClick: ctx.closeBriefDetail,
+              },
+              ICONS.close,
+            ),
+          ),
+          h(
+            "div",
+            { className: "pmwb-brief-drawer-body" },
+            h(
+              "div",
+              null,
+              h(
+                "div",
+                { className: "pmwb-brief-drawer-kicker" },
+                `${briefSourceLabel(item)} · ${briefTagLabel(item.tag) || "简报"}`,
+              ),
+              h("h3", { className: "pmwb-brief-drawer-title" }, item.title),
+              item.conclusion
+                ? h(
+                    "div",
+                    { className: "pmwb-brief-drawer-text" },
+                    renderBriefMarkdown(item.conclusion),
+                  )
+                : null,
+            ),
+            h(
+              "section",
+              { className: "pmwb-brief-drawer-block" },
+              h("h3", null, "关键事实"),
+              h(
+                "dl",
+                { className: "pmwb-brief-facts" },
+                ...facts.flatMap(([label, value]) => [
+                  h("dt", { key: `dt-${label}` }, label),
+                  h("dd", { key: `dd-${label}` }, value),
+                ]),
+              ),
+            ),
+            item.reason
+              ? h(
+                  "section",
+                  { className: "pmwb-brief-drawer-block" },
+                  h("h3", null, "为什么看到这条"),
+                  h(
+                    "div",
+                    { className: "pmwb-brief-drawer-text" },
+                    item.reason,
+                  ),
+                )
+              : null,
+            h(
+              "section",
+              { className: "pmwb-brief-drawer-block" },
+              h("h3", null, "证据与来源"),
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "pmwb-brief-evidence",
+                  onClick: ctx.navigateBriefItem,
+                },
+                ICONS.chevron,
+                h("span", null, `${briefSourceLabel(item)} · ${item.sourceId}`),
+                ICONS.chevron,
+              ),
+            ),
+            item.suggestion
+              ? h(
+                  "section",
+                  { className: "pmwb-brief-drawer-block" },
+                  h("h3", null, "建议下一步"),
+                  h(
+                    "div",
+                    { className: "pmwb-brief-recommend" },
+                    h("strong", null, item.suggestion.headline),
+                    item.suggestion.body,
+                  ),
+                )
+              : null,
+          ),
+          h(
+            "footer",
+            { className: "pmwb-brief-drawer-foot" },
+            h(
+              "button",
+              {
+                type: "button",
+                className: "pmwb-btn",
+                onClick: ctx.closeBriefDetail,
+              },
+              "关闭",
+            ),
+            h(
+              "button",
+              {
+                type: "button",
+                className: "pmwb-btn primary",
+                onClick: ctx.navigateBriefItem,
+              },
+              item.actionLabel || "前往处理",
+              ICONS.chevron,
+            ),
+          ),
+        ),
+      );
+    }
+
+    function renderBriefSection(kind, items, ctx) {
+      const meta = BRIEF_SECTION_META[kind];
+      const expanded = Boolean(ctx.briefExpandedSections?.[kind]);
+      const visible = expanded ? items : items.slice(0, meta.limit);
+      const hiddenCount = Math.max(0, items.length - visible.length);
+      const helpOpen = ctx.briefHelpSection === kind;
+      return h(
+        "section",
+        { className: "pmwb-brief-section", key: kind },
+        h(
+          "div",
+          { className: "pmwb-brief-section-head" },
+          h(
+            "h3",
+            { className: "pmwb-brief-section-title" },
+            meta.title,
+            h("span", { className: "pmwb-brief-section-count" }, items.length),
+          ),
+          h(
+            "div",
+            { className: "pmwb-brief-section-actions" },
+            h(
+              "button",
+              {
+                type: "button",
+                className: "pmwb-brief-help-btn",
+                "aria-label": `${meta.title}说明`,
+                title: `${meta.title}说明`,
+                "aria-expanded": helpOpen,
+                onClick: (event) => {
+                  event.stopPropagation();
+                  ctx.toggleBriefHelp(kind);
+                },
+              },
+              ICONS.info,
+            ),
+            items.length > meta.limit
+              ? h(
+                  "button",
+                  {
+                    type: "button",
+                    className: "pmwb-brief-linkbtn",
+                    onClick: (event) => {
+                      event.stopPropagation();
+                      ctx.toggleBriefSection(kind);
+                    },
+                  },
+                  expanded
+                    ? "收起"
+                    : kind === "progress"
+                      ? `查看全部 ${items.length}`
+                      : `其它 ${hiddenCount} 条`,
+                  ICONS.chevron,
+                )
+              : null,
+          ),
+          helpOpen
+            ? h(
+                "div",
+                { className: "pmwb-brief-help", role: "note" },
+                h("strong", null, meta.title),
+                meta.help,
+              )
+            : null,
+        ),
+        h(
+          "div",
+          { className: "pmwb-brief-list" },
+          ...visible.map((item) => {
+            const kindLabel =
+              kind === "progress"
+                ? null
+                : briefTagLabel(item.tag) ||
+                  (kind === "anomaly" ? "异常" : "待处理");
+            return h(
+              "button",
+              {
+                key: item.itemId,
+                type: "button",
+                className: `pmwb-brief-row${item.readState === "read" ? " read" : ""}`,
+                ...dataAgentBriefAttributes(item),
+                onClick: () => ctx.openBriefDetail(item),
+              },
+              h(
+                "span",
+                { className: "pmwb-brief-row-main" },
+                h(
+                  "span",
+                  { className: "pmwb-brief-row-titleline" },
+                  h("span", { className: "pmwb-brief-row-title" }, item.title),
+                  kindLabel
+                    ? h(
+                        "span",
+                        { className: `pmwb-brief-row-kind ${kind}` },
+                        kindLabel,
+                      )
+                    : null,
+                ),
+                h(
+                  "span",
+                  { className: "pmwb-brief-row-sub" },
+                  briefPlainText(
+                    item.conclusion || item.reason || item.statusLabel,
+                  ),
+                ),
+              ),
+              h(
+                "span",
+                { className: "pmwb-brief-row-trailing" },
+                item.statusLabel
+                  ? h(
+                      "span",
+                      {
+                        className: `pmwb-brief-status ${briefStatusClass(item)}`,
+                      },
+                      item.statusLabel,
+                    )
+                  : null,
+                h(
+                  "span",
+                  { className: "pmwb-brief-row-time" },
+                  briefTimeLabel(item),
+                ),
+              ),
+              h(
+                "span",
+                { className: "pmwb-brief-chevron", "aria-hidden": "true" },
+                ICONS.chevron,
+              ),
+            );
+          }),
+        ),
+      );
+    }
+
     function renderBriefBody(modulePayload, ctx) {
       const data = modulePayload.data ?? {};
       const items =
         ctx.briefView === "unread"
           ? (data.views?.unread ?? [])
           : (data.views?.all ?? []);
+      const groups = groupBriefItems(items);
       return h(
         "div",
-        null,
+        { className: "pmwb-brief-v2" },
         items.length === 0
           ? h(
               "div",
-              { className: "pmwb-empty" },
+              { className: "pmwb-brief-empty" },
               ctx.briefView === "unread"
                 ? "当前没有未读简报条目。"
                 : "当前周期没有新增简报。",
             )
-          : h(
-              "ul",
-              { className: "pmwb-brief-points" },
-              ...items.map((item) => {
-                const expanded = Boolean(ctx.expanded[item.itemId]);
-                const textExpanded = Boolean(
-                  ctx.briefTextExpanded?.[item.itemId],
-                );
-                const longText =
-                  typeof item.conclusion === "string" &&
-                  item.conclusion.length > 320;
-                return h(
-                  "li",
-                  {
-                    key: item.itemId,
-                    className: `${item.tag}${item.readState === "read" ? " read" : ""}`,
-                    ...dataAgentBriefAttributes(item),
-                  },
-                  h(
-                    "div",
-                    { className: "pmwb-brief-copy" },
-                    h("div", { className: "pmwb-brief-title" }, item.title),
-                    item.conclusion
-                      ? h(
-                          "div",
-                          {
-                            className: `pmwb-brief-text${longText && !textExpanded ? " clamped" : ""}`,
-                          },
-                          renderBriefMarkdown(item.conclusion),
-                        )
-                      : null,
-                    longText
-                      ? h(
-                          "button",
-                          {
-                            type: "button",
-                            className: "pmwb-brief-more",
-                            "aria-expanded": textExpanded,
-                            onClick: (event) => {
-                              event.stopPropagation();
-                              ctx.toggleBriefText(item.itemId);
-                            },
-                          },
-                          textExpanded ? "收起" : "展开全文",
-                        )
-                      : null,
-                    item.reason
-                      ? h(
-                          "div",
-                          { className: "pmwb-brief-reason" },
-                          item.reason,
-                        )
-                      : null,
-                    item.suggestion && expanded
-                      ? h(
-                          "div",
-                          { className: "pmwb-decision" },
-                          h("strong", null, item.suggestion.headline),
-                          item.suggestion.body,
-                        )
-                      : null,
-                  ),
-                  h(
-                    "span",
-                    { className: `pmwb-tag ${item.tag}` },
-                    briefTagLabel(item.tag),
-                  ),
-                  h(
-                    "div",
-                    { className: "pmwb-brief-actions" },
-                    item.suggestion
-                      ? h(
-                          "button",
-                          {
-                            type: "button",
-                            className: "pmwb-btn",
-                            "aria-expanded": expanded,
-                            onClick: (event) => {
-                              event.stopPropagation();
-                              ctx.toggleSuggestion(item.itemId);
-                            },
-                          },
-                          expanded ? "收起建议" : "AI建议",
-                        )
-                      : null,
-                    h(
-                      "button",
-                      {
-                        type: "button",
-                        className: "pmwb-btn primary",
-                        onClick: (event) => {
-                          event.stopPropagation();
-                          ctx.openBriefItem(item);
-                        },
-                      },
-                      item.actionLabel || "查看明细",
-                    ),
-                  ),
-                );
-              }),
-            ),
+          : [
+              groups.progress.length > 0
+                ? renderBriefSection("progress", groups.progress, ctx)
+                : null,
+              groups.anomaly.length > 0
+                ? renderBriefSection("anomaly", groups.anomaly, ctx)
+                : null,
+              groups.attention.length > 0
+                ? renderBriefSection("attention", groups.attention, ctx)
+                : null,
+            ],
         h(
-          "p",
-          { className: "pmwb-brief-meta" },
-          `离开窗口 ${formatWindow(data.awayWindow)} · 最近生成 ${formatTime(modulePayload.updatedAt)}`,
+          "footer",
+          { className: "pmwb-brief-footer" },
+          h(
+            "span",
+            null,
+            `覆盖 ${formatWindow(data.awayWindow)} · 更新 ${formatTime(modulePayload.updatedAt)}`,
+          ),
+          h(
+            "button",
+            {
+              type: "button",
+              className: "pmwb-brief-linkbtn",
+              onClick: () => ctx.openBriefSettings(),
+            },
+            "简报设置",
+            ICONS.chevron,
+          ),
         ),
       );
     }
@@ -1846,10 +2228,8 @@ ${SCOPE_BUTTON_STYLES}
       const eligible = (modulePayload.data?.items ?? []).filter((item) =>
         focusItemFollowed(item, ctx.isFollowed),
       );
-      const items = filterUnreadItems(
-        eligible,
-        view,
-        (item) => ctx.isItemRead("focus", item),
+      const items = filterUnreadItems(eligible, view, (item) =>
+        ctx.isItemRead("focus", item),
       );
       if (items.length === 0) {
         return h(
@@ -2271,8 +2651,7 @@ ${SCOPE_BUTTON_STYLES}
     function WorkbenchPage(props) {
       const [mode, setMode] = react.useState("personal");
       const [modules, setModules] = react.useState({});
-      const [visibleModules, setVisibleModules] =
-        react.useState(FACTORY_ORDER);
+      const [visibleModules, setVisibleModules] = react.useState(FACTORY_ORDER);
       const [states, setStates] = react.useState({});
       const [globalError, setGlobalError] = react.useState("");
       const [loading, setLoading] = react.useState(true);
@@ -2286,6 +2665,16 @@ ${SCOPE_BUTTON_STYLES}
       const [briefSettingsOpen, setBriefSettingsOpen] = react.useState(false);
       const [briefMode, setBriefMode] = react.useState("lastLeave");
       const [briefWindowFrom, setBriefWindowFrom] = react.useState("");
+      const [briefDetailItem, setBriefDetailItem] = react.useState(null);
+      const [briefExpandedSections, setBriefExpandedSections] = react.useState(
+        {},
+      );
+      const [briefHelpSection, setBriefHelpSection] = react.useState(null);
+      const [briefSettingsTab, setBriefSettingsTab] = react.useState("content");
+      const [briefIncludeTypes, setBriefIncludeTypes] = react.useState(
+        BRIEF_INCLUDE_OPTIONS.map((option) => option.id),
+      );
+      const [briefCustomRules, setBriefCustomRules] = react.useState([]);
       const [briefSettingsSaving, setBriefSettingsSaving] =
         react.useState(false);
       const [metricSelection, setMetricSelection] = react.useState([]);
@@ -2392,9 +2781,7 @@ ${SCOPE_BUTTON_STYLES}
             `/api/collab/workbench/summary?tzOffset=${TZ_OFFSET}${scopeStore.query()}`,
           );
           setModules(result.modules ?? {});
-          const profileModules = Array.isArray(
-            result.display?.visibleModules,
-          )
+          const profileModules = Array.isArray(result.display?.visibleModules)
             ? result.display.visibleModules.filter((id) =>
                 MODULE_ORDER.includes(id),
               )
@@ -2651,11 +3038,25 @@ ${SCOPE_BUTTON_STYLES}
       react.useEffect(() => {
         if (currentUserId === "") return;
         try {
-          window.localStorage.setItem(READ_STATE_KEY, JSON.stringify(readState));
+          window.localStorage.setItem(
+            READ_STATE_KEY,
+            JSON.stringify(readState),
+          );
         } catch {
           // 已读状态是本地 UI 偏好，存储不可用时仅保留当前会话状态。
         }
       }, [currentUserId, readState]);
+
+      react.useEffect(() => {
+        if (briefDetailItem === null && !briefSettingsOpen) return;
+        const onKeyDown = (event) => {
+          if (event.key !== "Escape") return;
+          if (briefDetailItem !== null) setBriefDetailItem(null);
+          else if (briefSettingsOpen) setBriefSettingsOpen(false);
+        };
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+      }, [briefDetailItem, briefSettingsOpen]);
 
       react.useEffect(() => {
         const stage = stageElement();
@@ -2675,33 +3076,71 @@ ${SCOPE_BUTTON_STYLES}
         navigateTo(link);
       }, []);
 
-      const openBriefItem = react.useCallback(
+      const markBriefItemRead = react.useCallback(
         async (item) => {
-          if (item.readState === "unread") {
-            try {
-              const result = await request(
-                `/api/collab/workbench/brief/read${scopeStore.leading()}`,
-                {
-                  method: "POST",
-                  body: JSON.stringify({
-                    itemId: item.itemId,
-                    tzOffset: TZ_OFFSET,
-                  }),
-                },
-              );
-              setModules((prev) => ({ ...prev, brief: result.module }));
-              setStates((prev) => ({
-                ...prev,
-                brief: { status: "ready" },
-              }));
-            } catch (error) {
-              showToast(`简报状态更新失败：${error.message}`);
-            }
+          if (item?.readState !== "unread") return;
+          try {
+            const result = await request(
+              `/api/collab/workbench/brief/read${scopeStore.leading()}`,
+              {
+                method: "POST",
+                body: JSON.stringify({
+                  itemId: item.itemId,
+                  tzOffset: TZ_OFFSET,
+                }),
+              },
+            );
+            setModules((prev) => ({ ...prev, brief: result.module }));
+            setStates((prev) => ({
+              ...prev,
+              brief: { status: "ready" },
+            }));
+            setBriefDetailItem((prev) =>
+              prev?.itemId === item.itemId
+                ? { ...prev, readState: "read" }
+                : prev,
+            );
+          } catch (error) {
+            showToast(`简报状态更新失败：${error.message}`);
           }
-          navigateTo(item.deepLink);
         },
         [showToast],
       );
+
+      const openBriefDetail = react.useCallback(
+        (item) => {
+          setBriefHelpSection(null);
+          setBriefDetailItem(item);
+          void markBriefItemRead(item);
+        },
+        [markBriefItemRead],
+      );
+
+      const openBriefItem = react.useCallback((item) => {
+        setBriefDetailItem(null);
+        navigateTo(item.deepLink);
+      }, []);
+
+      const closeBriefDetail = react.useCallback(() => {
+        setBriefDetailItem(null);
+      }, []);
+
+      const navigateBriefItem = react.useCallback(() => {
+        const item = briefDetailItem;
+        setBriefDetailItem(null);
+        if (item?.deepLink !== undefined) navigateTo(item.deepLink);
+      }, [briefDetailItem]);
+
+      const toggleBriefSection = react.useCallback((kind) => {
+        setBriefExpandedSections((prev) => ({
+          ...prev,
+          [kind]: !prev[kind],
+        }));
+      }, []);
+
+      const toggleBriefHelp = react.useCallback((kind) => {
+        setBriefHelpSection((prev) => (prev === kind ? null : kind));
+      }, []);
 
       const toggleSuggestion = react.useCallback((itemId) => {
         setExpanded((prev) => ({ ...prev, [itemId]: !prev[itemId] }));
@@ -2955,7 +3394,46 @@ ${SCOPE_BUTTON_STYLES}
         const settings = modules.brief?.data?.settings;
         setBriefMode(settings?.mode ?? "lastLeave");
         setBriefWindowFrom(isoToLocalInput(settings?.manualWindowFrom));
+        setBriefIncludeTypes(
+          settings?.includeTypes?.length > 0
+            ? [...settings.includeTypes]
+            : BRIEF_INCLUDE_OPTIONS.map((option) => option.id),
+        );
+        setBriefCustomRules(
+          (settings?.customRules ?? []).map((rule) => ({ ...rule })),
+        );
+        setBriefSettingsTab("content");
         setBriefSettingsOpen(true);
+      };
+
+      const toggleBriefIncludeType = (id) => {
+        setBriefIncludeTypes((prev) =>
+          prev.includes(id)
+            ? prev.filter((item) => item !== id)
+            : [...prev, id],
+        );
+      };
+
+      const addBriefCustomRule = () => {
+        setBriefCustomRules((prev) => [
+          ...prev,
+          {
+            id: `brief-rule-${Date.now().toString(36)}`,
+            name: "自定义关注",
+            prompt: "",
+            enabled: true,
+          },
+        ]);
+      };
+
+      const updateBriefCustomRule = (id, patch) => {
+        setBriefCustomRules((prev) =>
+          prev.map((rule) => (rule.id === id ? { ...rule, ...patch } : rule)),
+        );
+      };
+
+      const removeBriefCustomRule = (id) => {
+        setBriefCustomRules((prev) => prev.filter((rule) => rule.id !== id));
       };
 
       const saveBriefSettings = async () => {
@@ -2963,6 +3441,19 @@ ${SCOPE_BUTTON_STYLES}
           briefMode === "manual" ? localInputToIso(briefWindowFrom) : undefined;
         if (briefMode === "manual" && manualWindowFrom === undefined) {
           showToast("请选择手动时间窗口的开始时间");
+          return;
+        }
+        if (briefIncludeTypes.length === 0) {
+          showToast("至少保留一种简报内容类型");
+          return;
+        }
+        const customRules = briefCustomRules.map((rule) => ({
+          ...rule,
+          name: String(rule.name ?? "").trim() || "自定义关注",
+          prompt: String(rule.prompt ?? "").trim(),
+        }));
+        if (customRules.some((rule) => rule.prompt === "")) {
+          showToast("请填写自定义关注规则，或删除未完成的规则");
           return;
         }
         setBriefSettingsSaving(true);
@@ -2974,6 +3465,8 @@ ${SCOPE_BUTTON_STYLES}
               body: JSON.stringify({
                 mode: briefMode,
                 ...(briefMode === "manual" ? { manualWindowFrom } : {}),
+                includeTypes: briefIncludeTypes,
+                customRules,
               }),
             },
           );
@@ -3058,9 +3551,15 @@ ${SCOPE_BUTTON_STYLES}
 
       const ctx = {
         briefView,
+        briefExpandedSections,
+        briefHelpSection,
         expanded,
         briefTextExpanded,
+        openBriefDetail,
         openBriefItem,
+        toggleBriefSection,
+        toggleBriefHelp,
+        openBriefSettings,
         toggleSuggestion,
         toggleBriefText,
         openLink,
@@ -3092,195 +3591,207 @@ ${SCOPE_BUTTON_STYLES}
       const briefUnreadCount =
         briefData?.unreadCount ?? briefData?.views?.unread?.length ?? 0;
       const briefAllCount = briefData?.views?.all?.length ?? 0;
+      const briefAttentionCount = groupBriefItems(
+        briefData?.views?.unread ?? [],
+      ).attention.length;
 
       const cards = view.order
         .filter((id) => visibleModules.includes(id))
         .map((id) => {
-        const payload = modules[id];
-        const state = states[id] ?? {
-          status: loading && payload === undefined ? "loading" : "ready",
-        };
-        const size = view.modules[id];
-        const previewValue = preview?.id === id ? preview : null;
-        const cols = previewValue?.cols ?? size.cols;
-        const height = previewValue?.height ?? size.height;
-        const dragging = dragVisual?.id === id;
-        const dropTarget =
-          dragVisual !== null && dragVisual.targetId === id && !dragging;
-        const meta = h(
-          "span",
-          { className: "pmwb-pill" },
-          `更新 ${formatTime(payload?.updatedAt ?? "")}`,
-        );
-        // 简报与三组可读卡片都使用标题旁的未读/全部切换。
-        const readTracked = READ_MODULES.has(id);
-        const readCounts = readTracked ? readCountsFor(id) : null;
-        const readView = readTracked ? moduleView(id) : "all";
-        const titleActions =
-          id === "brief"
-            ? h(
-                react.Fragment,
-                null,
-                h(
-                  "button",
-                  {
-                    type: "button",
-                    className: "pmwb-iconbtn",
-                    "aria-label": "简报生成规则",
-                    title:
-                      "1、只汇总所选时间窗口内与你相关的任务、工作流和 Agent 运行。\n2、默认从上次离开时间开始，最多回看 24 小时。\n3、未读条目保留；结论读后即走，状态闭环后自动移除。",
-                  },
-                  ICONS.info,
-                ),
-                h(
-                  "div",
-                  {
-                    className: "pmwb-seg",
-                    role: "group",
-                    "aria-label": "简报视图",
-                  },
-                  h(
-                    "button",
-                    {
-                      type: "button",
-                      className: briefView === "unread" ? "active" : undefined,
-                      "aria-pressed": briefView === "unread",
-                      onClick: () => setBriefView("unread"),
-                    },
-                    `未读 ${briefUnreadCount}`,
-                  ),
-                  h(
-                    "button",
-                    {
-                      type: "button",
-                      className: briefView === "all" ? "active" : undefined,
-                      "aria-pressed": briefView === "all",
-                      onClick: () => setBriefView("all"),
-                    },
-                    `全部 ${briefAllCount}`,
-                  ),
-                ),
-              )
-            : readTracked
+          const payload = modules[id];
+          const state = states[id] ?? {
+            status: loading && payload === undefined ? "loading" : "ready",
+          };
+          const size = view.modules[id];
+          const previewValue = preview?.id === id ? preview : null;
+          const cols = previewValue?.cols ?? size.cols;
+          const height = previewValue?.height ?? size.height;
+          const dragging = dragVisual?.id === id;
+          const dropTarget =
+            dragVisual !== null && dragVisual.targetId === id && !dragging;
+          const meta = h(
+            "span",
+            { className: "pmwb-pill" },
+            `更新 ${formatTime(payload?.updatedAt ?? "")}`,
+          );
+          // 简报与三组可读卡片都使用标题旁的未读/全部切换。
+          const readTracked = READ_MODULES.has(id);
+          const readCounts = readTracked ? readCountsFor(id) : null;
+          const readView = readTracked ? moduleView(id) : "all";
+          const titleActions =
+            id === "brief"
               ? h(
-                  "div",
-                  {
-                    className: "pmwb-seg",
-                    role: "group",
-                    "aria-label": `${MODULE_META[id].title}视图`,
-                  },
+                  react.Fragment,
+                  null,
                   h(
                     "button",
                     {
                       type: "button",
-                      className: readView === "unread" ? "active" : undefined,
-                      "aria-pressed": readView === "unread",
-                      onClick: () => setModuleView(id, "unread"),
+                      className: "pmwb-iconbtn",
+                      "aria-label": "简报生成规则",
+                      title:
+                        "1、只汇总所选时间窗口内与你相关的任务、工作流和 Agent 运行。\n2、默认从上次离开时间开始，最多回看 24 小时。\n3、未读条目保留；状态闭环后自动移除。",
+                      onClick: openBriefSettings,
                     },
-                    `未读 ${readCounts?.unread ?? 0}`,
+                    ICONS.info,
                   ),
+                  briefAttentionCount > 0
+                    ? h(
+                        "span",
+                        { className: "pmwb-brief-needs" },
+                        `${briefAttentionCount} 项需处理`,
+                      )
+                    : null,
                   h(
-                    "button",
+                    "div",
                     {
-                      type: "button",
-                      className: readView === "all" ? "active" : undefined,
-                      "aria-pressed": readView === "all",
-                      onClick: () => setModuleView(id, "all"),
+                      className: "pmwb-seg",
+                      role: "group",
+                      "aria-label": "简报视图",
                     },
-                    `全部 ${readCounts?.all ?? 0}`,
+                    h(
+                      "button",
+                      {
+                        type: "button",
+                        className:
+                          briefView === "unread" ? "active" : undefined,
+                        "aria-pressed": briefView === "unread",
+                        onClick: () => setBriefView("unread"),
+                      },
+                      `未读 ${briefUnreadCount}`,
+                    ),
+                    h(
+                      "button",
+                      {
+                        type: "button",
+                        className: briefView === "all" ? "active" : undefined,
+                        "aria-pressed": briefView === "all",
+                        onClick: () => setBriefView("all"),
+                      },
+                      `全部 ${briefAllCount}`,
+                    ),
                   ),
                 )
-              : null;
-        const extraActions =
-          id === "brief"
-            ? h(
-                react.Fragment,
-                null,
-                meta,
-                h(
-                  "button",
-                  {
-                    type: "button",
-                    className: "pmwb-iconbtn",
-                    "aria-label": "编辑简报生成规则",
-                    title: "编辑简报生成规则",
-                    "aria-haspopup": "dialog",
-                    onClick: openBriefSettings,
-                  },
-                  ICONS.gear,
-                ),
-                briefPushed
-                  ? h(
-                      "span",
-                      { className: "pmwb-pill accent", role: "status" },
-                      "已更新",
-                    )
-                  : null,
-              )
-            : id === "metrics"
+              : readTracked
+                ? h(
+                    "div",
+                    {
+                      className: "pmwb-seg",
+                      role: "group",
+                      "aria-label": `${MODULE_META[id].title}视图`,
+                    },
+                    h(
+                      "button",
+                      {
+                        type: "button",
+                        className: readView === "unread" ? "active" : undefined,
+                        "aria-pressed": readView === "unread",
+                        onClick: () => setModuleView(id, "unread"),
+                      },
+                      `未读 ${readCounts?.unread ?? 0}`,
+                    ),
+                    h(
+                      "button",
+                      {
+                        type: "button",
+                        className: readView === "all" ? "active" : undefined,
+                        "aria-pressed": readView === "all",
+                        onClick: () => setModuleView(id, "all"),
+                      },
+                      `全部 ${readCounts?.all ?? 0}`,
+                    ),
+                  )
+                : null;
+          const extraActions =
+            id === "brief"
               ? h(
-                  "button",
-                  {
-                    type: "button",
-                    className: "pmwb-iconbtn",
-                    "aria-label": "配置核心指标",
-                    title: "配置核心指标",
-                    onClick: openMetricSettings,
-                  },
-                  ICONS.gear,
+                  react.Fragment,
+                  null,
+                  meta,
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "pmwb-iconbtn",
+                      "aria-label": "编辑简报生成规则",
+                      title: "编辑简报生成规则",
+                      "aria-haspopup": "dialog",
+                      onClick: openBriefSettings,
+                    },
+                    ICONS.gear,
+                  ),
+                  briefPushed
+                    ? h(
+                        "span",
+                        { className: "pmwb-pill accent", role: "status" },
+                        "已更新",
+                      )
+                    : null,
                 )
-              : null;
-        const body =
-          payload === undefined
-            ? LoadingBlock()
-            : payload.error
-              ? h(ErrorBlock, {
-                  message: payload.error,
-                  onRetry: () => refreshModule(id),
-                })
-              : state.status === "error" && payload.data === undefined
+              : id === "metrics"
+                ? h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "pmwb-iconbtn",
+                      "aria-label": "配置核心指标",
+                      title: "配置核心指标",
+                      onClick: openMetricSettings,
+                    },
+                    ICONS.gear,
+                  )
+                : null;
+          const body =
+            payload === undefined
+              ? LoadingBlock()
+              : payload.error
                 ? h(ErrorBlock, {
-                    message: state.error,
+                    message: payload.error,
                     onRetry: () => refreshModule(id),
                   })
-                : renderModuleBody(id, payload, ctx);
-        return h(
-          WorkbenchCard,
-          {
-            key: id,
-            id,
-            title: MODULE_META[id].title,
-            count: readTracked ? "" : moduleCount(id, payload, briefView),
-            countBadge: false,
-            titleActions,
-            meta: id === "brief" ? null : meta,
-            extraActions,
-            refreshing: state.status === "refreshing",
-            onRefresh: () => refreshModule(id),
-            cardRef: (element) => {
-              if (element === null) cardRefs.current.delete(id);
-              else cardRefs.current.set(id, element);
+                : state.status === "error" && payload.data === undefined
+                  ? h(ErrorBlock, {
+                      message: state.error,
+                      onRetry: () => refreshModule(id),
+                    })
+                  : renderModuleBody(id, payload, ctx);
+          return h(
+            WorkbenchCard,
+            {
+              key: id,
+              id,
+              title: MODULE_META[id].title,
+              count: readTracked ? "" : moduleCount(id, payload, briefView),
+              countBadge: false,
+              titleActions,
+              meta: id === "brief" ? null : meta,
+              extraActions,
+              refreshing: state.status === "refreshing",
+              onRefresh: () => refreshModule(id),
+              cardRef: (element) => {
+                if (element === null) cardRefs.current.delete(id);
+                else cardRefs.current.set(id, element);
+              },
+              cols,
+              height,
+              resized: height !== null && height !== undefined,
+              dragging,
+              dropTarget,
+              transform: dragging
+                ? `translate(${dragVisual.dx}px, ${dragVisual.dy}px)`
+                : undefined,
+              onHeadPointerDown: (event) => beginDrag(event, id),
+              onHeadPointerMove: moveDrag,
+              onHeadPointerUp: endDrag,
+              onHeightPointerDown: (event) => beginHeightResize(event, id),
+              onHeightPointerMove: moveResize,
+              onHeightPointerUp: endResize,
+              onWidthPointerDown: (event) => beginWidthResize(event, id),
+              onWidthPointerMove: moveResize,
+              onWidthPointerUp: endResize,
             },
-            cols,
-            height,
-            resized: height !== null && height !== undefined,
-            dragging,
-            dropTarget,
-            transform: dragging
-              ? `translate(${dragVisual.dx}px, ${dragVisual.dy}px)`
-              : undefined,
-            onHeadPointerDown: (event) => beginDrag(event, id),
-            onHeadPointerMove: moveDrag,
-            onHeadPointerUp: endDrag,
-            onHeightPointerDown: (event) => beginHeightResize(event, id),
-            onHeightPointerMove: moveResize,
-            onHeightPointerUp: endResize,
-            onWidthPointerDown: (event) => beginWidthResize(event, id),
-            onWidthPointerMove: moveResize,
-            onWidthPointerUp: endResize,
-          },
-          body,
-        );
+            body,
+          );
         });
 
       const personal =
@@ -3433,11 +3944,11 @@ ${SCOPE_BUTTON_STYLES}
             },
             h(
               "div",
-              { className: "pmwb-modal" },
+              { className: "pmwb-modal pmwb-brief-settings" },
               h(
                 "div",
                 { className: "pmwb-modal-head" },
-                h("h2", null, "简报生成规则"),
+                h("h2", null, "简报设置"),
                 h(
                   "button",
                   {
@@ -3451,52 +3962,234 @@ ${SCOPE_BUTTON_STYLES}
               ),
               h(
                 "div",
+                {
+                  className: "pmwb-brief-tabs",
+                  role: "tablist",
+                  "aria-label": "简报设置分类",
+                },
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    className: `pmwb-brief-tab${briefSettingsTab === "content" ? " active" : ""}`,
+                    role: "tab",
+                    "aria-selected": briefSettingsTab === "content",
+                    onClick: () => setBriefSettingsTab("content"),
+                  },
+                  "内容",
+                ),
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    className: `pmwb-brief-tab${briefSettingsTab === "rules" ? " active" : ""}`,
+                    role: "tab",
+                    "aria-selected": briefSettingsTab === "rules",
+                    onClick: () => setBriefSettingsTab("rules"),
+                  },
+                  "自定义关注",
+                ),
+              ),
+              h(
+                "div",
                 { className: "pmwb-modal-body" },
-                h(
-                  "label",
-                  { className: "pmwb-radio-row" },
-                  h("input", {
-                    type: "radio",
-                    name: "brief-window-mode",
-                    checked: briefMode === "lastLeave",
-                    onChange: () => setBriefMode("lastLeave"),
-                  }),
-                  h("span", null, "根据上一次离开时间自动生成"),
-                ),
-                h(
-                  "label",
-                  { className: "pmwb-radio-row" },
-                  h("input", {
-                    type: "radio",
-                    name: "brief-window-mode",
-                    checked: briefMode === "manual",
-                    onChange: () => setBriefMode("manual"),
-                  }),
-                  h("span", null, "手动指定时间窗口"),
-                ),
-                h("input", {
-                  className: "pmwb-input",
-                  type: "datetime-local",
-                  value: briefWindowFrom,
-                  disabled: briefMode !== "manual",
-                  "aria-label": "时间窗口开始时间",
-                  onChange: (event) => setBriefWindowFrom(event.target.value),
-                }),
-                h(
-                  "ol",
-                  { className: "pmwb-rule-list" },
-                  h(
-                    "li",
-                    null,
-                    "只汇总所选时间窗口内与你相关的任务、工作流和 Agent 运行。",
-                  ),
-                  h("li", null, "默认从上次离开时间开始，最多回看 24 小时。"),
-                  h(
-                    "li",
-                    null,
-                    "未读条目保留；结论读后即走，状态闭环后自动移除。",
-                  ),
-                ),
+                briefSettingsTab === "content"
+                  ? [
+                      h(
+                        "section",
+                        {
+                          className: "pmwb-brief-settings-section",
+                          key: "brief-window",
+                        },
+                        h(
+                          "p",
+                          { className: "pmwb-brief-settings-label" },
+                          "时间窗口",
+                        ),
+                        h(
+                          "label",
+                          { className: "pmwb-radio-row" },
+                          h("input", {
+                            type: "radio",
+                            name: "brief-window-mode",
+                            checked: briefMode === "lastLeave",
+                            onChange: () => setBriefMode("lastLeave"),
+                          }),
+                          h("span", null, "根据上一次离开时间自动生成"),
+                        ),
+                        h(
+                          "label",
+                          { className: "pmwb-radio-row" },
+                          h("input", {
+                            type: "radio",
+                            name: "brief-window-mode",
+                            checked: briefMode === "manual",
+                            onChange: () => setBriefMode("manual"),
+                          }),
+                          h("span", null, "手动指定时间窗口"),
+                        ),
+                        h("input", {
+                          className: "pmwb-input",
+                          type: "datetime-local",
+                          value: briefWindowFrom,
+                          disabled: briefMode !== "manual",
+                          "aria-label": "时间窗口开始时间",
+                          onChange: (event) =>
+                            setBriefWindowFrom(event.target.value),
+                        }),
+                      ),
+                      h(
+                        "section",
+                        {
+                          className: "pmwb-brief-settings-section",
+                          key: "brief-types",
+                        },
+                        h(
+                          "p",
+                          { className: "pmwb-brief-settings-label" },
+                          "内容类型",
+                        ),
+                        h(
+                          "div",
+                          { className: "pmwb-brief-config-grid" },
+                          ...BRIEF_INCLUDE_OPTIONS.map((option) =>
+                            h(
+                              "label",
+                              {
+                                className: "pmwb-brief-config-option",
+                                key: option.id,
+                              },
+                              h("input", {
+                                type: "checkbox",
+                                checked: briefIncludeTypes.includes(option.id),
+                                onChange: () =>
+                                  toggleBriefIncludeType(option.id),
+                              }),
+                              h("span", null, option.label),
+                            ),
+                          ),
+                        ),
+                        h(
+                          "p",
+                          { className: "pmwb-help" },
+                          "至少保留一种内容类型；关闭后对应候选不会进入简报。",
+                        ),
+                      ),
+                      h(
+                        "ol",
+                        {
+                          className: "pmwb-rule-list",
+                          key: "brief-rules",
+                        },
+                        h(
+                          "li",
+                          null,
+                          "只汇总所选时间窗口内与你相关的任务、工作流和 Agent 运行。",
+                        ),
+                        h(
+                          "li",
+                          null,
+                          "默认从上次离开时间开始，最多回看 24 小时。",
+                        ),
+                        h(
+                          "li",
+                          null,
+                          "未读条目保留；状态闭环后自动从简报移除。",
+                        ),
+                      ),
+                    ]
+                  : [
+                      h(
+                        "section",
+                        {
+                          className: "pmwb-brief-settings-section",
+                          key: "brief-custom-rules",
+                        },
+                        h(
+                          "p",
+                          { className: "pmwb-brief-settings-label" },
+                          "关注规则",
+                        ),
+                        briefCustomRules.length === 0
+                          ? h(
+                              "p",
+                              { className: "pmwb-help" },
+                              "还没有自定义关注规则。规则可以使用关键词、来源和对象名称，把已有候选收拢成一个关注项。",
+                            )
+                          : null,
+                        ...briefCustomRules.map((rule) =>
+                          h(
+                            "div",
+                            {
+                              className: "pmwb-brief-rule",
+                              key: rule.id,
+                            },
+                            h(
+                              "div",
+                              { className: "pmwb-brief-rule-head" },
+                              h("input", {
+                                className: "pmwb-input",
+                                value: rule.name,
+                                "aria-label": "关注规则名称",
+                                placeholder: "规则名称",
+                                onChange: (event) =>
+                                  updateBriefCustomRule(rule.id, {
+                                    name: event.target.value,
+                                  }),
+                              }),
+                              h(
+                                "label",
+                                { className: "pmwb-radio-row" },
+                                h("input", {
+                                  type: "checkbox",
+                                  checked: rule.enabled !== false,
+                                  onChange: (event) =>
+                                    updateBriefCustomRule(rule.id, {
+                                      enabled: event.target.checked,
+                                    }),
+                                }),
+                                h("span", null, "启用"),
+                              ),
+                              h(
+                                "button",
+                                {
+                                  type: "button",
+                                  className: "pmwb-iconbtn",
+                                  "aria-label": "删除关注规则",
+                                  title: "删除规则",
+                                  onClick: () => removeBriefCustomRule(rule.id),
+                                },
+                                ICONS.close,
+                              ),
+                            ),
+                            h("textarea", {
+                              value: rule.prompt,
+                              "aria-label": "关注规则内容",
+                              placeholder:
+                                "例如：关键词：华东、库存；只看风险与升级事项。",
+                              onChange: (event) =>
+                                updateBriefCustomRule(rule.id, {
+                                  prompt: event.target.value,
+                                }),
+                            }),
+                          ),
+                        ),
+                        h(
+                          "button",
+                          {
+                            type: "button",
+                            className: "pmwb-btn",
+                            onClick: addBriefCustomRule,
+                          },
+                          "新增关注规则",
+                        ),
+                        h(
+                          "p",
+                          { className: "pmwb-help" },
+                          "自定义关注规则只重排和聚合已有候选，不具备额外数据权限，也不会补造事实。",
+                        ),
+                      ),
+                    ],
                 h(
                   "div",
                   { className: "pmwb-modal-foot" },
@@ -3663,6 +4356,11 @@ ${SCOPE_BUTTON_STYLES}
             ),
           );
 
+      const briefDetailDrawer = renderBriefDetailDrawer(briefDetailItem, {
+        closeBriefDetail,
+        navigateBriefItem,
+      });
+
       return h(
         "div",
         { className: "pmwb", "data-workbench-page": true },
@@ -3759,6 +4457,7 @@ ${SCOPE_BUTTON_STYLES}
         cockpit,
         metricModal,
         briefSettingsModal,
+        briefDetailDrawer,
         layoutModal,
         toast !== ""
           ? h("div", { className: "pmwb-toast", role: "status" }, toast)
@@ -3783,6 +4482,8 @@ ${SCOPE_BUTTON_STYLES}
       itemReadSignature,
       filterUnreadItems,
       dataAgentBriefAttributes,
+      groupBriefItems,
+      briefPlainText,
     };
     exports.inject = ["slots"];
     exports.apply = (ctx) => {

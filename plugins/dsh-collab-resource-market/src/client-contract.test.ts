@@ -84,7 +84,7 @@ describe("resource market client contract", () => {
   it("uploads and installs custom skills with instructions", () => {
     const source = readFileSync(CLIENT, "utf8");
     expect(source).toContain("上传 Skill ZIP、SKILL.md 或 .skill.json");
-    expect(source).toContain("kind: \"agent-skill\"");
+    expect(source).toContain('kind: "agent-skill"');
     expect(source).toContain("instructions: markdown");
     expect(source).toContain("openInstallDialog");
     expect(source).toContain("confirmInstall");
@@ -110,5 +110,13 @@ describe("resource market client contract", () => {
     expect(source).toContain("/api/collab/resources/skills?id=");
     expect(source).toContain("当前没有 AI 伙伴使用该 Skill");
     expect(source).toContain("确认卸载");
+  });
+
+  it("lets platform admins edit official skill instructions", () => {
+    const source = readFileSync(CLIENT, "utf8");
+    expect(source).toContain("编辑官方 Skill");
+    expect(source).toContain("Skill 指令正文");
+    expect(source).toContain("/api/collab/resources/skills/official/save");
+    expect(source).toContain("发布官方 Skill");
   });
 });

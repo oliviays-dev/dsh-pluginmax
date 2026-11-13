@@ -198,6 +198,18 @@ importers:
         specifier: 4.4.3
         version: 4.4.3
 
+  plugins/dsh-collab-router-worker:
+    dependencies:
+      '@pluginmax/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@pluginmax/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+
   plugins/dsh-collab-shell: {}
 
   plugins/dsh-collab-side-panel: {}

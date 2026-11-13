@@ -2,11 +2,19 @@ import { z } from "zod";
 
 export const idPattern = /^[a-zA-Z][a-zA-Z0-9._-]*$/;
 
+export const workflowScopeSchema = z.enum(["project", "platform"]);
+export const templatePortabilitySchema = z.enum(["required", "suggested"]);
+export const dispatchModeSchema = z.enum(["assigned", "claim"]);
+
 export const executorSchema = z.object({
   /** role 表示「项目角色」：执行人不是某个人，而是该项目该角色当前的全部成员。 */
   kind: z.enum(["system", "user", "agent", "employee", "role"]),
   id: z.string().trim().min(1).max(120),
   label: z.string().trim().max(120).optional(),
+  /** role 引用可为本地 role id，也可携带跨项目稳定的角色编码。 */
+  roleCode: z.string().trim().min(1).max(120).optional(),
+  /** 固定人/AI 在实例创建时是否允许重新映射；未写的存量数据按 suggested。 */
+  portability: templatePortabilitySchema.optional(),
 });
 
 export const approverSchema = z.object({
@@ -14,6 +22,8 @@ export const approverSchema = z.object({
   kind: z.enum(["user", "agent", "employee", "role"]),
   id: z.string().trim().min(1).max(120),
   name: z.string().trim().min(1).max(120),
+  roleCode: z.string().trim().min(1).max(120).optional(),
+  portability: templatePortabilitySchema.optional(),
 });
 
 export const actorRefSchema = z.object({
@@ -74,6 +84,8 @@ export const workflowNodeSchema = z.object({
   trigger: z
     .enum(["manual-dispatch", "auto-on-ready"])
     .default("manual-dispatch"),
+  /** 未写的存量数据按执行人类型推导：角色 claim，其余 assigned。 */
+  dispatchMode: dispatchModeSchema.optional(),
   maxAttempts: z.number().int().min(1).max(5).default(1),
   timeoutMs: z.number().int().min(1_000).max(3_600_000).default(1_800_000),
   agentProfileId: z.string().trim().regex(idPattern).optional(),
@@ -83,6 +95,62 @@ export const workflowNodeSchema = z.object({
   metricExpression: z.string().trim().max(500).optional(),
   subworkflowKey: z.string().trim().regex(idPattern).optional(),
   subworkflowVersion: z.number().int().positive().optional(),
+});
+
+export const assignmentTargetSchema = z.object({
+  kind: z.enum(["user", "agent"]),
+  id: z.string().trim().min(1).max(160),
+  name: z.string().trim().max(160).optional(),
+});
+
+export const assignmentBindingSchema = z.object({
+  nodeId: z.string().trim().regex(idPattern),
+  source: z.object({
+    kind: z.enum(["system", "user", "agent", "employee", "role"]),
+    id: z.string().trim().min(1).max(160).optional(),
+    label: z.string().trim().max(160).optional(),
+    roleCode: z.string().trim().min(1).max(160).optional(),
+  }),
+  dispatchMode: dispatchModeSchema,
+  status: z.enum(["resolved", "unresolved", "overridden"]),
+  primaryAssignee: assignmentTargetSchema.optional(),
+  candidatePool: z.array(assignmentTargetSchema).max(100).optional(),
+  resolvedBy: z.string().min(1).max(160),
+  resolvedAt: z.string().datetime({ precision: 3 }),
+  sourceChanged: z
+    .object({
+      reason: z.string().trim().min(1).max(500),
+      originalId: z.string().max(160).optional(),
+      originalLabel: z.string().max(160).optional(),
+    })
+    .optional(),
+});
+
+export const approvalBindingSchema = z.object({
+  nodeId: z.string().trim().regex(idPattern),
+  source: z.array(
+    z.object({
+      kind: z.enum(["user", "agent", "employee", "role"]),
+      id: z.string().trim().min(1).max(160),
+      name: z.string().trim().min(1).max(160),
+      roleCode: z.string().trim().min(1).max(160).optional(),
+      portability: templatePortabilitySchema.optional(),
+    }),
+  ),
+  status: z.enum(["resolved", "unresolved", "overridden"]),
+  approvers: z.array(assignmentTargetSchema).max(100),
+  resolvedBy: z.string().min(1).max(160),
+  resolvedAt: z.string().datetime({ precision: 3 }),
+});
+
+export const instanceAssignmentInputSchema = z.object({
+  dispatchMode: dispatchModeSchema.optional(),
+  primaryAssignee: assignmentTargetSchema.optional(),
+  candidatePool: z.array(assignmentTargetSchema).max(100).optional(),
+});
+
+export const instanceApprovalInputSchema = z.object({
+  approvers: z.array(assignmentTargetSchema).max(100).optional(),
 });
 
 export const workflowEdgeSchema = z.object({
@@ -175,6 +243,8 @@ export const nodeStateSchema = z.object({
 
 export const workflowDefinitionSchema = z.object({
   id: z.string().min(1).max(160),
+  /** project 仅所属 workspace 可见；platform 对所有 workspace 可见。 */
+  scope: workflowScopeSchema.default("platform"),
   workspaceId: z.string().min(1).max(160),
   key: z.string().regex(idPattern),
   version: z.number().int().positive(),
@@ -234,6 +304,8 @@ export const workflowInstanceSchema = z.object({
       }),
     )
     .default({}),
+  assignmentBindings: z.record(z.string(), assignmentBindingSchema).default({}),
+  approvalBindings: z.record(z.string(), approvalBindingSchema).default({}),
   createdBy: z.string().min(1).max(160),
   createdAt: z.string().datetime({ precision: 3 }),
   updatedAt: z.string().datetime({ precision: 3 }),
@@ -259,10 +331,20 @@ export type ActorRef = z.infer<typeof actorRefSchema>;
 export type DeliverableRequirement = z.infer<
   typeof deliverableRequirementSchema
 >;
+export type WorkflowScope = z.infer<typeof workflowScopeSchema>;
+export type TemplatePortability = z.infer<typeof templatePortabilitySchema>;
+export type DispatchMode = z.infer<typeof dispatchModeSchema>;
 export type DeliverableState = z.infer<typeof deliverableStateSchema>;
 export type WorkflowArtifact = z.infer<typeof workflowArtifactSchema>;
 export type Approver = z.infer<typeof approverSchema>;
 export type WorkflowNode = z.infer<typeof workflowNodeSchema>;
+export type AssignmentTarget = z.infer<typeof assignmentTargetSchema>;
+export type AssignmentBinding = z.infer<typeof assignmentBindingSchema>;
+export type ApprovalBinding = z.infer<typeof approvalBindingSchema>;
+export type InstanceAssignmentInput = z.infer<
+  typeof instanceAssignmentInputSchema
+>;
+export type InstanceApprovalInput = z.infer<typeof instanceApprovalInputSchema>;
 export type WorkflowEdge = z.infer<typeof workflowEdgeSchema>;
 export type WorkflowVariable = z.infer<typeof variableSchema>;
 export type WorkflowGraph = z.infer<typeof workflowGraphSchema>;
@@ -270,6 +352,16 @@ export type WorkflowNodeState = z.infer<typeof nodeStateSchema>;
 export type WorkflowDefinition = z.infer<typeof workflowDefinitionSchema>;
 export type WorkflowInstance = z.infer<typeof workflowInstanceSchema>;
 export type WorkflowEvent = z.infer<typeof workflowEventSchema>;
+
+export function dispatchModeForNode(node: Pick<WorkflowNode, "executor" | "dispatchMode">): DispatchMode {
+  return node.dispatchMode ?? (node.executor.kind === "role" ? "claim" : "assigned");
+}
+
+export function portabilityForActor(
+  actor: Pick<Executor, "kind" | "portability"> | Pick<Approver, "kind" | "portability">,
+): TemplatePortability {
+  return actor.kind === "system" ? "required" : (actor.portability ?? "suggested");
+}
 
 export const workflowSubmissionSchema = z.object({
   id: z.string().min(1).max(180),

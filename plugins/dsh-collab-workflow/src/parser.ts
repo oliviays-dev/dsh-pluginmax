@@ -71,18 +71,24 @@ function parseExecutor(
   errors: string[],
 ): WorkflowNode["executor"] | undefined {
   const match =
-    /^(system|user|agent|employee|role|系统|用户|员工|角色)\s*[:：]\s*(.+)$/.exec(
+    /^(system|user|agent|employee|role-code|role|系统|用户|员工|角色编码|角色代码|角色)\s*[:：]\s*(.+)$/.exec(
       value,
     );
   if (match === null) {
     errors.push(
-      `invalid executor "${value}"; use system:user, user:alice, agent:architect, employee:backend-engineer-01, or role:reviewer`,
+      `invalid executor "${value}"; use system:user, user:alice, agent:architect, employee:backend-engineer-01, role:reviewer, or role-code:PRODUCT_MANAGER`,
     );
     return undefined;
   }
   const kindRaw = match[1]!.toLowerCase();
+  const roleCodeReference =
+    kindRaw === "role-code" ||
+    kindRaw === "角色编码" ||
+    kindRaw === "角色代码";
   const kind =
-    kindRaw === "system" || kindRaw === "系统"
+    roleCodeReference
+      ? "role"
+      : kindRaw === "system" || kindRaw === "系统"
       ? "system"
       : kindRaw === "user" || kindRaw === "用户"
         ? "user"
@@ -96,22 +102,34 @@ function parseExecutor(
     errors.push(`invalid executor id "${id}"`);
     return undefined;
   }
-  return { kind, id, label: id };
+  return {
+    kind,
+    id,
+    label: id,
+    ...(roleCodeReference ? { roleCode: id } : {}),
+  };
 }
 
 function parseApprover(value: string, errors: string[]): Approver | undefined {
-  const match = /^(用户|agent|employee|员工|角色|role)\s*[:：]\s*(.+)$/.exec(
-    value,
-  );
+  const match =
+    /^(用户|agent|employee|员工|角色编码|角色代码|角色|role-code|role)\s*[:：]\s*(.+)$/.exec(
+      value,
+    );
   if (match === null) {
     errors.push(
-      `invalid approver "${value}"; use 用户:id, agent:id, employee:id, or 角色:id`,
+      `invalid approver "${value}"; use 用户:id, agent:id, employee:id, 角色:id, or role-code:PRODUCT_OWNER`,
     );
     return undefined;
   }
   const rawKind = match[1]!.toLowerCase();
+  const roleCodeReference =
+    rawKind === "role-code" ||
+    rawKind === "角色编码" ||
+    rawKind === "角色代码";
   const kind =
-    rawKind === "agent"
+    roleCodeReference
+      ? "role"
+      : rawKind === "agent"
       ? "agent"
       : rawKind === "employee" || rawKind === "员工"
         ? "employee"
@@ -123,7 +141,12 @@ function parseApprover(value: string, errors: string[]): Approver | undefined {
     errors.push(`invalid approver id "${id}"`);
     return undefined;
   }
-  return { kind, id, name: id };
+  return {
+    kind,
+    id,
+    name: id,
+    ...(roleCodeReference ? { roleCode: id } : {}),
+  };
 }
 
 const DELIVERABLE_FIELDS = new Set([
@@ -508,6 +531,28 @@ export function parseWorkflowMarkdown(markdown: string): ParseResult {
         `node "${nodeId}" has an invalid review-required: ${reviewText}`,
       );
     }
+    const portabilityText = fields.get("portability")?.[0]?.toLowerCase();
+    if (
+      portabilityText !== undefined &&
+      portabilityText !== "required" &&
+      portabilityText !== "suggested"
+    ) {
+      errors.push(
+        `node "${nodeId}" has an invalid portability: ${portabilityText}`,
+      );
+    } else if (
+      portabilityText === "required" ||
+      portabilityText === "suggested"
+    ) {
+      if (!["role", "system"].includes(executor.kind)) {
+        executor.portability = portabilityText;
+      }
+      for (const approver of approvers) {
+        if (approver.kind !== "role") {
+          approver.portability = portabilityText;
+        }
+      }
+    }
     const node: WorkflowNode = {
       id: nodeId,
       name: group.name,
@@ -560,6 +605,29 @@ export function parseWorkflowMarkdown(markdown: string): ParseResult {
       warnings.push(
         `节点「${group.name}」的 Agent 执行器需要手动派发；如需就绪后自动启动，请设置 execution: task-worker 和 trigger: auto-on-ready`,
       );
+    }
+    const dispatchModeText = (
+      fields.get("dispatch-mode")?.[0] ?? fields.get("dispatch")?.[0]
+    )?.toLowerCase();
+    const dispatchMode =
+      dispatchModeText ?? (executor.kind === "role" ? "claim" : "assigned");
+    if (
+      dispatchMode !== "assigned" &&
+      dispatchMode !== "claim"
+    ) {
+      errors.push(
+        `node "${nodeId}" has an invalid dispatch-mode: ${dispatchMode}`,
+      );
+    } else {
+      node.dispatchMode = dispatchMode;
+      if (dispatchMode === "claim" && executor.kind !== "role") {
+        errors.push(
+          `节点「${nodeId}」使用 claim 时执行人必须是项目角色；固定人、Agent 和 AI伙伴只能使用 assigned`,
+        );
+      }
+      if (dispatchMode === "claim" && type === "approval") {
+        errors.push(`审批节点「${nodeId}」不能使用 claim 派发模式`);
+      }
     }
     const maxAttemptsText = fields.get("max-attempts")?.[0];
     if (maxAttemptsText !== undefined) {

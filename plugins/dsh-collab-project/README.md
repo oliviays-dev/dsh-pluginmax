@@ -16,11 +16,18 @@ Out-of-tree DSH project management over DSH workspaces.
 - 编辑已有角色时可选择「调整原有角色」或「创建新角色」；新角色自动生成新的 code，
   不会覆盖原角色。
 - 已启动的工作流实例在启动时保存角色快照，后续项目角色编辑/删除不影响旧实例；新实例使用新角色集。
+- 项目可保存常用「项目角色 → 成员 / AI伙伴」实例映射预设；创建工作流实例时默认预填，
+  创建者仍可逐节点覆盖或重新选择。
 - 成员的项目角色写入 `dsh-collab-roles` 的席位指派（`ctx.collabAssignment`），
   与任务派发、工作流 `role:` 执行人共用同一份真相。
 - 项目成员目录同时返回 Human / AI Principal；前端以 `principal:<id>` 提交成员，
   后端归一化为账号或 Teammate 兼容 ID。工作区成员角色与项目角色同步写入 Principal Grant。
-- 项目日报按项目状态与任务 / 工作流快照确定性生成，按日期保留历史快照。
+- 项目日报按 `senior-pm` 的项目健康度思路确定性生成：综合 RAG、计划进度偏差、
+  已确认结果、风险登记、待确认事项与下一步；按日期和日报 / 周报 / 进度汇报类型保留历史快照。
+- 项目创建时自动初始化平台预置「项目经理」AI伙伴，命名为 `<项目名>项目PM`，
+  自动加入项目成员并占用内置 `role-pm` 项目经理角色；存量项目在详情或生成汇报时补齐。
+- 项目经理 Agent 默认绑定官方「项目汇报生成」Skill，可通过项目页面按钮、聊天工具
+  `project_report_generate` 或任务执行生成同一类汇报快照。
 - 项目历史记录独立存放在 `collab_project.audit`，只追加不覆盖；覆盖项目设置、成员项目角色、
   项目角色、模版应用、日报生成，并合并协作身份服务中与该项目相关的历史成员操作。
   新事件同时记录 `actorPrincipalId`，兼容保留 `actorId`。
@@ -40,6 +47,7 @@ Out-of-tree DSH project management over DSH workspaces.
 `POST /api/collab/projects/update`、`GET /api/collab/projects/templates`、
 `POST /api/collab/projects/templates/save|remove|apply`、
 `POST /api/collab/projects/roles/save|remove`、
+`POST /api/collab/projects/role-mappings/save|remove`、
 `POST /api/collab/projects/members/save|remove`、
 `POST /api/collab/projects/leave`、
 `GET /api/collab/projects/reports`、`POST /api/collab/projects/reports/generate`、

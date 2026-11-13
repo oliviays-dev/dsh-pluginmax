@@ -32,7 +32,8 @@ window.__ModuleLoader__.load({
       project: "项目",
       task: "任务",
       meeting: "会议",
-      chat: "AI 对话",
+      chat: "聊天",
+      group: "群聊",
       "workflow-node": "工作流节点",
     };
     const authorityLabels = {

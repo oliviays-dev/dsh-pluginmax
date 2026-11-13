@@ -5,6 +5,7 @@ import {
   createMeetingRoutes,
   FacilitatorMinutesService,
   inject,
+  MEETING_AI_CHAT_NODE_ID,
   MEETING_MINUTES_NODE_ID,
   MEETING_FACILITATOR_TEAMMATE_ID,
   meetingDomainSpec,
@@ -1442,6 +1443,7 @@ describe("dsh-collab-meeting", () => {
         scene: "chat",
         chatCarrier: "meeting-ai",
       }),
+      expect.objectContaining({ scene: "group" }),
       expect.objectContaining({ scene: "meeting" }),
     ]);
     expect(routes.map((route) => route.path)).toContain("/api/collab/meetings");
@@ -1674,6 +1676,349 @@ describe("dsh-collab-meeting", () => {
       "这条只是同步",
     );
     expect(group.deliveries).toEqual([]);
+  });
+
+  it("stops all agents or one agent without breaking the other participants", async () => {
+    const meeting = await meetingWithAlice();
+    const first = await service.spawnAgentForUser(
+      { kind: "user", id: "alice", workspaceRole: "member" },
+      {
+        meetingId: meeting.id,
+        personaId: "architect",
+        displayName: "架构师",
+        autoSpeak: "all",
+        initialGreeting: false,
+        ownerName: "Alice",
+      },
+      personas(),
+    );
+    const second = await service.spawnAgentForUser(
+      { kind: "user", id: "alice", workspaceRole: "member" },
+      {
+        meetingId: meeting.id,
+        personaId: "builder",
+        displayName: "执行者",
+        autoSpeak: "all",
+        initialGreeting: false,
+        ownerName: "Alice",
+      },
+      personas(),
+    );
+    await service.setAgentRuntimeState(meeting.id, "agentsStopped", "alice");
+    const stoppedAll = await service.post(
+      { kind: "user", id: "alice", workspaceRole: "member" },
+      meeting.id,
+      "全员停止后不应派发",
+    );
+    expect(stoppedAll.deliveries).toEqual([]);
+
+    await service.setAgentRuntimeState(meeting.id, "active", "alice");
+    await service.setParticipantExecutionState(first.id, "stopped", "alice");
+    const stoppedOne = await service.post(
+      { kind: "user", id: "alice", workspaceRole: "member" },
+      meeting.id,
+      "只应触发未停止的 Agent",
+    );
+    expect(stoppedOne.deliveries.map((item) => item.participantId)).toEqual([
+      second.id,
+    ]);
+
+    await service.setParticipantExecutionState(first.id, "active", "alice");
+    const resumed = await service.post(
+      { kind: "user", id: "alice", workspaceRole: "member" },
+      meeting.id,
+      "恢复后两个 Agent 都应触发",
+    );
+    expect(
+      resumed.deliveries.map((item) => item.participantId).sort(),
+    ).toEqual([first.id, second.id].sort());
+  });
+
+  it("cancels the matching collab Agent run on targeted stop", async () => {
+    const team = {
+      resolveToken: (token: string) =>
+        token === "admin-token"
+          ? { userId: "admin", role: "admin" as const }
+          : undefined,
+      members: () => [
+        {
+          userId: "admin",
+          name: "Admin",
+          memberRole: "member" as const,
+        },
+      ],
+    };
+    const actor = {
+      kind: "user" as const,
+      id: "admin",
+      globalRole: "admin" as const,
+    };
+    const meeting = await service.create(actor, {
+      workspaceId: "main",
+      title: "停止运行中的群聊",
+      kind: "ai",
+      teammateInstanceId: "tm-stop-first",
+    });
+    const first = await service.addAiTeammate(actor, {
+      meetingId: meeting.id,
+      teammateInstanceId: "tm-stop-first",
+      displayName: "首个伙伴",
+      speechMode: "active",
+      announce: false,
+    });
+    await service.convertAiConversationToGroup(actor, {
+      meetingId: meeting.id,
+      title: "停止运行中的群聊",
+    });
+    await service.join(actor, meeting.id, "Admin");
+    const second = await service.spawnAgentForUser(
+      actor,
+      {
+        meetingId: meeting.id,
+        personaId: "builder",
+        displayName: "第二个伙伴",
+        autoSpeak: "mentions",
+        initialGreeting: false,
+        ownerName: "Admin",
+      },
+      personas(),
+    );
+    const message = await service.post(
+      actor,
+      meeting.id,
+      "@首个伙伴 @第二个伙伴 请并行处理",
+      { mentions: [first.id, second.id] },
+    );
+    const runs = [
+      {
+        id: "run-first",
+        status: "running",
+        source: "chat",
+        instanceId: meeting.id,
+        nodeId: MEETING_AI_CHAT_NODE_ID,
+        payload: {
+          context: {
+            messageId: message.id,
+            participantId: first.id,
+            meetingId: meeting.id,
+          },
+        },
+      },
+      {
+        id: "run-second",
+        status: "running",
+        source: "chat",
+        instanceId: meeting.id,
+        nodeId: MEETING_AI_CHAT_NODE_ID,
+        payload: {
+          context: {
+            messageId: message.id,
+            participantId: second.id,
+            meetingId: meeting.id,
+          },
+        },
+      },
+    ];
+    const cancelled: string[] = [];
+    const routes = createMeetingRoutes(service, team, {
+      chatAgent: () =>
+        ({
+          runs: ({
+            instanceId,
+            nodeId,
+          }: {
+            instanceId?: string;
+            nodeId?: string;
+          }) =>
+            runs.filter(
+              (run) =>
+                run.instanceId === instanceId && run.nodeId === nodeId,
+            ),
+          run: (runId: string) => runs.find((run) => run.id === runId),
+          cancel: async (runId: string) => {
+            cancelled.push(runId);
+            const run = runs.find((item) => item.id === runId);
+            if (run !== undefined) run.status = "cancelled";
+          },
+        }) as never,
+    });
+    const response = await call(
+      findRoute(routes, "/api/collab/meeting/agent-control"),
+      fakeRequest("POST", "/api/collab/meeting/agent-control", {
+        token: "admin-token",
+        origin: "http://127.0.0.1:33117",
+        body: {
+          meetingId: meeting.id,
+          participantId: first.id,
+          action: "stop",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(cancelled).toEqual(["run-first"]);
+    const noticeCount = service
+      .transcript(meeting.id)
+      .filter((item) => item.content.includes("定向停止")).length;
+    const repeated = await call(
+      findRoute(routes, "/api/collab/meeting/agent-control"),
+      fakeRequest("POST", "/api/collab/meeting/agent-control", {
+        token: "admin-token",
+        origin: "http://127.0.0.1:33117",
+        body: {
+          meetingId: meeting.id,
+          participantId: first.id,
+          action: "stop",
+        },
+      }),
+    );
+    expect(repeated.status).toBe(200);
+    expect(cancelled).toEqual(["run-first"]);
+    expect(
+      service
+        .transcript(meeting.id)
+        .filter((item) => item.content.includes("定向停止")).length,
+    ).toBe(noticeCount);
+    expect(
+      service.transcript(meeting.id).find((item) => item.id === message.id)
+        ?.deliveries,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          participantId: first.id,
+          status: "failed",
+          error: "已按停止指令取消",
+        }),
+        expect.objectContaining({
+          participantId: second.id,
+          status: "pending",
+        }),
+      ]),
+    );
+  });
+
+  it("converts an AI conversation to a group in place and lowers auto-speak", async () => {
+    const actor = { kind: "user", id: "alice", workspaceRole: "member" } as const;
+    const meeting = await service.create(actor, {
+      workspaceId: SYSTEM_DEFAULT_WORKSPACE_ID,
+      title: "供应链伙伴",
+      kind: "ai",
+      teammateInstanceId: "tm-chat",
+    });
+    await service.join(actor, meeting.id, "Alice");
+    const ai = await service.addAiTeammate(actor, {
+      meetingId: meeting.id,
+      teammateInstanceId: "tm-chat",
+      displayName: "供应链伙伴",
+      speechMode: "active",
+      announce: false,
+    });
+    const before = await service.post(actor, meeting.id, "开始聊天");
+    expect(before.deliveries).toHaveLength(1);
+
+    const converted = await service.convertAiConversationToGroup(actor, {
+      meetingId: meeting.id,
+      title: "供应链协作群",
+    });
+    const second = await service.spawnAgentForUser(actor, {
+      meetingId: meeting.id,
+      personaId: "builder",
+      displayName: "执行者",
+      autoSpeak: "mentions",
+      initialGreeting: false,
+      ownerName: "Alice",
+    }, personas());
+    expect(converted).toMatchObject({
+      id: meeting.id,
+      kind: "meeting",
+      title: "供应链协作群",
+    });
+    expect(
+      service.participants(meeting.id).find((item) => item.id === ai.id)
+        ?.autoSpeak,
+    ).toBe("mentions");
+    const ordinary = await service.post(actor, meeting.id, "普通群消息");
+    expect(ordinary.deliveries).toEqual([]);
+    const mentioned = await service.post(actor, meeting.id, "@供应链伙伴 请回复", {
+      mentions: [ai.id],
+    });
+    expect(mentioned.deliveries).toHaveLength(1);
+    let triggered: readonly MeetingParticipant[] = [];
+    service.onAgentMention = (_message, targets) => {
+      triggered = targets;
+    };
+    const agentReply = await service.postWorkerReply(
+      ai.id,
+      "@执行者 请补充接口风险。",
+    );
+    expect(agentReply.mentions).toEqual([second.id]);
+    expect(agentReply.deliveries).toHaveLength(1);
+    expect(triggered.map((item) => item.id)).toEqual([second.id]);
+  });
+
+  it("stops a group mention handoff before it exceeds the trigger depth", async () => {
+    const actor = {
+      kind: "user",
+      id: "alice",
+      workspaceRole: "member",
+    } as const;
+    const meeting = await service.create(actor, {
+      workspaceId: SYSTEM_DEFAULT_WORKSPACE_ID,
+      title: "深度限制群聊",
+      kind: "ai",
+      teammateInstanceId: "tm-depth-source",
+    });
+    await service.join(actor, meeting.id, "Alice");
+    const first = await service.addAiTeammate(actor, {
+      meetingId: meeting.id,
+      teammateInstanceId: "tm-depth-source",
+      displayName: "供应链伙伴",
+      speechMode: "active",
+      announce: false,
+    });
+    await service.convertAiConversationToGroup(actor, {
+      meetingId: meeting.id,
+      title: "深度限制群聊",
+    });
+    const second = await service.spawnAgentForUser(
+      actor,
+      {
+        meetingId: meeting.id,
+        personaId: "builder",
+        displayName: "执行者",
+        autoSpeak: "mentions",
+        initialGreeting: false,
+        ownerName: "Alice",
+      },
+      personas(),
+    );
+    service.agentTriggerDepthLimit = () => 1;
+    await service.post(actor, meeting.id, "@供应链伙伴 请回复", {
+      mentions: [first.id],
+    });
+    let triggered: readonly MeetingParticipant[] = [];
+    service.onAgentMention = (_message, targets) => {
+      triggered = targets;
+    };
+
+    const reply = await service.postWorkerReply(
+      first.id,
+      "@执行者 请补充接口风险。",
+    );
+
+    expect(reply.triggerDepth).toBe(1);
+    expect(reply.mentions).toEqual([second.id]);
+    expect(reply.deliveries).toMatchObject([
+      {
+        participantId: second.id,
+        status: "failed",
+        error: "已达到触发链最大深度，本次未继续接力",
+      },
+    ]);
+    expect(triggered).toEqual([]);
+    expect(
+      service.transcript(meeting.id).at(-1)?.content,
+    ).toContain("为避免重复接力，已结束本次连锁回复");
   });
 
   it("records worker failures without retiring the durable participant", async () => {

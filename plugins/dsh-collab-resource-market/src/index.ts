@@ -117,7 +117,9 @@ function routeError(response: ServerResponse, cause: unknown): void {
             ? 403
             : cause.code === "not_found"
               ? 404
-              : 503;
+              : cause.code === "conflict"
+                ? 409
+                : 503;
     sendJson(response, status, {
       ok: false,
       error: { code: cause.code, message: cause.message },
@@ -135,6 +137,16 @@ function routeError(response: ServerResponse, cause: unknown): void {
 
 const pluginInstallSchema = z.object({ pluginId: z.string().min(1).max(200) });
 const skillInstallSchema = z.object({ skillId: z.string().min(1).max(200) });
+const officialSkillSaveSchema = z.object({
+  id: z.string().trim().min(1).max(200),
+  name: z.string().trim().min(1).max(120),
+  description: z.string().trim().min(1).max(1_000),
+  category: z.string().trim().min(1).max(40).optional(),
+  version: z.string().trim().min(1).max(80).optional(),
+  permissions: z.array(z.string().trim().min(1).max(300)).max(20).optional(),
+  instructions: z.string().trim().min(1).max(200_000),
+  triggers: z.array(z.string().trim().min(1).max(80)).max(30).optional(),
+});
 const mcpInputSchema = z.object({ mcpId: z.string().min(1).max(200) });
 const customResourceInputSchema = z.object({
   type: customResourceTypeSchema,
@@ -336,6 +348,7 @@ export function createResourceMarketRoutes(
             const params = query(request);
             sendJson(response, 200, {
               ok: true,
+              canManage: user.role === "admin",
               skills: await service.skills(user, {
                 ...(params.get("q") === null
                   ? {}
@@ -369,6 +382,33 @@ export function createResourceMarketRoutes(
           sendJson(response, 200, {
             ok: true,
             install: await service.installSkill(user.userId, input.skillId),
+          });
+        } catch (cause) {
+          routeError(response, cause);
+        }
+      },
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/resources/skills/official/save",
+      handler: async (request, response) => {
+        try {
+          assertSameOrigin(request);
+          if (request.method !== "POST") {
+            throw new ResourceMarketError(
+              "invalid_input",
+              "method not allowed",
+            );
+          }
+          const user = principal(request);
+          const input = await body(request, officialSkillSaveSchema);
+          const saved = await service.saveOfficialSkill(user, input);
+          const resource = (await service.skills(user, {})).find(
+            (skill) => skill.id === saved.id,
+          );
+          sendJson(response, 200, {
+            ok: true,
+            resource: resource ?? saved,
           });
         } catch (cause) {
           routeError(response, cause);

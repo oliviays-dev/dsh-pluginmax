@@ -13,6 +13,8 @@ import {
   type ProjectRoleRecord,
   type ProjectTemplateRecord,
   type RoleCategory,
+  type RoleMappingAssignee,
+  type RoleMappingPreset,
 } from "./types.js";
 
 interface SchemaLike<V> {
@@ -87,6 +89,7 @@ interface SeedRole {
   readonly code: string;
   readonly category: RoleCategory;
   readonly description: string;
+  readonly permissions?: readonly string[];
 }
 
 /** 内置项目角色库：与 demo 的 13 个项目角色一致。 */
@@ -97,6 +100,15 @@ const SEED_ROLES: readonly SeedRole[] = [
     code: "PROJECT_OWNER",
     category: "管理",
     description: "对项目交付结果负责，可维护成员与权限。",
+  },
+  {
+    id: "role-pm",
+    name: "项目经理",
+    code: "PROJECT_MANAGER",
+    category: "管理",
+    description:
+      "负责项目跟踪、汇报、风险升级和跨角色协同，不默认拥有成员或角色管理权。",
+    permissions: ["read", "write"],
   },
   {
     id: "role-req",
@@ -207,6 +219,7 @@ const SEED_TEMPLATES: readonly SeedTemplate[] = [
       "适用于平台与插件研发，强调需求决策、开发实施与代码评审的闭环。",
     roleIds: [
       "role-owner",
+      "role-pm",
       "role-req",
       "role-dev",
       "role-review",
@@ -220,7 +233,7 @@ const SEED_TEMPLATES: readonly SeedTemplate[] = [
     code: "TPL-EMPLOYEE",
     type: "内部系统类",
     description: "面向内部员工系统建设，突出体验评审、质量验收与跨端回归。",
-    roleIds: ["role-owner", "role-dev", "role-qa", "role-research"],
+    roleIds: ["role-owner", "role-pm", "role-dev", "role-qa", "role-research"],
   },
   {
     id: "tpl-procurement",
@@ -230,6 +243,7 @@ const SEED_TEMPLATES: readonly SeedTemplate[] = [
     description: "覆盖寻源比价、合同审批与交付跟催，保障采购韧性与承诺兑现。",
     roleIds: [
       "role-owner",
+      "role-pm",
       "role-plan",
       "role-sourcing",
       "role-contract",
@@ -252,6 +266,8 @@ export interface ProjectUpsertInput {
   readonly description?: string | undefined;
   readonly templateId?: string | undefined;
   readonly projectRoles?: readonly ProjectRoleDefinition[] | undefined;
+  readonly roleMappingPresets?:
+    Readonly<Record<string, RoleMappingPreset>> | undefined;
   readonly rolesInitialized?: boolean | undefined;
   readonly rolesRevision?: number | undefined;
   readonly rolesUpdatedAt?: string | undefined;
@@ -344,6 +360,8 @@ export class ProjectService {
       description: input.description ?? existing?.description ?? "",
       templateId: input.templateId ?? existing?.templateId,
       projectRoles: [...(input.projectRoles ?? existing?.projectRoles ?? [])],
+      roleMappingPresets:
+        input.roleMappingPresets ?? existing?.roleMappingPresets ?? {},
       rolesInitialized:
         input.rolesInitialized ?? existing?.rolesInitialized ?? false,
       rolesRevision: input.rolesRevision ?? existing?.rolesRevision ?? 1,
@@ -400,10 +418,60 @@ export class ProjectService {
     if (next.length === project.projectRoles.length) {
       throw new ProjectError("not_found", "项目角色不存在");
     }
+    const roleMappingPresets = { ...project.roleMappingPresets };
+    delete roleMappingPresets[input.roleId];
     return this.upsertProject({
       workspaceId: input.workspaceId,
       projectRoles: next,
       rolesInitialized: true,
+      roleMappingPresets,
+    });
+  }
+
+  async saveRoleMappingPreset(input: {
+    readonly workspaceId: string;
+    readonly roleId: string;
+    readonly assignees: readonly RoleMappingAssignee[];
+    readonly updatedBy: string;
+  }): Promise<ProjectRecord> {
+    const project = this.project(input.workspaceId);
+    if (project === undefined) {
+      throw new ProjectError("not_found", "项目不存在");
+    }
+    if (!project.projectRoles.some((role) => role.id === input.roleId)) {
+      throw new ProjectError("not_found", "项目角色不存在");
+    }
+    if (input.assignees.length === 0) {
+      throw new ProjectError("invalid_input", "角色映射预设至少需要一个成员");
+    }
+    const timestamp = this.nowIso();
+    return this.upsertProject({
+      workspaceId: input.workspaceId,
+      roleMappingPresets: {
+        ...project.roleMappingPresets,
+        [input.roleId]: {
+          roleId: input.roleId,
+          assignees: [...input.assignees],
+          updatedBy: input.updatedBy,
+          updatedAt: timestamp,
+        },
+      },
+    });
+  }
+
+  async removeRoleMappingPreset(input: {
+    readonly workspaceId: string;
+    readonly roleId: string;
+  }): Promise<ProjectRecord> {
+    const project = this.project(input.workspaceId);
+    if (project === undefined) {
+      throw new ProjectError("not_found", "项目不存在");
+    }
+    const roleMappingPresets = { ...project.roleMappingPresets };
+    delete roleMappingPresets[input.roleId];
+    return this.upsertProject({
+      workspaceId: input.workspaceId,
+      roleMappingPresets,
     });
   }
 
@@ -557,34 +625,75 @@ export class ProjectService {
 
   // ----------------------------------------------------------------- reports
 
-  reports(workspaceId: string): ProjectReportRecord[] {
-    return tableValues(this.tables.reports)
-      .filter((report) => report.workspaceId === workspaceId)
-      .sort((left, right) => right.date.localeCompare(left.date));
+  private normalizeReport(value: ProjectReportRecord): ProjectReportRecord {
+    const parsed = projectReportRecordSchema.safeParse(value);
+    return parsed.success ? parsed.data : value;
   }
 
-  report(workspaceId: string, date: string): ProjectReportRecord | undefined {
-    return this.reports(workspaceId).find((report) => report.date === date);
+  reports(workspaceId: string): ProjectReportRecord[] {
+    return tableValues(this.tables.reports)
+      .map((report) => this.normalizeReport(report))
+      .filter((report) => report.workspaceId === workspaceId)
+      .sort(
+        (left, right) =>
+          right.date.localeCompare(left.date) ||
+          left.reportType.localeCompare(right.reportType),
+      );
+  }
+
+  report(
+    workspaceId: string,
+    date: string,
+    reportType: ProjectReportRecord["reportType"] = "daily",
+  ): ProjectReportRecord | undefined {
+    return this.reports(workspaceId).find(
+      (report) => report.date === date && report.reportType === reportType,
+    );
   }
 
   async saveReport(input: {
     readonly workspaceId: string;
     readonly date: string;
+    readonly reportType?: ProjectReportRecord["reportType"] | undefined;
+    readonly periodStart?: string | undefined;
+    readonly periodEnd?: string | undefined;
     readonly generatedAt: string;
     readonly generatedBy: string;
+    readonly generatedByTeammateId?: string | undefined;
+    readonly runId?: string | undefined;
+    readonly skillId?: string | undefined;
+    readonly skillVersion?: string | undefined;
+    readonly triggerSource?: ProjectReportRecord["triggerSource"] | undefined;
+    readonly sourceRefs?: readonly string[] | undefined;
     readonly content: string;
   }): Promise<ProjectReportRecord> {
-    const existing = this.report(input.workspaceId, input.date);
+    const reportType = input.reportType ?? "daily";
+    const existing = this.report(input.workspaceId, input.date, reportType);
     const record = parseOrInvalid(projectReportRecordSchema, {
       workspaceId: input.workspaceId,
+      reportType,
       date: input.date,
+      ...(input.periodStart === undefined
+        ? {}
+        : { periodStart: input.periodStart }),
+      ...(input.periodEnd === undefined ? {} : { periodEnd: input.periodEnd }),
       generatedAt: input.generatedAt,
       generatedBy: input.generatedBy,
+      ...(input.generatedByTeammateId === undefined
+        ? {}
+        : { generatedByTeammateId: input.generatedByTeammateId }),
+      ...(input.runId === undefined ? {} : { runId: input.runId }),
+      ...(input.skillId === undefined ? {} : { skillId: input.skillId }),
+      ...(input.skillVersion === undefined
+        ? {}
+        : { skillVersion: input.skillVersion }),
+      triggerSource: input.triggerSource ?? "api",
+      sourceRefs: [...(input.sourceRefs ?? [])],
       content: input.content,
       createdAt: existing?.createdAt ?? this.nowIso(),
     });
     await this.tables.reports.put(
-      `${input.workspaceId}::${input.date}`,
+      `${input.workspaceId}::${reportType}::${input.date}`,
       record,
     );
     return record;
@@ -645,16 +754,17 @@ export class ProjectService {
 
   // ------------------------------------------------------------------ seeds
 
-  /** 首次启动写入内置角色库与项目模版；已有数据不做覆盖。 */
+  /** 写入缺失的内置角色与项目模版；已有用户配置不做覆盖。 */
   async seedDefaults(): Promise<void> {
-    if (this.tables.roles.size === 0) {
-      const timestamp = this.nowIso();
-      for (const role of SEED_ROLES) {
+    const timestamp = this.nowIso();
+    for (const role of SEED_ROLES) {
+      if (this.tables.roles.get(role.id) === undefined) {
         await this.tables.roles.put(
           role.id,
           parseOrInvalid(projectRoleRecordSchema, {
             ...role,
-            permissions: CATEGORY_PERMISSIONS[role.category],
+            permissions:
+              role.permissions ?? CATEGORY_PERMISSIONS[role.category],
             createdAt: timestamp,
             updatedAt: timestamp,
           }),
@@ -662,7 +772,6 @@ export class ProjectService {
       }
     }
     if (this.tables.templates.size === 0) {
-      const timestamp = this.nowIso();
       for (const template of SEED_TEMPLATES) {
         await this.tables.templates.put(
           template.id,
@@ -675,6 +784,20 @@ export class ProjectService {
           }),
         );
       }
+    }
+    for (const seed of SEED_TEMPLATES) {
+      const current = this.tables.templates.get(seed.id);
+      if (current === undefined || current.roleIds.includes("role-pm")) {
+        continue;
+      }
+      await this.tables.templates.put(
+        current.id,
+        parseOrInvalid(projectTemplateRecordSchema, {
+          ...current,
+          roleIds: ["role-pm", ...current.roleIds],
+          updatedAt: timestamp,
+        }),
+      );
     }
   }
 }

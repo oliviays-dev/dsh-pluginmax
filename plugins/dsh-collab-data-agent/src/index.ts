@@ -197,13 +197,15 @@ interface MeetingServiceLike {
 }
 
 interface MeetingMinutesLike {
-  activeVersion?(meetingId: string): {
+  activeVersion?(meetingId: string):
+    | {
     readonly id: string;
     readonly version: number;
     readonly content: string;
     readonly status: string;
     readonly updatedAt?: string;
-  } | undefined;
+      }
+    | undefined;
   versions?(meetingId: string): readonly {
     readonly id: string;
     readonly version: number;
@@ -296,7 +298,11 @@ interface TeammateServiceLike {
 async function resolveDataAgentInstance(
   teammates: TeammateServiceLike,
   actor: DataAgentActor,
-): Promise<{ readonly id: string; readonly name: string; readonly state: string }> {
+): Promise<{
+  readonly id: string;
+  readonly name: string;
+  readonly state: string;
+}> {
   return teammates.ensureUserSystemAgent(actor, "data-agent");
 }
 
@@ -325,7 +331,14 @@ interface AgentProfileLike {
 
 interface AgentRunLike {
   readonly id: string;
+  readonly workspaceId: string;
+  readonly instanceId: string;
+  readonly source: "task" | "workflow" | "meeting" | "chat";
   readonly sessionId?: string | undefined;
+  readonly createdBy: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly contextPackId?: string | undefined;
   readonly status:
     | "queued"
     | "running"
@@ -342,13 +355,19 @@ interface AgentRunLike {
         readonly runtime?: string | undefined;
       }
     | undefined;
+  readonly payload?: {
+    readonly nodeDescription?: string | undefined;
+    readonly context?:
+      Readonly<Record<string, string | number | boolean>> | undefined;
+  };
 }
 
 interface AgentServiceLike {
   profiles(workspaceId: string): readonly AgentProfileLike[];
   runs(input: {
-    readonly workspaceId: string;
+    readonly workspaceId?: string | undefined;
     readonly instanceId?: string | undefined;
+    readonly sessionId?: string | undefined;
   }): readonly AgentRunLike[];
   execution?(runId: string):
     | {
@@ -388,9 +407,7 @@ interface AgentServiceLike {
       readonly nodeDescription: string;
       readonly profileName: string;
       readonly deliverables: readonly [];
-      readonly context: Readonly<
-        Record<string, string | number | boolean>
-      >;
+      readonly context: Readonly<Record<string, string | number | boolean>>;
     };
     readonly createdBy: string;
   }): Promise<AgentRunLike>;
@@ -485,12 +502,7 @@ interface DataFabricQueryRunLike {
   readonly metricIds: readonly string[];
   readonly metricVersionSnapshot: Readonly<Record<string, string>>;
   readonly status:
-    | "planned"
-    | "running"
-    | "succeeded"
-    | "failed"
-    | "timeout"
-    | "cancelled";
+    "planned" | "running" | "succeeded" | "failed" | "timeout" | "cancelled";
   readonly rowCount?: number | undefined;
   readonly scannedRows?: number | undefined;
   readonly truncated?: boolean | undefined;
@@ -579,16 +591,14 @@ interface ContextServiceLike {
       readonly version: string;
       readonly instructions: string;
       readonly allowedWriteback: readonly (
-        | "agent-private-memory"
-        | "run-evidence"
-        | "memory-candidate"
+        "agent-private-memory" | "run-evidence" | "memory-candidate"
       )[];
     }>;
   }): () => void;
   prepare(input: Record<string, unknown>): Promise<ContextPackLike>;
-  session?(bindingId: string):
-    | { readonly sessionId: string; readonly generation: number }
-    | undefined;
+  session?(
+    bindingId: string,
+  ): { readonly sessionId: string; readonly generation: number } | undefined;
   recordRuntime(input: {
     readonly runId: string;
     readonly contextPackId: string;
@@ -680,10 +690,7 @@ function query(request: IncomingMessage): URLSearchParams {
   return new URL(request.url ?? "/", "http://dsh.invalid").searchParams;
 }
 
-function header(
-  request: IncomingMessage,
-  name: string,
-): string | undefined {
+function header(request: IncomingMessage, name: string): string | undefined {
   const value = request.headers[name.toLowerCase()];
   return Array.isArray(value) ? value[0] : value;
 }
@@ -771,7 +778,10 @@ function method(request: IncomingMessage, expected: string): void {
   }
 }
 
-async function body<T>(request: IncomingMessage, schema: z.ZodType<T>): Promise<T> {
+async function body<T>(
+  request: IncomingMessage,
+  schema: z.ZodType<T>,
+): Promise<T> {
   let value: unknown;
   try {
     value = await readJsonBody(request);
@@ -793,7 +803,8 @@ function routeError(response: ServerResponse, cause: unknown): void {
     });
     return;
   }
-  const message = cause instanceof Error ? cause.message : "Data Agent 请求失败";
+  const message =
+    cause instanceof Error ? cause.message : "Data Agent 请求失败";
   sendJson(response, 500, {
     ok: false,
     error: { code: "internal_error", message },
@@ -823,7 +834,10 @@ function writeText(
 
 const configBodySchema = z.object({
   workspaceId: z.string().trim().min(1).max(200),
-  dataConnectionIds: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
+  dataConnectionIds: z
+    .array(z.string().trim().min(1).max(200))
+    .max(50)
+    .optional(),
   defaultProjectId: z.string().trim().min(1).max(200).nullable().optional(),
   defaultTimeRange: z.enum(["today", "7d", "30d", "month"]).optional(),
   timezone: z.string().trim().min(1).max(80).optional(),
@@ -832,7 +846,10 @@ const configBodySchema = z.object({
     .optional(),
   maxRowsPerQuery: z.number().int().min(1).max(100_000).optional(),
   queryTimeoutMs: z.number().int().min(1_000).max(300_000).optional(),
-  preferredMetricIds: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
+  preferredMetricIds: z
+    .array(z.string().trim().min(1).max(200))
+    .max(50)
+    .optional(),
   externalRuntimeId: z.string().trim().min(1).max(200).nullable().optional(),
 });
 
@@ -873,8 +890,7 @@ function selectionPrompt(
     )
     .join("\n\n");
   const context = attachments
-    .map(
-      (attachment, index) =>
+    .map((attachment, index) =>
         [
           `### 上下文 ${index + 1}：${attachment.title}`,
           `- 类型：${attachment.entityType ?? attachment.kind}`,
@@ -883,7 +899,9 @@ function selectionPrompt(
           attachment.sourceProjectId === undefined
             ? ""
             : `- 项目：${attachment.sourceProjectId}`,
-          attachment.entityId === undefined ? "" : `- 对象：${attachment.entityId}`,
+        attachment.entityId === undefined
+          ? ""
+          : `- 对象：${attachment.entityId}`,
           `- 快照：${attachment.excerpt}`,
         ]
           .filter(Boolean)
@@ -921,8 +939,12 @@ function selectionPrompt(
     `当前页面：${conversation.sourcePage}`,
     `工作区名称：${workspaceName ?? "当前工作区"}`,
     `工作区 ID（仅用于证据定位，正文不要展示）：${conversation.workspaceId}`,
-    conversation.projectId === undefined ? "" : `项目：${conversation.projectId}`,
-    conversation.meetingId === undefined ? "" : `会议：${conversation.meetingId}`,
+    conversation.projectId === undefined
+      ? ""
+      : `项目：${conversation.projectId}`,
+    conversation.meetingId === undefined
+      ? ""
+      : `会议：${conversation.meetingId}`,
     "",
     "## 最近对话",
     transcript || "（新会话）",
@@ -973,7 +995,9 @@ interface SharedObjectSection {
 }
 
 function clipContext(value: unknown, max = 1_200): string {
-  const text = String(value ?? "").replace(/\r/g, "").trim();
+  const text = String(value ?? "")
+    .replace(/\r/g, "")
+    .trim();
   return text.length <= max ? text : `${text.slice(0, max)}…`;
 }
 
@@ -983,9 +1007,7 @@ function selectionValues(
   return selection.snapshot?.values ?? {};
 }
 
-function snapshotValues(
-  snapshot: unknown,
-): Readonly<Record<string, unknown>> {
+function snapshotValues(snapshot: unknown): Readonly<Record<string, unknown>> {
   if (snapshot === null || typeof snapshot !== "object") return {};
   const values = (snapshot as { readonly values?: unknown }).values;
   return values !== null && typeof values === "object"
@@ -1031,7 +1053,10 @@ function selectionSourceRef(
   return undefined;
 }
 
-function objectHistory(lines: string[], detail: "summary" | "history" | "search") {
+function objectHistory(
+  lines: string[],
+  detail: "summary" | "history" | "search",
+) {
   return detail === "summary" ? lines.slice(0, 10) : lines;
 }
 
@@ -1122,16 +1147,24 @@ async function sharedObjectSections(input: {
         "- 上下文范围：任务本体、描述/验收、消息、评论线程、Run 元数据、附件引用和显式关联对象。",
         "",
         "### 任务描述",
-        clipContext(task.description ?? "（无描述）", detail === "summary" ? 4_000 : 12_000),
+        clipContext(
+          task.description ?? "（无描述）",
+          detail === "summary" ? 4_000 : 12_000,
+        ),
         "",
         "### 验收标准",
-        ...(task.acceptance ?? []).map((item, itemIndex) => `${itemIndex + 1}. ${item}`),
+        ...(task.acceptance ?? []).map(
+          (item, itemIndex) => `${itemIndex + 1}. ${item}`,
+        ),
         "",
         "### 关联对象",
         ...(task.links ?? []).map(
-          (link) => `- ${link.type}:${link.id}${link.label ? ` · ${link.label}` : ""}`,
+          (link) =>
+            `- ${link.type}:${link.id}${link.label ? ` · ${link.label}` : ""}`,
         ),
-        ...(task.links === undefined || task.links.length === 0 ? ["- 无"] : []),
+        ...(task.links === undefined || task.links.length === 0
+          ? ["- 无"]
+          : []),
         "",
         "### 历史索引",
         `- messages：${messages.length}`,
@@ -1181,11 +1214,18 @@ async function sharedObjectSections(input: {
           {
             type: "task",
             id: task.id,
-            ...(task.updatedAt === undefined ? {} : { version: task.updatedAt }),
+            ...(task.updatedAt === undefined
+              ? {}
+              : { version: task.updatedAt }),
           },
           ...(task.links ?? []).flatMap((link) =>
             ["workflow", "meeting", "document"].includes(link.type)
-              ? [{ type: link.type as "workflow" | "meeting" | "document", id: link.id }]
+              ? [
+                  {
+                    type: link.type as "workflow" | "meeting" | "document",
+                    id: link.id,
+                  },
+                ]
               : [],
           ),
         ],
@@ -1206,7 +1246,9 @@ async function sharedObjectSections(input: {
             ? values.workflowId
             : undefined;
       const workflow =
-        workflowId === undefined ? undefined : input.workflows?.instance(workflowId);
+        workflowId === undefined
+          ? undefined
+          : input.workflows?.instance(workflowId);
       if (
         workflow === undefined ||
         workflow.workspaceId !== selection.source.workspaceId
@@ -1277,7 +1319,10 @@ async function sharedObjectSections(input: {
       continue;
     }
 
-    if (selection.entityType === "meeting" && selection.entityId !== undefined) {
+    if (
+      selection.entityType === "meeting" &&
+      selection.entityId !== undefined
+    ) {
       const meeting = input.meetings
         ?.list(input.workspaceId)
         .find((item) => item.id === selection.entityId);
@@ -1317,7 +1362,10 @@ async function sharedObjectSections(input: {
             ),
           "",
           "### 当前纪要摘要",
-          clipContext(minutes?.content ?? "暂无已确认纪要", detail === "summary" ? 2_500 : 8_000),
+          clipContext(
+            minutes?.content ?? "暂无已确认纪要",
+            detail === "summary" ? 2_500 : 8_000,
+          ),
         ].join("\n"),
         sourceRefs: [
           {
@@ -1492,9 +1540,7 @@ function queryEvidenceFromRuns(
     metricVersionSnapshot: { ...run.metricVersionSnapshot },
     status: run.status,
     ...(run.rowCount === undefined ? {} : { rowCount: run.rowCount }),
-    ...(run.scannedRows === undefined
-      ? {}
-      : { scannedRows: run.scannedRows }),
+    ...(run.scannedRows === undefined ? {} : { scannedRows: run.scannedRows }),
     ...(run.truncated === undefined ? {} : { truncated: run.truncated }),
     ...(run.dataCutoffAt === undefined
       ? {}
@@ -1545,10 +1591,12 @@ function monitorRun(input: {
         });
         return;
       }
-      const agentRun = input.agent.runs({
+      const agentRun = input.agent
+        .runs({
         workspaceId: dataRun.workspaceId,
         instanceId: input.conversation.id,
-      }).find((run) => run.id === dataRun.agentRunId);
+        })
+        .find((run) => run.id === dataRun.agentRunId);
       if (agentRun === undefined) {
         await monitorDelay();
         continue;
@@ -1679,7 +1727,8 @@ function monitorRun(input: {
     await input.service
       .updateRun(input.dataRunId, {
         status: "failed",
-        error: cause instanceof Error ? cause.message : "Data Agent 后台运行失败",
+        error:
+          cause instanceof Error ? cause.message : "Data Agent 后台运行失败",
         endedAt: new Date().toISOString(),
       })
       .catch(() => undefined);
@@ -1786,9 +1835,9 @@ function conversationPayload(
     conversation,
     messages: service.messages(conversation.id),
     attachments: service.attachments(conversation.id),
-    runs: service.pendingRuns().filter(
-      (run) => run.conversationId === conversation.id,
-    ),
+    runs: service
+      .pendingRuns()
+      .filter((run) => run.conversationId === conversation.id),
     reports: reports.map((report) => ({
       ...report,
       html: service.htmlForReport(report.id) ?? null,
@@ -1815,10 +1864,8 @@ export function createDataAgentRoutes(
     readonly profileId: string;
   }>,
 ): WebRouteLike[] {
-  const team = () =>
-    lookupService<TeamServiceLike>("collabTeam");
-  const requireActor = (request: IncomingMessage) =>
-    requireTeam(request, team);
+  const team = () => lookupService<TeamServiceLike>("collabTeam");
+  const requireActor = (request: IncomingMessage) => requireTeam(request, team);
   const tasks = () => lookupService<TaskServiceLike>("collabTasks");
   const workflows = () => lookupService<WorkflowServiceLike>("collabWorkflow");
   const meetings = () => lookupService<MeetingServiceLike>("collabMeeting");
@@ -1835,7 +1882,10 @@ export function createDataAgentRoutes(
           const { actor, team: identity } = requireActor(request);
           const workspaceId = query(request).get("workspaceId") ?? "";
           if (workspaceId === "") {
-            throw new DataAgentError("invalid_input", "workspaceId is required");
+            throw new DataAgentError(
+              "invalid_input",
+              "workspaceId is required",
+            );
           }
           const access = requireWorkspace(identity, actor, workspaceId);
           const teammateService =
@@ -2370,7 +2420,10 @@ interface CaptureLlmLike {
     readonly messages: readonly {
       readonly id: string;
       readonly role: "user";
-      readonly content: readonly { readonly type: "text"; readonly text: string }[];
+      readonly content: readonly {
+        readonly type: "text";
+        readonly text: string;
+      }[];
       readonly source: { readonly kind: "plugin"; readonly plugin: string };
     }[];
     readonly maxTokens: number;
@@ -2431,9 +2484,7 @@ function dataAgentCaptureTitle(value: string): string {
     .split(/\n+|[。！？!?；;]/)
     .map((item) =>
       plainCaptureText(
-        item
-          .replace(/（[^）]{0,100}）/g, "")
-          .replace(/\([^)]{0,100}\)/g, ""),
+        item.replace(/（[^）]{0,100}）/g, "").replace(/\([^)]{0,100}\)/g, ""),
       ),
     )
     .filter((item) => item.length >= 6);
@@ -2442,10 +2493,13 @@ function dataAgentCaptureTitle(value: string): string {
     let value = 0;
     if (/(处置方向|下一步|待办|行动项|人工分工|建议|结论)/.test(clause))
       value += 16;
-    if (/(核实|确认|排查|梳理|分析|修复|优化|补齐|跟进|生成|整理|评估|输出|创建|更新|处置)/.test(clause))
+    if (
+      /(核实|确认|排查|梳理|分析|修复|优化|补齐|跟进|生成|整理|评估|输出|创建|更新|处置)/.test(
+        clause,
+      )
+    )
       value += 8;
-    if (/(异常|失败|取消|超时|风险|原因|问题|缺口)/.test(clause))
-      value += 5;
+    if (/(异常|失败|取消|超时|风险|原因|问题|缺口)/.test(clause)) value += 5;
     if (clause.length >= 10 && clause.length <= 42) value += 5;
     if (clause.length > 60) value -= 8;
     if ((clause.match(/\d/g)?.length ?? 0) > 8) value -= 6;
@@ -2453,7 +2507,9 @@ function dataAgentCaptureTitle(value: string): string {
   };
   const best = clauses
     .map((clause, index) => ({ clause, index, score: score(clause) }))
-    .sort((left, right) => right.score - left.score || left.index - right.index)[0];
+    .sort(
+      (left, right) => right.score - left.score || left.index - right.index,
+    )[0];
   if (best === undefined) return normalizeDataAgentCaptureTitle(value);
   const withoutLabel = best.clause.replace(
     /^(处置方向|下一步|待办|行动项|人工分工|建议|结论)[^：:]{0,24}[：:]\s*/,
@@ -2476,7 +2532,13 @@ function captureModelRoute(
   ctx: DataAgentContext,
   service: DataAgentService,
   messages: readonly DataAgentMessage[],
-): { readonly provider: string; readonly model: string; readonly sessionId: string } | undefined {
+):
+  | {
+      readonly provider: string;
+      readonly model: string;
+      readonly sessionId: string;
+    }
+  | undefined {
   const sessions = lookup<CaptureSessionsLike>(ctx, "sessions");
   if (sessions === undefined) return undefined;
   for (const message of [...messages].reverse()) {
@@ -2511,7 +2573,10 @@ function captureModelRoute(
       continue;
     }
     const config = header?.data?.header?.config;
-    if (typeof config?.provider !== "string" || typeof config.model !== "string")
+    if (
+      typeof config?.provider !== "string" ||
+      typeof config.model !== "string"
+    )
       continue;
     return {
       provider: config.provider,
@@ -2592,10 +2657,7 @@ function dataAgentTaskCaptureAdapter(
     version: "1",
     async resolve({ actor, sourceRef, selection }) {
       const conversation = service.conversation(sourceRef.sourceId);
-      if (
-        conversation.ownerUserId !== actor.id &&
-        actor.role !== "admin"
-      ) {
+      if (conversation.ownerUserId !== actor.id && actor.role !== "admin") {
         throw new Error("Data Agent conversation access is required");
       }
       const messages = service.messages(conversation.id);
@@ -2617,8 +2679,12 @@ function dataAgentTaskCaptureAdapter(
       const titles = await Promise.all(
         selected.map(
           async (message) =>
-            (await modelCaptureTitle(ctx, service, messages, message.content)) ??
-            dataAgentCaptureTitle(message.content),
+            (await modelCaptureTitle(
+              ctx,
+              service,
+              messages,
+              message.content,
+            )) ?? dataAgentCaptureTitle(message.content),
         ),
       );
       return {
@@ -2652,9 +2718,7 @@ function dataAgentTaskCaptureAdapter(
           priorityHint: "P2" as const,
           acceptanceHints: [],
           collaboratorHints: [],
-          evidenceRefs: [
-            `data-agent-message:${conversation.id}:${message.id}`,
-          ],
+          evidenceRefs: [`data-agent-message:${conversation.id}:${message.id}`],
           confidence: "medium" as const,
           sourceExcerpt: message.content.slice(0, 2_000),
         })),
@@ -2689,7 +2753,9 @@ export async function apply(ctx: DataAgentContext): Promise<void> {
       register(adapter: TaskCaptureSourceAdapter): () => void;
     }>(child, "collabTaskCaptureSources");
     if (registry === undefined) return;
-    const dispose = registry.register(dataAgentTaskCaptureAdapter(service, ctx));
+    const dispose = registry.register(
+      dataAgentTaskCaptureAdapter(service, ctx),
+    );
     child.effect(() => () => dispose());
   });
   const contextService = lookup<ContextServiceLike>(ctx, "collabContext");
@@ -2742,6 +2808,80 @@ export async function apply(ctx: DataAgentContext): Promise<void> {
     });
     ctx.effect(() => () => disposeContextAdapter());
   }
+  const taskRuntimeForAgentSession = (
+    sessionId: string | undefined,
+  ):
+    | {
+        readonly agentRun: AgentRunLike;
+        readonly actor: DataFabricActorLike;
+        readonly workspaceId: string;
+        readonly projectId?: string | undefined;
+        readonly taskId: string;
+      }
+    | undefined => {
+    if (sessionId === undefined || sessionId === "") return undefined;
+    const agents = lookup<AgentServiceLike>(ctx, "collabAgent");
+    const agentRun = agents?.runs({ sessionId })[0];
+    if (agentRun === undefined || agentRun.source === "chat") return undefined;
+    const team = lookup<TeamServiceLike>(ctx, "collabTeam");
+    if (team === undefined) return undefined;
+    const memberRole = team
+      .members(agentRun.workspaceId)
+      .find((member) => member.userId === agentRun.createdBy)?.memberRole;
+    if (memberRole !== "owner" && memberRole !== "member") return undefined;
+    const workspaceConfig = service.config(agentRun.workspaceId);
+    const projectId =
+      typeof agentRun.payload?.context?.projectId === "string"
+        ? agentRun.payload.context.projectId
+        : workspaceConfig.defaultProjectId;
+    const user = team
+      .users()
+      .find((candidate) => candidate.id === agentRun.createdBy);
+    return {
+      agentRun,
+      workspaceId: agentRun.workspaceId,
+      ...(projectId === undefined ? {} : { projectId }),
+      taskId: agentRun.instanceId,
+      actor: {
+        userId: agentRun.createdBy,
+        name: user?.name ?? agentRun.createdBy,
+        workspaceRole: memberRole,
+        ...(workspaceConfig.dataConnectionIds.length === 0
+          ? {}
+          : { connectionIds: [...workspaceConfig.dataConnectionIds] }),
+        maxRows: workspaceConfig.maxRowsPerQuery,
+        queryTimeoutMs: workspaceConfig.queryTimeoutMs,
+        ...(projectId === undefined ? {} : { projectId }),
+      },
+    };
+  };
+  const dataRunForTaskRuntime = (input: {
+    readonly agentRun: AgentRunLike;
+    readonly taskId: string;
+    readonly workspaceId: string;
+    readonly projectId?: string | undefined;
+  }): DataAgentRun =>
+    ({
+      id: input.agentRun.id,
+      conversationId: input.taskId,
+      workspaceId: input.workspaceId,
+      ...(input.projectId === undefined ? {} : { projectId: input.projectId }),
+      agentRunId: input.agentRun.id,
+      ...(input.agentRun.sessionId === undefined
+        ? {}
+        : { runtimeSessionId: input.agentRun.sessionId }),
+      ...(input.agentRun.contextPackId === undefined
+        ? {}
+        : { contextPackId: input.agentRun.contextPackId }),
+      mode: "chat",
+      status: input.agentRun.status,
+      prompt: input.agentRun.payload?.nodeDescription ?? input.taskId,
+      title: input.agentRun.payload?.nodeDescription ?? input.taskId,
+      usedTools: [],
+      queryEvidence: [],
+      createdAt: input.agentRun.createdAt,
+      updatedAt: input.agentRun.updatedAt,
+    }) satisfies DataAgentRun;
   const entityReadTool = ctx.tools?.register({
     name: "entity_read",
     description:
@@ -2752,13 +2892,7 @@ export async function apply(ctx: DataAgentContext): Promise<void> {
       properties: {
         type: {
           type: "string",
-          enum: [
-            "task",
-            "workflow",
-            "workflow_node",
-            "meeting",
-            "metric_card",
-          ],
+          enum: ["task", "workflow", "workflow_node", "meeting", "metric_card"],
         },
         id: { type: "string" },
         section: {
@@ -2790,21 +2924,89 @@ export async function apply(ctx: DataAgentContext): Promise<void> {
         })
         .parse(args);
       const sessionId = exec.agent?.session?.id;
-      const run =
-        sessionId === undefined ? undefined : service.runForAgentSession(sessionId);
-      if (run === undefined) {
+      const dataRun =
+        sessionId === undefined
+          ? undefined
+          : service.runForAgentSession(sessionId);
+      const taskRuntime =
+        dataRun === undefined
+          ? taskRuntimeForAgentSession(sessionId)
+          : undefined;
+      if (dataRun === undefined && taskRuntime === undefined) {
         throw new DataAgentError("forbidden", "当前运行没有可用的上下文授权");
       }
+      if (taskRuntime !== undefined) {
+        if (parsed.type !== "task" || parsed.id !== taskRuntime.taskId) {
+          throw new DataAgentError(
+            "forbidden",
+            "该对象没有在当前任务执行上下文中显式授权",
+          );
+        }
+        const taskService = lookup<TaskServiceLike>(ctx, "collabTasks");
+        const task =
+          taskService?.get?.(taskRuntime.taskId) ??
+          taskService
+            ?.list(taskRuntime.workspaceId)
+            .find((candidate) => candidate.id === taskRuntime.taskId);
+        if (task === undefined) {
+          throw new DataAgentError("not_found", "当前任务上下文不可用");
+        }
+        const selection: DataAgentSelectionContext = {
+          kind: "record",
+          entityType: "task",
+          entityId: task.id,
+          title: task.title,
+          excerpt: task.description ?? "",
+          source: {
+            workspaceId: taskRuntime.workspaceId,
+            ...(taskRuntime.projectId === undefined
+              ? {}
+              : { projectId: taskRuntime.projectId }),
+            page: "task",
+            entityRef: `/task/${task.id}`,
+          },
+          snapshot: {
+            values: { taskId: task.id },
+          },
+        };
+        const sections = await sharedObjectSections({
+          selections: [selection],
+          workspaceId: taskRuntime.workspaceId,
+          actor: {
+            userId: taskRuntime.actor.userId,
+            name: taskRuntime.actor.name ?? taskRuntime.actor.userId,
+            role: taskRuntime.actor.workspaceRole ?? "member",
+          },
+          query: parsed.query ?? "",
+          detail:
+            parsed.section === "history"
+              ? "history"
+              : parsed.section === "search"
+                ? "search"
+                : "summary",
+          tasks: taskService,
+          workflows: lookup<WorkflowServiceLike>(ctx, "collabWorkflow"),
+          meetings: lookup<MeetingServiceLike>(ctx, "collabMeeting"),
+          meetingMinutes: lookup<MeetingMinutesLike>(
+            ctx,
+            "collabMeetingMinutes",
+          ),
+          workbench: lookup<WorkbenchServiceLike>(ctx, "collabWorkbench"),
+          agents: lookup<AgentServiceLike>(ctx, "collabAgent"),
+        });
+        return (
+          sections.map((section) => section.text).join("\n\n") ||
+          "对象没有可用上下文"
+        );
+      }
+      const run = dataRun!;
       const conversation = service.conversation(run.conversationId);
       if (conversation.workspaceId !== run.workspaceId) {
         throw new DataAgentError("forbidden", "上下文工作区不一致");
       }
       const attachments = service.attachments(conversation.id);
       const attachment = attachments.find((item) => {
-        if (
-          item.entityType !== parsed.type ||
-          item.entityId === undefined
-        ) {
+        if (item.entityType !== parsed.type || item.entityId === undefined) {
           return false;
         }
         if (parsed.id === item.entityId) return true;
@@ -2898,11 +3100,26 @@ export async function apply(ctx: DataAgentContext): Promise<void> {
   } => {
     exec.signal.throwIfAborted();
     const sessionId = exec.agent?.session?.id;
-    const run =
-      sessionId === undefined ? undefined : service.runForAgentSession(sessionId);
-    if (run === undefined) {
+    const dataRun =
+      sessionId === undefined
+        ? undefined
+        : service.runForAgentSession(sessionId);
+    const taskRuntime =
+      dataRun === undefined ? taskRuntimeForAgentSession(sessionId) : undefined;
+    if (dataRun === undefined && taskRuntime === undefined) {
       throw new DataAgentError("forbidden", "当前运行没有可用的数据授权");
     }
+    if (taskRuntime !== undefined) {
+      return {
+        run: dataRunForTaskRuntime(taskRuntime),
+        actor: taskRuntime.actor,
+        workspaceId: taskRuntime.workspaceId,
+        ...(taskRuntime.projectId === undefined
+          ? {}
+          : { projectId: taskRuntime.projectId }),
+      };
+    }
+    const run = dataRun!;
     const conversation = service.conversation(run.conversationId);
     const team = lookup<TeamServiceLike>(ctx, "collabTeam");
     if (team === undefined) {
@@ -2926,9 +3143,7 @@ export async function apply(ctx: DataAgentContext): Promise<void> {
     return {
       run,
       workspaceId: conversation.workspaceId,
-      ...(projectId === undefined
-        ? {}
-        : { projectId }),
+      ...(projectId === undefined ? {} : { projectId }),
       actor: {
         userId: conversation.ownerUserId,
         name: user?.name ?? conversation.ownerUserId,
@@ -2938,9 +3153,7 @@ export async function apply(ctx: DataAgentContext): Promise<void> {
           : { connectionIds: [...workspaceConfig.dataConnectionIds] }),
         maxRows: workspaceConfig.maxRowsPerQuery,
         queryTimeoutMs: workspaceConfig.queryTimeoutMs,
-        ...(projectId === undefined
-          ? {}
-          : { projectId }),
+        ...(projectId === undefined ? {} : { projectId }),
       },
     };
   };
@@ -2972,10 +3185,7 @@ export async function apply(ctx: DataAgentContext): Promise<void> {
     readonly name: string;
     readonly description: string;
     readonly parameters: Readonly<Record<string, unknown>>;
-    readonly execute: (
-      args: unknown,
-      exec: ToolExecLike,
-    ) => Promise<unknown>;
+    readonly execute: (args: unknown, exec: ToolExecLike) => Promise<unknown>;
   }): void => {
     const dispose = ctx.tools?.register({
       name: definition.name,
@@ -3113,11 +3323,7 @@ export async function apply(ctx: DataAgentContext): Promise<void> {
       execute: async (args, exec) => {
         const input = semanticQuerySchema.parse(args);
         const context = dataToolContext(exec);
-        return dataFabric.explain(
-          context.actor,
-          context.workspaceId,
-          input,
-        );
+        return dataFabric.explain(context.actor, context.workspaceId, input);
       },
     });
     registerDataTool({
@@ -3129,19 +3335,14 @@ export async function apply(ctx: DataAgentContext): Promise<void> {
         const input = semanticQuerySchema.parse(args);
         const context = dataToolContext(exec);
         assertReportQueryReuse(context);
-        return dataFabric.query(
-          context.actor,
-          context.workspaceId,
-          input,
-          {
+        return dataFabric.query(context.actor, context.workspaceId, input, {
             projectId: context.projectId,
             conversationId: context.run.conversationId,
             ...(context.run.agentRunId === undefined
               ? {}
               : { agentRunId: context.run.agentRunId }),
             intentSummary: context.run.prompt,
-          },
-        );
+        });
       },
     });
     registerDataTool({
@@ -3153,19 +3354,14 @@ export async function apply(ctx: DataAgentContext): Promise<void> {
         const input = semanticQuerySchema.parse(args);
         const context = dataToolContext(exec);
         assertReportQueryReuse(context);
-        return dataFabric.query(
-          context.actor,
-          context.workspaceId,
-          input,
-          {
+        return dataFabric.query(context.actor, context.workspaceId, input, {
             projectId: context.projectId,
             conversationId: context.run.conversationId,
             ...(context.run.agentRunId === undefined
               ? {}
               : { agentRunId: context.run.agentRunId }),
             intentSummary: context.run.prompt,
-          },
-        );
+        });
       },
     });
   }
@@ -3181,10 +3377,7 @@ export async function apply(ctx: DataAgentContext): Promise<void> {
     readonly workspaceName?: string | undefined;
   }) => {
     const teammates = lookup<TeammateServiceLike>(ctx, "collabTeammates");
-    const runtime = lookup<TeammateRuntimeLike>(
-      ctx,
-      "collabTeammateRuntime",
-    );
+    const runtime = lookup<TeammateRuntimeLike>(ctx, "collabTeammateRuntime");
     const agents = lookup<AgentServiceLike>(ctx, "collabAgent");
     const team = lookup<TeamServiceLike>(ctx, "collabTeam");
     if (
@@ -3293,9 +3486,7 @@ export async function apply(ctx: DataAgentContext): Promise<void> {
         : { connectionIds: [...workspaceConfig.dataConnectionIds] }),
       maxRows: workspaceConfig.maxRowsPerQuery,
       queryTimeoutMs: workspaceConfig.queryTimeoutMs,
-      ...(dataProjectId === undefined
-        ? {}
-        : { projectId: dataProjectId }),
+      ...(dataProjectId === undefined ? {} : { projectId: dataProjectId }),
     };
     const dataCapabilities =
       dataFabric === undefined
@@ -3307,11 +3498,9 @@ export async function apply(ctx: DataAgentContext): Promise<void> {
     const dataSkills =
       dataFabric?.skills === undefined
         ? []
-        : await dataFabric.skills(
-            dataActor,
-            input.conversation.workspaceId,
-            { query: input.prompt },
-          );
+        : await dataFabric.skills(dataActor, input.conversation.workspaceId, {
+            query: input.prompt,
+          });
     const conversationQueryRuns =
       dataFabric?.queryRunsForConversation === undefined
         ? []
@@ -3469,9 +3658,7 @@ export async function apply(ctx: DataAgentContext): Promise<void> {
             explicitRefs: contextSelections
               .map(selectionSourceRef)
               .filter(
-                (
-                  ref,
-                ): ref is SharedObjectSection["sourceRefs"][number] =>
+                (ref): ref is SharedObjectSection["sourceRefs"][number] =>
                   ref !== undefined,
               ),
             pinnedMemoryIds: [],
@@ -3512,8 +3699,7 @@ export async function apply(ctx: DataAgentContext): Promise<void> {
       input.mode,
       input.workspaceName,
     );
-    const contextInstruction =
-      contextPack?.rendered.userText ?? fallbackPrompt;
+    const contextInstruction = contextPack?.rendered.userText ?? fallbackPrompt;
     const dataRun = await service.createRun(input.actor, {
       conversationId: input.conversation.id,
       prompt: input.prompt,
@@ -3522,9 +3708,7 @@ export async function apply(ctx: DataAgentContext): Promise<void> {
         input.conversation.title ??
         (input.mode === "report" ? "Data Agent 报告" : "Data Agent 对话"),
       mode: input.mode,
-      ...(contextPack === undefined
-        ? {}
-        : { contextPackId: contextPack.id }),
+      ...(contextPack === undefined ? {} : { contextPackId: contextPack.id }),
       runtimeProfileId: ensured.profileId,
       teammateInstanceId: teammate.id,
     });
@@ -3561,7 +3745,9 @@ export async function apply(ctx: DataAgentContext): Promise<void> {
             contextPackId: contextPack.id,
             sessionBindingId: contextPack.sessionBindingId,
           }),
-      ...(contextSession === undefined ? {} : { sessionId: contextSession.sessionId }),
+      ...(contextSession === undefined
+        ? {}
+        : { sessionId: contextSession.sessionId }),
       payload: {
         instanceTitle: input.conversation.title,
         nodeName:
@@ -3590,9 +3776,7 @@ export async function apply(ctx: DataAgentContext): Promise<void> {
     const queuedRun = await service.updateRun(dataRun.id, {
       agentRunId: agentRun.id,
       runtimeProfileId: ensured.profileId,
-      ...(contextPack === undefined
-        ? {}
-        : { contextPackId: contextPack.id }),
+      ...(contextPack === undefined ? {} : { contextPackId: contextPack.id }),
       status: "queued",
     });
     if (contextService !== undefined && contextPack !== undefined) {
@@ -3631,7 +3815,11 @@ export async function apply(ctx: DataAgentContext): Promise<void> {
       profileId: profile.id,
     };
   };
-  for (const route of createDataAgentRoutes(service, (key) => lookup(ctx, key), runQuery)) {
+  for (const route of createDataAgentRoutes(
+    service,
+    (key) => lookup(ctx, key),
+    runQuery,
+  )) {
     ctx.webServer.register(route);
   }
   const agents = lookup<AgentServiceLike>(ctx, "collabAgent");

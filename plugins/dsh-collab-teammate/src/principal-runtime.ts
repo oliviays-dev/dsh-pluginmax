@@ -337,8 +337,8 @@ export class PrincipalRuntimeService {
         principals?.grants(input.principalId).filter(
           (grant) =>
             grant.status === "active" &&
-            grant.scopeType === "workspace" &&
-            grant.scopeId === input.workspaceId,
+            grant.scopeId === input.workspaceId &&
+            (grant.scopeType === "workspace" || grant.scopeType === "project"),
         ) ?? [];
       const allowed = new Set(grants.flatMap((grant) => grant.permissions));
       const requested = [...new Set(input.requestedActions)];

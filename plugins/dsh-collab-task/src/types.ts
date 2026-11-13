@@ -5,6 +5,7 @@ export const taskIdSchema = z.string().min(1).max(160);
 export const taskStatusSchema = z.enum([
   "todo",
   "progress",
+  "abnormal",
   "review",
   "done",
   "cancelled",
@@ -53,6 +54,17 @@ export const taskWorkflowRefSchema = z.object({
   nodeId: z.string().min(1).max(160),
   instanceTitle: z.string().min(1).max(180),
   nodeName: z.string().min(1).max(180),
+  dispatchMode: z.enum(["assigned", "claim"]).optional(),
+  candidatePool: z
+    .array(
+      z.object({
+        kind: z.enum(["user", "agent"]),
+        id: z.string().min(1).max(160),
+        name: z.string().min(1).max(160).optional(),
+      }),
+    )
+    .max(100)
+    .optional(),
   approvalPolicy: z.enum(["all", "any"]).optional(),
   approverIds: z.array(z.string().min(1).max(160)).max(50).optional(),
   nodeAttempt: z.number().int().positive().optional(),
@@ -87,10 +99,20 @@ export const taskEventSchema = z.object({
     "nudge",
     "closed",
     "workflow",
+    "plan",
     "archived",
     "restored",
   ]),
   message: z.string().min(1).max(2000),
+  taskRefs: z
+    .array(
+      z.object({
+        taskId: z.string().min(1).max(160),
+        title: z.string().min(1).max(500),
+      }),
+    )
+    .max(100)
+    .optional(),
 });
 
 export const taskAttachmentSchema = z.object({
@@ -159,6 +181,22 @@ export const taskReviewSubmitterSchema = z.object({
   receiverPrincipalId: z.string().min(1).max(180).optional(),
   receiverName: z.string().min(1).max(200).optional(),
   submittedAt: z.string().min(1).max(40),
+});
+
+export const taskExecutionAnomalySchema = z.object({
+  code: z.enum([
+    "run_failed",
+    "run_timeout",
+    "run_interrupted",
+    "plan_failed",
+    "tool_failed",
+    "dependency_unmet",
+    "missing_acceptance",
+    "missing_execution_evidence",
+  ]),
+  message: z.string().trim().min(1).max(1_000),
+  runId: z.string().min(1).max(180),
+  at: z.string().min(1).max(40),
 });
 
 export const taskCommentSchema = z.object({
@@ -234,6 +272,8 @@ export const taskRecordSchema = z.object({
   needsInput: z.boolean().default(false),
   /** 最近一次进入 Review 时的执行负责人；退回后恢复并清除。 */
   reviewSubmitter: taskReviewSubmitterSchema.optional(),
+  /** 最近一次执行异常；人工重新执行或恢复后清除。 */
+  executionAnomaly: taskExecutionAnomalySchema.optional(),
   archivedAt: z.string().min(1).max(40).optional(),
   // Reserved hook for the recycle bin: a soft-deleted task keeps `deletedAt`
   // set until it is restored or purged. Nothing writes it yet.
@@ -246,6 +286,9 @@ export type TaskRecord = z.infer<typeof taskRecordSchema>;
 export type TaskEvent = z.infer<typeof taskEventSchema>;
 export type TaskMessage = z.infer<typeof taskMessageSchema>;
 export type TaskExecutionMetadata = z.infer<typeof taskExecutionMetadataSchema>;
+export type TaskExecutionAnomaly = z.infer<
+  typeof taskExecutionAnomalySchema
+>;
 export type TaskComment = z.infer<typeof taskCommentSchema>;
 export type TaskStep = z.infer<typeof taskStepSchema>;
 export type TaskLink = z.infer<typeof taskLinkSchema>;

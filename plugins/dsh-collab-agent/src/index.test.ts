@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { Readable } from "node:stream";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   AgentRegistryService,
   AgentTaskRuntime,
@@ -2123,8 +2125,7 @@ describe("agent task runtime", () => {
         profileName: "Backend Agent",
         deliverables: [],
         context: {
-          systemText:
-            "[agent-identity]\n# Data Agent SOUL\n\nSYSTEM-CONTRACT",
+          systemText: "[agent-identity]\n# Data Agent SOUL\n\nSYSTEM-CONTRACT",
         },
       },
     });
@@ -2603,8 +2604,7 @@ describe("agent routes", () => {
       }),
     );
     const route = routes.find(
-      (candidate) =>
-        candidate.path === "/api/collab/agent/external-runtimes",
+      (candidate) => candidate.path === "/api/collab/agent/external-runtimes",
     )!;
     const response = {
       status: 0,
@@ -2638,5 +2638,30 @@ describe("agent routes", () => {
         reasoningEffort: "medium",
       },
     });
+  });
+
+  it("merges task policy tools into a restricted Agent Profile", () => {
+    const source = readFileSync(
+      resolve(import.meta.dirname, "./index.ts"),
+      "utf8",
+    );
+    expect(source).toContain("const policyAuthorizedTools =");
+    expect(source).toContain("envelope?.resolved.searchEnabled === true");
+    expect(source).toContain("approvalCategories.has(category)");
+    expect(source).toContain("tools.schemas?.().flatMap");
+    expect(source).toContain("const explicitPolicyToolNames =");
+    expect(source).toContain(
+      '"fs.write": ["write_file", "str_replace_editor"]',
+    );
+    expect(source).toContain('"web.fetch": ["web_fetch"]');
+    expect(source).toContain("...profileTools,");
+    expect(source).toContain("...policyToolNames,");
+    expect(source).toContain('name: "read_file"');
+    expect(source).toContain('name: "write_file"');
+    expect(source).toContain('name: "list_files"');
+    expect(source).toContain("文件路径不能越过项目工作区");
+    expect(source).toContain("await lstat(current)");
+    expect(source).toContain("info.isSymbolicLink()");
+    expect(source).toContain("Buffer.alloc(maxBytes)");
   });
 });

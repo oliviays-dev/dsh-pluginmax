@@ -38,7 +38,7 @@ export const customResourceSchema = z.object({
   type: customResourceTypeSchema,
   name: z.string().trim().min(1).max(120),
   description: z.string().trim().max(1000).default(""),
-  category: z.literal("自定义"),
+  category: z.string().trim().min(1).max(40).default("自定义"),
   version: z.string().trim().min(1).max(80),
   publisherName: z.string().trim().min(1).max(120),
   permissions: z.array(z.string().trim().min(1).max(300)).max(20),
@@ -57,6 +57,17 @@ export type CustomResourceInput = {
   permissions?: string[] | undefined;
   manifest?: Record<string, unknown> | undefined;
 };
+
+export interface OfficialSkillInput {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly category?: string | undefined;
+  readonly version?: string | undefined;
+  readonly permissions?: string[] | undefined;
+  readonly instructions: string;
+  readonly triggers?: string[] | undefined;
+}
 
 export interface KvTableLike<V> {
   get(key: string): V | undefined;
@@ -203,6 +214,7 @@ export class ResourceMarketError extends Error {
       | "unauthorized"
       | "forbidden"
       | "not_found"
+      | "conflict"
       | "unavailable",
     message: string,
   ) {
@@ -339,9 +351,7 @@ export class ResourceMarketService {
       }));
   }
 
-  private customSkillAssets(
-    principal: MarketPrincipal,
-  ): readonly SkillAsset[] {
+  private customSkillAssets(principal: MarketPrincipal): readonly SkillAsset[] {
     return this.customResourcesFor(principal, { type: "skill" }).map(
       (record) => {
         const manifest = record.manifest ?? {};
@@ -374,6 +384,58 @@ export class ResourceMarketService {
         };
       },
     );
+  }
+
+  private platformSkillAssets(): readonly SkillAsset[] {
+    return Array.from(this.tables.customAssets.entries())
+      .map(([, record]) => record)
+      .filter(
+        (record) => record.ownerId === "platform" && record.type === "skill",
+      )
+      .map((record) => {
+        const manifest = record.manifest ?? {};
+        const instructions =
+          typeof manifest.instructions === "string"
+            ? manifest.instructions.trim()
+            : "";
+        const triggers = Array.isArray(manifest.triggers)
+          ? manifest.triggers.filter(
+              (item): item is string => typeof item === "string",
+            )
+          : [];
+        return {
+          id: record.id,
+          name: record.name,
+          category: record.category,
+          description: record.description,
+          publisher: {
+            id: "pluginmax",
+            name: record.publisherName,
+            verified: true,
+            kind: "official" as const,
+          },
+          version: record.version,
+          icon: "sparkles",
+          permissions: [...record.permissions],
+          usage: "平台官方",
+          ...(instructions === "" ? {} : { instructions }),
+          ...(triggers.length === 0 ? {} : { triggers }),
+        };
+      });
+  }
+
+  private availableSkills(
+    principal: MarketPrincipal,
+    provider: SkillCatalogProvider | undefined,
+    providerCatalog: readonly SkillAsset[],
+  ): readonly SkillAsset[] {
+    const officialOverrides = this.platformSkillAssets();
+    const overrideIds = new Set(officialOverrides.map((skill) => skill.id));
+    return [
+      ...providerCatalog.filter((skill) => !overrideIds.has(skill.id)),
+      ...officialOverrides,
+      ...this.customSkillAssets(principal),
+    ];
   }
 
   private matches(haystack: string, query: string, category: string): boolean {
@@ -691,8 +753,9 @@ export class ResourceMarketService {
   ): Promise<SkillView[]> {
     const principal = normalizePrincipal(principalInput);
     const provider = this.options.skillProvider?.();
-    const catalog =
+    const providerCatalog =
       provider === undefined ? SKILLS : await provider.list(principal);
+    const catalog = this.availableSkills(principal, provider, providerCatalog);
     return catalog
       .filter((skill) =>
         this.matches(
@@ -756,6 +819,50 @@ export class ResourceMarketService {
     return { ...record, source: "user" };
   }
 
+  async saveOfficialSkill(
+    principalInput: string | MarketPrincipal,
+    input: OfficialSkillInput,
+  ): Promise<CustomResourceView> {
+    const principal = normalizePrincipal(principalInput);
+    if (principal.role !== "admin") {
+      throw new ResourceMarketError(
+        "forbidden",
+        "只有平台管理员可以编辑官方 Skill",
+      );
+    }
+    const instructions = input.instructions.trim();
+    if (instructions === "") {
+      throw new ResourceMarketError(
+        "invalid_input",
+        "官方 Skill 必须包含非空 instructions",
+      );
+    }
+    const existing = this.tables.customAssets.get(input.id);
+    if (existing !== undefined && existing.ownerId !== "platform") {
+      throw new ResourceMarketError("conflict", "Skill ID 已被其他资源占用");
+    }
+    const timestamp = this.now();
+    const record = customResourceSchema.parse({
+      id: input.id,
+      ownerId: "platform",
+      type: "skill",
+      name: input.name.trim(),
+      description: input.description.trim(),
+      category: input.category?.trim() || "AI办公",
+      version: input.version?.trim() || "1.0.0",
+      publisherName: "Pluginmax 官方",
+      permissions: [...new Set(input.permissions ?? [])],
+      manifest: {
+        instructions,
+        triggers: [...new Set(input.triggers ?? [])],
+      },
+      createdAt: existing?.createdAt ?? timestamp,
+      updatedAt: timestamp,
+    });
+    await this.tables.customAssets.put(record.id, record);
+    return { ...record, source: "user" };
+  }
+
   async removeCustomResource(
     principalInput: string | MarketPrincipal,
     resourceId: string,
@@ -782,8 +889,14 @@ export class ResourceMarketService {
   ): Promise<InstallRecord> {
     const principal = normalizePrincipal(principalInput);
     const provider = this.options.skillProvider?.();
-    const catalog =
+    const providerCatalog =
       provider === undefined ? SKILLS : await provider.list(principal);
+    const platform = this.platformSkillAssets();
+    const overrideIds = new Set(platform.map((skill) => skill.id));
+    const catalog = [
+      ...providerCatalog.filter((skill) => !overrideIds.has(skill.id)),
+      ...platform,
+    ];
     const custom = this.tables.customAssets.get(skillId);
     const customSkill =
       custom !== undefined &&
@@ -828,21 +941,25 @@ export class ResourceMarketService {
   ): Promise<SkillView[]> {
     const principal = normalizePrincipal(principalInput);
     const provider = this.options.skillProvider?.();
-    const catalog =
+    const providerCatalog =
       provider === undefined ? SKILLS : await provider.list(principal);
-    return [...catalog, ...this.customSkillAssets(principal)]
+    const catalog = this.availableSkills(principal, provider, providerCatalog);
+    return catalog
       .filter(
         (skill) =>
-          this.install(principal.userId, "skill", skill.id)?.status === "enabled",
+          this.install(principal.userId, "skill", skill.id)?.status ===
+          "enabled",
       )
       .map((skill) => ({
         ...skill,
-        source:
-          this.tables.customAssets.get(skill.id) === undefined
-            ? provider === undefined
-              ? "seed"
-              : "provider"
-            : "user",
+        source: (() => {
+          const stored = this.tables.customAssets.get(skill.id);
+          if (stored?.ownerId === "platform") return "provider" as const;
+          if (stored !== undefined) return "user" as const;
+          return provider === undefined
+            ? ("seed" as const)
+            : ("provider" as const);
+        })(),
         status: "enabled" as const,
       }));
   }
@@ -855,23 +972,27 @@ export class ResourceMarketService {
     if (skillIds.length === 0) return [];
     const principal = normalizePrincipal(principalInput);
     const provider = this.options.skillProvider?.();
-    const catalog =
+    const providerCatalog =
       provider === undefined ? SKILLS : await provider.list(principal);
-    const available = [...catalog, ...this.customSkillAssets(principal)].map(
-      (skill) => ({
-        ...skill,
-        source:
-          this.tables.customAssets.get(skill.id) === undefined
-            ? provider === undefined
-              ? ("seed" as const)
-              : ("provider" as const)
-            : ("user" as const),
-        status:
-          this.install(principal.userId, "skill", skill.id)?.status === "enabled"
-            ? ("enabled" as const)
-            : ("available" as const),
-      }),
-    );
+    const available = this.availableSkills(
+      principal,
+      provider,
+      providerCatalog,
+    ).map((skill) => ({
+      ...skill,
+      source: (() => {
+        const stored = this.tables.customAssets.get(skill.id);
+        if (stored?.ownerId === "platform") return "provider" as const;
+        if (stored !== undefined) return "user" as const;
+        return provider === undefined
+          ? ("seed" as const)
+          : ("provider" as const);
+      })(),
+      status:
+        this.install(principal.userId, "skill", skill.id)?.status === "enabled"
+          ? ("enabled" as const)
+          : ("available" as const),
+    }));
     const byId = new Map(available.map((skill) => [skill.id, skill]));
     return [...new Set(skillIds)]
       .map((skillId) => byId.get(skillId))

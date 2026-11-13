@@ -94,4 +94,16 @@ describe("workbench client styles", () => {
     expect(statusIndex).toBeGreaterThan(-1);
     expect(summaryIndex).toBeGreaterThan(statusIndex);
   });
+
+  it("uses compact daily brief rows and a right-side detail drawer", () => {
+    const workbenchClient = readClient(WORKBENCH_CLIENT_PATH);
+    expect(workbenchClient).toContain(
+      ".pmwb-brief-row{width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto 14px;",
+    );
+    expect(workbenchClient).toContain(".pmwb-brief-drawer{");
+    expect(workbenchClient).toContain("renderBriefDetailDrawer");
+    expect(workbenchClient).toContain("groupBriefItems(items)");
+    expect(workbenchClient).not.toContain('className: "pmwb-brief-overview"');
+    expect(workbenchClient).not.toContain('"本期总结"');
+  });
 });

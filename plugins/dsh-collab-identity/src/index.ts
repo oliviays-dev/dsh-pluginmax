@@ -17,6 +17,12 @@ import {
   type PrincipalRecord,
   type PrincipalTableLike,
 } from "./principal.js";
+import {
+  PermissionScopeService,
+  type PermissionAssignmentServiceLike,
+  type PermissionEmployeeServiceLike,
+  type PermissionPrincipalRuntimeLike,
+} from "./permission-scope.js";
 
 export {
   PrincipalError,
@@ -37,6 +43,12 @@ export type {
   PrincipalSubjectType,
   SyncGrantInput,
 } from "./principal.js";
+export { PermissionScopeService } from "./permission-scope.js";
+export type {
+  EffectivePermission,
+  EffectivePermissionInput,
+  PermissionScopeOptions,
+} from "./permission-scope.js";
 
 export const name = "dsh-collab-identity";
 export const inject = [
@@ -257,6 +269,8 @@ export interface IdentityContext {
   effect(register: () => () => void): void;
   provide(key: "collabTeam", value: TeamService): unknown;
   provide(key: "collabPrincipal", value: PrincipalService): unknown;
+  provide(key: "collabPermission", value: PermissionScopeService): unknown;
+  get?(key: string): unknown;
   commands: {
     register(definition: {
       name: string;
@@ -831,16 +845,27 @@ export class TeamService {
       userId: string;
       role: MemberRole;
     },
-    options: { readonly allowWorkspaceOwner?: boolean } = {},
+    options: {
+      readonly allowWorkspaceOwner?: boolean;
+      readonly allowSelfOwnerBootstrap?: boolean;
+    } = {},
   ): Promise<readonly PublicMember[]> {
     const parsedActor = parseOrInvalid(idSchema, actorId);
     const parsed = parseOrInvalid(memberMutationSchema, input);
     return this.enqueue(async () => {
-      const actor = this.requireMemberManager(
-        parsedActor,
-        parsed.workspaceId,
-        options.allowWorkspaceOwner === true,
-      );
+      const existingMembership = this.tables.members.get(parsed.workspaceId);
+      const bootstrapSelfOwner =
+        options.allowSelfOwnerBootstrap === true &&
+        parsedActor === parsed.userId &&
+        parsed.role === "owner" &&
+        (existingMembership?.members.length ?? 0) === 0;
+      const actor = bootstrapSelfOwner
+        ? this.requireUser(parsedActor)
+        : this.requireMemberManager(
+            parsedActor,
+            parsed.workspaceId,
+            options.allowWorkspaceOwner === true,
+          );
       const user = this.requireUser(parsed.userId);
       const current = this.tables.members.get(parsed.workspaceId);
       const entry = {
@@ -1624,9 +1649,7 @@ function agentStatus(service: TeamService): string {
 export async function apply(
   ctx: IdentityContext,
 ): Promise<void | (() => void)> {
-  const domain = (await ctx.storageDomain.open(
-    teamDomainSpec,
-  )) as DomainLike;
+  const domain = (await ctx.storageDomain.open(teamDomainSpec)) as DomainLike;
   const principalDomain = (await ctx.storageDomain.open(
     principalDomainSpec,
   )) as PrincipalDomainLike;
@@ -1646,6 +1669,22 @@ export async function apply(
   );
   ctx.provide("collabTeam", service);
   ctx.provide("collabPrincipal", principals);
+  ctx.provide(
+    "collabPermission",
+    new PermissionScopeService({
+      team: service,
+      principals,
+      assignments: () =>
+        ctx.get?.("collabAssignment") as
+          PermissionAssignmentServiceLike | undefined,
+      employees: () =>
+        ctx.get?.("collabEmployee") as
+          PermissionEmployeeServiceLike | undefined,
+      principalRuntime: () =>
+        ctx.get?.("collabPrincipalRuntime") as
+          PermissionPrincipalRuntimeLike | undefined,
+    }),
+  );
   ctx.effect(() => () => {
     void principalDomain.close();
     void domain.close();

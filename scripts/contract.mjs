@@ -84,7 +84,11 @@ for (const pluginName of pluginNames) {
         "pluginmax.teammate.data-agent-settings",
         "pluginmax.task.capture-launcher",
         "pluginmax.task.detail.capture-origin",
+        "pluginmax.task.detail.actions",
         "pluginmax.task.detail.extension",
+        "pluginmax.task.detail.main",
+        "pluginmax.task.detail.side",
+        "pluginmax.task.settings",
       ];
       const replacesRoot = /ctx\.slots\.register\(\s*\{\s*name:\s*"root"/.test(
         clientSource,

@@ -14,7 +14,7 @@ describe("Data Agent client contract", () => {
       'window.__pluginmaxSidePanel?.openTab("data-agent")',
     );
     expect(source).toContain("window.__pluginmaxDataAgentEntityRegistry");
-    expect(source).toContain('window.__pluginmaxSidePanel?.registerType?.({');
+    expect(source).toContain("window.__pluginmaxSidePanel?.registerType?.({");
     expect(source).toContain('type: "data-agent"');
   });
 
@@ -134,6 +134,21 @@ describe("Data Agent client contract", () => {
     expect(source).toContain('id: "data-capability"');
   });
 
+  it("authorizes Data Agent tools from task Runtime context as well as chat runs", () => {
+    const source = readFileSync(
+      resolve(import.meta.dirname, "../src/index.ts"),
+      "utf8",
+    );
+    expect(source).toContain("const taskRuntimeForAgentSession = (");
+    expect(source).toContain("agents?.runs({ sessionId })[0]");
+    expect(source).toContain("const dataRunForTaskRuntime = (");
+    expect(source).toContain("当前任务上下文不可用");
+    expect(source).toContain("该对象没有在当前任务执行上下文中显式授权");
+    expect(source).toContain("dataRun === undefined");
+    expect(source).toContain("taskRuntime === undefined");
+    expect(source).toContain("agentRunId: input.agentRun.id");
+  });
+
   it("injects versioned domain skills and persists QueryRun evidence", () => {
     const source = readFileSync(
       resolve(import.meta.dirname, "../src/index.ts"),
@@ -193,24 +208,18 @@ describe("Data Agent client contract", () => {
     expect(source).toContain(
       ".pmda-tab-panel{width:32px;height:32px;transform:translateY(.5px);}",
     );
-    expect(source).toContain(
-      ".pmda-tab-panel svg{width:15px;height:15px;}",
-    );
+    expect(source).toContain(".pmda-tab-panel svg{width:15px;height:15px;}");
     expect(source).toContain(
       'title: snapshot.expanded ? "还原侧边栏" : "展开侧边栏"',
     );
     expect(source).toContain(
       "snapshot.expanded ? ICONS.collapse : ICONS.expand",
     );
-    expect(source).toContain(
-      'panel: icon(["M4 4h16v16H4Z", "M10 4v16"], 14)',
-    );
+    expect(source).toContain('panel: icon(["M4 4h16v16H4Z", "M10 4v16"], 14)');
     expect(source).toContain("activeTabRef.current?.scrollIntoView?.(");
     expect(source).toContain('"ArrowLeft", "ArrowRight", "Home", "End"');
     expect(source).toContain('"aria-haspopup": "menu"');
-    expect(source).toContain(
-      "font-size:11px;line-height:1.4;cursor:pointer",
-    );
+    expect(source).toContain("font-size:11px;line-height:1.4;cursor:pointer");
     expect(source).toContain("ICONS[labels[type]]");
     expect(source).toContain("closeOnOutsidePointer");
     expect(source).toContain(
@@ -240,9 +249,7 @@ describe("Data Agent client contract", () => {
       ".pmda-tab-main span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
     );
     expect(source).toContain('"data-tab": tab');
-    expect(source).toContain(
-      ".pmda-tabs{position:relative;z-index:12;",
-    );
+    expect(source).toContain(".pmda-tabs{position:relative;z-index:12;");
     expect(source).toContain(
       ".pmda-tab-new-menu{position:absolute;right:0;top:31px;z-index:30;",
     );
@@ -292,9 +299,7 @@ describe("Data Agent client contract", () => {
     expect(source).toContain("[data-meeting-message-id]");
     expect(source).toContain("[data-data-agent-conversation-id]");
     expect(source).toContain("selection.taskCapture");
-    expect(source).toContain(
-      "[data-data-agent-panel='true']",
-    );
+    expect(source).toContain("[data-data-agent-panel='true']");
   });
 
   it("orders new conversation before a grouped searchable switcher", () => {
@@ -306,14 +311,16 @@ describe("Data Agent client contract", () => {
     expect(source).toContain("function groupConversationsByProject(");
     expect(source).toContain("conversationProjectId(conversation)");
     expect(source).toContain("left.title.localeCompare(right.title");
-    expect(source).toContain("String(right.updatedAt ?? \"\").localeCompare(");
+    expect(source).toContain('String(right.updatedAt ?? "").localeCompare(');
     expect(source).toContain("CONVERSATION_PAGE_SIZE = 20");
-    expect(source).toContain("params.set(\"query\", queryText.trim())");
+    expect(source).toContain('params.set("query", queryText.trim())');
     expect(source).toContain("result.hasMore === true");
     expect(source).toContain("loadMoreConversations");
     expect(source).toContain("positionConversationMenu");
     expect(source).toContain("window.innerHeight");
-    expect(source).toContain("maxHeight: Math.max(96, Math.min(380, available))");
+    expect(source).toContain(
+      "maxHeight: Math.max(96, Math.min(380, available))",
+    );
   });
 
   it("searches and paginates conversation options through the API", () => {
@@ -331,7 +338,7 @@ describe("Data Agent client contract", () => {
     expect(server).toContain('query(request).get("query")');
     expect(server).toContain('const limitParam = query(request).get("limit")');
     expect(server).toContain("hasMore:");
-    expect(service).toContain("const searchTerms = (input.query ?? \"\")");
+    expect(service).toContain('const searchTerms = (input.query ?? "")');
     expect(service).toContain(
       "return searchTerms.every((term) => searchable.includes(term));",
     );
@@ -362,9 +369,7 @@ describe("Data Agent client contract", () => {
     expect(source).toContain(
       "window.__pluginmaxShell?.router?.subscribe?.(routeChanged)",
     );
-    expect(source).toContain(
-      "if (nextRoute === lastRouteRef.current) return;",
-    );
+    expect(source).toContain("if (nextRoute === lastRouteRef.current) return;");
 
     const shell = readFileSync(
       resolve(import.meta.dirname, "../../dsh-collab-shell/client/index.js"),
@@ -423,11 +428,13 @@ describe("Data Agent client contract", () => {
     );
     expect(source).toContain("if (event?.detail?.newSession === true) {");
     expect(source).toContain("startNewConversation();");
-    expect(source).toContain("const startNewConversation = react.useCallback(() => {");
     expect(source).toContain(
-      'const panel = window.__pluginmaxSidePanel;\n        panel?.setExpanded?.(false);',
+      "const startNewConversation = react.useCallback(() => {",
     );
-    expect(source).toContain("sessionId: \"\",");
+    expect(source).toContain(
+      "const panel = window.__pluginmaxSidePanel;\n        panel?.setExpanded?.(false);",
+    );
+    expect(source).toContain('sessionId: "",');
     expect(source).toContain('title: "新数据洞察"');
   });
 });

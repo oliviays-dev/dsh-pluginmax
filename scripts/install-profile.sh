@@ -41,6 +41,7 @@ DSH_HOME="$DSH_HOME" node "$DSH_BIN" plugin --profile pluginmax add "$ROOT/plugi
 DSH_HOME="$DSH_HOME" node "$DSH_BIN" plugin --profile pluginmax add "$ROOT/plugins/dsh-collab-workflow"
 DSH_HOME="$DSH_HOME" node "$DSH_BIN" plugin --profile pluginmax add "$ROOT/plugins/dsh-collab-project"
 DSH_HOME="$DSH_HOME" node "$DSH_BIN" plugin --profile pluginmax add "$ROOT/plugins/dsh-collab-task"
+DSH_HOME="$DSH_HOME" node "$DSH_BIN" plugin --profile pluginmax add "$ROOT/plugins/dsh-collab-router-worker"
 DSH_HOME="$DSH_HOME" node "$DSH_BIN" plugin --profile pluginmax add "$ROOT/plugins/dsh-collab-task-capture"
 DSH_HOME="$DSH_HOME" node "$DSH_BIN" plugin --profile pluginmax add "$ROOT/plugins/dsh-collab-task-tools"
 DSH_HOME="$DSH_HOME" node "$DSH_BIN" plugin --profile pluginmax add "$ROOT/plugins/dsh-collab-teammate"

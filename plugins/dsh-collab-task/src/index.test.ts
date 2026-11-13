@@ -22,6 +22,7 @@ import {
   attachmentDocuments,
   collectDocuments,
   extractAgentOutputDocuments,
+  loadWorkspaceEvidenceDocuments,
   materializeAgentOutputDocuments,
   mergeDocuments,
   safeFileName,
@@ -1008,6 +1009,11 @@ describe("dsh-collab-task service", () => {
       description: "Do the thing.",
       acceptance: ["done"],
     });
+    await tasks.toggleStep(olivia, {
+      taskId: created.id,
+      stepId: created.steps[0]!.id,
+      done: true,
+    });
     const completed = await tasks.attachAgentRun(
       created.id,
       {
@@ -1205,6 +1211,11 @@ describe("dsh-collab-task service", () => {
     });
     expect(created.autoSubmitReview).toBe(true);
 
+    await tasks.toggleStep(olivia, {
+      taskId: created.id,
+      stepId: created.steps[0]!.id,
+      done: true,
+    });
     await tasks.attachAgentRun(
       created.id,
       { id: "run-auto", instanceId: created.id, status: "running" },
@@ -1222,8 +1233,163 @@ describe("dsh-collab-task service", () => {
     );
     expect(completed.status).toBe("review");
     expect(completed.progress).toBeGreaterThanOrEqual(86);
-    expect(completed.steps[0]?.done).toBe(true);
+    expect(completed.steps).toEqual([
+      expect.objectContaining({ done: true }),
+      expect.objectContaining({ done: false }),
+    ]);
     expect(completed.events.at(-1)?.message).toContain("自动提交验收");
+  });
+
+  it("marks a successful run abnormal when it has no acceptance evidence", async () => {
+    let taskId = "";
+    const tasks = new TaskService(
+      { tasks: memoryTable<TaskRecord>() },
+      {
+        executionProjection: () =>
+          taskId === ""
+            ? undefined
+            : {
+                taskId,
+                runs: [{ id: "run-no-evidence" }],
+                selectedRunId: "run-no-evidence",
+                plan: {
+                  schemaVersion: 1,
+                  id: "plan-no-evidence",
+                  runId: "run-no-evidence",
+                  workspaceId: "workspace-1",
+                  source: "derived",
+                  visibility: "structured",
+                  revision: 1,
+                  status: "completed",
+                  steps: [],
+                  subagents: [],
+                  lastEventSeq: 0,
+                  createdAt: "2026-11-08T00:00:00.000Z",
+                  updatedAt: "2026-11-08T00:00:01.000Z",
+                },
+                events: [],
+                gates: [],
+                capabilities: {
+                  planAvailable: true,
+                  contextAvailable: true,
+                  gateAvailable: true,
+                  memoryAvailable: true,
+                },
+              },
+      },
+    );
+    const created = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Missing explicit acceptance",
+      priority: "P2",
+      receiverType: "agent",
+      receiverId: "agent-1",
+      receiverName: "Backend DE",
+      description: "Do not auto-submit without explicit acceptance.",
+      acceptance: ["Release note is attached"],
+    });
+    taskId = created.id;
+
+    const completed = await tasks.attachAgentRun(
+      created.id,
+      {
+        id: "run-no-evidence",
+        instanceId: created.id,
+        status: "succeeded",
+        output: { summary: "Done." },
+      },
+      "Backend DE",
+    );
+    expect(completed.status).toBe("abnormal");
+    expect(completed.steps.every((step) => !step.done)).toBe(true);
+    expect(completed.executionAnomaly).toMatchObject({
+      code: "missing_acceptance",
+      runId: "run-no-evidence",
+    });
+  });
+
+  it("does not auto-submit when execution projection contains a failed tool", async () => {
+    let taskId = "";
+    const tasks = new TaskService(
+      { tasks: memoryTable<TaskRecord>() },
+      {
+        executionProjection: () =>
+          taskId === ""
+            ? undefined
+            : {
+                taskId,
+                runs: [{ id: "run-tool-failed" }],
+                selectedRunId: "run-tool-failed",
+                plan: {
+                  schemaVersion: 1,
+                  id: "plan-tool-failed",
+                  runId: "run-tool-failed",
+                  workspaceId: "workspace-1",
+                  source: "derived",
+                  visibility: "structured",
+                  revision: 1,
+                  status: "completed",
+                  steps: [],
+                  subagents: [],
+                  lastEventSeq: 1,
+                  createdAt: "2026-11-08T00:00:00.000Z",
+                  updatedAt: "2026-11-08T00:00:01.000Z",
+                },
+                events: [
+                  {
+                    schemaVersion: 1,
+                    id: "event-tool-failed",
+                    runId: "run-tool-failed",
+                    seq: 1,
+                    type: "tool.result" as const,
+                    source: "builtin-session" as const,
+                    visibility: "public" as const,
+                    summary: "Data authorization denied",
+                    data: { isError: true, output: "当前运行没有数据授权" },
+                    createdAt: "2026-11-08T00:00:01.000Z",
+                  },
+                ],
+                gates: [],
+                capabilities: {
+                  planAvailable: true,
+                  contextAvailable: true,
+                  gateAvailable: true,
+                  memoryAvailable: true,
+                },
+              },
+      },
+    );
+    const created = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Tool failure blocks auto review",
+      priority: "P2",
+      receiverType: "agent",
+      receiverId: "agent-1",
+      receiverName: "Backend DE",
+      description: "A failed tool must require human attention.",
+      acceptance: ["Evidence is attached"],
+    });
+    taskId = created.id;
+    await tasks.toggleStep(olivia, {
+      taskId: created.id,
+      stepId: created.steps[0]!.id,
+      done: true,
+    });
+    const completed = await tasks.attachAgentRun(
+      created.id,
+      {
+        id: "run-tool-failed",
+        instanceId: created.id,
+        status: "succeeded",
+        output: { summary: "Completed with a warning." },
+      },
+      "Backend DE",
+    );
+    expect(completed.status).toBe("abnormal");
+    expect(completed.executionAnomaly).toMatchObject({
+      code: "tool_failed",
+      message: "当前运行没有数据授权",
+    });
   });
 
   it("keeps an agent task in progress when auto submit is disabled", async () => {
@@ -1532,7 +1698,18 @@ describe("dsh-collab-task service", () => {
       },
       "Backend DE",
     );
-    expect(failed.status).toBe("progress");
+    expect(failed.status).toBe("abnormal");
+    expect(failed.executionAnomaly).toMatchObject({
+      code: "run_failed",
+      runId: "run-fail",
+    });
+    const retried = await tasks.attachAgentRun(
+      created.id,
+      { id: "run-retry", instanceId: created.id, status: "running" },
+      "Backend DE",
+    );
+    expect(retried.status).toBe("progress");
+    expect(retried.executionAnomaly).toBeUndefined();
   });
 
   it("projects workflow status changes without allowing local status ownership", async () => {
@@ -1625,7 +1802,11 @@ describe("dsh-collab-task service", () => {
       },
       "Backend DE",
     );
-    expect(failedRun.status).toBe("todo");
+    expect(failedRun.status).toBe("abnormal");
+    expect(failedRun.executionAnomaly).toMatchObject({
+      code: "run_failed",
+      runId: "workflow-run-2",
+    });
     expect(failedRun.messages.at(-1)).toMatchObject({
       runId: "workflow-run-2",
       state: "failed",
@@ -1899,6 +2080,47 @@ describe("dsh-collab-task service", () => {
     });
     expect(resumed.messages).toHaveLength(1);
     expect(resumed.messages[0]?.content).toBe("复原之后可以继续");
+  });
+
+  it("preloads the indexed business evidence documents", async () => {
+    const root = await mkdtemp(join(tmpdir(), "task-evidence-documents-"));
+    await writeFile(
+      join(root, "00-业务资料索引.md"),
+      [
+        "# 业务资料索引",
+        "",
+        "## Agent 读取规则",
+        "- 只读取以下文件。",
+        "",
+        "## 文件路由",
+        "- `PT-DEMO-B-履约证据包.md`",
+        "- `PT-DEMO-RPT-管理报告证据包.md`",
+      ].join("\n"),
+      "utf8",
+    );
+    await writeFile(
+      join(root, "PT-DEMO-B-履约证据包.md"),
+      "# 履约证据\n\n支付失败 52 单，履约超时 43 单。\n",
+      "utf8",
+    );
+    await writeFile(
+      join(root, "PT-DEMO-RPT-管理报告证据包.md"),
+      "# 管理报告证据\n\n异常率 7.6%。\n",
+      "utf8",
+    );
+    await writeFile(join(root, "未引用资料.md"), "# 不应加载\n", "utf8");
+
+    const documents = await loadWorkspaceEvidenceDocuments(root);
+
+    expect(documents.map((document) => document.name)).toEqual([
+      "00-业务资料索引.md",
+      "PT-DEMO-B-履约证据包.md",
+      "PT-DEMO-RPT-管理报告证据包.md",
+    ]);
+    expect(documents[1]?.content).toContain("支付失败 52 单");
+    expect(
+      documents.some((document) => document.name === "未引用资料.md"),
+    ).toBe(false);
   });
 
   it("lists workspace files produced during an agent run, newest first", async () => {
@@ -2624,6 +2846,88 @@ function fakeResponse(): {
 }
 
 describe("workflow task action errors", () => {
+  it("limits workflow claim tasks to their candidate pool on the server", async () => {
+    const tasks = new TaskService({ tasks: memoryTable<TaskRecord>() });
+    const created = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Candidate-only task",
+      priority: "P2",
+      status: "todo",
+      receiverType: "role",
+      receiverId: "reviewer",
+      receiverName: "Reviewer",
+      description: "Visible only to explicit candidates.",
+      acceptance: ["Claimed"],
+      workflow: {
+        instanceId: "workflow-1",
+        nodeId: "review",
+        instanceTitle: "Review",
+        nodeName: "Review",
+        dispatchMode: "claim",
+        candidatePool: [
+          { kind: "user", id: "candidate", name: "Candidate" },
+        ],
+      },
+    });
+    const routes = createTaskRoutes(tasks, {
+      resolveToken: (token) =>
+        token === "candidate"
+          ? { userId: "candidate", role: "member" }
+          : token === "outsider"
+            ? { userId: "outsider", role: "member" }
+            : undefined,
+      users: () => [
+        { id: "candidate", name: "Candidate", role: "member" },
+        { id: "outsider", name: "Outsider", role: "member" },
+      ],
+      members: () => [
+        { userId: "candidate", memberRole: "member" },
+        { userId: "outsider", memberRole: "member" },
+      ],
+    });
+    const bootstrap = routes.find(
+      (route) => route.path === "/api/collab/tasks/bootstrap",
+    );
+    const detail = routes.find(
+      (route) => route.path === "/api/collab/tasks/detail",
+    );
+    const candidateResponse = fakeResponse();
+    await bootstrap?.handler(
+      fakeRequest({
+        method: "GET",
+        url: "/api/collab/tasks/bootstrap?workspaceId=workspace-1",
+        token: "candidate",
+      }),
+      candidateResponse.response,
+    );
+    expect(candidateResponse.read().body?.tasks).toHaveLength(1);
+
+    const outsiderResponse = fakeResponse();
+    await bootstrap?.handler(
+      fakeRequest({
+        method: "GET",
+        url: "/api/collab/tasks/bootstrap?workspaceId=workspace-1",
+        token: "outsider",
+      }),
+      outsiderResponse.response,
+    );
+    expect(outsiderResponse.read().body?.tasks).toHaveLength(0);
+
+    const outsiderDetail = fakeResponse();
+    await detail?.handler(
+      fakeRequest({
+        method: "GET",
+        url: `/api/collab/tasks/detail?taskId=${created.id}`,
+        token: "outsider",
+      }),
+      outsiderDetail.response,
+    );
+    expect(outsiderDetail.read()).toMatchObject({
+      status: 404,
+      body: { error: { code: "not_found" } },
+    });
+  });
+
   it("keeps workflow permission errors actionable", async () => {
     const table = memoryTable<TaskRecord>();
     const tasks = new TaskService({ tasks: table });
@@ -3822,6 +4126,64 @@ describe("task context delivery", () => {
     });
     expect(after.events.at(-1)?.message).toContain("柯真 01 测试");
     expect(after.events.at(-1)?.message).toContain("协作");
+  });
+
+  it("preloads indexed business mock data in the first owner dispatch", async () => {
+    const root = await mkdtemp(join(tmpdir(), "task-evidence-dispatch-"));
+    await writeFile(
+      join(root, "00-手机平板订单异常-资料索引.md"),
+      [
+        "# 手机平板订单异常：项目内资料索引",
+        "",
+        "## Agent 读取规则",
+        "1. 只读取索引中路由的 Markdown 文件，不申请外部文档授权。",
+        "",
+        "## 文件路由",
+        "- `PT-ORD-001-B-履约证据包.md`",
+        "- `PT-ORD-001-RPT-管理报告证据包.md`",
+      ].join("\n"),
+      "utf8",
+    );
+    await writeFile(
+      join(root, "PT-ORD-001-B-履约证据包.md"),
+      "# 履约证据包\n\n支付失败 52 单，履约超时 43 单，异常 126 单。\n",
+      "utf8",
+    );
+    await writeFile(
+      join(root, "PT-ORD-001-RPT-管理报告证据包.md"),
+      "# 管理报告证据包\n\n异常率 7.6%，演示数据。\n",
+      "utf8",
+    );
+    const { route, dispatched } = contextHarness({ workspacePath: root });
+    const created = fakeResponse();
+    await route("/api/collab/tasks/create").handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/create",
+        body: {
+          workspaceId: "workspace-1",
+          title: "核实支付失败码与超时原因",
+          priority: "P2",
+          receiverType: "agent",
+          receiverId: "tm-1",
+          receiverName: "履约AI伙伴",
+          description: "按清单整理支付失败与履约超时工单。",
+          acceptance: ["按描述完成并自查"],
+        },
+      }),
+      created.response,
+    );
+
+    const instruction = dispatched[0]?.payload.context.instruction ?? "";
+    expect(instruction).toContain("## 优先业务演示资料（平台预加载）");
+    expect(instruction).toContain("00-手机平板订单异常-资料索引.md");
+    expect(instruction).toContain("PT-ORD-001-B-履约证据包.md");
+    expect(instruction).toContain("PT-ORD-001-RPT-管理报告证据包.md");
+    expect(instruction).toContain("支付失败 52 单");
+    expect(instruction).toContain("异常率 7.6%");
+    expect(instruction).toContain(
+      "不要为了读取这些文件发起 shell.execute",
+    );
   });
 
   it("resends full task context to stateless external agents", async () => {

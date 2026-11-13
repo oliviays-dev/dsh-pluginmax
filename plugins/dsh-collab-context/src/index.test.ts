@@ -11,6 +11,7 @@ import type {
   AgentIdentitySnapshot,
   AiChatChannel,
   ContextPack,
+  ContextPolicyConfig,
   ContextReceipt,
   SceneContextContribution,
   SceneSessionBinding,
@@ -117,6 +118,7 @@ function service(memory?: MemoryRecallerLike) {
       sessions: new FakeTable<SceneSessionBinding>(),
       identities: new FakeTable<AgentIdentitySnapshot>(),
       chatChannels: new FakeTable<AiChatChannel>(),
+      policies: new FakeTable<ContextPolicyConfig>(),
       packs: new FakeTable<ContextPack>(),
       receipts: new FakeTable<ContextReceipt>(),
     },
@@ -139,6 +141,7 @@ function taskService(
       sessions: new FakeTable<SceneSessionBinding>(),
       identities: new FakeTable<AgentIdentitySnapshot>(),
       chatChannels: new FakeTable<AiChatChannel>(),
+      policies: new FakeTable<ContextPolicyConfig>(),
       packs: new FakeTable<ContextPack>(),
       receipts: new FakeTable<ContextReceipt>(),
     },
@@ -191,6 +194,126 @@ describe("ContextService", () => {
     expect(pack.logicalDigest).toMatch(/^[a-f0-9]{64}$/);
     const session = context.session(pack.sessionBindingId);
     expect(session?.sessionId.startsWith("de-chat-")).toBe(true);
+  });
+
+  it("isolates sessions by participant binding for the same agent", async () => {
+    const context = service();
+    const left = await context.ensureSession({
+      scene: "meeting",
+      workspaceId: "project-a",
+      objectId: "meeting-1",
+      participantBindingId: "participant-left",
+      agentPrincipalId: "principal-agent",
+    });
+    const right = await context.ensureSession({
+      scene: "meeting",
+      workspaceId: "project-a",
+      objectId: "meeting-1",
+      participantBindingId: "participant-right",
+      agentPrincipalId: "principal-agent",
+    });
+    expect(left.id).not.toBe(right.id);
+    expect(left.sessionId).not.toBe(right.sessionId);
+    expect(left.participantBindingId).toBe("participant-left");
+    expect(right.participantBindingId).toBe("participant-right");
+  });
+
+  it("migrates a legacy session key without changing the provider session", async () => {
+    const sessions = new FakeTable<SceneSessionBinding>();
+    await sessions.put("chat:chat-1:principal-agent:g0", {
+      id: "chat:chat-1:principal-agent:g0",
+      scene: "chat",
+      chatCarrier: "meeting-ai",
+      workspaceId: "project-a",
+      objectId: "chat-1",
+      participantBindingId: "default",
+      agentPrincipalId: "principal-agent",
+      sessionId: "de-chat-legacy-session",
+      generation: 0,
+      revision: 1,
+      status: "active",
+      lastContextSeq: 8,
+      compactionCount: 0,
+      createdAt: "2026-10-22T00:00:00.000Z",
+      updatedAt: "2026-10-22T00:00:00.000Z",
+      lastRunId: "legacy-run",
+    });
+    const context = new ContextService({
+      sessions,
+      identities: new FakeTable<AgentIdentitySnapshot>(),
+      chatChannels: new FakeTable<AiChatChannel>(),
+      policies: new FakeTable<ContextPolicyConfig>(),
+      packs: new FakeTable<ContextPack>(),
+      receipts: new FakeTable<ContextReceipt>(),
+    });
+    const migrated = await context.ensureSession({
+      scene: "chat",
+      chatCarrier: "meeting-ai",
+      workspaceId: "project-a",
+      objectId: "chat-1",
+      agentPrincipalId: "principal-agent",
+    });
+    expect(migrated.id).not.toBe("chat:chat-1:principal-agent:g0");
+    expect(migrated.sessionId).toBe("de-chat-legacy-session");
+    expect(migrated.lastContextSeq).toBe(8);
+    expect(migrated.lastRunId).toBe("legacy-run");
+    expect(
+      sessions.get("chat:chat-1:principal-agent:g0")?.status,
+    ).toBe("archived");
+  });
+
+  it("advances the session cursor only when a run is recorded", async () => {
+    const context = service();
+    const pack = await context.prepare({
+      ...request,
+      requestId: "request-cursor",
+      contextBoundarySeq: 42,
+    });
+    const before = context.session(pack.sessionBindingId);
+    expect(before?.lastContextSeq).toBe(0);
+    await context.recordRuntime({
+      runId: "run-cursor",
+      contextPackId: pack.id,
+      runtime: { kind: "builtin" },
+    });
+    const recorded = context.session(pack.sessionBindingId);
+    expect(recorded?.lastContextSeq).toBe(0);
+    const committed = await context.commitRunContext({
+      runId: "run-cursor",
+      contextPackId: pack.id,
+    });
+    expect(committed.lastContextSeq).toBe(42);
+    expect(committed.revision).toBe((recorded?.revision ?? 0) + 1);
+  });
+
+  it("versions context policy updates and rejects stale saves", async () => {
+    const context = service();
+    const initial = context.contextPolicy();
+    expect(initial.version).toBe(0);
+    expect(
+      context.contextPolicyForScene("meeting").maxConcurrentAgentsPerScene,
+    ).toBe(3);
+    const updated = await context.updateContextPolicy({
+      expectedVersion: 0,
+      defaults: { warningRatio: 0.65 },
+      updatedByPrincipalId: "admin-1",
+    });
+    expect(updated.version).toBe(1);
+    expect(updated.defaults.warningRatio).toBe(0.65);
+    expect(context.contextPolicy().version).toBe(1);
+    await expect(
+      context.updateContextPolicy({
+        expectedVersion: 0,
+        defaults: { compactRatio: 0.8 },
+        updatedByPrincipalId: "admin-2",
+      }),
+    ).rejects.toMatchObject({ code: "conflict" });
+    const reset = await context.resetContextPolicy({
+      expectedVersion: 1,
+      updatedByPrincipalId: "admin-1",
+    });
+    expect(reset.version).toBe(2);
+    expect(reset.defaults.warningRatio).toBe(0.7);
   });
 
   it("returns the same immutable pack for the same request id", async () => {
@@ -426,6 +549,51 @@ describe("ContextService", () => {
         agentOwner: false,
       }),
     ).toThrow("private chat receipt is not shared");
+  });
+
+  it("lets a group trigger actor inspect the run without project membership", async () => {
+    const context = service();
+    context.registerAdapter({
+      ...adapter(),
+      scene: "group",
+      resolve: async () => ({
+        allowed: true,
+        workspaceId: "system.default",
+        sceneRevision: "group-v1",
+        sourceRefs: [{ type: "chat", id: "group-1" }],
+      }),
+    });
+    const pack = await context.prepare({
+      ...request,
+      requestId: "request-group-receipt",
+      runId: "run-group-receipt",
+      scene: "group",
+      chatCarrier: undefined,
+      chatChannelId: undefined,
+      workspaceId: "system.default",
+      objectId: "group-1",
+    });
+    const receipt = await context.recordRuntime({
+      runId: "run-group-receipt",
+      contextPackId: pack.id,
+      runtime: { kind: "builtin" },
+    });
+
+    const projection = context.projectReceipt(receipt, {
+      actorPrincipalId: "alice",
+      workspaceMember: false,
+      admin: false,
+      agentOwner: false,
+    });
+    expect(projection.scope).toBe("full");
+    expect(() =>
+      context.projectReceipt(receipt, {
+        actorPrincipalId: "bob",
+        workspaceMember: false,
+        admin: false,
+        agentOwner: false,
+      }),
+    ).toThrow("workspace membership is required");
   });
 
   it("lets the agent owner and admin inspect private receipt sources", async () => {

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { taskExecutionPolicySchema } from "@pluginmax/contracts";
 
 export const idPattern = /^[a-zA-Z][a-zA-Z0-9._-]*$/;
 
@@ -101,6 +102,7 @@ export const agentRunSchema = z.object({
   sessionBindingId: z.string().min(1).max(240).optional(),
   externalSessionId: z.string().min(1).max(200).optional(),
   contextPackId: z.string().min(1).max(180).optional(),
+  executionPolicy: taskExecutionPolicySchema.optional(),
   execution: agentExecutionMetadataSchema.optional(),
   output: z
     .object({

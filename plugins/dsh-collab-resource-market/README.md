@@ -10,6 +10,11 @@ Skill and MCP catalogs can be supplied by optional `collabSkillCatalog` and
 seed metadata. Seed MCP entries may be `pending` or `off`, but never report
 `connected`; `connected` is accepted only from a real MCP provider.
 
+The official `项目汇报生成` skill is published with the platform catalog. Normal
+users may install it and attach it to their own AI partners; only platform
+administrators can update the official instructions through
+`POST /api/collab/resources/skills/official/save`.
+
 Workbench market responses include publisher/compatibility filters, pagination,
 real panel titles, dependency status, and compatibility information. Template
 copy and panel-add calls are idempotent when the client supplies an

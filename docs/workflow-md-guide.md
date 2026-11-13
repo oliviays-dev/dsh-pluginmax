@@ -168,6 +168,8 @@ executor: system:<服务标识>
 executor: user:<用户标识>
 executor: agent:<Agent/人设标识>
 executor: employee:<Employee ID>
+executor: role:<项目角色ID>
+executor: role-code:<项目角色编码>
 ```
 
 审批人可多行：
@@ -176,11 +178,33 @@ executor: employee:<Employee ID>
 - approver: 用户:Alice
 - approver: agent:architect
 - approver: employee:backend-01
+- approver: role-code:PROJECT_OWNER
 ```
 
 `用户:` / `agent:` / `employee:` 前缀用于 UI；冒号后的标识分别使用系统用户标识、Agent Profile ID 和 Employee ID。
 
 导入模板时校验 `user:<用户标识>` 必须是平台账号；在项目中启动实例时再校验这个账号是否是当前工作区的真实成员。不存在、已移出或只是“名字像角色”的标识都会被拒绝。`system:<服务标识>` 表示系统能力。
+
+平台模板跨项目复用时优先使用 `role-code:<编码>` 引用项目角色，因为不同项目的同一个角色编码可能对应不同内部 ID。`role:<ID>` 继续兼容项目内模板；解析时先匹配本地角色 ID，再尝试按编码匹配。
+
+固定人、Agent 或 AI伙伴可以声明可迁移性：
+
+```md
+- executor: user:Alice
+- portability: suggested
+```
+
+`suggested` 表示平台模板中的固定执行人只是建议值，创建实例时可以重新映射；`required` 表示必须使用该项目内的固定成员，缺失时阻塞启动。未声明时按 `suggested` 兼容历史模板。
+
+任务节点可以声明派发模式：
+
+```md
+- dispatch-mode: claim
+```
+
+`assigned` 表示系统派给唯一执行人，`claim` 表示进入候选池由成员领取。未声明时项目角色默认为 `claim`，固定人、Agent 和 AI伙伴默认为 `assigned`。第一版只允许项目角色使用 `claim`；AI伙伴必须使用 `assigned`。
+
+同一项目角色被多个节点复用时，实例映射页默认复用同一份作用域内映射；需要让某个节点独立派人时，可在该节点启用「单节点覆盖」。实例最终仍会按节点保存 `assignmentBindings` 快照。
 
 ### Agent 执行控制
 
@@ -217,6 +241,8 @@ executor: employee:<Employee ID>
 | --------------- | -------------------- | ---------------------------------------------------------------- |
 | `execution`     | `manual`             | `task-worker` 表示由一次性 Agent 执行；`manual` 继续由人工交付。 |
 | `trigger`       | `manual-dispatch`    | `auto-on-ready` 会在节点就绪后由服务端自动派发。                 |
+| `dispatch-mode` | 按执行人类型推导     | `assigned` 系统派单；`claim` 候选池领取，仅支持项目角色。        |
+| `portability`   | `suggested`          | 固定人/AI伙伴在实例映射时是否允许重新绑定。                      |
 | `max-attempts`  | `1`                  | 同一次节点进入最多派发次数，取值 1 到 5。                        |
 | `timeout`       | `30m`                | 单次 Agent 运行超时，支持 `1s` 到 `1h`。                         |
 | `agent-profile` | executor 的 Agent id | 显式指定 Profile；不填时尝试使用 `executor: agent:<id>` 解析。   |

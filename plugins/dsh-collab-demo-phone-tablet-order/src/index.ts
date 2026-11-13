@@ -26,10 +26,7 @@ import {
   DemoPhoneTabletMcpProvider,
   loadDemoDraft,
 } from "./demo-mcp-provider.js";
-import {
-  DemoActionError,
-  DemoTaskActionService,
-} from "./demo-task-action.js";
+import { DemoActionError, DemoTaskActionService } from "./demo-task-action.js";
 import {
   DEMO_FEATURE_FLAG,
   DEMO_OMS_MCP_ID,
@@ -63,9 +60,7 @@ interface TeamPrincipalLike {
 interface TeamServiceLike {
   resolveToken(token: string): TeamPrincipalLike | undefined;
   users(): readonly { readonly id: string; readonly name: string }[];
-  members(
-    workspaceId: string,
-  ): readonly {
+  members(workspaceId: string): readonly {
     readonly userId: string;
     readonly memberRole?: "owner" | "member" | "guest" | undefined;
   }[];
@@ -92,9 +87,7 @@ const workbenchProfileSchema = z.object({
   }),
 });
 
-export async function loadDemoWorkbenchMetricIds(): Promise<
-  readonly string[]
-> {
+export async function loadDemoWorkbenchMetricIds(): Promise<readonly string[]> {
   const source = await readFile(
     new URL("../config/workbench-profile.yaml", import.meta.url),
     "utf8",
@@ -306,7 +299,9 @@ function principalFor(
   if (principal === undefined) {
     throw new DemoActionError("forbidden", "invalid or expired token");
   }
-  const user = team.users().find((candidate) => candidate.id === principal.userId);
+  const user = team
+    .users()
+    .find((candidate) => candidate.id === principal.userId);
   return {
     userId: principal.userId,
     name: user?.name ?? principal.userId,
@@ -361,8 +356,18 @@ function createRoutes(
           const actor = principalFor(request, team());
           const taskId = query(request).get("taskId") ?? "";
           const state = await service.getState(actor, taskId);
-          sendJson(response, 200, { ok: true, ...state });
+          sendJson(response, 200, { ok: true, available: true, ...state });
         } catch (cause) {
+          if (cause instanceof DemoActionError && cause.code === "not_found") {
+            sendJson(response, 200, {
+              ok: true,
+              available: false,
+              action: null,
+              receipt: null,
+              wms: null,
+            });
+            return;
+          }
           routeError(response, cause);
         }
       },
@@ -396,10 +401,7 @@ export async function configureDemoWorkspace(ctx: DemoContext): Promise<void> {
   const workspaces = lookup<WorkspaceRegistryLike>(ctx, "workspaceRegistry");
   const orders = lookup<OrderDataServiceLike>(ctx, "collabDataOrders");
   if (workspaces === undefined || orders === undefined) {
-    throw new DemoActionError(
-      "unavailable",
-      "工作区或订单服务尚未就绪",
-    );
+    throw new DemoActionError("unavailable", "工作区或订单服务尚未就绪");
   }
   const workspace = workspaces.list().find(isDemoWorkspace);
   if (workspace === undefined) return;
@@ -426,10 +428,7 @@ export async function connectDemoMcpsForWorkspaceMembers(
   ctx: DemoContext,
   workspaceId: string,
 ): Promise<void> {
-  const market = lookup<ResourceMarketServiceLike>(
-    ctx,
-    "collabResourceMarket",
-  );
+  const market = lookup<ResourceMarketServiceLike>(ctx, "collabResourceMarket");
   const team = lookup<TeamServiceLike>(ctx, "collabTeam");
   if (market === undefined || team === undefined) return;
   const members = team.members(workspaceId).filter((member) => {
@@ -468,17 +467,17 @@ export async function configureDemoWorkbenchV2(
   }
   const workspace = workspaces.list().find(isDemoWorkspace);
   if (workspace === undefined) return;
-  const members = team.members(workspace.id).filter(
-    (member) =>
-      member.memberRole === "owner" || member.memberRole === "member",
-  );
+  const members = team
+    .members(workspace.id)
+    .filter(
+      (member) =>
+        member.memberRole === "owner" || member.memberRole === "member",
+    );
   const results = await Promise.allSettled(
     members.map(async (member) => {
       const principal = {
         userId: member.userId,
-        ...(member.memberRole === undefined
-          ? {}
-          : { role: member.memberRole }),
+        ...(member.memberRole === undefined ? {} : { role: member.memberRole }),
       };
       const listing = await service.list(principal);
       const active =
@@ -516,7 +515,10 @@ export async function configureDemoWorkbenchV2(
   );
   for (const result of results) {
     if (result.status === "rejected") {
-      console.warn(`${name}: could not configure Demo workbench V2`, result.reason);
+      console.warn(
+        `${name}: could not configure Demo workbench V2`,
+        result.reason,
+      );
     }
   }
 }
@@ -531,12 +533,7 @@ function displayProfile(
     id: DEMO_PROFILE_ID,
     title: "手机/平板订单履约",
     matches: isDemoWorkspace,
-    visibleModules: [
-      "metrics",
-      "brief",
-      "todo",
-      "focus",
-    ] satisfies ModuleId[],
+    visibleModules: ["metrics", "brief", "todo", "focus"] satisfies ModuleId[],
     metrics: metricIds,
     metric: async (input) => {
       const orders = lookup<OrderDataServiceLike>(ctx, "collabDataOrders");
@@ -605,43 +602,103 @@ function displayProfile(
       const timeoutRate =
         (orderSummary.fulfillmentTimeoutCount / orderSummary.exceptionCount) *
         100;
+      const briefTime = snapshotAt.toISOString();
+      const parentLink =
+        parent === undefined
+          ? {}
+          : {
+              deepLink: {
+                route: "task" as const,
+                refId: parent.id,
+                workspaceId: workspace.id,
+                label: parent.title,
+              },
+            };
       return {
         title: "每日简报",
-        summary: `华东手机/平板订单异常率 ${orderSummary.exceptionRate.toFixed(1)}%，异常 ${orderSummary.exceptionCount} 单。请 Data Agent 基于 Mock OMS 订单快照完成初步判断。`,
+        summary: `本期识别 3 项经营结果、2 项异常和 1 项待确认决策；重点围绕华东 ${orderSummary.exceptionCount} 单订单异常推进处置。`,
         items: [
+          {
+            id: "supplier-delivery-confirmed",
+            title: "替代供应方案已确认",
+            body: "替代供应商 B 交期确认 12 天，可覆盖 29/37 张受影响订单；剩余 8 单进入改约流程。",
+            section: "conclusion" as const,
+            tag: "conclusion" as const,
+            priorityScore: 7,
+            occurredAt: briefTime,
+            statusLabel: "已确认",
+            actionLabel: "查看方案",
+            reason:
+              "来自 Mock SRM 交期记录和订单异常处置工作流，结果已人工复核。",
+            ...parentLink,
+          },
+          {
+            id: "payment-failure-attribution",
+            title: "支付失败原因已完成归因",
+            body: `支付失败 ${orderSummary.paymentFailureCount} 单中，31 单为支付渠道超时，可自动重试；其余 21 单需人工核对支付凭证。`,
+            section: "conclusion" as const,
+            tag: "progress" as const,
+            priorityScore: 7,
+            occurredAt: briefTime,
+            statusLabel: "待复核",
+            actionLabel: "查看归因",
+            reason: "来自 Mock OMS 支付状态与失败码分析结果。",
+            ...parentLink,
+          },
+          {
+            id: "finished-goods-rebalance-draft",
+            title: "成品仓再平衡草案已完成",
+            body: "75 单可转本地仓履约，预计减少履约超时 24 单、节省跨仓调拨成本 1.8 万元。",
+            section: "conclusion" as const,
+            tag: "progress" as const,
+            priorityScore: 7,
+            occurredAt: briefTime,
+            statusLabel: "待确认",
+            actionLabel: "查看草案",
+            reason:
+              "来自 Mock WMS 可用库存和履约时效测算，方案尚未创建正式工单。",
+            ...parentLink,
+          },
           {
             id: "east-phone-tablet-order-exception",
             title: "华东手机/平板订单异常",
             body: `支付失败 ${orderSummary.paymentFailureCount} 单（${paymentRate.toFixed(1)}%）、履约超时 ${orderSummary.fulfillmentTimeoutCount} 单（${timeoutRate.toFixed(1)}%）、取消 ${orderSummary.cancelledCount} 单（${cancelRate.toFixed(1)}%）。数据来自 Mock OMS 订单快照 ${orderSummary.snapshotAt}，共 ${orderSummary.orderCount} 单。`,
+            section: "risk" as const,
+            tag: "data" as const,
+            priorityScore: 9,
+            occurredAt: briefTime,
             statusLabel: "演示数据 · 待评估",
             actionLabel: "分析原因",
-            ...(parent === undefined
-              ? {}
-              : {
-                  deepLink: {
-                    route: "task" as const,
-                    refId: parent.id,
-                    workspaceId: workspace.id,
-                    label: parent.title,
-                  },
-                }),
+            reason:
+              "华东区域订单异常率超过 5% 预警线，且异常量达到材料性阈值。",
+            ...parentLink,
+          },
+          {
+            id: "fulfillment-timeout-concentration",
+            title: "履约超时集中在华东仓",
+            body: `履约超时 ${orderSummary.fulfillmentTimeoutCount} 单，占全部异常 ${timeoutRate.toFixed(1)}%，主要集中在华东仓现货订单。`,
+            section: "risk" as const,
+            tag: "data" as const,
+            priorityScore: 8,
+            occurredAt: briefTime,
+            statusLabel: "需处置",
+            actionLabel: "分析原因",
+            reason: "履约超时占比超过阈值，并且影响到今日到期订单。",
+            ...parentLink,
           },
           {
             id: "finished-goods-rebalance-decision",
             title: "是否需要创建成品仓订单再平衡工单",
             body: `需要先核实 ${orderSummary.fulfillmentTimeoutCount} 单履约超时涉及的 SKU、IMEI/SN、库存归属和跨仓交接约束。`,
+            section: "escalation" as const,
+            tag: "decision" as const,
+            priorityScore: 8,
+            occurredAt: briefTime,
             statusLabel: "待确认",
             actionLabel: "查看任务",
-            ...(parent === undefined
-              ? {}
-              : {
-                  deepLink: {
-                    route: "task" as const,
-                    refId: parent.id,
-                    workspaceId: workspace.id,
-                    label: parent.title,
-                  },
-                }),
+            reason:
+              "再平衡方案会影响 75 张订单的履约仓和交付时间，需要人工确认后才能创建工作流。",
+            ...parentLink,
           },
         ],
       };
@@ -716,19 +773,14 @@ export async function apply(ctx: DemoContext): Promise<void> {
   const mcpProvider = new DemoPhoneTabletMcpProvider(runtimeFixture.path);
   let disposeRegistryProvider: (() => void) | undefined;
   let disposeDisplayProfile: (() => void) | undefined;
-  const registryFiber = ctx.inject?.(
-    ["collabMcpProviderRegistry"],
-    (child) => {
-      const registry = lookup<McpProviderRegistry>(
-        child,
-        "collabMcpProviderRegistry",
-      );
-      if (registry === undefined) return;
-      disposeRegistryProvider = registry.register(
-        mcpProvider as McpToolProvider,
-      );
-    },
-  );
+  const registryFiber = ctx.inject?.(["collabMcpProviderRegistry"], (child) => {
+    const registry = lookup<McpProviderRegistry>(
+      child,
+      "collabMcpProviderRegistry",
+    );
+    if (registry === undefined) return;
+    disposeRegistryProvider = registry.register(mcpProvider as McpToolProvider);
+  });
   const requestedProfile =
     process.env.PLUGINMAX_WORKBENCH_DEMO_PROFILE?.trim() ?? "";
   const workbenchFiber =

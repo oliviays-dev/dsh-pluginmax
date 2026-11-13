@@ -21,6 +21,46 @@ window.__ModuleLoader__.load({
           d: "M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5ZM19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z",
         }),
       ),
+      info: h(
+        "svg",
+        {
+          viewBox: "0 0 24 24",
+          fill: "none",
+          stroke: "currentColor",
+          strokeWidth: 1.8,
+          strokeLinecap: "round",
+          strokeLinejoin: "round",
+          "aria-hidden": "true",
+        },
+        h("circle", { cx: 12, cy: 12, r: 9 }),
+        h("path", { d: "M12 10.5V16.5M12 7.7h.01" }),
+      ),
+      chevron: h(
+        "svg",
+        {
+          viewBox: "0 0 24 24",
+          fill: "none",
+          stroke: "currentColor",
+          strokeWidth: 1.8,
+          strokeLinecap: "round",
+          strokeLinejoin: "round",
+          "aria-hidden": "true",
+        },
+        h("path", { d: "m9 18 6-6-6-6" }),
+      ),
+      close: h(
+        "svg",
+        {
+          viewBox: "0 0 24 24",
+          fill: "none",
+          stroke: "currentColor",
+          strokeWidth: 1.8,
+          strokeLinecap: "round",
+          strokeLinejoin: "round",
+          "aria-hidden": "true",
+        },
+        h("path", { d: "M18 6 6 18M6 6l12 12" }),
+      ),
     };
 
     const TOKEN_KEY = "pluginmax.collab.token";
@@ -129,11 +169,11 @@ window.__ModuleLoader__.load({
 .pmwb-todo-scope-settings .pmwb-seg{flex:none;}
       .pmwb2-ai-load{display:grid;gap:9px;}
       .pmwb2-ai-load-table{border:1px solid var(--dsw-alias-border-l2);border-radius:7px;overflow:auto;background:var(--dsw-alias-bg-layer-2);scrollbar-width:thin;}
-      .pmwb2-ai-load-head,.pmwb2-ai-load-row{display:grid;grid-template-columns:20px minmax(80px,1fr) minmax(0,2.6fr);align-items:center;gap:6px;padding:7px 8px;}
+      .pmwb2-ai-load-head,.pmwb2-ai-load-row{display:grid;grid-template-columns:20px minmax(96px,1.22fr) minmax(0,2fr);align-items:center;gap:6px;padding:7px 8px;}
       .pmwb2-ai-load-head{min-height:30px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:1.5;}
       .pmwb2-ai-load-head>span:first-child{text-align:center;}
       .pmwb2-ai-load-head-data{display:grid;gap:4px;min-width:0;}
-      .pmwb2-ai-load-head-data span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+      .pmwb2-ai-load-head-data span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;}
       .pmwb2-ai-load-head-data span:last-child{justify-self:end;text-align:right;}
       .pmwb2-ai-load-row{position:relative;min-height:42px;border-top:1px solid var(--dsw-alias-border-l2);background:transparent;}
       .pmwb2-ai-load-row:first-child{border-top:0;}
@@ -158,10 +198,10 @@ window.__ModuleLoader__.load({
       .pmwb2-ai-load-person strong{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:1.5;}
       .pmwb2-ai-load-person small{display:block;min-width:0;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:1.5;}
       .pmwb2-ai-load-data{display:grid;gap:4px;min-width:0;}
-      .pmwb2-ai-load-cell{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.5;font-variant-numeric:tabular-nums;}
+      .pmwb2-ai-load-cell{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.5;text-align:right;font-variant-numeric:tabular-nums;}
       .pmwb2-ai-load-cell.primary{color:var(--dsw-alias-label-primary);font-size:12px;font-weight:650;}
-      .pmwb2-ai-load-cell.time{justify-self:end;text-align:right;color:var(--dsw-alias-label-tertiary);font-size:11px;}
-      .pmwb2-ai-load-runtime{display:flex;align-items:baseline;gap:3px;overflow:visible;color:var(--dsw-alias-label-primary);font-size:12px;font-weight:650;}
+      .pmwb2-ai-load-cell.time{display:grid;justify-items:end;align-content:center;gap:0;justify-self:end;text-align:right;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:1.35;}
+      .pmwb2-ai-load-runtime{display:flex;flex-direction:column;align-items:flex-end;gap:0;overflow:hidden;color:var(--dsw-alias-label-primary);font-size:12px;line-height:1.35;text-align:right;font-weight:650;}
       .pmwb2-ai-load-runtime-trend{min-width:0;color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:1.4;font-weight:600;white-space:nowrap;}
       .pmwb2-ai-load-runtime-trend.up{color:var(--dsw-alias-state-success-primary,#34d47e);}
       .pmwb2-ai-load-runtime-trend.down{color:var(--dsw-alias-state-error-primary,#e5534b);}
@@ -169,7 +209,7 @@ window.__ModuleLoader__.load({
       .pmwb2-ai-load-warning{flex:none;color:var(--dsw-alias-state-warning-primary,#e2a737);font-size:10px;}
       .pmwb2-ai-load-divider{display:flex;align-items:center;gap:6px;padding:6px 8px;border-top:1px solid var(--dsw-alias-border-l2);border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:1.5;}
       .pmwb2-ai-load-divider::before,.pmwb2-ai-load-divider::after{content:"";height:1px;flex:1;background:var(--dsw-alias-border-l2);}
-      @media(max-width:420px){.pmwb2-ai-load-head,.pmwb2-ai-load-row{grid-template-columns:20px minmax(80px,0.95fr) minmax(0,2.6fr);padding-inline:6px;gap:4px;}}
+      @media(max-width:420px){.pmwb2-ai-load-head,.pmwb2-ai-load-row{grid-template-columns:20px minmax(88px,1fr) minmax(0,2fr);padding-inline:6px;gap:4px;}}
 .pmwb2-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 9px;padding:7px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);}
 .pmwb2-row strong{min-width:0;font-size:11.5px;line-height:1.45;overflow-wrap:anywhere;}
 .pmwb2-row small{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:1.45;}
@@ -200,7 +240,7 @@ window.__ModuleLoader__.load({
 .pmwb-empty{padding:18px 10px;color:var(--dsw-alias-label-tertiary);font-size:12px;text-align:center;}
 .pmwb-item{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"name actions" "id time" "note note" "meta meta" "owner owner";column-gap:10px;row-gap:4px;align-items:start;padding:9px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-2);cursor:pointer;}
 .pmwb-item.pmwb-item-focus{grid-template-areas:"name actions" "id time" "note note" "owner owner";}
-.pmwb-item.pmwb-item-todo{grid-template-areas:"id actions" "name actions" "desc actions" "meta actions";column-gap:12px;row-gap:6px;align-items:start;padding:12px;}
+.pmwb-item.pmwb-item-todo{grid-template-areas:"id actions" "name name" "desc desc" "meta meta";column-gap:12px;row-gap:6px;align-items:start;padding:12px;}
 .pmwb-todo-actions{grid-area:actions;display:grid;gap:6px;justify-items:end;align-content:start;}
 .pmwb-todo-actions-main{display:flex;align-items:center;gap:6px;}
 .pmwb-todo-id{grid-area:id;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:1.45;overflow-wrap:anywhere;}
@@ -208,7 +248,7 @@ window.__ModuleLoader__.load({
 .pmwb-todo-description{grid-area:desc;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;}
 .pmwb-todo-meta{grid-area:meta;display:flex;align-items:center;gap:7px;flex-wrap:wrap;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.5;}
 .pmwb-todo-due{margin-left:auto;color:var(--dsw-alias-label-tertiary);white-space:nowrap;}
-.pmwb-item.pmwb-item-todo.no-description{grid-template-areas:"id actions" "name actions" "meta actions";}
+.pmwb-item.pmwb-item-todo.no-description{grid-template-areas:"id actions" "name name" "meta meta";}
 .pmwb-item-todo .pmwb-read-action{min-height:26px;padding:2px 9px;font-size:12px;}
 .pmwb2-card[data-plugin-id="pluginmax.task-focus"]{container-type:inline-size;}
 @container (max-width:280px){
@@ -219,7 +259,10 @@ window.__ModuleLoader__.load({
 }
 .pmwb-item:hover{border-color:var(--dsw-alias-border-l4,var(--dsw-alias-border-l3));}
 .pmwb-item.read{opacity:1;}.pmwb-item.read:hover{opacity:1;}
-.pmwb-item.meeting{grid-template-areas:"name actions" "meta time" "sub sub" "owner owner";}
+.pmwb-item.meeting{grid-template-areas:"name actions" "meta meta" "sub sub" "owner owner";}
+.pmwb-meeting-title{grid-area:name;display:flex;align-items:baseline;gap:8px;min-width:0;flex-wrap:wrap;}
+.pmwb-meeting-title .pmwb-item-name{min-width:0;}
+.pmwb-meeting-title .pmwb-item-time{flex:none;}
 .pmwb-item-name{grid-area:name;color:var(--dsw-alias-label-primary) !important;font-size:12.5px;font-weight:650;line-height:1.45;overflow-wrap:anywhere;}
 .pmwb-item-id{grid-area:id;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:1.4;}
 .pmwb-item-note{grid-area:note;min-width:0;color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1.5;overflow-wrap:anywhere;}
@@ -274,7 +317,7 @@ window.__ModuleLoader__.load({
 .pmwb2-card.has-height[data-plugin-id="pluginmax.kpi-overview"] .pmwb2-kpi-grid{height:100%;}
 .pmwb2-kpi-card{display:flex;flex-direction:column;justify-content:flex-start;gap:var(--pmwb2-kpi-gap);min-width:0;min-height:var(--pmwb2-kpi-card-min-height);padding:var(--pmwb2-kpi-padding);border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 24%,var(--dsw-alias-border-l2));background:linear-gradient(145deg,color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 7%,var(--dsw-alias-bg-layer-2)),var(--dsw-alias-bg-layer-2));}
 .pmwb2-card.has-height[data-plugin-id="pluginmax.kpi-overview"] .pmwb2-kpi-card{min-height:0;}
-.pmwb2-kpi-card:only-child{min-height:174px;}
+      .pmwb2-kpi-card:only-child{width:100%;max-width:360px;min-height:174px;justify-self:start;}
 .pmwb2-kpi-card.no-spark{justify-content:center;}
 .pmwb2-kpi-card .pmwb-metric-label{font-size:var(--pmwb2-kpi-label-size);}
 .pmwb2-kpi-card .pmwb-metric-label,.pmwb2-kpi-card .pmwb-metric-value,.pmwb2-kpi-card .pmwb-metric-target{flex:0 0 auto;min-height:0;}
@@ -307,6 +350,52 @@ window.__ModuleLoader__.load({
 .pmwb-brief-actions{display:grid;gap:6px;width:84px;justify-items:stretch;}.pmwb-brief-actions .pmwb-btn{width:100%;justify-content:center;}
 .pmwb-decision{margin-top:7px;padding:8px 10px;border-left:2px solid var(--dsw-alias-accent-primary,#4f8ef7);border-radius:0 6px 6px 0;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 9%,transparent);font-size:11.5px;line-height:1.6;color:var(--dsw-alias-label-secondary);}.pmwb-decision strong{display:block;margin-bottom:3px;color:var(--dsw-alias-label-primary);}
 .pmwb-brief-meta{margin:8px 0 0;color:var(--dsw-alias-label-tertiary);font-size:11px;}
+.pmwb2-brief-panel{display:grid;gap:0;min-width:0;}
+.pmwb2-brief-section{position:relative;padding-top:12px;}
+.pmwb2-brief-section-head{display:flex;align-items:center;gap:6px;min-height:24px;margin-bottom:5px;}
+.pmwb2-brief-section-title{display:flex;align-items:center;gap:5px;margin:0;color:var(--dsw-alias-label-secondary);font-size:11.5px;font-weight:680;line-height:1.3;}
+.pmwb2-brief-section-count{padding:0 5px;border-radius:999px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font-size:9.5px;line-height:17px;}
+.pmwb2-brief-section-actions{display:flex;align-items:center;gap:3px;margin-left:auto;}
+.pmwb2-brief-help-btn{width:21px;height:21px;display:grid;place-items:center;padding:0;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer;}
+.pmwb2-brief-help-btn:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);}.pmwb2-brief-help-btn svg{width:12px;height:12px;}
+.pmwb2-brief-help{position:absolute;top:37px;left:0;z-index:8;width:min(310px,calc(100% - 8px));padding:9px 10px;border:1px solid var(--dsw-alias-border-l3);border-radius:7px;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));box-shadow:0 12px 28px rgba(0,0,0,.3);color:var(--dsw-alias-label-secondary);font-size:10.5px;line-height:1.55;}
+.pmwb2-brief-help strong{display:block;margin-bottom:2px;color:var(--dsw-alias-label-primary);font-size:11px;}
+.pmwb2-brief-linkbtn{display:inline-flex;align-items:center;gap:2px;min-height:22px;padding:0 4px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:10px;cursor:pointer;white-space:nowrap;}
+.pmwb2-brief-linkbtn:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}.pmwb2-brief-linkbtn svg{width:11px;height:11px;}
+.pmwb2-brief-list{overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-2);}
+.pmwb2-brief-row{width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto 14px;align-items:center;gap:9px;min-height:46px;padding:7px 10px;border:0;border-top:1px solid var(--dsw-alias-border-l2);background:transparent;color:inherit;text-align:left;cursor:pointer;}
+.pmwb2-brief-row:first-child{border-top:0;}.pmwb2-brief-row:hover{background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 6%,var(--dsw-alias-bg-layer-2));}.pmwb2-brief-row.read{opacity:.62;}
+.pmwb2-brief-row-main{min-width:0;}.pmwb2-brief-row-titleline{display:flex;align-items:center;gap:6px;min-width:0;}
+.pmwb2-brief-row-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-primary);font-size:11.8px;font-weight:640;line-height:1.42;}
+.pmwb2-brief-row-kind{flex:none;padding:0 5px;border-radius:3px;font-size:9px;line-height:16px;font-weight:650;}
+.pmwb2-brief-row-kind.anomaly{color:var(--dsw-alias-state-error-primary,#e5534b);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 14%,transparent);}
+.pmwb2-brief-row-kind.attention{color:var(--dsw-alias-state-warning-primary,#d29922);background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d29922) 16%,transparent);}
+.pmwb2-brief-row-sub{display:block;min-width:0;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:10.5px;line-height:1.45;}
+.pmwb2-brief-row-trailing{display:flex;align-items:center;gap:6px;justify-self:end;white-space:nowrap;}
+.pmwb2-brief-status{display:inline-flex;align-items:center;height:19px;padding:0 6px;border-radius:4px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-secondary);font-size:9.5px;font-weight:650;}
+.pmwb2-brief-status.ok{color:var(--dsw-alias-state-success-primary,#3fb950);background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#3fb950) 14%,transparent);}
+.pmwb2-brief-status.warn{color:var(--dsw-alias-state-warning-primary,#d29922);background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d29922) 16%,transparent);}
+.pmwb2-brief-status.high{color:var(--dsw-alias-state-error-primary,#e5534b);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 14%,transparent);}
+.pmwb2-brief-row-time{color:var(--dsw-alias-label-tertiary);font-size:9.5px;}.pmwb2-brief-chevron{width:14px;height:14px;color:var(--dsw-alias-label-tertiary);transition:transform .14s ease,color .14s ease;}.pmwb2-brief-row:hover .pmwb2-brief-chevron{color:var(--dsw-alias-label-primary);transform:translateX(1px);}
+.pmwb2-brief-empty{padding:14px 10px;border:1px dashed var(--dsw-alias-border-l2);border-radius:7px;color:var(--dsw-alias-label-tertiary);font-size:11px;text-align:center;}
+.pmwb2-brief-footer{display:flex;align-items:center;gap:7px;margin-top:10px;padding-top:9px;border-top:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-tertiary);font-size:10px;}
+.pmwb2-brief-footer>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.pmwb2-brief-footer .pmwb2-brief-linkbtn{margin-left:auto;flex:none;}
+.pmwb2-brief-needs{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 7px;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 13%,transparent);color:var(--dsw-alias-state-error-primary,#e5534b);font-size:10px;font-weight:650;white-space:nowrap;}
+.pmwb2-brief-needs::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor;}
+.pmwb2-brief-drawer-mask{position:fixed;inset:0;z-index:76;display:flex;justify-content:flex-end;background:rgba(0,0,0,.38);backdrop-filter:blur(2px);}
+.pmwb2-brief-drawer{width:min(430px,100vw);height:100%;display:flex;flex-direction:column;border-left:1px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));box-shadow:-20px 0 54px rgba(0,0,0,.3);animation:pmwb2-brief-drawer-in .18s ease-out;}
+@keyframes pmwb2-brief-drawer-in{from{transform:translateX(18px);opacity:.6;}to{transform:translateX(0);opacity:1;}}
+.pmwb2-brief-drawer-head{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--dsw-alias-border-l2);}.pmwb2-brief-drawer-head h2{flex:1;min-width:0;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;}
+.pmwb2-brief-drawer-body{flex:1;min-height:0;display:grid;align-content:start;gap:13px;padding:14px;overflow:auto;}
+.pmwb2-brief-drawer-kicker{display:flex;align-items:center;gap:5px;color:var(--dsw-alias-label-tertiary);font-size:10px;}.pmwb2-brief-drawer-kicker::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--dsw-alias-state-warning-primary,#d29922);}
+.pmwb2-brief-drawer-title{margin:0;color:var(--dsw-alias-label-primary);font-size:16px;line-height:1.42;}.pmwb2-brief-drawer-text{color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1.65;overflow-wrap:anywhere;}
+.pmwb2-brief-drawer-block{display:grid;gap:6px;padding-top:11px;border-top:1px solid var(--dsw-alias-border-l2);}.pmwb2-brief-drawer-block h3{margin:0;color:var(--dsw-alias-label-secondary);font-size:10.5px;font-weight:680;}
+.pmwb2-brief-facts{display:grid;grid-template-columns:74px minmax(0,1fr);gap:5px 9px;margin:0;font-size:10.5px;}.pmwb2-brief-facts dt{color:var(--dsw-alias-label-tertiary);}.pmwb2-brief-facts dd{margin:0;color:var(--dsw-alias-label-primary);overflow-wrap:anywhere;}
+.pmwb2-brief-evidence{width:100%;display:flex;align-items:center;gap:7px;padding:8px 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);text-align:left;font:inherit;font-size:10.5px;cursor:pointer;}
+.pmwb2-brief-evidence:hover{border-color:var(--dsw-alias-border-l4,var(--dsw-alias-border-l3));color:var(--dsw-alias-label-primary);}.pmwb2-brief-evidence span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.pmwb2-brief-evidence svg{width:13px;height:13px;color:var(--dsw-alias-label-tertiary);}
+.pmwb2-brief-recommend{padding:9px 10px;border-left:2px solid var(--dsw-alias-accent-primary,#4f8ef7);border-radius:0 6px 6px 0;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 9%,transparent);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.6;}.pmwb2-brief-recommend strong{display:block;margin-bottom:2px;color:var(--dsw-alias-label-primary);}
+.pmwb2-brief-drawer-foot{display:flex;justify-content:flex-end;gap:7px;padding:10px 14px 12px;border-top:1px solid var(--dsw-alias-border-l2);}
+@media(max-width:520px){.pmwb2-brief-row{grid-template-columns:minmax(0,1fr) 14px;padding:8px 9px;}.pmwb2-brief-row-trailing{grid-column:1;grid-row:2;justify-self:start;margin-top:3px;}.pmwb2-brief-chevron{grid-column:2;grid-row:1/span 2;}.pmwb2-brief-row-sub{white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;}.pmwb2-brief-drawer{width:100%;}.pmwb2-brief-footer{flex-wrap:wrap;}.pmwb2-brief-footer .pmwb2-brief-linkbtn{margin-left:0;}}
 `;
 
     function token() {
@@ -317,7 +406,8 @@ window.__ModuleLoader__.load({
       const headers = { "cache-control": "no-store" };
       const value = token();
       if (value !== "") headers.authorization = `Bearer ${value}`;
-      if (options.body !== undefined) headers["content-type"] = "application/json";
+      if (options.body !== undefined)
+        headers["content-type"] = "application/json";
       const response = await fetch(path, { ...options, headers });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || payload?.ok === false) {
@@ -384,11 +474,19 @@ window.__ModuleLoader__.load({
     }
 
     function formatTime(value) {
-      if (typeof value !== "string" || value === "") return "—";
+      const parts = dateTimeParts(value);
+      return parts === null ? "—" : `${parts.date} ${parts.time}`;
+    }
+
+    function dateTimeParts(value) {
+      if (typeof value !== "string" || value === "") return null;
       const date = new Date(value);
-      if (Number.isNaN(date.getTime())) return "—";
+      if (Number.isNaN(date.getTime())) return null;
       const pad = (number) => String(number).padStart(2, "0");
-      return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+      return {
+        date: `${pad(date.getMonth() + 1)}-${pad(date.getDate())}`,
+        time: `${pad(date.getHours())}:${pad(date.getMinutes())}`,
+      };
     }
 
     function formatDate(value) {
@@ -885,11 +983,7 @@ window.__ModuleLoader__.load({
             }${read ? " read" : ""}`,
             ...dataAgentEntityAttributes(item),
           },
-          h(
-            "div",
-            { className: "pmwb-todo-id" },
-            item.displayId ?? item.id,
-          ),
+          h("div", { className: "pmwb-todo-id" }, item.displayId ?? item.id),
           h(
             "div",
             { className: "pmwb-todo-actions" },
@@ -930,11 +1024,7 @@ window.__ModuleLoader__.load({
           h("div", { className: "pmwb-todo-name" }, item.title),
           description === ""
             ? null
-            : h(
-                "div",
-                { className: "pmwb-todo-description" },
-                description,
-              ),
+            : h("div", { className: "pmwb-todo-description" }, description),
           h(
             "div",
             { className: "pmwb-todo-meta" },
@@ -1064,7 +1154,16 @@ window.__ModuleLoader__.load({
             className: `pmwb-item meeting${read ? " read" : ""}`,
             ...dataAgentEntityAttributes({ ...item, kind: "meeting" }),
           },
-          h("div", { className: "pmwb-item-name" }, item.title),
+          h(
+            "div",
+            { className: "pmwb-meeting-title" },
+            h("span", { className: "pmwb-item-name" }, item.title),
+            h(
+              "span",
+              { className: "pmwb-item-time" },
+              formatTime(item.updatedAt),
+            ),
+          ),
           h(
             "div",
             { className: "pmwb-item-meta pmwb-meeting-status" },
@@ -1124,11 +1223,6 @@ window.__ModuleLoader__.load({
               : null,
             ...meetingParticipants(item),
           ),
-          h(
-            "span",
-            { className: "pmwb-item-time" },
-            formatTime(item.updatedAt),
-          ),
         );
       });
     }
@@ -1147,23 +1241,39 @@ window.__ModuleLoader__.load({
             h(
               "strong",
               null,
-              item.title ?? item.name ?? item.summary ?? item.displayId ?? "未命名事项",
+              item.title ??
+                item.name ??
+                item.summary ??
+                item.displayId ??
+                "未命名事项",
             ),
             h(
               "span",
-              { className: `pmwb2-tag ${tagClass(item.statusLabel ?? item.status ?? item.level)}` },
-              item.statusLabel ?? item.status ?? item.level ?? item.priorityLabel ?? "查看",
+              {
+                className: `pmwb2-tag ${tagClass(item.statusLabel ?? item.status ?? item.level)}`,
+              },
+              item.statusLabel ??
+                item.status ??
+                item.level ??
+                item.priorityLabel ??
+                "查看",
             ),
             h(
               "small",
               null,
               item.source ?? item.category ?? item.ownerName ?? item.role ?? "",
             ),
-            item.note ?? item.description ?? item.summaryText ?? item.conclusion
+            (item.note ??
+              item.description ??
+              item.summaryText ??
+              item.conclusion)
               ? h(
                   "span",
                   { className: "pmwb2-row-note" },
-                  item.note ?? item.description ?? item.summaryText ?? item.conclusion,
+                  item.note ??
+                    item.description ??
+                    item.summaryText ??
+                    item.conclusion,
                 )
               : null,
           ),
@@ -1239,9 +1349,7 @@ window.__ModuleLoader__.load({
           });
         };
         const observer = new ResizeObserver(resize);
-        const owner = node.closest(
-          '[data-plugin-id="pluginmax.kpi-overview"]',
-        );
+        const owner = node.closest('[data-plugin-id="pluginmax.kpi-overview"]');
         const mutationObserver =
           owner === null ? null : new MutationObserver(resize);
         observer.observe(node);
@@ -1272,56 +1380,55 @@ window.__ModuleLoader__.load({
           ref: panelRef,
         },
         h(
-        "div",
-        { className: "pmwb-metrics pmwb2-kpi-grid" },
-        ...items.map((metric) =>
-          {
+          "div",
+          { className: "pmwb-metrics pmwb2-kpi-grid" },
+          ...items.map((metric) => {
             const spark = metric.spark ?? [];
             return h(
-            "article",
-            {
-              className: `pmwb-metric pmwb2-kpi-card${spark.length === 0 ? " no-spark" : ""}`,
-              key: metric.id,
-              "data-metric-id": metric.id,
-              "data-data-agent-title": `${metric.label} ${metric.value}${metric.unit ?? ""}`,
-              "data-data-agent-excerpt": `${metric.target ?? ""} ${metric.trend ?? ""}`.trim(),
-            },
-            h(
-              "div",
-              { className: "pmwb-metric-label" },
-              h("span", null, metric.label),
-              metric.trend
+              "article",
+              {
+                className: `pmwb-metric pmwb2-kpi-card${spark.length === 0 ? " no-spark" : ""}`,
+                key: metric.id,
+                "data-metric-id": metric.id,
+                "data-data-agent-title": `${metric.label} ${metric.value}${metric.unit ?? ""}`,
+                "data-data-agent-excerpt":
+                  `${metric.target ?? ""} ${metric.trend ?? ""}`.trim(),
+              },
+              h(
+                "div",
+                { className: "pmwb-metric-label" },
+                h("span", null, metric.label),
+                metric.trend
+                  ? h(
+                      "span",
+                      { className: `pmwb-metric-trend ${metric.trendClass}` },
+                      metric.trend,
+                    )
+                  : null,
+              ),
+              h(
+                "div",
+                { className: "pmwb-metric-value" },
+                metric.value,
+                metric.unit ? h("small", null, metric.unit) : null,
+              ),
+              h("div", { className: "pmwb-metric-target" }, metric.target),
+              spark.length > 0
                 ? h(
-                    "span",
-                    { className: `pmwb-metric-trend ${metric.trendClass}` },
-                    metric.trend,
+                    "div",
+                    { className: "pmwb-spark", "aria-hidden": "true" },
+                    ...spark.map((height, index) =>
+                      h("span", {
+                        key: `${metric.id}-${index}`,
+                        className:
+                          height >= 62 ? "strong" : height <= 36 ? "warn" : "",
+                        style: { height: `${height}%` },
+                      }),
+                    ),
                   )
                 : null,
-            ),
-            h(
-              "div",
-              { className: "pmwb-metric-value" },
-              metric.value,
-              metric.unit ? h("small", null, metric.unit) : null,
-            ),
-            h("div", { className: "pmwb-metric-target" }, metric.target),
-            spark.length > 0
-              ? h(
-                  "div",
-                  { className: "pmwb-spark", "aria-hidden": "true" },
-                  ...spark.map((height, index) =>
-                    h("span", {
-                      key: `${metric.id}-${index}`,
-                      className:
-                        height >= 62 ? "strong" : height <= 36 ? "warn" : "",
-                      style: { height: `${height}%` },
-                    }),
-                  ),
-                )
-              : null,
-          );
-          },
-        ),
+            );
+          }),
         ),
       );
     }
@@ -1708,156 +1815,479 @@ window.__ModuleLoader__.load({
       );
     }
 
+    const BRIEF_SECTION_META = {
+      progress: {
+        title: "项目关键进展",
+        limit: 3,
+        help: "只展示已确认的结果、决策或业务影响。普通任务动作、执行次数和打开页面不进入首屏。",
+      },
+      anomaly: {
+        title: "异常提醒",
+        limit: 2,
+        help: "只展示命中阈值或状态规则的任务、工作流和运行异常。同一事项会合并为一条。",
+      },
+      attention: {
+        title: "待你处理",
+        limit: 1,
+        help: "只保留需要你决定、验收、授权或协调的事项；普通待办不进入这里。",
+      },
+    };
+
+    function briefKindOf(item) {
+      if (item?.section === "risk") return "anomaly";
+      if (item?.section === "escalation") return "attention";
+      return "progress";
+    }
+
+    function groupBriefItems(items) {
+      const groups = { progress: [], anomaly: [], attention: [] };
+      for (const item of items ?? []) groups[briefKindOf(item)].push(item);
+      return groups;
+    }
+
+    function briefPlainText(value) {
+      return String(value ?? "")
+        .replace(/```[\s\S]*?```/g, " ")
+        .replace(/^#{1,6}\s*/gm, "")
+        .replace(/^\s*[-*+]\s*/gm, "")
+        .replace(/^\s*\d+[.)]\s*/gm, "")
+        .replace(/\*\*([^*]+)\*\*/g, "$1")
+        .replace(/`([^`]+)`/g, "$1")
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+        .replace(/[*~]+/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    function briefStatusClass(item) {
+      const kind = briefKindOf(item);
+      if (kind === "anomaly") return "high";
+      if (kind === "attention") return "warn";
+      return /验收|待确认|待处理/u.test(item?.statusLabel ?? "")
+        ? "warn"
+        : "ok";
+    }
+
+    function briefTimeLabel(item) {
+      return item?.deadline
+        ? `截止 ${formatDate(item.deadline)}`
+        : formatTime(item?.occurredAt);
+    }
+
+    function briefSourceLabel(item) {
+      if (item?.sourceDomain === "workflow") return "工作流";
+      if (item?.sourceDomain === "agent-run") return "执行记录";
+      return "任务";
+    }
+
     function BriefBody({
       payload,
       view,
-      expanded,
-      textExpanded,
-      onToggleSuggestion,
-      onToggleText,
       onOpen,
       onAnalyze,
       onUnread,
+      onDetail,
     }) {
       const data = payload?.data ?? {};
       const items =
         view === "unread"
           ? (data.views?.unread ?? [])
           : (data.views?.all ?? []);
-      return h(
-        "div",
-        { className: "pmwb-legacy" },
-        items.length === 0
-          ? h(
+      const groups = groupBriefItems(items);
+      const [expandedSections, setExpandedSections] = react.useState({});
+      const [helpSection, setHelpSection] = react.useState(null);
+      const [detailItem, setDetailItem] = react.useState(null);
+
+      react.useEffect(() => {
+        if (detailItem === null) return undefined;
+        const onKeyDown = (event) => {
+          if (event.key === "Escape") setDetailItem(null);
+        };
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+      }, [detailItem]);
+
+      const openDetail = (item) => {
+        setHelpSection(null);
+        setDetailItem(item);
+        void onDetail?.(item);
+      };
+
+      const runPrimary = (item) => {
+        setDetailItem(null);
+        if (
+          typeof item.actionLabel === "string" &&
+          item.actionLabel.includes("分析")
+        ) {
+          void onAnalyze(item);
+        } else {
+          void onOpen(item);
+        }
+      };
+
+      const renderSection = (kind) => {
+        const sectionItems = groups[kind];
+        if (sectionItems.length === 0) return null;
+        const meta = BRIEF_SECTION_META[kind];
+        const expanded = Boolean(expandedSections[kind]);
+        const visible = expanded
+          ? sectionItems
+          : sectionItems.slice(0, meta.limit);
+        const hiddenCount = Math.max(0, sectionItems.length - visible.length);
+        return h(
+          "section",
+          { className: "pmwb2-brief-section", key: kind },
+          h(
+            "div",
+            { className: "pmwb2-brief-section-head" },
+            h(
+              "h3",
+              { className: "pmwb2-brief-section-title" },
+              meta.title,
+              h(
+                "span",
+                { className: "pmwb2-brief-section-count" },
+                sectionItems.length,
+              ),
+            ),
+            h(
               "div",
-              { className: "pmwb-empty" },
-              view === "unread"
-                ? "当前没有未读简报条目。"
-                : "当前周期没有新增简报。",
-            )
-          : h(
-              "ul",
-              { className: "pmwb-brief-points" },
-              ...items.map((item) => {
-                const isExpanded = Boolean(expanded[item.itemId]);
-                const isTextExpanded = Boolean(textExpanded[item.itemId]);
-                const longText =
-                  typeof item.conclusion === "string" &&
-                  item.conclusion.length > 320;
-                return h(
-                  "li",
-                  {
-                    key: item.itemId,
-                    className: `${item.tag}${item.readState === "read" ? " read" : ""}`,
-                    ...dataAgentBriefAttributes(item),
-                  },
+              { className: "pmwb2-brief-section-actions" },
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "pmwb2-brief-help-btn",
+                  "aria-label": `${meta.title}说明`,
+                  title: `${meta.title}说明`,
+                  "aria-expanded": helpSection === kind,
+                  onClick: () =>
+                    setHelpSection((current) =>
+                      current === kind ? null : kind,
+                    ),
+                },
+                ICONS.info,
+              ),
+              sectionItems.length > meta.limit
+                ? h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "pmwb2-brief-linkbtn",
+                      onClick: () =>
+                        setExpandedSections((current) => ({
+                          ...current,
+                          [kind]: !current[kind],
+                        })),
+                    },
+                    expanded
+                      ? "收起"
+                      : kind === "progress"
+                        ? `查看全部 ${sectionItems.length}`
+                        : `其它 ${hiddenCount} 条`,
+                    ICONS.chevron,
+                  )
+                : null,
+            ),
+            helpSection === kind
+              ? h(
+                  "div",
+                  { className: "pmwb2-brief-help", role: "note" },
+                  h("strong", null, meta.title),
+                  meta.help,
+                )
+              : null,
+          ),
+          h(
+            "div",
+            { className: "pmwb2-brief-list" },
+            ...visible.map((item) => {
+              const label =
+                kind === "progress"
+                  ? null
+                  : briefTagLabel(item.tag) ||
+                    (kind === "anomaly" ? "异常" : "待处理");
+              return h(
+                "button",
+                {
+                  key: item.itemId,
+                  type: "button",
+                  className: `pmwb2-brief-row${item.readState === "read" ? " read" : ""}`,
+                  ...dataAgentBriefAttributes(item),
+                  onClick: () => openDetail(item),
+                },
+                h(
+                  "span",
+                  { className: "pmwb2-brief-row-main" },
                   h(
-                    "div",
-                    { className: "pmwb-brief-copy" },
-                    h("div", { className: "pmwb-brief-title" }, item.title),
-                    item.conclusion
+                    "span",
+                    { className: "pmwb2-brief-row-titleline" },
+                    h(
+                      "span",
+                      { className: "pmwb2-brief-row-title" },
+                      item.title,
+                    ),
+                    label
                       ? h(
-                          "div",
-                          {
-                            className: `pmwb-brief-text${longText && !isTextExpanded ? " clamped" : ""}`,
-                          },
-                          renderBriefMarkdown(item.conclusion),
-                        )
-                      : null,
-                    longText
-                      ? h(
-                          "button",
-                          {
-                            type: "button",
-                            className: "pmwb-brief-more",
-                            onClick: (event) => {
-                              event.stopPropagation();
-                              onToggleText(item.itemId);
-                            },
-                          },
-                          isTextExpanded ? "收起" : "展开全文",
-                        )
-                      : null,
-                    item.reason
-                      ? h(
-                          "div",
-                          { className: "pmwb-brief-reason" },
-                          item.reason,
-                        )
-                      : null,
-                    item.suggestion && isExpanded
-                      ? h(
-                          "div",
-                          { className: "pmwb-decision" },
-                          h("strong", null, item.suggestion.headline),
-                          item.suggestion.body,
+                          "span",
+                          { className: `pmwb2-brief-row-kind ${kind}` },
+                          label,
                         )
                       : null,
                   ),
                   h(
                     "span",
-                    { className: `pmwb-tag ${item.tag}` },
-                    briefTagLabel(item.tag),
+                    { className: "pmwb2-brief-row-sub" },
+                    briefPlainText(
+                      item.conclusion || item.reason || item.statusLabel,
+                    ),
                   ),
+                ),
+                h(
+                  "span",
+                  { className: "pmwb2-brief-row-trailing" },
+                  item.statusLabel
+                    ? h(
+                        "span",
+                        {
+                          className: `pmwb2-brief-status ${briefStatusClass(item)}`,
+                        },
+                        item.statusLabel,
+                      )
+                    : null,
+                  h(
+                    "span",
+                    { className: "pmwb2-brief-row-time" },
+                    briefTimeLabel(item),
+                  ),
+                ),
+                h(
+                  "span",
+                  { className: "pmwb2-brief-chevron", "aria-hidden": "true" },
+                  ICONS.chevron,
+                ),
+              );
+            }),
+          ),
+        );
+      };
+
+      const detail =
+        detailItem === null
+          ? null
+          : h(
+              "div",
+              {
+                className: "pmwb2-brief-drawer-mask",
+                role: "presentation",
+                onClick: (event) => {
+                  if (event.target === event.currentTarget) setDetailItem(null);
+                },
+              },
+              h(
+                "aside",
+                {
+                  className: "pmwb2-brief-drawer",
+                  role: "dialog",
+                  "aria-modal": "true",
+                  "aria-label": detailItem.title,
+                },
+                h(
+                  "header",
+                  { className: "pmwb2-brief-drawer-head" },
+                  h("h2", null, detailItem.title),
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "pmwb2-iconbtn",
+                      "aria-label": "关闭简报详情",
+                      title: "关闭",
+                      onClick: () => setDetailItem(null),
+                    },
+                    ICONS.close,
+                  ),
+                ),
+                h(
+                  "div",
+                  { className: "pmwb2-brief-drawer-body" },
                   h(
                     "div",
-                    { className: "pmwb-brief-actions" },
-                    view === "all" && item.readState === "read"
+                    null,
+                    h(
+                      "div",
+                      { className: "pmwb2-brief-drawer-kicker" },
+                      `${briefSourceLabel(detailItem)} · ${
+                        briefTagLabel(detailItem.tag) || "简报"
+                      }`,
+                    ),
+                    h(
+                      "h3",
+                      { className: "pmwb2-brief-drawer-title" },
+                      detailItem.title,
+                    ),
+                    detailItem.conclusion
                       ? h(
-                          "button",
-                          {
-                            type: "button",
-                            className: "pmwb-btn pmwb-read-action",
-                            onClick: (event) => {
-                              event.stopPropagation();
-                              onUnread(item);
-                            },
-                          },
-                          "标为未读",
+                          "div",
+                          { className: "pmwb2-brief-drawer-text" },
+                          renderBriefMarkdown(detailItem.conclusion),
                         )
                       : null,
-                    item.suggestion
-                      ? h(
-                          "button",
-                          {
-                            type: "button",
-                            className: "pmwb-btn",
-                            onClick: (event) => {
-                              event.stopPropagation();
-                              onToggleSuggestion(item.itemId);
-                            },
-                          },
-                          isExpanded ? "收起建议" : "AI建议",
-                        )
-                      : null,
+                  ),
+                  h(
+                    "section",
+                    { className: "pmwb2-brief-drawer-block" },
+                    h("h3", null, "关键事实"),
+                    h(
+                      "dl",
+                      { className: "pmwb2-brief-facts" },
+                      ...[
+                        [
+                          "状态",
+                          detailItem.statusLabel ||
+                            briefTagLabel(detailItem.tag) ||
+                            "待处理",
+                        ],
+                        ...(detailItem.executorName
+                          ? [
+                              [
+                                "责任",
+                                `${detailItem.executorName}${
+                                  detailItem.executorRole
+                                    ? ` · ${detailItem.executorRole}`
+                                    : ""
+                                }`,
+                              ],
+                            ]
+                          : []),
+                        ["时间", formatTime(detailItem.occurredAt)],
+                        ...(detailItem.deadline
+                          ? [["截止", formatDate(detailItem.deadline)]]
+                          : []),
+                        ...(detailItem.workspaceName
+                          ? [["项目", detailItem.workspaceName]]
+                          : []),
+                      ].flatMap(([label, value]) => [
+                        h("dt", { key: `dt-${label}` }, label),
+                        h("dd", { key: `dd-${label}` }, value),
+                      ]),
+                    ),
+                  ),
+                  detailItem.reason
+                    ? h(
+                        "section",
+                        { className: "pmwb2-brief-drawer-block" },
+                        h("h3", null, "为什么看到这条"),
+                        h(
+                          "div",
+                          { className: "pmwb2-brief-drawer-text" },
+                          detailItem.reason,
+                        ),
+                      )
+                    : null,
+                  h(
+                    "section",
+                    { className: "pmwb2-brief-drawer-block" },
+                    h("h3", null, "证据与来源"),
                     h(
                       "button",
                       {
                         type: "button",
-                        className: "pmwb-btn primary",
-                        onClick: (event) => {
-                          event.stopPropagation();
-                          if (
-                            typeof item.actionLabel === "string" &&
-                            item.actionLabel.includes("分析")
-                          ) {
-                            onAnalyze(item);
-                          } else {
-                            onOpen(item);
-                          }
+                        className: "pmwb2-brief-evidence",
+                        onClick: () => {
+                          setDetailItem(null);
+                          void onOpen(detailItem);
                         },
                       },
-                      item.actionLabel || "查看明细",
+                      ICONS.chevron,
+                      h(
+                        "span",
+                        null,
+                        `${briefSourceLabel(detailItem)} · ${detailItem.sourceId}`,
+                      ),
+                      ICONS.chevron,
                     ),
                   ),
-                );
-              }),
-            ),
+                  detailItem.suggestion
+                    ? h(
+                        "section",
+                        { className: "pmwb2-brief-drawer-block" },
+                        h("h3", null, "建议下一步"),
+                        h(
+                          "div",
+                          { className: "pmwb2-brief-recommend" },
+                          h("strong", null, detailItem.suggestion.headline),
+                          detailItem.suggestion.body,
+                        ),
+                      )
+                    : null,
+                ),
+                h(
+                  "footer",
+                  { className: "pmwb2-brief-drawer-foot" },
+                  view === "all" && detailItem.readState === "read"
+                    ? h(
+                        "button",
+                        {
+                          type: "button",
+                          className: "pmwb2-btn",
+                          onClick: async () => {
+                            await onUnread(detailItem);
+                            setDetailItem(null);
+                          },
+                        },
+                        "标为未读",
+                      )
+                    : null,
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "pmwb2-btn",
+                      onClick: () => setDetailItem(null),
+                    },
+                    "关闭",
+                  ),
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "pmwb2-btn primary",
+                      onClick: () => runPrimary(detailItem),
+                    },
+                    detailItem.actionLabel || "前往处理",
+                    ICONS.chevron,
+                  ),
+                ),
+              ),
+            );
+
+      return h(
+        "div",
+        { className: "pmwb2-brief-panel" },
+        items.length === 0
+          ? h(
+              "div",
+              { className: "pmwb2-brief-empty" },
+              view === "unread"
+                ? "当前没有未读简报条目。"
+                : "当前周期没有新增简报。",
+            )
+          : [
+              renderSection("progress"),
+              renderSection("anomaly"),
+              renderSection("attention"),
+            ],
         h(
-          "p",
-          { className: "pmwb-brief-meta" },
-          `离开窗口 ${formatTime(data.awayWindow?.from)} - ${formatTime(data.awayWindow?.to)} · 最近生成 ${formatTime(payload.updatedAt)}`,
+          "footer",
+          { className: "pmwb2-brief-footer" },
+          h(
+            "span",
+            null,
+            `覆盖 ${formatTime(data.awayWindow?.from)} - ${formatTime(data.awayWindow?.to)} · 更新 ${formatTime(payload.updatedAt)}`,
+          ),
         ),
+        detail,
       );
     }
 
@@ -2053,10 +2483,10 @@ window.__ModuleLoader__.load({
     }
 
     const AI_LOAD_COLUMN_LABELS = {
-      runtime: "运行时长",
+      runtime: "时长",
       task: "任务数",
       token: "Token",
-      lastActivity: "最近运行",
+      lastActivity: "最近",
     };
     const AI_LOAD_METRIC_LABELS = {
       runtime: "运行时长",
@@ -2071,15 +2501,12 @@ window.__ModuleLoader__.load({
     ];
 
     function normalizeAiLoadConfig(value) {
-      const source =
-        value !== null && typeof value === "object" ? value : {};
+      const source = value !== null && typeof value === "object" ? value : {};
       const valid = new Set(AI_LOAD_DEFAULT_COLUMNS);
       const requested = Array.isArray(source.columns)
         ? source.columns.filter(
             (item) =>
-              item !== null &&
-              typeof item === "object" &&
-              valid.has(item.key),
+              item !== null && typeof item === "object" && valid.has(item.key),
           )
         : [];
       const seen = new Set();
@@ -2093,7 +2520,10 @@ window.__ModuleLoader__.load({
         if (!seen.has(key)) columns.push({ key, visible: true });
       }
       return {
-        primaryMetric: Object.hasOwn(AI_LOAD_METRIC_LABELS, source.primaryMetric)
+        primaryMetric: Object.hasOwn(
+          AI_LOAD_METRIC_LABELS,
+          source.primaryMetric,
+        )
           ? source.primaryMetric
           : "runtime",
         columns,
@@ -2158,7 +2588,10 @@ window.__ModuleLoader__.load({
         return (
           metricDelta ||
           recentDelta ||
-          String(left.name ?? "").localeCompare(String(right.name ?? ""), "zh-Hans-CN")
+          String(left.name ?? "").localeCompare(
+            String(right.name ?? ""),
+            "zh-Hans-CN",
+          )
         );
       });
       const inactiveSorted = [...inactive].sort(
@@ -2173,7 +2606,7 @@ window.__ModuleLoader__.load({
       );
       const columnTemplate = visibleColumns
         .map((column) => {
-          if (column.key === "lastActivity") return "minmax(52px,0.82fr)";
+          if (column.key === "lastActivity") return "minmax(38px,0.72fr)";
           if (column.key === "runtime") return "minmax(52px,1.15fr)";
           if (column.key === "task") return "minmax(44px,0.62fr)";
           if (column.key === "token") return "minmax(32px,0.55fr)";
@@ -2280,6 +2713,7 @@ window.__ModuleLoader__.load({
             },
             ...visibleColumns.map((column) => {
               if (column.key === "lastActivity") {
+                const activity = dateTimeParts(item.lastActivityAt);
                 return h(
                   "span",
                   {
@@ -2289,9 +2723,14 @@ window.__ModuleLoader__.load({
                       ? formatTime(item.lastActivityAt)
                       : "暂无记录",
                   },
-                  item.lastActivityAt
-                    ? formatTime(item.lastActivityAt)
-                    : "暂无",
+                  activity === null
+                    ? "暂无"
+                    : h(
+                        react.Fragment,
+                        null,
+                        h("span", null, activity.date),
+                        h("span", null, activity.time),
+                      ),
                 );
               }
               if (column.key === "runtime") {
@@ -2334,11 +2773,7 @@ window.__ModuleLoader__.load({
         );
       };
       if (snapshot?.unavailable === true) {
-        return h(
-          "div",
-          { className: "pmwb2-empty" },
-          "AI伙伴运行数据暂不可用",
-        );
+        return h("div", { className: "pmwb2-empty" }, "AI伙伴运行数据暂不可用");
       }
       return h(
         "div",
@@ -2389,9 +2824,7 @@ window.__ModuleLoader__.load({
                 h("span", null, `无${view.label}运行记录`),
               )
             : null,
-          ...inactiveSorted.map((item, index) =>
-            renderRow(item, index, true),
-          ),
+          ...inactiveSorted.map((item, index) => renderRow(item, index, true)),
         ),
       );
     }
@@ -2407,11 +2840,7 @@ window.__ModuleLoader__.load({
             { className: "pmwb2-row" },
             h("strong", null, "Data Agent · 平台内置"),
             h("span", { className: "pmwb2-tag ok" }, "只读分析"),
-            h(
-              "small",
-              null,
-              payload?.data?.workspaceName ?? "当前工作区",
-            ),
+            h("small", null, payload?.data?.workspaceName ?? "当前工作区"),
             h(
               "span",
               { className: "pmwb2-row-note" },
@@ -2423,7 +2852,8 @@ window.__ModuleLoader__.load({
                 type: "button",
                 className: "pmwb-btn",
                 style: { gridColumn: "1/-1", justifySelf: "start" },
-                onClick: () => window.__pluginmaxSidePanel?.openTab("data-agent"),
+                onClick: () =>
+                  window.__pluginmaxSidePanel?.openTab("data-agent"),
               },
               "打开 Data Agent",
             ),
@@ -2439,7 +2869,11 @@ window.__ModuleLoader__.load({
               "div",
               { className: "pmwb2-row", key: item.id },
               h("strong", null, item.title),
-              h("span", { className: `pmwb2-tag ${tagClass(item.status)}` }, item.status),
+              h(
+                "span",
+                { className: `pmwb2-tag ${tagClass(item.status)}` },
+                item.status,
+              ),
               h("small", null, item.id),
               h("span", { className: "pmwb2-row-note" }, item.note),
               h(
@@ -2522,7 +2956,8 @@ window.__ModuleLoader__.load({
     function PanelView(props) {
       const [state, setState] = react.useState({ status: "loading" });
       const [view, setView] = react.useState("unread");
-      const [currentUserId, setCurrentUserId] = react.useState(readCurrentUserId);
+      const [currentUserId, setCurrentUserId] =
+        react.useState(readCurrentUserId);
       const [, setReadRevision] = react.useState(0);
       const readState = react.useSyncExternalStore(
         readStateStore.subscribe.bind(readStateStore),
@@ -2530,15 +2965,15 @@ window.__ModuleLoader__.load({
         readStateStore.getSnapshot.bind(readStateStore),
       );
       const [followTick, setFollowTick] = react.useState(0);
-      const [expanded, setExpanded] = react.useState({});
-      const [briefTextExpanded, setBriefTextExpanded] = react.useState({});
       const [aiLoadWindow, setAiLoadWindow] = react.useState("last24h");
       const [todoScope, setTodoScope] = react.useState(readTodoScope);
       const [todoSettingsOpen, setTodoSettingsOpen] = react.useState(false);
       const load = react.useCallback(async () => {
         setState((previous) => ({
           status: previous.payload === undefined ? "loading" : "refreshing",
-          ...(previous.payload === undefined ? {} : { payload: previous.payload }),
+          ...(previous.payload === undefined
+            ? {}
+            : { payload: previous.payload }),
         }));
         try {
           const pluginId = props.pluginId;
@@ -2549,7 +2984,9 @@ window.__ModuleLoader__.load({
               : "";
           let payload;
           if (pluginId === "pluginmax.data-agent") {
-            const workspaceResult = await request("/api/collab/team/workspaces");
+            const workspaceResult = await request(
+              "/api/collab/team/workspaces",
+            );
             const workspace =
               (workspaceResult.workspaces ?? []).find(
                 (item) => item.isMember !== false,
@@ -2573,7 +3010,8 @@ window.__ModuleLoader__.load({
               source: "live",
               refreshable: true,
               data: {
-                workspaceName: workspace.title ?? workspace.path ?? workspace.id,
+                workspaceName:
+                  workspace.title ?? workspace.path ?? workspace.id,
                 conversationCount: conversations.conversations?.length ?? 0,
                 configRevision: bootstrap.workspaceConfig?.revision ?? 1,
                 dataConnectionCount:
@@ -2628,9 +3066,7 @@ window.__ModuleLoader__.load({
 
       react.useEffect(() => {
         void followStore.ensure();
-        return followStore.subscribe(() =>
-          setFollowTick((value) => value + 1),
-        );
+        return followStore.subscribe(() => setFollowTick((value) => value + 1));
       }, []);
 
       const read = react.useCallback(
@@ -2707,14 +3143,15 @@ window.__ModuleLoader__.load({
           : (legacyPayload.data?.items ?? []);
       const allCount = legacyItems.length;
       const unreadCount = legacyItems.filter(
-        (item) => !read(
-          props.pluginId === "pluginmax.meeting-insights"
-            ? "meeting-minutes"
-            : props.pluginId === "pluginmax.following"
-              ? "focus"
-              : "todo",
-          item,
-        ),
+        (item) =>
+          !read(
+            props.pluginId === "pluginmax.meeting-insights"
+              ? "meeting-minutes"
+              : props.pluginId === "pluginmax.following"
+                ? "focus"
+                : "todo",
+            item,
+          ),
       ).length;
       const readable =
         props.pluginId === "pluginmax.task-focus" ||
@@ -2727,6 +3164,9 @@ window.__ModuleLoader__.load({
           0,
         all: legacyPayload.data?.views?.all?.length ?? 0,
       };
+      const briefAttentionCount = groupBriefItems(
+        legacyPayload.data?.views?.unread ?? [],
+      ).attention.length;
       const titleActions =
         props.pluginId === "pluginmax.team-load"
           ? h(
@@ -2758,86 +3198,97 @@ window.__ModuleLoader__.load({
               ),
             )
           : readable
-          ? h(
-            react.Fragment,
-            null,
-            h(
-              "div",
-              {
-                className: "pmwb-seg",
-                role: "group",
-                "aria-label": "面板视图",
-              },
-              h(
-                "button",
-                {
-                  type: "button",
-                  className: view === "unread" ? "active" : "",
-                  "aria-pressed": view === "unread",
-                  onClick: () => setView("unread"),
-                },
-                `未读 ${unreadCount}`,
-              ),
-              h(
-                "button",
-                {
-                  type: "button",
-                  className: view === "all" ? "active" : "",
-                  "aria-pressed": view === "all",
-                  onClick: () => setView("all"),
-                },
-                `全部 ${allCount}`,
-              ),
-            ),
-            props.pluginId === "pluginmax.task-focus"
-              ? h(
-                  "button",
+            ? h(
+                react.Fragment,
+                null,
+                h(
+                  "div",
                   {
-                    type: "button",
-                    className: `pmwb2-iconbtn${
-                      todoSettingsOpen ? " active" : ""
-                    }`,
-                    "aria-label": "设置待办范围",
-                    title: "设置待办范围",
-                    "aria-expanded": todoSettingsOpen,
-                    "aria-controls": `pmwb-todo-scope-settings-${props.instanceId}`,
-                    onClick: () =>
-                      setTodoSettingsOpen((current) => !current),
+                    className: "pmwb-seg",
+                    role: "group",
+                    "aria-label": "面板视图",
                   },
-                  ICONS.gear,
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: view === "unread" ? "active" : "",
+                      "aria-pressed": view === "unread",
+                      onClick: () => setView("unread"),
+                    },
+                    `未读 ${unreadCount}`,
+                  ),
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: view === "all" ? "active" : "",
+                      "aria-pressed": view === "all",
+                      onClick: () => setView("all"),
+                    },
+                    `全部 ${allCount}`,
+                  ),
+                ),
+                props.pluginId === "pluginmax.task-focus"
+                  ? h(
+                      "button",
+                      {
+                        type: "button",
+                        className: `pmwb2-iconbtn${
+                          todoSettingsOpen ? " active" : ""
+                        }`,
+                        "aria-label": "设置待办范围",
+                        title: "设置待办范围",
+                        "aria-expanded": todoSettingsOpen,
+                        "aria-controls": `pmwb-todo-scope-settings-${props.instanceId}`,
+                        onClick: () =>
+                          setTodoSettingsOpen((current) => !current),
+                      },
+                      ICONS.gear,
+                    )
+                  : null,
+              )
+            : isBrief
+              ? h(
+                  react.Fragment,
+                  null,
+                  briefAttentionCount > 0
+                    ? h(
+                        "span",
+                        { className: "pmwb2-brief-needs" },
+                        `${briefAttentionCount} 项需处理`,
+                      )
+                    : null,
+                  h(
+                    "div",
+                    {
+                      className: "pmwb-seg",
+                      role: "group",
+                      "aria-label": "简报视图",
+                    },
+                    h(
+                      "button",
+                      {
+                        type: "button",
+                        className: view === "unread" ? "active" : "",
+                        "aria-pressed": view === "unread",
+                        onClick: () => setView("unread"),
+                      },
+                      `未读 ${briefCounts.unread}`,
+                    ),
+                    h(
+                      "button",
+                      {
+                        type: "button",
+                        className: view === "all" ? "active" : "",
+                        "aria-pressed": view === "all",
+                        onClick: () => setView("all"),
+                      },
+                      `全部 ${briefCounts.all}`,
+                    ),
+                  ),
                 )
-              : null,
-          )
-        : isBrief
-          ? h(
-              "div",
-              {
-                className: "pmwb-seg",
-                role: "group",
-                "aria-label": "简报视图",
-              },
-              h(
-                "button",
-                {
-                  type: "button",
-                  className: view === "unread" ? "active" : "",
-                  "aria-pressed": view === "unread",
-                  onClick: () => setView("unread"),
-                },
-                `未读 ${briefCounts.unread}`,
-              ),
-              h(
-                "button",
-                {
-                  type: "button",
-                  className: view === "all" ? "active" : "",
-                  "aria-pressed": view === "all",
-                  onClick: () => setView("all"),
-                },
-                `全部 ${briefCounts.all}`,
-              ),
-            )
-          : null;
+              : null;
 
       react.useEffect(() => {
         props.onRuntime?.({
@@ -2845,9 +3296,7 @@ window.__ModuleLoader__.load({
           updatedAt: state.payload?.updatedAt,
           source: state.payload?.source,
           titleActions,
-          ...(isBrief
-            ? { briefSettings: legacyPayload.data?.settings }
-            : {}),
+          ...(isBrief ? { briefSettings: legacyPayload.data?.settings } : {}),
         });
       }, [
         state.status,
@@ -2858,6 +3307,7 @@ window.__ModuleLoader__.load({
         allCount,
         briefCounts.unread,
         briefCounts.all,
+        briefAttentionCount,
         isBrief,
         followTick,
         aiLoadWindow,
@@ -2901,18 +3351,24 @@ window.__ModuleLoader__.load({
           ? h(BriefBody, {
               payload,
               view,
-              expanded,
-              textExpanded: briefTextExpanded,
-              onToggleSuggestion: (itemId) =>
-                setExpanded((current) => ({
-                  ...current,
-                  [itemId]: !current[itemId],
-                })),
-              onToggleText: (itemId) =>
-                setBriefTextExpanded((current) => ({
-                  ...current,
-                  [itemId]: !current[itemId],
-                })),
+              onDetail: async (item) => {
+                if (item.readState !== "unread") return;
+                try {
+                  const result = await request(
+                    "/api/collab/workbench/brief/read",
+                    {
+                      method: "POST",
+                      body: JSON.stringify({
+                        itemId: item.itemId,
+                        tzOffset: TZ_OFFSET,
+                      }),
+                    },
+                  );
+                  setState({ status: "ready", payload: result.module });
+                } catch {
+                  // Detail remains available when read-state persistence fails.
+                }
+              },
               onAnalyze: async (item) => {
                 if (item.readState === "unread") {
                   try {
@@ -2988,30 +3444,30 @@ window.__ModuleLoader__.load({
               ? h(LegacyControlBody, { payload })
               : props.pluginId === "pluginmax.supplier-risk"
                 ? h(LegacySupplierBody, { payload })
-            : readable
-              ? h(LegacyReadableBody, {
-                  pluginId: props.pluginId,
-                  items: legacyItems,
-                  read: (item) =>
-                    read(
-                      props.pluginId === "pluginmax.meeting-insights"
-                        ? "meeting-minutes"
-                        : props.pluginId === "pluginmax.following"
-                          ? "focus"
-                          : "todo",
-                      item,
-                    ),
-                  view,
-                  isRead: read,
-                  markRead,
-                  markUnread,
-                })
-            : h(NewPanelBody, {
-                pluginId: props.pluginId,
-                payload,
-                config: props.config,
-                windowKey: aiLoadWindow,
-              });
+                : readable
+                  ? h(LegacyReadableBody, {
+                      pluginId: props.pluginId,
+                      items: legacyItems,
+                      read: (item) =>
+                        read(
+                          props.pluginId === "pluginmax.meeting-insights"
+                            ? "meeting-minutes"
+                            : props.pluginId === "pluginmax.following"
+                              ? "focus"
+                              : "todo",
+                          item,
+                        ),
+                      view,
+                      isRead: read,
+                      markRead,
+                      markUnread,
+                    })
+                  : h(NewPanelBody, {
+                      pluginId: props.pluginId,
+                      payload,
+                      config: props.config,
+                      windowKey: aiLoadWindow,
+                    });
       return h(
         "div",
         { className: "pmwb2-panel", "data-plugin-id": props.pluginId },

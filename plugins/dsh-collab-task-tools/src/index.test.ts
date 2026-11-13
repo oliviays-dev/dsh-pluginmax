@@ -37,6 +37,13 @@ function harness() {
     priority: "P1",
     description: "Review supplier risk.",
     acceptance: ["Risk list is complete"],
+    steps: [
+      {
+        id: "step-risk-list",
+        label: "Risk list is complete",
+        done: false,
+      },
+    ],
     createdBy: "olivia",
     createdByName: "Olivia",
     receiverType: "agent",
@@ -156,7 +163,19 @@ describe("task tools", () => {
     expect(result).toMatchObject({
       ok: true,
       tool: "task_query",
-      data: [{ id: "task-1", status: "progress" }],
+      data: [
+        {
+          id: "task-1",
+          status: "progress",
+          steps: [
+            {
+              id: "step-risk-list",
+              label: "Risk list is complete",
+              done: false,
+            },
+          ],
+        },
+      ],
     });
   });
 

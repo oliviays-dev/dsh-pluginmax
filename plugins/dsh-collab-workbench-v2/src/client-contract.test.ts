@@ -93,6 +93,12 @@ describe("Workbench V2 client contract", () => {
     expect(source).toContain("AI_LOAD_COLUMN_OPTIONS");
     expect(source).toContain("AI_LOAD_METRIC_OPTIONS");
     expect(source).toContain("normalizeAiLoadSettings");
+    expect(source).toContain("moduleId=metrics");
+    expect(source).toContain("/api/collab/workbench/metrics");
+    expect(source).toContain("显示指标");
+    expect(source).toContain("请至少选择 1 项核心指标");
+    expect(source).toContain("selectedMetrics");
+    expect(source).toContain("指标显示已更新");
     expect(source).toContain('["task", "任务（个）"]');
     expect(source).not.toContain('["communication", "沟通（次）"]');
     expect(source).not.toContain('["trend", "趋势"]');

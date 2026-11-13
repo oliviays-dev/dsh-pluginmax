@@ -592,7 +592,7 @@ describe("meeting client", () => {
     let tree = await settle();
     const initialPanelSearch = findNode(
       tree,
-      (node) => node.props?.["aria-label"] === "搜索沟通",
+      (node) => node.props?.["aria-label"] === "搜索对话",
     );
     expect(initialPanelSearch, "每次打开侧栏应先展示沟通列表").toBeDefined();
     expect(
@@ -604,11 +604,11 @@ describe("meeting client", () => {
       tree,
       (node) =>
         node.type === "button" &&
-        String(node.props?.["aria-label"] ?? "").startsWith("打开沟通"),
+        String(node.props?.["aria-label"] ?? "").startsWith("打开对话"),
     ).map((node) => node.props?.["aria-label"]);
     expect(communicationLabels).toEqual([
-      "打开沟通 有历史的 AI 对话",
-      "打开沟通 有历史的已结束会议",
+      "打开对话 有历史的 AI 对话",
+      "打开对话 有历史的已结束会议",
     ]);
     expect(containsText(tree, "进行中"), "右侧沟通列表不再显示进行中状态").toBe(
       false,
@@ -628,7 +628,7 @@ describe("meeting client", () => {
       tree,
       (node) =>
         node.type === "button" &&
-        node.props?.["aria-label"] === "打开沟通 有历史的 AI 对话",
+        node.props?.["aria-label"] === "打开对话 有历史的 AI 对话",
     );
     expect(
       unavailableAiItem?.props?.["data-ai-unavailable"],
@@ -661,7 +661,7 @@ describe("meeting client", () => {
 
     const panelSearch = findNode(
       tree,
-      (node) => node.props?.["aria-label"] === "搜索沟通",
+      (node) => node.props?.["aria-label"] === "搜索对话",
     );
     (
       panelSearch?.props?.onChange as
@@ -673,13 +673,13 @@ describe("meeting client", () => {
         tree,
         (node) =>
           node.type === "button" &&
-          String(node.props?.["aria-label"] ?? "").startsWith("打开沟通"),
+          String(node.props?.["aria-label"] ?? "").startsWith("打开对话"),
       ).map((node) => node.props?.["aria-label"]),
       "侧栏搜索应支持项目名称",
-    ).toEqual(["打开沟通 有历史的已结束会议"]);
+    ).toEqual(["打开对话 有历史的已结束会议"]);
 
     (
-      findNode(tree, (node) => node.props?.["aria-label"] === "搜索沟通")?.props
+      findNode(tree, (node) => node.props?.["aria-label"] === "搜索对话")?.props
         ?.onChange as
         ((event: { target: { value: string } }) => void) | undefined
     )?.({ target: { value: "Admin" } });
@@ -689,13 +689,13 @@ describe("meeting client", () => {
         tree,
         (node) =>
           node.type === "button" &&
-          String(node.props?.["aria-label"] ?? "").startsWith("打开沟通"),
+          String(node.props?.["aria-label"] ?? "").startsWith("打开对话"),
       ).map((node) => node.props?.["aria-label"]),
       "侧栏搜索应支持 AI伙伴 owner",
-    ).toEqual(["打开沟通 有历史的 AI 对话"]);
+    ).toEqual(["打开对话 有历史的 AI 对话"]);
 
     (
-      findNode(tree, (node) => node.props?.["aria-label"] === "搜索沟通")?.props
+      findNode(tree, (node) => node.props?.["aria-label"] === "搜索对话")?.props
         ?.onChange as
         ((event: { target: { value: string } }) => void) | undefined
     )?.({ target: { value: "" } });
@@ -704,7 +704,7 @@ describe("meeting client", () => {
       tree,
       (node) =>
         node.type === "button" &&
-        node.props?.["aria-label"] === "打开沟通 有历史的 AI 对话",
+        node.props?.["aria-label"] === "打开对话 有历史的 AI 对话",
     );
     (aiItem?.props?.onClick as (() => void) | undefined)?.();
     tree = await settle(3);
@@ -714,18 +714,18 @@ describe("meeting client", () => {
     const switcherButton = findNode(
       tree,
       (node) =>
-        node.type === "button" && node.props?.["aria-label"] === "切换沟通",
+        node.type === "button" && node.props?.["aria-label"] === "切换对话",
     );
-    expect(switcherButton, "详情页应提供快速切换沟通入口").toBeDefined();
+    expect(switcherButton, "详情页应提供快速切换对话入口").toBeDefined();
     (switcherButton?.props?.onClick as (() => void) | undefined)?.();
     tree = await settle(2);
     const switcherPanel = findNode(
       tree,
       (node) =>
         node.props?.role === "dialog" &&
-        node.props?.["aria-label"] === "切换沟通",
+        node.props?.["aria-label"] === "切换对话",
     );
-    expect(switcherPanel, "切换沟通应显示为浮层下拉").toBeDefined();
+    expect(switcherPanel, "切换对话应显示为浮层下拉").toBeDefined();
     expect(
       (switcherPanel?.props?.style as Record<string, unknown> | undefined)
         ?.background,
@@ -739,14 +739,14 @@ describe("meeting client", () => {
     expect(
       findNode(
         switcherPanel,
-        (node) => node.props?.["aria-label"] === "搜索并切换沟通",
+        (node) => node.props?.["aria-label"] === "搜索并切换对话",
       ),
     ).toBeDefined();
     (
       findNode(
         tree,
         (node) =>
-          node.type === "button" && node.props?.["aria-label"] === "切换沟通",
+          node.type === "button" && node.props?.["aria-label"] === "切换对话",
       )?.props?.onClick as (() => void) | undefined
     )?.();
     tree = await settle(2);
@@ -755,43 +755,43 @@ describe("meeting client", () => {
         tree,
         (node) =>
           node.props?.role === "dialog" &&
-          node.props?.["aria-label"] === "切换沟通",
+          node.props?.["aria-label"] === "切换对话",
       ),
     ).toBeUndefined();
     const backButton = findNode(
       tree,
       (node) =>
-        node.type === "button" && node.props?.["aria-label"] === "返回沟通列表",
+        node.type === "button" && node.props?.["aria-label"] === "返回对话列表",
     );
     expect(backButton, "具体沟通页应提供返回按钮").toBeDefined();
     (backButton?.props?.onClick as (() => void) | undefined)?.();
     tree = await settle(2);
     expect(
-      findNode(tree, (node) => node.props?.["aria-label"] === "搜索沟通"),
+      findNode(tree, (node) => node.props?.["aria-label"] === "搜索对话"),
     ).toBeDefined();
 
     const newButton = findNode(
       tree,
       (node) =>
-        node.type === "button" && node.props?.["aria-label"] === "新建沟通",
+        node.type === "button" && node.props?.["aria-label"] === "新建对话",
     );
     expect(newButton, "侧栏应提供圆形加号新建入口").toBeDefined();
     (newButton?.props?.onClick as (() => void) | undefined)?.();
     tree = await settle(2);
     expect(
-      findNode(tree, (node) => node.props?.["aria-label"] === "新沟通会议主题"),
+      findNode(tree, (node) => node.props?.["aria-label"] === "新对话会议主题"),
     ).toBeDefined();
     expect(
       findNode(
         tree,
-        (node) => node.props?.["aria-label"] === "与 AI伙伴一 开始对话",
+        (node) => node.props?.["aria-label"] === "与 AI伙伴一 开始聊天",
       ),
     ).toBeDefined();
     const unavailableNewConversation = findNode(
       tree,
       (node) =>
         node.type === "button" &&
-        node.props?.["aria-label"] === "与 AI伙伴一 开始对话",
+        node.props?.["aria-label"] === "与 AI伙伴一 开始聊天",
     );
     expect(
       unavailableNewConversation?.props?.disabled,
@@ -805,7 +805,7 @@ describe("meeting client", () => {
     const backFromNew = findNode(
       tree,
       (node) =>
-        node.type === "button" && node.props?.["aria-label"] === "返回沟通列表",
+        node.type === "button" && node.props?.["aria-label"] === "返回对话列表",
     );
     (backFromNew?.props?.onClick as (() => void) | undefined)?.();
     tree = await settle(2);
@@ -813,7 +813,7 @@ describe("meeting client", () => {
       tree,
       (node) =>
         node.type === "button" &&
-        node.props?.["aria-label"] === "打开沟通 有历史的已结束会议",
+        node.props?.["aria-label"] === "打开对话 有历史的已结束会议",
     );
     (closedItem?.props?.onClick as (() => void) | undefined)?.();
     tree = await settle(3);
@@ -821,14 +821,14 @@ describe("meeting client", () => {
       harness.window.localStorage.getItem(
         "pluginmax.collab.meeting.panel.lastMeetingId",
       ),
-      "切换沟通后应记住最后选择",
+      "切换对话后应记住最后选择",
     ).toBe("m-closed");
     harness.window.__pluginmaxMeeting?.close();
     tree = await settle(1);
     harness.window.__pluginmaxMeeting?.openPanel();
     tree = await settle(4);
     expect(
-      findNode(tree, (node) => node.props?.["aria-label"] === "搜索沟通"),
+      findNode(tree, (node) => node.props?.["aria-label"] === "搜索对话"),
       "重新打开侧栏应回到沟通列表",
     ).toBeDefined();
     expect(
@@ -836,14 +836,14 @@ describe("meeting client", () => {
         tree,
         (node) =>
           node.type === "button" &&
-          node.props?.["aria-label"] === "返回沟通列表",
+          node.props?.["aria-label"] === "返回对话列表",
       ),
     ).toBeUndefined();
     const restoredClosed = findNode(
       tree,
       (node) =>
         node.type === "button" &&
-        node.props?.["aria-label"] === "打开沟通 有历史的已结束会议",
+        node.props?.["aria-label"] === "打开对话 有历史的已结束会议",
     );
     expect(
       (restoredClosed?.props?.style as Record<string, unknown> | undefined)
@@ -976,6 +976,25 @@ describe("meeting client", () => {
         }
         return payload({ meetings: [] });
       }
+      if (input.startsWith("/api/collab/context/policy")) {
+        return payload({
+          policy: {
+            id: "policy-0",
+            version: 0,
+            scope: "platform",
+            defaults: {
+              warningRatio: 0.7,
+              compactRatio: 0.85,
+              rolloverRatio: 0.95,
+              preserveRecentMessages: 12,
+              maxTriggerDepth: 3,
+              maxConcurrentAgentsPerScene: 3,
+            },
+            sceneOverrides: {},
+            updatedAt: "2026-03-03T00:00:00.000Z",
+          },
+        });
+      }
       return payload({});
     };
 
@@ -1064,9 +1083,47 @@ describe("meeting client", () => {
 
     const createButton = findNode(
       tree,
-      (node) => node.type === "button" && node.props?.children === "新建沟通",
+      (node) => node.type === "button" && node.props?.children === "新建对话",
     );
-    expect(createButton, "新建沟通 按钮应渲染").toBeDefined();
+    expect(createButton, "新建对话 按钮应渲染").toBeDefined();
+    expect(
+      findNode(
+        tree,
+        (node) => node.type === "h1" && node.props?.children === "对话",
+      ),
+      "页面模块名应显示为「对话」",
+    ).toBeDefined();
+    expect(
+      findNode(
+        tree,
+        (node) =>
+          node.type === "select" &&
+          node.props?.["aria-label"] === "项目范围筛选",
+      ),
+      "项目范围筛选应移到页面顶部操作区",
+    ).toBeDefined();
+    const settingsButton = findNode(
+      tree,
+      (node) =>
+        node.type === "button" &&
+        node.props?.["aria-label"] === "对话上下文设置",
+    );
+    expect(settingsButton, "平台管理员应看到对话设置入口").toBeDefined();
+    (settingsButton?.props?.onClick as (() => void) | undefined)?.();
+    tree = await settle();
+    const policyDialog = findNode(
+      tree,
+      (node) =>
+        node.props?.role === "dialog" &&
+        node.props?.["aria-label"] === "对话上下文设置",
+    );
+    expect(policyDialog, "设置入口应打开上下文策略弹窗").toBeDefined();
+    expect(
+      findNode(
+        policyDialog,
+        (node) => node.props?.["aria-label"] === "上下文提醒（%）",
+      )?.props?.value,
+    ).toBe(70);
     // 平台管理员对全部项目都有建会权限，未加入项目时按钮也必须可用。
     expect(createButton?.props?.disabled).toBe(false);
 
@@ -1094,14 +1151,14 @@ describe("meeting client", () => {
       tree,
       (node) =>
         node.props?.role === "group" &&
-        node.props?.["aria-label"] === "新建沟通类型",
+        node.props?.["aria-label"] === "新建对话类型",
     );
-    expect(createTypeGroup, "新建沟通应支持会议和 AI 1:1 两种类型").toBeDefined();
+    expect(createTypeGroup, "新建对话应支持会议和 AI 1:1 两种类型").toBeDefined();
     (
       findNode(
         createTypeGroup,
         (node) =>
-          node.type === "button" && node.props?.children === "AI伙伴 1:1",
+          node.type === "button" && node.props?.children === "聊天",
       )?.props?.onClick as (() => void) | undefined
     )?.();
     tree = await settle(1);
@@ -1109,7 +1166,7 @@ describe("meeting client", () => {
     const teammateSelect = findNode(
       tree,
       (node) =>
-        node.props?.["aria-label"] === "新建 AI 伙伴一对一沟通",
+        node.props?.["aria-label"] === "新建 AI 伙伴聊天",
     );
     expect(teammateSelect, "AI 1:1 模式应提供伙伴选择").toBeDefined();
     expect(
@@ -1136,7 +1193,7 @@ describe("meeting client", () => {
       (node) =>
         node.type === "form" &&
         node.props?.role === "dialog" &&
-        node.props?.["aria-label"] === "新建沟通",
+        node.props?.["aria-label"] === "新建对话",
     );
     await (
       createForm?.props?.onSubmit as
@@ -1166,9 +1223,9 @@ describe("meeting client", () => {
       findNode(
         tree,
         (node) =>
-          node.props?.["aria-label"] === "新建 AI 伙伴一对一沟通",
+          node.props?.["aria-label"] === "新建 AI 伙伴聊天",
       ),
-      "创建成功后应关闭新建沟通弹窗",
+      "创建成功后应关闭新建对话弹窗",
     ).toBeUndefined();
   });
 
@@ -2209,7 +2266,7 @@ describe("meeting client", () => {
     expect(
       findNode(
         tree,
-        (node) => node.props?.["aria-label"] === "打开与 Codex 助手 的默认对话",
+        (node) => node.props?.["aria-label"] === "打开与 Codex 助手 的聊天",
       ),
       "每个 AI伙伴都应有唯一的默认对话入口",
     ).toBeDefined();
@@ -2218,14 +2275,14 @@ describe("meeting client", () => {
         tree,
         (node) =>
           node.type === "button" &&
-          node.props?.["aria-label"] === "打开与 Codex 助手 的默认对话",
+          node.props?.["aria-label"] === "打开与 Codex 助手 的聊天",
       ),
       "同一 AI伙伴跨项目也只能显示一个 1:1 对话",
     ).toHaveLength(1);
     expect(
       findNode(
         tree,
-        (node) => node.props?.["aria-label"] === "打开与 设计伙伴 的默认对话",
+        (node) => node.props?.["aria-label"] === "打开与 设计伙伴 的聊天",
       ),
     ).toBeDefined();
     expect(
@@ -2266,7 +2323,7 @@ describe("meeting client", () => {
           tree,
           (node) =>
             node.props?.role === "group" &&
-            node.props?.["aria-label"] === "当前沟通头部",
+            node.props?.["aria-label"] === "当前对话头部",
         ),
         "M-EXACT",
       ),
@@ -2298,7 +2355,7 @@ describe("meeting client", () => {
       tree,
       (node) =>
         node.type === "button" &&
-        node.props?.["aria-label"] === "打开与 Codex 助手 的默认对话",
+        node.props?.["aria-label"] === "打开与 Codex 助手 的聊天",
     );
     const selectedStyle = meetingThreadCard?.props?.style as
       Record<string, unknown> | undefined;
@@ -2348,7 +2405,7 @@ describe("meeting client", () => {
       tree,
       (node) =>
         node.type === "button" &&
-        node.props?.["aria-label"] === "打开与 设计伙伴 的默认对话",
+        node.props?.["aria-label"] === "打开与 设计伙伴 的聊天",
     );
     expect(
       containsText(availableDesignCard, "不可用"),
@@ -2426,7 +2483,7 @@ describe("meeting client", () => {
       tree,
       (node) =>
         node.props?.role === "group" &&
-        node.props?.["aria-label"] === "当前沟通头部",
+        node.props?.["aria-label"] === "当前对话头部",
     );
     expect(aiConversationHeader, "AI 对话应渲染独立头部").toBeDefined();
     expect(
@@ -2522,7 +2579,7 @@ describe("meeting client", () => {
           tree,
           (node) =>
             node.props?.role === "group" &&
-            node.props?.["aria-label"] === "当前沟通头部",
+            node.props?.["aria-label"] === "当前对话头部",
         ),
         "不可用",
       ),
@@ -2534,7 +2591,7 @@ describe("meeting client", () => {
           tree,
           (node) =>
             node.type === "button" &&
-            node.props?.["aria-label"] === "打开与 Codex 助手 的默认对话",
+            node.props?.["aria-label"] === "打开与 Codex 助手 的聊天",
         ),
         "不可用",
       ),
@@ -2545,7 +2602,7 @@ describe("meeting client", () => {
         tree,
         (node) =>
           node.type === "button" &&
-          node.props?.["aria-label"] === "打开与 Codex 助手 的默认对话",
+          node.props?.["aria-label"] === "打开与 Codex 助手 的聊天",
       )?.props?.["data-ai-unavailable"],
       "对话恢复后左侧列表应移除不可用标记",
     ).toBeUndefined();
@@ -2553,10 +2610,10 @@ describe("meeting client", () => {
       tree,
       (node) =>
         node.props?.role === "group" &&
-        node.props?.["aria-label"] === "沟通类型筛选",
+        node.props?.["aria-label"] === "对话类型筛选",
     );
-    expect(typeFilter, "应渲染沟通类型筛选标签").toBeDefined();
-    for (const label of ["全部", "AI伙伴", "会议"]) {
+    expect(typeFilter, "应渲染对话类型筛选标签").toBeDefined();
+    for (const label of ["全部", "聊天", "会议"]) {
       expect(
         findNode(
           typeFilter,
@@ -2567,7 +2624,7 @@ describe("meeting client", () => {
     }
     const clickTypeTag = async (label: string) => {
       const button = findNode(
-        tree,
+        typeFilter,
         (node) => node.type === "button" && node.props?.children === label,
       );
       (button?.props?.onClick as (() => void) | undefined)?.();
@@ -2580,14 +2637,14 @@ describe("meeting client", () => {
         String(node.props?.["aria-label"] ?? "").startsWith("打开与"),
     ).map((node) => node.props?.["aria-label"]);
     expect(historyPartnerLabels).toEqual([
-      "打开与 Codex 助手 的默认对话",
-      "打开与 设计伙伴 的默认对话",
+      "打开与 Codex 助手 的聊天",
+      "打开与 设计伙伴 的聊天",
     ]);
     await clickTypeTag("会议");
     expect(
       findNode(
         tree,
-        (node) => node.props?.["aria-label"] === "打开与 Codex 助手 的默认对话",
+        (node) => node.props?.["aria-label"] === "打开与 Codex 助手 的聊天",
       ),
       "会议筛选下不应显示 AI伙伴",
     ).toBeUndefined();
@@ -2599,7 +2656,7 @@ describe("meeting client", () => {
           node.props?.["aria-label"] === "打开会议 Atlas 周会",
       ),
     ).toBeDefined();
-    await clickTypeTag("AI伙伴");
+    await clickTypeTag("聊天");
     expect(
       findNode(
         tree,
@@ -2612,7 +2669,7 @@ describe("meeting client", () => {
     expect(
       findNode(
         tree,
-        (node) => node.props?.["aria-label"] === "打开与 Codex 助手 的默认对话",
+        (node) => node.props?.["aria-label"] === "打开与 Codex 助手 的聊天",
       ),
     ).toBeDefined();
     expect(
@@ -2627,7 +2684,7 @@ describe("meeting client", () => {
     expect(
       findNode(
         tree,
-        (node) => node.props?.["aria-label"] === "打开与 新建伙伴 的默认对话",
+        (node) => node.props?.["aria-label"] === "打开与 新建伙伴 的聊天",
       ),
       "AI伙伴筛选不应补入尚无历史消息的伙伴",
     ).toBeUndefined();
@@ -2635,7 +2692,7 @@ describe("meeting client", () => {
     expect(
       findNode(
         tree,
-        (node) => node.props?.["aria-label"] === "打开与 新建伙伴 的默认对话",
+        (node) => node.props?.["aria-label"] === "打开与 新建伙伴 的聊天",
       ),
       "全部列表只应展示已有 1:1 沟通，不应展示尚无会话的 AI伙伴",
     ).toBeUndefined();
@@ -2649,8 +2706,8 @@ describe("meeting client", () => {
       .slice(0, 4);
     expect(sortedConversationLabels, "全部列表应按更新时间倒序排列").toEqual([
       "打开会议 Atlas 周会",
-      "打开与 Codex 助手 的默认对话",
-      "打开与 设计伙伴 的默认对话",
+      "打开与 Codex 助手 的聊天",
+      "打开与 设计伙伴 的聊天",
       "打开会议 季度评审",
     ]);
     expect(
@@ -2681,14 +2738,14 @@ describe("meeting client", () => {
     expect(
       findNode(
         tree,
-        (node) => node.props?.["aria-label"] === "打开与 Codex 助手 的默认对话",
+        (node) => node.props?.["aria-label"] === "打开与 Codex 助手 的聊天",
       ),
       "应支持按 Owner 名称搜索 AI伙伴",
     ).toBeDefined();
     expect(
       findNode(
         tree,
-        (node) => node.props?.["aria-label"] === "打开与 设计伙伴 的默认对话",
+        (node) => node.props?.["aria-label"] === "打开与 设计伙伴 的聊天",
       ),
       "未命中的 AI伙伴应隐藏",
     ).toBeUndefined();
@@ -2751,7 +2808,7 @@ describe("meeting client", () => {
       findNode(
         tree,
         (node) =>
-          node.props?.["aria-label"] === "打开与 新建伙伴 的默认对话",
+          node.props?.["aria-label"] === "打开与 新建伙伴 的聊天",
       ),
       "切换筛选后仍不应展示尚无历史消息的 AI伙伴",
     ).toBeUndefined();
@@ -2922,11 +2979,19 @@ describe("meeting client", () => {
       tree,
       (node) =>
         node.type === "button" &&
-        node.props?.["aria-label"] === "打开与 Codex 助手 的默认对话",
+        node.props?.["aria-label"] === "打开与 Codex 助手 的聊天",
     );
     expect(aiRow).toBeDefined();
     (aiRow?.props?.onClick as (() => void) | undefined)?.();
     tree = await settle(10);
+    expect(
+      findNode(
+        tree,
+        (node) =>
+          node.type === "button" && node.props?.children === "添加参与方",
+      ),
+      "1/1 聊天头部应提供添加参与方入口",
+    ).toBeDefined();
 
     expect(
       requests.some((entry) =>
@@ -3013,7 +3078,7 @@ describe("meeting client", () => {
       tree,
       (node) =>
         node.type === "button" &&
-        node.props?.["aria-label"] === "打开与 Codex 助手 的默认对话",
+        node.props?.["aria-label"] === "打开与 Codex 助手 的聊天",
     );
     (reusedRow?.props?.onClick as (() => void) | undefined)?.();
     tree = await settle(3);

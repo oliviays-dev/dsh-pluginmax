@@ -19,6 +19,7 @@ window.__ModuleLoader__.load({
     const STATUS_LABEL = Object.fromEntries(
       STATUSES.map((status) => [status.key, status.label]),
     );
+    STATUS_LABEL.abnormal = "异常";
     /**
      * 任务优先级平移：存储仍是 P1–P3（兼容历史数据），产品口径统一显示为 P0–P2。
      * 存储 P1 = 显示 P0（最高档），P2 = P1，P3 = P2。
@@ -141,6 +142,7 @@ window.__ModuleLoader__.load({
       /* 会议侧边栏展开时任务区会变窄：用容器查询按「可用宽度」而不是视口宽度响应。 */
       .pmtask{position:relative;z-index:0;isolation:isolate;min-width:0;max-width:100%;min-height:100%;display:flex;flex-direction:column;color:var(--dsw-alias-label-primary);container-type:inline-size;}
       .pmtask *{box-sizing:border-box;}
+      .pmtask [hidden]{display:none!important;}
       .pmtask-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:14px;}
       .pmtask-head h1{margin:0;font-size:19px;line-height:1.3;}
       .pmtask-sub{margin-top:4px;color:var(--dsw-alias-label-secondary);font-size:12px;}
@@ -183,6 +185,7 @@ window.__ModuleLoader__.load({
       .pmtask-card:hover{border-color:var(--dsw-alias-border-l4);}
       .pmtask-card.dragging{opacity:.55;}
       .pmtask-card.running{border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 38%,transparent);}
+      .pmtask-card.abnormal{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 55%,transparent);}
       .pmtask-card.archived{opacity:.72;border-style:dashed;}
       .pmtask-card.highlighted{border-color:var(--dsw-alias-accent-primary,#4f8ef7);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 10%,var(--dsw-alias-bg-layer-2));}
       .pmtask-card-top{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:14px;}
@@ -206,6 +209,7 @@ window.__ModuleLoader__.load({
       .pmtask-pill{display:inline-flex;align-items:center;height:20px;border-radius:6px;padding:0 6px;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-base));font-size:10.5px;line-height:1;white-space:nowrap;}
       .pmtask-pill.p1{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 14%,transparent);color:var(--dsw-alias-state-error-primary,#e5534b);}
       .pmtask-pill.progress{background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 14%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7);}
+      .pmtask-pill.abnormal{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 15%,transparent);color:var(--dsw-alias-state-error-primary,#e5534b);}
       .pmtask-pill.review{background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#e2a737) 14%,transparent);color:var(--dsw-alias-state-warning-primary,#e2a737);}
       .pmtask-pill.done{background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#34d47e) 14%,transparent);color:var(--dsw-alias-state-success-primary,#34d47e);}
       .pmtask-pill.cancelled{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 14%,transparent);color:var(--dsw-alias-state-error-primary,#e5534b);}
@@ -213,6 +217,9 @@ window.__ModuleLoader__.load({
       .pmtask-pill.workflow{background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 12%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7);}
       .pmtask-pill.reassign{background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#e2a737) 16%,transparent);color:var(--dsw-alias-state-warning-primary,#e2a737);}
       .pmtask-pill.consensus{background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#34d47e) 14%,transparent);color:var(--dsw-alias-state-success-primary,#34d47e);}
+      .pmtask-anomaly-notice{display:flex;align-items:flex-start;gap:8px;margin:0 0 12px;padding:9px 10px;border:0.5px solid color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 45%,transparent);border-radius:7px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 8%,transparent);color:var(--dsw-alias-state-error-primary,#e5534b);font-size:11.5px;line-height:1.55;}
+      .pmtask-anomaly-notice strong{font-weight:650;}
+      .pmtask-anomaly-detail{flex-basis:100%;margin:2px 0 0;color:var(--dsw-alias-state-error-primary,#e5534b);font-size:11px;line-height:1.5;overflow-wrap:anywhere;}
       .pmtask-workflow-meta{display:flex;align-items:center;gap:6px;min-width:0;}
       .pmtask-workflow-node{overflow:hidden;color:var(--dsw-alias-label-tertiary);font-size:10.5px;text-overflow:ellipsis;white-space:nowrap;}
       .pmtask-workflow-action{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-top:12px;padding:10px;border:0.5px solid color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 28%,transparent);border-radius:7px;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 7%,transparent);}
@@ -273,6 +280,7 @@ window.__ModuleLoader__.load({
       .pmtask-edit-grow,.pmtask-edit-priority{min-width:0;}
       .pmtask-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;}
       .pmtask-acceptance{display:grid;gap:8px;padding:12px 14px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2);}
+      .pmtask-detail-tab-body>.pmtask-acceptance{margin-top:12px;}
       .pmtask-acceptance-head{display:flex;align-items:center;justify-content:space-between;gap:12px;color:var(--dsw-alias-label-secondary);font-size:11.5px;}
       .pmtask-acceptance-head strong{color:var(--dsw-alias-label-primary);font-size:12.5px;}
       .pmtask-acceptance-head span{white-space:nowrap;font-variant-numeric:tabular-nums;}
@@ -388,6 +396,19 @@ window.__ModuleLoader__.load({
       .pmtask-detail-main .pmtask-actions .pmtask-btn{height:auto;min-height:24px;padding:2px 7px;font-size:11px;font-weight:400;border-width:1px;}
       .pmtask-detail-page .pmtask-detail-layout{grid-template-columns:minmax(0,1.35fr) minmax(360px,.92fr);height:calc(100dvh - 100px);min-height:620px;overflow:hidden;}
       .pmtask-detail-page .pmtask-detail-main{min-height:0;display:flex;flex-direction:column;gap:10px;overflow:hidden;padding:14px;}
+      .pmtask-detail-main.router-plan-mode{position:relative;padding:0;}
+      .pmtask-detail-main.router-plan-mode>:not(.pmrw-task-plan-center){visibility:hidden;pointer-events:none;}
+      .pmtask-detail-main.router-plan-mode>[data-slot="pluginmax.task.detail.main"]{visibility:visible;pointer-events:auto;}
+      .pmtask-detail-side.router-plan-mode{position:relative;padding:0;}
+      .pmtask-detail-side.router-plan-mode>:not(.pmrw-task-plan-side){display:none;}
+      .pmtask-detail-side.router-plan-mode>[data-slot="pluginmax.task.detail.side"]{display:contents;}
+      .pmrw-embedded-task-detail{height:100%;min-height:0;overflow:hidden;}
+      .pmrw-embedded-task-detail>.pmtask-detail{height:100%;min-height:0;}
+      .pmrw-embedded-task-detail .pmtask-detail-side-only>.pmtask-detail-page{height:100%;min-height:0;border:0;border-radius:0;}
+      .pmrw-embedded-task-detail .pmtask-detail-side-only .pmtask-detail-top{display:none;}
+      .pmrw-embedded-task-detail .pmtask-detail-side-only .pmtask-detail-layout{display:block;height:100%;min-height:0;overflow:hidden;}
+      .pmrw-embedded-task-detail .pmtask-detail-side-only .pmtask-detail-main{display:none;}
+      .pmrw-embedded-task-detail .pmtask-detail-side-only .pmtask-detail-side{height:100%;border-left:0;}
       .pmtask-detail-page .pmtask-detail-side{min-height:0;height:100%;position:relative;display:flex;flex-direction:column;overflow:hidden;padding:0;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
       .pmtask-detail-page .pmtask-detail-side-scroll{min-height:0;flex:1;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;}
       .pmtask-detail-page .pmtask-detail-side>.pmtask-edit-form{padding:14px 16px 16px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
@@ -477,11 +498,14 @@ window.__ModuleLoader__.load({
       .pmtask-detail-side-head{position:relative;z-index:5;flex:none;display:grid;gap:9px;padding:14px 16px 11px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
       .pmtask-detail-extension-visible{flex:none;max-height:min(46vh,360px);overflow:auto;padding:12px 16px 10px;border-bottom:1px solid var(--dsw-alias-border-l2);scrollbar-gutter:stable;}
       .pmtask-detail-extension-visible:empty{display:none;}
-      .pmtask-detail-side-title{display:flex;align-items:flex-start;gap:8px;}
+      .pmtask-detail-extension-visible:not(:has(*)){display:none;}
+      .pmtask-detail-side-title{display:flex;flex-wrap:wrap;align-items:flex-start;gap:8px;}
       .pmtask-detail-side-title h2{min-width:0;flex:1;margin:0;font-size:16px;line-height:1.35;overflow-wrap:anywhere;}
       .pmtask-detail-side-title .pmtask-icon-btn{flex:none;}
       .pmtask-detail-side-desc{margin:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere;}
       .pmtask-detail-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+      .pmtask-detail-tail-actions{display:flex;align-items:center;gap:6px;margin-left:auto;}
+      .pmtask-detail-tail-actions .pmtask-detail-session-link{margin-left:0;}
       .pmtask-detail-session-link{flex:none;margin-left:auto;padding:2px 0;border:0;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:10.5px;white-space:nowrap;cursor:pointer;}
       .pmtask-detail-session-link:hover{color:var(--dsw-alias-label-primary);text-decoration:underline;text-underline-offset:3px;}
       .pmtask-detail-action{height:30px;display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:0 9px;border:1px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:11px;font-weight:500;white-space:nowrap;cursor:pointer;}
@@ -599,6 +623,8 @@ window.__ModuleLoader__.load({
       .pmtask-event-avatar{width:28px;height:28px;flex:none;display:grid;place-items:center;border-radius:50%;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary);font-size:10px;}
       .pmtask-event-copy{min-width:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.5;padding-top:5px;overflow-wrap:anywhere;}
       .pmtask-event-copy time{display:block;color:var(--dsw-alias-label-tertiary);font-size:10px;margin-top:2px;}
+      .pmtask-event-task-link{padding:0;border:0;background:transparent;color:var(--dsw-alias-accent-primary,#4f8ef7);font:inherit;cursor:pointer;}
+      .pmtask-event-task-link:hover{text-decoration:underline;text-underline-offset:2px;}
       .pmtask-bubble{margin-top:4px;padding:10px 11px;border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-primary);font-size:13px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;}
       .pmtask-run-summary{display:grid;overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);}
       .pmtask-run-summary-row{display:grid;grid-template-columns:72px minmax(0,1fr);gap:8px;padding:7px 9px;border-bottom:0.5px solid var(--dsw-alias-border-l2);font-size:11px;line-height:1.5;}
@@ -1331,6 +1357,45 @@ window.__ModuleLoader__.load({
           at: item.createdAt,
         };
       }
+      if (item?.type === "plan.snapshot") {
+        return {
+          label: "创建执行计划",
+          kind: "summary",
+          detail: summary,
+          at: item.createdAt,
+        };
+      }
+      if (item?.type === "gate.requested") {
+        return {
+          label: "请求执行授权",
+          kind: "warning",
+          detail: summary,
+          at: item.createdAt,
+        };
+      }
+      if (item?.type === "gate.decided") {
+        return {
+          label: summary || "更新执行授权",
+          kind: "summary",
+          detail: summary,
+          at: item.createdAt,
+        };
+      }
+      if (
+        item?.type === "step.started" ||
+        item?.type === "step.completed" ||
+        item?.type === "step.failed" ||
+        item?.type === "subagent.started" ||
+        item?.type === "subagent.completed"
+      ) {
+        return {
+          label:
+            summary.length > 72 ? `${summary.slice(0, 72)}…` : summary,
+          kind: item.type.endsWith("failed") ? "error" : "tool",
+          detail: summary,
+          at: item.createdAt,
+        };
+      }
       if (
         item?.type === "tool.call" ||
         item?.type === "tool.result"
@@ -1360,7 +1425,7 @@ window.__ModuleLoader__.load({
       }
       if (item?.type === "progress.summary") {
         if (
-          /modulenotfounderror|importerror|traceback|error|not found|no module/i.test(
+          /modulenotfounderror|importerror|traceback|no module named|dependency.{0,40}(?:failed|missing)|依赖.{0,20}(?:失败|缺失)/i.test(
             summary,
           )
         ) {
@@ -1396,6 +1461,15 @@ window.__ModuleLoader__.load({
             at: item.createdAt,
           };
         }
+      }
+      if (summary !== "") {
+        return {
+          label:
+            summary.length > 72 ? `${summary.slice(0, 72)}…` : summary,
+          kind: "summary",
+          detail: summary,
+          at: item.createdAt,
+        };
       }
       return undefined;
     }
@@ -1519,6 +1593,15 @@ window.__ModuleLoader__.load({
         return receiver?.ownerAuthUserId === currentUser.id;
       }
       if (task.receiverType === "role") {
+        if (task.workflow?.dispatchMode === "claim") {
+          return (
+            task.workflow.candidatePool?.some(
+              (candidate) =>
+                candidate.kind === "user" &&
+                candidate.id === currentUser.id,
+            ) === true
+          );
+        }
         return directory.roles.some(
           (role) =>
             role.id === task.receiverId &&
@@ -2998,10 +3081,16 @@ window.__ModuleLoader__.load({
                 setArchivedOnly(false);
                 closeDetail();
               },
+              onOpenTask: (taskId) => {
+                setSelectedId(taskId);
+                setHighlightedId("");
+                setPendingAssignee(null);
+              },
               mutate,
               notify,
               fail,
               renderSlot: props.renderSlot,
+              renderSlotChain: props.renderSlotChain,
               renderActions: props.renderActions,
             })
           : h(TaskBoard, {
@@ -3207,6 +3296,10 @@ window.__ModuleLoader__.load({
             },
             "新建任务",
           ),
+          renderSlot?.("pluginmax.task.settings", {
+            workspaceId: workspaceFilter,
+            workspaceIds: workspaces.map((workspace) => workspace.id),
+          }) ?? null,
           renderActions?.() ?? null,
         ),
       );
@@ -3317,6 +3410,12 @@ window.__ModuleLoader__.load({
           triggerLabel: priorityLabel(item),
         })),
       ];
+      const anomalyAttentionCount = tasks.filter(
+        (task) =>
+          task.status === "abnormal" &&
+          (taskBelongsTo(task, currentUser, directory) ||
+            task.createdBy === currentUser?.id),
+      ).length;
       return h(
         Fragment,
         null,
@@ -3402,6 +3501,18 @@ window.__ModuleLoader__.load({
             archivedOnly ? "返回任务看板" : `已归档 ${archivedCount}`,
           ),
         ),
+        anomalyAttentionCount > 0
+          ? h(
+              "div",
+              { className: "pmtask-anomaly-notice", role: "status" },
+              h("strong", null, `异常任务 ${anomalyAttentionCount}`),
+              h(
+                "span",
+                null,
+                "执行过程需要人工介入，请任务负责人和创建人检查失败步骤、工具授权与验收证据。",
+              ),
+            )
+          : null,
         h(
           "div",
           { className: "pmtask-board" },
@@ -3415,6 +3526,8 @@ window.__ModuleLoader__.load({
                 tasks: tasks.filter((task) =>
                   status.key === "done"
                     ? task.status === "done" || task.status === "cancelled"
+                    : status.key === "progress"
+                      ? task.status === "progress" || task.status === "abnormal"
                     : task.status === status.key,
                 ),
                 onOpen,
@@ -3431,6 +3544,18 @@ window.__ModuleLoader__.load({
     }
 
     function TaskRunStateIndicator({ task }) {
+      if (task.status === "abnormal") {
+        return h(
+          "span",
+          {
+            className: "pmtask-run-state-text failed",
+            role: "status",
+            title: task.executionAnomaly?.message ?? "执行过程异常，需要人工介入",
+            "aria-label": "任务执行异常",
+          },
+          "异常",
+        );
+      }
       const indicator = taskRunIndicator(task);
       if (indicator === undefined) return null;
       if (indicator.kind === "active") {
@@ -3524,7 +3649,7 @@ window.__ModuleLoader__.load({
               "article",
               {
                 key: task.id,
-                className: `pmtask-card${taskHasActiveRun(task) ? " running" : ""}${isArchived(task) ? " archived" : ""}${task.id === highlightedId ? " highlighted" : ""}`,
+                className: `pmtask-card${taskHasActiveRun(task) ? " running" : ""}${task.status === "abnormal" ? " abnormal" : ""}${isArchived(task) ? " archived" : ""}${task.id === highlightedId ? " highlighted" : ""}`,
                 "data-task-id": task.id,
                 "data-workspace-id": task.workspaceId,
                 "data-data-agent-exclude": "true",
@@ -3613,6 +3738,18 @@ window.__ModuleLoader__.load({
                 // 已取消并到「已完成」列后，卡片上仍要能一眼区分出来。
                 task.status === "cancelled"
                   ? h("span", { className: "pmtask-pill cancelled" }, "已取消")
+                  : null,
+                task.status === "abnormal"
+                  ? h(
+                      "span",
+                      {
+                        className: "pmtask-pill abnormal",
+                        title:
+                          task.executionAnomaly?.message ??
+                          "执行过程异常，需要人工介入",
+                      },
+                      "异常",
+                    )
                   : null,
                 task.receiverState === "needs_reassignment"
                   ? h("span", { className: "pmtask-pill reassign" }, "需改派")
@@ -4832,6 +4969,29 @@ window.__ModuleLoader__.load({
       );
     }
 
+    function VisibleExtensionSlot({ content, name }) {
+      const ref = react.useRef(null);
+      react.useEffect(() => {
+        const node = ref.current;
+        if (node === null) return;
+        const hasVisibleContent =
+          node.textContent.trim() !== "" ||
+          node.querySelector(
+            "button,input,select,textarea,img,video,canvas,svg,[role='button']",
+          ) !== null;
+        node.hidden = !hasVisibleContent;
+      }, [content]);
+      return h(
+        "div",
+        {
+          ref,
+          className: "pmtask-detail-extension-visible",
+          "data-task-detail-slot": name,
+        },
+        content,
+      );
+    }
+
     function renderVisibleSlot(renderSlot, name, props) {
       const content = renderSlot?.(name, props);
       const isEmpty =
@@ -4841,17 +5001,243 @@ window.__ModuleLoader__.load({
         content === "" ||
         (Array.isArray(content) && content.length === 0);
       if (isEmpty) return null;
+      return h(VisibleExtensionSlot, {
+        content,
+        name,
+      });
+    }
+
+    function mergeEmbeddedExternalRuntimes(results) {
+      const runtimes = [];
+      for (const result of results) {
+        const defaultModel = result?.defaultModel;
+        const defaultModelName =
+          typeof defaultModel?.model === "string"
+            ? defaultModel.model.trim()
+            : "";
+        if (
+          defaultModelName !== "" &&
+          !runtimes.some((runtime) => runtime.id === "__builtin__")
+        ) {
+          runtimes.push({
+            id: "__builtin__",
+            name: "内置执行",
+            provider:
+              typeof defaultModel?.provider === "string"
+                ? defaultModel.provider
+                : "platform",
+            protocol: "builtin",
+            status: "active",
+            supportedModels: [defaultModelName],
+            defaultModel: defaultModelName,
+            defaultReasoningEffort:
+              typeof defaultModel?.reasoningEffort === "string"
+                ? defaultModel.reasoningEffort
+                : undefined,
+          });
+        }
+        for (const runtime of result?.runtimes ?? []) {
+          if (!runtimes.some((candidate) => candidate.id === runtime.id)) {
+            runtimes.push(runtime);
+          }
+        }
+      }
+      return runtimes;
+    }
+
+    /**
+     * Reuse the ordinary task detail surface when another plugin needs to show
+     * one task in an isolated right rail. Only the surrounding page chrome is
+     * removed; every tab and action still comes from TaskDetail.
+     */
+    function EmbeddedTaskDetailSide(props) {
+      const { initialTask, taskId, workspaceId } = props;
+      const additionalTasks = props.additionalTasks ?? [];
+      const [task, setTask] = react.useState(initialTask ?? null);
+      const [currentUser, setCurrentUser] = react.useState(null);
+      const [directory, setDirectory] = react.useState({
+        humans: [],
+        agents: [],
+        roles: [],
+      });
+      const [tasks, setTasks] = react.useState([]);
+      const [externalRuntimes, setExternalRuntimes] = react.useState([]);
+      const [reviewableTaskIds, setReviewableTaskIds] = react.useState([]);
+      const [workspaceTitle, setWorkspaceTitle] = react.useState(workspaceId);
+      const [pendingAssignee, setPendingAssignee] = react.useState(null);
+      const [assignOpen, setAssignOpen] = react.useState(false);
+      const [loading, setLoading] = react.useState(true);
+      const [error, setError] = react.useState("");
+
+      react.useEffect(() => {
+        if (initialTask === undefined || initialTask === null) return;
+        setTask(initialTask);
+      }, [initialTask?.id, initialTask?.updatedAt]);
+
+      react.useEffect(() => {
+        if (
+          typeof taskId !== "string" ||
+          taskId === "" ||
+          typeof workspaceId !== "string" ||
+          workspaceId === ""
+        ) {
+          setLoading(false);
+          setError("子任务上下文不完整，无法读取任务详情。");
+          return undefined;
+        }
+        let disposed = false;
+        setLoading(true);
+        setError("");
+        void Promise.all([
+          request(
+            `/api/collab/tasks/bootstrap?workspaceId=${encodeURIComponent(workspaceId)}`,
+          ),
+          request(
+            `/api/collab/agent/external-runtimes?workspaceId=${encodeURIComponent(workspaceId)}`,
+          ).catch(() => ({ runtimes: [] })),
+          request("/api/collab/auth/me"),
+          request("/api/collab/team/workspaces"),
+        ])
+          .then(([bootstrap, runtimeResult, meResult, workspaceResult]) => {
+            if (disposed) return;
+            setCurrentUser(meResult.user ?? null);
+            setDirectory(
+              bootstrap.directory ?? { humans: [], agents: [], roles: [] },
+            );
+            const bootstrapTasks = bootstrap.tasks ?? [];
+            const mergedTasks = [];
+            for (const item of [
+              ...additionalTasks,
+              ...(initialTask === undefined || initialTask === null
+                ? []
+                : [initialTask]),
+              ...bootstrapTasks,
+            ]) {
+              if (!mergedTasks.some((candidate) => candidate.id === item.id)) {
+                mergedTasks.push(item);
+              }
+            }
+            setTasks(mergedTasks);
+            setReviewableTaskIds(bootstrap.reviewableTaskIds ?? []);
+            setExternalRuntimes(
+              mergeEmbeddedExternalRuntimes([runtimeResult]),
+            );
+            const workspace = (workspaceResult.workspaces ?? []).find(
+              (item) => item.id === workspaceId,
+            );
+            setWorkspaceTitle(workspace?.title ?? workspaceId);
+            setLoading(false);
+          })
+          .catch((cause) => {
+            if (disposed) return;
+            setLoading(false);
+            setError(
+              cause instanceof Error ? cause.message : "加载任务详情失败",
+            );
+          });
+        return () => {
+          disposed = true;
+        };
+      }, [taskId, workspaceId]);
+
+      const fail = (cause) => {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      };
+      const mutate = async (path, body, _message, options = {}) => {
+        const result = await request(path, {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        if (result.task !== undefined) {
+          setTask(result.task);
+          setTasks((current) => [
+            result.task,
+            ...current.filter((item) => item.id !== result.task.id),
+          ]);
+          props.onTaskUpdated?.(result.task);
+        }
+        if (options.silent !== true) setError("");
+        return result.task;
+      };
+
+      if (task === null || task === undefined) {
+        return h(
+          "div",
+          { className: "pmrw-embedded-task-detail" },
+          h(
+            "div",
+            { className: "pmtask-side-empty" },
+            loading ? "正在加载任务详情..." : error || "任务详情不可用",
+          ),
+        );
+      }
+      if (loading) {
+        return h(
+          "div",
+          { className: "pmrw-embedded-task-detail" },
+          h(
+            "div",
+            { className: "pmtask-side-empty" },
+            "正在加载任务详情...",
+          ),
+        );
+      }
       return h(
         "div",
-        {
-          className: "pmtask-detail-extension-visible",
-          "data-task-detail-slot": name,
-        },
-        content,
+        { className: "pmrw-embedded-task-detail" },
+        error !== ""
+          ? h(
+              "div",
+              { className: "pmtask-filter pmtask-notice" },
+              h(
+                "span",
+                {
+                  style: {
+                    color: "var(--dsw-alias-state-error-primary,#e5534b)",
+                  },
+                },
+                error,
+              ),
+            )
+          : null,
+        h(TaskDetail, {
+          task,
+          workspaceTitle,
+          directory,
+          tasks,
+          externalRuntimes,
+          currentUser,
+          reviewableTaskIds,
+          pendingAssignee,
+          setPendingAssignee,
+          assignOpen,
+          setAssignOpen,
+          onBack: () => undefined,
+          onRestored: () => {
+            props.onTaskUpdated?.();
+          },
+          onOpenTask: (nextTaskId) => {
+            window.__pluginmaxPendingTask = { taskId: nextTaskId, workspaceId };
+            window.dispatchEvent(
+              new CustomEvent("pluginmax:navigate", {
+                detail: { route: "task" },
+              }),
+            );
+          },
+          mutate,
+          fail,
+          renderSlot: undefined,
+          renderSlotChain: undefined,
+          renderActions: undefined,
+          readOnlyPreview: props.readOnlyPreview === true,
+          sideOnly: true,
+        }),
       );
     }
 
     function TaskDetail(props) {
+      const sideOnly = props.sideOnly === true;
+      const readOnlyPreview = props.readOnlyPreview === true;
       const {
         task,
         workspaceTitle,
@@ -4866,9 +5252,11 @@ window.__ModuleLoader__.load({
         setAssignOpen,
         onBack,
         onRestored,
+        onOpenTask,
         mutate,
         fail,
         renderSlot,
+        renderSlotChain,
         renderActions,
       } = props;
       const receiverAgent =
@@ -4891,13 +5279,15 @@ window.__ModuleLoader__.load({
           ? "只有负责该 AI 伙伴的 Owner 可以发起指令"
           : "只有任务负责人可以发起指令";
       const [editing, setEditing] = react.useState(false);
+      const [routerPlanOpen, setRouterPlanOpen] = react.useState(false);
+      const [routerPlanNodeId, setRouterPlanNodeId] = react.useState("");
       const [basicEditing, setBasicEditing] = react.useState(false);
       const [message, setMessage] = react.useState("");
       const [attachments, setAttachments] = react.useState([]);
       const [composerIntent, setComposerIntent] = react.useState(
         canCommand &&
           task.workflow === undefined &&
-          task.status === "progress" &&
+          (task.status === "progress" || task.status === "abnormal") &&
           (task.receiverType === "human" || task.receiverType === "agent")
           ? "execution"
           : "discussion",
@@ -4964,7 +5354,8 @@ window.__ModuleLoader__.load({
       const sent = currentUser !== null && task.createdBy === currentUser.id;
       const canReview = reviewableTaskIds.includes(task.id);
       const archived = isArchived(task);
-      const readOnly = archived || task.status === "cancelled";
+      const readOnly =
+        archived || task.status === "cancelled" || readOnlyPreview;
       const dependencyTask =
         task.dependsOn === undefined || task.dependsOn.length === 0
           ? undefined
@@ -5234,7 +5625,7 @@ window.__ModuleLoader__.load({
         setComposerIntent(
           canCommand &&
             task.workflow === undefined &&
-            task.status === "progress" &&
+            (task.status === "progress" || task.status === "abnormal") &&
             (task.receiverType === "human" || task.receiverType === "agent")
             ? "execution"
             : "discussion",
@@ -5438,7 +5829,10 @@ window.__ModuleLoader__.load({
         selectedRunMessage?.state ??
         "idle";
       const executionRunning = RUNNING_MESSAGE_STATES.includes(executionStatus);
-      const executionProcessTag = executionProcessStatus(executionStatus);
+      const executionProcessTag =
+        task.status === "abnormal"
+          ? { label: "需人工介入", tone: "failed" }
+          : executionProcessStatus(executionStatus);
       const activeExecutionRuns = executionRunOptions.filter((run) =>
         RUNNING_MESSAGE_STATES.includes(run.status),
       );
@@ -5564,6 +5958,11 @@ window.__ModuleLoader__.load({
       ];
       const documentSignature = `${task.id}:${task.messages.length}:${executionStatus}`;
       react.useEffect(() => {
+        if (readOnlyPreview) {
+          setDocuments([]);
+          setDocumentsReady(true);
+          return undefined;
+        }
         let disposed = false;
         const loadDocuments = async () => {
           try {
@@ -5586,7 +5985,7 @@ window.__ModuleLoader__.load({
           disposed = true;
           if (timer !== undefined) window.clearInterval(timer);
         };
-      }, [documentSignature, executionRunning]);
+      }, [documentSignature, executionRunning, readOnlyPreview]);
       const action = async (name, label, extra = {}) => {
         try {
           const endpoint =
@@ -5981,6 +6380,34 @@ window.__ModuleLoader__.load({
           left.at.localeCompare(right.at) ||
           (left.kind === right.kind ? 0 : left.kind === "message" ? -1 : 1),
       );
+      const renderTaskEventContent = (event, prefixWorkflowActor) => {
+        const message =
+          prefixWorkflowActor && event.kind === "workflow"
+            ? `${event.actorName} ${event.message}`
+            : event.message;
+        const refs = Array.isArray(event.taskRefs) ? event.taskRefs : [];
+        if (refs.length === 0) return message;
+        return h(
+          react.Fragment,
+          null,
+          message,
+          ...refs.flatMap((ref, index) => [
+            index === 0
+              ? null
+              : h("span", { key: `separator:${ref.taskId}`, "aria-hidden": "true" }, "，"),
+            h(
+              "button",
+              {
+                key: `task:${ref.taskId}`,
+                className: "pmtask-event-task-link",
+                type: "button",
+                onClick: () => onOpenTask?.(ref.taskId),
+              },
+              ref.title,
+            ),
+          ]),
+        );
+      };
       react.useEffect(() => {
         const node = historyRef.current;
         if (node === null) return undefined;
@@ -6023,6 +6450,18 @@ window.__ModuleLoader__.load({
             onClick: openWorkflow,
           }),
         );
+        if (canClaim) {
+          detailActions.push(
+            h(DetailActionButton, {
+              key: "claim",
+              label: "认领",
+              icon: "claim",
+              tone: "primary",
+              disabled: readOnly,
+              onClick: () => void action("claim", "已认领任务"),
+            }),
+          );
+        }
         if (isApprovalTask && canReview && task.status === "review") {
           detailActions.push(
             h(DetailActionButton, {
@@ -6079,7 +6518,11 @@ window.__ModuleLoader__.load({
             }),
           );
         }
-        if (mine && task.status === "progress" && !isApprovalTask) {
+        if (
+          mine &&
+          (task.status === "progress" || task.status === "abnormal") &&
+          !isApprovalTask
+        ) {
           detailActions.push(
             h(DetailActionButton, {
               key: "submit",
@@ -6152,8 +6595,27 @@ window.__ModuleLoader__.load({
           );
         }
       }
+      if (readOnlyPreview) detailActions.length = 0;
+      const detailActionExtension =
+        readOnlyPreview
+          ? null
+          : (renderSlot?.("pluginmax.task.detail.actions", {
+              task,
+              taskId: task.id,
+              workspaceId: task.workspaceId,
+              planOpen: routerPlanOpen,
+              onOpenPlan: () => {
+                setRouterPlanOpen(true);
+                setRouterPlanNodeId("");
+              },
+              onClosePlan: () => {
+                setRouterPlanOpen(false);
+                setRouterPlanNodeId("");
+              },
+            }) ?? null);
       const showOpenSession =
-        task.receiverType === "agent" || task.agentRunIds.length > 0;
+        !readOnlyPreview &&
+        (task.receiverType === "agent" || task.agentRunIds.length > 0);
       const selectDetailTab = (tab) => {
         if (tab !== "basic") setBasicEditing(false);
         setActiveTab(tab);
@@ -6217,6 +6679,70 @@ window.__ModuleLoader__.load({
           throw cause;
         }
       };
+
+      const acceptanceItems =
+        task.steps.length > 0
+          ? task.steps.map((step) => ({ ...step, stepId: step.id }))
+          : task.acceptance.map((label, index) => ({
+              id: `acceptance-${index}`,
+              label,
+              done: false,
+              stepId: undefined,
+            }));
+      const acceptanceBlock =
+        acceptanceItems.length === 0
+          ? null
+          : h(
+              "div",
+              { className: "pmtask-acceptance" },
+              h(
+                "div",
+                { className: "pmtask-acceptance-head" },
+                h("strong", null, "产出物要求（验收标准）"),
+                h(
+                  "span",
+                  null,
+                  `${acceptanceItems.filter((item) => item.done).length} / ${acceptanceItems.length} 已完成`,
+                ),
+              ),
+              h(
+                "div",
+                { className: "pmtask-steps" },
+                ...acceptanceItems.map((item) => {
+                  const locked =
+                    item.stepId === undefined ||
+                    readOnly ||
+                    task.workflow !== undefined;
+                  return h(
+                    "label",
+                    {
+                      className: `pmtask-step${item.done ? " done" : ""}${locked ? " disabled" : ""}`,
+                      key: item.stepId ?? item.id,
+                    },
+                    item.stepId === undefined
+                      ? null
+                      : h("input", {
+                          type: "checkbox",
+                          checked: item.done,
+                          disabled: locked,
+                          onChange: (event) => {
+                            const done = event.target.checked;
+                            void mutate(
+                              "/api/collab/tasks/step",
+                              {
+                                taskId: task.id,
+                                stepId: item.stepId,
+                                done,
+                              },
+                              done ? "验收项已勾选" : "验收项已取消",
+                            ).catch(fail);
+                          },
+                        }),
+                    h("span", null, item.label),
+                  );
+                }),
+              ),
+            );
 
       const basicPane = basicEditing
         ? h(BasicInfoEditForm, {
@@ -6367,9 +6893,13 @@ window.__ModuleLoader__.load({
                 ),
               ),
             ),
+            acceptanceBlock,
             h(
               "div",
-              { className: "pmtask-detail-basic-toolbar" },
+              {
+                className: "pmtask-detail-basic-toolbar",
+                hidden: readOnlyPreview,
+              },
               h(
                 "button",
                 {
@@ -6550,7 +7080,9 @@ window.__ModuleLoader__.load({
       );
       return h(
         "div",
-        { className: "pmtask-detail" },
+        {
+          className: `pmtask-detail${sideOnly ? " pmtask-detail-side-only" : ""}`,
+        },
         h(
           "section",
           {
@@ -6693,7 +7225,28 @@ window.__ModuleLoader__.load({
             { className: "pmtask-detail-layout" },
             h(
               "div",
-              { className: "pmtask-detail-main" },
+              {
+                className: `pmtask-detail-main${routerPlanOpen ? " router-plan-mode" : ""}`,
+              },
+              renderSlotChain?.("pluginmax.task.detail.main", {
+                taskId: task.id,
+                workspaceId: task.workspaceId,
+                taskTitle: task.title,
+                taskPriority: task.priority,
+                taskDue: task.due,
+                receiverType: task.receiverType,
+                receiverId: task.receiverId,
+                receiverName: task.receiverName,
+                receiverPrincipalId: task.receiverPrincipalId,
+                acceptance: task.acceptance,
+                open: routerPlanOpen,
+                nodeId: routerPlanNodeId,
+                onSelectNode: setRouterPlanNodeId,
+                onClosePlan: () => {
+                  setRouterPlanOpen(false);
+                  setRouterPlanNodeId("");
+                },
+              }) ?? null,
               editing
                 ? null
                 : h(
@@ -6727,7 +7280,8 @@ window.__ModuleLoader__.load({
                         {
                           className: "pmtask-icon-btn",
                           type: "button",
-                          hidden: task.workflow !== undefined,
+                          hidden:
+                            task.workflow !== undefined || readOnlyPreview,
                           disabled: readOnly,
                           title: lockedTip ?? "编辑标题、优先级和描述",
                           "aria-label": lockedTip ?? "编辑标题、优先级和描述",
@@ -6903,55 +7457,7 @@ window.__ModuleLoader__.load({
                           )
                         : null,
                     ),
-                    task.steps.length > 0
-                      ? h(
-                          "div",
-                          { className: "pmtask-acceptance" },
-                          h(
-                            "div",
-                            { className: "pmtask-acceptance-head" },
-                            h("strong", null, "验收标准"),
-                            h(
-                              "span",
-                              null,
-                              `${task.steps.filter((step) => step.done).length} / ${task.steps.length} 已完成`,
-                            ),
-                          ),
-                          h(
-                            "div",
-                            { className: "pmtask-steps" },
-                            ...task.steps.map((step) => {
-                              const locked =
-                                readOnly || task.workflow !== undefined;
-                              return h(
-                                "label",
-                                {
-                                  className: `pmtask-step${step.done ? " done" : ""}${locked ? " disabled" : ""}`,
-                                  key: step.id,
-                                },
-                                h("input", {
-                                  type: "checkbox",
-                                  checked: step.done,
-                                  disabled: locked,
-                                  onChange: (event) => {
-                                    const done = event.target.checked;
-                                    void mutate(
-                                      "/api/collab/tasks/step",
-                                      {
-                                        taskId: task.id,
-                                        stepId: step.id,
-                                        done,
-                                      },
-                                      done ? "验收项已勾选" : "验收项已取消",
-                                    ).catch(fail);
-                                  },
-                                }),
-                                h("span", null, step.label),
-                              );
-                            }),
-                          ),
-                        )
-                      : null,
+                    acceptanceBlock,
                     archived
                       ? h(
                           "p",
@@ -7072,7 +7578,8 @@ window.__ModuleLoader__.load({
                               )
                             : null,
                           mine &&
-                            task.status === "progress" &&
+                            (task.status === "progress" ||
+                              task.status === "abnormal") &&
                             task.workflow?.approvalPolicy === undefined
                             ? h(
                                 "button",
@@ -7731,9 +8238,7 @@ window.__ModuleLoader__.load({
                           h(
                             "div",
                             { className: "pmtask-event-copy" },
-                            entry.event.kind === "workflow"
-                              ? `${entry.event.actorName} ${entry.event.message}`
-                              : entry.event.message,
+                            renderTaskEventContent(entry.event, true),
                             h("time", null, localTime(entry.event.at)),
                           ),
                         ),
@@ -7934,10 +8439,34 @@ window.__ModuleLoader__.load({
             ),
             h(
               "aside",
-              { className: "pmtask-detail-side" },
-              renderVisibleSlot(renderSlot, "pluginmax.task.detail.extension", {
+              {
+                className: `pmtask-detail-side${routerPlanOpen && routerPlanNodeId !== "" ? " router-plan-mode" : ""}`,
+              },
+              renderSlotChain?.("pluginmax.task.detail.side", {
                 taskId: task.id,
                 workspaceId: task.workspaceId,
+                taskTitle: task.title,
+                open: routerPlanOpen,
+                nodeId: routerPlanNodeId,
+                onSelectNode: setRouterPlanNodeId,
+                onClosePlan: () => {
+                  setRouterPlanOpen(false);
+                  setRouterPlanNodeId("");
+                },
+              }) ?? null,
+              renderVisibleSlot(renderSlot, "pluginmax.task.detail.extension", {
+                taskId: task.id,
+                title: task.title,
+                workspaceId: task.workspaceId,
+                planOpen: routerPlanOpen,
+                onOpenPlan: () => {
+                  setRouterPlanOpen(true);
+                  setRouterPlanNodeId("");
+                },
+                onClosePlan: () => {
+                  setRouterPlanOpen(false);
+                  setRouterPlanNodeId("");
+                },
               }),
               h(
                 "div",
@@ -7975,9 +8504,24 @@ window.__ModuleLoader__.load({
                       h("h2", null, task.title),
                       h(
                         "span",
-                        { className: `pmtask-pill ${task.status}` },
+                        {
+                          className: `pmtask-pill ${task.status}`,
+                          title:
+                            task.status === "abnormal"
+                              ? (task.executionAnomaly?.message ??
+                                "执行过程异常，需要人工介入")
+                              : undefined,
+                        },
                         statusLabel(task.status),
                       ),
+                      task.status === "abnormal"
+                        ? h(
+                            "p",
+                            { className: "pmtask-anomaly-detail" },
+                            task.executionAnomaly?.message ??
+                              "执行过程异常，需要人工介入",
+                          )
+                        : null,
                       h(
                         "button",
                         {
@@ -8015,23 +8559,32 @@ window.__ModuleLoader__.load({
                       { className: "pmtask-detail-side-desc" },
                       task.description,
                     ),
-                    detailActions.length === 0 && !showOpenSession
+                    detailActions.length === 0 &&
+                    !showOpenSession &&
+                    detailActionExtension === null
                       ? null
                       : h(
                           "div",
                           { className: "pmtask-detail-actions" },
                           ...detailActions,
-                          showOpenSession
-                            ? h(
-                                "button",
-                                {
-                                  className: "pmtask-detail-session-link",
-                                  type: "button",
-                                  onClick: () => void openAgentSession(),
-                                },
-                                "打开会话",
-                              )
-                            : null,
+                          detailActionExtension === null && !showOpenSession
+                            ? null
+                            : h(
+                                "div",
+                                { className: "pmtask-detail-tail-actions" },
+                                detailActionExtension,
+                                showOpenSession
+                                  ? h(
+                                      "button",
+                                      {
+                                        className: "pmtask-detail-session-link",
+                                        type: "button",
+                                        onClick: () => void openAgentSession(),
+                                      },
+                                      "打开会话",
+                                    )
+                                  : null,
+                              ),
                         ),
                   ),
               editing
@@ -8798,7 +9351,7 @@ window.__ModuleLoader__.load({
                                     key: event.id,
                                   },
                                   h("time", null, localTime(event.at)),
-                                  h("span", null, event.message),
+                                  h("span", null, renderTaskEventContent(event, false)),
                                 ),
                               ),
                           ),
@@ -9934,6 +10487,16 @@ window.__ModuleLoader__.load({
         window.__pluginmaxShell?.setRoute?.("session");
         return true;
       };
+      window.__pluginmaxTaskDetailSide = EmbeddedTaskDetailSide;
+      window.__pluginmaxTaskFieldKit = {
+        STATUSES,
+        REASONING_EFFORT_OPTIONS,
+        buildExecutionPolicy,
+        executionPolicyForm,
+        runtimeForAgent,
+        ExecutionRuntimeFields,
+        modelDisplayName,
+      };
       ctx.slots.inject("pluginmax.global", () =>
         ctx.slots.register(
           {
@@ -9954,6 +10517,22 @@ window.__ModuleLoader__.load({
                 scope: "root",
               },
               "pluginmax.task.detail.extension": {
+                kind: "single",
+                scope: "root",
+              },
+              "pluginmax.task.detail.actions": {
+                kind: "single",
+                scope: "root",
+              },
+              "pluginmax.task.detail.main": {
+                kind: "chain",
+                scope: "root",
+              },
+              "pluginmax.task.detail.side": {
+                kind: "chain",
+                scope: "root",
+              },
+              "pluginmax.task.settings": {
                 kind: "single",
                 scope: "root",
               },

@@ -47,6 +47,11 @@ window.__ModuleLoader__.load({
       failed: "warn",
       completed: "done",
     };
+    const REPORT_TYPE_LABELS = {
+      daily: "项目日报",
+      weekly: "项目周报",
+      progress: "进度汇报",
+    };
     const PRIORITY_RANK = { P1: 0, P2: 1, P3: 2 };
     const PRIORITY_DISPLAY = { P1: "P0", P2: "P1", P3: "P2" };
     const priorityLabel = (value) => PRIORITY_DISPLAY[value] ?? value;
@@ -1087,6 +1092,7 @@ window.__ModuleLoader__.load({
       const [reportFrom, setReportFrom] = react.useState("");
       const [reportTo, setReportTo] = react.useState("");
       const [reportSearch, setReportSearch] = react.useState("");
+      const [reportType, setReportType] = react.useState("daily");
       const [history, setHistory] = react.useState([]);
       const [historyLoading, setHistoryLoading] = react.useState(false);
       const [historySearch, setHistorySearch] = react.useState("");
@@ -2256,7 +2262,11 @@ window.__ModuleLoader__.load({
         try {
           await request("/api/collab/projects/reports/generate", {
             method: "POST",
-            body: JSON.stringify({ workspaceId: selectedProject.workspaceId }),
+            body: JSON.stringify({
+              workspaceId: selectedProject.workspaceId,
+              reportType,
+              triggerSource: "button",
+            }),
           });
           await loadReports(selectedProject.workspaceId);
         } catch (cause) {
@@ -3574,6 +3584,7 @@ window.__ModuleLoader__.load({
           .filter(Boolean);
         const visible = reports
           .filter((report) => {
+            if ((report.reportType ?? "daily") !== reportType) return false;
             if (reportFrom !== "" && report.date < reportFrom) return false;
             if (reportTo !== "" && report.date > reportTo) return false;
             if (keywords.length === 0) return true;
@@ -3612,6 +3623,17 @@ window.__ModuleLoader__.load({
               "aria-label": "搜索项目日报",
               onChange: (event) => setReportSearch(event.target.value),
             }),
+            h(
+              "select",
+              {
+                value: reportType,
+                "aria-label": "项目汇报类型",
+                onChange: (event) => setReportType(event.target.value),
+              },
+              h("option", { value: "daily" }, "项目日报"),
+              h("option", { value: "weekly" }, "项目周报"),
+              h("option", { value: "progress" }, "进度汇报"),
+            ),
             canManage
               ? h(
                   "button",
@@ -3621,7 +3643,7 @@ window.__ModuleLoader__.load({
                     disabled: busy === "report",
                     onClick: () => void generateReport(),
                   },
-                  "更新日报",
+                  `更新${REPORT_TYPE_LABELS[reportType] ?? "项目日报"}`,
                 )
               : null,
           ),
@@ -3633,7 +3655,14 @@ window.__ModuleLoader__.load({
                 h(
                   "div",
                   { className: "pmproj-report-head" },
-                  h("h3", null, `${latest.date} 项目日报`),
+                  h(
+                    "h3",
+                    null,
+                    `${latest.date} ${
+                      REPORT_TYPE_LABELS[latest.reportType ?? "daily"] ??
+                      "项目日报"
+                    }`,
+                  ),
                   h(
                     "small",
                     null,
@@ -3664,7 +3693,14 @@ window.__ModuleLoader__.load({
                     h(
                       "div",
                       { className: "pmproj-report-head" },
-                      h("h3", null, `${report.date} 项目日报`),
+                      h(
+                        "h3",
+                        null,
+                        `${report.date} ${
+                          REPORT_TYPE_LABELS[report.reportType ?? "daily"] ??
+                          "项目日报"
+                        }`,
+                      ),
                       h(
                         "small",
                         null,
@@ -5548,8 +5584,8 @@ window.__ModuleLoader__.load({
                     ),
               ),
               memberModal.mode === "add" &&
-              selectedKind === "agent" &&
-              memberModal.roleIds.length === 0
+                selectedKind === "agent" &&
+                memberModal.roleIds.length === 0
                 ? h(
                     "p",
                     { className: "pmproj-hint wide" },
@@ -6373,11 +6409,7 @@ window.__ModuleLoader__.load({
         h(
           "div",
           { className: "pmproj-head" },
-          h(
-            "div",
-            null,
-            h("h1", null, "项目"),
-          ),
+          h("div", null, h("h1", null, "项目")),
           h(
             "div",
             { className: "pmproj-head-actions" },

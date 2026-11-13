@@ -99,6 +99,126 @@ describe("agent run delivery", () => {
 });
 
 describe("task message lifecycle", () => {
+  it("lets only one workflow candidate atomically claim a task", async () => {
+    const tasks = new TaskService({ tasks: memoryTable() });
+    const claimed: string[] = [];
+    const rejected: string[] = [];
+    tasks.bindWorkflowActions({
+      assign: () => undefined,
+      claimed: (task) => {
+        claimed.push(task.id);
+      },
+      claimRejected: (_task, claimedActor, reason) => {
+        rejected.push(`${claimedActor.id}:${reason}`);
+      },
+      decide: () => undefined,
+      submit: () => undefined,
+    });
+    const created = await tasks.create(actor, {
+      workspaceId: "workspace-1",
+      title: "Candidate claim",
+      priority: "P2",
+      status: "todo",
+      receiverType: "role",
+      receiverId: "reviewer",
+      receiverName: "Reviewer",
+      description: "Claim from an explicit workflow candidate pool.",
+      acceptance: ["Claimed once"],
+      workflow: {
+        instanceId: "workflow-1",
+        nodeId: "review",
+        instanceTitle: "Review",
+        nodeName: "Review",
+        dispatchMode: "claim",
+        candidatePool: [
+          { kind: "user", id: "olivia", name: "Olivia" },
+          { kind: "user", id: "bob", name: "Bob" },
+        ],
+      },
+    });
+
+    await expect(
+      tasks.claim(
+        { id: "outsider", name: "Outsider", kind: "human" },
+        created.id,
+      ),
+    ).rejects.toMatchObject({ code: "forbidden" });
+    expect(rejected).toEqual([
+      "outsider:当前用户不在任务候选池中",
+    ]);
+
+    const results = await Promise.allSettled([
+      tasks.claim(
+        { id: "olivia", name: "Olivia", kind: "human" },
+        created.id,
+      ),
+      tasks.claim({ id: "bob", name: "Bob", kind: "human" }, created.id),
+    ]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(
+      1,
+    );
+    expect(results.filter((result) => result.status === "rejected")).toHaveLength(
+      1,
+    );
+    expect(
+      results.find((result) => result.status === "rejected")?.reason
+        ?.message,
+    ).toContain("任务已被其他候选人领取");
+    expect(claimed).toEqual([created.id]);
+    expect(tasks.get(created.id)).toMatchObject({
+      receiverType: "human",
+      status: "progress",
+    });
+  });
+
+  it("records idempotent plan activity events", async () => {
+    const tasks = new TaskService({ tasks: memoryTable() });
+    const created = await tasks.create(actor, {
+      workspaceId: "workspace-1",
+      title: "Plan activity",
+      priority: "P2",
+      receiverType: "human",
+      receiverId: "admin",
+      receiverName: "Admin",
+      description: "Track plan operations.",
+      acceptance: ["Activity recorded"],
+    });
+    const first = await tasks.recordActivity(actor, {
+      taskId: created.id,
+      eventId: "plan:created:v1",
+      message: "Admin 创建任务规划 v1",
+    });
+    const second = await tasks.recordActivity(actor, {
+      taskId: created.id,
+      eventId: "plan:created:v1",
+      message: "Admin 派发任务规划 v1：",
+      taskRefs: [
+        {
+          taskId: "TSK-child-1",
+          title: "执行计划节点",
+        },
+      ],
+    });
+    expect(first.events.at(-1)).toMatchObject({
+      id: "plan:created:v1",
+      kind: "plan",
+      message: "Admin 创建任务规划 v1",
+    });
+    expect(
+      second.events.filter((event) => event.id === "plan:created:v1"),
+    ).toHaveLength(1);
+    expect(second.events.at(-1)).toMatchObject({
+      message: "Admin 派发任务规划 v1：",
+      taskRefs: [
+        {
+          taskId: "TSK-child-1",
+          title: "执行计划节点",
+        },
+      ],
+    });
+  });
+
   it("starts a todo task when a human sends an instruction", async () => {
     const tasks = new TaskService({ tasks: memoryTable() });
     const created = await tasks.create(actor, {
@@ -123,6 +243,54 @@ describe("task message lifecycle", () => {
     expect(updated.events.at(-1)?.message).toContain(
       "发送指令，任务进入进行中",
     );
+  });
+});
+
+describe("effective permission gate", () => {
+  it("blocks human execution when the shared permission scope denies it", async () => {
+    const table = memoryTable();
+    await table.put(
+      "TSK-scope",
+      storedTask({
+        id: "TSK-scope",
+        status: "todo",
+        receiverPrincipalId: "principal-human-admin",
+      }),
+    );
+    const tasks = new TaskService(
+      { tasks: table },
+      {
+        permissions: () => ({
+          resolve: () => ({
+            allowed: false,
+            reasons: ["项目权限与负责人权限交集为空"],
+          }),
+        }),
+      },
+    );
+
+    await expect(
+      tasks.start(
+        {
+          ...actor,
+          principalId: "principal-human-admin",
+        },
+        "TSK-scope",
+      ),
+    ).rejects.toThrow("项目权限与负责人权限交集为空");
+  });
+
+  it("keeps the legacy path working when no permission service is configured", async () => {
+    const table = memoryTable();
+    await table.put(
+      "TSK-legacy-scope",
+      storedTask({ id: "TSK-legacy-scope", status: "todo" }),
+    );
+    const tasks = new TaskService({ tasks: table });
+
+    await expect(tasks.start(actor, "TSK-legacy-scope")).resolves.toMatchObject({
+      status: "progress",
+    });
   });
 });
 
@@ -263,6 +431,34 @@ describe("task execution policy", () => {
     });
     expect(tasks.get(result.taskId).autoSubmitReview).toBe(true);
     expect(tasks.get(result.taskId).autoApproveReview).toBe(false);
+  });
+
+  it("applies plan-authored task type, status, and review settings from a draft", async () => {
+    const tasks = new TaskService({ tasks: memoryTable() });
+    const result = await tasks.createFromDraft(actor, {
+      draft: {
+        workspaceId: "workspace-1",
+        title: "Plan-authored defect",
+        description: "Created from a confirmed Router plan.",
+        priority: "P1",
+        receiverType: "agent",
+        receiverId: "agent-1",
+        receiverName: "Data Agent",
+        acceptance: ["Defect is reproduced"],
+        collaboratorHints: [],
+      },
+      creationKey: "router-plan-node-1",
+      type: "缺陷",
+      status: "progress",
+      autoSubmitReview: false,
+      autoApproveReview: true,
+    });
+    expect(tasks.get(result.taskId)).toMatchObject({
+      type: "缺陷",
+      status: "progress",
+      autoSubmitReview: false,
+      autoApproveReview: true,
+    });
   });
 });
 

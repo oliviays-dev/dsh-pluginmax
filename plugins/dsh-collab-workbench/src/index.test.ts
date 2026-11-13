@@ -425,8 +425,8 @@ describe("BriefPushHub", () => {
 });
 
 describe("WorkbenchService", () => {
-  function serviceWith(overrides: WorkbenchDeps = {}) {
-    return new WorkbenchService(tables(), {
+  function serviceWith(overrides: WorkbenchDeps = {}, tableSet = tables()) {
+    return new WorkbenchService(tableSet, {
       now: () => now,
       workspaces: () => ({
         list: () => [{ id: "ws-1", path: "/tmp/supply", title: "供应链" }],
@@ -496,7 +496,13 @@ describe("WorkbenchService", () => {
           readonly sourceNote: string;
         }
       | undefined;
-    expect(metricsData?.items.map((item) => item.id)).toEqual(["otif"]);
+    expect(metricsData?.items.map((item) => item.id)).toEqual([
+      "otif",
+      "inventory-turn",
+      "supplier-otd",
+      "price-achievement",
+      "supply-risk",
+    ]);
     expect(metricsData?.sourceNote).not.toContain("其余经营卡");
     expect(scoped.modules.brief).toMatchObject({
       title: "订单简报",
@@ -532,6 +538,97 @@ describe("WorkbenchService", () => {
     expect(defaults.display.profileId).toBeUndefined();
   });
 
+  it("maps display-profile brief items into their configured sections", async () => {
+    const tableSet = tables();
+    const legacy = mergeBriefItems({
+      readerId: principal.userId,
+      existing: [],
+      candidates: [
+        candidate({
+          itemId: "legacy:item",
+          title: "不应混入 Profile 的历史条目",
+        }),
+      ],
+      liveState: new Map([["legacy:item", { active: true, resolved: false }]]),
+      now,
+      tzOffsetMinutes,
+    }).stored[0]!;
+    await tableSet.briefItems.put(
+      briefItemKey(principal.userId, legacy.itemId),
+      legacy,
+    );
+    const service = serviceWith({}, tableSet);
+    service.registerDisplayProfile({
+      id: "rich-brief-profile",
+      title: "经营简报",
+      matches: (workspace) => workspace.id === "ws-1",
+      visibleModules: ["brief"],
+      brief: () => ({
+        title: "经营简报",
+        summary: "本期识别结果、异常和待处理。",
+        items: [
+          {
+            id: "result",
+            title: "替代供应方案已确认",
+            body: "可覆盖 29/37 张受影响订单。",
+            section: "conclusion",
+            tag: "conclusion",
+            priorityScore: 7,
+            reason: "来自 Mock SRM 交期记录。",
+          },
+          {
+            id: "exception",
+            title: "华东订单异常",
+            body: "异常 126 单。",
+            section: "risk",
+            tag: "data",
+            priorityScore: 9,
+          },
+          {
+            id: "decision",
+            title: "再平衡工单待确认",
+            body: "确认后创建工单。",
+            section: "escalation",
+            tag: "decision",
+            priorityScore: 8,
+          },
+        ],
+      }),
+    });
+    const module = await service.briefModule(
+      { ...principal, workspaceId: "ws-1" },
+      { tzOffsetMinutes },
+    );
+    expect(
+      (module.data?.views.unread ?? []).map((item) => ({
+        itemId: item.itemId,
+        section: item.section,
+        tag: item.tag,
+      })),
+    ).toEqual([
+      {
+        itemId: "rich-brief-profile:exception",
+        section: "risk",
+        tag: "data",
+      },
+      {
+        itemId: "rich-brief-profile:decision",
+        section: "escalation",
+        tag: "decision",
+      },
+      {
+        itemId: "rich-brief-profile:result",
+        section: "conclusion",
+        tag: "conclusion",
+      },
+    ]);
+    expect(
+      [...tableSet.briefItems.entries()].some(
+        ([key]) => key === briefItemKey(principal.userId, "legacy:item"),
+      ),
+    ).toBe(true);
+  });
+
   it("combines one MCP-backed metric with static profile metrics", async () => {
     const service = serviceWith();
     const dispose = service.registerDisplayProfile({
@@ -539,12 +636,7 @@ describe("WorkbenchService", () => {
       title: "订单混合指标",
       matches: (workspace) => workspace.id === "ws-1",
       visibleModules: ["metrics"],
-      metrics: [
-        "otif",
-        "inventory-turn",
-        "supplier-otd",
-        "price-achievement",
-      ],
+      metrics: ["otif", "inventory-turn", "supplier-otd", "price-achievement"],
       metric: async () => ({
         id: "otif",
         label: "订单准时履约率",
@@ -579,7 +671,12 @@ describe("WorkbenchService", () => {
       "inventory-turn",
       "supplier-otd",
       "price-achievement",
+      "supply-risk",
     ]);
+    expect(
+      (summary.modules.metrics?.data as { selected?: readonly string[] })
+        .selected,
+    ).toEqual(["otif", "inventory-turn", "supplier-otd", "price-achievement"]);
     expect(metrics?.items.find((item) => item.id === "otif")?.value).toBe(
       "94.1",
     );
@@ -589,6 +686,24 @@ describe("WorkbenchService", () => {
     expect(metrics?.sourceNote).toBe(
       "OTIF 来自 MCP OMS · orders_query；其余 3 项为静态演示数据",
     );
+    await service.setMetrics({ ...principal, workspaceId: "ws-1" }, [
+      "otif",
+      "inventory-turn",
+      "supplier-otd",
+      "price-achievement",
+      "supply-risk",
+    ]);
+    const customized = await service.metricsModuleLive({
+      ...principal,
+      workspaceId: "ws-1",
+    });
+    expect(customized.data?.selected).toEqual([
+      "otif",
+      "inventory-turn",
+      "supplier-otd",
+      "price-achievement",
+      "supply-risk",
+    ]);
     dispose();
   });
 
@@ -607,7 +722,8 @@ describe("WorkbenchService", () => {
     };
     const service = serviceWith({
       meetings: () => ({
-        list: (workspaceId: string) => (workspaceId === "ws-1" ? [meeting] : []),
+        list: (workspaceId: string) =>
+          workspaceId === "ws-1" ? [meeting] : [],
         participants: () => [
           {
             kind: "human" as const,
@@ -849,7 +965,9 @@ describe("WorkbenchService", () => {
     });
     const order = module.data?.items.find((item) => item.id === "otif");
     expect(module.data?.dataMode).toBe("mixed");
-    expect(module.data?.sourceNote).toContain("订单卡来自 Data Fabric 生产指标");
+    expect(module.data?.sourceNote).toContain(
+      "订单卡来自 Data Fabric 生产指标",
+    );
     expect(order).toMatchObject({
       value: "91.7",
       metricId: "fulfillment_on_time_rate",
@@ -895,8 +1013,7 @@ describe("WorkbenchService", () => {
         {
           id: "rule-delivery-risk",
           name: "报价交付风险",
-          prompt:
-            "仅纳入风险类事项。\n关键词：报价、交付风险\n说明命中来源。",
+          prompt: "仅纳入风险类事项。\n关键词：报价、交付风险\n说明命中来源。",
           enabled: true,
         },
       ],
@@ -931,6 +1048,61 @@ describe("WorkbenchService", () => {
       tzOffsetMinutes,
     });
     expect(disabled.data?.views.all).toEqual([]);
+  });
+
+  it("removes persisted Brief items when their content type is disabled", async () => {
+    const instance = {
+      id: "WF-DISABLE",
+      workspaceId: "ws-1",
+      title: "停用类型回归",
+      status: "blocked" as const,
+      updatedAt: "2026-10-09T01:50:00.000Z",
+      nodes: { review: { status: "blocked" } },
+    };
+    const service = serviceWith({
+      workflows: () => ({
+        instances: () => [instance],
+        instance: (instanceId: string) =>
+          instanceId === instance.id ? instance : undefined,
+        events: () => [
+          {
+            id: "ev-disable",
+            instanceId: instance.id,
+            nodeId: "review",
+            kind: "agent.failed",
+            actorId: "agent-1",
+            actorKind: "agent" as const,
+            actorName: "采购 Agent",
+            message: "流程无法继续",
+            at: "2026-10-09T01:20:00.000Z",
+          },
+        ],
+      }),
+    });
+    await service.setBriefSettings(principal, {
+      mode: "lastLeave",
+      includeTypes: ["workflow_blocked"],
+      customRules: [],
+    });
+    const enabled = await service.briefModule(principal, {
+      tzOffsetMinutes,
+    });
+    expect(
+      (enabled.data?.views.all ?? []).map((item) => item.itemId),
+    ).toContain("A:workflow:WF-DISABLE");
+
+    await service.setBriefSettings(principal, {
+      mode: "lastLeave",
+      includeTypes: ["task_review"],
+      customRules: [],
+    });
+    const disabled = await service.briefModule(principal, {
+      tzOffsetMinutes,
+    });
+    expect(
+      (disabled.data?.views.all ?? []).map((item) => item.itemId),
+    ).not.toContain("A:workflow:WF-DISABLE");
+    expect(disabled.data?.unreadCount).toBe(0);
   });
 
   it("brings a nudged task into the receiver's brief", async () => {
@@ -1351,7 +1523,11 @@ describe("WorkbenchService", () => {
     // 历史数据里同一任务可能留下 C:run:<id> 多条；合并后只应剩一条，
     // 且「有一条未读就算未读」。
     const customTables = tables();
-    const legacy = (runId: string, readState: "read" | "unread", at: string) => ({
+    const legacy = (
+      runId: string,
+      readState: "read" | "unread",
+      at: string,
+    ) => ({
       readerId: "olivia",
       itemId: `C:run:${runId}`,
       section: "conclusion" as const,
@@ -1569,39 +1745,36 @@ describe("WorkbenchService", () => {
     const customTables = tables();
     const longSummary = `## 执行情况\n\n${"缺失项：接口契约、测试环境。\n".repeat(60)}结论：需补齐 4 项硬阻塞。`;
     // 历史条目里存的是旧的 600 字截断版本。
-    await customTables.briefItems.put(
-      briefItemKey("olivia", "C:run:run-1"),
-      {
-        readerId: "olivia",
-        itemId: "C:run:run-1",
-        section: "conclusion",
-        tag: "progress",
-        title: "确认替代供应商交付周期",
-        conclusion: `${longSummary.slice(0, 599)}…`,
-        reason: "入选原因：任务 TSK-1 已由采购数字同事完成并进入待验收。",
-        executorName: "采购数字同事",
-        executorRole: "采购执行 Profile",
-        sourceDomain: "agent-run",
-        sourceId: "run-1",
-        statusLabel: "待我验收",
-        actionLabel: "前往验收",
-        readState: "unread",
-        priorityScore: 8,
-        occurredAt: "2026-08-01T01:00:00.000Z",
-        deepLink: {
-          route: "task",
-          refId: "TSK-1",
-          workspaceId: "ws-1",
-          label: "待验收任务 TSK-1",
-        },
-        condition: { kind: "task-review", refId: "TSK-1" },
+    await customTables.briefItems.put(briefItemKey("olivia", "C:run:run-1"), {
+      readerId: "olivia",
+      itemId: "C:run:run-1",
+      section: "conclusion",
+      tag: "progress",
+      title: "确认替代供应商交付周期",
+      conclusion: `${longSummary.slice(0, 599)}…`,
+      reason: "入选原因：任务 TSK-1 已由采购数字同事完成并进入待验收。",
+      executorName: "采购数字同事",
+      executorRole: "采购执行 Profile",
+      sourceDomain: "agent-run",
+      sourceId: "run-1",
+      statusLabel: "待我验收",
+      actionLabel: "前往验收",
+      readState: "unread",
+      priorityScore: 8,
+      occurredAt: "2026-08-01T01:00:00.000Z",
+      deepLink: {
+        route: "task",
+        refId: "TSK-1",
         workspaceId: "ws-1",
-        workspaceName: "供应链",
-        resolved: false,
-        createdAt: "2026-08-01T01:00:00.000Z",
-        updatedAt: "2026-08-01T01:00:00.000Z",
+        label: "待验收任务 TSK-1",
       },
-    );
+      condition: { kind: "task-review", refId: "TSK-1" },
+      workspaceId: "ws-1",
+      workspaceName: "供应链",
+      resolved: false,
+      createdAt: "2026-08-01T01:00:00.000Z",
+      updatedAt: "2026-08-01T01:00:00.000Z",
+    });
     // 源 Run 早于当前简报窗口，不会重新生成候选项，只能靠回填补齐结论。
     const runs = [
       {
@@ -2377,9 +2550,17 @@ describe("WorkbenchService", () => {
     expect(
       itemFor({
         activeVersion: () =>
-          version({ version: 3, status: "confirmed", content: "确认版纪要正文。" }),
+          version({
+            version: 3,
+            status: "confirmed",
+            content: "确认版纪要正文。",
+          }),
         versions: () => [
-          version({ version: 3, status: "confirmed", content: "确认版纪要正文。" }),
+          version({
+            version: 3,
+            status: "confirmed",
+            content: "确认版纪要正文。",
+          }),
         ],
       }),
     ).toMatchObject({
@@ -2395,7 +2576,11 @@ describe("WorkbenchService", () => {
         activeVersion: () => undefined,
         versions: () => [
           version({ version: 1, status: "superseded", content: "旧版本。" }),
-          version({ version: 2, status: "pending_confirm", content: "待确认正文。" }),
+          version({
+            version: 2,
+            status: "pending_confirm",
+            content: "待确认正文。",
+          }),
         ],
       }),
     ).toMatchObject({
@@ -2442,7 +2627,11 @@ describe("方案 B：工作台工作区范围", () => {
 
   it("管理员默认只看已加入，显式 scopeAll 才聚合全量", () => {
     const service = new WorkbenchService(tables(), scopeDeps());
-    const admin = { userId: "admin", name: "平台管理员", role: "admin" as const };
+    const admin = {
+      userId: "admin",
+      name: "平台管理员",
+      role: "admin" as const,
+    };
     // 普通视图：平台管理员与成员一致，只包含已加入的工作区。
     expect(service.projects(admin).map((item) => item.id)).toEqual(["ws-1"]);
     // 全量视图：只有显式打开开关（scope=all）才聚合全部宿主工作区。

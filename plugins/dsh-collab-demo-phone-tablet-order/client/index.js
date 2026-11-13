@@ -77,6 +77,7 @@ window.__ModuleLoader__.load({
 
     function TaskActionCard(props) {
       const taskId = props?.taskId;
+      const title = props?.title;
       const [state, setState] = react.useState(null);
       const [loading, setLoading] = react.useState(true);
       const [submitting, setSubmitting] = react.useState(false);
@@ -86,6 +87,13 @@ window.__ModuleLoader__.load({
       react.useEffect(() => {
         let disposed = false;
         if (typeof taskId !== "string" || taskId === "") {
+          setLoading(false);
+          return undefined;
+        }
+        if (
+          typeof title !== "string" ||
+          !title.includes("[PT-ORD-001-B]")
+        ) {
           setLoading(false);
           return undefined;
         }
@@ -105,7 +113,7 @@ window.__ModuleLoader__.load({
         return () => {
           disposed = true;
         };
-      }, [taskId]);
+      }, [taskId, title]);
 
       if (loading) {
         return h(
@@ -115,7 +123,7 @@ window.__ModuleLoader__.load({
           h("div", { className: "pmptoa-loading" }),
         );
       }
-      if (state === null) return null;
+      if (state === null || state.available === false) return null;
 
       const action = state.action ?? {};
       const receipt = state.receipt;

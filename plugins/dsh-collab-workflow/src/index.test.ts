@@ -25,6 +25,7 @@ import type {
   AgentRunView,
   AgentServiceLike,
   EmployeeServiceLike,
+  WorkflowPermissionServiceLike,
 } from "./index.js";
 
 class FakeTable<V> {
@@ -120,6 +121,12 @@ const owner: WorkflowActor = {
   name: "Owner",
   workspaceRole: "owner",
 };
+const platformAdmin: WorkflowActor = {
+  kind: "user",
+  id: "platform-admin",
+  name: "Platform Admin",
+  globalRole: "admin",
+};
 const member: WorkflowActor = {
   kind: "user",
   id: "workflow-member",
@@ -210,6 +217,14 @@ type FakeWorkflowRef = {
   nodeId: string;
   nodeAttempt?: number | undefined;
   reviewRequired?: boolean | undefined;
+  dispatchMode?: "assigned" | "claim" | undefined;
+  candidatePool?:
+    | ReadonlyArray<{
+        kind: "user" | "agent";
+        id: string;
+        name?: string;
+      }>
+    | undefined;
   approvalPolicy?: "all" | "any";
   approverIds?: Array<string> | undefined;
 };
@@ -466,8 +481,12 @@ class FakeEmployeeService implements EmployeeServiceLike {
   constructor(
     private readonly failTickets = false,
     private readonly failWriteAuthorization = false,
-    private readonly workflowBlockReason?: string,
+    private workflowBlockReason?: string,
   ) {}
+
+  setWorkflowBlockReason(reason: string | undefined): void {
+    this.workflowBlockReason = reason;
+  }
 
   employeeWorkspaceTarget() {
     return {
@@ -641,6 +660,123 @@ describe("workflow parser", () => {
     );
   });
 
+  it("parses role codes, portability, and explicit dispatch modes", () => {
+    const result = parseDefinitionFixture(
+      [
+        "# 工作流：跨项目执行映射",
+        "",
+        "## 元信息",
+        "",
+        "- key: portable-assignment",
+        "- version: 1",
+        "",
+        "## 节点",
+        "",
+        "### 方案设计",
+        "",
+        "- id: design",
+        "- type: task",
+        "- executor: role-code:PRODUCT_MANAGER",
+        "- dispatch-mode: assigned",
+        "- portability: suggested",
+        "",
+        "### 方案审批",
+        "",
+        "- id: approval",
+        "- type: approval",
+        "- executor: user:alice",
+        "- approver: role-code:PROJECT_OWNER",
+        "- portability: required",
+        "",
+        "## 连接",
+        "",
+        "- design -> approval",
+      ].join("\n"),
+    );
+
+    expect(result.errors).toEqual([]);
+    expect(
+      result.graph?.nodes.find((node) => node.id === "design"),
+    ).toMatchObject({
+      executor: {
+        kind: "role",
+        id: "PRODUCT_MANAGER",
+        roleCode: "PRODUCT_MANAGER",
+      },
+      dispatchMode: "assigned",
+    });
+    const approval = result.graph?.nodes.find(
+      (node) => node.id === "approval",
+    );
+    expect(approval).toMatchObject({
+      executor: {
+        kind: "user",
+        id: "alice",
+        portability: "required",
+      },
+      dispatchMode: "assigned",
+      approvers: [
+        {
+          kind: "role",
+          id: "PROJECT_OWNER",
+          roleCode: "PROJECT_OWNER",
+        },
+      ],
+    });
+  });
+
+  it("derives dispatch mode defaults and rejects AI claim nodes", () => {
+    const roleResult = parseDefinitionFixture(
+      [
+        "# 工作流：角色默认捞单",
+        "",
+        "## 元信息",
+        "",
+        "- key: role-default-claim",
+        "- version: 1",
+        "",
+        "## 节点",
+        "",
+        "### 执行",
+        "",
+        "- id: execute",
+        "- type: task",
+        "- executor: role:reviewer",
+        "",
+        "## 连接",
+      ].join("\n"),
+    );
+    expect(roleResult.errors).toEqual([]);
+    expect(roleResult.graph?.nodes[0]?.dispatchMode).toBe("claim");
+
+    const claimAgentResult = parseDefinitionFixture(
+      [
+        "# 工作流：AI 捞单",
+        "",
+        "## 元信息",
+        "",
+        "- key: ai-claim-invalid",
+        "- version: 1",
+        "",
+        "## 节点",
+        "",
+        "### 执行",
+        "",
+        "- id: execute",
+        "- type: task",
+        "- executor: agent:backend-agent",
+        "- responsible: user:alice",
+        "- execution: task-worker",
+        "- dispatch-mode: claim",
+        "",
+        "## 连接",
+      ].join("\n"),
+    );
+    expect(claimAgentResult.errors.join(" ")).toContain(
+      "固定人、Agent 和 AI伙伴只能使用 assigned",
+    );
+  });
+
   it("rejects an uncontrolled cycle", async () => {
     const result = parseDefinitionFixture(
       await readFile(
@@ -722,6 +858,156 @@ describe("workflow service", () => {
       "events",
       "submissions",
     ]);
+  });
+
+  it("normalizes legacy definitions as platform templates", async () => {
+    const definition = await importedFixture(service, "product-delivery.md");
+    const legacy = { ...definition } as Record<string, unknown>;
+    delete legacy.scope;
+    await current.definitions.put(
+      definition.id,
+      legacy as unknown as WorkflowDefinition,
+    );
+
+    expect(await service.migrateLegacyDefinitions()).toBe(1);
+    expect(current.definitions.get(definition.id)?.scope).toBe("platform");
+    expect(await service.migrateLegacyDefinitions()).toBe(0);
+    expect(service.definition(definition.id)?.scope).toBe("platform");
+    expect(
+      service
+        .visibleDefinitions("another-project")
+        .some((item) => item.id === definition.id),
+    ).toBe(true);
+  });
+
+  it("isolates project templates while keeping platform templates shared", async () => {
+    const sourceMd = await readFile(
+      new URL(
+        "../../../docs/fixtures/workflow/product-delivery.md",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const projectDefinition = await service.importDefinition(owner, {
+      workspaceId: "main",
+      sourceMd,
+      scope: "project",
+    });
+    const platformDefinition = await service.importDefinition(platformAdmin, {
+      workspaceId: "template-home",
+      sourceMd,
+      scope: "platform",
+    });
+
+    expect(service.definition(projectDefinition.id)?.scope).toBe("project");
+    expect(service.definition(platformDefinition.id)?.scope).toBe("platform");
+    expect(
+      service
+        .visibleDefinitions("main")
+        .map((definition) => definition.id),
+    ).toEqual(
+      expect.arrayContaining([projectDefinition.id, platformDefinition.id]),
+    );
+    expect(
+      service
+        .visibleDefinitions("another-project")
+        .map((definition) => definition.id),
+    ).toContain(platformDefinition.id);
+    expect(
+      service
+        .visibleDefinitions("another-project")
+        .map((definition) => definition.id),
+    ).not.toContain(projectDefinition.id);
+
+    await expect(
+      service.startInstance(member, {
+        workspaceId: "another-project",
+        definitionId: projectDefinition.id,
+        title: "不能启动其他项目的私有模板",
+      }),
+    ).rejects.toMatchObject({ code: "not_found" });
+  });
+
+  it("requires the correct scope authority to change definition status", async () => {
+    const sourceMd = await readFile(
+      new URL(
+        "../../../docs/fixtures/workflow/product-delivery.md",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const projectDefinition = await service.importDefinition(owner, {
+      workspaceId: "main",
+      sourceMd,
+      scope: "project",
+    });
+    const platformDefinition = await service.importDefinition(platformAdmin, {
+      workspaceId: "template-home",
+      sourceMd,
+      scope: "platform",
+    });
+
+    await expect(
+      service.setDefinitionStatus(owner, {
+        workspaceId: "another-project",
+        definitionId: projectDefinition.id,
+        status: "disabled",
+      }),
+    ).rejects.toMatchObject({ code: "forbidden" });
+    await expect(
+      service.setDefinitionStatus(owner, {
+        workspaceId: "main",
+        definitionId: platformDefinition.id,
+        status: "disabled",
+      }),
+    ).rejects.toMatchObject({ code: "forbidden" });
+    expect(() =>
+      service.importDefinition(owner, {
+        workspaceId: "main",
+        sourceMd,
+        scope: "platform",
+      }),
+    ).toThrow(expect.objectContaining({ code: "forbidden" }));
+  });
+
+  it("lets a platform admin explicitly convert a definition scope", async () => {
+    const definition = await service.importDefinition(owner, {
+      workspaceId: "main",
+      sourceMd: await readFile(
+        new URL(
+          "../../../docs/fixtures/workflow/product-delivery.md",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+      scope: "project",
+    });
+    expect(() =>
+      service.setDefinitionScope(owner, {
+        definitionId: definition.id,
+        scope: "platform",
+      }),
+    ).toThrow(expect.objectContaining({ code: "forbidden" }));
+
+    const platform = await service.setDefinitionScope(platformAdmin, {
+      definitionId: definition.id,
+      scope: "platform",
+    });
+    expect(platform.scope).toBe("platform");
+    expect(service.visibleDefinitions("another-project")).toContainEqual(
+      expect.objectContaining({ id: definition.id, scope: "platform" }),
+    );
+
+    const project = await service.setDefinitionScope(platformAdmin, {
+      definitionId: definition.id,
+      scope: "project",
+    });
+    expect(project.scope).toBe("project");
+    expect(
+      service
+        .visibleDefinitions("another-project")
+        .some((item) => item.id === definition.id),
+    ).toBe(false);
   });
 
   it("normalizes principal references to compatibility actor aliases", () => {
@@ -961,9 +1247,10 @@ describe("workflow service", () => {
       ),
       "utf8",
     );
-    const definition = await sharedService.importDefinition(owner, {
+    const definition = await sharedService.importDefinition(platformAdmin, {
       workspaceId: "template-home",
       sourceMd,
+      scope: "platform",
     });
     expect(definition.workspaceId).toBe("template-home");
 
@@ -1617,9 +1904,10 @@ describe("workflow service", () => {
       ),
       "utf8",
     );
-    const definition = await service.importDefinition(owner, {
+    const definition = await service.importDefinition(platformAdmin, {
       workspaceId: "template-home",
       sourceMd,
+      scope: "platform",
     });
     expect(definition.workspaceId).toBe("template-home");
 
@@ -1631,7 +1919,7 @@ describe("workflow service", () => {
       }),
     ).rejects.toMatchObject({
       code: "invalid_input",
-      message: expect.stringContaining("不是当前工作区成员"),
+      message: expect.stringContaining("不是当前项目成员"),
     });
     expect(service.instances("project-without-members")).toHaveLength(0);
   });
@@ -2237,30 +2525,23 @@ describe("workflow agent nodes", () => {
   it("releases the owner fallback when the task is reassigned back to the node teammate", async () => {
     const current = tables();
     const agent = new FakeAgentService(true);
-    const employee = new FakeEmployeeService(
-      false,
-      false,
-      "Teammate「Backend Engineer 01」已暂停，不能派发",
-    );
+    const employee = new FakeEmployeeService(false, false);
     const tasks = new FakeTaskBridge();
+    const teammate = {
+      id: "tm-backend",
+      name: "Backend Engineer 01",
+      state: "active",
+      employeeId: "backend-01",
+      ownerUserId: "workflow-member",
+      ownerName: "Member",
+    };
     const service = new WorkflowService(current, {
       now: () => new Date(timestamp),
       team,
       tasks: () => tasks,
       agent: () => agent,
       employee: () => employee,
-      teammates: () => ({
-        list: () => [
-          {
-            id: "tm-backend",
-            name: "Backend Engineer 01",
-            state: "inactive",
-            employeeId: "backend-01",
-            ownerUserId: "workflow-member",
-            ownerName: "Member",
-          },
-        ],
-      }),
+      teammates: () => ({ list: () => [teammate] }),
     });
     const definition = await importedFixture(
       service,
@@ -2271,6 +2552,10 @@ describe("workflow agent nodes", () => {
       definitionId: definition.id,
       title: "改派解除兜底",
     });
+    teammate.state = "inactive";
+    employee.setWorkflowBlockReason(
+      "Teammate「Backend Engineer 01」已暂停，不能派发",
+    );
     const dispatched = await service.dispatchAgentNode(member, {
       instanceId: instance.id,
       nodeId: "development",
@@ -2751,7 +3036,7 @@ describe("workflow agent nodes", () => {
     });
   });
 
-  it("reports a suspended employee as the manual dispatch blocker", async () => {
+  it("blocks start when the employee executor is suspended", async () => {
     const { agent, service } = await employeeHarness(
       true,
       false,
@@ -2762,21 +3047,17 @@ describe("workflow agent nodes", () => {
       service,
       "employee-node-manual.md",
     );
-    const instance = await service.startInstance(member, {
-      workspaceId: "main",
-      definitionId: definition.id,
-      title: "Digital Employee 暂停原因",
-    });
-    expect(instance.nodes.development?.status).toBe("ready");
     await expect(
-      service.dispatchAgentNode(member, {
-        instanceId: instance.id,
-        nodeId: "development",
-        trigger: "manual-dispatch",
+      service.startInstance(member, {
+        workspaceId: "main",
+        definitionId: definition.id,
+        title: "Digital Employee 暂停原因",
       }),
     ).rejects.toMatchObject({
-      code: "forbidden",
-      message: "Teammate「Backend Engineer 01」已暂停，不能派发",
+      code: "invalid_input",
+      message: expect.stringContaining(
+        "Teammate「Backend Engineer 01」已暂停，不能派发",
+      ),
     });
     expect(agent.dispatchInputs).toHaveLength(0);
   });
@@ -2784,16 +3065,12 @@ describe("workflow agent nodes", () => {
   it("falls back to the instance owner when the executor teammate is not dispatchable", async () => {
     const current = tables();
     const agent = new FakeAgentService(true);
-    const employee = new FakeEmployeeService(
-      false,
-      false,
-      "Teammate「Backend Engineer 01」已暂停，不能派发",
-    );
+    const employee = new FakeEmployeeService(false, false);
     const tasks = new FakeTaskBridge();
     const teammate = {
       id: "tm-backend",
       name: "Backend Engineer 01",
-      state: "inactive",
+      state: "active",
       employeeId: "backend-01",
       ownerUserId: "workflow-member",
       ownerName: "Member",
@@ -2816,6 +3093,10 @@ describe("workflow agent nodes", () => {
       title: "执行实例失效兜底",
     });
     expect(instance.nodes.development?.status).toBe("ready");
+    teammate.state = "inactive";
+    employee.setWorkflowBlockReason(
+      "Teammate「Backend Engineer 01」已暂停，不能派发",
+    );
 
     const dispatched = await service.dispatchAgentNode(member, {
       instanceId: instance.id,
@@ -2863,28 +3144,21 @@ describe("workflow agent nodes", () => {
   it("hands the node to the project owner when the instance owner is not a member", async () => {
     const current = tables();
     const agent = new FakeAgentService(true);
-    const employee = new FakeEmployeeService(
-      false,
-      false,
-      "Teammate「Backend Engineer 01」已暂停，不能派发",
-    );
+    const employee = new FakeEmployeeService(false, false);
+    const teammate = {
+      id: "tm-backend",
+      name: "Backend Engineer 01",
+      state: "active",
+      employeeId: "backend-01",
+      ownerUserId: "ghost-owner",
+      ownerName: "Ghost Owner",
+    };
     const service = new WorkflowService(current, {
       now: () => new Date(timestamp),
       team,
       agent: () => agent,
       employee: () => employee,
-      teammates: () => ({
-        list: () => [
-          {
-            id: "tm-backend",
-            name: "Backend Engineer 01",
-            state: "inactive",
-            employeeId: "backend-01",
-            ownerUserId: "ghost-owner",
-            ownerName: "Ghost Owner",
-          },
-        ],
-      }),
+      teammates: () => ({ list: () => [teammate] }),
     });
     const definition = await importedFixture(
       service,
@@ -2895,6 +3169,10 @@ describe("workflow agent nodes", () => {
       definitionId: definition.id,
       title: "执行实例失效兜底到项目 owner",
     });
+    teammate.state = "inactive";
+    employee.setWorkflowBlockReason(
+      "Teammate「Backend Engineer 01」已暂停，不能派发",
+    );
 
     const dispatched = await service.dispatchAgentNode(owner, {
       instanceId: instance.id,
@@ -2908,7 +3186,7 @@ describe("workflow agent nodes", () => {
     expect(agent.dispatchInputs).toHaveLength(0);
   });
 
-  it("still starts the instance when the referenced teammate is already inactive", async () => {
+  it("blocks start when the referenced teammate is inactive", async () => {
     const current = tables();
     const agent = new FakeAgentService(true);
     const employee: EmployeeServiceLike = {
@@ -2941,27 +3219,17 @@ describe("workflow agent nodes", () => {
       service,
       "employee-node-manual.md",
     );
-    const instance = await service.startInstance(member, {
-      workspaceId: "main",
-      definitionId: definition.id,
-      title: "执行实例已停用时仍可启动",
+    await expect(
+      service.startInstance(member, {
+        workspaceId: "main",
+        definitionId: definition.id,
+        title: "执行实例已停用时阻止启动",
+      }),
+    ).rejects.toMatchObject({
+      code: "invalid_input",
+      message: expect.stringContaining("当前不可用"),
     });
-    expect(instance.nodes.development?.status).toBe("ready");
-
-    const dispatched = await service.dispatchAgentNode(member, {
-      instanceId: instance.id,
-      nodeId: "development",
-      trigger: "manual-dispatch",
-    });
-    expect(dispatched.nodes.development).toMatchObject({
-      status: "ready",
-      executorFallback: {
-        id: "flow-owner",
-        label: "Owner",
-        originalExecutorId: "backend-01",
-      },
-    });
-    expect(dispatched.nodes.development?.note).toContain("已自动转交");
+    expect(service.instances("main")).toHaveLength(0);
     expect(agent.dispatchInputs).toHaveLength(0);
   });
 
@@ -3268,13 +3536,33 @@ describe("workflow project role nodes", () => {
     ].join("\n");
   }
 
-  function roleHarness(members: readonly RoleMember[]) {
+  function roleHarness(
+    members: readonly RoleMember[],
+    permission?: WorkflowPermissionServiceLike,
+    roleMappingPresets: Readonly<
+      Record<
+        string,
+        {
+          readonly roleId: string;
+          readonly assignees: readonly {
+            readonly kind: "user" | "agent";
+            readonly id: string;
+            readonly name?: string;
+          }[];
+        }
+      >
+    > = {},
+    employeeTargetReady = true,
+    principalRuntimeReady = true,
+  ) {
     const current = tables();
     const tasks = new FakeTaskBridge();
+    const agent = new FakeAgentService(true);
     const service = new WorkflowService(current, {
       now: () => new Date(timestamp),
       team,
       tasks: () => tasks,
+      agent: () => agent,
       roles: () => ({
         config: () => ({
           seats: [{ id: "reviewer", label: "评审组", participantKind: "any" }],
@@ -3282,8 +3570,86 @@ describe("workflow project role nodes", () => {
         members: (_workspaceId: string, seatId: string) =>
           seatId === "reviewer" ? members : [],
       }),
+      teammates: () => ({
+        list: () => [
+          {
+            id: "tm-tester",
+            name: "柯真 01 测试",
+            state: "active",
+            employeeId: "tm-tester",
+            ownerUserId: "workflow-member",
+            ownerName: "Member",
+          },
+        ],
+      }),
+      employee: () => ({
+        employeeWorkspaceTarget: () => undefined,
+        workflowTarget: (employeeId: string) =>
+          employeeTargetReady && employeeId === "tm-tester"
+            ? {
+                employee: {
+                  id: "tm-tester",
+                  displayName: "柯真 01 测试",
+                  status: "active",
+                },
+                assignment: {
+                  role: "member",
+                  permissions: ["read", "write"],
+                },
+                profile: {
+                  id: "runtime-tm-tester",
+                  name: "Tester",
+                  legacyAgentProfileId: "tm-tester",
+                },
+              }
+            : undefined,
+        workflowDispatchBlockReason: () => undefined,
+        employeeApprovalTarget: () => undefined,
+        issueRuntimeTicket: async () => ({ id: "ticket-tm-tester" }),
+        authorizeTicket: async () => ({ employeeId: "tm-tester" }),
+      }),
+      principals: () => ({
+        resolveReference: () => undefined,
+        resolveSubject: (subjectType, subjectId) =>
+          subjectType === "teammate" && subjectId === "tm-tester"
+            ? {
+                id: "principal-ai-tm-tester",
+                kind: "ai",
+                status: "active",
+              }
+            : undefined,
+        preferredSubjectId: () => undefined,
+      }),
+      principalRuntime: () => ({
+        profile: () =>
+          principalRuntimeReady
+            ? {
+                id: "runtime-tm-tester",
+                agentProfileId: "tm-tester",
+                status: "active",
+              }
+            : undefined,
+        issueTicket: async () => ({ id: "principal-ticket-tm-tester" }),
+        authorizeTicket: async () => ({
+          principalId: "principal-ai-tm-tester",
+        }),
+      }),
+      permission: () => permission,
+      projects: () => ({
+        project: () => ({
+          projectRoles: [
+            {
+              id: "reviewer",
+              code: "REVIEWER",
+              name: "评审组",
+              permissions: ["read", "write"],
+            },
+          ],
+          roleMappingPresets,
+        }),
+      }),
     });
-    return { current, tasks, service };
+    return { current, tasks, service, agent };
   }
 
   const roleMembers: RoleMember[] = [
@@ -3478,7 +3844,7 @@ describe("workflow project role nodes", () => {
   });
 
   it("pins a role node to a concrete executor at instance creation", async () => {
-    const { service, tasks } = roleHarness(roleMembers);
+    const { service, tasks, agent } = roleHarness(roleMembers);
     const definition = await service.importDefinition(owner, {
       workspaceId: "main",
       sourceMd: roleFixture("role-node-pinned"),
@@ -3493,9 +3859,12 @@ describe("workflow project role nodes", () => {
       },
     });
 
-    expect(instance.nodes.review?.approvals["review:reviewer"]).toMatchObject({
-      approver: { kind: "user", id: "flow-owner", name: "Owner" },
-    });
+    expect(Object.values(instance.nodes.review?.approvals ?? {})).toMatchObject([
+      {
+        approver: { kind: "user", id: "flow-owner", name: "Owner" },
+        status: "pending",
+      },
+    ]);
     expect(instance.nodes.design?.receiverOverride).toMatchObject({
       type: "agent",
       id: "tm-tester",
@@ -3520,6 +3889,15 @@ describe("workflow project role nodes", () => {
       receiverId: "tm-tester",
       receiverName: "柯真 01 测试",
     });
+    expect(decided.nodes.design?.status).toBe("running");
+    expect(agent.dispatchInputs).toHaveLength(1);
+    expect(agent.dispatchInputs[0]).toMatchObject({
+      employeeId: "tm-tester",
+      profileId: "tm-tester",
+    });
+    expect(
+      service.events(instance.id).map((event) => event.kind),
+    ).toContain("node.auto_dispatched");
 
     // 未在模板里的节点不允许指定执行人。
     await expect(
@@ -3530,6 +3908,453 @@ describe("workflow project role nodes", () => {
         assignees: { missing: { kind: "user", id: "flow-owner" } },
       }),
     ).rejects.toMatchObject({ code: "invalid_input" });
+  });
+
+  it("resolves platform role codes into local instance bindings", async () => {
+    const current = tables();
+    const tasks = new FakeTaskBridge();
+    const members: RoleMember[] = [
+      {
+        assigneeKind: "user",
+        assigneeId: "workflow-member",
+        status: "assigned",
+      },
+    ];
+    const service = new WorkflowService(current, {
+      now: () => new Date(timestamp),
+      team,
+      tasks: () => tasks,
+      projects: () => ({
+        project: () => ({
+          projectRoles: [
+            {
+              id: "local-reviewer",
+              code: "REVIEWER",
+              name: "本地评审组",
+              permissions: ["read", "write"],
+            },
+          ],
+        }),
+      }),
+      roles: () => ({
+        config: () => ({
+          seats: [
+            {
+              id: "local-reviewer",
+              label: "本地评审组",
+              participantKind: "any",
+              permissions: ["read", "write"],
+            },
+          ],
+        }),
+        members: (_workspaceId, seatId) =>
+          seatId === "local-reviewer" ? members : [],
+      }),
+    });
+    const sourceMd = roleFixture("role-code-binding")
+      .replace("executor: role:reviewer", "executor: role-code:REVIEWER")
+      .replace("approver: 角色:reviewer", "approver: role-code:REVIEWER");
+    const definition = await service.importDefinition(owner, {
+      workspaceId: "main",
+      sourceMd,
+    });
+    const binding = {
+      design: {
+        dispatchMode: "claim" as const,
+      },
+    };
+    const preflight = await service.preflightInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      assignmentBindings: binding,
+    });
+    expect(preflight.canStart).toBe(true);
+    expect(
+      preflight.nodes.find((node) => node.nodeId === "design"),
+    ).toMatchObject({
+      source: {
+        kind: "role",
+        id: "local-reviewer",
+        roleCode: "REVIEWER",
+      },
+      dispatchMode: "claim",
+      status: "resolved",
+      candidatePool: [
+        {
+          kind: "user",
+          id: "workflow-member",
+        },
+      ],
+    });
+
+    const instance = await service.startInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "角色编码实例",
+      assignmentBindings: binding,
+    });
+    expect(instance.assignmentBindings.design).toMatchObject({
+      source: { id: "local-reviewer", roleCode: "REVIEWER" },
+      dispatchMode: "claim",
+      status: "resolved",
+    });
+    expect(instance.roleSnapshot["local-reviewer"]).toMatchObject({
+      roleId: "local-reviewer",
+      code: "REVIEWER",
+      name: "本地评审组",
+    });
+
+    const approved = await service.decideApproval(member, {
+      instanceId: instance.id,
+      nodeId: "review",
+      decision: "approved",
+    });
+    const designTaskId = approved.nodes.design?.taskIds[0]!;
+    expect(tasks.records.get(designTaskId)?.workflow).toMatchObject({
+      dispatchMode: "claim",
+      candidatePool: [
+        {
+          kind: "user",
+          id: "workflow-member",
+        },
+      ],
+    });
+    expect(tasks.records.get(designTaskId)?.status).toBe("todo");
+    await service.handleTaskClaimed(
+      {
+        ...tasks.records.get(designTaskId)!,
+        workspaceId: "main",
+      },
+      member,
+    );
+    const claimed = service.instance(instance.id)!;
+    expect(claimed.nodes.design).toMatchObject({
+      status: "running",
+      assignedTo: "Member",
+      receiverOverride: {
+        type: "human",
+        id: "workflow-member",
+      },
+    });
+    expect(service.events(instance.id).map((event) => event.kind)).toContain(
+      "node.claimed",
+    );
+  });
+
+  it("prefills role assignments from project mapping presets", async () => {
+    const { service } = roleHarness(roleMembers, undefined, {
+      reviewer: {
+        roleId: "reviewer",
+        assignees: [
+          { kind: "user", id: "flow-member", name: "Flow Member" },
+        ],
+      },
+    });
+    const definition = await service.importDefinition(owner, {
+      workspaceId: "main",
+      sourceMd: roleFixture("role-preset"),
+    });
+    const preflight = await service.preflightInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+    });
+    expect(preflight.canStart).toBe(true);
+    expect(
+      preflight.nodes.find((node) => node.nodeId === "design"),
+    ).toMatchObject({
+      dispatchMode: "claim",
+      candidatePool: [
+        { kind: "user", id: "flow-member", name: "Flow Member" },
+      ],
+    });
+  });
+
+  it("remaps a portable fixed user without creating an unresolved instance", async () => {
+    const current = tables();
+    const tasks = new FakeTaskBridge();
+    const baseTeam = team();
+    const audits: Array<Record<string, unknown>> = [];
+    const portableTeam: TeamServiceLike = {
+      ...baseTeam,
+      users: () => [
+        ...baseTeam.users(),
+        { id: "outsider", name: "Outsider" },
+      ],
+    };
+    const service = new WorkflowService(current, {
+      now: () => new Date(timestamp),
+      team: () => portableTeam,
+      tasks: () => tasks,
+      projects: () => ({
+        project: () => ({ projectRoles: [] }),
+        appendAudit: async (input) => {
+          audits.push(input as unknown as Record<string, unknown>);
+        },
+      }),
+    });
+    const sourceMd = [
+      "# 工作流：固定人员重映射",
+      "",
+      "## 元信息",
+      "",
+      "- key: portable-fixed-user",
+      "- version: 1",
+      "",
+      "## 节点",
+      "",
+      "### 执行",
+      "",
+      "- id: execute",
+      "- type: task",
+      "- executor: user:outsider",
+      "- portability: suggested",
+      "- dispatch-mode: assigned",
+      "",
+      "## 连接",
+    ].join("\n");
+    const definition = await service.importDefinition(owner, {
+      workspaceId: "main",
+      sourceMd,
+    });
+
+    const unresolved = await service.preflightInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+    });
+    expect(unresolved.canStart).toBe(false);
+    expect(unresolved.risks).toContainEqual(
+      expect.objectContaining({
+        code: "assignee_not_project_member",
+        nodeId: "execute",
+      }),
+    );
+    await expect(
+      service.startInstance(member, {
+        workspaceId: "main",
+        definitionId: definition.id,
+        title: "不应创建",
+      }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+    expect(service.instances("main")).toHaveLength(0);
+    expect(tasks.records.size).toBe(0);
+    expect(audits).toContainEqual(
+      expect.objectContaining({
+        action: "workflow.assignment.unresolved",
+        workspaceId: "main",
+      }),
+    );
+
+    const remapped = await service.preflightInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      assignmentBindings: {
+        execute: {
+          dispatchMode: "assigned",
+          primaryAssignee: {
+            kind: "user",
+            id: "workflow-member",
+          },
+        },
+      },
+    });
+    expect(remapped.canStart).toBe(true);
+    const instance = await service.startInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "已重映射",
+      assignmentBindings: {
+        execute: {
+          dispatchMode: "assigned",
+          primaryAssignee: {
+            kind: "user",
+            id: "workflow-member",
+          },
+        },
+      },
+    });
+    const taskId = instance.nodes.execute?.taskIds[0]!;
+    expect(tasks.records.get(taskId)).toMatchObject({
+      receiverType: "human",
+      receiverId: "workflow-member",
+    });
+    expect(instance.assignmentBindings.execute).toMatchObject({
+      status: "resolved",
+      sourceChanged: {
+        reason: "instance_mapping_override",
+        originalId: "outsider",
+      },
+    });
+  });
+
+  it("blocks an AI assignment when permission preflight is denied", async () => {
+    const { service, tasks, agent } = roleHarness(roleMembers, {
+      resolve: () => ({
+        allowed: false,
+        reasons: ["缺少动作权限：write"],
+      }),
+    });
+    const definition = await service.importDefinition(owner, {
+      workspaceId: "main",
+      sourceMd: roleFixture("role-ai-permission"),
+    });
+    const binding = {
+      design: {
+        dispatchMode: "assigned" as const,
+        primaryAssignee: {
+          kind: "agent" as const,
+          id: "tm-tester",
+          name: "柯真 01 测试",
+        },
+      },
+    };
+    const preflight = await service.preflightInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      assignmentBindings: binding,
+    });
+    expect(preflight.canStart).toBe(false);
+    expect(preflight.risks).toContainEqual(
+      expect.objectContaining({
+        code: "ai_permission_denied",
+        nodeId: "design",
+      }),
+    );
+    await expect(
+      service.startInstance(member, {
+        workspaceId: "main",
+        definitionId: definition.id,
+        title: "AI 权限不足",
+        assignmentBindings: binding,
+      }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+    expect(tasks.records.size).toBe(0);
+    expect(agent.dispatchInputs).toHaveLength(0);
+  });
+
+  it("allows a principal-runtime-only AI member without an employee record", async () => {
+    const { service } = roleHarness(roleMembers, undefined, {}, false);
+    const definition = await service.importDefinition(owner, {
+      workspaceId: "main",
+      sourceMd: roleFixture("role-ai-runtime-missing"),
+    });
+    const preflight = await service.preflightInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      assignmentBindings: {
+        design: {
+          dispatchMode: "assigned",
+          primaryAssignee: {
+            kind: "agent",
+            id: "tm-tester",
+            name: "柯真 01 测试",
+          },
+        },
+      },
+    });
+    expect(preflight.canStart).toBe(true);
+    expect(
+      preflight.risks.find(
+        (candidate) =>
+          candidate.nodeId === "design" &&
+          candidate.code === "ai_runtime_not_ready",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("asks only for runtime repair when an AI member has no runtime profile", async () => {
+    const { service } = roleHarness(
+      roleMembers,
+      undefined,
+      {},
+      false,
+      false,
+    );
+    const definition = await service.importDefinition(owner, {
+      workspaceId: "main",
+      sourceMd: roleFixture("role-ai-runtime-missing-2"),
+    });
+    const preflight = await service.preflightInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      assignmentBindings: {
+        design: {
+          dispatchMode: "assigned",
+          primaryAssignee: {
+            kind: "agent",
+            id: "tm-tester",
+            name: "柯真 01 测试",
+          },
+        },
+      },
+    });
+    const risk = preflight.risks.find(
+      (candidate) =>
+        candidate.nodeId === "design" &&
+        candidate.code === "ai_runtime_not_ready",
+    );
+    expect(risk).toMatchObject({
+      actions: ["enable_ai_runtime"],
+    });
+    expect(risk?.message).not.toContain("目标项目授权");
+  });
+
+  it("does not remap a required fixed binding", async () => {
+    const current = tables();
+    const baseTeam = team();
+    const portableTeam: TeamServiceLike = {
+      ...baseTeam,
+      users: () => [
+        ...baseTeam.users(),
+        { id: "outsider", name: "Outsider" },
+      ],
+    };
+    const service = new WorkflowService(current, {
+      now: () => new Date(timestamp),
+      team: () => portableTeam,
+    });
+    const sourceMd = [
+      "# 工作流：固定绑定",
+      "",
+      "## 元信息",
+      "",
+      "- key: required-fixed-user",
+      "- version: 1",
+      "",
+      "## 节点",
+      "",
+      "### 执行",
+      "",
+      "- id: execute",
+      "- type: task",
+      "- executor: user:outsider",
+      "- portability: required",
+      "",
+      "## 连接",
+    ].join("\n");
+    const definition = await service.importDefinition(owner, {
+      workspaceId: "main",
+      sourceMd,
+    });
+    const result = await service.preflightInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      assignmentBindings: {
+        execute: {
+          dispatchMode: "assigned",
+          primaryAssignee: {
+            kind: "user",
+            id: "workflow-member",
+          },
+        },
+      },
+    });
+    expect(result.canStart).toBe(false);
+    expect(result.risks).toContainEqual(
+      expect.objectContaining({
+        code: "binding_not_portable",
+        nodeId: "execute",
+      }),
+    );
   });
 
   it("rejects role references the project does not maintain", async () => {
@@ -3636,6 +4461,88 @@ describe("workflow routes", () => {
     expect(payload.instances[0]!.title).toBe("A");
   });
 
+  it("lists only the requested project and platform scope of templates", async () => {
+    const sourceMd = await readFile(
+      new URL(
+        "../../../docs/fixtures/workflow/product-delivery.md",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const projectDefinition = await service.importDefinition(owner, {
+      workspaceId: "main",
+      sourceMd,
+      scope: "project",
+    });
+    const otherProjectDefinition = await service.importDefinition(owner, {
+      workspaceId: "other",
+      sourceMd,
+      scope: "project",
+    });
+    const platformDefinition = await service.importDefinition(platformAdmin, {
+      workspaceId: "template-home",
+      sourceMd,
+      scope: "platform",
+    });
+
+    const response = await call(
+      route("/api/collab/workflow/definitions"),
+      fakeRequest(
+        "GET",
+        "/api/collab/workflow/definitions?workspaceId=main",
+        { token: "owner", origin: "http://127.0.0.1:33117" },
+      ),
+    );
+    expect(response.status).toBe(200);
+    const payload = response.json() as { definitions: WorkflowDefinition[] };
+    expect(payload.definitions.map((item) => item.id)).toEqual(
+      expect.arrayContaining([projectDefinition.id, platformDefinition.id]),
+    );
+    expect(payload.definitions.map((item) => item.id)).not.toContain(
+      otherProjectDefinition.id,
+    );
+
+    const projectOnlyResponse = await call(
+      route("/api/collab/workflow/definitions"),
+      fakeRequest(
+        "GET",
+        "/api/collab/workflow/definitions?workspaceId=main&scope=project",
+        { token: "owner", origin: "http://127.0.0.1:33117" },
+      ),
+    );
+    expect(projectOnlyResponse.status).toBe(200);
+    const projectOnly = projectOnlyResponse.json() as {
+      definitions: WorkflowDefinition[];
+    };
+    expect(projectOnly.definitions.map((item) => item.id)).toEqual([
+      projectDefinition.id,
+    ]);
+  });
+
+  it("preflights an instance without persisting it", async () => {
+    const definition = await importedFixture(service, "product-delivery.md");
+    const response = await call(
+      route("/api/collab/workflow/instances/preflight"),
+      fakeRequest("POST", "/api/collab/workflow/instances/preflight", {
+        token: "owner",
+        origin: "http://127.0.0.1:33117",
+        body: {
+          workspaceId: "main",
+          definitionId: definition.id,
+          definitionVersion: definition.version,
+        },
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(response.json()).toMatchObject({
+      ok: true,
+      definitionId: definition.id,
+      definitionVersion: definition.version,
+      canStart: true,
+    });
+    expect(current.instances.size).toBe(0);
+  });
+
   it("returns the referenced definition with an instance detail", async () => {
     const definition = await importedFixture(service, "product-delivery.md");
     const instance = await service.startInstance(owner, {
@@ -3709,7 +4616,7 @@ describe("workflow apply", () => {
     };
     await apply(ctx as unknown as Parameters<typeof apply>[0]);
     expect(provided).toEqual(["collabWorkflow"]);
-    expect(routes).toHaveLength(22);
+    expect(routes).toHaveLength(24);
     expect(registered).toHaveLength(2);
     const tool = registered.find(
       (item) => (item as { name?: string }).name === "collab_workflow",

@@ -1282,7 +1282,7 @@ window.__ModuleLoader__.load({
                   "div",
                   { className: "pmda-tab-new-menu", role: "menu" },
                   ...[
-                    ["communication", "沟通"],
+                    ["communication", "对话"],
                     ["data-agent", "数据洞察"],
                     ["task-drafts", "任务草稿"],
                   ].map(([type, text]) =>

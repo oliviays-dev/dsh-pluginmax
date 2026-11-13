@@ -34,7 +34,7 @@ function setup() {
   >();
   const grants: Array<{
     principalId: string;
-    scopeType: "workspace";
+    scopeType: "workspace" | "project";
     scopeId: string;
     role: string;
     permissions: readonly string[];
@@ -165,6 +165,45 @@ describe("Principal Runtime", () => {
         contextId: "workflow-1",
       }),
     ).rejects.toThrow("resource is outside the ticket scope");
+  });
+
+  it("includes project-scoped grants in a Principal Action Ticket", async () => {
+    const { service, grants } = setup();
+    const principal = await service.ensureTeammatePrincipal({
+      teammateId: "tm-project",
+      displayName: "Project AI",
+    });
+    await service.ensureProfile({
+      principalId: principal.id,
+      workspaceId: "workspace-1",
+      name: "Project AI",
+      agentProfileId: "agent-project",
+      execution: "builtin",
+      allowedTools: [],
+      createdByUserId: "olivia",
+    });
+    grants.push({
+      principalId: principal.id,
+      scopeType: "project",
+      scopeId: "workspace-1",
+      role: "analyst",
+      permissions: ["read", "write"],
+      status: "active",
+    });
+
+    await expect(
+      service.issueTicket({
+        principalId: principal.id,
+        workspaceId: "workspace-1",
+        contextType: "task",
+        contextId: "task-1",
+        requestedActions: ["read", "write"],
+        issuedByUserId: "olivia",
+      }),
+    ).resolves.toMatchObject({
+      allowedActions: ["read", "write"],
+      deniedActions: [],
+    });
   });
 
   it("declares its storage domain", () => {

@@ -5,6 +5,7 @@ import {
   createIdentityRoutes,
   hashPassword,
   inject,
+  PermissionScopeService,
   PrincipalService,
   teamDomainSpec,
   TeamService,
@@ -379,11 +380,7 @@ describe("dsh-collab-identity", () => {
       password: "old-password",
     });
 
-    await team.resetUserPassword(
-      admin.userId,
-      "ligong",
-      "password-123",
-    );
+    await team.resetUserPassword(admin.userId, "ligong", "password-123");
     expect(team.resolveToken(oldSession.token)).toBeUndefined();
     await expect(
       team.login({ userId: "ligong", password: "old-password" }),
@@ -508,11 +505,50 @@ describe("dsh-collab-identity", () => {
     );
   });
 
+  it("allows self-owner bootstrap only for an empty workspace", async () => {
+    const { service: team } = service();
+    const admin = await team.bootstrap({
+      userId: "admin",
+      name: "Admin",
+      password: "password-123",
+    });
+    await team.registerUser(admin.userId, {
+      userId: "creator",
+      name: "Creator",
+      password: "password-456",
+      role: "member",
+    });
+    await team.addMember(
+      "creator",
+      {
+        workspaceId: "empty",
+        userId: "creator",
+        role: "owner",
+      },
+      { allowSelfOwnerBootstrap: true },
+    );
+    expect(team.members("empty")).toContainEqual(
+      expect.objectContaining({ userId: "creator", memberRole: "owner" }),
+    );
+    await expect(
+      team.addMember(
+        "creator",
+        {
+          workspaceId: "empty",
+          userId: "creator",
+          role: "owner",
+        },
+        { allowSelfOwnerBootstrap: true },
+      ),
+    ).rejects.toMatchObject({ code: "forbidden" });
+  });
+
   it("registers a flat service, command, tool, and HTTP routes", async () => {
     const plugin = await setupPlugin();
-    expect(plugin.provided).toHaveLength(2);
+    expect(plugin.provided).toHaveLength(3);
     expect(plugin.provided[0]).toBeInstanceOf(TeamService);
     expect(plugin.provided[1]).toBeInstanceOf(PrincipalService);
+    expect(plugin.provided[2]).toBeInstanceOf(PermissionScopeService);
     expect(plugin.commands).toHaveLength(1);
     expect(plugin.tools).toHaveLength(1);
     expect(inject).toContain("workspaceRegistry");
@@ -685,10 +721,7 @@ describe("dsh-collab-identity", () => {
       },
     });
 
-    const createUser = route(
-      plugin.routes,
-      "/api/collab/team/users/create",
-    );
+    const createUser = route(plugin.routes, "/api/collab/team/users/create");
     const member = await call(
       createUser,
       fakeRequest("POST", "/api/collab/team/users/create", {
@@ -702,10 +735,7 @@ describe("dsh-collab-identity", () => {
       }),
     );
     expect(member.status).toBe(201);
-    const updateUser = route(
-      plugin.routes,
-      "/api/collab/team/users/update",
-    );
+    const updateUser = route(plugin.routes, "/api/collab/team/users/update");
     const disabled = await call(
       updateUser,
       fakeRequest("POST", "/api/collab/team/users/update", {

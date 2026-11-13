@@ -193,6 +193,20 @@ window.__ModuleLoader__.load({
 .pmwf-template-preview-meta{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:5px;color:var(--dsw-alias-label-secondary);font-size:10.5px;line-height:1.45}
 .pmwf-template-preview-meta b{color:var(--dsw-alias-label-primary);font-weight:600}
 .pmwf-template-preview-desc{margin:6px 0 0;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.5}
+.pmwf-start-mapping{display:grid;gap:8px;max-height:280px;overflow:auto;padding-right:3px}
+.pmwf-start-mapping-node{display:grid;gap:8px;padding:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base))}
+.pmwf-start-mapping-title{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.pmwf-start-mapping-title strong{font-size:12px}
+.pmwf-start-mapping-title span{font-size:10px;color:var(--dsw-alias-label-tertiary)}
+.pmwf-start-mapping-title .success{color:var(--dsw-alias-state-success-primary,#2f9e68)}
+.pmwf-start-mapping-title .blocked{color:var(--dsw-alias-state-danger-primary,#d94848)}
+.pmwf-start-mapping-field{display:grid;gap:4px;font-size:10.5px;color:var(--dsw-alias-label-secondary)}
+.pmwf-start-mapping-options{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;font-size:10.5px;color:var(--dsw-alias-label-secondary)}
+.pmwf-start-mapping-options>span{font-weight:600;color:var(--dsw-alias-label-primary)}
+.pmwf-start-mapping-options label{display:flex;align-items:center;gap:4px}
+.pmwf-start-mapping-override{display:flex;align-items:center;gap:5px;font-size:10.5px;color:var(--dsw-alias-label-tertiary)}
+.pmwf-start-mapping-risks{margin:0;padding-left:18px;color:var(--dsw-alias-state-danger-primary,#d94848);font-size:10.5px;line-height:1.5}
+.pmwf-start-mapping-risks .pmwf-btn{margin-left:6px}
 .pmwf-dialog-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding-top:12px;border-top:1px solid var(--dsw-alias-border-l2)}
 .pmwf-dialog-actions .pmwf-btn{min-width:88px}
 .pmwf-name-field{margin-top:5px}
@@ -472,6 +486,14 @@ window.__ModuleLoader__.load({
         "";
       const title = form.querySelector(".pmwf-start-title")?.value.trim() ?? "";
       if (!workspaceId || !definitionId || !title) return;
+      const bindingsValue =
+        form.querySelector(".pmwf-start-bindings")?.value ?? "{}";
+      let bindings = {};
+      try {
+        bindings = JSON.parse(bindingsValue);
+      } catch {
+        bindings = {};
+      }
 
       const original = button.textContent;
       button.disabled = true;
@@ -482,9 +504,15 @@ window.__ModuleLoader__.load({
           body: JSON.stringify({
             workspaceId,
             definitionId,
+            definitionVersion:
+              Number(form.getAttribute("data-definition-version")) > 0
+                ? Number(form.getAttribute("data-definition-version"))
+                : undefined,
             title,
             sessionId: sessionId || undefined,
             relatedSessionIds: [],
+            assignmentBindings: bindings.assignmentBindings ?? {},
+            approvalBindings: bindings.approvalBindings ?? {},
           }),
         });
         form.querySelector(".pmwf-start-title").value = "";
@@ -790,10 +818,101 @@ window.__ModuleLoader__.load({
       return node.approvalPolicy === "any" ? "OR · 任一通过" : "AND · 全部通过";
     }
 
+    function workflowNodeAssignmentLabel(node) {
+      if (node.type === "approval") return "";
+      const mode =
+        node.dispatchMode ??
+        (node.executor?.kind === "role" ? "claim" : "assigned");
+      const parts = [mode === "claim" ? "候选池捞单" : "系统派单"];
+      if (["user", "agent", "employee"].includes(node.executor?.kind)) {
+        parts.push(
+          node.executor.portability === "required" ? "固定绑定" : "建议绑定",
+        );
+      }
+      return parts.join(" · ");
+    }
+
+    function workflowDefinitionScope(definition) {
+      return definition?.scope === "project" ? "project" : "platform";
+    }
+
+    function workflowDefinitionVisibleTo(definition, workspaceId) {
+      return (
+        workflowDefinitionScope(definition) === "platform" ||
+        definition.workspaceId === workspaceId
+      );
+    }
+
+    function workflowTargetKey(target) {
+      return target === undefined ? "" : `${target.kind}:${target.id}`;
+    }
+
+    function workflowTargetFromKey(value, options) {
+      const separator = value.indexOf(":");
+      if (separator < 0) return undefined;
+      const kind = value.slice(0, separator);
+      const id = value.slice(separator + 1);
+      const found = options.find(
+        (option) => option.kind === kind && option.id === id,
+      );
+      return {
+        kind,
+        id,
+        ...(found?.name === undefined ? {} : { name: found.name }),
+      };
+    }
+
+    function workflowRoleKey(node) {
+      if (node?.source?.kind !== "role") return undefined;
+      return (
+        node.source.roleCode ??
+        node.source.id ??
+        node.nodeId
+      );
+    }
+
+    function workflowPreflightPayload(assignmentDrafts, approvalDrafts) {
+      return {
+        assignmentBindings: Object.fromEntries(
+          Object.entries(assignmentDrafts ?? {}).flatMap(([nodeId, draft]) =>
+            draft === undefined
+              ? []
+              : [
+                  [
+                    nodeId,
+                    {
+                      ...(draft.dispatchMode === undefined
+                        ? {}
+                        : { dispatchMode: draft.dispatchMode }),
+                      ...(draft.primaryAssignee === undefined
+                        ? {}
+                        : { primaryAssignee: draft.primaryAssignee }),
+                      ...(draft.candidatePool === undefined
+                        ? {}
+                        : { candidatePool: draft.candidatePool }),
+                    },
+                  ],
+                ],
+          ),
+        ),
+        approvalBindings: Object.fromEntries(
+          Object.entries(approvalDrafts ?? {}).flatMap(([nodeId, approvers]) =>
+            Array.isArray(approvers) && approvers.length > 0
+              ? [[nodeId, { approvers }]]
+              : [],
+          ),
+        ),
+      };
+    }
+
     function dedupeWorkflowDefinitions(definitions) {
       const byVersion = new Map();
       for (const definition of definitions) {
-        const key = `${definition.key}:${definition.version}`;
+        const scope = workflowDefinitionScope(definition);
+        const key =
+          scope === "platform"
+            ? `platform:${definition.key}:${definition.version}`
+            : `project:${definition.workspaceId}:${definition.key}:${definition.version}`;
         const current = byVersion.get(key);
         if (current === undefined || definition.updatedAt > current.updatedAt) {
           byVersion.set(key, definition);
@@ -2799,6 +2918,7 @@ window.__ModuleLoader__.load({
       workspaceOptions,
       currentWorkspaceId,
       canManage,
+      canPublishPlatform,
       onClose,
     }) {
       const [definitions, setDefinitions] = react.useState([]);
@@ -2814,6 +2934,7 @@ window.__ModuleLoader__.load({
       const [editing, setEditing] = react.useState(false);
       const [sourceMd, setSourceMd] = react.useState("");
       const [draftWorkspaceId, setDraftWorkspaceId] = react.useState("");
+      const [scope, setScope] = react.useState("project");
       const [validation, setValidation] = react.useState(null);
       const [validatedSourceMd, setValidatedSourceMd] = react.useState("");
       const [busy, setBusy] = react.useState("");
@@ -2895,6 +3016,16 @@ window.__ModuleLoader__.load({
           : (listable.find((item) => item.id === selectedId) ??
             listable[0] ??
             null);
+      const canEditDefinition = (definition) =>
+        definition === null || definition === undefined
+          ? canManage
+          : workflowDefinitionScope(definition) === "platform"
+            ? canPublishPlatform
+            : canManage &&
+              (workspaceId === "" ||
+                definition.workspaceId === workspaceId);
+      const canWriteDraft =
+        canManage && (scope === "project" || canPublishPlatform);
 
       react.useEffect(() => {
         if (editing && selectedId === "__new__") return;
@@ -2927,7 +3058,7 @@ window.__ModuleLoader__.load({
                     children: item.name,
                   }),
                   jsxRuntime.jsx("small", {
-                    children: `${item.key} · v${item.version} · ${
+                    children: `${workflowDefinitionScope(item) === "platform" ? "平台" : "项目"} · ${item.key} · v${item.version} · ${
                       item.status === "active"
                         ? "已启用"
                         : item.status === "disabled"
@@ -2945,6 +3076,7 @@ window.__ModuleLoader__.load({
       const startEditing = (definition) => {
         setSelectedId(definition?.id ?? "");
         setSourceMd(definition?.sourceMd ?? EMPTY_WORKFLOW_MARKDOWN);
+        setScope(workflowDefinitionScope(definition));
         setValidation(null);
         setValidatedSourceMd("");
         setEditing(true);
@@ -2976,6 +3108,7 @@ window.__ModuleLoader__.load({
               body: JSON.stringify({
                 workspaceId: targetWorkspaceId,
                 sourceMd,
+                scope,
               }),
             },
           );
@@ -3012,6 +3145,7 @@ window.__ModuleLoader__.load({
               body: JSON.stringify({
                 workspaceId: targetWorkspaceId,
                 sourceMd,
+                scope,
                 activate: true,
               }),
             },
@@ -3064,6 +3198,31 @@ window.__ModuleLoader__.load({
         }
       };
 
+      const setDefinitionScopeValue = async (nextScope) => {
+        if (!selected || !canPublishPlatform) return;
+        setBusy(`scope:${selected.id}`);
+        try {
+          await request("/api/collab/workflow/definitions/scope", {
+            method: "POST",
+            body: JSON.stringify({
+              workspaceId: selected.workspaceId,
+              definitionId: selected.id,
+              scope: nextScope,
+            }),
+          });
+          setNotice(
+            nextScope === "platform"
+              ? "已切换为平台模板"
+              : "已切换为项目模板",
+          );
+          await load();
+        } catch (cause) {
+          setError(friendly(cause));
+        } finally {
+          setBusy("");
+        }
+      };
+
       const nodes = selected?.graph?.nodes ?? [];
       const edges = selected?.graph?.edges ?? [];
 
@@ -3089,7 +3248,7 @@ window.__ModuleLoader__.load({
                 children: [
                   jsxRuntime.jsx("span", {
                     className: "pmwf-filter",
-                    children: "全平台共享",
+                    children: "项目私有 / 平台共享",
                   }),
                   notice !== "" || error !== ""
                     ? jsxRuntime.jsx("span", {
@@ -3119,6 +3278,7 @@ window.__ModuleLoader__.load({
                             workspaceId || workspaceOptions[0]?.id || "",
                           );
                           setSourceMd(EMPTY_WORKFLOW_MARKDOWN);
+                          setScope("project");
                           setValidation(null);
                         },
                         children: "新建模版",
@@ -3243,6 +3403,32 @@ window.__ModuleLoader__.load({
                               : null,
                           ],
                         }),
+                        jsxRuntime.jsxs("label", {
+                          className: "pmwf-dialog-field",
+                          children: [
+                            jsxRuntime.jsx("span", {
+                              children: "模板作用域",
+                            }),
+                            jsxRuntime.jsxs("select", {
+                              className: "pmwf-select",
+                              value: scope,
+                              disabled: selected !== null && selected !== undefined,
+                              onChange: (event) => setScope(event.target.value),
+                              children: [
+                                jsxRuntime.jsx("option", {
+                                  value: "project",
+                                  children: "项目模板 · 仅当前项目可见",
+                                }),
+                                canPublishPlatform
+                                  ? jsxRuntime.jsx("option", {
+                                      value: "platform",
+                                      children: "平台模板 · 所有项目可见",
+                                    })
+                                  : null,
+                              ],
+                            }),
+                          ],
+                        }),
                         jsxRuntime.jsxs("div", {
                           className: "pmwf-row",
                           children: [
@@ -3324,7 +3510,7 @@ window.__ModuleLoader__.load({
                               type: "button",
                               className: "pmwf-btn secondary",
                               disabled:
-                                !canManage ||
+                                !canWriteDraft ||
                                 busy !== "" ||
                                 sourceMd.trim() === "",
                               onClick: () => void validate(),
@@ -3334,7 +3520,7 @@ window.__ModuleLoader__.load({
                               type: "submit",
                               className: "pmwf-btn",
                               disabled:
-                                !canManage ||
+                                !canWriteDraft ||
                                 busy !== "" ||
                                 sourceMd.trim() === "",
                               children:
@@ -3357,7 +3543,7 @@ window.__ModuleLoader__.load({
                                   }),
                                   jsxRuntime.jsx("div", {
                                     className: "pmwf-profile-meta",
-                                    children: `${selected.key} · v${selected.version} · 更新 ${timeShort(selected.updatedAt)}`,
+                                    children: `${workflowDefinitionScope(selected) === "platform" ? "平台模板" : "项目模板"} · ${selected.key} · v${selected.version} · 更新 ${timeShort(selected.updatedAt)}`,
                                   }),
                                 ],
                               }),
@@ -3378,14 +3564,34 @@ window.__ModuleLoader__.load({
                               jsxRuntime.jsx("button", {
                                 type: "button",
                                 className: "pmwf-btn secondary small",
-                                disabled: !canManage,
+                                disabled: !canEditDefinition(selected),
                                 onClick: () => startEditing(selected),
                                 children: "编辑",
                               }),
+                              canPublishPlatform
+                                ? jsxRuntime.jsx("button", {
+                                    type: "button",
+                                    className: "pmwf-btn secondary small",
+                                    disabled: busy !== "",
+                                    onClick: () =>
+                                      void setDefinitionScopeValue(
+                                        workflowDefinitionScope(selected) ===
+                                          "platform"
+                                          ? "project"
+                                          : "platform",
+                                      ),
+                                    children:
+                                      workflowDefinitionScope(selected) ===
+                                      "platform"
+                                        ? "转为项目模板"
+                                        : "设为平台模板",
+                                  })
+                                : null,
                               jsxRuntime.jsx("button", {
                                 type: "button",
                                 className: "pmwf-btn secondary small",
-                                disabled: !canManage || busy !== "",
+                                disabled:
+                                  !canEditDefinition(selected) || busy !== "",
                                 onClick: () =>
                                   void setStatus(
                                     selected.status === "active"
@@ -3401,7 +3607,7 @@ window.__ModuleLoader__.load({
                                 type: "button",
                                 className: "pmwf-btn secondary small",
                                 disabled:
-                                  !canManage ||
+                                  !canEditDefinition(selected) ||
                                   selected.status === "archived" ||
                                   busy !== "",
                                 onClick: () => void setStatus("archived"),
@@ -3524,6 +3730,27 @@ window.__ModuleLoader__.load({
                                                             },
                                                           )
                                                         : null,
+                                                      workflowNodeAssignmentLabel(
+                                                        node,
+                                                      ) === ""
+                                                        ? null
+                                                        : jsxRuntime.jsxs(
+                                                            "span",
+                                                            {
+                                                              children: [
+                                                                "派发：",
+                                                                jsxRuntime.jsx(
+                                                                  "b",
+                                                                  {
+                                                                    children:
+                                                                      workflowNodeAssignmentLabel(
+                                                                        node,
+                                                                      ),
+                                                                  },
+                                                                ),
+                                                              ],
+                                                            },
+                                                          ),
                                                     ],
                                                   }),
                                                   node.description
@@ -3567,6 +3794,317 @@ window.__ModuleLoader__.load({
                       }),
               }),
             ],
+          }),
+        ],
+      });
+    }
+
+    function WorkflowStartMapping({
+      preflight,
+      options,
+      assignmentDrafts,
+      approvalDrafts,
+      canManageProject,
+      onAssignmentChange,
+      onApprovalChange,
+      onAddMember,
+      onSaveRolePreset,
+    }) {
+      if (preflight === null || preflight === undefined) {
+        return jsxRuntime.jsx("div", {
+          className: "pmwf-note info",
+          children: "正在解析执行人映射…",
+        });
+      }
+      return jsxRuntime.jsxs("div", {
+        className: "pmwf-start-mapping",
+        children: [
+          jsxRuntime.jsxs("div", {
+            className: `pmwf-note ${preflight.canStart ? "success" : "warning"}`,
+            children: [
+              preflight.canStart ? "执行人映射已解析" : "仍有节点未解析",
+              preflight.risks?.length > 0
+                ? ` · ${preflight.risks.length} 项风险`
+                : "",
+            ],
+          }),
+          ...(preflight.nodes ?? []).map((node) => {
+            const draft = assignmentDrafts[node.nodeId] ?? {};
+            const isRole = node.source?.kind === "role";
+            const assigned = draft.primaryAssignee ?? node.primaryAssignee;
+            const candidates =
+              draft.candidatePool ?? node.candidatePool ?? [];
+            const assignedOptions =
+              assigned === undefined ||
+              options.some(
+                (option) =>
+                  option.kind === assigned.kind && option.id === assigned.id,
+              )
+                ? options
+                : [assigned, ...options];
+            const selectedApprovers =
+              approvalDrafts[node.nodeId] ?? [];
+            return jsxRuntime.jsxs(
+              "article",
+              {
+                className: "pmwf-start-mapping-node",
+                children: [
+                  jsxRuntime.jsxs("div", {
+                    className: "pmwf-start-mapping-title",
+                    children: [
+                      jsxRuntime.jsx("strong", {
+                        children: node.nodeName,
+                      }),
+                      jsxRuntime.jsx("span", {
+                        className:
+                          node.status === "resolved" ? "success" : "blocked",
+                        children:
+                          node.status === "resolved" ? "已解析" : "未解析",
+                      }),
+                    ],
+                  }),
+                  node.source?.kind === "system"
+                    ? jsxRuntime.jsx("span", {
+                        className: "pmwf-label",
+                        children: "系统节点，不需要人员映射",
+                      })
+                    : node.nodeType === "approval"
+                    ? jsxRuntime.jsxs("div", {
+                        className: "pmwf-start-mapping-options",
+                        children: [
+                          jsxRuntime.jsx("span", {
+                            children: "审批人",
+                          }),
+                          ...options.map((option) =>
+                            jsxRuntime.jsxs(
+                              "label",
+                              {
+                                children: [
+                                  jsxRuntime.jsx("input", {
+                                    type: "checkbox",
+                                    checked: selectedApprovers.some(
+                                      (item) =>
+                                        item.kind === option.kind &&
+                                        item.id === option.id,
+                                    ),
+                                    onChange: (event) => {
+                                      const next = event.target.checked
+                                        ? [...selectedApprovers, option]
+                                        : selectedApprovers.filter(
+                                            (item) =>
+                                              item.kind !== option.kind ||
+                                              item.id !== option.id,
+                                          );
+                                      onApprovalChange(node.nodeId, next);
+                                    },
+                                  }),
+                                  option.name,
+                                ],
+                              },
+                              `${node.nodeId}:approver:${option.kind}:${option.id}`,
+                            ),
+                          ),
+                        ],
+                      })
+                    : jsxRuntime.jsxs(react.Fragment, {
+                        children: [
+                          isRole
+                            ? jsxRuntime.jsxs("label", {
+                                className: "pmwf-start-mapping-field",
+                                children: [
+                                  jsxRuntime.jsx("span", {
+                                    children: "派发模式",
+                                  }),
+                                  jsxRuntime.jsxs("select", {
+                                    className: "pmwf-select",
+                                    value:
+                                      draft.dispatchMode ??
+                                      node.dispatchMode ??
+                                      "assigned",
+                                    onChange: (event) => {
+                                      const dispatchMode =
+                                        event.target.value;
+                                      onAssignmentChange(node.nodeId, {
+                                        ...draft,
+                                        dispatchMode,
+                                        ...(dispatchMode === "claim"
+                                          ? {
+                                              primaryAssignee: undefined,
+                                              candidatePool:
+                                                draft.candidatePool ??
+                                                node.candidatePool ??
+                                                [],
+                                            }
+                                          : {
+                                              candidatePool: undefined,
+                                              primaryAssignee:
+                                                draft.primaryAssignee ??
+                                                node.primaryAssignee,
+                                            }),
+                                      });
+                                    },
+                                    children: [
+                                      jsxRuntime.jsx("option", {
+                                        value: "assigned",
+                                        children: "系统派单",
+                                      }),
+                                      jsxRuntime.jsx("option", {
+                                        value: "claim",
+                                        children: "候选池捞单",
+                                      }),
+                                    ],
+                                  }),
+                                ],
+                              })
+                            : null,
+                          isRole
+                            ? jsxRuntime.jsxs("label", {
+                                className: "pmwf-start-mapping-override",
+                                children: [
+                                  jsxRuntime.jsx("input", {
+                                    type: "checkbox",
+                                    checked: draft.override === true,
+                                    onChange: (event) =>
+                                      onAssignmentChange(node.nodeId, {
+                                        ...draft,
+                                        override: event.target.checked,
+                                      }),
+                                  }),
+                                  "单节点覆盖",
+                                ],
+                              })
+                            : null,
+                          isRole && canManageProject
+                            ? jsxRuntime.jsx("button", {
+                                type: "button",
+                                className: "pmwf-btn secondary small",
+                                onClick: () => onSaveRolePreset(node),
+                                children: "保存为项目预设",
+                              })
+                            : null,
+                          (draft.dispatchMode ?? node.dispatchMode) ===
+                          "claim"
+                            ? jsxRuntime.jsxs("div", {
+                                className: "pmwf-start-mapping-options",
+                                children: [
+                                  jsxRuntime.jsx("span", {
+                                    children: "候选池",
+                                  }),
+                                  ...options
+                                    .filter((option) => option.kind === "user")
+                                    .map((option) =>
+                                      jsxRuntime.jsxs(
+                                        "label",
+                                        {
+                                          children: [
+                                            jsxRuntime.jsx("input", {
+                                              type: "checkbox",
+                                              checked: candidates.some(
+                                                (item) =>
+                                                  item.kind === option.kind &&
+                                                  item.id === option.id,
+                                              ),
+                                              onChange: (event) => {
+                                                const next = event.target
+                                                  .checked
+                                                  ? [...candidates, option]
+                                                  : candidates.filter(
+                                                      (item) =>
+                                                        item.kind !==
+                                                          option.kind ||
+                                                        item.id !== option.id,
+                                                    );
+                                                onAssignmentChange(
+                                                  node.nodeId,
+                                                  {
+                                                    ...draft,
+                                                    dispatchMode: "claim",
+                                                    candidatePool: next,
+                                                  },
+                                                );
+                                              },
+                                            }),
+                                            option.name,
+                                          ],
+                                        },
+                                        `${node.nodeId}:candidate:${option.kind}:${option.id}`,
+                                      ),
+                                    ),
+                                ],
+                              })
+                            : jsxRuntime.jsxs("label", {
+                                className: "pmwf-start-mapping-field",
+                                children: [
+                                  jsxRuntime.jsx("span", {
+                                    children: "主执行人",
+                                  }),
+                                  jsxRuntime.jsxs("select", {
+                                    className: "pmwf-select",
+                                    value: workflowTargetKey(assigned),
+                                    onChange: (event) => {
+                                      const primaryAssignee =
+                                        workflowTargetFromKey(
+                                          event.target.value,
+                                          assignedOptions,
+                                        );
+                                      onAssignmentChange(node.nodeId, {
+                                        ...draft,
+                                        dispatchMode: "assigned",
+                                        primaryAssignee,
+                                      });
+                                    },
+                                    children: [
+                                      jsxRuntime.jsx("option", {
+                                        value: "",
+                                        children: "选择项目成员或 AI伙伴",
+                                      }),
+                                      ...assignedOptions.map((option) =>
+                                        jsxRuntime.jsx(
+                                          "option",
+                                          {
+                                            value: workflowTargetKey(option),
+                                            children: `${option.kind === "agent" ? "AI伙伴" : "成员"} · ${option.name}`,
+                                          },
+                                          `${node.nodeId}:assignee:${option.kind}:${option.id}`,
+                                        ),
+                                      ),
+                                    ],
+                                  }),
+                                ],
+                              }),
+                        ],
+                      }),
+                  node.risks?.length > 0
+                    ? jsxRuntime.jsx("ul", {
+                        className: "pmwf-start-mapping-risks",
+                        children: node.risks.map((risk, index) =>
+                          jsxRuntime.jsxs(
+                            "li",
+                            {
+                              children: [
+                                risk.message,
+                                canManageProject &&
+                                risk.code === "assignee_not_project_member" &&
+                                node.source?.kind === "user"
+                                  ? jsxRuntime.jsx("button", {
+                                      type: "button",
+                                      className:
+                                        "pmwf-btn secondary small",
+                                      onClick: () => onAddMember(node),
+                                      children: "添加为项目成员",
+                                    })
+                                  : null,
+                              ],
+                            },
+                            `${node.nodeId}:risk:${index}`,
+                          ),
+                        ),
+                      })
+                    : null,
+                ],
+              },
+              node.nodeId,
+            );
           }),
         ],
       });
@@ -3624,6 +4162,15 @@ window.__ModuleLoader__.load({
       const [startWorkspaceId, setStartWorkspaceId] = react.useState("");
       const [startOpen, setStartOpen] = react.useState(false);
       const [startError, setStartError] = react.useState("");
+      const [startPreflight, setStartPreflight] = react.useState(null);
+      const [startPreflightBusy, setStartPreflightBusy] =
+        react.useState(false);
+      const [startProjectMembers, setStartProjectMembers] = react.useState([]);
+      const [startCanManageProject, setStartCanManageProject] =
+        react.useState(false);
+      const [assignmentDrafts, setAssignmentDrafts] = react.useState({});
+      const [approvalDrafts, setApprovalDrafts] = react.useState({});
+      const startPreflightGeneration = react.useRef(0);
       /** 新建工作流成功后要定位的目标：切项目筛选、列表中选中并打开右侧详情。 */
       const [focusRequest, setFocusRequest] = react.useState(null);
       const [templateMode, setTemplateMode] = react.useState(false);
@@ -3767,7 +4314,10 @@ window.__ModuleLoader__.load({
           ? workspaceOptions.map((item) => item.id)
           : [workspaceId];
       const startDefinitions = definitions.filter(
-        (item) => item.status === "active",
+        (item) =>
+          item.status === "active" &&
+          startWorkspace !== null &&
+          workflowDefinitionVisibleTo(item, startWorkspace.id),
       );
       const selectedDefinition =
         startDefinitions.find((item) => item.id === startDefinitionId) ??
@@ -3776,6 +4326,19 @@ window.__ModuleLoader__.load({
         (selectedDefinition &&
           ["owner", "member"].includes(me?.workspaceRole ?? "")) ||
         me?.role === "admin",
+      );
+      const startAssignmentOptions = react.useMemo(
+        () =>
+          startProjectMembers.map((member) => ({
+            kind: member.kind === "agent" ? "agent" : "user",
+            id: member.id,
+            name: member.name ?? member.id,
+          })),
+        [startProjectMembers],
+      );
+      const startBindingPayload = workflowPreflightPayload(
+        assignmentDrafts,
+        approvalDrafts,
       );
       const canManage = me?.role === "admin" || me?.workspaceRole === "owner";
       const projectName = (instance) => {
@@ -3790,6 +4353,232 @@ window.__ModuleLoader__.load({
       };
       const creatorName = (instance) =>
         directoryMemberNames.get(instance.createdBy) ?? instance.createdBy;
+
+      react.useEffect(() => {
+        if (!startOpen || startWorkspace === null || selectedDefinition === undefined) {
+          setStartPreflight(null);
+          setStartProjectMembers([]);
+          setStartCanManageProject(false);
+          setAssignmentDrafts({});
+          setApprovalDrafts({});
+          return undefined;
+        }
+        let disposed = false;
+        const generation = ++startPreflightGeneration.current;
+        setStartPreflightBusy(true);
+        setStartError("");
+        void Promise.all([
+          request(
+            `/api/collab/projects/detail?workspaceId=${encodeURIComponent(startWorkspace.id)}`,
+          ).catch(() => ({ members: [] })),
+          request("/api/collab/workflow/instances/preflight", {
+            method: "POST",
+            body: JSON.stringify({
+              workspaceId: startWorkspace.id,
+              definitionId: selectedDefinition.id,
+              definitionVersion: selectedDefinition.version,
+            }),
+          }),
+        ])
+          .then(([detail, result]) => {
+            if (
+              disposed ||
+              generation !== startPreflightGeneration.current
+            ) {
+              return;
+            }
+            setStartProjectMembers(detail.members ?? []);
+            setStartCanManageProject(detail.viewer?.canManage === true);
+            setStartPreflight(result);
+            const nextAssignments = {};
+            for (const node of result.nodes ?? []) {
+              if (node.source?.kind === "system") continue;
+              if (node.dispatchMode === "assigned") {
+                nextAssignments[node.nodeId] = {
+                  dispatchMode: "assigned",
+                  ...(node.primaryAssignee === undefined
+                    ? {}
+                    : { primaryAssignee: node.primaryAssignee }),
+                };
+              } else {
+                nextAssignments[node.nodeId] = {
+                  dispatchMode: "claim",
+                  ...(node.candidatePool === undefined
+                    ? {}
+                    : { candidatePool: node.candidatePool }),
+                };
+              }
+            }
+            setAssignmentDrafts(nextAssignments);
+            setApprovalDrafts({});
+          })
+          .catch((cause) => {
+            if (
+              disposed ||
+              generation !== startPreflightGeneration.current
+            ) {
+              return;
+            }
+            setStartPreflight(null);
+            setStartError(friendly(cause));
+          })
+          .finally(() => {
+            if (
+              !disposed &&
+              generation === startPreflightGeneration.current
+            ) {
+              setStartPreflightBusy(false);
+            }
+          });
+        return () => {
+          disposed = true;
+        };
+      }, [startOpen, startWorkspace?.id, selectedDefinition?.id]);
+
+      const refreshStartPreflight = async (
+        nextAssignments,
+        nextApprovals,
+      ) => {
+        if (
+          startWorkspace === null ||
+          selectedDefinition === undefined
+        ) {
+          return;
+        }
+        const generation = ++startPreflightGeneration.current;
+        setStartPreflightBusy(true);
+        try {
+          const payload = workflowPreflightPayload(
+            nextAssignments,
+            nextApprovals,
+          );
+          const result = await request(
+            "/api/collab/workflow/instances/preflight",
+            {
+              method: "POST",
+              body: JSON.stringify({
+                workspaceId: startWorkspace.id,
+                definitionId: selectedDefinition.id,
+                definitionVersion: selectedDefinition.version,
+                ...payload,
+              }),
+            },
+          );
+          if (generation !== startPreflightGeneration.current) return;
+          setStartPreflight(result);
+          setStartError("");
+        } catch (cause) {
+          if (generation !== startPreflightGeneration.current) return;
+          setStartPreflight(null);
+          setStartError(friendly(cause));
+        } finally {
+          if (generation === startPreflightGeneration.current) {
+            setStartPreflightBusy(false);
+          }
+        }
+      };
+
+      const changeAssignmentDraft = (nodeId, next) => {
+        const node = startPreflight?.nodes?.find(
+          (item) => item.nodeId === nodeId,
+        );
+        const roleKey = workflowRoleKey(node);
+        const nextAssignments = {
+          ...assignmentDrafts,
+          [nodeId]: next,
+        };
+        if (roleKey !== undefined && next.override !== true) {
+          for (const candidate of startPreflight?.nodes ?? []) {
+            if (
+              workflowRoleKey(candidate) !== roleKey ||
+              assignmentDrafts[candidate.nodeId]?.override === true
+            ) {
+              continue;
+            }
+            nextAssignments[candidate.nodeId] = {
+              ...next,
+              override: false,
+            };
+          }
+        }
+        setAssignmentDrafts(nextAssignments);
+        void refreshStartPreflight(nextAssignments, approvalDrafts);
+      };
+
+      const changeApprovalDraft = (nodeId, next) => {
+        const nextApprovals = {
+          ...approvalDrafts,
+          [nodeId]: next,
+        };
+        setApprovalDrafts(nextApprovals);
+        void refreshStartPreflight(assignmentDrafts, nextApprovals);
+      };
+
+      const addMissingProjectMember = async (node) => {
+        if (
+          startWorkspace === null ||
+          node?.source?.kind !== "user" ||
+          node.source.id === undefined
+        ) {
+          return;
+        }
+        setStartPreflightBusy(true);
+        try {
+          await request("/api/collab/projects/members/save", {
+            method: "POST",
+            body: JSON.stringify({
+              workspaceId: startWorkspace.id,
+              memberKind: "human",
+              memberId: node.source.id,
+              roleIds: [],
+            }),
+          });
+          const detail = await request(
+            `/api/collab/projects/detail?workspaceId=${encodeURIComponent(startWorkspace.id)}`,
+          );
+          setStartProjectMembers(detail.members ?? []);
+          setStartCanManageProject(detail.viewer?.canManage === true);
+          await refreshStartPreflight(assignmentDrafts, approvalDrafts);
+        } catch (cause) {
+          setStartError(friendly(cause));
+        } finally {
+          setStartPreflightBusy(false);
+        }
+      };
+
+      const saveRoleMappingPreset = async (node) => {
+        if (
+          startWorkspace === null ||
+          node?.source?.kind !== "role" ||
+          node.source.id === undefined
+        ) {
+          return;
+        }
+        const draft = assignmentDrafts[node.nodeId] ?? {};
+        const assignees =
+          (draft.dispatchMode ?? node.dispatchMode) === "claim"
+            ? draft.candidatePool ?? node.candidatePool ?? []
+            : [
+                draft.primaryAssignee ?? node.primaryAssignee,
+              ].filter(Boolean);
+        if (assignees.length === 0) {
+          setStartError("当前角色节点还没有可保存的映射");
+          return;
+        }
+        try {
+          await request("/api/collab/projects/role-mappings/save", {
+            method: "POST",
+            body: JSON.stringify({
+              workspaceId: startWorkspace.id,
+              roleId: node.source.id,
+              assignees,
+            }),
+          });
+          notify("已保存角色映射预设");
+        } catch (cause) {
+          setStartError(friendly(cause));
+        }
+      };
 
       react.useEffect(() => {
         if (getToken() === null) {
@@ -4728,6 +5517,7 @@ window.__ModuleLoader__.load({
                   workspaceOptions,
                   currentWorkspaceId: workspaceId,
                   canManage,
+                  canPublishPlatform: me?.role === "admin",
                   onClose: () => {
                     setTemplateMode(false);
                     void load(true);
@@ -5010,8 +5800,16 @@ window.__ModuleLoader__.load({
                             "data-workspace-id": startWorkspace?.id ?? "",
                             "data-session-id": sessionId ?? "",
                             "data-definition-id": selectedDefinition?.id ?? "",
+                            "data-definition-version":
+                              selectedDefinition?.version ?? "",
                             className: "pmwf-form",
                             children: [
+                              jsxRuntime.jsx("textarea", {
+                                className: "pmwf-start-bindings",
+                                value: JSON.stringify(startBindingPayload),
+                                readOnly: true,
+                                hidden: true,
+                              }),
                               startError
                                 ? jsxRuntime.jsx("div", {
                                     className: "pmwf-note error",
@@ -5094,7 +5892,7 @@ window.__ModuleLoader__.load({
                                           "option",
                                           {
                                             value: item.id,
-                                            children: `${item.name} v${item.version}`,
+                                            children: `${workflowDefinitionScope(item) === "platform" ? "平台" : "项目"} · ${item.name} v${item.version}`,
                                           },
                                           item.id,
                                         ),
@@ -5229,6 +6027,28 @@ window.__ModuleLoader__.load({
                                                                             ],
                                                                         },
                                                                       ),
+                                                                  workflowNodeAssignmentLabel(
+                                                                    node,
+                                                                  ) === ""
+                                                                    ? null
+                                                                    : jsxRuntime.jsxs(
+                                                                        "span",
+                                                                        {
+                                                                          children:
+                                                                            [
+                                                                              "派发：",
+                                                                              jsxRuntime.jsx(
+                                                                                "b",
+                                                                                {
+                                                                                  children:
+                                                                                    workflowNodeAssignmentLabel(
+                                                                                      node,
+                                                                                    ),
+                                                                                },
+                                                                              ),
+                                                                            ],
+                                                                        },
+                                                                      ),
                                                                   node.type ===
                                                                   "task"
                                                                     ? jsxRuntime.jsxs(
@@ -5281,6 +6101,20 @@ window.__ModuleLoader__.load({
                                     ],
                                   })
                                 : null,
+                              selectedDefinition
+                                ? jsxRuntime.jsx(WorkflowStartMapping, {
+                                    preflight: startPreflight,
+                                    options: startAssignmentOptions,
+                                    assignmentDrafts,
+                                    approvalDrafts,
+                                    canManageProject:
+                                      startCanManageProject,
+                                    onAssignmentChange: changeAssignmentDraft,
+                                    onApprovalChange: changeApprovalDraft,
+                                    onAddMember: addMissingProjectMember,
+                                    onSaveRolePreset: saveRoleMappingPreset,
+                                  })
+                                : null,
                             ],
                           }),
                           jsxRuntime.jsxs("div", {
@@ -5296,8 +6130,16 @@ window.__ModuleLoader__.load({
                                 type: "button",
                                 className: "pmwf-btn pmwf-start-submit",
                                 disabled:
-                                  busy === "start" || !selectedDefinition?.id,
-                                children: busy === "start" ? "启动中" : "启动",
+                                  busy === "start" ||
+                                  startPreflightBusy ||
+                                  !selectedDefinition?.id ||
+                                  startPreflight?.canStart !== true,
+                                children:
+                                  busy === "start"
+                                    ? "启动中"
+                                    : startPreflightBusy
+                                      ? "解析中"
+                                      : "启动",
                               }),
                             ],
                           }),
@@ -6920,6 +7762,7 @@ window.__ModuleLoader__.load({
       const [sourceMd, setSourceMd] = react.useState("");
       const [validation, setValidation] = react.useState(null);
       const [activate, setActivate] = react.useState(true);
+      const [scope, setScope] = react.useState("project");
       const [startTitle, setStartTitle] = react.useState("");
       const [busy, setBusy] = react.useState("");
       const [showArchived, setShowArchived] = react.useState(false);
@@ -6937,6 +7780,9 @@ window.__ModuleLoader__.load({
         currentUser?.role === "admin" ||
         workspaces.find((item) => item.id === workspaceId)?.memberRole ===
           "owner";
+      const canPublishPlatform = currentUser?.role === "admin";
+      const canWriteDraft =
+        canManage && (scope === "project" || canPublishPlatform);
       const activeDefinition = definitions.find(
         (item) => item.status === "active",
       );
@@ -6951,6 +7797,12 @@ window.__ModuleLoader__.load({
         visibleDefinitions.find((item) => item.id === selectedDefinitionId) ??
         visibleDefinitions[0] ??
         null;
+      const canEditSelected =
+        selectedDefinition === null
+          ? canManage
+          : workflowDefinitionScope(selectedDefinition) === "platform"
+            ? canPublishPlatform
+            : canManage;
 
       const load = react.useCallback(
         async (silent = false) => {
@@ -7013,7 +7865,7 @@ window.__ModuleLoader__.load({
             "/api/collab/workflow/definitions/validate",
             {
               method: "POST",
-              body: JSON.stringify({ workspaceId, sourceMd }),
+              body: JSON.stringify({ workspaceId, sourceMd, scope }),
             },
           );
           setValidation(result);
@@ -7038,7 +7890,12 @@ window.__ModuleLoader__.load({
             "/api/collab/workflow/definitions/import",
             {
               method: "POST",
-              body: JSON.stringify({ workspaceId, sourceMd, activate }),
+              body: JSON.stringify({
+                workspaceId,
+                sourceMd,
+                scope,
+                activate,
+              }),
             },
           );
           setValidation({ graph: result.definition.graph, issues: [] });
@@ -7133,6 +7990,7 @@ window.__ModuleLoader__.load({
                   setWorkspaceId(event.target.value);
                   setValidation(null);
                   setShowArchived(false);
+                  setScope("project");
                 },
                 children: workspaces.map((item) =>
                   jsxRuntime.jsx(
@@ -7187,7 +8045,7 @@ window.__ModuleLoader__.load({
                             children: `${item.name} v${item.version}`,
                           }),
                           jsxRuntime.jsx("span", {
-                            children: `${item.key} · ${item.status === "active" ? "启用" : "归档"}`,
+                            children: `${workflowDefinitionScope(item) === "platform" ? "平台" : "项目"} · ${item.key} · ${item.status === "active" ? "启用" : "归档"}`,
                           }),
                         ],
                       },
@@ -7223,7 +8081,7 @@ window.__ModuleLoader__.load({
                         }),
                         jsxRuntime.jsx("div", {
                           className: "pmwf-template-meta",
-                          children: `${selectedDefinition.key} · ${selectedDefinition.status === "active" ? "启用中" : "已归档"} · 更新 ${timeShort(selectedDefinition.updatedAt)}`,
+                          children: `${workflowDefinitionScope(selectedDefinition) === "platform" ? "平台模板" : "项目模板"} · ${selectedDefinition.key} · ${selectedDefinition.status === "active" ? "启用中" : "已归档"} · 更新 ${timeShort(selectedDefinition.updatedAt)}`,
                         }),
                         canManage
                           ? jsxRuntime.jsxs("div", {
@@ -7234,6 +8092,7 @@ window.__ModuleLoader__.load({
                                   className: "pmwf-btn secondary small",
                                   disabled:
                                     busy !== "" ||
+                                    !canEditSelected ||
                                     selectedDefinition.status === "active",
                                   onClick: async () => {
                                     setBusy(`status:${selectedDefinition.id}`);
@@ -7264,6 +8123,7 @@ window.__ModuleLoader__.load({
                                   className: "pmwf-btn secondary small",
                                   disabled:
                                     busy !== "" ||
+                                    !canEditSelected ||
                                     selectedDefinition.status === "archived",
                                   onClick: async () => {
                                     setBusy(`status:${selectedDefinition.id}`);
@@ -7309,6 +8169,29 @@ window.__ModuleLoader__.load({
                 style: { margin: 0 },
                 children: "导入 Markdown 模板",
               }),
+              jsxRuntime.jsxs("label", {
+                className: "pmwf-label",
+                children: [
+                  "模板作用域",
+                  jsxRuntime.jsxs("select", {
+                    className: "pmwf-select",
+                    value: scope,
+                    onChange: (event) => setScope(event.target.value),
+                    children: [
+                      jsxRuntime.jsx("option", {
+                        value: "project",
+                        children: "项目模板 · 仅当前项目可见",
+                      }),
+                      canPublishPlatform
+                        ? jsxRuntime.jsx("option", {
+                            value: "platform",
+                            children: "平台模板 · 所有项目可见",
+                          })
+                        : null,
+                    ],
+                  }),
+                ],
+              }),
               jsxRuntime.jsxs("div", {
                 className: "pmwf-row",
                 children: [
@@ -7343,14 +8226,16 @@ window.__ModuleLoader__.load({
                   jsxRuntime.jsx("button", {
                     type: "button",
                     className: "pmwf-btn secondary",
-                    disabled: !canManage || busy !== "" || sourceMd === "",
+                    disabled:
+                      !canWriteDraft || busy !== "" || sourceMd === "",
                     onClick: validate,
                     children: busy === "validate" ? "校验中" : "校验",
                   }),
                   jsxRuntime.jsx("button", {
                     type: "submit",
                     className: "pmwf-btn",
-                    disabled: !canManage || busy !== "" || sourceMd === "",
+                    disabled:
+                      !canWriteDraft || busy !== "" || sourceMd === "",
                     children: busy === "import" ? "保存中" : "保存新版本",
                   }),
                 ],

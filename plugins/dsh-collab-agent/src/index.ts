@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { lstat, mkdir, open, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import {
   bearerToken,
   sameOrigin,
@@ -54,7 +56,12 @@ import {
 export type { AgentProfile, AgentRun, ExternalAgentRuntime };
 
 export const name = "dsh-collab-agent";
-export const inject = ["storageDomain", "webServer", "agentDefaultModel"];
+export const inject = [
+  "storageDomain",
+  "webServer",
+  "agentDefaultModel",
+  "tools",
+];
 
 export interface KvTableLike<V> {
   get(key: string): V | undefined;
@@ -117,6 +124,7 @@ export interface AgentSetupContextLike {
   readonly tools?: {
     restrict(filter: { readonly allow: readonly string[] }): void;
     get(name: string): unknown;
+    schemas?(): readonly { readonly name: string }[];
   };
   get?(key: "agentPresets"):
     | {
@@ -986,8 +994,7 @@ export class ExternalAgentRuntimeService {
             : (input.contextWindowTokens ?? current.contextWindowTokens),
         sandboxMode:
           input.sandboxMode ?? current.sandboxMode ?? "workspace-write",
-        networkAccess:
-          input.networkAccess ?? current.networkAccess ?? true,
+        networkAccess: input.networkAccess ?? current.networkAccess ?? true,
         status: input.status ?? current.status,
         updatedAt: iso(this.now()),
         ...(commandChanged || argsChanged || customArgsChanged
@@ -1730,19 +1737,101 @@ export class AgentTaskRuntime {
       const tools = agentCtx.tools;
       // 空清单 = 不限制（与「未限制工具清单」的语义一致）：只有显式配置了工具
       // 才收窄，否则保持挂载预设后的默认工具集。
-      const configured = [
+      const profileTools = [
         ...new Set(profile.allowedTools.map(runtimeToolName)),
       ].filter((name) => name !== "");
-      if (tools !== undefined && configured.length > 0) {
-        const allow = configured.filter(
-          // Native clarification is registered by the standard preset after
-          // the teammate setup starts. Keep it in the allow-list even if the
-          // registry has not surfaced it yet, while still filtering stale
-          // custom tool names.
-          (name) =>
-            name === "ask_user_question" || tools.get(name) !== undefined,
+      if (tools !== undefined && profileTools.length > 0) {
+        const envelope = this.deps.execution?.()?.envelopeForRun(run.id);
+        const allowedCategories = new Set(
+          envelope?.resolved.allowedToolCategories ?? [],
         );
+        const approvalCategories = new Set(
+          envelope?.resolved.approvalToolCategories ?? [],
+        );
+        for (const category of run.executionPolicy?.toolPolicy.allow ?? []) {
+          allowedCategories.add(category);
+        }
+        for (const category of run.executionPolicy?.toolPolicy
+          .requireApproval ?? []) {
+          allowedCategories.add(category);
+          approvalCategories.add(category);
+        }
+        const searchGranted =
+          run.executionPolicy?.sourcePolicy.allow.includes("public-web") ===
+            true || envelope?.resolved.searchEnabled === true;
+        if (searchGranted) {
+          allowedCategories.add("web.search");
+          allowedCategories.add("web.fetch");
+        }
+        const policyAuthorizedTools = searchGranted
+          ? (tools.schemas?.() ?? [])
+              .map((tool) => tool.name)
+              .filter((name) =>
+                ["web.search", "web.fetch"].includes(
+                  executionToolCategory(name),
+                ),
+              )
+          : [];
+        const standardPolicyToolNames: Readonly<
+          Record<string, readonly string[]>
+        > = {
+          "fs.read": ["read_file", "list_files", "str_replace_editor"],
+          "fs.write": ["write_file", "str_replace_editor"],
+          "shell.execute": ["bash", "pwsh"],
+          "web.search": ["web_search"],
+          "web.fetch": ["web_fetch"],
+          "browser.control": [
+            "browser",
+            "browser_navigate",
+            "browser_snapshot",
+          ],
+        };
+        const explicitPolicyToolNames = Object.entries(
+          standardPolicyToolNames,
+        ).flatMap(([category, names]) =>
+          allowedCategories.has(category) || approvalCategories.has(category)
+            ? names
+            : [],
+        );
+        const explicitSearchTools = searchGranted
+          ? ["web_search", "web_fetch"]
+          : [];
+        const policyToolNames =
+          tools.schemas?.().flatMap((tool) => {
+            const category = executionToolCategory(tool.name);
+            return allowedCategories.has(category) ||
+              approvalCategories.has(category)
+              ? [tool.name]
+              : [];
+          }) ?? [];
+        const allowCandidates = [
+          ...new Set([
+            ...profileTools,
+            ...policyToolNames,
+            ...policyAuthorizedTools,
+            ...explicitPolicyToolNames,
+            ...explicitSearchTools,
+          ]),
+        ];
+        let allow = [...allowCandidates];
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+          try {
         tools.restrict({ allow });
+            break;
+          } catch (cause) {
+            const message =
+              cause instanceof Error ? cause.message : String(cause);
+            const unknownPart =
+              /unknown global tools? (.*?); known global tools:/s.exec(
+                message,
+              )?.[1] ?? "";
+            const unknown = [...unknownPart.matchAll(/"([^"]+)"/g)].map(
+              (match) => match[1],
+            );
+            if (unknown.length === 0 || attempt === 3) throw cause;
+            allow = allow.filter((name) => !unknown.includes(name));
+          }
+        }
       }
     };
     const model = this.deps.defaultModel?.()?.currentSelection();
@@ -2974,6 +3063,7 @@ export class AgentRegistryService {
           workspaceId?: string | undefined;
           instanceId?: string | undefined;
           nodeId?: string | undefined;
+          sessionId?: string | undefined;
           statuses?: readonly AgentRunStatus[] | undefined;
         },
   ): AgentRun[] {
@@ -2987,6 +3077,8 @@ export class AgentRegistryService {
           (criteria.instanceId === undefined ||
             run.instanceId === criteria.instanceId) &&
           (criteria.nodeId === undefined || run.nodeId === criteria.nodeId) &&
+          (criteria.sessionId === undefined ||
+            run.sessionId === criteria.sessionId) &&
           (criteria.statuses === undefined ||
             criteria.statuses.includes(run.status)),
       )
@@ -3159,6 +3251,9 @@ export class AgentRegistryService {
         ...(input.sessionId === undefined
           ? {}
           : { sessionId: input.sessionId }),
+        ...(input.executionPolicy === undefined
+          ? {}
+          : { executionPolicy: input.executionPolicy }),
         source: input.source,
         instanceId: input.instanceId,
         nodeId: input.nodeId,
@@ -3605,9 +3700,7 @@ export function createAgentRoutes(
                 .min(1_000)
                 .max(10_000_000)
                 .optional(),
-              sandboxMode: z
-                .enum(["read-only", "workspace-write"])
-                .optional(),
+              sandboxMode: z.enum(["read-only", "workspace-write"]).optional(),
               networkAccess: z.boolean().optional(),
               status: z.enum(["active", "disabled", "archived"]).optional(),
               visibility: z.enum(["workspace", "platform"]).optional(),
@@ -3666,9 +3759,7 @@ export function createAgentRoutes(
                 .max(10_000_000)
                 .nullable()
                 .optional(),
-              sandboxMode: z
-                .enum(["read-only", "workspace-write"])
-                .optional(),
+              sandboxMode: z.enum(["read-only", "workspace-write"]).optional(),
               networkAccess: z.boolean().optional(),
               status: z.enum(["active", "disabled", "archived"]).optional(),
             })
@@ -4137,6 +4228,25 @@ export interface AgentContext {
   workspaceRegistry?: WorkspaceRegistryLike;
   sessions?: AgentSessionsLike;
   sessionTitle?: AgentSessionTitleLike;
+  tools?: {
+    register(definition: {
+      readonly name: string;
+      readonly description: string;
+      readonly parameters: Readonly<Record<string, unknown>>;
+      readonly output: {
+        readonly schema: Readonly<Record<string, unknown>>;
+        readonly render: (
+          args: unknown,
+          value: unknown,
+        ) => readonly { readonly type: "text"; readonly text: string }[];
+      };
+      execute(
+        args: unknown,
+        exec: ToolPreExecutionLike,
+      ): Promise<unknown> | unknown;
+    }): (() => void) | undefined;
+    get(name: string): unknown;
+  };
   get(key: "collabTeam"): TeamServiceLike | undefined;
   get(key: "collabPersonas"): PersonaServiceLike | undefined;
   get(key: "agents"): AgentsRegistryLike | undefined;
@@ -4262,6 +4372,13 @@ export async function apply(ctx: AgentContext): Promise<void | (() => void)> {
       const runId = executionService.runIdForSession(sessionId);
       if (runId === undefined) return next();
       const category = executionToolCategory(exec.name);
+      const envelope = executionService.envelopeForRun(runId);
+      if (envelope === undefined) {
+        return {
+          kind: "deny",
+          reason: `执行授权尚未就绪，已阻止工具类别：${category}`,
+        };
+      }
       const disposition = executionService.gateDisposition(runId, category);
       if (disposition === "allow") return next();
       if (disposition === "deny") {
@@ -4270,8 +4387,7 @@ export async function apply(ctx: AgentContext): Promise<void | (() => void)> {
           reason: `执行策略禁止工具类别：${category}`,
         };
       }
-      const envelope = executionService.envelopeForRun(runId);
-      if (envelope?.resolved.gateEnforcement !== "blocking") {
+      if (envelope.resolved.gateEnforcement !== "blocking") {
         return {
           kind: "deny",
           reason: `Runtime 无法阻断式执行 ${category}，请改用支持的 Runtime`,
@@ -4296,6 +4412,200 @@ export async function apply(ctx: AgentContext): Promise<void | (() => void)> {
           };
     },
   );
+  const workspaceToolDisposers: Array<() => void> = [];
+  const workspaceRootForExec = (exec: ToolPreExecutionLike): string => {
+    const sessionId = exec.agent?.session?.id;
+    const runId =
+      sessionId === undefined
+        ? undefined
+        : executionService.runIdForSession(sessionId);
+    const run = runId === undefined ? undefined : service.run(runId);
+    if (run?.workspacePath === undefined) {
+      throw new AgentError("conflict", "当前运行没有可写项目工作区");
+    }
+    return run.workspacePath;
+  };
+  const workspaceTarget = async (
+    root: string,
+    value: string,
+  ): Promise<string> => {
+    if (isAbsolute(value)) {
+      throw new AgentError("invalid_input", "文件路径必须是工作区相对路径");
+    }
+    const target = resolve(root, value);
+    const rel = relative(root, target);
+    if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) {
+      throw new AgentError("invalid_input", "文件路径不能越过项目工作区");
+    }
+    let current = root;
+    for (const part of rel.split(sep)) {
+      current = resolve(current, part);
+      try {
+        const info = await lstat(current);
+        if (info.isSymbolicLink()) {
+          throw new AgentError(
+            "invalid_input",
+            "文件路径不能包含指向工作区外的符号链接",
+          );
+        }
+      } catch (cause) {
+        if (
+          typeof cause === "object" &&
+          cause !== null &&
+          (cause as NodeJS.ErrnoException).code === "ENOENT"
+        ) {
+          break;
+        }
+        throw cause;
+      }
+    }
+    return target;
+  };
+  const registerWorkspaceTool = (definition: {
+    readonly name: string;
+    readonly description: string;
+    readonly parameters: Readonly<Record<string, unknown>>;
+    readonly run: (
+      args: unknown,
+      exec: ToolPreExecutionLike,
+    ) => Promise<string>;
+  }) => {
+    if (
+      ctx.tools === undefined ||
+      ctx.tools.get(definition.name) !== undefined
+    ) {
+      return;
+    }
+    const dispose = ctx.tools.register({
+      name: definition.name,
+      description: definition.description,
+      parameters: definition.parameters,
+      output: {
+        schema: { type: "string" },
+        render: (_args, value) => [
+          { type: "text" as const, text: String(value) },
+        ],
+      },
+      execute: async (args, exec) => {
+        exec.signal?.throwIfAborted();
+        const value = await definition.run(args, exec);
+        exec.signal?.throwIfAborted();
+        return value;
+      },
+    });
+    if (dispose !== undefined) workspaceToolDisposers.push(dispose);
+  };
+  registerWorkspaceTool({
+    name: "read_file",
+    description:
+      "Read a UTF-8 file from the current project workspace using a workspace-relative path.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        path: { type: "string" },
+        maxBytes: { type: "number", minimum: 1, maximum: 500_000 },
+      },
+      required: ["path"],
+    },
+    run: async (raw, exec) => {
+      const input = z
+        .object({
+          path: z.string().trim().min(1).max(1_000),
+          maxBytes: z.number().int().min(1).max(500_000).optional(),
+        })
+        .parse(raw);
+      const root = workspaceRootForExec(exec);
+      const target = await workspaceTarget(root, input.path);
+      const handle = await open(target, "r");
+      try {
+        const info = await handle.stat();
+        if (!info.isFile()) {
+          throw new AgentError("invalid_input", "文件路径必须指向普通文件");
+        }
+        const maxBytes = Math.min(info.size, input.maxBytes ?? 200_000);
+        const buffer = Buffer.alloc(maxBytes);
+        const { bytesRead } = await handle.read(buffer, 0, maxBytes, 0);
+        return buffer.subarray(0, bytesRead).toString("utf8");
+      } finally {
+        await handle.close();
+      }
+    },
+  });
+  registerWorkspaceTool({
+    name: "write_file",
+    description:
+      "Create or update a UTF-8 file in the current project workspace using a workspace-relative path.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        path: { type: "string" },
+        content: { type: "string" },
+        append: { type: "boolean" },
+      },
+      required: ["path", "content"],
+    },
+    run: async (raw, exec) => {
+      const input = z
+        .object({
+          path: z.string().trim().min(1).max(1_000),
+          content: z.string().max(2_000_000),
+          append: z.boolean().optional(),
+        })
+        .parse(raw);
+      const root = workspaceRootForExec(exec);
+      const target = await workspaceTarget(root, input.path);
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, input.content, {
+        encoding: "utf8",
+        flag: input.append === true ? "a" : "w",
+      });
+      return `已写入 ${input.path}（${Buffer.byteLength(input.content, "utf8")} bytes）`;
+    },
+  });
+  registerWorkspaceTool({
+    name: "list_files",
+    description:
+      "List files under the current project workspace. Paths are workspace-relative.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        path: { type: "string" },
+      },
+    },
+    run: async (raw, exec) => {
+      const input = z
+        .object({ path: z.string().trim().max(1_000).optional() })
+        .parse(raw);
+      const root = workspaceRootForExec(exec);
+      const start =
+        input.path === undefined || input.path === ""
+          ? root
+          : await workspaceTarget(root, input.path);
+      const { readdir, stat } = await import("node:fs/promises");
+      const rows: string[] = [];
+      const walk = async (current: string, depth: number): Promise<void> => {
+        if (depth > 3 || rows.length >= 500) return;
+        const entries = await readdir(current, { withFileTypes: true });
+        for (const entry of entries.slice(0, 200)) {
+          const absolute = resolve(current, entry.name);
+          const rel = relative(root, absolute);
+          if (entry.isDirectory()) {
+            rows.push(`${rel}/`);
+            await walk(absolute, depth + 1);
+          } else if (entry.isFile()) {
+            const info = await stat(absolute);
+            rows.push(`${rel} (${info.size} bytes)`);
+          }
+          if (rows.length >= 500) break;
+        }
+      };
+      await walk(start, 0);
+      return rows.length === 0 ? "工作区为空" : rows.join("\n");
+    },
+  });
   // Let sibling runtime plugins finish mounting before replaying persisted runs.
   const restoreTimer = setTimeout(() => {
     service.restore();
@@ -4305,6 +4615,7 @@ export async function apply(ctx: AgentContext): Promise<void | (() => void)> {
     clearTimeout(restoreTimer);
     streamDisposer?.();
     toolGateDisposer?.();
+    for (const dispose of workspaceToolDisposers) dispose();
     void runtime.dispose();
     void Promise.allSettled([domain.close(), executionDomain.close()]);
   });

@@ -8,10 +8,7 @@ import {
   loadDemoOrderExceptionSummary,
   loadDemoWorkbenchMetricIds,
 } from "./index.js";
-import {
-  DEMO_OMS_MCP_ID,
-  DEMO_WMS_MCP_ID,
-} from "./models.js";
+import { DEMO_OMS_MCP_ID, DEMO_WMS_MCP_ID } from "./models.js";
 
 function workspaceContext(input: {
   readonly title: string;
@@ -21,9 +18,7 @@ function workspaceContext(input: {
     readonly memberRole: "owner" | "member" | "guest";
   }[];
 }) {
-  const connections: Array<
-    readonly [userId: string, mcpId: string]
-  > = [];
+  const connections: Array<readonly [userId: string, mcpId: string]> = [];
   const configured: string[] = [];
   const workbenchDrafts: Array<{
     readonly userId: string;
@@ -128,9 +123,7 @@ describe("phone/tablet demo workspace profile", () => {
   it("reads the brief facts from the generated order fixture", async () => {
     await expect(
       loadDemoOrderExceptionSummary(
-        fileURLToPath(
-          new URL("../data/orders-fixture.json", import.meta.url),
-        ),
+        fileURLToPath(new URL("../data/orders-fixture.json", import.meta.url)),
       ),
     ).resolves.toMatchObject({
       orderCount: 1658,
@@ -151,6 +144,25 @@ describe("phone/tablet demo workspace profile", () => {
     expect(source).toContain('actionLabel: "分析原因"');
     expect(config).toContain('actionLabel: "分析原因"');
     expect(source).not.toContain('actionLabel: "询问 Data Agent"');
+    expect(source).toContain(
+      "本期识别 3 项经营结果、2 项异常和 1 项待确认决策",
+    );
+    expect(source).toContain('section: "conclusion" as const');
+    expect(source).toContain('section: "risk" as const');
+    expect(source).toContain('section: "escalation" as const');
+  });
+
+  it("treats non-demo tasks as an expected empty action state", () => {
+    const server = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+    const client = readFileSync(
+      new URL("../client/index.js", import.meta.url),
+      "utf8",
+    );
+    expect(server).toContain('cause.code === "not_found"');
+    expect(server).toContain("available: false");
+    expect(server).toContain("available: true");
+    expect(client).toContain("state.available === false");
+    expect(client).toContain('title.includes("[PT-ORD-001-B]")');
   });
 
   it("matches the demo workspace with or without a project number prefix", () => {
