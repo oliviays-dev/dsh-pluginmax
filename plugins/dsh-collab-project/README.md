@@ -24,10 +24,14 @@ Out-of-tree DSH project management over DSH workspaces.
   后端归一化为账号或 Teammate 兼容 ID。工作区成员角色与项目角色同步写入 Principal Grant。
 - 项目日报按 `senior-pm` 的项目健康度思路确定性生成：综合 RAG、计划进度偏差、
   已确认结果、风险登记、待确认事项与下一步；按日期和日报 / 周报 / 进度汇报类型保留历史快照。
-- 项目创建时自动初始化平台预置「项目经理」AI伙伴，命名为 `<项目名>项目PM`，
-  自动加入项目成员并占用内置 `role-pm` 项目经理角色；存量项目在详情或生成汇报时补齐。
-- 项目经理 Agent 默认绑定官方「项目汇报生成」Skill，可通过项目页面按钮、聊天工具
-  `project_report_generate` 或任务执行生成同一类汇报快照。
+- 项目日报默认在 `Asia/Shanghai` 每天 `08:00` 自动生成；项目负责人或平台管理员可调整启停、
+  每天 / 工作日 / 每周 / 每月频次与时间。调度检查在服务启动后按分钟运行，同日已有日报时跳过覆盖。
+- 项目创建时自动初始化平台预置「项目经理」AI伙伴，命名为 `PM_<项目名>`，
+  自动加入项目成员并占用内置 `role-pm` 项目经理角色；启动时补齐存量项目。
+  该实例属于项目托管实例，会出现在 AI伙伴运行列表中，并计入项目 AI伙伴统计。
+- 项目经理 Agent 默认绑定官方「项目汇报生成」Skill。日报生成采用“确定性事实包 +
+  PM Agent 撰写 + 服务端校验”，通过后再保存；Agent 不可用、运行失败或新增未支持数字时
+  回退确定性模板，并在报告中标记“模板回退”和具体原因。
 - 项目历史记录独立存放在 `collab_project.audit`，只追加不覆盖；覆盖项目设置、成员项目角色、
   项目角色、模版应用、日报生成，并合并协作身份服务中与该项目相关的历史成员操作。
   新事件同时记录 `actorPrincipalId`，兼容保留 `actorId`。
@@ -50,7 +54,8 @@ Out-of-tree DSH project management over DSH workspaces.
 `POST /api/collab/projects/role-mappings/save|remove`、
 `POST /api/collab/projects/members/save|remove`、
 `POST /api/collab/projects/leave`、
-`GET /api/collab/projects/reports`、`POST /api/collab/projects/reports/generate`、
+`GET /api/collab/projects/reports`、`POST /api/collab/projects/reports/schedule`、
+`POST /api/collab/projects/reports/generate`、
 `GET /api/collab/projects/history`。
 
 写操作要求平台管理员或项目（工作区）负责人；项目模版与项目角色库属于平台字典，

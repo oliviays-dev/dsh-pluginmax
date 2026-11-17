@@ -23,14 +23,16 @@ describe("Router / Worker add-on skeleton", () => {
     expect(Object.keys(routerWorkerDomainSpec.tables)).toHaveLength(9);
   });
 
-  it("does not start timers or event listeners in the settings-only skeleton", () => {
+  it("keeps timers and task listeners behind the gated runtime", () => {
     const source = readFileSync(
       resolve(import.meta.dirname, "index.ts"),
       "utf8",
     );
     expect(source).not.toContain("setInterval(");
     expect(source).not.toContain("setTimeout(");
-    expect(source).not.toContain('ctx.on("');
+    expect(source).not.toContain('ctx.on("collab/task-changed"');
+    expect(source).toContain('child.on("collab/task-changed"');
+    expect(source).toContain("syncPlanningRuntime()");
     expect(source).not.toContain("new PlanReconciler(plans).start()");
   });
 
@@ -51,5 +53,23 @@ describe("Router / Worker add-on skeleton", () => {
     );
     expect(source).not.toContain("approve(planActor");
     expect(source).not.toContain("materialize(planActor");
+  });
+
+  it("keeps planning settings always available and runtime APIs gated", () => {
+    const source = readFileSync(
+      resolve(import.meta.dirname, "index.ts"),
+      "utf8",
+    );
+    expect(source).toContain('name: "planning_submit_understanding"');
+    expect(source).toContain('name: "planning_submit_plan"');
+    expect(source).toContain('name: "planning_submit_critique"');
+    expect(source).toContain('scope: "settings"');
+    expect(source).toContain('scope: "runtime"');
+    expect(source).toContain("enabledWorkspaceIds.length === 0");
+    expect(source).toContain("ensureWorkspaceSystemAgent");
+    expect(source).toContain('ctx.provide("collabPlanning", planning)');
+    expect(source).not.toContain("planning.approve(");
+    expect(source).not.toContain("planning.materialize(");
+    expect(source).toContain("plans.approveByPolicy(");
   });
 });

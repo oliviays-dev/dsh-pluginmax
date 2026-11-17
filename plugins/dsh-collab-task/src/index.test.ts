@@ -21,6 +21,7 @@ import type { TaskRecord } from "./types.js";
 import {
   attachmentDocuments,
   collectDocuments,
+  collectRunFileChangeDocuments,
   extractAgentOutputDocuments,
   loadWorkspaceEvidenceDocuments,
   materializeAgentOutputDocuments,
@@ -1300,7 +1301,7 @@ describe("dsh-collab-task service", () => {
       },
       "Backend DE",
     );
-    expect(completed.status).toBe("abnormal");
+    expect(completed.status).toBe("progress");
     expect(completed.steps.every((step) => !step.done)).toBe(true);
     expect(completed.executionAnomaly).toMatchObject({
       code: "missing_acceptance",
@@ -1389,6 +1390,95 @@ describe("dsh-collab-task service", () => {
     expect(completed.executionAnomaly).toMatchObject({
       code: "tool_failed",
       message: "当前运行没有数据授权",
+    });
+  });
+
+  it("keeps a denied execution gate in progress as a blocked confirmation", async () => {
+    let taskId = "";
+    const tasks = new TaskService(
+      { tasks: memoryTable<TaskRecord>() },
+      {
+        executionProjection: () =>
+          taskId === ""
+            ? undefined
+            : {
+                taskId,
+                runs: [{ id: "run-gate-denied" }],
+                selectedRunId: "run-gate-denied",
+                plan: {
+                  schemaVersion: 1,
+                  id: "plan-gate-denied",
+                  runId: "run-gate-denied",
+                  workspaceId: "workspace-1",
+                  source: "derived",
+                  visibility: "structured",
+                  revision: 1,
+                  status: "completed",
+                  steps: [],
+                  subagents: [],
+                  lastEventSeq: 0,
+                  createdAt: "2026-11-08T00:00:00.000Z",
+                  updatedAt: "2026-11-08T00:00:01.000Z",
+                },
+                events: [],
+                gates: [
+                  {
+                    schemaVersion: 1,
+                    id: "gate-denied",
+                    runId: "run-gate-denied",
+                    taskId,
+                    workspaceId: "workspace-1",
+                    kind: "tool-approval",
+                    status: "denied",
+                    reason: "人工拒绝授权写入文件",
+                    requestedScope: [],
+                    enforcement: "blocking",
+                    requestedAt: "2026-11-08T00:00:01.000Z",
+                    decidedAt: "2026-11-08T00:00:02.000Z",
+                  },
+                ],
+                capabilities: {
+                  planAvailable: true,
+                  contextAvailable: true,
+                  gateAvailable: true,
+                  memoryAvailable: true,
+                },
+              },
+      },
+    );
+    const created = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Gate denied",
+      priority: "P2",
+      receiverType: "agent",
+      receiverId: "agent-1",
+      receiverName: "Backend DE",
+      description: "A denied gate needs a human decision.",
+      acceptance: ["Evidence attached"],
+    });
+    taskId = created.id;
+    await tasks.toggleStep(
+      { id: "agent-1", name: "Backend DE", kind: "agent" },
+      {
+        taskId: created.id,
+        stepId: created.steps[0]!.id,
+        done: true,
+      },
+    );
+    const completed = await tasks.attachAgentRun(
+      created.id,
+      {
+        id: "run-gate-denied",
+        instanceId: created.id,
+        status: "succeeded",
+        output: { summary: "Blocked by policy." },
+      },
+      "Backend DE",
+    );
+    expect(completed.status).toBe("progress");
+    expect(completed.executionAnomaly).toMatchObject({
+      code: "gate_denied",
+      message: "人工拒绝授权写入文件",
     });
   });
 
@@ -2363,6 +2453,8 @@ describe("dsh-collab-task service", () => {
     });
     await writeFile(join(root, "current.md"), "current\n", "utf8");
     await writeFile(join(root, "other.md"), "other\n", "utf8");
+    const explicitOutput = join(root, "explicit-output.md");
+    await writeFile(explicitOutput, "explicit\n", "utf8");
     await utimes(
       join(root, "current.md"),
       new Date(now - 4 * 60_000),
@@ -2414,6 +2506,33 @@ describe("dsh-collab-task service", () => {
         filter.instanceId === undefined
           ? runs
           : runs.filter((run) => run.instanceId === filter.instanceId),
+      taskExecution: () => ({
+        taskId: current.id,
+        runs: [],
+        events: [
+          {
+            runId: "run-current",
+            type: "tool.call",
+            source: "external-trace",
+            visibility: "public",
+            summary: "调用工具：file_change",
+            data: {
+              toolName: "file_change",
+              arguments: JSON.stringify([
+                { path: explicitOutput, kind: "add" },
+              ]),
+            },
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        gates: [],
+        capabilities: {
+          planAvailable: false,
+          contextAvailable: false,
+          gateAvailable: false,
+          memoryAvailable: false,
+        },
+      }),
     };
     const query = createTaskDocumentQueryService(tasks, () => agent as never, {
       get: () => ({ id: "workspace-1", title: "Workspace", path: root }),
@@ -2422,9 +2541,15 @@ describe("dsh-collab-task service", () => {
 
     const result = await query.list(current.id);
     expect(result.documents.map((document) => document.relativePath)).toEqual([
+      "explicit-output.md",
       "current.md",
     ]);
-    expect(result.documents[0]?.runId).toBe("run-current");
+    expect(
+      result.documents.find(
+        (document) => document.relativePath === "explicit-output.md",
+      )?.runId,
+    ).toBe("run-current");
+    expect(result.documents[1]?.runId).toBe("run-current");
   });
 
   it("extracts named documents from read-only agent output", () => {
@@ -2596,7 +2721,7 @@ describe("dsh-collab-task service", () => {
     ).toBe("# 行业分析\n\n完整正文。\n");
   });
 
-  it("stores description attachments while creating a task", async () => {
+  it("stores task attachment kinds while creating a task", async () => {
     const root = await mkdtemp(join(tmpdir(), "task-create-attachment-"));
     const tasks = service();
     const routes = createTaskRoutes(
@@ -2637,6 +2762,7 @@ describe("dsh-collab-task service", () => {
           acceptance: ["形成需求说明"],
           attachments: [
             {
+              kind: "acceptance",
               name: "需求.md",
               mimeType: "text/markdown",
               contentBase64: Buffer.from("# 需求\n\n正文").toString("base64"),
@@ -2651,6 +2777,7 @@ describe("dsh-collab-task service", () => {
     const created = result.body?.task as TaskRecord;
     expect(created.attachments).toContainEqual(
       expect.objectContaining({
+        kind: "acceptance",
         name: "需求.md",
         mimeType: "text/markdown",
         storedPath: expect.stringContaining(".pluginmax/task-uploads/"),
@@ -2662,6 +2789,62 @@ describe("dsh-collab-task service", () => {
         "utf8",
       ),
     ).toBe("# 需求\n\n正文");
+
+    const updateAttachmentsRoute = routes.find(
+      (route) => route.path === "/api/collab/tasks/attachments/update",
+    )!;
+    const updateResponse = fakeResponse();
+    await updateAttachmentsRoute.handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/attachments/update",
+        token: "token",
+        body: {
+          taskId: created.id,
+          attachments: [
+            ...created.attachments,
+            {
+              kind: "description",
+              name: "补充.md",
+              mimeType: "text/markdown",
+              contentBase64: Buffer.from("# 补充").toString("base64"),
+            },
+          ],
+        },
+      }),
+      updateResponse.response,
+    );
+    const updated = updateResponse.read();
+    expect(updated.status).toBe(200);
+    const updatedTask = updated.body?.task as TaskRecord;
+    expect(updatedTask.attachments).toHaveLength(2);
+    expect(updatedTask.attachments).toContainEqual(
+      expect.objectContaining({
+        kind: "description",
+        name: "补充.md",
+        storedPath: expect.stringContaining(".pluginmax/task-uploads/"),
+      }),
+    );
+
+    const removeResponse = fakeResponse();
+    await updateAttachmentsRoute.handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/attachments/update",
+        token: "token",
+        body: {
+          taskId: created.id,
+          attachments: updatedTask.attachments.slice(1),
+        },
+      }),
+      removeResponse.response,
+    );
+    const removed = removeResponse.read();
+    expect(removed.status).toBe(200);
+    const removedTask = removed.body?.task as TaskRecord | undefined;
+    expect(
+      removedTask?.attachments.map((attachment) => attachment.name),
+    ).toEqual(["补充.md"]);
   });
 
   it("falls back to the task owner name and sanitizes upload names", () => {
@@ -4352,6 +4535,15 @@ describe("task continuation re-dispatch", () => {
     taskId: string,
   ): Promise<void> => {
     // 第一轮跑完：会话里已有 Agent 的结论，任务回到待验收，责任人仍是这个 Agent。
+    const task = harness.tasks.get(taskId);
+    await harness.tasks.toggleStep(
+      { id: "tm-1", name: "测小白", kind: "agent" },
+      {
+        taskId,
+        stepId: task.steps[0]!.id,
+        done: true,
+      },
+    );
     await harness.tasks.attachAgentRun(
       taskId,
       {
@@ -4783,6 +4975,7 @@ describe("task execution control", () => {
     expect(stopped.read()).toMatchObject({
       status: 200,
       body: {
+        task: { id: task.id, queueState: "paused" },
         cancelledRunIds: ["run-1", "run-2"],
         failedRunIds: [],
       },
@@ -4798,7 +4991,7 @@ describe("task execution control", () => {
         .get(task.id)
         .messages.filter((message) => message.runId !== undefined)
         .map((message) => message.content),
-    ).toEqual(["已停止执行。", "已停止执行。"]);
+    ).toEqual(["执行已暂停。", "执行已暂停。"]);
 
     const noRunning = fakeResponse();
     await stop.handler(
@@ -4935,7 +5128,7 @@ describe("task execution control", () => {
     expect(harness.dispatched).toHaveLength(2);
   });
 
-  it("allows one same-project prerequisite and rejects dependency cycles", async () => {
+  it("allows multiple same-project prerequisites and rejects self or cycles", async () => {
     const tasks = service();
     const actor = {
       id: "admin",
@@ -4965,6 +5158,18 @@ describe("task execution control", () => {
       dependsOn: [first.id],
     });
     expect(second.dependsOn).toEqual([first.id]);
+    const third = await tasks.create(actor, {
+      workspaceId: "workspace-1",
+      title: "Multiple dependencies",
+      priority: "P2",
+      receiverType: "agent",
+      receiverId: "tm-1",
+      receiverName: "Worker",
+      description: "Multiple dependency input",
+      acceptance: ["Accepted"],
+      dependsOn: [first.id, second.id],
+    });
+    expect(third.dependsOn).toEqual([first.id, second.id]);
     await expect(
       tasks.update(actor, {
         taskId: first.id,
@@ -4976,16 +5181,13 @@ describe("task execution control", () => {
       }),
     ).rejects.toMatchObject({ code: "invalid_input" });
     await expect(
-      tasks.create(actor, {
-        workspaceId: "workspace-1",
-        title: "Multiple dependencies",
-        priority: "P2",
-        receiverType: "agent",
-        receiverId: "tm-1",
-        receiverName: "Worker",
-        description: "Multiple dependency input",
-        acceptance: ["Rejected"],
-        dependsOn: [first.id, second.id],
+      tasks.update(actor, {
+        taskId: second.id,
+        title: second.title,
+        priority: second.priority,
+        description: second.description,
+        acceptance: second.acceptance,
+        dependsOn: [second.id],
       }),
     ).rejects.toMatchObject({ code: "invalid_input" });
   });
@@ -5435,6 +5637,14 @@ describe("task queue and待确认", () => {
       receiverId: "tm-1",
       receiverName: "小白 PD",
     });
+    await tasks.toggleStep(
+      { id: "tm-1", name: "小白 PD", kind: "agent" },
+      {
+        taskId: created.id,
+        stepId: created.steps[0]!.id,
+        done: true,
+      },
+    );
     const inReview = await tasks.attachAgentRun(
       created.id,
       {
@@ -5482,6 +5692,14 @@ describe("task queue and待确认", () => {
       receiverId: "tm-1",
       receiverName: "小白 PD",
     });
+    await tasks.toggleStep(
+      { id: "tm-1", name: "小白 PD", kind: "agent" },
+      {
+        taskId: created.id,
+        stepId: created.steps[0]!.id,
+        done: true,
+      },
+    );
     await tasks.attachAgentRun(
       created.id,
       {
@@ -5518,6 +5736,14 @@ describe("task queue and待确认", () => {
       receiverId: "tm-1",
       receiverName: "小白 PD",
     });
+    await tasks.toggleStep(
+      { id: "tm-1", name: "小白 PD", kind: "agent" },
+      {
+        taskId: another.id,
+        stepId: another.steps[0]!.id,
+        done: true,
+      },
+    );
     await tasks.attachAgentRun(
       another.id,
       {

@@ -64,15 +64,21 @@ window.__ModuleLoader__.load({
         "M4 4h5M15 4h5v5M20 15v5h-5M9 20H4v-5",
         "m10 9 5 2-2 1-1 2Z",
       ]),
-      task: icon([
-        "M9 6h11M9 12h11M9 18h11",
-        "m3 6 1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2",
-      ], 13),
+      task: icon(
+        ["M9 6h11M9 12h11M9 18h11", "m3 6 1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2"],
+        13,
+      ),
       chevron: icon(["m6 9 6 6 6-6"], 12),
       download: icon(["M12 3v12M7 10l5 5 5-5M4 21h16"]),
-      shield: icon(["M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z", "m9 12 2 2 4-5"]),
+      shield: icon([
+        "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z",
+        "m9 12 2 2 4-5",
+      ]),
       plus: icon(["M12 5v14M5 12h14"], 12),
-      search: icon(["m21 21-4.35-4.35", "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Z"], 13),
+      search: icon(
+        ["m21 21-4.35-4.35", "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Z"],
+        13,
+      ),
       panel: icon(["M4 4h16v16H4Z", "M10 4v16"], 14),
     };
 
@@ -124,9 +130,9 @@ window.__ModuleLoader__.load({
 .pmda-iconbtn:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
 .pmda-iconbtn svg{width:13px;height:13px;}
 .pmda-context{display:block;flex:none;overflow:visible;padding:6px 10px;border-bottom:0.5px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-tertiary);font-size:10px;}
-.pmda-context-controls{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:6px;width:100%;min-width:0;}
-.pmda-session-new{height:29px;display:inline-flex;align-items:center;gap:5px;padding:0 10px;border:0.5px solid color-mix(in srgb,var(--dsw-alias-agent-primary,#8b7bf7) 54%,transparent);border-radius:6px;background:var(--dsw-alias-agent-primary,#8b7bf7);color:#fff;font:inherit;font-size:10.5px;font-weight:650;white-space:nowrap;cursor:pointer;}
-.pmda-session-new:hover{filter:brightness(1.06);}
+.pmda-context-controls{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:6px;width:100%;min-width:0;}
+.pmda-session-new{height:29px;display:inline-flex;align-items:center;gap:5px;padding:0 9px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:10.5px;font-weight:550;white-space:nowrap;cursor:pointer;}
+.pmda-session-new:hover{border-color:var(--dsw-alias-border-l4);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
 .pmda-session-new svg{width:12px;height:12px;}
 .pmda-session-switch{min-width:0;height:29px;display:flex;align-items:center;gap:6px;padding:0 8px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);font:inherit;font-size:10.5px;text-align:left;cursor:pointer;}
 .pmda-session-switch:hover,.pmda-session-switch[aria-expanded=true]{border-color:var(--dsw-alias-border-l4);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
@@ -273,11 +279,14 @@ window.__ModuleLoader__.load({
       const headers = { "cache-control": "no-store" };
       const value = token();
       if (value !== "") headers.authorization = `Bearer ${value}`;
-      if (options.body !== undefined) headers["content-type"] = "application/json";
+      if (options.body !== undefined)
+        headers["content-type"] = "application/json";
       const response = await fetch(path, { ...options, headers });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || payload?.ok === false) {
-        const error = new Error(payload?.error?.message ?? `HTTP ${response.status}`);
+        const error = new Error(
+          payload?.error?.message ?? `HTTP ${response.status}`,
+        );
         error.code = payload?.error?.code;
         throw error;
       }
@@ -285,9 +294,9 @@ window.__ModuleLoader__.load({
     }
 
     async function workspaceOptions() {
-      const workspaceResult = await request("/api/collab/team/workspaces").catch(
-        () => ({ workspaces: [] }),
-      );
+      const workspaceResult = await request(
+        "/api/collab/team/workspaces",
+      ).catch(() => ({ workspaces: [] }));
       const memberships = (workspaceResult.workspaces ?? [])
         .filter((workspace) => workspace.isMember !== false)
         .map((workspace) => ({
@@ -306,11 +315,15 @@ window.__ModuleLoader__.load({
           id: project.id ?? project.workspaceId,
           title: project.name ?? project.title ?? project.id,
         }))
-        .filter((workspace) => typeof workspace.id === "string" && workspace.id);
+        .filter(
+          (workspace) => typeof workspace.id === "string" && workspace.id,
+        );
     }
 
     function compact(value, max = 260) {
-      const text = String(value ?? "").replace(/\s+/g, " ").trim();
+      const text = String(value ?? "")
+        .replace(/\s+/g, " ")
+        .trim();
       return text.length > max ? `${text.slice(0, max)}…` : text;
     }
 
@@ -445,15 +458,13 @@ window.__ModuleLoader__.load({
       const meetingMessage = node?.closest?.("[data-meeting-message-id]");
       if (meetingMessage !== null && meetingMessage !== undefined) {
         return {
-          surface:
-            meetingMessage.getAttribute("data-meeting-surface") ?? "",
+          surface: meetingMessage.getAttribute("data-meeting-surface") ?? "",
           sourceType:
             meetingMessage.getAttribute("data-meeting-kind") === "ai"
               ? "ai-chat"
               : "meeting",
           sourceId: meetingMessage.getAttribute("data-meeting-id") ?? "",
-          sourceTitle:
-            meetingMessage.getAttribute("data-meeting-title") ?? "",
+          sourceTitle: meetingMessage.getAttribute("data-meeting-title") ?? "",
           workspaceId: workspaceIdFor(node),
           messageId:
             meetingMessage.getAttribute("data-meeting-message-id") ?? "",
@@ -468,9 +479,8 @@ window.__ModuleLoader__.load({
           surface: "data-agent",
           sourceType: "data-agent",
           sourceId:
-            dataAgentMessage.getAttribute(
-              "data-data-agent-conversation-id",
-            ) ?? "",
+            dataAgentMessage.getAttribute("data-data-agent-conversation-id") ??
+            "",
           sourceTitle:
             dataAgentMessage.getAttribute(
               "data-data-agent-conversation-title",
@@ -481,11 +491,24 @@ window.__ModuleLoader__.load({
           text: compact(text, 8000),
         };
       }
+      const taskElement = node?.closest?.("[data-task-id]");
+      if (taskElement !== null && taskElement !== undefined) {
+        return {
+          surface: "task",
+          sourceType: "task",
+          sourceId: taskElement.getAttribute("data-task-id") ?? "",
+          sourceTitle:
+            taskElement.getAttribute("data-task-title") ?? titleOf(taskElement),
+          workspaceId: workspaceIdFor(taskElement),
+          text: compact(text, 8000),
+        };
+      }
       return undefined;
     }
 
     function workspaceIdFor(element) {
-      const explicit = element?.closest?.("[data-workspace-id]")?.dataset?.workspaceId;
+      const explicit = element?.closest?.("[data-workspace-id]")?.dataset
+        ?.workspaceId;
       return (
         explicit ||
         window.__pluginmaxSelectionContext?.workspaceId ||
@@ -499,7 +522,9 @@ window.__ModuleLoader__.load({
       return compact(
         element?.dataset?.dataAgentTitle ||
           element?.getAttribute?.("data-data-agent-title") ||
-          element?.querySelector?.("h1,h2,h3,strong,.pmtask-title,.pmwf-title-line strong")?.textContent ||
+          element?.querySelector?.(
+            "h1,h2,h3,strong,.pmtask-title,.pmwf-title-line strong",
+          )?.textContent ||
           element?.textContent ||
           "页面内容",
         90,
@@ -703,11 +728,17 @@ window.__ModuleLoader__.load({
         resolve(element) {
           return {
             kind: "chart",
-            title: titleOf(element.closest?.("[data-data-agent-title]") ?? element),
-            excerpt: excerptOf(element.closest?.("[data-data-agent-title]") ?? element),
+            title: titleOf(
+              element.closest?.("[data-data-agent-title]") ?? element,
+            ),
+            excerpt: excerptOf(
+              element.closest?.("[data-data-agent-title]") ?? element,
+            ),
             source: {
               workspaceId: workspaceIdFor(element),
-              page: pageFromRoute(window.__pluginmaxShell?.router?.state?.route),
+              page: pageFromRoute(
+                window.__pluginmaxShell?.router?.state?.route,
+              ),
             },
             snapshot: {
               text: excerptOf(element),
@@ -727,7 +758,9 @@ window.__ModuleLoader__.load({
             excerpt: element.alt || element.title || "页面图片快照",
             source: {
               workspaceId: workspaceIdFor(element),
-              page: pageFromRoute(window.__pluginmaxShell?.router?.state?.route),
+              page: pageFromRoute(
+                window.__pluginmaxShell?.router?.state?.route,
+              ),
             },
             snapshot: {
               text: element.alt || element.title || "页面图片",
@@ -810,7 +843,10 @@ window.__ModuleLoader__.load({
         selectedElement.current?.classList.add("pmda-selected");
         setSelection(next);
         setPosition({
-          left: Math.max(100, Math.min(window.innerWidth - 100, rect.left + rect.width / 2)),
+          left: Math.max(
+            100,
+            Math.min(window.innerWidth - 100, rect.left + rect.width / 2),
+          ),
           top: Math.max(42, rect.top - 6),
         });
       }, []);
@@ -865,7 +901,9 @@ window.__ModuleLoader__.load({
               if (rect.width === 0 && rect.height === 0) return;
               const rangeSurface = textSelectionSurfaceForRange(range);
               if (rangeSurface === null) return;
-              const route = pageFromRoute(window.__pluginmaxShell?.router?.state?.route);
+              const route = pageFromRoute(
+                window.__pluginmaxShell?.router?.state?.route,
+              );
               show(
                 {
                   kind: "text",
@@ -897,7 +935,11 @@ window.__ModuleLoader__.load({
             interactive?.matches?.("[data-data-agent-select]") === true
               ? interactive
               : undefined;
-          if (interactive !== null && interactive !== undefined && !selectionControl) {
+          if (
+            interactive !== null &&
+            interactive !== undefined &&
+            !selectionControl
+          ) {
             return;
           }
           const resolved = entityRegistry.resolve(event.target);
@@ -933,7 +975,10 @@ window.__ModuleLoader__.load({
           if (selectedElement.current === null) return;
           const rect = selectedElement.current.getBoundingClientRect();
           setPosition({
-            left: Math.max(100, Math.min(window.innerWidth - 100, rect.left + rect.width / 2)),
+            left: Math.max(
+              100,
+              Math.min(window.innerWidth - 100, rect.left + rect.width / 2),
+            ),
             top: Math.max(42, rect.top - 6),
           });
         };
@@ -1060,24 +1105,24 @@ window.__ModuleLoader__.load({
                     if (title === "") {
                       title = fallbackTaskTitle(capture.text);
                     }
+                    const fromTask = capture.sourceType === "task";
+                    const sourceSuffix = fromTask
+                      ? `\n\n来自于：${capture.sourceId}，${capture.sourceTitle}`
+                      : "";
                     const seed = {
                       workspaceId: capture.workspaceId,
                       title,
-                      description: capture.text,
+                      description: `${capture.text}${sourceSuffix}`,
                       priority,
                       due,
                       acceptance,
                       status: "todo",
+                      preserveCurrentView: true,
                     };
                     window.__pluginmaxPendingTaskCreate = seed;
                     window.dispatchEvent(
                       new CustomEvent("pluginmax:task-create-open", {
                         detail: seed,
-                      }),
-                    );
-                    window.dispatchEvent(
-                      new CustomEvent("pluginmax:navigate", {
-                        detail: { route: "task" },
                       }),
                     );
                     clear();
@@ -1154,9 +1199,7 @@ window.__ModuleLoader__.load({
         "task-drafts": "task",
       };
       const moveTabFocus = (event, index) => {
-        if (
-          !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)
-        ) {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
           return;
         }
         event.preventDefault();
@@ -1171,12 +1214,10 @@ window.__ModuleLoader__.load({
         const nextTab = tabs[nextIndex];
         window.__pluginmaxSidePanel?.openTab(nextTab);
         window.requestAnimationFrame(() => {
-          const target = [...document.querySelectorAll("[data-tab]")]
-            .find(
-              (node) =>
-                node.dataset.tab === nextTab &&
-                node.getClientRects().length > 0,
-            );
+          const target = [...document.querySelectorAll("[data-tab]")].find(
+            (node) =>
+              node.dataset.tab === nextTab && node.getClientRects().length > 0,
+          );
           target?.querySelector('button[role="tab"]')?.focus();
         });
       };
@@ -1188,11 +1229,12 @@ window.__ModuleLoader__.load({
           { className: "pmda-tab-scroll" },
           ...tabs.map((tab, tabIndex) => {
             const active = snapshot.activeTab === tab;
-            const descriptor =
-              window.__pluginmaxSidePanel?.describeTab?.(tab) ?? {
-                type: tab,
-                title: tab,
-              };
+            const descriptor = window.__pluginmaxSidePanel?.describeTab?.(
+              tab,
+            ) ?? {
+              type: tab,
+              title: tab,
+            };
             const iconName = labels[descriptor.type] ?? "message";
             const label = descriptor.title;
             return h(
@@ -1312,9 +1354,7 @@ window.__ModuleLoader__.load({
               type: "button",
               className: "pmda-tab-action",
               title: snapshot.expanded ? "还原侧边栏" : "展开侧边栏",
-              "aria-label": snapshot.expanded
-                ? "还原侧边栏"
-                : "展开侧边栏",
+              "aria-label": snapshot.expanded ? "还原侧边栏" : "展开侧边栏",
               onClick: () => window.__pluginmaxSidePanel?.toggleExpanded(),
             },
             snapshot.expanded ? ICONS.collapse : ICONS.expand,
@@ -1409,7 +1449,9 @@ window.__ModuleLoader__.load({
     }
 
     function renderMarkdownDocument(markdown, options = {}) {
-      const lines = String(markdown ?? "").replace(/\r/g, "").split("\n");
+      const lines = String(markdown ?? "")
+        .replace(/\r/g, "")
+        .split("\n");
       const blocks = [];
       let unordered = [];
       let ordered = [];
@@ -1458,7 +1500,11 @@ window.__ModuleLoader__.load({
             index += 1;
           }
           blocks.push(
-            h("pre", { key: `pre-${blocks.length}` }, h("code", null, code.join("\n"))),
+            h(
+              "pre",
+              { key: `pre-${blocks.length}` },
+              h("code", null, code.join("\n")),
+            ),
           );
           continue;
         }
@@ -1641,7 +1687,11 @@ window.__ModuleLoader__.load({
               attachment.kind,
           ),
           h("span", null, "·"),
-          h("span", null, attachment.sourcePage ?? attachment.source?.page ?? ""),
+          h(
+            "span",
+            null,
+            attachment.sourcePage ?? attachment.source?.page ?? "",
+          ),
           h("span", null, "·"),
           attachment.entityId
             ? h("code", null, attachment.entityId)
@@ -1666,7 +1716,9 @@ window.__ModuleLoader__.load({
     }
 
     function ClarificationCard({ pending }) {
-      const questions = Array.isArray(pending?.questions) ? pending.questions : [];
+      const questions = Array.isArray(pending?.questions)
+        ? pending.questions
+        : [];
       const [drafts, setDrafts] = react.useState({});
       const [busy, setBusy] = react.useState("");
       const [error, setError] = react.useState("");
@@ -1677,8 +1729,7 @@ window.__ModuleLoader__.load({
         setError("");
       }, [pending?.key]);
 
-      const draftFor = (id) =>
-        drafts[id] ?? { selected: [], custom: "" };
+      const draftFor = (id) => drafts[id] ?? { selected: [], custom: "" };
       const updateDraft = (id, patch) => {
         setDrafts((current) => {
           const draft = current[id] ?? { selected: [], custom: "" };
@@ -1793,9 +1844,7 @@ window.__ModuleLoader__.load({
                         type: "button",
                         className: `pmda-clarification-option${selected ? " selected" : ""}`,
                         role:
-                          question.multiSelect === true
-                            ? "checkbox"
-                            : "radio",
+                          question.multiSelect === true ? "checkbox" : "radio",
                         "aria-checked": selected,
                         title: option.description,
                         onClick: () => toggleOption(question, option.label),
@@ -1813,9 +1862,7 @@ window.__ModuleLoader__.load({
               onChange: (event) =>
                 updateDraft(question.id, {
                   custom: event.target.value,
-                  ...(question.multiSelect === true
-                    ? {}
-                    : { selected: [] }),
+                  ...(question.multiSelect === true ? {} : { selected: [] }),
                 }),
             }),
           ),
@@ -1865,7 +1912,11 @@ window.__ModuleLoader__.load({
               "div",
               { className: "pmda-report-tags" },
               h("span", null, `Markdown + ${report.images?.length ?? 0} 张图`),
-              h("span", null, `数据截止 ${new Date(report.dataCutoffAt).toLocaleString("zh-CN")}`),
+              h(
+                "span",
+                null,
+                `数据截止 ${new Date(report.dataCutoffAt).toLocaleString("zh-CN")}`,
+              ),
               h("span", null, "只读数据"),
             ),
           ),
@@ -1875,12 +1926,20 @@ window.__ModuleLoader__.load({
           { className: "pmda-report-actions" },
           h(
             "button",
-            { type: "button", className: "pmda-btn agent", onClick: () => onOpen(report) },
+            {
+              type: "button",
+              className: "pmda-btn agent",
+              onClick: () => onOpen(report),
+            },
             "浏览报告",
           ),
           h(
             "button",
-            { type: "button", className: "pmda-btn", onClick: () => onDownload(report, "md") },
+            {
+              type: "button",
+              className: "pmda-btn",
+              onClick: () => onDownload(report, "md"),
+            },
             "下载 Markdown",
           ),
           report.html
@@ -1910,7 +1969,8 @@ window.__ModuleLoader__.load({
       const [config, setConfig] = react.useState(null);
       const [access, setAccess] = react.useState(null);
       const [defaultTimeRange, setDefaultTimeRange] = react.useState("7d");
-      const [clarificationMode, setClarificationMode] = react.useState("hybrid");
+      const [clarificationMode, setClarificationMode] =
+        react.useState("hybrid");
       const [maxRowsPerQuery, setMaxRowsPerQuery] = react.useState(500);
       const [resetConfirm, setResetConfirm] = react.useState(false);
       const [error, setError] = react.useState("");
@@ -1938,7 +1998,9 @@ window.__ModuleLoader__.load({
             setWorkspaceId(target);
             setConfig(result.workspaceConfig);
             setAccess(result.access);
-            setDefaultTimeRange(result.workspaceConfig.defaultTimeRange ?? "7d");
+            setDefaultTimeRange(
+              result.workspaceConfig.defaultTimeRange ?? "7d",
+            );
             setClarificationMode(
               result.workspaceConfig.clarificationMode ?? "hybrid",
             );
@@ -2028,11 +2090,7 @@ window.__ModuleLoader__.load({
               "div",
               null,
               h("h3", null, "智能体配置"),
-              h(
-                "p",
-                null,
-                "Data Agent 在当前项目的查询默认值与澄清策略。",
-              ),
+              h("p", null, "Data Agent 在当前项目的查询默认值与澄清策略。"),
             ),
             h(
               "div",
@@ -2097,7 +2155,7 @@ window.__ModuleLoader__.load({
                         "strong",
                         null,
                         (props?.teammate?.execution ?? "builtin") === "external"
-                          ? props?.teammate?.externalRuntimeId ?? "外部运行时"
+                          ? (props?.teammate?.externalRuntimeId ?? "外部运行时")
                           : "平台内置运行时",
                       ),
                     ),
@@ -2121,11 +2179,16 @@ window.__ModuleLoader__.load({
         h(
           "div",
           { className: "pmda-teammate-config-head" },
-          h("div", null, h("h3", null, "智能体配置"), h(
-            "p",
+          h(
+            "div",
             null,
-            "配置 Data Agent 在当前项目的查询默认值与澄清策略。执行方式和外部运行时使用上方 AI伙伴资料编辑及「运行时设置」页。",
-          )),
+            h("h3", null, "智能体配置"),
+            h(
+              "p",
+              null,
+              "配置 Data Agent 在当前项目的查询默认值与澄清策略。执行方式和外部运行时使用上方 AI伙伴资料编辑及「运行时设置」页。",
+            ),
+          ),
           h(
             "span",
             { className: "pmda-teammate-config-revision" },
@@ -2137,8 +2200,12 @@ window.__ModuleLoader__.load({
           : h(
               react.Fragment,
               null,
-              error === "" ? null : h("div", { className: "pmda-error" }, error),
-              notice === "" ? null : h("div", { className: "pmtm-notice" }, notice),
+              error === ""
+                ? null
+                : h("div", { className: "pmda-error" }, error),
+              notice === ""
+                ? null
+                : h("div", { className: "pmtm-notice" }, notice),
               h(
                 "div",
                 { className: "pmda-teammate-config-grid" },
@@ -2150,7 +2217,8 @@ window.__ModuleLoader__.load({
                     "select",
                     {
                       value: defaultTimeRange,
-                      onChange: (event) => setDefaultTimeRange(event.target.value),
+                      onChange: (event) =>
+                        setDefaultTimeRange(event.target.value),
                     },
                     h("option", { value: "today" }, "今天"),
                     h("option", { value: "7d" }, "过去 7 天"),
@@ -2197,10 +2265,14 @@ window.__ModuleLoader__.load({
                     "strong",
                     null,
                     (props?.teammate?.execution ?? "builtin") === "external"
-                      ? props?.teammate?.externalRuntimeId ?? "未选择"
+                      ? (props?.teammate?.externalRuntimeId ?? "未选择")
                       : "平台内置运行时",
                   ),
-                  h("small", null, "在 AI伙伴资料编辑中切换，或在“运行时设置”页管理运行时。"),
+                  h(
+                    "small",
+                    null,
+                    "在 AI伙伴资料编辑中切换，或在“运行时设置”页管理运行时。",
+                  ),
                 ),
               ),
               h(
@@ -2215,17 +2287,26 @@ window.__ModuleLoader__.load({
                   ? h(
                       react.Fragment,
                       null,
-                      h("button", {
-                        type: "button",
-                        className: "pmtm-btn secondary small",
-                        onClick: () => setResetConfirm(false),
-                      }, "取消"),
-                      h("button", {
-                        type: "button",
-                        className: "pmtm-btn secondary small",
-                        disabled: phase === "resetting" || access?.canManage !== true,
-                        onClick: () => void reset(),
-                      }, phase === "resetting" ? "恢复中…" : "确认恢复"),
+                      h(
+                        "button",
+                        {
+                          type: "button",
+                          className: "pmtm-btn secondary small",
+                          onClick: () => setResetConfirm(false),
+                        },
+                        "取消",
+                      ),
+                      h(
+                        "button",
+                        {
+                          type: "button",
+                          className: "pmtm-btn secondary small",
+                          disabled:
+                            phase === "resetting" || access?.canManage !== true,
+                          onClick: () => void reset(),
+                        },
+                        phase === "resetting" ? "恢复中…" : "确认恢复",
+                      ),
                     )
                   : h(
                       "button",
@@ -2257,12 +2338,14 @@ window.__ModuleLoader__.load({
 
     function DataAgentPanel(props) {
       const sidePanel = useSidePanel();
-      const route = props?.useShellRoute?.((state) => state.route) ?? "workbench-new";
+      const route =
+        props?.useShellRoute?.((state) => state.route) ?? "workbench-new";
       const page = pageFromRoute(route);
       const [workspaceId, setWorkspaceId] = react.useState(
         () => window.localStorage.getItem(WORKSPACE_KEY) ?? "",
       );
       const [workspaces, setWorkspaces] = react.useState([]);
+      const [workspacesLoading, setWorkspacesLoading] = react.useState(true);
       const [conversationId, setConversationId] = react.useState("");
       const [conversations, setConversations] = react.useState([]);
       const [conversationMenuOpen, setConversationMenuOpen] =
@@ -2304,14 +2387,11 @@ window.__ModuleLoader__.load({
           ? window.__pluginmaxSidePanel?.describeTab?.(sidePanel.activeTab)
           : undefined;
       const activeDataAgentTab =
-        activeDescriptor?.type === "data-agent"
-          ? sidePanel.activeTab
-          : "";
+        activeDescriptor?.type === "data-agent" ? sidePanel.activeTab : "";
       activeDataAgentTabRef.current = activeDataAgentTab;
       const active = activeDataAgentTab !== "";
       const pendingInteractions =
-        props?.useSessionPendingInteraction?.((state) => state) ??
-        new Map();
+        props?.useSessionPendingInteraction?.((state) => state) ?? new Map();
 
       const showToast = react.useCallback((message) => {
         setToast(message);
@@ -2327,8 +2407,7 @@ window.__ModuleLoader__.load({
           typeof activeTab === "string"
             ? panel?.describeTab?.(activeTab)
             : undefined;
-        const dataAgentTab =
-          descriptor?.type === "data-agent" ? activeTab : "";
+        const dataAgentTab = descriptor?.type === "data-agent" ? activeTab : "";
         newConversationRef.current = true;
         setConversationId("");
         setPayload(null);
@@ -2420,14 +2499,17 @@ window.__ModuleLoader__.load({
         setConversationOptionsHasMore(false);
         setConversationOptionsError("");
         setConversationOptionsLoading(true);
-        const timer = window.setTimeout(() => {
-          void fetchConversationPage({
-            queryText: conversationQuery,
-            offset: 0,
-            requestId,
-            append: false,
-          });
-        }, conversationQuery.trim() === "" ? 0 : 180);
+        const timer = window.setTimeout(
+          () => {
+            void fetchConversationPage({
+              queryText: conversationQuery,
+              offset: 0,
+              requestId,
+              append: false,
+            });
+          },
+          conversationQuery.trim() === "" ? 0 : 180,
+        );
         return () => window.clearTimeout(timer);
       }, [conversationMenuOpen, conversationQuery, fetchConversationPage]);
 
@@ -2469,10 +2551,7 @@ window.__ModuleLoader__.load({
       ]);
 
       const loadMoreConversations = () => {
-        if (
-          conversationOptionsLoading ||
-          !conversationOptionsHasMore
-        ) {
+        if (conversationOptionsLoading || !conversationOptionsHasMore) {
           return;
         }
         void fetchConversationPage({
@@ -2487,41 +2566,42 @@ window.__ModuleLoader__.load({
         if (!active) closeConversationMenu();
       }, [active, closeConversationMenu]);
 
-      const loadConversation = react.useCallback(async (id) => {
-        if (id === "" || loadingConversation.current === id) return;
-        const requestedTab = activeDataAgentTab;
-        loadingConversation.current = id;
-        try {
-          const result = await request(
-            `${API}/conversation?id=${encodeURIComponent(id)}`,
-          );
-          if (requestedTab !== "") {
-            window.__pluginmaxSidePanel?.updateTab?.(requestedTab, {
-              sessionId: result.conversation.id,
-              title:
-                result.conversation.title?.trim() ||
-                "数据洞察会话",
-            });
+      const loadConversation = react.useCallback(
+        async (id) => {
+          if (id === "" || loadingConversation.current === id) return;
+          const requestedTab = activeDataAgentTab;
+          loadingConversation.current = id;
+          try {
+            const result = await request(
+              `${API}/conversation?id=${encodeURIComponent(id)}`,
+            );
+            if (requestedTab !== "") {
+              window.__pluginmaxSidePanel?.updateTab?.(requestedTab, {
+                sessionId: result.conversation.id,
+                title: result.conversation.title?.trim() || "数据洞察会话",
+              });
+            }
+            if (activeDataAgentTabRef.current !== requestedTab) return;
+            setConversationId(result.conversation.id);
+            setPayload(result);
+            if (
+              result.conversation.workspaceId !== workspaceId &&
+              result.conversation.workspaceId !== ""
+            ) {
+              setWorkspaceId(result.conversation.workspaceId);
+            }
+            setError("");
+          } catch (cause) {
+            if (activeDataAgentTabRef.current !== requestedTab) return;
+            if (cause.code !== "not_found") setError(cause.message);
+            setConversationId("");
+            setPayload(null);
+          } finally {
+            loadingConversation.current = "";
           }
-          if (activeDataAgentTabRef.current !== requestedTab) return;
-          setConversationId(result.conversation.id);
-          setPayload(result);
-          if (
-            result.conversation.workspaceId !== workspaceId &&
-            result.conversation.workspaceId !== ""
-          ) {
-            setWorkspaceId(result.conversation.workspaceId);
-          }
-          setError("");
-        } catch (cause) {
-          if (activeDataAgentTabRef.current !== requestedTab) return;
-          if (cause.code !== "not_found") setError(cause.message);
-          setConversationId("");
-          setPayload(null);
-        } finally {
-          loadingConversation.current = "";
-        }
-      }, [activeDataAgentTab, workspaceId]);
+        },
+        [activeDataAgentTab, workspaceId],
+      );
 
       react.useEffect(() => {
         if (activeDataAgentTab === "") return;
@@ -2555,8 +2635,48 @@ window.__ModuleLoader__.load({
         ) {
           setWorkspaceId(pending.workspaceId);
         }
-        void loadConversation(pending.conversationId);
+        setView("chat");
+        void loadConversation(pending.conversationId).then(() => {
+          window.requestAnimationFrame(() => {
+            if (chatRef.current === null) return;
+            chatRef.current.scrollTop = chatRef.current.scrollHeight;
+          });
+        });
       }, [active, loadConversation]);
+
+      react.useEffect(() => {
+        const openConversation = (event) => {
+          const detail = event?.detail ?? {};
+          if (
+            typeof detail.conversationId !== "string" ||
+            detail.conversationId === ""
+          ) {
+            return;
+          }
+          if (
+            typeof detail.workspaceId === "string" &&
+            detail.workspaceId !== ""
+          ) {
+            setWorkspaceId(detail.workspaceId);
+          }
+          setView("chat");
+          void loadConversation(detail.conversationId).then(() => {
+            window.requestAnimationFrame(() => {
+              if (chatRef.current === null) return;
+              chatRef.current.scrollTop = chatRef.current.scrollHeight;
+            });
+          });
+        };
+        window.addEventListener(
+          "pluginmax:data-agent-open-conversation",
+          openConversation,
+        );
+        return () =>
+          window.removeEventListener(
+            "pluginmax:data-agent-open-conversation",
+            openConversation,
+          );
+      }, [loadConversation]);
 
       const loadWorkspaceData = react.useCallback(async () => {
         if (workspaceId === "") return;
@@ -2577,16 +2697,15 @@ window.__ModuleLoader__.load({
             const stored = window.localStorage.getItem(
               `${CONVERSATION_PREFIX}${workspaceId}`,
             );
-            const preferred =
-              conversationResult.conversations?.some(
-                (item) => item.id === conversationId,
-              )
-                ? conversationId
-                : conversationResult.conversations?.some(
-                      (item) => item.id === stored,
-                    )
-                  ? stored
-                  : conversationResult.conversations?.[0]?.id;
+            const preferred = conversationResult.conversations?.some(
+              (item) => item.id === conversationId,
+            )
+              ? conversationId
+              : conversationResult.conversations?.some(
+                    (item) => item.id === stored,
+                  )
+                ? stored
+                : conversationResult.conversations?.[0]?.id;
             if (preferred) {
               await loadConversation(preferred);
             } else {
@@ -2612,9 +2731,9 @@ window.__ModuleLoader__.load({
           .then(([memberships]) => {
             if (disposed) return;
             setWorkspaces(memberships);
-          if (memberships[0]?.id !== undefined) {
-            window.__pluginmaxDataAgentWorkspaceId = memberships[0].id;
-          }
+            if (memberships[0]?.id !== undefined) {
+              window.__pluginmaxDataAgentWorkspaceId = memberships[0].id;
+            }
             setWorkspaceId((current) => {
               const preferred =
                 current ||
@@ -2626,14 +2745,21 @@ window.__ModuleLoader__.load({
                 : (memberships[0]?.id ?? "");
             });
           })
-          .catch((cause) => setError(cause.message));
+          .catch((cause) => setError(cause.message))
+          .finally(() => {
+            if (!disposed) setWorkspacesLoading(false);
+          });
         return () => {
           disposed = true;
         };
       }, []);
 
       react.useEffect(() => {
-        if (!active || workspaceId === "" || lastWorkspaceRef.current === workspaceId) {
+        if (
+          !active ||
+          workspaceId === "" ||
+          lastWorkspaceRef.current === workspaceId
+        ) {
           return;
         }
         lastWorkspaceRef.current = workspaceId;
@@ -2702,7 +2828,10 @@ window.__ModuleLoader__.load({
           setView("chat");
           window.requestAnimationFrame(() => inputRef.current?.focus());
         };
-        window.addEventListener("pluginmax:data-agent-selection", receiveSelection);
+        window.addEventListener(
+          "pluginmax:data-agent-selection",
+          receiveSelection,
+        );
         return () =>
           window.removeEventListener(
             "pluginmax:data-agent-selection",
@@ -2744,7 +2873,9 @@ window.__ModuleLoader__.load({
       react.useEffect(() => {
         setActiveReport((current) => {
           if (current === null) return current;
-          return latestReports.find((item) => item.id === current.id) ?? current;
+          return (
+            latestReports.find((item) => item.id === current.id) ?? current
+          );
         });
       }, [payload?.reports]);
 
@@ -2841,15 +2972,30 @@ window.__ModuleLoader__.load({
       const messages = payload?.messages ?? [];
       const attachments = payload?.attachments ?? [];
       let body = null;
-      if (status === "loading" && payload === null) {
+      if (
+        (status === "loading" && payload === null) ||
+        (workspacesLoading && workspaceId === "")
+      ) {
         body = h("div", { className: "pmda-loading" }, "正在加载 Data Agent…");
       } else if (workspaceId === "") {
         body = h(
           "div",
           { className: "pmda-empty" },
           h("div", { className: "pmda-empty-mark" }, ICONS.spark),
-          h("h2", null, "当前没有可用的工作区"),
-          h("p", null, "加入工作区后，Data Agent 会在授权范围内提供只读分析。"),
+          h(
+            "h2",
+            null,
+            workspaces.length === 0
+              ? "当前没有可用的工作区"
+              : "请选择工作区或会话",
+          ),
+          h(
+            "p",
+            null,
+            workspaces.length === 0
+              ? "加入工作区后，Data Agent 会在授权范围内提供只读分析。"
+              : "可从上方「选择会话」继续历史分析，或新建会话开始提问。",
+          ),
         );
       } else if (view === "report" && activeReport) {
         body = h(
@@ -2907,8 +3053,7 @@ window.__ModuleLoader__.load({
         );
         const attachmentsByMessage = new Map();
         for (const attachment of attachments) {
-          const list =
-            attachmentsByMessage.get(attachment.messageId) ?? [];
+          const list = attachmentsByMessage.get(attachment.messageId) ?? [];
           list.push(attachment);
           attachmentsByMessage.set(attachment.messageId, list);
         }
@@ -2918,48 +3063,49 @@ window.__ModuleLoader__.load({
           h(
             "div",
             { ref: chatRef, className: "pmda-chat" },
-            messages.length === 0 ? h(
-              "div",
-              { className: "pmda-empty" },
-              h("div", { className: "pmda-empty-mark" }, ICONS.spark),
-              h(
-                "h2",
-                null,
-                pendingSelections.length > 0
-                  ? "已载入你选中的内容"
-                  : "从一个数据问题开始",
-              ),
-              h(
-                "p",
-                null,
-                pendingSelections.length > 0
-                  ? "可以补充分析目标、时间范围或关注指标，也可以直接发送。"
-                  : "可以直接提问，也可以先选中页面中的任务、工作流、会议、指标或文字。",
-              ),
-              h(
-                "div",
-                { className: "pmda-suggestions" },
-                ...(
-                  pendingSelections.length > 0
-                    ? ["找出主要原因", "与上一周期对比", "生成分析报告"]
-                    : ["查看今日异常", "生成本周工作简报", "解释当前指标口径"]
-                ).map((label) =>
+            messages.length === 0
+              ? h(
+                  "div",
+                  { className: "pmda-empty" },
+                  h("div", { className: "pmda-empty-mark" }, ICONS.spark),
                   h(
-                    "button",
-                    {
-                      key: label,
-                      type: "button",
-                      className: "pmda-suggestion",
-                      onClick: () => {
-                        setDraft(label);
-                        inputRef.current?.focus();
-                      },
-                    },
-                    label,
+                    "h2",
+                    null,
+                    pendingSelections.length > 0
+                      ? "已载入你选中的内容"
+                      : "从一个数据问题开始",
                   ),
-                ),
-              ),
-            ) : null,
+                  h(
+                    "p",
+                    null,
+                    pendingSelections.length > 0
+                      ? "可以补充分析目标、时间范围或关注指标，也可以直接发送。"
+                      : "可以直接提问，也可以先选中页面中的任务、工作流、会议、指标或文字。",
+                  ),
+                  h(
+                    "div",
+                    { className: "pmda-suggestions" },
+                    ...(pendingSelections.length > 0
+                      ? ["找出主要原因", "与上一周期对比", "生成分析报告"]
+                      : ["查看今日异常", "生成本周工作简报", "解释当前指标口径"]
+                    ).map((label) =>
+                      h(
+                        "button",
+                        {
+                          key: label,
+                          type: "button",
+                          className: "pmda-suggestion",
+                          onClick: () => {
+                            setDraft(label);
+                            inputRef.current?.focus();
+                          },
+                        },
+                        label,
+                      ),
+                    ),
+                  ),
+                )
+              : null,
             h(
               "div",
               { className: "pmda-messages" },
@@ -2989,7 +3135,7 @@ window.__ModuleLoader__.load({
                     ),
                   ),
                   user &&
-                  (attachmentsByMessage.get(message.id) ?? []).length > 0
+                    (attachmentsByMessage.get(message.id) ?? []).length > 0
                     ? h(
                         "div",
                         { className: "pmda-attachments" },
@@ -3088,7 +3234,8 @@ window.__ModuleLoader__.load({
                 ref: inputRef,
                 value: draft,
                 rows: 2,
-                placeholder: "补充你想分析的问题，例如：找出主要原因并说明证据…",
+                placeholder:
+                  "补充你想分析的问题，例如：找出主要原因并说明证据…",
                 "aria-label": "向 Data Agent 提问",
                 onChange: (event) => setDraft(event.target.value),
                 onKeyDown: (event) => {
@@ -3149,16 +3296,6 @@ window.__ModuleLoader__.load({
                 h(
                   "button",
                   {
-                    type: "button",
-                    className: "pmda-session-new",
-                    onClick: startNewConversation,
-                  },
-                  ICONS.plus,
-                  "新会话",
-                ),
-                h(
-                  "button",
-                  {
                     ref: conversationTriggerRef,
                     type: "button",
                     className: "pmda-session-switch",
@@ -3181,6 +3318,16 @@ window.__ModuleLoader__.load({
                   ),
                   ICONS.chevron,
                 ),
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    className: "pmda-session-new",
+                    onClick: startNewConversation,
+                  },
+                  ICONS.plus,
+                  "新会话",
+                ),
               ),
             ),
             error !== ""
@@ -3199,12 +3346,11 @@ window.__ModuleLoader__.load({
               {
                 ref: conversationMenuRef,
                 className: "pmda-session-menu",
-                style:
-                  conversationMenuStyle ?? {
-                    left: 0,
-                    top: 0,
-                    visibility: "hidden",
-                  },
+                style: conversationMenuStyle ?? {
+                  left: 0,
+                  top: 0,
+                  visibility: "hidden",
+                },
                 role: "dialog",
                 "aria-label": "切换 Data Agent 会话",
               },
@@ -3217,8 +3363,7 @@ window.__ModuleLoader__.load({
                   value: conversationQuery,
                   placeholder: "搜索会话",
                   "aria-label": "搜索 Data Agent 会话",
-                  onChange: (event) =>
-                    setConversationQuery(event.target.value),
+                  onChange: (event) => setConversationQuery(event.target.value),
                 }),
               ),
               h(
@@ -3237,8 +3382,7 @@ window.__ModuleLoader__.load({
                     }
                   },
                 },
-                conversationOptionsLoading &&
-                  conversationOptions.length === 0
+                conversationOptionsLoading && conversationOptions.length === 0
                   ? h(
                       "div",
                       { className: "pmda-session-status" },
@@ -3260,11 +3404,7 @@ window.__ModuleLoader__.load({
                       "div",
                       { className: "pmda-session-group-title" },
                       h("span", null, group.title),
-                      h(
-                        "span",
-                        null,
-                        String(group.conversations.length),
-                      ),
+                      h("span", null, String(group.conversations.length)),
                     ),
                     ...group.conversations.map((item) =>
                       h(
@@ -3318,8 +3458,8 @@ window.__ModuleLoader__.load({
                   ),
                 ),
                 !conversationOptionsLoading &&
-                conversationOptionsError === "" &&
-                conversationOptions.length === 0
+                  conversationOptionsError === "" &&
+                  conversationOptions.length === 0
                   ? h(
                       "div",
                       { className: "pmda-session-status" },
@@ -3341,7 +3481,9 @@ window.__ModuleLoader__.load({
               ),
             )
           : null,
-        toast !== "" ? h("div", { className: "pmda-toast", role: "status" }, toast) : null,
+        toast !== ""
+          ? h("div", { className: "pmda-toast", role: "status" }, toast)
+          : null,
       );
     }
 

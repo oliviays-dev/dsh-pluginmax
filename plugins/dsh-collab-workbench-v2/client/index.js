@@ -148,6 +148,10 @@ window.__ModuleLoader__.load({
 .pmwb2-editbar-actions{display:flex;gap:5px;margin-left:auto;flex-wrap:wrap;}
 .pmwb2-canvas{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:14px;align-items:start;}
 .pmwb2-card{position:relative;grid-column:span var(--cols,3);min-width:0;overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
+.pmwb2-canvas.masonry-ready{position:relative;display:block;}
+.pmwb2-canvas.masonry-ready > .pmwb2-card{position:absolute;margin:0;}
+.pmwb2-card.has-height{display:flex;flex-direction:column;}
+.pmwb2-card.has-height .pmwb2-card-body{min-height:0;flex:1 1 auto;max-height:none;}
 .pmwb2-card.dragging{opacity:.5;border-color:var(--dsw-alias-accent-primary,#4f8ef7);}
 .pmwb2-card.edit{border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 32%,var(--dsw-alias-border-l2));}
 .pmwb2-card-head{display:grid;gap:7px;padding:10px 12px;border-bottom:1px solid var(--dsw-alias-border-l2);}
@@ -155,7 +159,7 @@ window.__ModuleLoader__.load({
 .pmwb2-card.edit .pmwb2-card-head{cursor:grab;}
 .pmwb2-card-title{min-width:0;flex:1;}
 .pmwb2-card-title strong{display:block;overflow:hidden;text-overflow:ellipsis;font-size:14px;line-height:1.3;font-weight:650;white-space:nowrap;}
-.pmwb2-card-title small{display:block;margin-top:2px;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:1.5;}
+.pmwb2-card-title small{display:block;min-width:0;margin-top:2px;overflow:hidden;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:1.5;text-overflow:ellipsis;white-space:nowrap;}
 .pmwb2-card-tools{display:flex;align-items:center;gap:4px;flex:none;min-width:0;}
 .pmwb2-card-tools > button{width:25px;height:25px;display:grid;place-items:center;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer;}
 .pmwb2-card-tools > button:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);}
@@ -164,6 +168,7 @@ window.__ModuleLoader__.load({
 .pmwb2-card-tools > button.spinning > svg{animation:pmwb2-spin .9s linear infinite;}
 @keyframes pmwb2-spin{to{transform:rotate(360deg);}}
 .pmwb2-card-body{padding:12px;max-height:360px;overflow:auto;}
+.pmwb2-card[data-plugin-id="pluginmax.daily-brief"] .pmwb2-card-body{padding-top:8px;}
 .pmwb2-grip{color:var(--dsw-alias-label-tertiary);}
 .pmwb2-grip svg{width:13px;height:13px;}
 .pmwb2-resize-width{position:absolute;top:0;right:0;bottom:20px;z-index:5;width:12px;cursor:ew-resize;touch-action:none;}
@@ -615,6 +620,7 @@ window.__ModuleLoader__.load({
       const toastTimer = react.useRef(0);
       const dragId = react.useRef("");
       const resizeRef = react.useRef(null);
+      const canvasRef = react.useRef(null);
 
       const active =
         workbenches.find((item) => item.id === preference?.activeWorkbenchId) ??
@@ -622,6 +628,109 @@ window.__ModuleLoader__.load({
       const copySource =
         workbenches.find((item) => item.id === copySourceId) ?? active;
       const panels = editing ? draftPanels : active?.panels ?? [];
+
+      const layoutCanvas = react.useCallback(() => {
+        const canvas = canvasRef.current;
+        if (canvas === null) return;
+        const cards = [...canvas.children].filter(
+          (child) =>
+            child instanceof HTMLElement &&
+            child.classList.contains("pmwb2-card"),
+        );
+        if (cards.length === 0) {
+          canvas.classList.remove("masonry-ready");
+          canvas.style.height = "";
+          return;
+        }
+        const width = canvas.clientWidth;
+        if (width <= 0) return;
+        const gap = 14;
+        const columns = width <= 640 ? 1 : width <= 900 ? 2 : 6;
+        const columnWidth = (width - gap * (columns - 1)) / columns;
+        const heights = Array.from({ length: columns }, () => 0);
+        canvas.classList.add("masonry-ready");
+        let bottom = 0;
+        const pending = cards.map((card, index) => ({
+          card,
+          index,
+          span: Math.max(
+            1,
+            Math.min(
+              Number.parseInt(card.style.getPropertyValue("--cols"), 10) || 3,
+              columns,
+            ),
+          ),
+        }));
+        while (pending.length > 0) {
+          let chosenIndex = -1;
+          let chosenX = 0;
+          let chosenY = Number.POSITIVE_INFINITY;
+          for (let index = 0; index < pending.length; index += 1) {
+            const candidate = pending[index];
+            let candidateX = 0;
+            let candidateY = Number.POSITIVE_INFINITY;
+            for (let x = 0; x <= columns - candidate.span; x += 1) {
+              const y = Math.max(...heights.slice(x, x + candidate.span));
+              if (
+                y < candidateY - 0.5 ||
+                (Math.abs(y - candidateY) <= 0.5 && x < candidateX)
+              ) {
+                candidateX = x;
+                candidateY = y;
+              }
+            }
+            if (
+              candidateY < chosenY - 0.5 ||
+              (Math.abs(candidateY - chosenY) <= 0.5 &&
+                (chosenIndex < 0 ||
+                  candidate.index < pending[chosenIndex].index))
+            ) {
+              chosenIndex = index;
+              chosenX = candidateX;
+              chosenY = candidateY;
+            }
+          }
+          const chosen = pending.splice(chosenIndex, 1)[0];
+          const card = chosen.card;
+          const span = chosen.span;
+          const cardWidth =
+            columnWidth * span + gap * Math.max(0, span - 1);
+          card.style.width = `${cardWidth}px`;
+          card.style.left = "0px";
+          card.style.top = "0px";
+          const height = card.offsetHeight;
+          card.style.left = `${chosenX * columnWidth + chosenX * gap}px`;
+          card.style.top = `${chosenY}px`;
+          const cardBottom = chosenY + height + gap;
+          for (let x = chosenX; x < chosenX + span; x += 1) {
+            heights[x] = cardBottom;
+          }
+          bottom = Math.max(bottom, cardBottom);
+        }
+        canvas.style.height = `${Math.max(0, bottom - gap)}px`;
+      }, []);
+
+      react.useLayoutEffect(() => {
+        const canvas = canvasRef.current;
+        if (canvas === null) return undefined;
+        let frame = 0;
+        const schedule = () => {
+          cancelAnimationFrame(frame);
+          frame = requestAnimationFrame(layoutCanvas);
+        };
+        const observer = new ResizeObserver(schedule);
+        observer.observe(canvas);
+        for (const child of canvas.children) {
+          if (child instanceof HTMLElement) observer.observe(child);
+        }
+        window.addEventListener("resize", schedule);
+        schedule();
+        return () => {
+          cancelAnimationFrame(frame);
+          observer.disconnect();
+          window.removeEventListener("resize", schedule);
+        };
+      }, [layoutCanvas, panels, editing, active?.id]);
 
       const showToast = react.useCallback((message) => {
         setToast(message);
@@ -1455,7 +1564,11 @@ window.__ModuleLoader__.load({
 
       const canvas = h(
         "div",
-        { className: "pmwb2-canvas", "data-workbench-v2-canvas": "true" },
+        {
+          ref: canvasRef,
+          className: "pmwb2-canvas",
+          "data-workbench-v2-canvas": "true",
+        },
         ...panels.map((panel) => {
           const meta = runtimeMeta[panel.id];
           return h(
@@ -1469,7 +1582,12 @@ window.__ModuleLoader__.load({
               }`,
               style: {
                 "--cols": panel.span,
-                ...(panel.height ? { maxHeight: `${panel.height}px` } : {}),
+                ...(panel.height
+                  ? {
+                      height: `${panel.height}px`,
+                      maxHeight: `${panel.height}px`,
+                    }
+                  : {}),
               },
               draggable: editing,
               onDragStart: () => {
@@ -1497,8 +1615,12 @@ window.__ModuleLoader__.load({
                   ),
                   h(
                     "small",
-                    null,
-                    `更新 ${meta?.updatedAt ? formatTime(meta.updatedAt) : "--"}`,
+                    {
+                      title: meta?.metaSuffixTitle,
+                    },
+                    `更新 ${meta?.updatedAt ? formatTime(meta.updatedAt) : "--"}${
+                      meta?.metaSuffix ? ` · ${meta.metaSuffix}` : ""
+                    }`,
                   ),
                 ),
                 h(
@@ -1554,18 +1676,6 @@ window.__ModuleLoader__.load({
               "div",
               {
                 className: "pmwb2-card-body",
-                style:
-                  panel.height !== undefined &&
-                  panel.height !== null
-                    ? {
-                        maxHeight: `${Math.max(120, panel.height - 43)}px`,
-                        ...(panel.pluginId === "pluginmax.kpi-overview"
-                          ? {
-                              height: `${Math.max(120, panel.height - 43)}px`,
-                            }
-                          : {}),
-                      }
-                    : undefined,
               },
               typeof props.renderSlot === "function"
                 ? props.renderSlot(

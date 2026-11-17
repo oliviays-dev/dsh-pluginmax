@@ -35,6 +35,24 @@ window.__ModuleLoader__.load({
         h("circle", { cx: 12, cy: 12, r: 9 }),
         h("path", { d: "M12 10.5V16.5M12 7.7h.01" }),
       ),
+      sparkle: h(
+        "svg",
+        {
+          viewBox: "0 0 24 24",
+          fill: "none",
+          stroke: "currentColor",
+          strokeWidth: 1.8,
+          strokeLinecap: "round",
+          strokeLinejoin: "round",
+          "aria-hidden": "true",
+        },
+        h("path", {
+          d: "m12 3 1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3Z",
+        }),
+        h("path", {
+          d: "m18.5 15 .8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2Z",
+        }),
+      ),
       chevron: h(
         "svg",
         {
@@ -156,7 +174,7 @@ window.__ModuleLoader__.load({
     ];
 
     const styles = `
-.pmwb2-panel{display:grid;gap:9px;min-height:80px;color:var(--dsw-alias-label-primary);}
+.pmwb2-panel{display:grid;gap:9px;min-height:80px;color:var(--dsw-alias-label-primary);--pmwb2-text-title:12.5px;--pmwb2-text-body:11.5px;--pmwb2-text-meta:11px;--pmwb2-text-caption:10px;--pmwb2-title-line:1.45;--pmwb2-body-line:1.55;}
 .pmwb2-panel *{box-sizing:border-box;}
 .pmwb2-skeleton{height:16px;border-radius:5px;background:linear-gradient(90deg,var(--dsw-alias-bg-layer-2),var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2)),var(--dsw-alias-bg-layer-2));background-size:200% 100%;animation:pmwb2-shimmer 1.3s linear infinite;}
 .pmwb2-skeleton:nth-child(2){width:82%;}.pmwb2-skeleton:nth-child(3){width:64%;}
@@ -165,7 +183,7 @@ window.__ModuleLoader__.load({
 .pmwb2-error button{justify-self:start;padding:3px 8px;border:1px solid currentColor;border-radius:5px;background:transparent;color:inherit;font:inherit;cursor:pointer;}
 .pmwb2-list{display:grid;gap:6px;}
 .pmwb-todo-scope-settings{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:7px 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);}
-.pmwb-todo-scope-settings > span{color:var(--dsw-alias-label-secondary);font-size:11px;}
+.pmwb-todo-scope-settings > span{color:var(--dsw-alias-label-secondary);font-size:var(--pmwb2-text-meta);}
 .pmwb-todo-scope-settings .pmwb-seg{flex:none;}
       .pmwb2-ai-load{display:grid;gap:9px;}
       .pmwb2-ai-load-table{border:1px solid var(--dsw-alias-border-l2);border-radius:7px;overflow:auto;background:var(--dsw-alias-bg-layer-2);scrollbar-width:thin;}
@@ -211,9 +229,18 @@ window.__ModuleLoader__.load({
       .pmwb2-ai-load-divider::before,.pmwb2-ai-load-divider::after{content:"";height:1px;flex:1;background:var(--dsw-alias-border-l2);}
       @media(max-width:420px){.pmwb2-ai-load-head,.pmwb2-ai-load-row{grid-template-columns:20px minmax(88px,1fr) minmax(0,2fr);padding-inline:6px;gap:4px;}}
 .pmwb2-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 9px;padding:7px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);}
-.pmwb2-row strong{min-width:0;font-size:11.5px;line-height:1.45;overflow-wrap:anywhere;}
-.pmwb2-row small{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:1.45;}
-.pmwb2-row .pmwb2-row-note{grid-column:1/-1;color:var(--dsw-alias-label-secondary);font-size:10.5px;line-height:1.5;}
+.pmwb2-row strong{min-width:0;font-size:var(--pmwb2-text-title);font-weight:650;line-height:var(--pmwb2-title-line);overflow-wrap:anywhere;}
+.pmwb2-row small{color:var(--dsw-alias-label-tertiary);font-size:var(--pmwb2-text-caption);line-height:1.45;}
+.pmwb2-row .pmwb2-row-note{grid-column:1/-1;color:var(--dsw-alias-label-secondary);font-size:var(--pmwb2-text-body);line-height:var(--pmwb2-body-line);}
+.pmwb2-data-agent-sessions{display:grid;gap:8px;}
+.pmwb2-data-agent-session{min-width:0;display:grid;gap:5px;padding:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-2);cursor:pointer;}
+.pmwb2-data-agent-session:hover{border-color:var(--dsw-alias-border-l4,var(--dsw-alias-border-l3));}
+.pmwb2-data-agent-session-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;min-width:0;}
+.pmwb2-data-agent-session-title{min-width:0;flex:1 1 auto;overflow:hidden;color:var(--dsw-alias-label-primary);font-size:var(--pmwb2-text-title);font-weight:650;line-height:var(--pmwb2-title-line);text-overflow:ellipsis;white-space:nowrap;}
+.pmwb2-data-agent-session-actions{flex:none;display:flex;align-items:center;gap:5px;}
+.pmwb2-data-agent-session-project{color:var(--dsw-alias-label-secondary);font-size:var(--pmwb2-text-meta);line-height:1.45;overflow-wrap:anywhere;}
+.pmwb2-data-agent-session-preview{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;color:var(--dsw-alias-label-secondary);font-size:var(--pmwb2-text-body);line-height:var(--pmwb2-body-line);overflow-wrap:anywhere;}
+.pmwb2-data-agent-session-preview.placeholder{color:var(--dsw-alias-label-tertiary);}
 .pmwb2-pill,.pmwb2-tag{padding:1px 6px;border-radius:999px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:9.5px;line-height:1.7;white-space:nowrap;}
 .pmwb2-tag{justify-self:end;border-radius:4px;}
 .pmwb2-tag.warn,.pmwb2-tag.high{color:var(--dsw-alias-state-warning-primary,#e2a737);background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#e2a737) 13%,transparent);}
@@ -240,40 +267,43 @@ window.__ModuleLoader__.load({
 .pmwb-empty{padding:18px 10px;color:var(--dsw-alias-label-tertiary);font-size:12px;text-align:center;}
 .pmwb-item{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"name actions" "id time" "note note" "meta meta" "owner owner";column-gap:10px;row-gap:4px;align-items:start;padding:9px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-2);cursor:pointer;}
 .pmwb-item.pmwb-item-focus{grid-template-areas:"name actions" "id time" "note note" "owner owner";}
-.pmwb-item.pmwb-item-todo{grid-template-areas:"id actions" "name name" "desc desc" "meta meta";column-gap:12px;row-gap:6px;align-items:start;padding:12px;}
+.pmwb-item.pmwb-item-todo{grid-template-areas:"name actions" "project project" "desc desc" "meta meta";column-gap:12px;row-gap:5px;align-items:start;padding:10px;}
 .pmwb-todo-actions{grid-area:actions;display:grid;gap:6px;justify-items:end;align-content:start;}
 .pmwb-todo-actions-main{display:flex;align-items:center;gap:6px;}
-.pmwb-todo-id{grid-area:id;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:1.45;overflow-wrap:anywhere;}
-.pmwb-todo-name{grid-area:name;color:var(--dsw-alias-label-primary);font-size:14px;font-weight:650;line-height:1.3;overflow-wrap:anywhere;}
-.pmwb-todo-description{grid-area:desc;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;}
-.pmwb-todo-meta{grid-area:meta;display:flex;align-items:center;gap:7px;flex-wrap:wrap;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.5;}
+.pmwb-todo-name{grid-area:name;color:var(--dsw-alias-label-primary);font-size:var(--pmwb2-text-title);font-weight:650;line-height:var(--pmwb2-title-line);overflow-wrap:anywhere;}
+.pmwb-todo-project{grid-area:project;color:var(--dsw-alias-label-secondary);font-size:var(--pmwb2-text-meta);line-height:1.45;overflow-wrap:anywhere;}
+.pmwb-todo-description{grid-area:desc;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;color:var(--dsw-alias-label-secondary);font-size:var(--pmwb2-text-body);line-height:var(--pmwb2-body-line);white-space:pre-wrap;overflow-wrap:anywhere;}
+.pmwb-todo-meta{grid-area:meta;display:flex;align-items:center;gap:7px;flex-wrap:wrap;color:var(--dsw-alias-label-secondary);font-size:var(--pmwb2-text-meta);line-height:1.5;}
 .pmwb-todo-due{margin-left:auto;color:var(--dsw-alias-label-tertiary);white-space:nowrap;}
-.pmwb-item.pmwb-item-todo.no-description{grid-template-areas:"id actions" "name name" "meta meta";}
+.pmwb-item.pmwb-item-todo.no-description{grid-template-areas:"name actions" "project project" "meta meta";}
 .pmwb-item-todo .pmwb-read-action{min-height:26px;padding:2px 9px;font-size:12px;}
 .pmwb2-card[data-plugin-id="pluginmax.task-focus"]{container-type:inline-size;}
 @container (max-width:280px){
-  .pmwb-item.pmwb-item-todo{grid-template-columns:minmax(0,1fr);grid-template-areas:"id" "actions" "name" "desc" "meta";}
-  .pmwb-item.pmwb-item-todo.no-description{grid-template-areas:"id" "actions" "name" "meta";}
+  .pmwb-item.pmwb-item-todo{grid-template-columns:minmax(0,1fr);grid-template-areas:"name" "actions" "project" "desc" "meta";}
+  .pmwb-item.pmwb-item-todo.no-description{grid-template-areas:"name" "actions" "project" "meta";}
   .pmwb-todo-actions{justify-items:start;}
   .pmwb-todo-due{margin-left:0;}
 }
 .pmwb-item:hover{border-color:var(--dsw-alias-border-l4,var(--dsw-alias-border-l3));}
 .pmwb-item.read{opacity:1;}.pmwb-item.read:hover{opacity:1;}
-.pmwb-item.meeting{grid-template-areas:"name actions" "meta meta" "sub sub" "owner owner";}
+.pmwb-item.meeting{grid-template-areas:"name actions" "context context" "meta meta" "sub sub" "owner owner";}
 .pmwb-meeting-title{grid-area:name;display:flex;align-items:baseline;gap:8px;min-width:0;flex-wrap:wrap;}
 .pmwb-meeting-title .pmwb-item-name{min-width:0;}
-.pmwb-meeting-title .pmwb-item-time{flex:none;}
-.pmwb-item-name{grid-area:name;color:var(--dsw-alias-label-primary) !important;font-size:12.5px;font-weight:650;line-height:1.45;overflow-wrap:anywhere;}
-.pmwb-item-id{grid-area:id;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:1.4;}
-.pmwb-item-note{grid-area:note;min-width:0;color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1.5;overflow-wrap:anywhere;}
+.pmwb-meeting-actions{display:flex;align-items:center;gap:6px;justify-content:flex-end;flex-wrap:wrap;}
+.pmwb-meeting-context{grid-area:context;display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0;}
+.pmwb-meeting-time{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:1.4;text-align:right;white-space:nowrap;}
+.pmwb-meeting-project{min-width:0;overflow:hidden;color:var(--dsw-alias-label-secondary);font-size:var(--pmwb2-text-meta);line-height:1.45;text-overflow:ellipsis;white-space:nowrap;}
+.pmwb-item-name{grid-area:name;color:var(--dsw-alias-label-primary) !important;font-size:var(--pmwb2-text-title);font-weight:650;line-height:var(--pmwb2-title-line);overflow-wrap:anywhere;}
+.pmwb-item-id{grid-area:id;color:var(--dsw-alias-label-tertiary);font-size:var(--pmwb2-text-meta);line-height:1.4;}
+.pmwb-item-note{grid-area:note;min-width:0;color:var(--dsw-alias-label-secondary);font-size:var(--pmwb2-text-body);line-height:var(--pmwb2-body-line);overflow-wrap:anywhere;}
 .pmwb-note-status{color:var(--dsw-alias-label-secondary);white-space:nowrap;}
 .pmwb-note-status.accent{color:var(--dsw-alias-accent-primary,#4f8ef7);}.pmwb-note-status.warn{color:var(--dsw-alias-state-warning-primary,#e2a737);}.pmwb-note-status.ok{color:var(--dsw-alias-state-success-primary,#34d47e);}.pmwb-note-status.high{color:var(--dsw-alias-state-error-primary,#e5534b);}
 .pmwb-note-divider{margin:0 4px;color:var(--dsw-alias-label-tertiary);}.pmwb-note-latest{color:var(--dsw-alias-label-secondary);}.pmwb-note-latest b{color:var(--dsw-alias-label-primary);font-weight:600;}
-.pmwb-item-meta{grid-area:meta;display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:4px;font-size:11px;color:var(--dsw-alias-label-secondary);}
-.pmwb-item-owner{grid-area:owner;display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:3px;color:var(--dsw-alias-label-secondary);font-size:11px;}
+.pmwb-item-meta{grid-area:meta;display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:4px;font-size:var(--pmwb2-text-meta);color:var(--dsw-alias-label-secondary);}
+.pmwb-item-owner{grid-area:owner;display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:3px;color:var(--dsw-alias-label-secondary);font-size:var(--pmwb2-text-meta);}
 .pmwb-item-trailing{grid-area:actions;display:flex;align-items:center;gap:6px;justify-self:end;flex-wrap:wrap;justify-content:flex-end;}
-.pmwb-item-time{grid-area:time;justify-self:end;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:1.4;white-space:nowrap;}
-.pmwb-item-sub{grid-area:sub;display:block;width:100%;margin-top:4px;color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1.55;overflow-wrap:anywhere;}
+.pmwb-item-time{grid-area:time;justify-self:end;color:var(--dsw-alias-label-tertiary);font-size:var(--pmwb2-text-meta);line-height:1.4;white-space:nowrap;}
+.pmwb-item-sub{grid-area:sub;display:block;width:100%;margin-top:4px;color:var(--dsw-alias-label-secondary);font-size:var(--pmwb2-text-body);line-height:var(--pmwb2-body-line);overflow-wrap:anywhere;}
 .pmwb-item-sub b{color:var(--dsw-alias-label-primary);}.pmwb-item-sub.placeholder{color:var(--dsw-alias-label-tertiary);}
 .pmwb-btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;min-height:28px;padding:2px 10px;border:1px solid var(--dsw-alias-border-l3);border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer;white-space:nowrap;}
 .pmwb-btn:hover{background:var(--dsw-alias-bg-layer-2);}
@@ -307,29 +337,29 @@ window.__ModuleLoader__.load({
 .pmwb-metric-value{margin-top:6px;font-size:22px;line-height:1.15;font-weight:650;letter-spacing:0;}.pmwb-metric-value small{margin-left:2px;font-size:11.5px;font-weight:500;color:var(--dsw-alias-label-secondary);}
 .pmwb-metric-target{margin-top:5px;color:var(--dsw-alias-label-tertiary);font-size:10.5px;line-height:1.5;}
 .pmwb-spark{display:flex;align-items:flex-end;gap:2px;height:26px;margin-top:9px;}.pmwb-spark span{flex:1;min-width:2px;border-radius:2px 2px 0 0;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 42%,transparent);}.pmwb-spark span.strong{background:var(--dsw-alias-accent-primary,#4f8ef7);}.pmwb-spark span.warn{background:var(--dsw-alias-state-error-primary,#e5534b);}
-.pmwb2-kpi-panel{--pmwb2-kpi-padding:12px;--pmwb2-kpi-gap:8px;--pmwb2-kpi-label-size:12px;--pmwb2-kpi-value-size:26px;--pmwb2-kpi-target-size:10.5px;--pmwb2-kpi-spark-height:30px;--pmwb2-kpi-card-min-height:168px;display:grid;grid-template-rows:minmax(0,1fr);gap:9px;height:auto;min-height:0;}
-.pmwb2-card[data-plugin-id="pluginmax.kpi-overview"] .pmwb2-card-body{display:flex;flex-direction:column;}
+.pmwb2-kpi-panel{--pmwb2-kpi-padding:9px;--pmwb2-kpi-gap:5px;--pmwb2-kpi-label-size:12px;--pmwb2-kpi-value-size:26px;--pmwb2-kpi-target-size:10.5px;--pmwb2-kpi-spark-height:30px;--pmwb2-kpi-card-min-height:168px;display:grid;grid-template-rows:minmax(0,1fr);gap:9px;height:auto;min-height:0;}
+.pmwb2-card[data-plugin-id="pluginmax.kpi-overview"] .pmwb2-card-body{min-height:0;display:flex;flex-direction:column;overflow:hidden;}
 .pmwb2-card[data-plugin-id="pluginmax.kpi-overview"] .pmwb2-card-body .pmwb2-panel{display:flex;flex:1 1 auto;flex-direction:column;min-height:0;}
 .pmwb2-card[data-plugin-id="pluginmax.kpi-overview"] .pmwb2-kpi-panel{flex:1 1 auto;}
 .pmwb2-card.has-height[data-plugin-id="pluginmax.kpi-overview"] .pmwb2-kpi-panel{height:100%;}
 .pmwb2-kpi-panel.no-source{grid-template-rows:minmax(0,1fr);}
 .pmwb2-kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));grid-auto-rows:minmax(0,1fr);gap:var(--pmwb2-kpi-gap);min-height:0;height:auto;overflow:visible;}
 .pmwb2-card.has-height[data-plugin-id="pluginmax.kpi-overview"] .pmwb2-kpi-grid{height:100%;}
-.pmwb2-kpi-card{display:flex;flex-direction:column;justify-content:flex-start;gap:var(--pmwb2-kpi-gap);min-width:0;min-height:var(--pmwb2-kpi-card-min-height);padding:var(--pmwb2-kpi-padding);border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 24%,var(--dsw-alias-border-l2));background:linear-gradient(145deg,color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 7%,var(--dsw-alias-bg-layer-2)),var(--dsw-alias-bg-layer-2));}
+.pmwb2-kpi-card{display:flex;flex-direction:column;justify-content:space-between;gap:var(--pmwb2-kpi-gap);min-width:0;min-height:var(--pmwb2-kpi-card-min-height);overflow:hidden;padding:var(--pmwb2-kpi-padding);border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 24%,var(--dsw-alias-border-l2));background:linear-gradient(145deg,color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 7%,var(--dsw-alias-bg-layer-2)),var(--dsw-alias-bg-layer-2));}
 .pmwb2-card.has-height[data-plugin-id="pluginmax.kpi-overview"] .pmwb2-kpi-card{min-height:0;}
       .pmwb2-kpi-card:only-child{width:100%;max-width:360px;min-height:174px;justify-self:start;}
-.pmwb2-kpi-card.no-spark{justify-content:center;}
+.pmwb2-kpi-card.no-spark{justify-content:space-between;}
 .pmwb2-kpi-card .pmwb-metric-label{font-size:var(--pmwb2-kpi-label-size);}
 .pmwb2-kpi-card .pmwb-metric-label,.pmwb2-kpi-card .pmwb-metric-value,.pmwb2-kpi-card .pmwb-metric-target{flex:0 0 auto;min-height:0;}
 .pmwb2-kpi-card .pmwb-metric-value{margin-top:0;font-size:var(--pmwb2-kpi-value-size);line-height:1;font-weight:680;font-variant-numeric:tabular-nums;}
 .pmwb2-kpi-card:only-child .pmwb-metric-value{margin-top:14px;font-size:34px;}
 .pmwb2-kpi-card .pmwb-metric-value small{margin-left:4px;font-size:14px;}
 .pmwb2-kpi-card .pmwb-metric-target{margin-top:0;color:var(--dsw-alias-label-secondary);font-size:var(--pmwb2-kpi-target-size);}
-.pmwb2-kpi-card .pmwb-spark{flex:1 1 auto;height:auto;min-height:var(--pmwb2-kpi-spark-height);max-height:none;margin-top:0;overflow:hidden;}
+.pmwb2-kpi-card .pmwb-spark{flex:1 1 0;height:auto;min-height:6px;max-height:var(--pmwb2-kpi-spark-height);margin-top:0;overflow:hidden;}
 .pmwb-severity{flex:none;display:grid;place-items:center;width:34px;min-height:24px;padding:2px;border-radius:6px;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-secondary);font-size:11px;font-weight:650;}
 .pmwb-severity.high{color:var(--dsw-alias-state-error-primary,#e5534b);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 14%,transparent);}.pmwb-severity.medium{color:var(--dsw-alias-state-warning-primary,#d29922);background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d29922) 16%,transparent);}.pmwb-severity.watch{color:var(--dsw-alias-accent-primary,#4f8ef7);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 14%,transparent);}
 .pmwb-control-item{display:grid;grid-template-columns:34px minmax(0,1fr);gap:9px;padding:9px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-2);}
-.pmwb-control-item strong{display:block;font-size:12.5px;line-height:1.45;}.pmwb-control-item p{margin:4px 0 0;color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1.55;}.pmwb-control-item small{display:block;margin-top:5px;color:var(--dsw-alias-label-tertiary);font-size:10.5px;}
+.pmwb-control-item strong{display:block;font-size:var(--pmwb2-text-title);line-height:var(--pmwb2-title-line);}.pmwb-control-item p{margin:4px 0 0;color:var(--dsw-alias-label-secondary);font-size:var(--pmwb2-text-body);line-height:var(--pmwb2-body-line);}.pmwb-control-item small{display:block;margin-top:5px;color:var(--dsw-alias-label-tertiary);font-size:var(--pmwb2-text-caption);}
 .pmwb-control-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px;}
 .pmwb-coverage{display:grid;gap:7px;margin-top:12px;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l2);}
 .pmwb-coverage-item{display:grid;grid-template-columns:96px minmax(0,1fr) 54px;gap:8px;align-items:center;font-size:11px;}.pmwb-coverage-item b{font-weight:500;color:var(--dsw-alias-label-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}.pmwb-coverage-item span:last-child{text-align:right;color:var(--dsw-alias-label-secondary);}
@@ -352,7 +382,8 @@ window.__ModuleLoader__.load({
 .pmwb-brief-meta{margin:8px 0 0;color:var(--dsw-alias-label-tertiary);font-size:11px;}
 .pmwb2-brief-panel{display:grid;gap:0;min-width:0;}
 .pmwb2-brief-section{position:relative;padding-top:12px;}
-.pmwb2-brief-section-head{display:flex;align-items:center;gap:6px;min-height:24px;margin-bottom:5px;}
+.pmwb2-brief-section:first-child{padding-top:0;}
+.pmwb2-brief-section-head{display:flex;align-items:center;gap:6px;min-height:22px;margin-bottom:4px;}
 .pmwb2-brief-section-title{display:flex;align-items:center;gap:5px;margin:0;color:var(--dsw-alias-label-secondary);font-size:11.5px;font-weight:680;line-height:1.3;}
 .pmwb2-brief-section-count{padding:0 5px;border-radius:999px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font-size:9.5px;line-height:17px;}
 .pmwb2-brief-section-actions{display:flex;align-items:center;gap:3px;margin-left:auto;}
@@ -363,23 +394,83 @@ window.__ModuleLoader__.load({
 .pmwb2-brief-linkbtn{display:inline-flex;align-items:center;gap:2px;min-height:22px;padding:0 4px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:10px;cursor:pointer;white-space:nowrap;}
 .pmwb2-brief-linkbtn:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}.pmwb2-brief-linkbtn svg{width:11px;height:11px;}
 .pmwb2-brief-list{overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-2);}
-.pmwb2-brief-row{width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto 14px;align-items:center;gap:9px;min-height:46px;padding:7px 10px;border:0;border-top:1px solid var(--dsw-alias-border-l2);background:transparent;color:inherit;text-align:left;cursor:pointer;}
+.pmwb2-brief-project-list{display:grid;gap:7px;}
+.pmwb2-brief-project{--pmwb2-project-tone:var(--dsw-alias-accent-primary,#4f8ef7);min-width:0;overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-2);}
+.pmwb2-brief-project.state-danger{--pmwb2-project-tone:var(--dsw-alias-state-error-primary,#e5534b);}
+.pmwb2-brief-project.state-warning{--pmwb2-project-tone:var(--dsw-alias-state-warning-primary,#d29922);}
+.pmwb2-brief-project.state-accent{--pmwb2-project-tone:var(--dsw-alias-accent-primary,#4f8ef7);}
+.pmwb2-brief-project.state-success{--pmwb2-project-tone:var(--dsw-alias-state-success-primary,#3fb950);}
+.pmwb2-brief-project-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 11px 0;}
+.pmwb2-brief-project-heading{min-width:0;flex:1 1 auto;}
+.pmwb2-brief-project-title{margin:0;color:var(--dsw-alias-label-primary);font-size:13px;font-weight:680;line-height:1.4;overflow-wrap:anywhere;}
+.pmwb2-brief-project-metrics{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:3px;color:var(--dsw-alias-label-tertiary);font-size:9.5px;line-height:1.4;}
+.pmwb2-brief-project-metrics span+span::before{content:"";display:inline-block;width:2px;height:2px;margin:0 5px 2px 0;border-radius:50%;background:currentColor;vertical-align:middle;}
+.pmwb2-brief-project-actions{display:flex;align-items:center;justify-content:flex-end;gap:5px;flex:none;margin-left:auto;}
+.pmwb2-brief-project-state{flex:none;display:inline-flex;align-items:center;gap:5px;height:21px;padding:0 7px;border-radius:5px;background:color-mix(in srgb,var(--pmwb2-project-tone) 14%,transparent);color:var(--pmwb2-project-tone);font-size:9.5px;font-weight:700;white-space:nowrap;}
+.pmwb2-brief-project-state.state-danger{--pmwb2-project-tone:var(--dsw-alias-state-error-primary,#e5534b);}
+.pmwb2-brief-project-state.state-warning{--pmwb2-project-tone:var(--dsw-alias-state-warning-primary,#d29922);}
+.pmwb2-brief-project-state.state-accent{--pmwb2-project-tone:var(--dsw-alias-accent-primary,#4f8ef7);}
+.pmwb2-brief-project-state.state-success{--pmwb2-project-tone:var(--dsw-alias-state-success-primary,#3fb950);}
+.pmwb2-brief-project-state::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor;box-shadow:0 0 0 3px color-mix(in srgb,currentColor 12%,transparent);}
+.pmwb2-brief-project-summary-wrap{padding:8px 11px 7px;}
+.pmwb2-brief-project-summary{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;color:var(--dsw-alias-label-secondary);font-size:var(--pmwb2-text-body);line-height:var(--pmwb2-body-line);overflow-wrap:anywhere;}
+.pmwb2-brief-project-summary.full{display:block;overflow:visible;-webkit-line-clamp:unset;}
+.pmwb2-brief-project-summary-line{display:block;min-width:0;}
+.pmwb2-brief-project-summary-line b{color:var(--dsw-alias-label-primary);font-weight:650;}
+.pmwb2-brief-project-drawer-meta{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:7px;color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:1.45;}
+.pmwb2-brief-project-drawer-meta>span+span::before{content:"";display:inline-block;width:2px;height:2px;margin:0 6px 2px 0;border-radius:50%;background:currentColor;vertical-align:middle;}
+.pmwb2-brief-project-items{display:grid;overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);}
+.pmwb2-brief-project-item{width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto 12px;align-items:center;gap:7px;min-height:38px;padding:6px 8px;border:0;border-top:1px solid var(--dsw-alias-border-l2);background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer;}
+.pmwb2-brief-project-item:first-child{border-top:0;}
+.pmwb2-brief-project-item:hover{background:var(--dsw-alias-bg-layer-1);}
+.pmwb2-brief-project-item-copy{min-width:0;}
+.pmwb2-brief-project-item-title{display:block;min-width:0;overflow:hidden;color:var(--dsw-alias-label-primary);font-size:10.5px;font-weight:620;line-height:1.45;text-overflow:ellipsis;white-space:nowrap;}
+.pmwb2-brief-project-item-sub{display:block;min-width:0;margin-top:1px;overflow:hidden;color:var(--dsw-alias-label-secondary);font-size:9.5px;line-height:1.45;text-overflow:ellipsis;white-space:nowrap;}
+.pmwb2-brief-project-item-status{display:inline-flex;align-items:center;height:18px;padding:0 5px;border-radius:4px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:8.5px;font-weight:650;white-space:nowrap;}
+.pmwb2-brief-project-item-status.danger{color:var(--dsw-alias-state-error-primary,#e5534b);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 13%,transparent);}
+.pmwb2-brief-project-item-status.warning{color:var(--dsw-alias-state-warning-primary,#d29922);background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d29922) 14%,transparent);}
+.pmwb2-brief-project-item-status.accent{color:var(--dsw-alias-accent-primary,#4f8ef7);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 12%,transparent);}
+.pmwb2-brief-project-item>svg{width:11px;height:11px;color:var(--dsw-alias-label-tertiary);}
+.pmwb2-brief-row{width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:9px;min-height:46px;padding:7px 10px;border:0;border-top:1px solid var(--dsw-alias-border-l2);background:transparent;color:inherit;text-align:left;cursor:pointer;}
 .pmwb2-brief-row:first-child{border-top:0;}.pmwb2-brief-row:hover{background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 6%,var(--dsw-alias-bg-layer-2));}.pmwb2-brief-row.read{opacity:.62;}
-.pmwb2-brief-row-main{min-width:0;}.pmwb2-brief-row-titleline{display:flex;align-items:center;gap:6px;min-width:0;}
-.pmwb2-brief-row-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-primary);font-size:11.8px;font-weight:640;line-height:1.42;}
+.pmwb2-brief-row-main{min-width:0;}.pmwb2-brief-row-titleline{display:flex;align-items:center;gap:6px;min-width:0;flex-wrap:wrap;}
+.pmwb2-brief-row-title{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-primary);font-size:var(--pmwb2-text-title);font-weight:650;line-height:var(--pmwb2-title-line);}
+.pmwb2-brief-row-source{flex:none;padding:0 5px;border-radius:3px;font-size:9px;font-weight:650;line-height:16px;white-space:nowrap;}
+.pmwb2-brief-row-source.task{color:var(--dsw-alias-accent-primary,#4f8ef7);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 12%,transparent);}
+.pmwb2-brief-row-source.workflow{color:var(--dsw-alias-state-warning-primary,#d29922);background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d29922) 14%,transparent);}
 .pmwb2-brief-row-kind{flex:none;padding:0 5px;border-radius:3px;font-size:9px;line-height:16px;font-weight:650;}
 .pmwb2-brief-row-kind.anomaly{color:var(--dsw-alias-state-error-primary,#e5534b);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 14%,transparent);}
 .pmwb2-brief-row-kind.attention{color:var(--dsw-alias-state-warning-primary,#d29922);background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d29922) 16%,transparent);}
-.pmwb2-brief-row-sub{display:block;min-width:0;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:10.5px;line-height:1.45;}
-.pmwb2-brief-row-trailing{display:flex;align-items:center;gap:6px;justify-self:end;white-space:nowrap;}
+.pmwb2-brief-row-sub{display:block;min-width:0;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:var(--pmwb2-text-body);line-height:1.5;}
+.pmwb2-brief-row-trailing{display:flex;flex-direction:column;align-items:flex-end;gap:4px;justify-self:end;white-space:nowrap;}
+.pmwb2-brief-row-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end;}
 .pmwb2-brief-status{display:inline-flex;align-items:center;height:19px;padding:0 6px;border-radius:4px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-secondary);font-size:9.5px;font-weight:650;}
 .pmwb2-brief-status.ok{color:var(--dsw-alias-state-success-primary,#3fb950);background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#3fb950) 14%,transparent);}
 .pmwb2-brief-status.warn{color:var(--dsw-alias-state-warning-primary,#d29922);background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d29922) 16%,transparent);}
 .pmwb2-brief-status.high{color:var(--dsw-alias-state-error-primary,#e5534b);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 14%,transparent);}
-.pmwb2-brief-row-time{color:var(--dsw-alias-label-tertiary);font-size:9.5px;}.pmwb2-brief-chevron{width:14px;height:14px;color:var(--dsw-alias-label-tertiary);transition:transform .14s ease,color .14s ease;}.pmwb2-brief-row:hover .pmwb2-brief-chevron{color:var(--dsw-alias-label-primary);transform:translateX(1px);}
 .pmwb2-brief-empty{padding:14px 10px;border:1px dashed var(--dsw-alias-border-l2);border-radius:7px;color:var(--dsw-alias-label-tertiary);font-size:11px;text-align:center;}
-.pmwb2-brief-footer{display:flex;align-items:center;gap:7px;margin-top:10px;padding-top:9px;border-top:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-tertiary);font-size:10px;}
-.pmwb2-brief-footer>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.pmwb2-brief-footer .pmwb2-brief-linkbtn{margin-left:auto;flex:none;}
+.pmwb2-brief-read-action{height:24px;padding:1px 7px;border:1px solid var(--dsw-alias-border-l3);border-radius:5px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:10px;white-space:nowrap;cursor:pointer;}
+.pmwb2-brief-read-action:hover{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);}
+.pmwb2-brief-detail-action{height:24px;padding:1px 8px;border:1px solid var(--dsw-alias-border-l3);border-radius:5px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:10px;white-space:nowrap;cursor:pointer;}
+.pmwb2-brief-detail-action:hover{border-color:var(--dsw-alias-border-l4,var(--dsw-alias-border-l3));background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
+.pmwb2-brief-detail-row{display:flex;align-items:center;justify-content:flex-end;gap:5px;}
+.pmwb-btn.pmwb2-card-action{height:24px;min-height:24px;padding:1px 8px;border-radius:5px;background:var(--dsw-alias-bg-layer-1);font-size:10px;line-height:1.2;}
+.pmwb-project-filter{position:relative;flex:none;min-width:0;}
+.pmwb-project-filter-trigger{height:25px;max-width:132px;display:inline-flex;align-items:center;gap:4px;padding:1px 7px;border:1px solid var(--dsw-alias-border-l3);border-radius:5px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:10.5px;white-space:nowrap;cursor:pointer;}
+.pmwb-project-filter-trigger:hover,.pmwb-project-filter-trigger.open{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
+.pmwb-project-filter-trigger>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;}
+.pmwb-project-filter-trigger svg{width:11px;height:11px;flex:none;transform:rotate(90deg);transition:transform .14s ease;}
+.pmwb-project-filter-trigger.open svg{transform:rotate(-90deg);}
+.pmwb-project-filter-menu{position:absolute;right:0;top:calc(100% + 4px);z-index:45;width:220px;max-width:calc(100vw - 24px);display:grid;gap:6px;padding:7px;border:1px solid var(--dsw-alias-border-l3);border-radius:7px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));box-shadow:0 14px 34px rgba(0,0,0,.3);}
+.pmwb-project-filter-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 2px;}
+.pmwb-project-filter-head strong{font-size:10.5px;color:var(--dsw-alias-label-primary);}
+.pmwb-project-filter-head button{padding:1px 4px;border:0;border-radius:4px;background:transparent;color:var(--dsw-alias-accent-primary,#4f8ef7);font:inherit;font-size:9.5px;cursor:pointer;}
+.pmwb-project-filter-head button:hover{background:var(--dsw-alias-bg-layer-2);}
+.pmwb-project-filter-list{max-height:220px;overflow:auto;display:grid;gap:2px;}
+.pmwb-project-filter-option{display:flex;align-items:center;gap:7px;min-width:0;padding:5px 6px;border-radius:5px;color:var(--dsw-alias-label-secondary);font-size:10.5px;cursor:pointer;}
+.pmwb-project-filter-option:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
+.pmwb-project-filter-option input{width:13px;height:13px;flex:none;accent-color:var(--dsw-alias-accent-primary,#4f8ef7);}
+.pmwb-project-filter-option span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .pmwb2-brief-needs{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 7px;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 13%,transparent);color:var(--dsw-alias-state-error-primary,#e5534b);font-size:10px;font-weight:650;white-space:nowrap;}
 .pmwb2-brief-needs::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor;}
 .pmwb2-brief-drawer-mask{position:fixed;inset:0;z-index:76;display:flex;justify-content:flex-end;background:rgba(0,0,0,.38);backdrop-filter:blur(2px);}
@@ -395,7 +486,25 @@ window.__ModuleLoader__.load({
 .pmwb2-brief-evidence:hover{border-color:var(--dsw-alias-border-l4,var(--dsw-alias-border-l3));color:var(--dsw-alias-label-primary);}.pmwb2-brief-evidence span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.pmwb2-brief-evidence svg{width:13px;height:13px;color:var(--dsw-alias-label-tertiary);}
 .pmwb2-brief-recommend{padding:9px 10px;border-left:2px solid var(--dsw-alias-accent-primary,#4f8ef7);border-radius:0 6px 6px 0;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 9%,transparent);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.6;}.pmwb2-brief-recommend strong{display:block;margin-bottom:2px;color:var(--dsw-alias-label-primary);}
 .pmwb2-brief-drawer-foot{display:flex;justify-content:flex-end;gap:7px;padding:10px 14px 12px;border-top:1px solid var(--dsw-alias-border-l2);}
-@media(max-width:520px){.pmwb2-brief-row{grid-template-columns:minmax(0,1fr) 14px;padding:8px 9px;}.pmwb2-brief-row-trailing{grid-column:1;grid-row:2;justify-self:start;margin-top:3px;}.pmwb2-brief-chevron{grid-column:2;grid-row:1/span 2;}.pmwb2-brief-row-sub{white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;}.pmwb2-brief-drawer{width:100%;}.pmwb2-brief-footer{flex-wrap:wrap;}.pmwb2-brief-footer .pmwb2-brief-linkbtn{margin-left:0;}}
+.pmwb2-brief-task{display:grid;gap:0;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-2);overflow:hidden;}
+.pmwb2-brief-task-toggle{width:100%;display:grid;grid-template-columns:14px minmax(0,1fr) auto;align-items:center;gap:7px;padding:8px 9px;border:0;background:transparent;color:var(--dsw-alias-label-secondary);text-align:left;font:inherit;font-size:10.5px;cursor:pointer;}
+.pmwb2-brief-task-toggle:hover{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);}
+.pmwb2-brief-task-toggle svg{width:12px;height:12px;transition:transform .14s ease;}
+.pmwb2-brief-task.open .pmwb2-brief-task-toggle svg{transform:rotate(90deg);}
+.pmwb2-brief-task-toggle span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pmwb2-brief-task-toggle small{color:var(--dsw-alias-label-tertiary);font-size:9.5px;}
+.pmwb2-brief-task-body{display:grid;gap:9px;padding:9px 10px 11px;border-top:1px solid var(--dsw-alias-border-l2);}
+.pmwb2-brief-task-title{margin:0;color:var(--dsw-alias-label-primary);font-size:12px;line-height:1.5;}
+.pmwb2-brief-task-description{margin:0;color:var(--dsw-alias-label-secondary);font-size:10.5px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;}
+.pmwb2-brief-task-grid{display:grid;grid-template-columns:52px minmax(0,1fr);gap:4px 8px;margin:0;font-size:10.5px;}
+.pmwb2-brief-task-grid dt{color:var(--dsw-alias-label-tertiary);}
+.pmwb2-brief-task-grid dd{margin:0;color:var(--dsw-alias-label-primary);overflow-wrap:anywhere;}
+.pmwb2-brief-task-summary{padding:8px 9px;border-left:2px solid var(--dsw-alias-accent-primary,#4f8ef7);border-radius:0 5px 5px 0;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 8%,transparent);color:var(--dsw-alias-label-secondary);font-size:10.5px;line-height:1.6;}
+.pmwb2-brief-task-summary strong{display:block;margin-bottom:3px;color:var(--dsw-alias-label-primary);font-size:10px;}
+.pmwb2-brief-task-state{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:1.5;}
+.pmwb2-brief-task-state.error{display:flex;align-items:center;gap:7px;color:var(--dsw-alias-state-error-primary,#e5534b);}
+.pmwb2-brief-task-state.error span{flex:1;min-width:0;overflow-wrap:anywhere;}
+@media(max-width:520px){.pmwb2-brief-project-head{flex-wrap:wrap;padding:9px 9px 0;}.pmwb2-brief-project-heading{flex-basis:100%;}.pmwb2-brief-project-actions{width:100%;justify-content:flex-end;margin-left:0;}.pmwb2-brief-project-title{font-size:12.5px;}.pmwb2-brief-project-state{height:20px;padding:0 6px;}.pmwb2-brief-project-summary-wrap{padding:7px 9px 6px;}.pmwb2-brief-project-item{grid-template-columns:minmax(0,1fr) auto 10px;padding:6px 7px;}.pmwb2-brief-row{grid-template-columns:minmax(0,1fr);padding:8px 9px;}.pmwb2-brief-row-trailing{grid-column:1;grid-row:2;align-items:flex-start;justify-self:start;margin-top:3px;}.pmwb2-brief-row-meta{justify-content:flex-start;}.pmwb2-brief-row-sub{white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;}.pmwb2-brief-drawer{width:100%;}}
 `;
 
     function token() {
@@ -686,14 +795,15 @@ window.__ModuleLoader__.load({
           : coveringRef?.type === "workflow"
             ? "工作流"
             : "";
+      const subjectLabel = props.subjectLabel ?? "";
       const [busy, setBusy] = react.useState(false);
       const title = coveredOnly
         ? coveringRef === undefined
           ? "已关注：由工作流或项目覆盖"
           : `取消关注${coveringLabel}（该条目由它覆盖）`
         : followed
-          ? "取消关注"
-          : "关注";
+          ? `取消关注${subjectLabel}`
+          : `关注${subjectLabel}`;
       return h(
         "button",
         {
@@ -860,6 +970,21 @@ window.__ModuleLoader__.load({
       );
     }
 
+    function openDataAgentConversation(session) {
+      if (typeof session?.id !== "string" || session.id === "") return;
+      const pending = {
+        conversationId: session.id,
+        workspaceId: session.workspaceId ?? "",
+      };
+      window.__pluginmaxPendingDataAgentConversation = pending;
+      window.__pluginmaxSidePanel?.openTab("data-agent");
+      window.dispatchEvent(
+        new CustomEvent("pluginmax:data-agent-open-conversation", {
+          detail: pending,
+        }),
+      );
+    }
+
     function meetingParticipantGroup(item) {
       const agents = item.agents ?? [];
       const seen = new Set();
@@ -911,20 +1036,12 @@ window.__ModuleLoader__.load({
     }
 
     function meetingParticipants(item) {
-      return [
-        h(
-          "div",
-          { className: "pmwb-meeting-line" },
-          h("span", { className: "pmwb-participants-label" }, "项目："),
-          h("span", { className: "ws" }, item.workspaceName || "未命名项目"),
-        ),
-        h(
-          "div",
-          { className: "pmwb-meeting-line" },
-          h("span", { className: "pmwb-participants-label" }, "参会："),
-          meetingParticipantGroup(item),
-        ),
-      ];
+      return h(
+        "div",
+        { className: "pmwb-meeting-line" },
+        h("span", { className: "pmwb-participants-label" }, "参会："),
+        meetingParticipantGroup(item),
+      );
     }
 
     function renderOwnerRow(item, ctx, variant) {
@@ -983,7 +1100,7 @@ window.__ModuleLoader__.load({
             }${read ? " read" : ""}`,
             ...dataAgentEntityAttributes(item),
           },
-          h("div", { className: "pmwb-todo-id" }, item.displayId ?? item.id),
+          h("div", { className: "pmwb-todo-name" }, item.title),
           h(
             "div",
             { className: "pmwb-todo-actions" },
@@ -1000,7 +1117,7 @@ window.__ModuleLoader__.load({
                 "button",
                 {
                   type: "button",
-                  className: "pmwb-btn",
+                  className: "pmwb-btn pmwb2-card-action",
                   onClick: openItem,
                 },
                 "详情",
@@ -1011,7 +1128,7 @@ window.__ModuleLoader__.load({
                   "button",
                   {
                     type: "button",
-                    className: "pmwb-btn pmwb-read-action",
+                    className: "pmwb-btn pmwb-read-action pmwb2-card-action",
                     onClick: (event) => {
                       event.stopPropagation();
                       ctx.markUnread(moduleId, item);
@@ -1021,7 +1138,9 @@ window.__ModuleLoader__.load({
                 )
               : null,
           ),
-          h("div", { className: "pmwb-todo-name" }, item.title),
+          item.workspaceName
+            ? h("div", { className: "pmwb-todo-project" }, item.workspaceName)
+            : null,
           description === ""
             ? null
             : h("div", { className: "pmwb-todo-description" }, description),
@@ -1103,7 +1222,7 @@ window.__ModuleLoader__.load({
                 "button",
                 {
                   type: "button",
-                  className: "pmwb-btn pmwb-read-action",
+                  className: "pmwb-btn pmwb-read-action pmwb2-card-action",
                   onClick: (event) => {
                     event.stopPropagation();
                     ctx.markUnread(moduleId, item);
@@ -1116,7 +1235,7 @@ window.__ModuleLoader__.load({
             "button",
             {
               type: "button",
-              className: "pmwb-btn",
+              className: "pmwb-btn pmwb2-card-action",
               onClick: (event) => {
                 event.stopPropagation();
                 openItem();
@@ -1158,9 +1277,20 @@ window.__ModuleLoader__.load({
             "div",
             { className: "pmwb-meeting-title" },
             h("span", { className: "pmwb-item-name" }, item.title),
+          ),
+          h(
+            "div",
+            { className: "pmwb-meeting-context" },
+            item.workspaceName
+              ? h(
+                  "span",
+                  { className: "pmwb-meeting-project" },
+                  item.workspaceName,
+                )
+              : h("span"),
             h(
               "span",
-              { className: "pmwb-item-time" },
+              { className: "pmwb-meeting-time" },
               formatTime(item.updatedAt),
             ),
           ),
@@ -1186,13 +1316,15 @@ window.__ModuleLoader__.load({
           ),
           h(
             "div",
-            { className: "pmwb-item-trailing" },
+            {
+              className: "pmwb-item-trailing pmwb-meeting-actions",
+            },
             ctx.showUnreadAction === true && read
               ? h(
                   "button",
                   {
                     type: "button",
-                    className: "pmwb-btn pmwb-read-action",
+                    className: "pmwb-btn pmwb-read-action pmwb2-card-action",
                     onClick: (event) => {
                       event.stopPropagation();
                       ctx.markUnread("meeting-minutes", item);
@@ -1201,11 +1333,12 @@ window.__ModuleLoader__.load({
                   "标为未读",
                 )
               : null,
+            h(FollowButton, { type: "meeting", id: item.id, compact: true }),
             h(
               "button",
               {
                 type: "button",
-                className: "pmwb-btn",
+                className: "pmwb-btn pmwb2-card-action",
                 onClick: (event) => {
                   event.stopPropagation();
                   openItem();
@@ -1213,16 +1346,8 @@ window.__ModuleLoader__.load({
               },
               "详情",
             ),
-            h(FollowButton, { type: "meeting", id: item.id, compact: true }),
           ),
-          h(
-            "div",
-            { className: "pmwb-item-owner" },
-            item.workspaceName
-              ? h("span", { className: "ws" }, item.workspaceName)
-              : null,
-            ...meetingParticipants(item),
-          ),
+          h("div", { className: "pmwb-item-owner" }, meetingParticipants(item)),
         );
       });
     }
@@ -1320,11 +1445,11 @@ window.__ModuleLoader__.load({
             const scale = Math.max(0.68, Math.min(1, widthScale));
             node.style.setProperty(
               "--pmwb2-kpi-padding",
-              `${Math.round(12 * scale)}px`,
+              `${Math.round(9 * scale)}px`,
             );
             node.style.setProperty(
               "--pmwb2-kpi-gap",
-              `${Math.round(8 * scale)}px`,
+              `${Math.round(5 * scale)}px`,
             );
             node.style.setProperty(
               "--pmwb2-kpi-label-size",
@@ -1802,6 +1927,7 @@ window.__ModuleLoader__.load({
       return h("div", { className: "pmwb-brief-md" }, ...blocks);
     }
 
+    /** 业务标签描述“这条简报是什么类型”，不是来源对象当前的处理状态。 */
     function briefTagLabel(tag) {
       return (
         {
@@ -1868,16 +1994,820 @@ window.__ModuleLoader__.load({
         : "ok";
     }
 
-    function briefTimeLabel(item) {
-      return item?.deadline
-        ? `截止 ${formatDate(item.deadline)}`
-        : formatTime(item?.occurredAt);
-    }
-
     function briefSourceLabel(item) {
       if (item?.sourceDomain === "workflow") return "工作流";
       if (item?.sourceDomain === "agent-run") return "执行记录";
       return "任务";
+    }
+
+    const PROJECT_NAME_MAX_CHARS = 8;
+
+    function briefProjectNames(items) {
+      return [
+        ...new Set(
+          (items ?? [])
+            .map((item) => String(item?.workspaceName ?? "").trim())
+            .filter(Boolean),
+        ),
+      ];
+    }
+
+    function truncateProjectName(value) {
+      const characters = Array.from(String(value ?? "").trim());
+      return characters.length > PROJECT_NAME_MAX_CHARS
+        ? `${characters.slice(0, PROJECT_NAME_MAX_CHARS).join("")}…`
+        : characters.join("");
+    }
+
+    const BRIEF_PROJECT_STATE_FALLBACK = {
+      blocked: {
+        key: "blocked",
+        label: "推进受阻",
+        tone: "danger",
+        priority: 5,
+        reason: "项目关键流程已阻塞或执行已中断，需要立即介入。",
+      },
+      needs_action: {
+        key: "needs_action",
+        label: "需优先处置",
+        tone: "danger",
+        priority: 4,
+        reason: "项目存在尚未解除的业务异常或推进风险。",
+      },
+      needs_decision: {
+        key: "needs_decision",
+        label: "等待决策",
+        tone: "warning",
+        priority: 3,
+        reason: "项目存在需要人工决定或协调后才能继续的事项。",
+      },
+      needs_review: {
+        key: "needs_review",
+        label: "等待确认",
+        tone: "accent",
+        priority: 2,
+        reason: "项目结果已经形成，正在等待复核、确认或验收。",
+      },
+      advancing: {
+        key: "advancing",
+        label: "正常推进",
+        tone: "accent",
+        priority: 1,
+        reason: "项目有有效进展，且没有阻塞或待决策事项。",
+      },
+      settled: {
+        key: "settled",
+        label: "已收敛",
+        tone: "success",
+        priority: 0,
+        reason: "当前没有需要继续关注的项目信号。",
+      },
+    };
+
+    function briefProjectKey(item) {
+      return String(item?.workspaceId || item?.workspaceName || "unassigned");
+    }
+
+    function briefProjectFallbackState(items) {
+      const active = (items ?? []).filter((item) => item?.resolved !== true);
+      if (
+        active.some(
+          (item) =>
+            item?.section === "risk" &&
+            (item?.condition?.kind === "workflow-blocked" ||
+              /阻塞|中断|失败|越权|预算耗尽/u.test(
+                `${item?.statusLabel ?? ""} ${item?.title ?? ""}`,
+              )),
+        )
+      ) {
+        return BRIEF_PROJECT_STATE_FALLBACK.blocked;
+      }
+      if (active.some((item) => item?.section === "risk")) {
+        return BRIEF_PROJECT_STATE_FALLBACK.needs_action;
+      }
+      if (active.some((item) => item?.section === "escalation")) {
+        return BRIEF_PROJECT_STATE_FALLBACK.needs_decision;
+      }
+      if (
+        active.some(
+          (item) =>
+            item?.tag === "review" ||
+            /待复核|待确认|待验收|待处理|待评估/u.test(item?.statusLabel ?? ""),
+        )
+      ) {
+        return BRIEF_PROJECT_STATE_FALLBACK.needs_review;
+      }
+      return active.length > 0
+        ? BRIEF_PROJECT_STATE_FALLBACK.advancing
+        : BRIEF_PROJECT_STATE_FALLBACK.settled;
+    }
+
+    function briefProjectFallbackLines(items) {
+      const active = (items ?? []).filter((item) => item?.resolved !== true);
+      const progress = active.filter((item) => item?.section === "conclusion");
+      const risks = active.filter((item) => item?.section === "risk");
+      const escalations = active.filter(
+        (item) => item?.section === "escalation",
+      );
+      const state = briefProjectFallbackState(active);
+      const progressText =
+        progress.length === 0
+          ? "本期暂无已确认结果。"
+          : `${progress
+              .slice(0, 2)
+              .map((item) => briefPlainText(item.title))
+              .join("、")}${
+              progress.length > 2 ? `等 ${progress.length} 项` : ""
+            }已形成阶段性结果。`;
+      const attentionCounts = [
+        risks.length > 0 ? `${risks.length} 项异常` : "",
+        escalations.length > 0 ? `${escalations.length} 项待处理` : "",
+      ].filter(Boolean);
+      const lead = risks[0] ?? escalations[0];
+      const attentionText =
+        lead === undefined
+          ? "当前没有新增异常或待决策事项。"
+          : `${attentionCounts.join("、")}，优先关注「${briefPlainText(
+              lead.title,
+            )}」。`;
+      const nextText =
+        state.key === "blocked" || state.key === "needs_action"
+          ? `先${risks[0]?.actionLabel || "处置"}「${briefPlainText(
+              risks[0]?.title ?? lead?.title ?? "",
+            )}」。`
+          : state.key === "needs_decision"
+            ? `先确认「${briefPlainText(
+                escalations[0]?.title ?? lead?.title ?? "",
+              )}」。`
+            : state.key === "needs_review"
+              ? "完成复核或验收后再关闭当前事项。"
+              : state.key === "advancing"
+                ? "当前无新增风险，按既定计划继续推进。"
+                : "当前进展已收敛，无需额外操作。";
+      return [
+        { kind: "progress", label: "关键进展", text: progressText },
+        { kind: "attention", label: "需要关注", text: attentionText },
+        { kind: "next", label: "建议", text: nextText },
+      ];
+    }
+
+    function briefProjectCards(progressItems, allItems, digests) {
+      const digestByKey = new Map();
+      for (const digest of digests ?? []) {
+        if (digest?.workspaceId) digestByKey.set(digest.workspaceId, digest);
+        if (digest?.workspaceName) {
+          digestByKey.set(digest.workspaceName, digest);
+        }
+      }
+      const itemsByProject = new Map();
+      for (const item of allItems ?? []) {
+        const key = briefProjectKey(item);
+        const current = itemsByProject.get(key) ?? [];
+        current.push(item);
+        itemsByProject.set(key, current);
+      }
+      const progressByProject = new Map();
+      for (const item of progressItems ?? []) {
+        const key = briefProjectKey(item);
+        const current = progressByProject.get(key) ?? [];
+        current.push(item);
+        progressByProject.set(key, current);
+      }
+      return [...progressByProject.entries()]
+        .map(([key, projectProgress]) => {
+          const projectItems = itemsByProject.get(key) ?? projectProgress;
+          const digest =
+            digestByKey.get(key) ??
+            digestByKey.get(String(projectItems[0]?.workspaceId ?? "")) ??
+            digestByKey.get(String(projectItems[0]?.workspaceName ?? ""));
+          return {
+            key,
+            workspaceId:
+              digest?.workspaceId ?? projectItems[0]?.workspaceId ?? key,
+            name:
+              digest?.workspaceName ||
+              projectItems.find(
+                (item) => String(item?.workspaceName ?? "").trim() !== "",
+              )?.workspaceName ||
+              "未归属项目",
+            state: digest?.state ?? briefProjectFallbackState(projectItems),
+            lines: digest?.lines ?? briefProjectFallbackLines(projectItems),
+            items: projectItems,
+            progress: projectItems.filter(
+              (item) => item?.section === "conclusion",
+            ),
+            attention: projectItems.filter(
+              (item) =>
+                item?.section === "risk" || item?.section === "escalation",
+            ),
+          };
+        })
+        .sort(
+          (left, right) =>
+            right.state.priority - left.state.priority ||
+            left.name.localeCompare(right.name, "zh-CN"),
+        );
+    }
+
+    function briefProjectItemTone(item) {
+      if (item?.section === "risk") return "danger";
+      if (item?.section === "escalation") return "warning";
+      if (/待复核|待确认|待验收|待处理|待评估/u.test(item?.statusLabel ?? "")) {
+        return "accent";
+      }
+      return "";
+    }
+
+    /** 来源标签只区分需要强调的异常归属：任务或工作流。 */
+    function briefSourceTag(item) {
+      if (item?.sourceDomain === "task" || item?.deepLink?.route === "task") {
+        return { label: "任务", kind: "task" };
+      }
+      if (
+        item?.sourceDomain === "workflow" ||
+        item?.deepLink?.route === "workflow"
+      ) {
+        return { label: "工作流", kind: "workflow" };
+      }
+      return null;
+    }
+
+    function briefFollowTarget(item) {
+      const route = item?.deepLink?.route;
+      if (item?.sourceDomain === "task" || route === "task") {
+        return { type: "brief", id: item.itemId };
+      }
+      if (item?.sourceDomain === "workflow" || route === "workflow") {
+        return { type: "brief", id: item.itemId };
+      }
+      return null;
+    }
+
+    const TASK_STATUS_LABELS = {
+      todo: "待开始",
+      progress: "进行中",
+      abnormal: "异常",
+      review: "待验收",
+      done: "已完成",
+      cancelled: "已取消",
+    };
+    const TASK_PRIORITY_LABELS = { P1: "P0", P2: "P1", P3: "P2" };
+
+    function taskEventText(value) {
+      return briefPlainText(value)
+        .replace(/\btodo\b/gi, "待开始")
+        .replace(/\bprogress\b/gi, "进行中")
+        .replace(/\babnormal\b/gi, "异常")
+        .replace(/\breview\b/gi, "待验收")
+        .replace(/\bdone\b/gi, "已完成")
+        .replace(/\bcancelled\b/gi, "已取消")
+        .replace(/[。！？.!?]+$/u, "");
+    }
+
+    /** 状态总结只回答“现在到哪了、最近发生了什么、是否还需动作”。 */
+    function taskStateSummary(task) {
+      if (task === null || task === undefined) return [];
+      const status = TASK_STATUS_LABELS[task.status] ?? task.status ?? "未知";
+      const progress = Number.isFinite(task.progress)
+        ? `，进度 ${task.progress}%`
+        : "";
+      const sentences = [`任务当前为${status}${progress}。`];
+      if (task.executionAnomaly?.message) {
+        sentences.push(
+          `执行异常：${taskEventText(task.executionAnomaly.message)}。`,
+        );
+      } else if (task.needsInput) {
+        sentences.push("任务正在等待补充信息。");
+      }
+      const events = [...(task.events ?? [])].sort((left, right) =>
+        String(right?.at ?? "").localeCompare(String(left?.at ?? "")),
+      );
+      const latestEvent =
+        events.find((event) =>
+          ["status", "closed", "workflow", "nudge"].includes(event.kind),
+        ) ?? events.find((event) => event.kind !== "archived");
+      if (latestEvent?.message) {
+        const message = taskEventText(latestEvent.message);
+        const actor =
+          latestEvent.actorName && !message.includes(latestEvent.actorName)
+            ? `${latestEvent.actorName}：`
+            : "";
+        sentences.push(`最近更新：${actor}${message}。`);
+      }
+      if (task.archivedAt) {
+        sentences.push("任务已归档，仅保留历史记录。");
+      }
+      return sentences.filter((sentence) => sentence !== "。").slice(0, 3);
+    }
+
+    function BriefTaskBasicInfo({ taskId }) {
+      const [open, setOpen] = react.useState(true);
+      const [task, setTask] = react.useState(null);
+      const [loading, setLoading] = react.useState(true);
+      const [error, setError] = react.useState("");
+      const mounted = react.useRef(true);
+      const autoLoaded = react.useRef(false);
+
+      react.useEffect(() => {
+        mounted.current = true;
+        return () => {
+          mounted.current = false;
+        };
+      }, []);
+
+      const load = react.useCallback(async () => {
+        if (!taskId) return;
+        setLoading(true);
+        setError("");
+        try {
+          const payload = await request(
+            `/api/collab/tasks/detail?taskId=${encodeURIComponent(taskId)}`,
+          );
+          if (mounted.current) setTask(payload?.task ?? null);
+        } catch (cause) {
+          if (mounted.current) {
+            setError(cause instanceof Error ? cause.message : "读取任务失败");
+          }
+        } finally {
+          if (mounted.current) setLoading(false);
+        }
+      }, [taskId]);
+
+      react.useEffect(() => {
+        if (!taskId || autoLoaded.current) return;
+        autoLoaded.current = true;
+        void load();
+      }, [load, taskId]);
+
+      if (!taskId) return null;
+      const toggle = () => {
+        const next = !open;
+        setOpen(next);
+        if (next && task === null && !loading) void load();
+      };
+      return h(
+        "div",
+        { className: `pmwb2-brief-task${open ? " open" : ""}` },
+        h(
+          "button",
+          {
+            type: "button",
+            className: "pmwb2-brief-task-toggle",
+            "aria-expanded": open,
+            "aria-controls": `pmwb2-brief-task-${taskId}`,
+            onClick: toggle,
+          },
+          ICONS.chevron,
+          h("span", null, `任务 · ${taskId}`),
+          h("small", null, open ? "收起" : "展开"),
+        ),
+        open
+          ? h(
+              "div",
+              {
+                id: `pmwb2-brief-task-${taskId}`,
+                className: "pmwb2-brief-task-body",
+              },
+              loading
+                ? h(
+                    "div",
+                    {
+                      className: "pmwb2-brief-task-state",
+                      role: "status",
+                    },
+                    "正在读取任务信息…",
+                  )
+                : error !== ""
+                  ? h(
+                      "div",
+                      {
+                        className: "pmwb2-brief-task-state error",
+                        role: "alert",
+                      },
+                      h("span", null, `任务信息加载失败：${error}`),
+                      h(
+                        "button",
+                        {
+                          type: "button",
+                          className: "pmwb2-brief-linkbtn",
+                          onClick: () => void load(),
+                        },
+                        "重试",
+                      ),
+                    )
+                  : task !== null
+                    ? [
+                        h(
+                          "h4",
+                          { className: "pmwb2-brief-task-title" },
+                          task.title,
+                        ),
+                        task.description
+                          ? h(
+                              "p",
+                              { className: "pmwb2-brief-task-description" },
+                              task.description,
+                            )
+                          : null,
+                        h(
+                          "dl",
+                          { className: "pmwb2-brief-task-grid" },
+                          h("dt", null, "负责人"),
+                          h(
+                            "dd",
+                            null,
+                            task.receiverName || task.receiverId || "待指派",
+                          ),
+                          h("dt", null, "优先级"),
+                          h(
+                            "dd",
+                            null,
+                            TASK_PRIORITY_LABELS[task.priority] ??
+                              task.priority,
+                          ),
+                        ),
+                        h(
+                          "div",
+                          { className: "pmwb2-brief-task-summary" },
+                          h("strong", null, "当前状态"),
+                          taskStateSummary(task).join(" "),
+                        ),
+                      ]
+                    : h(
+                        "div",
+                        { className: "pmwb2-brief-task-state" },
+                        "任务信息暂不可用。",
+                      ),
+            )
+          : null,
+      );
+    }
+
+    function BriefProjectDetailRow({ item, onDetail }) {
+      const tone = briefProjectItemTone(item);
+      return h(
+        "button",
+        {
+          type: "button",
+          className: "pmwb2-brief-project-item",
+          "aria-label": `查看 ${item.title} 详情`,
+          onClick: (event) => {
+            event.stopPropagation();
+            onDetail(item);
+          },
+        },
+        h(
+          "span",
+          { className: "pmwb2-brief-project-item-copy" },
+          h(
+            "strong",
+            { className: "pmwb2-brief-project-item-title" },
+            item.title,
+          ),
+          h(
+            "span",
+            { className: "pmwb2-brief-project-item-sub" },
+            briefPlainText(item.conclusion || item.reason || item.statusLabel),
+          ),
+        ),
+        item.statusLabel
+          ? h(
+              "span",
+              {
+                className: `pmwb2-brief-project-item-status${tone ? ` ${tone}` : ""}`,
+                title: `当前状态：${item.statusLabel}`,
+              },
+              item.statusLabel,
+            )
+          : null,
+        ICONS.chevron,
+      );
+    }
+
+    function BriefProjectCard({ project, onDetail }) {
+      const state = project.state ?? BRIEF_PROJECT_STATE_FALLBACK.settled;
+      const metrics = [
+        `${project.progress.length} 项进展`,
+        project.attention.length > 0
+          ? `${project.attention.length} 项关注`
+          : "",
+      ].filter(Boolean);
+      return h(
+        "article",
+        {
+          className: `pmwb2-brief-project state-${state.tone}`,
+          "data-workspace-id": project.workspaceId,
+          "data-data-agent-exclude": "true",
+        },
+        h(
+          "header",
+          { className: "pmwb2-brief-project-head" },
+          h(
+            "div",
+            { className: "pmwb2-brief-project-heading" },
+            h("h4", { className: "pmwb2-brief-project-title" }, project.name),
+            h(
+              "div",
+              { className: "pmwb2-brief-project-metrics" },
+              ...metrics.map((metric) => h("span", { key: metric }, metric)),
+            ),
+          ),
+          h(
+            "div",
+            { className: "pmwb2-brief-project-actions" },
+            h(
+              "span",
+              {
+                className: "pmwb2-brief-project-state",
+                title: state.reason,
+              },
+              state.label,
+            ),
+            h(FollowButton, {
+              type: "project",
+              id: project.workspaceId,
+              subjectLabel: "项目",
+              compact: true,
+            }),
+            h(
+              "button",
+              {
+                type: "button",
+                className: "pmwb-btn pmwb2-card-action",
+                "aria-label": `查看 ${project.name} 项目详情`,
+                onClick: () => onDetail(project),
+              },
+              "详情",
+            ),
+          ),
+        ),
+        h(
+          "div",
+          { className: "pmwb2-brief-project-summary-wrap" },
+          h(
+            "div",
+            {
+              id: `pmwb2-brief-project-summary-${project.key}`,
+              className: "pmwb2-brief-project-summary",
+            },
+            ...project.lines.map((line, index) =>
+              h(
+                "span",
+                {
+                  key: `${line.kind}-${index}`,
+                  className: `pmwb2-brief-project-summary-line ${line.kind}`,
+                },
+                h("b", null, `${line.label}：`),
+                line.text,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    function BriefProjectDrawer({ project, onClose, onItemDetail }) {
+      const state = project.state ?? BRIEF_PROJECT_STATE_FALLBACK.settled;
+      return h(
+        "div",
+        {
+          className: "pmwb2-brief-drawer-mask",
+          role: "presentation",
+          onClick: (event) => {
+            if (event.target === event.currentTarget) onClose();
+          },
+        },
+        h(
+          "aside",
+          {
+            className: "pmwb2-brief-drawer",
+            role: "dialog",
+            "aria-modal": "true",
+            "aria-label": `${project.name}项目详情`,
+          },
+          h(
+            "header",
+            { className: "pmwb2-brief-drawer-head" },
+            h("h2", null, "项目详情"),
+            h(
+              "button",
+              {
+                type: "button",
+                className: "pmwb2-iconbtn",
+                "aria-label": "关闭项目详情",
+                title: "关闭",
+                onClick: onClose,
+              },
+              ICONS.close,
+            ),
+          ),
+          h(
+            "div",
+            { className: "pmwb2-brief-drawer-body" },
+            h(
+              "div",
+              null,
+              h(
+                "div",
+                { className: "pmwb2-brief-drawer-kicker" },
+                "每日简报 · 项目概览",
+              ),
+              h("h3", { className: "pmwb2-brief-drawer-title" }, project.name),
+              h(
+                "div",
+                { className: "pmwb2-brief-project-drawer-meta" },
+                h(
+                  "span",
+                  {
+                    className: `pmwb2-brief-project-state state-${state.tone}`,
+                    title: state.reason,
+                  },
+                  state.label,
+                ),
+                h("span", null, `${project.progress.length} 项进展`),
+                h("span", null, `${project.attention.length} 项关注`),
+              ),
+            ),
+            h(
+              "section",
+              { className: "pmwb2-brief-drawer-block" },
+              h("h3", null, "项目概览"),
+              h(
+                "div",
+                { className: "pmwb2-brief-project-summary full" },
+                ...project.lines.map((line, index) =>
+                  h(
+                    "span",
+                    {
+                      key: `${line.kind}-${index}`,
+                      className: `pmwb2-brief-project-summary-line ${line.kind}`,
+                    },
+                    h("b", null, `${line.label}：`),
+                    line.text,
+                  ),
+                ),
+              ),
+            ),
+            project.progress.length > 0
+              ? h(
+                  "section",
+                  { className: "pmwb2-brief-drawer-block" },
+                  h("h3", null, `关键进展 · ${project.progress.length}`),
+                  h(
+                    "div",
+                    { className: "pmwb2-brief-project-items" },
+                    ...project.progress.map((item) =>
+                      h(BriefProjectDetailRow, {
+                        key: item.itemId,
+                        item,
+                        onDetail: onItemDetail,
+                      }),
+                    ),
+                  ),
+                )
+              : null,
+            project.attention.length > 0
+              ? h(
+                  "section",
+                  { className: "pmwb2-brief-drawer-block" },
+                  h("h3", null, `需要关注 · ${project.attention.length}`),
+                  h(
+                    "div",
+                    { className: "pmwb2-brief-project-items" },
+                    ...project.attention.map((item) =>
+                      h(BriefProjectDetailRow, {
+                        key: item.itemId,
+                        item,
+                        onDetail: onItemDetail,
+                      }),
+                    ),
+                  ),
+                )
+              : null,
+          ),
+          h(
+            "footer",
+            { className: "pmwb2-brief-drawer-foot" },
+            h(FollowButton, {
+              type: "project",
+              id: project.workspaceId,
+              subjectLabel: "项目",
+              compact: true,
+            }),
+            h(
+              "button",
+              {
+                type: "button",
+                className: "pmwb-btn",
+                onClick: onClose,
+              },
+              "关闭",
+            ),
+          ),
+        ),
+      );
+    }
+
+    function BriefProjectFilter({ projects, selected, onChange }) {
+      const [open, setOpen] = react.useState(false);
+      const rootRef = react.useRef(null);
+      const allSelected =
+        projects.length > 0 &&
+        projects.every((project) => selected.includes(project));
+      const label = allSelected
+        ? "全部项目"
+        : selected.length === 0
+          ? "未选项目"
+          : selected.length === 1
+            ? truncateProjectName(selected[0])
+            : `已选 ${selected.length} 项`;
+
+      react.useEffect(() => {
+        if (!open) return undefined;
+        const closeOnOutside = (event) => {
+          if (!rootRef.current?.contains(event.target)) setOpen(false);
+        };
+        const closeOnEscape = (event) => {
+          if (event.key === "Escape") setOpen(false);
+        };
+        document.addEventListener("pointerdown", closeOnOutside, true);
+        window.addEventListener("keydown", closeOnEscape);
+        return () => {
+          document.removeEventListener("pointerdown", closeOnOutside, true);
+          window.removeEventListener("keydown", closeOnEscape);
+        };
+      }, [open]);
+
+      const toggleProject = (project) => {
+        onChange(
+          selected.includes(project)
+            ? selected.filter((item) => item !== project)
+            : [...selected, project],
+        );
+      };
+
+      return h(
+        "div",
+        { className: "pmwb-project-filter", ref: rootRef },
+        h(
+          "button",
+          {
+            type: "button",
+            className: `pmwb-project-filter-trigger${open ? " open" : ""}`,
+            "aria-expanded": open,
+            "aria-haspopup": "dialog",
+            title: allSelected
+              ? "全部项目"
+              : selected.join("、") || "未选择项目",
+            onClick: () => setOpen((current) => !current),
+          },
+          h("span", null, label),
+          ICONS.chevron,
+        ),
+        open
+          ? h(
+              "div",
+              {
+                className: "pmwb-project-filter-menu",
+                role: "dialog",
+                "aria-label": "项目筛选",
+              },
+              h(
+                "div",
+                { className: "pmwb-project-filter-head" },
+                h("strong", null, "项目筛选"),
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    onClick: () => onChange(allSelected ? [] : [...projects]),
+                  },
+                  allSelected ? "清空" : "全选",
+                ),
+              ),
+              h(
+                "div",
+                { className: "pmwb-project-filter-list" },
+                ...projects.map((project) =>
+                  h(
+                    "label",
+                    {
+                      className: "pmwb-project-filter-option",
+                      key: project,
+                      title: project,
+                    },
+                    h("input", {
+                      type: "checkbox",
+                      checked: selected.includes(project),
+                      onChange: () => toggleProject(project),
+                    }),
+                    h("span", null, project),
+                  ),
+                ),
+              ),
+            )
+          : null,
+      );
     }
 
     function BriefBody({
@@ -1897,20 +2827,30 @@ window.__ModuleLoader__.load({
       const [expandedSections, setExpandedSections] = react.useState({});
       const [helpSection, setHelpSection] = react.useState(null);
       const [detailItem, setDetailItem] = react.useState(null);
+      const [detailProject, setDetailProject] = react.useState(null);
 
       react.useEffect(() => {
-        if (detailItem === null) return undefined;
+        if (detailItem === null && detailProject === null) return undefined;
         const onKeyDown = (event) => {
-          if (event.key === "Escape") setDetailItem(null);
+          if (event.key === "Escape") {
+            setDetailItem(null);
+            setDetailProject(null);
+          }
         };
         window.addEventListener("keydown", onKeyDown);
         return () => window.removeEventListener("keydown", onKeyDown);
-      }, [detailItem]);
+      }, [detailItem, detailProject]);
 
       const openDetail = (item) => {
         setHelpSection(null);
+        setDetailProject(null);
         setDetailItem(item);
         void onDetail?.(item);
+      };
+      const openProjectDetail = (project) => {
+        setHelpSection(null);
+        setDetailItem(null);
+        setDetailProject(project);
       };
 
       const runPrimary = (item) => {
@@ -1930,10 +2870,23 @@ window.__ModuleLoader__.load({
         if (sectionItems.length === 0) return null;
         const meta = BRIEF_SECTION_META[kind];
         const expanded = Boolean(expandedSections[kind]);
-        const visible = expanded
-          ? sectionItems
-          : sectionItems.slice(0, meta.limit);
-        const hiddenCount = Math.max(0, sectionItems.length - visible.length);
+        const projectDigests =
+          view === "unread"
+            ? data.projectDigests?.unread
+            : data.projectDigests?.all;
+        const projectCards =
+          kind === "progress"
+            ? briefProjectCards(sectionItems, items, projectDigests)
+            : [];
+        const sectionEntries =
+          kind === "progress" ? projectCards : sectionItems;
+        const visibleEntries = expanded
+          ? sectionEntries
+          : sectionEntries.slice(0, meta.limit);
+        const hiddenCount = Math.max(
+          0,
+          sectionEntries.length - visibleEntries.length,
+        );
         return h(
           "section",
           { className: "pmwb2-brief-section", key: kind },
@@ -1947,7 +2900,7 @@ window.__ModuleLoader__.load({
               h(
                 "span",
                 { className: "pmwb2-brief-section-count" },
-                sectionItems.length,
+                sectionEntries.length,
               ),
             ),
             h(
@@ -1968,7 +2921,7 @@ window.__ModuleLoader__.load({
                 },
                 ICONS.info,
               ),
-              sectionItems.length > meta.limit
+              sectionEntries.length > meta.limit
                 ? h(
                     "button",
                     {
@@ -1983,7 +2936,7 @@ window.__ModuleLoader__.load({
                     expanded
                       ? "收起"
                       : kind === "progress"
-                        ? `查看全部 ${sectionItems.length}`
+                        ? `查看全部 ${sectionEntries.length} 个项目`
                         : `其它 ${hiddenCount} 条`,
                     ICONS.chevron,
                   )
@@ -2000,79 +2953,136 @@ window.__ModuleLoader__.load({
           ),
           h(
             "div",
-            { className: "pmwb2-brief-list" },
-            ...visible.map((item) => {
-              const label =
+            {
+              className:
                 kind === "progress"
-                  ? null
-                  : briefTagLabel(item.tag) ||
+                  ? "pmwb2-brief-project-list"
+                  : "pmwb2-brief-list",
+            },
+            ...(kind === "progress"
+              ? visibleEntries.map((project) =>
+                  h(BriefProjectCard, {
+                    key: project.key,
+                    project,
+                    onDetail: openProjectDetail,
+                  }),
+                )
+              : visibleEntries.map((item) => {
+                  const businessTag =
+                    briefTagLabel(item.tag) ||
                     (kind === "anomaly" ? "异常" : "待处理");
-              return h(
-                "button",
-                {
-                  key: item.itemId,
-                  type: "button",
-                  className: `pmwb2-brief-row${item.readState === "read" ? " read" : ""}`,
-                  ...dataAgentBriefAttributes(item),
-                  onClick: () => openDetail(item),
-                },
-                h(
-                  "span",
-                  { className: "pmwb2-brief-row-main" },
-                  h(
-                    "span",
-                    { className: "pmwb2-brief-row-titleline" },
+                  const sourceTag =
+                    kind === "anomaly" ? briefSourceTag(item) : null;
+                  const followTarget = briefFollowTarget(item);
+                  return h(
+                    "article",
+                    {
+                      key: item.itemId,
+                      className: `pmwb2-brief-row${item.readState === "read" ? " read" : ""}`,
+                      ...dataAgentBriefAttributes(item),
+                    },
                     h(
                       "span",
-                      { className: "pmwb2-brief-row-title" },
-                      item.title,
-                    ),
-                    label
-                      ? h(
-                          "span",
-                          { className: `pmwb2-brief-row-kind ${kind}` },
-                          label,
-                        )
-                      : null,
-                  ),
-                  h(
-                    "span",
-                    { className: "pmwb2-brief-row-sub" },
-                    briefPlainText(
-                      item.conclusion || item.reason || item.statusLabel,
-                    ),
-                  ),
-                ),
-                h(
-                  "span",
-                  { className: "pmwb2-brief-row-trailing" },
-                  item.statusLabel
-                    ? h(
+                      { className: "pmwb2-brief-row-main" },
+                      h(
                         "span",
-                        {
-                          className: `pmwb2-brief-status ${briefStatusClass(item)}`,
-                        },
-                        item.statusLabel,
-                      )
-                    : null,
-                  h(
-                    "span",
-                    { className: "pmwb2-brief-row-time" },
-                    briefTimeLabel(item),
-                  ),
-                ),
-                h(
-                  "span",
-                  { className: "pmwb2-brief-chevron", "aria-hidden": "true" },
-                  ICONS.chevron,
-                ),
-              );
-            }),
+                        { className: "pmwb2-brief-row-titleline" },
+                        h(
+                          "span",
+                          { className: "pmwb2-brief-row-title" },
+                          item.title,
+                        ),
+                        sourceTag
+                          ? h(
+                              "span",
+                              {
+                                className: `pmwb2-brief-row-source ${sourceTag.kind}`,
+                                title: `来源：${sourceTag.label}`,
+                              },
+                              sourceTag.label,
+                            )
+                          : null,
+                      ),
+                      h(
+                        "span",
+                        { className: "pmwb2-brief-row-sub" },
+                        briefPlainText(
+                          item.conclusion || item.reason || item.statusLabel,
+                        ),
+                      ),
+                    ),
+                    h(
+                      "span",
+                      { className: "pmwb2-brief-row-trailing" },
+                      h(
+                        "span",
+                        { className: "pmwb2-brief-detail-row" },
+                        followTarget
+                          ? h(FollowButton, {
+                              type: followTarget.type,
+                              id: followTarget.id,
+                              compact: true,
+                            })
+                          : null,
+                        view === "all" && item.readState === "read"
+                          ? h(
+                              "button",
+                              {
+                                type: "button",
+                                className: "pmwb2-brief-read-action",
+                                onClick: (event) => {
+                                  event.stopPropagation();
+                                  void onUnread(item);
+                                },
+                              },
+                              "标为未读",
+                            )
+                          : null,
+                        h(
+                          "button",
+                          {
+                            type: "button",
+                            className: "pmwb2-brief-detail-action",
+                            onClick: (event) => {
+                              event.stopPropagation();
+                              openDetail(item);
+                            },
+                          },
+                          "详情",
+                        ),
+                      ),
+                      h(
+                        "span",
+                        { className: "pmwb2-brief-row-meta" },
+                        businessTag
+                          ? h(
+                              "span",
+                              {
+                                className: `pmwb2-brief-row-kind ${kind}`,
+                                title: `业务类型：${businessTag}`,
+                              },
+                              businessTag,
+                            )
+                          : null,
+                        item.statusLabel
+                          ? h(
+                              "span",
+                              {
+                                className: `pmwb2-brief-status ${briefStatusClass(item)}`,
+                                title: `当前状态：${item.statusLabel}`,
+                              },
+                              item.statusLabel,
+                            )
+                          : null,
+                      ),
+                    ),
+                  );
+                })),
           ),
         );
       };
 
-      const detail =
+      const itemDetail =
         detailItem === null
           ? null
           : h(
@@ -2189,24 +3199,30 @@ window.__ModuleLoader__.load({
                     "section",
                     { className: "pmwb2-brief-drawer-block" },
                     h("h3", null, "证据与来源"),
-                    h(
-                      "button",
-                      {
-                        type: "button",
-                        className: "pmwb2-brief-evidence",
-                        onClick: () => {
-                          setDetailItem(null);
-                          void onOpen(detailItem);
-                        },
-                      },
-                      ICONS.chevron,
-                      h(
-                        "span",
-                        null,
-                        `${briefSourceLabel(detailItem)} · ${detailItem.sourceId}`,
-                      ),
-                      ICONS.chevron,
-                    ),
+                    detailItem.deepLink?.route === "task" &&
+                      detailItem.deepLink?.refId
+                      ? h(BriefTaskBasicInfo, {
+                          key: detailItem.deepLink.refId,
+                          taskId: detailItem.deepLink.refId,
+                        })
+                      : h(
+                          "button",
+                          {
+                            type: "button",
+                            className: "pmwb2-brief-evidence",
+                            onClick: () => {
+                              setDetailItem(null);
+                              void onOpen(detailItem);
+                            },
+                          },
+                          ICONS.chevron,
+                          h(
+                            "span",
+                            null,
+                            `${briefSourceLabel(detailItem)} · ${detailItem.sourceId}`,
+                          ),
+                          ICONS.chevron,
+                        ),
                   ),
                   detailItem.suggestion
                     ? h(
@@ -2262,6 +3278,18 @@ window.__ModuleLoader__.load({
               ),
             );
 
+      const projectDetail =
+        detailProject === null
+          ? null
+          : h(BriefProjectDrawer, {
+              key: `project-${detailProject.workspaceId}`,
+              project: detailProject,
+              onClose: () => setDetailProject(null),
+              onItemDetail: openDetail,
+            });
+
+      const detail = h(react.Fragment, null, projectDetail, itemDetail);
+
       return h(
         "div",
         { className: "pmwb2-brief-panel" },
@@ -2278,15 +3306,6 @@ window.__ModuleLoader__.load({
               renderSection("anomaly"),
               renderSection("attention"),
             ],
-        h(
-          "footer",
-          { className: "pmwb2-brief-footer" },
-          h(
-            "span",
-            null,
-            `覆盖 ${formatTime(data.awayWindow?.from)} - ${formatTime(data.awayWindow?.to)} · 更新 ${formatTime(payload.updatedAt)}`,
-          ),
-        ),
         detail,
       );
     }
@@ -2832,30 +3851,80 @@ window.__ModuleLoader__.load({
     function NewPanelBody({ pluginId, payload, config, windowKey }) {
       const items = payload?.data?.items ?? [];
       if (pluginId === "pluginmax.data-agent") {
+        const sessions = payload?.data?.sessions ?? [];
+        if (sessions.length === 0) {
+          return h(
+            "div",
+            { className: "pmwb2-empty" },
+            "当前还没有 Data Agent 会话。",
+          );
+        }
         return h(
           "div",
-          { className: "pmwb2-list" },
-          h(
-            "div",
-            { className: "pmwb2-row" },
-            h("strong", null, "Data Agent · 平台内置"),
-            h("span", { className: "pmwb2-tag ok" }, "只读分析"),
-            h("small", null, payload?.data?.workspaceName ?? "当前工作区"),
+          { className: "pmwb2-data-agent-sessions" },
+          ...sessions.map((session) =>
             h(
-              "span",
-              { className: "pmwb2-row-note" },
-              `${payload?.data?.conversationCount ?? 0} 个会话 · ${payload?.data?.dataConnectionCount ?? 0} 个只读连接 · revision ${payload?.data?.configRevision ?? 1}`,
-            ),
-            h(
-              "button",
+              "article",
               {
-                type: "button",
-                className: "pmwb-btn",
-                style: { gridColumn: "1/-1", justifySelf: "start" },
-                onClick: () =>
-                  window.__pluginmaxSidePanel?.openTab("data-agent"),
+                key: session.id,
+                className: "pmwb2-data-agent-session",
+                "data-data-agent-exclude": "true",
+                "data-data-agent-conversation-id": session.id,
+                role: "button",
+                tabIndex: 0,
+                onClick: () => openDataAgentConversation(session),
+                onKeyDown: (event) => {
+                  if (event.target !== event.currentTarget) return;
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.preventDefault();
+                  openDataAgentConversation(session);
+                },
               },
-              "打开 Data Agent",
+              h(
+                "div",
+                { className: "pmwb2-data-agent-session-head" },
+                h(
+                  "span",
+                  { className: "pmwb2-data-agent-session-title" },
+                  session.title,
+                ),
+                h(
+                  "span",
+                  { className: "pmwb2-data-agent-session-actions" },
+                  h(FollowButton, {
+                    type: "data-agent",
+                    id: session.id,
+                    compact: true,
+                  }),
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "pmwb-btn pmwb2-card-action",
+                      onClick: (event) => {
+                        event.stopPropagation();
+                        openDataAgentConversation(session);
+                      },
+                    },
+                    "详情",
+                  ),
+                ),
+              ),
+              h(
+                "div",
+                { className: "pmwb2-data-agent-session-project" },
+                session.projectName || "未归属项目",
+              ),
+              h(
+                "p",
+                {
+                  className: `pmwb2-data-agent-session-preview${
+                    session.preview ? "" : " placeholder"
+                  }`,
+                  title: session.preview || undefined,
+                },
+                session.preview || "暂无 AI 反馈",
+              ),
             ),
           ),
         );
@@ -2956,6 +4025,8 @@ window.__ModuleLoader__.load({
     function PanelView(props) {
       const [state, setState] = react.useState({ status: "loading" });
       const [view, setView] = react.useState("unread");
+      const [briefSelectedProjects, setBriefSelectedProjects] =
+        react.useState(null);
       const [currentUserId, setCurrentUserId] =
         react.useState(readCurrentUserId);
       const [, setReadRevision] = react.useState(0);
@@ -2984,38 +4055,82 @@ window.__ModuleLoader__.load({
               : "";
           let payload;
           if (pluginId === "pluginmax.data-agent") {
-            const workspaceResult = await request(
-              "/api/collab/team/workspaces",
-            );
-            const workspace =
-              (workspaceResult.workspaces ?? []).find(
-                (item) => item.isMember !== false,
-              ) ?? null;
-            if (workspace === null) {
-              throw new Error("当前账号还没有可用项目");
-            }
-            const [bootstrap, conversations] = await Promise.all([
-              request(
-                `/api/collab/data-agent?workspaceId=${encodeURIComponent(workspace.id)}`,
-              ),
-              request(
-                `/api/collab/data-agent/conversations?workspaceId=${encodeURIComponent(workspace.id)}`,
-              ),
+            const [workspaceResult, conversations] = await Promise.all([
+              request("/api/collab/team/workspaces"),
+              request("/api/collab/data-agent/conversations"),
             ]);
+            const workspaces = (workspaceResult.workspaces ?? []).filter(
+              (item) => item.isMember !== false,
+            );
+            const workspacesById = new Map(
+              workspaces.map((workspace) => [workspace.id, workspace]),
+            );
+            const conversationItems = conversations.conversations ?? [];
+            const fallbackPreviews = new Map(
+              await Promise.all(
+                conversationItems
+                  .filter(
+                    (conversation) =>
+                      conversation.latestAiMessage?.content === undefined,
+                  )
+                  .slice(0, 12)
+                  .map(async (conversation) => {
+                    try {
+                      const detail = await request(
+                        `/api/collab/data-agent/conversation?id=${encodeURIComponent(conversation.id)}`,
+                      );
+                      const latest = [...(detail.messages ?? [])]
+                        .reverse()
+                        .find((message) => message.senderType === "ai-partner");
+                      return [
+                        conversation.id,
+                        latest
+                          ? briefPlainText(latest.content).slice(0, 500)
+                          : "",
+                      ];
+                    } catch {
+                      return [conversation.id, ""];
+                    }
+                  }),
+              ),
+            );
+            const sessions = conversationItems.map((conversation) => {
+              const workspace = workspacesById.get(conversation.workspaceId);
+              return {
+                id: conversation.id,
+                title: conversation.title,
+                workspaceId: conversation.workspaceId,
+                projectId: conversation.projectId ?? conversation.workspaceId,
+                projectName:
+                  workspace?.title ??
+                  workspace?.path ??
+                  conversation.projectId ??
+                  conversation.workspaceId ??
+                  "未归属项目",
+                preview:
+                  briefPlainText(conversation.latestAiMessage?.content ?? "") ||
+                  fallbackPreviews.get(conversation.id) ||
+                  "",
+                updatedAt:
+                  conversation.latestAiMessage?.createdAt ??
+                  conversation.updatedAt,
+              };
+            });
             payload = {
               id: pluginId,
               pluginId,
               title: "Data Agent",
-              updatedAt: bootstrap.workspaceConfig?.updatedAt,
+              updatedAt:
+                sessions
+                  .map((session) => session.updatedAt)
+                  .filter(Boolean)
+                  .sort()
+                  .at(-1) ?? null,
               source: "live",
               refreshable: true,
               data: {
-                workspaceName:
-                  workspace.title ?? workspace.path ?? workspace.id,
-                conversationCount: conversations.conversations?.length ?? 0,
-                configRevision: bootstrap.workspaceConfig?.revision ?? 1,
-                dataConnectionCount:
-                  bootstrap.workspaceConfig?.dataConnectionIds?.length ?? 0,
+                conversationCount: sessions.length,
+                sessions,
               },
             };
           } else if (legacy) {
@@ -3157,16 +4272,63 @@ window.__ModuleLoader__.load({
         props.pluginId === "pluginmax.task-focus" ||
         props.pluginId === "pluginmax.following" ||
         props.pluginId === "pluginmax.meeting-insights";
-      const briefCounts = {
-        unread:
-          legacyPayload.data?.unreadCount ??
-          legacyPayload.data?.views?.unread?.length ??
-          0,
-        all: legacyPayload.data?.views?.all?.length ?? 0,
-      };
-      const briefAttentionCount = groupBriefItems(
+      const briefProjects = isBrief
+        ? briefProjectNames(legacyPayload.data?.views?.all ?? [])
+        : [];
+      const briefProjectsKey = briefProjects.join("\u0000");
+      const effectiveBriefProjects =
+        briefSelectedProjects === null
+          ? briefProjects
+          : briefSelectedProjects.filter((project) =>
+              briefProjects.includes(project),
+            );
+      react.useEffect(() => {
+        setBriefSelectedProjects((current) => {
+          if (briefProjects.length === 0) return current;
+          if (current === null) return [...briefProjects];
+          const next = current.filter((project) =>
+            briefProjects.includes(project),
+          );
+          return next.length === current.length ? current : next;
+        });
+      }, [briefProjectsKey]);
+      const filterBriefItems = (items) =>
+        briefProjects.length === 0
+          ? items
+          : items.filter((item) =>
+              effectiveBriefProjects.includes(
+                String(item?.workspaceName ?? "").trim(),
+              ),
+            );
+      const briefUnreadItems = filterBriefItems(
         legacyPayload.data?.views?.unread ?? [],
-      ).attention.length;
+      );
+      const briefAllItems = filterBriefItems(
+        legacyPayload.data?.views?.all ?? [],
+      );
+      const briefCounts = {
+        unread: briefUnreadItems.length,
+        all: briefAllItems.length,
+      };
+      const briefAttentionCount =
+        groupBriefItems(briefUnreadItems).attention.length;
+      const briefCoverageSuffix =
+        legacyPayload.data?.awayWindow?.from &&
+        legacyPayload.data?.awayWindow?.to
+          ? `覆盖 ${formatTime(legacyPayload.data.awayWindow.from)} - ${formatTime(legacyPayload.data.awayWindow.to)}`
+          : "";
+      const filteredBriefPayload = isBrief
+        ? {
+            ...state.payload,
+            data: {
+              ...legacyPayload.data,
+              views: {
+                unread: briefUnreadItems,
+                all: briefAllItems,
+              },
+            },
+          }
+        : state.payload;
       const titleActions =
         props.pluginId === "pluginmax.team-load"
           ? h(
@@ -3259,6 +4421,13 @@ window.__ModuleLoader__.load({
                         `${briefAttentionCount} 项需处理`,
                       )
                     : null,
+                  briefProjects.length > 0
+                    ? h(BriefProjectFilter, {
+                        projects: briefProjects,
+                        selected: effectiveBriefProjects,
+                        onChange: setBriefSelectedProjects,
+                      })
+                    : null,
                   h(
                     "div",
                     {
@@ -3296,7 +4465,17 @@ window.__ModuleLoader__.load({
           updatedAt: state.payload?.updatedAt,
           source: state.payload?.source,
           titleActions,
-          ...(isBrief ? { briefSettings: legacyPayload.data?.settings } : {}),
+          ...(isBrief
+            ? {
+                briefSettings: legacyPayload.data?.settings,
+                ...(briefCoverageSuffix === ""
+                  ? {}
+                  : {
+                      metaSuffix: briefCoverageSuffix,
+                      metaSuffixTitle: briefCoverageSuffix,
+                    }),
+              }
+            : {}),
         });
       }, [
         state.status,
@@ -3308,6 +4487,9 @@ window.__ModuleLoader__.load({
         briefCounts.unread,
         briefCounts.all,
         briefAttentionCount,
+        briefProjectsKey,
+        briefSelectedProjects,
+        briefCoverageSuffix,
         isBrief,
         followTick,
         aiLoadWindow,
@@ -3349,7 +4531,7 @@ window.__ModuleLoader__.load({
       const body =
         props.pluginId === "pluginmax.daily-brief"
           ? h(BriefBody, {
-              payload,
+              payload: filteredBriefPayload,
               view,
               onDetail: async (item) => {
                 if (item.readState !== "unread") return;

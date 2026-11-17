@@ -15,6 +15,7 @@ import {
   type TeammateExtensionPolicy,
   type InstanceSkillExtension,
   type ProjectAgentBinding,
+  type WorkspaceAgentBinding,
 } from "./models.js";
 
 export interface KvTableLike<V> {
@@ -83,6 +84,8 @@ export class TeammateError extends Error {
       | "unauthorized"
       | "forbidden"
       | "system_agent_protected"
+      | "required_skill_missing"
+      | "skill_catalog_unavailable"
       | "not_found"
       | "conflict",
     message: string,
@@ -106,6 +109,12 @@ export interface CreateTeammateInput {
 export interface EnsureProjectManagerInput {
   readonly workspaceId: string;
   readonly projectName: string;
+  readonly actor: TeammateActor;
+}
+
+export interface EnsureWorkspaceSystemAgentInput {
+  readonly workspaceId: string;
+  readonly systemKey: "task-planner";
   readonly actor: TeammateActor;
 }
 
@@ -201,6 +210,7 @@ const SYSTEM_AGENT_ORDER: Record<string, number> = {
   "data-agent": 0,
   "meeting-facilitator": 1,
   "project-manager": 2,
+  "task-planner": 3,
 };
 
 function systemAgentOrder(
@@ -216,9 +226,9 @@ function randomId(): string {
 }
 
 function projectManagerName(projectName: string): string {
-  const suffix = "项目PM";
+  const prefix = "PM_";
   const normalized = projectName.replace(/\s+/g, " ").trim() || "未命名项目";
-  return `${normalized.slice(0, 120 - suffix.length)}${suffix}`;
+  return `${prefix}${normalized.slice(0, 120 - prefix.length)}`;
 }
 
 const TEMPLATE_STATE_TRANSITIONS: Record<
@@ -246,6 +256,12 @@ export function isProjectManagedTeammate(
   teammate: Pick<Teammate, "projectBinding">,
 ): boolean {
   return teammate.projectBinding !== undefined;
+}
+
+export function isWorkspaceManagedTeammate(
+  teammate: Pick<Teammate, "workspaceBinding">,
+): boolean {
+  return teammate.workspaceBinding !== undefined;
 }
 
 function teammateTemplateId(): string {
@@ -979,10 +995,14 @@ export class TeammateService {
         if (includeAll) return true;
         if (teammate.ownerUserId === actor.userId) return true;
         return (
-          teammate.projectBinding !== undefined &&
-          options?.visibleWorkspaceIds?.has(
-            teammate.projectBinding.workspaceId,
-          ) === true
+          (teammate.projectBinding !== undefined &&
+            options?.visibleWorkspaceIds?.has(
+              teammate.projectBinding.workspaceId,
+            ) === true) ||
+          (teammate.workspaceBinding !== undefined &&
+            options?.visibleWorkspaceIds?.has(
+              teammate.workspaceBinding.workspaceId,
+            ) === true)
         );
       },
     );
@@ -1095,6 +1115,118 @@ export class TeammateService {
         teammate.projectBinding.roleKey === "project-manager" &&
         teammate.state !== "archived",
     );
+  }
+
+  workspaceAgentFor(
+    workspaceId: string,
+    roleKey: WorkspaceAgentBinding["roleKey"] = "task-planner",
+  ): Teammate | undefined {
+    return this.values(this.options.tables.teammates).find(
+      (teammate) =>
+        teammate.workspaceBinding?.workspaceId === workspaceId &&
+        teammate.workspaceBinding.roleKey === roleKey &&
+        teammate.state !== "archived",
+    );
+  }
+
+  ensureWorkspaceSystemAgent(
+    input: EnsureWorkspaceSystemAgentInput,
+  ): Promise<Teammate> {
+    return this.enqueue(async () => {
+      if (input.actor.role === "guest") {
+        throw new TeammateError("forbidden", "访客不能初始化工作区系统 Agent");
+      }
+      const template = this.templates?.findSystem(input.systemKey);
+      if (template === undefined || template.state !== "active") {
+        throw new TeammateError(
+          "not_found",
+          "平台任务规划伙伴模板不存在或未生效",
+        );
+      }
+      const binding: WorkspaceAgentBinding = {
+        workspaceId: input.workspaceId,
+        roleKey: input.systemKey,
+        managedBy: "platform",
+        visibility: "workspace",
+      };
+      const existing = this.values(this.options.tables.teammates).find(
+        (teammate) =>
+          teammate.workspaceBinding?.workspaceId === input.workspaceId &&
+          teammate.workspaceBinding.roleKey === input.systemKey,
+      );
+      if (existing !== undefined) {
+        const repaired = teammateSchema.parse({
+          ...existing,
+          source: "platform",
+          name: template.name,
+          role: template.role,
+          templateId: template.id,
+          systemKey: input.systemKey,
+          workspaceBinding: binding,
+          protected: {
+            deletable: false,
+            archivable: false,
+            templateSwitchable: false,
+          },
+          resettableScopes: [
+            "workspace-config",
+            "memory",
+            "platform-definition",
+          ],
+          state: "active",
+          updatedAt: this.timestamp(),
+        });
+        if (JSON.stringify(repaired) !== JSON.stringify(existing)) {
+          await this.options.tables.teammates.put(repaired.id, repaired);
+          await this.record(
+            repaired,
+            input.actor,
+            "updated",
+            "同步工作区任务规划伙伴定义",
+          );
+        }
+        return repaired;
+      }
+      const suffix = input.workspaceId
+        .replace(/[^a-zA-Z0-9._-]/g, "-")
+        .slice(0, 100);
+      const timestamp = this.timestamp();
+      const teammate = teammateSchema.parse({
+        id: `tm-workspace-${input.systemKey}-${suffix}`,
+        source: "platform",
+        name: template.name,
+        ownerUserId: PLATFORM_OWNER_USER_ID,
+        ownerName: PLATFORM_OWNER_NAME,
+        role: template.role,
+        description: "",
+        soul: "",
+        scenarios: [],
+        goals: [],
+        avatar: "",
+        state: "active",
+        version: "v1.0",
+        templateId: template.id,
+        systemKey: input.systemKey,
+        workspaceBinding: binding,
+        protected: {
+          deletable: false,
+          archivable: false,
+          templateSwitchable: false,
+        },
+        resettableScopes: ["workspace-config", "memory", "platform-definition"],
+        createdBy: input.actor.userId,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      });
+      await this.options.tables.teammates.put(teammate.id, teammate);
+      await this.record(
+        teammate,
+        input.actor,
+        "created",
+        `为工作区创建平台托管任务规划伙伴「${teammate.name}」`,
+      );
+      return teammate;
+    });
   }
 
   /**
@@ -1825,10 +1957,18 @@ export class TeammateService {
         options?.allowProjectMember === true &&
         options.projectWorkspaceId !== undefined &&
         current.projectBinding?.workspaceId === options.projectWorkspaceId;
-      if (!canManageInstance(current, actor) && !canBindProjectAgent) {
+      const canBindWorkspaceAgent =
+        options?.allowProjectMember === true &&
+        options.projectWorkspaceId !== undefined &&
+        current.workspaceBinding?.workspaceId === options.projectWorkspaceId;
+      if (
+        !canManageInstance(current, actor) &&
+        !canBindProjectAgent &&
+        !canBindWorkspaceAgent
+      ) {
         throw new TeammateError(
           "forbidden",
-          "只有 AI伙伴负责人或平台管理员可以绑定 Principal",
+          "只有 AI伙伴负责人、平台管理员或所属工作区成员可以绑定 Principal",
         );
       }
       if (current.principalId === principalId) return current;

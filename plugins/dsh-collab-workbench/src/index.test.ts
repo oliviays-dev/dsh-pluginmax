@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  briefProjectDigests,
   computeAwayWindow,
   localDayStamp,
   mergeBriefItems,
   priorityScore,
+  resolveBriefProjectState,
   type BriefCandidate,
 } from "./brief.js";
 import {
@@ -104,6 +106,100 @@ function priorRecord(
     ...overrides,
   };
 }
+
+describe("项目简报卡片", () => {
+  it("按项目聚合并生成三段式 AI 概览", () => {
+    const items = [
+      priorRecord({
+        itemId: "C:task:result-1",
+        section: "conclusion",
+        tag: "conclusion",
+        title: "替代供应方案已确认",
+        statusLabel: "已确认",
+      }),
+      priorRecord({
+        itemId: "C:task:result-2",
+        section: "conclusion",
+        tag: "progress",
+        title: "支付失败原因已完成归因",
+        statusLabel: "待复核",
+      }),
+      priorRecord({
+        itemId: "A:task:risk-1",
+        title: "履约超时集中在华东仓",
+        statusLabel: "需处置",
+        priorityScore: 9,
+      }),
+      priorRecord({
+        itemId: "B:task:decision-1",
+        section: "escalation",
+        tag: "decision",
+        title: "是否需要创建成品仓再平衡工单",
+        statusLabel: "待确认",
+      }),
+      priorRecord({
+        itemId: "C:task:other-project",
+        section: "conclusion",
+        tag: "conclusion",
+        title: "其他项目已完成评审",
+        statusLabel: "已完成",
+        workspaceId: "ws-2",
+        workspaceName: "供应商治理",
+      }),
+    ];
+
+    const digests = briefProjectDigests(items);
+    expect(digests).toHaveLength(2);
+    expect(digests[0]).toMatchObject({
+      workspaceId: "ws-1",
+      workspaceName: "供应链",
+      state: { key: "needs_action", label: "需优先处置" },
+    });
+    expect(digests[0]?.itemIds).toHaveLength(4);
+    expect(digests[0]?.lines.map((line) => line.label)).toEqual([
+      "关键进展",
+      "需要关注",
+      "建议",
+    ]);
+    expect(digests[0]?.lines.map((line) => line.text).join(" ")).toContain(
+      "履约超时集中在华东仓",
+    );
+  });
+
+  it("按最高优先级解析项目状态机", () => {
+    const risk = priorRecord({
+      itemId: "A:task:blocked",
+      title: "发布审批阻塞",
+      condition: { kind: "workflow-blocked", refId: "WF-1" },
+    });
+    const decision = priorRecord({
+      itemId: "B:task:decision",
+      section: "escalation",
+      tag: "decision",
+      title: "等待选择发布窗口",
+    });
+    const review = priorRecord({
+      itemId: "C:task:review",
+      section: "conclusion",
+      tag: "review",
+      title: "待复核发布清单",
+      statusLabel: "待复核",
+    });
+
+    expect(resolveBriefProjectState([review])).toMatchObject({
+      key: "needs_review",
+      label: "等待确认",
+    });
+    expect(resolveBriefProjectState([review, decision])).toMatchObject({
+      key: "needs_decision",
+      label: "等待决策",
+    });
+    expect(resolveBriefProjectState([decision, risk])).toMatchObject({
+      key: "blocked",
+      label: "推进受阻",
+    });
+  });
+});
 
 describe("computeAwayWindow", () => {
   it("caps the lookback at 24 hours", () => {
@@ -451,6 +547,20 @@ describe("WorkbenchService", () => {
     ).resolves.toEqual({ followed: false });
     expect(service.follows(principal)).toHaveLength(0);
     expect(followKey("olivia", "task", "TSK-1")).toContain("TSK-1");
+    await expect(
+      service.toggleFollow(principal, {
+        type: "data-agent",
+        targetId: "DA-SESSION-1",
+      }),
+    ).resolves.toEqual({ followed: true });
+    expect(service.follows(principal)).toHaveLength(1);
+    await expect(
+      service.toggleFollow(principal, {
+        type: "brief",
+        targetId: "A:task:TSK-1",
+      }),
+    ).resolves.toEqual({ followed: true });
+    expect(service.follows(principal)).toHaveLength(2);
   });
 
   it("applies a registered display profile only to its matching workspace", async () => {
@@ -761,6 +871,75 @@ describe("WorkbenchService", () => {
       targetId: "MTG-1",
     });
     expect(service.focusModule(principal).data?.items).toHaveLength(0);
+  });
+
+  it("resolves a followed brief item back to its task target", async () => {
+    const task = {
+      id: "TSK-BRIEF-1",
+      workspaceId: "ws-1",
+      title: "由简报关注的任务",
+      type: "任务",
+      status: "todo" as const,
+      priority: "P1" as const,
+      receiverType: "human" as const,
+      receiverId: "olivia",
+      receiverName: "Olivia",
+      due: "",
+      description: "",
+      acceptance: ["a"],
+      agentRunIds: [],
+      events: [],
+      messages: [],
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+    const tableSet = tables();
+    const briefId = "C:task:TSK-BRIEF-1";
+    await tableSet.briefItems.put(
+      briefItemKey(principal.userId, briefId),
+      priorRecord({
+        itemId: briefId,
+        title: "由简报关注的任务",
+        sourceDomain: "task",
+        sourceId: "TSK-BRIEF-1",
+        deepLink: {
+          route: "task",
+          refId: "TSK-BRIEF-1",
+          workspaceId: "ws-1",
+          label: "查看任务",
+        },
+      }),
+    );
+    const service = serviceWith(
+      {
+        tasks: () => ({
+          list: () => [task],
+          get: (taskId: string) =>
+            taskId === task.id ? task : { ...task, id: taskId },
+        }),
+      },
+      tableSet,
+    );
+    await service.toggleFollow(principal, {
+      type: "brief",
+      targetId: briefId,
+    });
+    const items = service.focusModule(principal).data?.items ?? [];
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      kind: "task",
+      id: "TSK-BRIEF-1",
+      workspaceId: "ws-1",
+      deepLink: {
+        route: "task",
+        refId: "TSK-BRIEF-1",
+        workspaceId: "ws-1",
+      },
+    });
+    expect(items[0]?.coveredBy).toContainEqual({
+      type: "brief",
+      id: briefId,
+    });
   });
 
   it("sorts todos by priority, due date and id", () => {

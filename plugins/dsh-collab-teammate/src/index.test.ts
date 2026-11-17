@@ -1201,7 +1201,7 @@ describe("dsh-collab-teammate service", () => {
     });
     expect(first).toMatchObject({
       id: "tm-project-ws-1",
-      name: "采购韧性项目PM",
+      name: "PM_采购韧性",
       ownerUserId: "platform",
       systemKey: "project-manager",
       projectBinding: {
@@ -1216,7 +1216,7 @@ describe("dsh-collab-teammate service", () => {
       actor: admin,
     });
     expect(second.id).toBe(first.id);
-    expect(second.name).toBe("采购韧性计划项目PM");
+    expect(second.name).toBe("PM_采购韧性计划");
     expect(teammates.projectManagerFor("ws-1")?.id).toBe(first.id);
     await expect(
       teammates.bindPrincipal(olivia, first.id, "principal-project", {

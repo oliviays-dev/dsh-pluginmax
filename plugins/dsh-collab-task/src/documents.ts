@@ -1,5 +1,20 @@
-import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { basename, extname, join, relative, sep } from "node:path";
+import {
+  mkdir,
+  readdir,
+  readFile,
+  realpath,
+  stat,
+  writeFile,
+} from "node:fs/promises";
+import {
+  basename,
+  extname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 import type { TaskRecord } from "./types.js";
 
 /** A window in which an agent run could have written files. */
@@ -374,6 +389,123 @@ export interface CollectDocumentsOptions {
   readonly taskId?: string | undefined;
   readonly maxFiles?: number;
   readonly maxEntries?: number;
+}
+
+export interface RunFileChangeEventLike {
+  readonly runId?: string | undefined;
+  readonly type?: string | undefined;
+  readonly summary?: string | undefined;
+  readonly data?: Readonly<Record<string, unknown>> | undefined;
+}
+
+export interface CollectRunFileChangeDocumentsOptions {
+  readonly root: string;
+  readonly events: readonly RunFileChangeEventLike[];
+  readonly runActors?: ReadonlyMap<string, string> | undefined;
+  readonly maxFiles?: number;
+}
+
+/**
+ * Resolves explicit file_change tool events to task documents. This avoids
+ * guessing ownership from mtimes when several tasks run in one workspace.
+ */
+export async function collectRunFileChangeDocuments(
+  options: CollectRunFileChangeDocumentsOptions,
+): Promise<TaskDocumentEntry[]> {
+  let rootPath;
+  try {
+    rootPath = await realpath(options.root);
+  } catch {
+    return [];
+  }
+  const found = new Map<string, TaskDocumentEntry>();
+  const maxFiles = options.maxFiles ?? 200;
+  for (const event of options.events) {
+    if (found.size >= maxFiles) break;
+    const data = event.data ?? {};
+    const toolName = String(data.toolName ?? "").toLowerCase();
+    const toolCategory = String(data.toolCategory ?? "").toLowerCase();
+    if (
+      toolName !== "file_change" &&
+      toolCategory !== "tool.file_change" &&
+      !String(event.summary ?? "").toLowerCase().includes("file_change")
+    ) {
+      continue;
+    }
+    const rawArguments = data.arguments;
+    let parsed: unknown;
+    try {
+      parsed =
+        typeof rawArguments === "string"
+          ? JSON.parse(rawArguments)
+          : rawArguments;
+    } catch {
+      continue;
+    }
+    const changes = Array.isArray(parsed) ? parsed : [parsed];
+    for (const change of changes) {
+      if (typeof change !== "object" || change === null) continue;
+      const record = change as Record<string, unknown>;
+      const path = typeof record.path === "string" ? record.path.trim() : "";
+      const kind = typeof record.kind === "string" ? record.kind : "";
+      if (path === "" || kind === "delete") continue;
+      const candidate = isAbsolute(path) ? path : resolve(rootPath, path);
+      let filePath;
+      try {
+        filePath = await realpath(candidate);
+      } catch {
+        continue;
+      }
+      const relativePath = relative(rootPath, filePath);
+      if (
+        relativePath === "" ||
+        relativePath === ".." ||
+        relativePath.startsWith(`..${sep}`) ||
+        isAbsolute(relativePath)
+      ) {
+        continue;
+      }
+      let info;
+      try {
+        info = await stat(filePath);
+      } catch {
+        continue;
+      }
+      if (!info.isFile()) continue;
+      const normalizedPath = relativePath.split(sep).join("/");
+      const runId = event.runId;
+      const actor =
+        runId === undefined
+          ? "Agent"
+          : (options.runActors?.get(runId) ?? "Agent");
+      const entry: TaskDocumentEntry = {
+        id: `produced:${normalizedPath}`,
+        ...(runId === undefined ? {} : { runId }),
+        kind: "produced",
+        name: basename(normalizedPath),
+        relativePath: normalizedPath,
+        size: info.size,
+        mimeType: mimeTypeFor(normalizedPath),
+        updatedBy: actor,
+        updatedAt: new Date(info.mtimeMs).toISOString(),
+        available: true,
+      };
+      const current = found.get(normalizedPath);
+      if (
+        current === undefined ||
+        Date.parse(current.updatedAt) <= Date.parse(entry.updatedAt)
+      ) {
+        found.set(normalizedPath, entry);
+      }
+    }
+  }
+  return [...found.values()]
+    .sort(
+      (left, right) =>
+        Date.parse(right.updatedAt) - Date.parse(left.updatedAt) ||
+        left.name.localeCompare(right.name),
+    )
+    .slice(0, maxFiles);
 }
 
 /**

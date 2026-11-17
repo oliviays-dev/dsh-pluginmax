@@ -51,6 +51,9 @@ const PLAN_GRAPH_EXAMPLE = `{
       "acceptance": ["形成结构化结论", "列出关键风险"],
       "dependencies": [],
       "reviewMode": "human",
+      "risk": "low",
+      "humanGate": "none",
+      "evidenceRequirements": ["需求摘要", "风险清单"],
       "maxAttempts": 2,
       "timeoutSeconds": 86400
     },
@@ -66,6 +69,9 @@ const PLAN_GRAPH_EXAMPLE = `{
       "acceptance": ["交付物满足验收标准"],
       "dependencies": ["research"],
       "reviewMode": "human",
+      "risk": "low",
+      "humanGate": "before_complete",
+      "evidenceRequirements": ["交付物链接", "验收说明"],
       "maxAttempts": 2,
       "timeoutSeconds": 86400
     }
@@ -225,6 +231,7 @@ export function buildRouterCyclePrompt(input: RouterPromptInput): string {
     "5. 所有 `id` 使用稳定的 lower-kebab-case，且只能引用本计划内节点。",
     "6. 所有节点都必须有描述、至少一项验收标准、负责人和优先级。",
     "7. 所有节点必须属于同一个弱连通 DAG：允许并行起点，但每个节点都必须通过直接或间接下游最终汇入同一个终点；禁止孤立节点、独立决策门或与主链路无关的尾巴节点。",
+    "8. 每个节点必须声明 risk、humanGate 和至少一项 evidenceRequirements；高风险或不可逆节点必须使用 humanGate。",
     "",
     "## 输出契约",
     "必须调用 `router_worker_submit_plan` 工具提交 Plan Draft，不要只输出 Markdown 计划。",

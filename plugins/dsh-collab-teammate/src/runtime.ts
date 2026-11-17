@@ -486,8 +486,9 @@ function effectiveSoul(definition: TeammateEffectiveDefinition): string {
   return sections.join("\n\n");
 }
 
-function personaIdFor(teammateId: string): string {
-  return `persona-${teammateId.replace(/[^a-zA-Z0-9._-]/g, "-")}`.slice(0, 120);
+export function personaIdFor(teammateId: string): string {
+  // Roles persona ids are capped at 64 characters by the shared persona contract.
+  return `persona-${teammateId.replace(/[^a-zA-Z0-9._-]/g, "-")}`.slice(0, 64);
 }
 
 function isLatestRunActive(
@@ -1407,7 +1408,8 @@ export class TeammateRuntime {
           teammate.state === "active" &&
           (teammate.ownerUserId === actor.userId ||
             (workspaceId !== undefined &&
-              teammate.projectBinding?.workspaceId === workspaceId)),
+              (teammate.projectBinding?.workspaceId === workspaceId ||
+                teammate.workspaceBinding?.workspaceId === workspaceId))),
       )
       .map((teammate) => ({
         id: teammate.id,
@@ -1436,8 +1438,23 @@ export class TeammateRuntime {
     return this.deps.teammates.ensureProjectManagerAgent(input);
   }
 
+  ensureWorkspaceSystemAgent(input: {
+    readonly workspaceId: string;
+    readonly systemKey: "task-planner";
+    readonly actor: TeammateActor;
+  }): Promise<Teammate> {
+    return this.deps.teammates.ensureWorkspaceSystemAgent(input);
+  }
+
   projectManagerFor(workspaceId: string): Teammate | undefined {
     return this.deps.teammates.projectManagerFor(workspaceId);
+  }
+
+  workspaceAgentFor(
+    workspaceId: string,
+    roleKey: "task-planner" = "task-planner",
+  ): Teammate | undefined {
+    return this.deps.teammates.workspaceAgentFor(workspaceId, roleKey);
   }
 
   renameProjectManager(input: {
@@ -1458,6 +1475,22 @@ export class TeammateRuntime {
           item.principalId === ref,
       );
     return teammate?.projectBinding !== undefined;
+  }
+
+  isWorkspaceManagedAgent(ref: string, workspaceId?: string): boolean {
+    const teammate = this.deps.teammates
+      .list()
+      .find(
+        (item) =>
+          item.id === ref ||
+          item.employeeId === ref ||
+          item.principalId === ref,
+      );
+    return (
+      teammate?.workspaceBinding !== undefined &&
+      (workspaceId === undefined ||
+        teammate.workspaceBinding.workspaceId === workspaceId)
+    );
   }
 
   /**
@@ -1954,9 +1987,11 @@ export class TeammateRuntime {
         `AI Principal 当前状态为 ${principal.status}，请先恢复后再派发`,
       );
     }
-    const projectBinding = teammate.projectBinding;
+    const bindingWorkspaceId =
+      teammate.projectBinding?.workspaceId ??
+      teammate.workspaceBinding?.workspaceId;
     const canBindAsProjectMember =
-      projectBinding?.workspaceId === input.workspaceId &&
+      bindingWorkspaceId === input.workspaceId &&
       (input.actor.role === "admin" ||
         this.deps
           .team?.()
@@ -1970,7 +2005,7 @@ export class TeammateRuntime {
         ? undefined
         : {
             allowProjectMember: true,
-            projectWorkspaceId: projectBinding.workspaceId,
+            projectWorkspaceId: bindingWorkspaceId ?? input.workspaceId,
           },
     );
 

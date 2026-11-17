@@ -106,4 +106,22 @@ describe("workbench client styles", () => {
     expect(workbenchClient).not.toContain('className: "pmwb-brief-overview"');
     expect(workbenchClient).not.toContain('"本期总结"');
   });
+
+  it("auto expands the first task basic information row", () => {
+    const workbenchClient = readClient(WORKBENCH_CLIENT_PATH);
+    expect(workbenchClient).toContain(
+      "function BriefTaskBasicInfo({ taskId })",
+    );
+    expect(workbenchClient).toContain(
+      "const [open, setOpen] = react.useState(true)",
+    );
+    expect(workbenchClient).toContain("const autoLoaded = react.useRef(false)");
+    expect(workbenchClient).toContain(".pmwb-brief-task{");
+    expect(workbenchClient).toContain(
+      "/api/collab/tasks/detail?taskId=${encodeURIComponent(taskId)}",
+    );
+    expect(workbenchClient).toContain("taskStateSummary(task).join");
+    expect(workbenchClient).toContain(".slice(0, 3)");
+    expect(workbenchClient).toContain('item.deepLink?.route === "task"');
+  });
 });

@@ -45,6 +45,18 @@ window.__ModuleLoader__.load({
       archived: "已归档",
     };
     const ROLE_PLACEHOLDER = "角色待定";
+    const RUNTIME_DIRECTORY_FILTERS = [
+      { key: "all", label: "全部" },
+      { key: "builtin", label: "平台内置" },
+      { key: "project", label: "项目托管" },
+      { key: "mine", label: "我的" },
+    ];
+    const TEMPLATE_DIRECTORY_FILTERS = [
+      { key: "all", label: "全部" },
+      { key: "builtin", label: "平台内置" },
+      { key: "platform", label: "平台模版" },
+      { key: "personal", label: "个人模版" },
+    ];
     /** 任务优先级平移：存储 P1–P3，产品口径显示 P0–P2。 */
     const PRIORITY_DISPLAY = { P1: "P0", P2: "P1", P3: "P2" };
     const priorityLabel = (value) => PRIORITY_DISPLAY[value] ?? value;
@@ -727,7 +739,7 @@ window.__ModuleLoader__.load({
 
     const styles = `
       /* 页面内边距由 shell 的 .pmx-page 提供，这里不再叠加，保持与工作台一致的内容宽度。 */
-      .pmtm{container-type:inline-size;min-width:0;min-height:100%;flex:1 1 auto;display:flex;flex-direction:column;color:var(--dsw-alias-label-primary);}
+      .pmtm{container-type:inline-size;min-width:0;height:calc(100vh - 46px);height:calc(100dvh - 46px);max-height:calc(100dvh - 46px);min-height:0;flex:1 1 auto;display:flex;flex-direction:column;overflow:hidden;color:var(--dsw-alias-label-primary);}
       .pmtm *{box-sizing:border-box;}
       .pmtm-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;}
       .pmtm-head h1{margin:0;font-size:19px;line-height:1.3;}
@@ -755,11 +767,19 @@ window.__ModuleLoader__.load({
       .pmtm-token{height:32px;border:0;border-radius:6px;padding:0 10px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer;}
       .pmtm-token.active{background:color-mix(in srgb,${ACCENT} 14%,transparent);color:${ACCENT};}
       .pmtm-toolbar-note{max-width:460px;color:var(--dsw-alias-label-tertiary);font-size:10.5px;line-height:1.5;text-align:right;}
-      .pmtm-layout{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:minmax(230px,280px) minmax(0,1fr);gap:14px;align-items:stretch;margin-top:12px;}
+      .pmtm-layout{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:minmax(230px,280px) minmax(0,1fr);gap:14px;align-items:stretch;margin-top:12px;overflow:hidden;}
       .pmtm-panel{min-width:0;border:0.5px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);}
-      .pmtm-directory{padding:9px;align-self:start;}
+      .pmtm-directory{min-height:0;padding:0;align-self:stretch;display:flex;flex-direction:column;overflow:hidden;}
+      .pmtm-directory-scroll{flex:1;min-height:0;padding:0 9px 9px;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;scrollbar-gutter:stable;}
+      .pmtm-directory-filters{display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:1px 1px 10px;}
+      .pmtm-filter-tag{height:28px;padding:0 12px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:999px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:1;white-space:nowrap;cursor:pointer;}
+      .pmtm-filter-tag:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));}
+      .pmtm-filter-tag.active{border-color:transparent;background:${ACCENT};color:#fff;font-weight:600;}
+      .pmtm-editor{min-height:0;overflow:auto;}
       .pmtm-group + .pmtm-group{margin-top:12px;padding-top:11px;border-top:0.5px solid var(--dsw-alias-border-l2);}
-      .pmtm-group-title{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:3px 5px 7px;color:var(--dsw-alias-label-tertiary);font-size:10.5px;font-weight:700;}
+      .pmtm-group-title{position:sticky;top:0;z-index:3;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 5px 7px;color:var(--dsw-alias-label-tertiary);font-size:10.5px;font-weight:700;background:Canvas;box-shadow:0 0.5px 0 var(--dsw-alias-border-l2);}
+      .pmtm-directory-head{flex:none;padding:0 9px;background:Canvas;}
+      .pmtm-directory-head .pmtm-group-title{position:relative;top:auto;box-shadow:0 0.5px 0 var(--dsw-alias-border-l2);}
       .pmtm-group-title span{font-weight:500;}
       .pmtm-group-label{display:inline-flex;align-items:center;gap:6px;min-width:0;}
       .pmtm-group-count{color:var(--dsw-alias-label-tertiary);}
@@ -768,8 +788,12 @@ window.__ModuleLoader__.load({
       .pmtm-item:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);}
       .pmtm-item.active{color:var(--dsw-alias-label-primary);border-color:color-mix(in srgb,${ACCENT} 34%,transparent);background:color-mix(in srgb,${ACCENT} 12%,transparent);}
       .pmtm-item-copy{min-width:0;}
-      .pmtm-item-copy strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px;}
+      .pmtm-item-name-row{display:flex;align-items:center;gap:5px;min-width:0;}
+      .pmtm-item-copy strong{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px;}
+      .pmtm-item-name-row strong{flex:1 1 auto;}
       .pmtm-item-copy small{display:block;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary);font-size:10px;}
+      .pmtm-item-status-row{display:flex;align-items:center;justify-content:flex-start;gap:8px;margin-top:3px;min-width:0;}
+      .pmtm-item-copy .pmtm-item-status-row .pmtm-state-text{margin-top:0;}
       .pmtm-load{display:flex;align-items:center;gap:4px;flex-wrap:wrap;min-width:0;margin-top:2px;color:var(--dsw-alias-label-secondary);font-size:10px;}
       .pmtm-load-value{flex:none;white-space:nowrap;font-weight:700;}
       .pmtm-load-value .runtime{color:${ACCENT};}
@@ -1196,6 +1220,9 @@ window.__ModuleLoader__.load({
       .pmtm-audit-actor{display:block;margin-top:3px;color:var(--dsw-alias-label-tertiary);font-size:10px;}
       .pmtm-audit-more{display:flex;justify-content:center;margin-top:10px;}
       @media (max-width:1080px){
+        .pmtm{height:auto;max-height:none;min-height:100%;overflow:visible;}
+        .pmtm-layout{overflow:visible;}
+        .pmtm-directory,.pmtm-editor{overflow:visible;}
         .pmtm-layout{grid-template-columns:1fr;}
         .pmtm-profile-body{grid-template-columns:1fr;}
         .pmtm-profile-sidebar{border-right:0;border-bottom:0.5px solid var(--dsw-alias-border-l2);}
@@ -1216,6 +1243,9 @@ window.__ModuleLoader__.load({
         .pmtm-skill-list{grid-template-columns:repeat(2,minmax(0,1fr));}
       }
       @container (max-width:880px){
+        .pmtm{height:auto;max-height:none;min-height:100%;overflow:visible;}
+        .pmtm-layout{overflow:visible;}
+        .pmtm-directory,.pmtm-editor{overflow:visible;}
         .pmtm-layout{grid-template-columns:1fr;}
         .pmtm-profile-body{grid-template-columns:1fr;}
         .pmtm-profile-sidebar{border-right:0;border-bottom:0.5px solid var(--dsw-alias-border-l2);}
@@ -1390,6 +1420,48 @@ window.__ModuleLoader__.load({
         }
       }
       return [...groups.values()];
+    }
+
+    function isPlatformBuiltInTemplate(template) {
+      return (
+        template !== undefined &&
+        (template.systemKey !== undefined || template.protected !== undefined)
+      );
+    }
+
+    /**
+     * 运行态目录的互斥分类：项目托管优先于平台内置，平台内置优先于我的。
+     * PM_* 是项目托管实例的兼容兜底，避免旧数据尚未补齐 projectBinding 时漏分类。
+     */
+    function runtimeDirectoryGroup(teammate, templates = [], currentUserId) {
+      if (
+        teammate.projectBinding !== undefined ||
+        String(teammate.name ?? "")
+          .trim()
+          .startsWith("PM_")
+      ) {
+        return "project";
+      }
+      const template = templates.find(
+        (item) => item.id === teammate.templateId,
+      );
+      if (
+        teammate.systemKey !== undefined ||
+        teammate.protected !== undefined ||
+        isPlatformBuiltInTemplate(template)
+      ) {
+        return "builtin";
+      }
+      return teammate.ownerUserId === currentUserId ? "mine" : "other";
+    }
+
+    function templateDirectoryGroup(template) {
+      if (isPlatformBuiltInTemplate(template)) return "builtin";
+      return template.source === "personal" ? "personal" : "platform";
+    }
+
+    function matchesDirectoryFilter(group, filter) {
+      return filter === "all" || group === filter;
     }
 
     /** 工作区角色授权是否已过期（到期时间早于当前时间）。 */
@@ -2501,6 +2573,10 @@ window.__ModuleLoader__.load({
       const [rejectingId, setRejectingId] = react.useState("");
       const [rejectNote, setRejectNote] = react.useState("");
       const [tab, setTab] = react.useState("runtime");
+      const [runtimeDirectoryFilter, setRuntimeDirectoryFilter] =
+        react.useState("all");
+      const [templateDirectoryFilter, setTemplateDirectoryFilter] =
+        react.useState("all");
       const [runtimeTab, setRuntimeTab] = react.useState("current");
       const [currentUser, setCurrentUser] = react.useState(null);
       const [workReports, setWorkReports] = react.useState([]);
@@ -3144,14 +3220,35 @@ window.__ModuleLoader__.load({
       const archivedTeammates = teammates.filter(
         (item) => item.state === "archived",
       );
-      const visibleTeammates = archivedOnly
+      const archiveScopedTeammates = archivedOnly
         ? archivedTeammates
         : teammates.filter((item) => item.state !== "archived");
+      const visibleRuntimeTeammates = archiveScopedTeammates.filter((item) =>
+        matchesDirectoryFilter(
+          runtimeDirectoryGroup(item, teammateTemplates, currentUser?.id),
+          runtimeDirectoryFilter,
+        ),
+      );
+      const archiveScopedTemplates = teammateTemplates.filter((item) =>
+        archivedOnly ? item.state === "archived" : item.state !== "archived",
+      );
+      const visibleTemplates = archiveScopedTemplates.filter((item) =>
+        matchesDirectoryFilter(
+          templateDirectoryGroup(item),
+          templateDirectoryFilter,
+        ),
+      );
 
       react.useEffect(() => {
+        if (tab !== "runtime") return;
         const pendingId = pendingTeammateIdRef.current;
         if (pendingId !== "") {
-          if (visibleTeammates.some((item) => item.id === pendingId)) {
+          if (archiveScopedTeammates.some((item) => item.id === pendingId)) {
+            if (
+              !visibleRuntimeTeammates.some((item) => item.id === pendingId)
+            ) {
+              setRuntimeDirectoryFilter("all");
+            }
             if (selectedId !== pendingId) setSelectedId(pendingId);
             pendingTeammateIdRef.current = "";
             return;
@@ -3160,9 +3257,33 @@ window.__ModuleLoader__.load({
           if (teammates.length === 0) return;
           pendingTeammateIdRef.current = "";
         }
-        if (visibleTeammates.some((item) => item.id === selectedId)) return;
-        setSelectedId(visibleTeammates[0]?.id ?? "");
-      }, [archivedOnly, teammates, selectedId]);
+        if (visibleRuntimeTeammates.some((item) => item.id === selectedId)) {
+          return;
+        }
+        setSelectedId(visibleRuntimeTeammates[0]?.id ?? "");
+      }, [
+        archivedOnly,
+        currentUser?.id,
+        runtimeDirectoryFilter,
+        selectedId,
+        tab,
+        teammateTemplates,
+        teammates,
+      ]);
+
+      react.useEffect(() => {
+        if (tab !== "definition") return;
+        if (visibleTemplates.some((item) => item.id === definitionTemplateId)) {
+          return;
+        }
+        setDefinitionTemplateId(visibleTemplates[0]?.id ?? "");
+      }, [
+        archivedOnly,
+        definitionTemplateId,
+        tab,
+        teammateTemplates,
+        templateDirectoryFilter,
+      ]);
 
       const selectTeammate = (teammateId) => {
         setSelectedId(teammateId);
@@ -4353,42 +4474,110 @@ window.__ModuleLoader__.load({
       const directoryGroups =
         tab === "definition"
           ? [
-              {
-                key: "platform",
-                label: "平台模版",
-                items: teammateTemplates.filter(
-                  (item) => item.source === "platform",
+              templateDirectoryFilter === "all" ||
+              templateDirectoryFilter === "builtin" ||
+              templateDirectoryFilter === "platform"
+                ? {
+                    key: "platform",
+                    label: "平台模版",
+                    items: visibleTemplates.filter(
+                      (item) => item.source === "platform",
+                    ),
+                  }
+                : null,
+              templateDirectoryFilter === "all" ||
+              templateDirectoryFilter === "personal"
+                ? {
+                    key: "personal",
+                    label: "个人模版",
+                    items: visibleTemplates.filter(
+                      (item) => item.source === "personal",
+                    ),
+                  }
+                : null,
+            ]
+              .filter(Boolean)
+              .map((group) => ({
+                ...group,
+                entries: groupTeammateTemplates(
+                  archiveScopedTeammates,
+                  group.items,
                 ),
-              },
-              {
-                key: "personal",
-                label: "个人模版",
-                items: teammateTemplates.filter(
-                  (item) => item.source === "personal",
-                ),
-              },
-            ].map((group) => ({
-              ...group,
-              entries: groupTeammateTemplates(
-                visibleTeammates,
-                group.items.filter((item) =>
-                  archivedOnly
-                    ? item.state === "archived"
-                    : item.state !== "archived",
-                ),
-              ),
-            }))
+              }))
           : [
               {
                 key: "instances",
-                label: "全部 AI伙伴",
-                items: visibleTeammates,
-                entries: visibleTeammates.map((item) => ({
+                label:
+                  runtimeDirectoryFilter === "all"
+                    ? "全部 AI伙伴"
+                    : `${
+                        RUNTIME_DIRECTORY_FILTERS.find(
+                          (item) => item.key === runtimeDirectoryFilter,
+                        )?.label ?? ""
+                      } AI伙伴`,
+                items: visibleRuntimeTeammates,
+                entries: visibleRuntimeTeammates.map((item) => ({
                   item,
                   instanceIds: [item.id],
                 })),
               },
             ];
+
+      const directoryFilters =
+        tab === "definition"
+          ? TEMPLATE_DIRECTORY_FILTERS
+          : RUNTIME_DIRECTORY_FILTERS;
+      const directoryFilter =
+        tab === "definition" ? templateDirectoryFilter : runtimeDirectoryFilter;
+      const setDirectoryFilter =
+        tab === "definition"
+          ? setTemplateDirectoryFilter
+          : setRuntimeDirectoryFilter;
+
+      const renderDirectoryGroupTitle = (group) => {
+        const groupMetricTitle =
+          tab === "definition"
+            ? `${loadScopeTitle("template", activity.generatedAt || "")}\n\n${LIVE_INSTANCES_HELP}`
+            : loadScopeTitle("instance", activity.generatedAt || "");
+        return h(
+          "div",
+          { className: "pmtm-group-title" },
+          h(
+            "span",
+            { className: "pmtm-group-label" },
+            group.label,
+            h(
+              "span",
+              { className: "pmtm-group-count" },
+              String(group.entries.length),
+            ),
+          ),
+          h(
+            "span",
+            { className: "pmtm-group-metric" },
+            "近24小时",
+            h(
+              "span",
+              {
+                className: "pmtm-info",
+                tabIndex: 0,
+                role: "button",
+                "aria-label":
+                  tab === "definition"
+                    ? "模版近24小时统计说明"
+                    : "AI伙伴近24小时统计说明",
+                title: groupMetricTitle,
+              },
+              h(InfoIcon, null),
+              h(
+                "span",
+                { className: "pmtm-info-pop", role: "tooltip" },
+                groupMetricTitle,
+              ),
+            ),
+          ),
+        );
+      };
 
       const directory = h(
         "aside",
@@ -4396,129 +4585,150 @@ window.__ModuleLoader__.load({
           className: "pmtm-panel pmtm-directory",
           "aria-label": "AI伙伴列表",
         },
-        directoryGroups.map((group) => {
-          const groupMetricTitle =
-            tab === "definition"
-              ? `${loadScopeTitle("template", activity.generatedAt || "")}\n\n${LIVE_INSTANCES_HELP}`
-              : loadScopeTitle("instance", activity.generatedAt || "");
-          return h(
-            "section",
-            { className: "pmtm-group", key: group.key },
+        h(
+          "div",
+          {
+            className: "pmtm-directory-filters",
+            role: "group",
+            "aria-label":
+              tab === "definition" ? "智能体定义筛选" : "AI伙伴类型筛选",
+          },
+          ...directoryFilters.map((item) =>
             h(
-              "div",
-              { className: "pmtm-group-title" },
-              h(
-                "span",
-                { className: "pmtm-group-label" },
-                group.label,
-                h(
-                  "span",
-                  { className: "pmtm-group-count" },
-                  String(group.entries.length),
-                ),
-              ),
-              h(
-                "span",
-                { className: "pmtm-group-metric" },
-                "近24小时",
-                h(
-                  "span",
-                  {
-                    className: "pmtm-info",
-                    tabIndex: 0,
-                    role: "button",
-                    "aria-label":
-                      tab === "definition"
-                        ? "模版近24小时统计说明"
-                        : "AI伙伴近24小时统计说明",
-                    title: groupMetricTitle,
-                  },
-                  h(InfoIcon, null),
-                  h(
-                    "span",
-                    { className: "pmtm-info-pop", role: "tooltip" },
-                    groupMetricTitle,
-                  ),
-                ),
-              ),
+              "button",
+              {
+                key: item.key,
+                type: "button",
+                className: `pmtm-filter-tag${directoryFilter === item.key ? " active" : ""}`,
+                "aria-pressed": directoryFilter === item.key,
+                onClick: () => setDirectoryFilter(item.key),
+              },
+              item.label,
             ),
-            group.entries.length === 0
-              ? h(
-                  "div",
-                  {
-                    className: "pmtm-empty",
-                    style: { padding: "14px", fontSize: 11.5 },
-                  },
-                  "暂无定义",
-                )
-              : group.entries.map(({ item, instanceIds }) =>
-                  h(
-                    "button",
+          ),
+        ),
+        directoryGroups[0] === undefined
+          ? null
+          : h(
+              "div",
+              { className: "pmtm-directory-head" },
+              renderDirectoryGroupTitle(directoryGroups[0]),
+            ),
+        h(
+          "div",
+          { className: "pmtm-directory-scroll" },
+          directoryGroups.map((group, groupIndex) =>
+            h(
+              "section",
+              { className: "pmtm-group", key: group.key },
+              groupIndex === 0 ? null : renderDirectoryGroupTitle(group),
+              group.entries.length === 0
+                ? h(
+                    "div",
                     {
-                      key: item.id,
-                      type: "button",
-                      className: `pmtm-item${
-                        tab === "definition"
-                          ? item.id === definitionTemplateId
-                            ? " active"
-                            : ""
-                          : instanceIds.includes(selectedId)
-                            ? " active"
-                            : ""
-                      }`,
-                      onClick: () =>
-                        tab === "definition"
-                          ? selectTeammateTemplate(item.id)
-                          : selectTeammate(item.id),
+                      className: "pmtm-empty",
+                      style: { padding: "14px", fontSize: 11.5 },
                     },
-                    h(TeammateAvatar, { teammate: item }),
+                    tab === "definition" ? "暂无定义" : "暂无 AI伙伴",
+                  )
+                : group.entries.map(({ item, instanceIds }) =>
                     h(
-                      "span",
-                      { className: "pmtm-item-copy" },
-                      h("strong", null, item.name),
+                      "button",
+                      {
+                        key: item.id,
+                        type: "button",
+                        className: `pmtm-item${
+                          tab === "definition"
+                            ? item.id === definitionTemplateId
+                              ? " active"
+                              : ""
+                            : instanceIds.includes(selectedId)
+                              ? " active"
+                              : ""
+                        }`,
+                        onClick: () =>
+                          tab === "definition"
+                            ? selectTeammateTemplate(item.id)
+                            : selectTeammate(item.id),
+                      },
+                      h(TeammateAvatar, { teammate: item }),
                       h(
-                        "small",
-                        null,
-                        tab === "definition"
-                          ? `${item.role || ROLE_PLACEHOLDER} · ${String(instanceIds.length)} 个 AI伙伴 · 预装 Skills ${String((item.skillBindings ?? []).length)}`
-                          : item.projectBinding !== undefined
-                            ? `${item.role || ROLE_PLACEHOLDER} · 项目 ${item.projectName || item.projectBinding.workspaceId} · ${item.projectBinding.workspaceId.slice(0, 8)}`
-                            : `${item.role || ROLE_PLACEHOLDER} · ${item.ownerName}`,
+                        "span",
+                        { className: "pmtm-item-copy" },
+                        h(
+                          "span",
+                          { className: "pmtm-item-name-row" },
+                          h("strong", null, item.name),
+                        ),
+                        h(
+                          "small",
+                          null,
+                          tab === "definition"
+                            ? `${item.role || ROLE_PLACEHOLDER} · ${String(instanceIds.length)} 个 AI伙伴 · 预装 Skills ${String((item.skillBindings ?? []).length)}`
+                            : item.projectBinding !== undefined
+                              ? `${item.role || ROLE_PLACEHOLDER} · 项目 ${item.projectName || item.projectBinding.workspaceId} · ${item.projectBinding.workspaceId.slice(0, 8)}`
+                              : `${item.role || ROLE_PLACEHOLDER} · ${item.ownerName}`,
+                        ),
+                        h(
+                          "span",
+                          { className: "pmtm-item-status-row" },
+                          tab === "definition" &&
+                            (item.systemKey !== undefined ||
+                              item.protected !== undefined)
+                            ? h(
+                                "span",
+                                { className: "pmtm-built-in-chip" },
+                                "平台内置",
+                              )
+                            : tab === "runtime" &&
+                                item.projectBinding !== undefined
+                              ? h(
+                                  "span",
+                                  {
+                                    className:
+                                      "pmtm-built-in-chip pmtm-project-chip",
+                                  },
+                                  "项目托管",
+                                )
+                              : null,
+                          h(
+                            "span",
+                            {
+                              className: `pmtm-state-text ${item.state}`,
+                              title: STATE_LABEL[item.state] ?? item.state,
+                            },
+                            STATE_LABEL[item.state] ?? item.state,
+                          ),
+                        ),
                       ),
                       h(
                         "span",
-                        {
-                          className: `pmtm-state-text ${item.state}`,
-                          title: STATE_LABEL[item.state] ?? item.state,
-                        },
-                        STATE_LABEL[item.state] ?? item.state,
+                        { className: "pmtm-item-metric" },
+                        tab === "runtime" && runningIds.includes(item.id)
+                          ? h("span", {
+                              className: "pmtm-tick",
+                              role: "status",
+                              title: "有任务正在执行",
+                              "aria-label": "有任务正在执行",
+                            })
+                          : null,
+                        h(LoadMetric, {
+                          activity,
+                          teammateId:
+                            tab === "definition"
+                              ? (instanceIds[0] ?? "")
+                              : item.id,
+                          stacked: true,
+                          ...(tab === "definition"
+                            ? { scope: "template" }
+                            : {}),
+                        }),
                       ),
                     ),
-                    h(
-                      "span",
-                      { className: "pmtm-item-metric" },
-                      tab === "runtime" && runningIds.includes(item.id)
-                        ? h("span", {
-                            className: "pmtm-tick",
-                            role: "status",
-                            title: "有任务正在执行",
-                            "aria-label": "有任务正在执行",
-                          })
-                        : null,
-                      h(LoadMetric, {
-                        activity,
-                        teammateId:
-                          tab === "definition"
-                            ? (instanceIds[0] ?? "")
-                            : item.id,
-                        stacked: true,
-                        ...(tab === "definition" ? { scope: "template" } : {}),
-                      }),
-                    ),
                   ),
-                ),
-          );
-        }),
+            ),
+          ),
+        ),
       );
 
       const renderCurrentWorkTab = () => {
@@ -6510,7 +6720,7 @@ window.__ModuleLoader__.load({
         const protectedSystem =
           teammate.systemKey !== undefined || teammate.protected !== undefined;
         const protectedBadge = protectedSystem
-          ? h("span", { className: "pmtm-built-in-chip" }, "平台内置 · 受保护")
+          ? h("span", { className: "pmtm-built-in-chip" }, "平台")
           : null;
         if (tab === "definition") {
           if (selectedTemplate === null || !canManageSelectedTemplate) {
@@ -10389,6 +10599,9 @@ window.__ModuleLoader__.load({
       sortPlanTasks,
       planStoragePriority,
       groupTeammateTemplates,
+      runtimeDirectoryGroup,
+      templateDirectoryGroup,
+      matchesDirectoryFilter,
       markdownTableCells,
       isMarkdownTableSeparator,
       runtimeDetailEditPolicy,

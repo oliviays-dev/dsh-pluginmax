@@ -1,5 +1,6 @@
 import { basename } from "node:path";
 import {
+  briefProjectDigests,
   briefSummary,
   computeAwayWindow,
   localDayStamp,
@@ -8,6 +9,7 @@ import {
   type AwayWindow,
   type BriefCandidate,
   type BriefLiveState,
+  type BriefProjectDigest,
 } from "./brief.js";
 import {
   DEFAULT_BRIEF_INCLUDE_TYPES,
@@ -90,6 +92,7 @@ interface FollowIndex {
   workflows: Set<string>;
   meetings: Set<string>;
   projects: Set<string>;
+  briefs: Set<string>;
 }
 
 /** 聚合视图里标注「这条为什么算已关注」：直接关注或覆盖来源。 */
@@ -850,12 +853,17 @@ export class WorkbenchService {
       workflows: new Set<string>(),
       meetings: new Set<string>(),
       projects: new Set<string>(),
+      briefs: new Set<string>(),
     };
     for (const record of this.follows(principal)) {
       if (record.type === "task") index.tasks.add(record.targetId);
       else if (record.type === "workflow") index.workflows.add(record.targetId);
       else if (record.type === "meeting") index.meetings.add(record.targetId);
-      else index.projects.add(record.targetId);
+      else if (record.type === "project") index.projects.add(record.targetId);
+      else if (record.type === "brief") index.briefs.add(record.targetId);
+      else if (record.type === "data-agent") {
+        // Data Agent 会话关注独立存储，不参与任务 / 工作流覆盖索引。
+      }
     }
     return index;
   }
@@ -1193,6 +1201,17 @@ export class WorkbenchService {
     const tasks = this.deps.tasks?.();
     const workflows = this.deps.workflows?.();
     const index = this.followIndex(principal);
+    const briefRefsByTarget = new Map<string, FollowCoverRef[]>();
+    for (const briefId of index.briefs) {
+      const brief = this.tables.briefItems.get(
+        briefItemKey(principal.userId, briefId),
+      );
+      if (brief === undefined) continue;
+      const targetKey = `${brief.deepLink.route}:${brief.deepLink.refId}`;
+      const refs = briefRefsByTarget.get(targetKey) ?? [];
+      refs.push({ type: "brief", id: briefId });
+      briefRefsByTarget.set(targetKey, refs);
+    }
     const items = new Map<string, FocusItemPayload>();
 
     const addTask = (task: TaskRecordLike, refs: FollowCoverRef[]): void => {
@@ -1292,7 +1311,13 @@ export class WorkbenchService {
 
     // 直接关注的任务
     if (tasks !== undefined) {
-      for (const taskId of index.tasks) {
+      const directTaskIds = new Set(index.tasks);
+      for (const targetKey of briefRefsByTarget.keys()) {
+        if (targetKey.startsWith("task:")) {
+          directTaskIds.add(targetKey.slice("task:".length));
+        }
+      }
+      for (const taskId of directTaskIds) {
         let task: TaskRecordLike | undefined;
         try {
           task = tasks.get(taskId);
@@ -1300,7 +1325,10 @@ export class WorkbenchService {
           task = undefined;
         }
         if (task === undefined) continue;
-        addTask(task, this.taskFollowRefs(task, index));
+        addTask(task, [
+          ...this.taskFollowRefs(task, index),
+          ...(briefRefsByTarget.get(`task:${task.id}`) ?? []),
+        ]);
       }
     }
     // 工作流 / 项目覆盖的任务：扫描可见工作区，工作流后续新建的任务同样生效。
@@ -1310,8 +1338,12 @@ export class WorkbenchService {
     ) {
       for (const task of this.taskIndex(principal).tasks) {
         const refs = this.taskFollowRefs(task, index);
-        if (refs.length === 0) continue;
-        addTask(task, refs);
+        const combined = [
+          ...refs,
+          ...(briefRefsByTarget.get(`task:${task.id}`) ?? []),
+        ];
+        if (combined.length === 0) continue;
+        addTask(task, combined);
       }
     }
     // 直接关注的工作流与项目覆盖的工作流
@@ -1319,6 +1351,13 @@ export class WorkbenchService {
       const candidates = new Map<string, WorkflowInstanceLike>();
       for (const workflowId of index.workflows) {
         const instance = workflows.instance(workflowId);
+        if (instance !== undefined) candidates.set(instance.id, instance);
+      }
+      for (const targetKey of briefRefsByTarget.keys()) {
+        if (!targetKey.startsWith("workflow:")) continue;
+        const instance = workflows.instance(
+          targetKey.slice("workflow:".length),
+        );
         if (instance !== undefined) candidates.set(instance.id, instance);
       }
       if (index.projects.size > 0) {
@@ -1329,7 +1368,10 @@ export class WorkbenchService {
         }
       }
       for (const instance of candidates.values()) {
-        addWorkflow(instance, this.workflowFollowRefs(instance, index));
+        addWorkflow(instance, [
+          ...this.workflowFollowRefs(instance, index),
+          ...(briefRefsByTarget.get(`workflow:${instance.id}`) ?? []),
+        ]);
       }
     }
     // 直接关注的会议，以及被关注项目覆盖的会议。
@@ -1346,6 +1388,7 @@ export class WorkbenchService {
           if (index.projects.has(meeting.workspaceId)) {
             refs.push({ type: "project", id: meeting.workspaceId });
           }
+          refs.push(...(briefRefsByTarget.get(`meeting:${meeting.id}`) ?? []));
           if (refs.length === 0) continue;
           const key = `meeting:${meeting.id}`;
           if (items.has(key)) continue;
@@ -2661,6 +2704,10 @@ export class WorkbenchService {
       unreadCount: number;
       summary: string;
       views: { unread: BriefItemRecord[]; all: BriefItemRecord[] };
+      projectDigests: {
+        unread: BriefProjectDigest[];
+        all: BriefProjectDigest[];
+      };
       settings: {
         mode: "lastLeave" | "manual";
         manualWindowFrom?: string | undefined;
@@ -2764,6 +2811,10 @@ export class WorkbenchService {
           unreadCount: merged.unreadCount,
           summary: copy.summary,
           views: { unread: merged.unread, all: merged.all },
+          projectDigests: {
+            unread: briefProjectDigests(merged.unread),
+            all: briefProjectDigests(merged.all),
+          },
           settings: {
             mode: reader?.briefMode ?? "lastLeave",
             manualWindowFrom: reader?.manualWindowFrom,
@@ -2879,6 +2930,10 @@ export class WorkbenchService {
         unreadCount: merged.unreadCount,
         summary: briefSummary({ awayWindow: window, items: merged.unread }),
         views: { unread: merged.unread, all: merged.all },
+        projectDigests: {
+          unread: briefProjectDigests(merged.unread),
+          all: briefProjectDigests(merged.all),
+        },
         settings: {
           mode: reader?.briefMode ?? "lastLeave",
           manualWindowFrom: reader?.manualWindowFrom,

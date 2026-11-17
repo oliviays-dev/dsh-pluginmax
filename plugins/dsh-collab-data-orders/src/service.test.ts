@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { fileURLToPath } from "node:url";
-import { ResourceMarketService } from "dsh-collab-resource-market";
+import {
+  ResourceMarketService,
+  type ResourceLifecycleAudit,
+  type ResourceLifecycleRecord,
+} from "dsh-collab-resource-market";
 import {
   DataFabricError,
   DataFabricService,
@@ -358,6 +362,8 @@ describe("order Data Fabric domain", () => {
         {
           installs: new MemoryTable(),
           customAssets: new MemoryTable(),
+          lifecycle: new MemoryTable<ResourceLifecycleRecord>(),
+          lifecycleAudit: new MemoryTable<ResourceLifecycleAudit>(),
         },
         {
           workbench: () => undefined,

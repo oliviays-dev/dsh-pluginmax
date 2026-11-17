@@ -27,6 +27,7 @@ import {
   DataAgentError,
   DataAgentService,
   dataAgentErrorStatus,
+  summarizeConversationTitle,
   type DataAgentActor,
   type KvTableLike,
 } from "./service.js";
@@ -1832,7 +1833,10 @@ function conversationPayload(
 ) {
   const reports = service.reportsForConversation(conversation.id);
   return {
-    conversation,
+    conversation: {
+      ...conversation,
+      title: summarizeConversationTitle(conversation.title),
+    },
     messages: service.messages(conversation.id),
     attachments: service.attachments(conversation.id),
     runs: service
@@ -2090,7 +2094,27 @@ export function createDataAgentRoutes(
               : allConversations.slice(offset, offset + limit);
           sendJson(response, 200, {
             ok: true,
-            conversations,
+            conversations: conversations.map((conversation) => {
+              const latestAiMessage = [...service.messages(conversation.id)]
+                .reverse()
+                .find((message) => message.senderType === "ai-partner");
+              return {
+                ...conversation,
+                title: summarizeConversationTitle(conversation.title),
+                ...(latestAiMessage === undefined
+                  ? {}
+                  : {
+                      latestAiMessage: {
+                        id: latestAiMessage.id,
+                        content: latestAiMessage.content
+                          .replace(/\s+/g, " ")
+                          .trim()
+                          .slice(0, 500),
+                        createdAt: latestAiMessage.createdAt,
+                      },
+                    }),
+              };
+            }),
             hasMore:
               limitParam !== null &&
               offset + conversations.length < allConversations.length,

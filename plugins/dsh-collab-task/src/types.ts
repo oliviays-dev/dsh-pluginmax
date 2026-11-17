@@ -116,6 +116,8 @@ export const taskEventSchema = z.object({
 });
 
 export const taskAttachmentSchema = z.object({
+  /** 区分任务描述资料与验收标准资料；历史附件默认按描述附件读取。 */
+  kind: z.enum(["description", "acceptance"]).optional(),
   name: z.string().min(1).max(300),
   size: z.number().int().nonnegative().optional(),
   mimeType: z.string().min(1).max(200).optional(),
@@ -190,6 +192,7 @@ export const taskExecutionAnomalySchema = z.object({
     "run_interrupted",
     "plan_failed",
     "tool_failed",
+    "gate_denied",
     "dependency_unmet",
     "missing_acceptance",
     "missing_execution_evidence",

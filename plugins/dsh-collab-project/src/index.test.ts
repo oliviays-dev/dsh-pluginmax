@@ -4,10 +4,14 @@ import {
   apply,
   buildProjectReportContent,
   createProjectRoutes,
+  generateProjectReportContent,
   inject,
+  isProjectReportScheduleDue,
+  projectReportScheduleClock,
   ProjectError,
   ProjectService,
   projectDomainSpec,
+  runScheduledProjectReports,
   type ProjectAuditRecord,
   type ProjectRecord,
   type ProjectReportRecord,
@@ -637,12 +641,17 @@ function createHarness(options: HarnessOptions = {}) {
     ensureProjectManagerAgent: async (input: {
       workspaceId: string;
       projectName: string;
+      actor: {
+        userId: string;
+        name: string;
+        role: "admin" | "owner" | "member" | "guest";
+      };
     }) => {
       const existing = projectManagers.get(input.workspaceId);
       if (existing !== undefined) return existing;
       const created = {
         id: `tm-project-${input.workspaceId}`,
-        name: `${input.projectName}项目PM`,
+        name: `PM_${input.projectName}`,
         ownerUserId: "platform",
         ownerName: "平台",
         source: "platform" as const,
@@ -653,6 +662,16 @@ function createHarness(options: HarnessOptions = {}) {
     },
     projectManagerFor: (workspaceId: string) =>
       projectManagers.get(workspaceId),
+    ensureRuntime: async (input: {
+      workspaceId: string;
+      teammateId: string;
+    }) => ({
+      teammateId: input.teammateId,
+      principalId: `principal-ai-${input.teammateId}`,
+      profileId: `profile-${input.workspaceId}-${input.teammateId}`,
+      personaId: `persona-${input.teammateId}`,
+      execution: "builtin" as const,
+    }),
   };
   const meetingOutputs =
     options.outputs === true
@@ -788,7 +807,7 @@ function createHarness(options: HarnessOptions = {}) {
     syncExclusiveGrant: async () => undefined,
     revokeMatchingGrants: async () => undefined,
   };
-  const routes = createProjectRoutes(service, {
+  const dependencies = {
     team,
     workspaces,
     assignments: () => assignments,
@@ -903,7 +922,8 @@ function createHarness(options: HarnessOptions = {}) {
     }),
     principals: () => principals,
     now: () => now,
-  });
+  };
+  const routes = createProjectRoutes(service, dependencies);
   return {
     now,
     tables,
@@ -920,6 +940,7 @@ function createHarness(options: HarnessOptions = {}) {
     teammates,
     workspaces,
     assignments,
+    dependencies,
     routes,
   };
 }
@@ -1316,7 +1337,7 @@ describe("project routes", () => {
       expect.objectContaining({
         id: "tm-project-ws-2",
         kind: "agent",
-        name: "员工平台项目PM",
+        name: "PM_员工平台",
       }),
     ]);
     expect(detail.json().viewer.canManage).toBe(true);
@@ -1372,6 +1393,15 @@ describe("project routes", () => {
       avatar: "",
       source: "personal",
       roleNames: ["项目负责人"],
+    });
+    expect(
+      body.members.find(
+        (member: { id: string }) => member.id === "tm-project-ws-1",
+      ),
+    ).toMatchObject({
+      kind: "agent",
+      name: "PM_一切皆插件",
+      roleNames: ["项目经理"],
     });
     expect(body.directory.humans).toEqual([
       {
@@ -2649,9 +2679,9 @@ describe("project routes", () => {
     expect(response.status).toBe(200);
     const report = response.json().report;
     expect(report.date).toBe("2026-10-16");
-    expect(report.generatedBy).toBe("一切皆插件项目PM");
+    expect(report.generatedBy).toBe("PM_一切皆插件");
     expect(report.generatedByTeammateId).toBe("tm-project-ws-1");
-    expect(report.content).toContain("## RAG 结论");
+    expect(report.content).toContain("## 一句话结论");
     expect(report.content).toContain("综合健康度判定为「风险」");
     expect(report.content).toContain("## 指标快照");
     expect(report.content).toContain("## 关键结果");
@@ -2712,8 +2742,246 @@ describe("project routes", () => {
     expect(denied.status).toBe(403);
   });
 
-  it("registers directories as projects and claims the creator as owner", async () => {
+  it("persists project report schedules and generates due reports once", async () => {
     const harness = createHarness();
+    await harness.service.seedDefaults();
+    await harness.service.upsertProject({
+      workspaceId: "ws-1",
+      ownerId: "olivia",
+      ownerName: "Olivia",
+    });
+
+    const scheduleRoute = findRoute(
+      harness.routes,
+      "/api/collab/projects/reports/schedule",
+    );
+    const saved = await call(
+      scheduleRoute,
+      fakeRequest("POST", "/api/collab/projects/reports/schedule", {
+        token: "admin-token",
+        body: {
+          workspaceId: "ws-1",
+          schedule: {
+            enabled: true,
+            frequency: "weekdays",
+            time: "08:30",
+            timezone: "Asia/Shanghai",
+            weekday: 1,
+            dayOfMonth: 1,
+          },
+        },
+      }),
+    );
+    expect(saved.status).toBe(200);
+    expect(saved.json().reportSchedule).toMatchObject({
+      enabled: true,
+      frequency: "weekdays",
+      time: "08:30",
+      timezone: "Asia/Shanghai",
+    });
+    expect(harness.service.project("ws-1")?.reportSchedule.time).toBe("08:30");
+    expect(
+      harness.service
+        .audits("ws-1")
+        .some((event) => event.action === "report.schedule.update"),
+    ).toBe(true);
+
+    const first = await runScheduledProjectReports(
+      harness.service,
+      harness.dependencies,
+    );
+    expect(first.generated).toBe(1);
+    const reports = harness.service.reports("ws-1");
+    expect(reports).toHaveLength(1);
+    expect(reports[0]).toMatchObject({
+      date: "2026-10-16",
+      reportType: "daily",
+      triggerSource: "schedule",
+    });
+    const second = await runScheduledProjectReports(
+      harness.service,
+      harness.dependencies,
+    );
+    expect(second).toMatchObject({ generated: 0, skipped: 1 });
+    expect(harness.service.reports("ws-1")).toHaveLength(1);
+  });
+
+  it("evaluates daily, weekday, weekly and monthly report schedules", () => {
+    const monday = projectReportScheduleClock(
+      new Date("2026-11-16T00:30:00.000Z"),
+      "Asia/Shanghai",
+    );
+    const schedule = {
+      enabled: true,
+      frequency: "weekly" as const,
+      time: "08:00",
+      timezone: "Asia/Shanghai",
+      weekday: 1,
+      dayOfMonth: 16,
+    };
+    expect(monday).toMatchObject({
+      date: "2026-11-16",
+      time: "08:30",
+      weekday: 1,
+      dayOfMonth: 16,
+    });
+    expect(isProjectReportScheduleDue(schedule, monday)).toBe(true);
+    expect(
+      isProjectReportScheduleDue({ ...schedule, frequency: "daily" }, monday),
+    ).toBe(true);
+    expect(
+      isProjectReportScheduleDue(
+        { ...schedule, frequency: "weekdays" },
+        monday,
+      ),
+    ).toBe(true);
+    expect(
+      isProjectReportScheduleDue({ ...schedule, frequency: "monthly" }, monday),
+    ).toBe(true);
+    expect(
+      isProjectReportScheduleDue(
+        { ...schedule, frequency: "weekly", weekday: 2 },
+        monday,
+      ),
+    ).toBe(false);
+    expect(
+      isProjectReportScheduleDue(
+        { ...schedule, frequency: "daily", time: "09:00" },
+        monday,
+      ),
+    ).toBe(false);
+    expect(
+      isProjectReportScheduleDue({ ...schedule, enabled: false }, monday),
+    ).toBe(false);
+  });
+
+  it("uses the project manager agent when its report passes fact validation", async () => {
+    const harness = createHarness();
+    await harness.service.seedDefaults();
+    const project = await harness.service.upsertProject({
+      workspaceId: "ws-1",
+      ownerId: "olivia",
+      ownerName: "Olivia",
+      progress: 40,
+      startDate: "2026-10-01",
+      targetDate: "2026-10-31",
+    });
+    const projectManager = await harness.teammates.ensureProjectManagerAgent({
+      workspaceId: "ws-1",
+      projectName: "一切皆插件",
+      actor: {
+        userId: "olivia",
+        name: "Olivia",
+        role: "admin",
+      },
+    });
+    const baseline = buildProjectReportContent({
+      project,
+      workspace: harness.workspace,
+      tasks: [],
+      workflows: [],
+      today: "2026-10-16",
+      reportType: "daily",
+    });
+    const run = {
+      id: "run-project-report",
+      workspaceId: "ws-1",
+      source: "chat" as const,
+      instanceId: "project-report-ws-1",
+      createdBy: "olivia",
+      status: "succeeded",
+      output: { summary: baseline },
+    };
+    const dependencies = {
+      ...harness.dependencies,
+      agent: () => ({
+        run: () => run,
+        runs: () => [run],
+        dispatch: async () => run,
+      }),
+    };
+    const generated = await generateProjectReportContent({
+      dependencies,
+      workspace: harness.workspace,
+      project,
+      projectManager,
+      current: { userId: "olivia", role: "admin" },
+      tasks: [],
+      workflows: [],
+      date: "2026-10-16",
+      reportType: "daily",
+    });
+    expect(generated).toMatchObject({
+      generationMode: "agent",
+      agentRunId: "run-project-report",
+      content: baseline,
+    });
+    expect(generated.generationError).toBeUndefined();
+  });
+
+  it("falls back when the project manager agent adds unsupported numbers", async () => {
+    const harness = createHarness();
+    await harness.service.seedDefaults();
+    const project = await harness.service.upsertProject({
+      workspaceId: "ws-1",
+      ownerId: "olivia",
+      ownerName: "Olivia",
+      progress: 40,
+    });
+    const projectManager = await harness.teammates.ensureProjectManagerAgent({
+      workspaceId: "ws-1",
+      projectName: "一切皆插件",
+      actor: {
+        userId: "olivia",
+        name: "Olivia",
+        role: "admin",
+      },
+    });
+    const baseline = buildProjectReportContent({
+      project,
+      workspace: harness.workspace,
+      tasks: [],
+      workflows: [],
+      today: "2026-10-16",
+      reportType: "daily",
+    });
+    const run = {
+      id: "run-invalid-report",
+      workspaceId: "ws-1",
+      source: "chat" as const,
+      instanceId: "project-report-ws-1",
+      createdBy: "olivia",
+      status: "succeeded",
+      output: { summary: `${baseline}\n- 新增未支持数字 999。` },
+    };
+    const generated = await generateProjectReportContent({
+      dependencies: {
+        ...harness.dependencies,
+        agent: () => ({
+          run: () => run,
+          runs: () => [run],
+          dispatch: async () => run,
+        }),
+      },
+      workspace: harness.workspace,
+      project,
+      projectManager,
+      current: { userId: "olivia", role: "admin" },
+      tasks: [],
+      workflows: [],
+      date: "2026-10-16",
+      reportType: "daily",
+    });
+    expect(generated).toMatchObject({
+      generationMode: "deterministic_fallback",
+      agentRunId: "run-invalid-report",
+      content: baseline,
+    });
+    expect(generated.generationError).toContain("事实包之外的数字");
+  });
+
+  it("registers directories as projects and claims the creator as owner", async () => {
+    const harness = createHarness({ extraWorkspace: true });
     await harness.service.seedDefaults();
     const route = findRoute(harness.routes, "/api/collab/projects/create");
     const response = await call(
@@ -2731,7 +2999,7 @@ describe("project routes", () => {
     expect(response.json().workspaceId).toBe("ws-2");
     expect(response.json().projectManager).toMatchObject({
       id: "tm-project-ws-2",
-      name: "新项目项目PM",
+      name: "PM_新项目",
       source: "platform",
     });
     expect(harness.service.project("ws-2")).toMatchObject({
@@ -2755,6 +3023,15 @@ describe("project routes", () => {
             seat.status !== "released",
         ),
     ).toBe(true);
+    const detail = await call(
+      findRoute(harness.routes, "/api/collab/projects/detail"),
+      fakeRequest("GET", "/api/collab/projects/detail?workspaceId=ws-2", {
+        token: "admin-token",
+      }),
+    );
+    expect(detail.json().project.counts).toMatchObject({
+      aiPartners: 1,
+    });
     expect(harness.selfOwnerBootstrapCalls).toContain("peter");
   });
 });
@@ -2777,6 +3054,14 @@ describe("report content", () => {
         roleMappingPresets: {},
         rolesInitialized: true,
         rolesRevision: 1,
+        reportSchedule: {
+          enabled: true,
+          frequency: "daily",
+          time: "08:00",
+          timezone: "Asia/Shanghai",
+          weekday: 1,
+          dayOfMonth: 1,
+        },
         createdAt: "2026-10-01T00:00:00.000Z",
         updatedAt: "2026-10-01T00:00:00.000Z",
       },
@@ -2836,6 +3121,14 @@ describe("report content", () => {
         roleMappingPresets: {},
         rolesInitialized: true,
         rolesRevision: 1,
+        reportSchedule: {
+          enabled: true,
+          frequency: "daily",
+          time: "08:00",
+          timezone: "Asia/Shanghai",
+          weekday: 1,
+          dayOfMonth: 1,
+        },
         createdAt: "2026-10-01T00:00:00.000Z",
         updatedAt: "2026-10-01T00:00:00.000Z",
       },
@@ -2866,6 +3159,14 @@ describe("report content", () => {
         roleMappingPresets: {},
         rolesInitialized: true,
         rolesRevision: 1,
+        reportSchedule: {
+          enabled: true,
+          frequency: "daily",
+          time: "08:00",
+          timezone: "Asia/Shanghai",
+          weekday: 1,
+          dayOfMonth: 1,
+        },
         createdAt: "2026-10-01T00:00:00.000Z",
         updatedAt: "2026-10-01T00:00:00.000Z",
       },
@@ -2992,6 +3293,21 @@ describe("plugin registration", () => {
     expect(applyHarness.tools).toContain("project_report_generate");
     expect(projectDomainSpec.name).toBe("collab_project");
     expect(applyHarness.isDisposed()).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(harness.teammates.projectManagerFor("ws-1")).toMatchObject({
+      id: "tm-project-ws-1",
+      name: "PM_一切皆插件",
+    });
+    expect(
+      harness.assignments
+        .seats("ws-1")
+        .some(
+          (seat) =>
+            seat.seatId === "role-pm" &&
+            seat.assigneeId === "tm-project-ws-1" &&
+            seat.status !== "released",
+        ),
+    ).toBe(true);
   });
 
   it("assigns PRJ codes when the workspace stream reports a new project", async () => {

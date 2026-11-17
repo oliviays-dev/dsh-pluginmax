@@ -5,6 +5,8 @@ import {
   type CustomResourceRecord,
   type InstallRecord,
   type KvTableLike,
+  type ResourceLifecycleAudit,
+  type ResourceLifecycleRecord,
 } from "./service.js";
 import { McpProviderRegistry, type McpToolProvider } from "./mcp-registry.js";
 
@@ -28,6 +30,8 @@ function tables() {
   return {
     installs: new FakeTable<InstallRecord>(),
     customAssets: new FakeTable<CustomResourceRecord>(),
+    lifecycle: new FakeTable<ResourceLifecycleRecord>(),
+    lifecycleAudit: new FakeTable<ResourceLifecycleAudit>(),
   };
 }
 
@@ -139,6 +143,8 @@ describe("ResourceMarketService", () => {
     expect(Object.keys(resourceMarketDomainSpec.tables)).toEqual([
       "installs",
       "custom_assets",
+      "resource_lifecycle",
+      "resource_lifecycle_audit",
     ]);
   });
 
@@ -421,15 +427,102 @@ describe("ResourceMarketService", () => {
     ).toHaveLength(0);
     await expect(
       service.removeCustomResource(
-        { userId: "bob", role: "member" },
+        { userId: "admin", role: "admin" },
         created.id,
       ),
     ).rejects.toMatchObject({ code: "not_found" });
     await service.removeCustomResource(
-      { userId: "admin", role: "admin" },
+      { userId: "alice", role: "member" },
       created.id,
     );
     expect(service.customResources("alice")).toHaveLength(0);
+  });
+
+  it("lets owners and admins edit shared custom resources in place", async () => {
+    const service = new ResourceMarketService(tables(), {
+      workbench: () => ({
+        entitlements: () => [],
+        enablePlugin: async () => undefined,
+      }),
+    });
+    const created = await service.registerCustomResource("alice", {
+      type: "skill",
+      name: "项目汇报草稿",
+      description: "仅自己可见",
+      version: "1.0.0",
+      publisherName: "Alice",
+      manifest: {
+        instructions: "# 项目汇报\n先给结论。",
+        triggers: ["project-report"],
+      },
+    });
+    expect(created.actions.canEdit).toBe(true);
+
+    const updated = await service.updateCustomResource(
+      { userId: "alice", role: "member" },
+      created.id,
+      {
+        name: "项目汇报生成",
+        description: "项目成员共享",
+        version: "1.1.0",
+        publisherName: "Pluginmax 官方",
+        permissions: ["project:read"],
+        sharingScope: "platform",
+        manifest: {
+          instructions: "# 项目汇报生成\n先结论，后证据。",
+          triggers: ["project-report", "weekly-report"],
+        },
+      },
+    );
+    expect(updated).toMatchObject({
+      id: created.id,
+      ownerId: "alice",
+      name: "项目汇报生成",
+      version: "1.1.0",
+      sharingScope: "platform",
+      publicationStatus: "published",
+      actions: { canEdit: true },
+    });
+    expect(
+      service
+        .customResources({ userId: "bob", role: "member" }, { type: "skill" })
+        .some((resource) => resource.id === created.id),
+    ).toBe(true);
+    await expect(
+      service.updateCustomResource(
+        { userId: "bob", role: "member" },
+        created.id,
+        {
+          name: "越权修改",
+          sharingScope: "platform",
+        },
+      ),
+    ).rejects.toMatchObject({ code: "forbidden" });
+
+    const adminView = service
+      .customResources({ userId: "admin", role: "admin" }, { type: "skill" })
+      .find((resource) => resource.id === created.id);
+    expect(adminView?.actions.canEdit).toBe(true);
+    const adminUpdated = await service.updateCustomResource(
+      { userId: "admin", role: "admin" },
+      created.id,
+      {
+        name: "项目汇报生成",
+        description: "平台管理员修订",
+        permissions: ["project:read", "project:report"],
+      },
+    );
+    expect(adminUpdated.description).toBe("平台管理员修订");
+    await expect(
+      service.updateCustomResource(
+        { userId: "alice", role: "member" },
+        created.id,
+        {
+          name: "项目汇报生成",
+          sharingScope: "private",
+        },
+      ),
+    ).rejects.toMatchObject({ code: "conflict" });
   });
 
   it("installs custom skills and resolves their versioned instructions", async () => {
@@ -478,6 +571,357 @@ describe("ResourceMarketService", () => {
     });
     await service.removeCustomResource("alice", created.id);
     await expect(service.installedSkills("alice")).resolves.toEqual([]);
+  });
+
+  it("binds component-scoped skills and switches the active skill per target", async () => {
+    const service = new ResourceMarketService(tables(), {
+      workbench: () => ({
+        entitlements: () => [],
+        enablePlugin: async () => undefined,
+      }),
+    });
+    const targetId = "workbench.panel.pluginmax.daily-brief#project-summary";
+    await service.installSkill("alice", "skill-daily-brief-project-digest", {
+      targetIds: [targetId],
+      activeTargetId: targetId,
+    });
+    const custom = await service.registerCustomResource("alice", {
+      type: "skill",
+      name: "自定义项目概览",
+      version: "1.0.0",
+      manifest: {
+        instructions: "生成三行项目概览。",
+        mountTargets: [
+          {
+            type: "component-slot",
+            targetId,
+            componentId: "pluginmax.daily-brief",
+            componentLabel: "每日简报",
+            slotId: "project-summary",
+            slotLabel: "项目关键进展概览",
+          },
+        ],
+      },
+    });
+    await service.installSkill("alice", custom.id, {
+      targetIds: [targetId],
+      activeTargetId: targetId,
+    });
+    const installed = await service.installedSkills("alice");
+    expect(
+      installed.find((skill) => skill.id === "skill-daily-brief-project-digest")
+        ?.bindings,
+    ).toEqual([expect.objectContaining({ targetId, active: false })]);
+    expect(installed.find((skill) => skill.id === custom.id)?.bindings).toEqual(
+      [expect.objectContaining({ targetId, active: true })],
+    );
+
+    await service.setSkillTargetActive(
+      "alice",
+      "skill-daily-brief-project-digest",
+      targetId,
+    );
+    const switched = await service.installedSkills("alice");
+    expect(
+      switched.find((skill) => skill.id === "skill-daily-brief-project-digest")
+        ?.bindings,
+    ).toEqual([expect.objectContaining({ targetId, active: true })]);
+    expect(switched.find((skill) => skill.id === custom.id)?.bindings).toEqual([
+      expect.objectContaining({ targetId, active: false }),
+    ]);
+    await expect(service.skillsForTarget("alice", targetId)).resolves.toEqual({
+      targetId,
+      activeSkillId: "skill-daily-brief-project-digest",
+      skills: expect.arrayContaining([
+        expect.objectContaining({
+          id: "skill-daily-brief-project-digest",
+          instructions: expect.stringContaining("必须严格输出三行"),
+          bindings: [expect.objectContaining({ active: true })],
+        }),
+      ]),
+    });
+  });
+
+  it("lets a member delist only their own shared resource", async () => {
+    const store = tables();
+    const service = new ResourceMarketService(store, {
+      workbench: () => ({
+        entitlements: () => [],
+        enablePlugin: async () => undefined,
+      }),
+    });
+    const created = await service.registerCustomResource(
+      { userId: "alice", role: "member" },
+      {
+        type: "skill",
+        name: "共享采购助手",
+        version: "1.0.0",
+        sharingScope: "platform",
+        manifest: {
+          instructions: "# 共享采购助手\n只输出已核实结论。",
+          triggers: ["procurement-review"],
+        },
+      },
+    );
+    expect(created).toMatchObject({
+      sharingScope: "platform",
+      publicationStatus: "published",
+      actions: { canDelist: true },
+    });
+    expect(
+      (await service.skills({ userId: "bob", role: "member" })).some(
+        (skill) => skill.id === created.id,
+      ),
+    ).toBe(true);
+
+    await service.installSkill({ userId: "bob", role: "member" }, created.id);
+    await expect(
+      service.delistResource(
+        { userId: "bob", role: "member" },
+        {
+          resourceType: "skill",
+          resourceId: created.id,
+          expectedRevision: 1,
+        },
+      ),
+    ).rejects.toMatchObject({ code: "forbidden" });
+
+    await expect(
+      service.delistResource(
+        { userId: "alice", role: "member" },
+        {
+          resourceType: "skill",
+          resourceId: created.id,
+          reasonCode: "owner_withdraw",
+          expectedRevision: 1,
+        },
+      ),
+    ).resolves.toMatchObject({
+      resource: {
+        publicationStatus: "delisted",
+        revision: 2,
+      },
+    });
+    expect(
+      (await service.skills({ userId: "bob", role: "member" })).some(
+        (skill) => skill.id === created.id,
+      ),
+    ).toBe(false);
+    expect(
+      (
+        await service.skills(
+          { userId: "bob", role: "member" },
+          { publicationStatus: "delisted" },
+        )
+      ).some((skill) => skill.id === created.id),
+    ).toBe(false);
+    expect(
+      (
+        await service.skills(
+          { userId: "alice", role: "member" },
+          { publicationStatus: "delisted" },
+        )
+      ).some((skill) => skill.id === created.id),
+    ).toBe(true);
+    expect(
+      (await service.installedSkills({ userId: "bob", role: "member" })).find(
+        (skill) => skill.id === created.id,
+      ),
+    ).toMatchObject({
+      status: "enabled",
+      publicationStatus: "delisted",
+    });
+    await expect(
+      service.resolveSkills({ userId: "bob", role: "member" }, [created.id]),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: created.id,
+        publicationStatus: "delisted",
+      }),
+    ]);
+    await expect(
+      service.installSkill({ userId: "charlie", role: "member" }, created.id),
+    ).rejects.toMatchObject({ code: "conflict" });
+
+    await expect(
+      service.relistResource(
+        { userId: "alice", role: "member" },
+        {
+          resourceType: "skill",
+          resourceId: created.id,
+          expectedRevision: 2,
+        },
+      ),
+    ).resolves.toMatchObject({
+      resource: {
+        publicationStatus: "published",
+        revision: 3,
+      },
+    });
+    expect([...store.lifecycleAudit.entries()]).toHaveLength(2);
+  });
+
+  it("keeps platform delisting admin-only and locks admin-forced user delists", async () => {
+    const store = tables();
+    const service = new ResourceMarketService(store, {
+      workbench: () => ({
+        entitlements: () => [],
+        enablePlugin: async () => undefined,
+      }),
+    });
+    await expect(
+      service.delistResource(
+        { userId: "alice", role: "member" },
+        {
+          resourceType: "skill",
+          resourceId: "skill-project-reporting",
+          expectedRevision: 1,
+        },
+      ),
+    ).rejects.toMatchObject({ code: "forbidden" });
+    await expect(
+      service.delistResource(
+        { userId: "admin", role: "admin" },
+        {
+          resourceType: "skill",
+          resourceId: "skill-project-reporting",
+          reasonCode: "platform_governance",
+          expectedRevision: 1,
+        },
+      ),
+    ).resolves.toMatchObject({
+      resource: {
+        origin: "platform",
+        publicationStatus: "delisted",
+        revision: 2,
+      },
+    });
+    expect(
+      (await service.skills({ userId: "alice", role: "member" })).some(
+        (skill) => skill.id === "skill-project-reporting",
+      ),
+    ).toBe(false);
+    await expect(
+      service.installSkill(
+        { userId: "alice", role: "member" },
+        "skill-project-reporting",
+      ),
+    ).rejects.toMatchObject({ code: "conflict" });
+
+    const shared = await service.registerCustomResource(
+      { userId: "alice", role: "member" },
+      {
+        type: "skill",
+        name: "管理员可治理的共享 Skill",
+        sharingScope: "platform",
+        manifest: { instructions: "# Shared\n只使用授权数据。" },
+      },
+    );
+    await service.delistResource(
+      { userId: "admin", role: "admin" },
+      {
+        resourceType: "skill",
+        resourceId: shared.id,
+        reasonCode: "security_risk",
+        expectedRevision: 1,
+      },
+    );
+    await expect(
+      service.relistResource(
+        { userId: "alice", role: "member" },
+        {
+          resourceType: "skill",
+          resourceId: shared.id,
+          expectedRevision: 2,
+        },
+      ),
+    ).rejects.toMatchObject({ code: "forbidden" });
+    await expect(
+      service.relistResource(
+        { userId: "admin", role: "admin" },
+        {
+          resourceType: "skill",
+          resourceId: shared.id,
+          expectedRevision: 2,
+        },
+      ),
+    ).resolves.toMatchObject({
+      resource: {
+        publicationStatus: "published",
+        adminLocked: false,
+        revision: 3,
+      },
+    });
+  });
+
+  it("hides delisted templates and plugins and blocks new enablement", async () => {
+    const service = new ResourceMarketService(tables(), {
+      workbench: () => ({
+        entitlements: () => [],
+        enablePlugin: async () => undefined,
+      }),
+    });
+    await service.delistResource(
+      { userId: "admin", role: "admin" },
+      {
+        resourceType: "workbench-template",
+        resourceId: "tpl-legacy",
+        expectedRevision: 1,
+      },
+    );
+    expect(
+      service
+        .templateList("alice", {})
+        .items.some((template) => template.id === "tpl-legacy"),
+    ).toBe(false);
+    expect(service.templateDetail("alice", "tpl-legacy")).toBeUndefined();
+    expect(
+      service.templateDetail("admin", "tpl-legacy", undefined, {
+        includeDelisted: true,
+      })?.publicationStatus,
+    ).toBe("delisted");
+
+    await service.delistResource(
+      { userId: "admin", role: "admin" },
+      {
+        resourceType: "panel-plugin",
+        resourceId: "pluginmax.daily-brief",
+        expectedRevision: 1,
+      },
+    );
+    expect(
+      service
+        .pluginList("alice", {})
+        .items.some((plugin) => plugin.id === "pluginmax.daily-brief"),
+    ).toBe(false);
+    await expect(
+      service.enablePlugin("alice", "pluginmax.daily-brief"),
+    ).resolves.toMatchObject({ status: "disabled" });
+  });
+
+  it("blocks delisted MCPs from new connections", async () => {
+    const service = new ResourceMarketService(tables(), {
+      workbench: () => ({
+        entitlements: () => [],
+        enablePlugin: async () => undefined,
+      }),
+    });
+    await service.delistResource(
+      { userId: "admin", role: "admin" },
+      {
+        resourceType: "mcp",
+        resourceId: "mcp-wecom",
+        expectedRevision: 1,
+      },
+    );
+    expect(
+      (await service.mcps({ userId: "alice", role: "member" })).some(
+        (mcp) => mcp.id === "mcp-wecom",
+      ),
+    ).toBe(false);
+    await expect(
+      service.connectMcp({ userId: "alice", role: "member" }, "mcp-wecom"),
+    ).rejects.toMatchObject({ code: "conflict" });
   });
 
   it("lets only platform admins publish the official project reporting skill", async () => {

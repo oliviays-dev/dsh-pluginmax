@@ -307,6 +307,24 @@ ${SCOPE_BUTTON_STYLES}
 .pmwb-brief-evidence:hover{border-color:var(--dsw-alias-border-l4,var(--dsw-alias-border-l3));color:var(--dsw-alias-label-primary);}
 .pmwb-brief-evidence span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .pmwb-brief-evidence svg{width:13px;height:13px;color:var(--dsw-alias-label-tertiary);}
+.pmwb-brief-task{display:grid;gap:0;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-2);overflow:hidden;}
+.pmwb-brief-task-toggle{width:100%;display:grid;grid-template-columns:14px minmax(0,1fr) auto;align-items:center;gap:7px;padding:8px 9px;border:0;background:transparent;color:var(--dsw-alias-label-secondary);text-align:left;font:inherit;font-size:10.5px;cursor:pointer;}
+.pmwb-brief-task-toggle:hover{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);}
+.pmwb-brief-task-toggle svg{width:12px;height:12px;transition:transform .14s ease;}
+.pmwb-brief-task.open .pmwb-brief-task-toggle svg{transform:rotate(90deg);}
+.pmwb-brief-task-toggle span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pmwb-brief-task-toggle small{color:var(--dsw-alias-label-tertiary);font-size:9.5px;}
+.pmwb-brief-task-body{display:grid;gap:9px;padding:9px 10px 11px;border-top:1px solid var(--dsw-alias-border-l2);}
+.pmwb-brief-task-title{margin:0;color:var(--dsw-alias-label-primary);font-size:12px;line-height:1.5;}
+.pmwb-brief-task-description{margin:0;color:var(--dsw-alias-label-secondary);font-size:10.5px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;}
+.pmwb-brief-task-grid{display:grid;grid-template-columns:52px minmax(0,1fr);gap:4px 8px;margin:0;font-size:10.5px;}
+.pmwb-brief-task-grid dt{color:var(--dsw-alias-label-tertiary);}
+.pmwb-brief-task-grid dd{margin:0;color:var(--dsw-alias-label-primary);overflow-wrap:anywhere;}
+.pmwb-brief-task-summary{padding:8px 9px;border-left:2px solid var(--dsw-alias-accent-primary,#4f8ef7);border-radius:0 5px 5px 0;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 8%,transparent);color:var(--dsw-alias-label-secondary);font-size:10.5px;line-height:1.6;}
+.pmwb-brief-task-summary strong{display:block;margin-bottom:3px;color:var(--dsw-alias-label-primary);font-size:10px;}
+.pmwb-brief-task-state{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:1.5;}
+.pmwb-brief-task-state.error{display:flex;align-items:center;gap:7px;color:var(--dsw-alias-state-error-primary,#e5534b);}
+.pmwb-brief-task-state.error span{flex:1;min-width:0;overflow-wrap:anywhere;}
 .pmwb-brief-recommend{padding:9px 10px;border-left:2px solid var(--dsw-alias-accent-primary,#4f8ef7);border-radius:0 6px 6px 0;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 9%,transparent);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.6;}
 .pmwb-brief-recommend strong{display:block;margin-bottom:2px;color:var(--dsw-alias-label-primary);}
 .pmwb-brief-drawer-foot{display:flex;justify-content:flex-end;gap:7px;padding:10px 14px 12px;border-top:1px solid var(--dsw-alias-border-l2);}
@@ -1595,6 +1613,205 @@ ${SCOPE_BUTTON_STYLES}
       return "任务";
     }
 
+    const TASK_STATUS_LABELS = {
+      todo: "待开始",
+      progress: "进行中",
+      abnormal: "异常",
+      review: "待验收",
+      done: "已完成",
+      cancelled: "已取消",
+    };
+    const TASK_PRIORITY_LABELS = { P1: "P0", P2: "P1", P3: "P2" };
+
+    function taskEventText(value) {
+      return briefPlainText(value)
+        .replace(/\btodo\b/gi, "待开始")
+        .replace(/\bprogress\b/gi, "进行中")
+        .replace(/\babnormal\b/gi, "异常")
+        .replace(/\breview\b/gi, "待验收")
+        .replace(/\bdone\b/gi, "已完成")
+        .replace(/\bcancelled\b/gi, "已取消")
+        .replace(/[。！？.!?]+$/u, "");
+    }
+
+    function taskStateSummary(task) {
+      if (task === null || task === undefined) return [];
+      const status = TASK_STATUS_LABELS[task.status] ?? task.status ?? "未知";
+      const progress = Number.isFinite(task.progress)
+        ? `，进度 ${task.progress}%`
+        : "";
+      const sentences = [`任务当前为${status}${progress}。`];
+      if (task.executionAnomaly?.message) {
+        sentences.push(
+          `执行异常：${taskEventText(task.executionAnomaly.message)}。`,
+        );
+      } else if (task.needsInput) {
+        sentences.push("任务正在等待补充信息。");
+      }
+      const events = [...(task.events ?? [])].sort((left, right) =>
+        String(right?.at ?? "").localeCompare(String(left?.at ?? "")),
+      );
+      const latestEvent =
+        events.find((event) =>
+          ["status", "closed", "workflow", "nudge"].includes(event.kind),
+        ) ?? events.find((event) => event.kind !== "archived");
+      if (latestEvent?.message) {
+        const message = taskEventText(latestEvent.message);
+        const actor =
+          latestEvent.actorName && !message.includes(latestEvent.actorName)
+            ? `${latestEvent.actorName}：`
+            : "";
+        sentences.push(`最近更新：${actor}${message}。`);
+      }
+      if (task.archivedAt) {
+        sentences.push("任务已归档，仅保留历史记录。");
+      }
+      return sentences.slice(0, 3);
+    }
+
+    function BriefTaskBasicInfo({ taskId }) {
+      const [open, setOpen] = react.useState(true);
+      const [task, setTask] = react.useState(null);
+      const [loading, setLoading] = react.useState(true);
+      const [error, setError] = react.useState("");
+      const mounted = react.useRef(true);
+      const autoLoaded = react.useRef(false);
+
+      react.useEffect(() => {
+        mounted.current = true;
+        return () => {
+          mounted.current = false;
+        };
+      }, []);
+
+      const load = react.useCallback(async () => {
+        if (!taskId) return;
+        setLoading(true);
+        setError("");
+        try {
+          const payload = await request(
+            `/api/collab/tasks/detail?taskId=${encodeURIComponent(taskId)}`,
+          );
+          if (mounted.current) setTask(payload?.task ?? null);
+        } catch (cause) {
+          if (mounted.current) {
+            setError(cause instanceof Error ? cause.message : "读取任务失败");
+          }
+        } finally {
+          if (mounted.current) setLoading(false);
+        }
+      }, [taskId]);
+
+      react.useEffect(() => {
+        if (!taskId || autoLoaded.current) return;
+        autoLoaded.current = true;
+        void load();
+      }, [load, taskId]);
+
+      if (!taskId) return null;
+      const toggle = () => {
+        const next = !open;
+        setOpen(next);
+        if (next && task === null && !loading) void load();
+      };
+      return h(
+        "div",
+        { className: `pmwb-brief-task${open ? " open" : ""}` },
+        h(
+          "button",
+          {
+            type: "button",
+            className: "pmwb-brief-task-toggle",
+            "aria-expanded": open,
+            "aria-controls": `pmwb-brief-task-${taskId}`,
+            onClick: toggle,
+          },
+          ICONS.chevron,
+          h("span", null, `任务 · ${taskId}`),
+          h("small", null, open ? "收起" : "展开"),
+        ),
+        open
+          ? h(
+              "div",
+              {
+                id: `pmwb-brief-task-${taskId}`,
+                className: "pmwb-brief-task-body",
+              },
+              loading
+                ? h(
+                    "div",
+                    {
+                      className: "pmwb-brief-task-state",
+                      role: "status",
+                    },
+                    "正在读取任务信息…",
+                  )
+                : error !== ""
+                  ? h(
+                      "div",
+                      {
+                        className: "pmwb-brief-task-state error",
+                        role: "alert",
+                      },
+                      h("span", null, `任务信息加载失败：${error}`),
+                      h(
+                        "button",
+                        {
+                          type: "button",
+                          className: "pmwb-brief-linkbtn",
+                          onClick: () => void load(),
+                        },
+                        "重试",
+                      ),
+                    )
+                  : task !== null
+                    ? [
+                        h(
+                          "h4",
+                          { className: "pmwb-brief-task-title" },
+                          task.title,
+                        ),
+                        task.description
+                          ? h(
+                              "p",
+                              { className: "pmwb-brief-task-description" },
+                              task.description,
+                            )
+                          : null,
+                        h(
+                          "dl",
+                          { className: "pmwb-brief-task-grid" },
+                          h("dt", null, "负责人"),
+                          h(
+                            "dd",
+                            null,
+                            task.receiverName || task.receiverId || "待指派",
+                          ),
+                          h("dt", null, "优先级"),
+                          h(
+                            "dd",
+                            null,
+                            TASK_PRIORITY_LABELS[task.priority] ??
+                              task.priority,
+                          ),
+                        ),
+                        h(
+                          "div",
+                          { className: "pmwb-brief-task-summary" },
+                          h("strong", null, "当前状态"),
+                          taskStateSummary(task).join(" "),
+                        ),
+                      ]
+                    : h(
+                        "div",
+                        { className: "pmwb-brief-task-state" },
+                        "任务信息暂不可用。",
+                      ),
+            )
+          : null,
+      );
+    }
+
     function renderBriefDetailDrawer(item, ctx) {
       if (item === null || item === undefined) return null;
       const facts = [
@@ -1693,17 +1910,26 @@ ${SCOPE_BUTTON_STYLES}
               "section",
               { className: "pmwb-brief-drawer-block" },
               h("h3", null, "证据与来源"),
-              h(
-                "button",
-                {
-                  type: "button",
-                  className: "pmwb-brief-evidence",
-                  onClick: ctx.navigateBriefItem,
-                },
-                ICONS.chevron,
-                h("span", null, `${briefSourceLabel(item)} · ${item.sourceId}`),
-                ICONS.chevron,
-              ),
+              item.deepLink?.route === "task" && item.deepLink?.refId
+                ? h(BriefTaskBasicInfo, {
+                    key: item.deepLink.refId,
+                    taskId: item.deepLink.refId,
+                  })
+                : h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "pmwb-brief-evidence",
+                      onClick: ctx.navigateBriefItem,
+                    },
+                    ICONS.chevron,
+                    h(
+                      "span",
+                      null,
+                      `${briefSourceLabel(item)} · ${item.sourceId}`,
+                    ),
+                    ICONS.chevron,
+                  ),
             ),
             item.suggestion
               ? h(

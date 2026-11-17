@@ -6,6 +6,7 @@ coverage/
 dist/
 lib/
 node_modules/
+screenlog.*
 *.tsbuildinfo
 *.tgz
 profile/package.json

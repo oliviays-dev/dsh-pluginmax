@@ -14,8 +14,12 @@ import {
   type KvTableLike,
   type InstallRecord,
   type CustomResourceRecord,
+  type CustomResourceUpdateInput,
+  type LifecycleMutationInput,
   type MarketListInput,
   type McpCatalogProvider,
+  type ResourceLifecycleAudit,
+  type ResourceLifecycleRecord,
   type SkillCatalogProvider,
   type WorkbenchV2Port,
 } from "./service.js";
@@ -26,9 +30,13 @@ export const inject = ["storageDomain", "webServer"];
 
 export { ResourceMarketError, ResourceMarketService, resourceMarketDomainSpec };
 export type {
+  LifecycleMutationInput,
   MarketPrincipal,
   McpCatalogProvider,
   McpProviderAsset,
+  ResourceActions,
+  ResourceLifecycleAudit,
+  ResourceLifecycleRecord,
 } from "./service.js";
 export { McpProviderRegistry, McpRegistryError } from "./mcp-registry.js";
 export type { McpToolCallInput, McpToolProvider } from "./mcp-registry.js";
@@ -136,7 +144,15 @@ function routeError(response: ServerResponse, cause: unknown): void {
 }
 
 const pluginInstallSchema = z.object({ pluginId: z.string().min(1).max(200) });
-const skillInstallSchema = z.object({ skillId: z.string().min(1).max(200) });
+const skillInstallSchema = z.object({
+  skillId: z.string().min(1).max(200),
+  targetIds: z.array(z.string().min(1).max(200)).max(20).optional(),
+  activeTargetId: z.string().min(1).max(200).optional(),
+});
+const skillBindingInputSchema = z.object({
+  skillId: z.string().min(1).max(200),
+  targetId: z.string().min(1).max(200),
+});
 const officialSkillSaveSchema = z.object({
   id: z.string().trim().min(1).max(200),
   name: z.string().trim().min(1).max(120),
@@ -146,6 +162,19 @@ const officialSkillSaveSchema = z.object({
   permissions: z.array(z.string().trim().min(1).max(300)).max(20).optional(),
   instructions: z.string().trim().min(1).max(200_000),
   triggers: z.array(z.string().trim().min(1).max(80)).max(30).optional(),
+  mountTargets: z
+    .array(
+      z.object({
+        type: z.literal("component-slot"),
+        targetId: z.string().trim().min(1).max(200),
+        componentId: z.string().trim().min(1).max(200),
+        componentLabel: z.string().trim().min(1).max(120),
+        slotId: z.string().trim().min(1).max(120),
+        slotLabel: z.string().trim().min(1).max(120),
+      }),
+    )
+    .max(20)
+    .optional(),
 });
 const mcpInputSchema = z.object({ mcpId: z.string().min(1).max(200) });
 const customResourceInputSchema = z.object({
@@ -155,11 +184,30 @@ const customResourceInputSchema = z.object({
   version: z.string().trim().min(1).max(80).optional(),
   publisherName: z.string().trim().min(1).max(120).optional(),
   permissions: z.array(z.string().trim().min(1).max(300)).max(20).optional(),
+  sharingScope: z.enum(["private", "platform"]).optional(),
   manifest: z.record(z.string(), z.unknown()).optional(),
+});
+const customResourceUpdateSchema = z.object({
+  id: z.string().trim().min(1).max(200),
+  name: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(1000).optional(),
+  version: z.string().trim().min(1).max(80).optional(),
+  publisherName: z.string().trim().min(1).max(120).optional(),
+  permissions: z.array(z.string().trim().min(1).max(300)).max(20).optional(),
+  sharingScope: z.enum(["private", "platform"]).optional(),
+  manifest: z.record(z.string(), z.unknown()).optional(),
+});
+const lifecycleMutationSchema = z.object({
+  resourceType: customResourceTypeSchema,
+  resourceId: z.string().trim().min(1).max(200),
+  reasonCode: z.string().trim().min(1).max(80).optional(),
+  note: z.string().trim().max(1000).optional(),
+  expectedRevision: z.number().int().positive(),
 });
 const publisherSchema = z.enum(["official", "certified", "community"]);
 const compatibilitySchema = z.enum(["compatible", "incompatible"]);
 const sortSchema = z.enum(["recommended", "updated", "name"]);
+const publicationStatusSchema = z.enum(["published", "delisted"]);
 
 function enumParam<T extends string>(
   schema: z.ZodType<T>,
@@ -189,6 +237,10 @@ function marketInput(params: URLSearchParams): MarketListInput {
     params.get("compatibility"),
   );
   const sort = enumParam(sortSchema, params.get("sort"));
+  const publicationStatus = enumParam(
+    publicationStatusSchema,
+    params.get("publicationStatus"),
+  );
   return {
     ...(params.get("q") === null ? {} : { query: params.get("q") ?? "" }),
     ...(params.get("category") === null
@@ -197,6 +249,10 @@ function marketInput(params: URLSearchParams): MarketListInput {
     ...(publisher === undefined ? {} : { publisher }),
     ...(compatibility === undefined ? {} : { compatibility }),
     ...(sort === undefined ? {} : { sort }),
+    ...(publicationStatus === undefined ? {} : { publicationStatus }),
+    ...(params.get("includeDelisted") === "true"
+      ? { includeDelisted: true }
+      : {}),
     page: integerParam(params.get("page"), 1),
     pageSize: integerParam(params.get("pageSize"), 24),
   };
@@ -276,6 +332,9 @@ export function createResourceMarketRoutes(
             user,
             params.get("id") ?? "",
             params.get("version") ?? undefined,
+            {
+              includeDelisted: params.get("includeDelisted") === "true",
+            },
           );
           if (template === undefined) {
             throw new ResourceMarketError("not_found", "工作台方案不存在");
@@ -346,16 +405,19 @@ export function createResourceMarketRoutes(
           const user = principal(request);
           if (request.method === "GET") {
             const params = query(request);
+            const market = marketInput(params);
             sendJson(response, 200, {
               ok: true,
               canManage: user.role === "admin",
               skills: await service.skills(user, {
-                ...(params.get("q") === null
+                query: market.query ?? "",
+                category: market.category ?? "",
+                ...(market.includeDelisted === undefined
                   ? {}
-                  : { query: params.get("q") ?? "" }),
-                ...(params.get("category") === null
+                  : { includeDelisted: market.includeDelisted }),
+                ...(market.publicationStatus === undefined
                   ? {}
-                  : { category: params.get("category") ?? "" }),
+                  : { publicationStatus: market.publicationStatus }),
               }),
             });
             return;
@@ -381,7 +443,56 @@ export function createResourceMarketRoutes(
           const input = await body(request, skillInstallSchema);
           sendJson(response, 200, {
             ok: true,
-            install: await service.installSkill(user.userId, input.skillId),
+            install: await service.installSkill(user.userId, input.skillId, {
+              ...(input.targetIds === undefined
+                ? {}
+                : { targetIds: input.targetIds }),
+              ...(input.activeTargetId === undefined
+                ? {}
+                : { activeTargetId: input.activeTargetId }),
+            }),
+          });
+        } catch (cause) {
+          routeError(response, cause);
+        }
+      },
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/resources/skills/binding",
+      handler: async (request, response) => {
+        try {
+          assertSameOrigin(request);
+          const user = principal(request);
+          if (request.method === "GET") {
+            const targetId = query(request).get("targetId") ?? "";
+            if (targetId === "") {
+              throw new ResourceMarketError(
+                "invalid_input",
+                "targetId is required",
+              );
+            }
+            sendJson(
+              response,
+              200,
+              await service.skillsForTarget(user, targetId),
+            );
+            return;
+          }
+          if (request.method !== "POST") {
+            throw new ResourceMarketError(
+              "invalid_input",
+              "method not allowed",
+            );
+          }
+          const input = await body(request, skillBindingInputSchema);
+          sendJson(response, 200, {
+            ok: true,
+            install: await service.setSkillTargetActive(
+              user,
+              input.skillId,
+              input.targetId,
+            ),
           });
         } catch (cause) {
           routeError(response, cause);
@@ -451,15 +562,18 @@ export function createResourceMarketRoutes(
             );
           }
           const params = query(request);
-          const queryValue = params.get("q");
-          const categoryValue = params.get("category");
-          const input: { query?: string } = {};
-          if (queryValue !== null) input.query = queryValue;
+          const market = marketInput(params);
           sendJson(response, 200, {
             ok: true,
             mcps: await service.mcps(user, {
-              ...input,
-              ...(categoryValue === null ? {} : { category: categoryValue }),
+              query: market.query ?? "",
+              category: market.category ?? "",
+              ...(market.includeDelisted === undefined
+                ? {}
+                : { includeDelisted: market.includeDelisted }),
+              ...(market.publicationStatus === undefined
+                ? {}
+                : { publicationStatus: market.publicationStatus }),
             }),
           });
         } catch (cause) {
@@ -524,16 +638,19 @@ export function createResourceMarketRoutes(
               customResourceTypeSchema,
               params.get("type"),
             );
+            const market = marketInput(params);
             sendJson(response, 200, {
               ok: true,
               resources: service.customResources(user, {
                 ...(type === undefined ? {} : { type }),
-                ...(params.get("q") === null
+                query: market.query ?? "",
+                category: market.category ?? "",
+                ...(market.includeDelisted === undefined
                   ? {}
-                  : { query: params.get("q") ?? "" }),
-                ...(params.get("category") === null
+                  : { includeDelisted: market.includeDelisted }),
+                ...(market.publicationStatus === undefined
                   ? {}
-                  : { category: params.get("category") ?? "" }),
+                  : { publicationStatus: market.publicationStatus }),
               }),
             });
             return;
@@ -542,6 +659,21 @@ export function createResourceMarketRoutes(
             const id = query(request).get("id") ?? "";
             await service.removeCustomResource(user, id);
             sendJson(response, 200, { ok: true });
+            return;
+          }
+          if (request.method === "PATCH") {
+            const { id, ...input } = await body(
+              request,
+              customResourceUpdateSchema,
+            );
+            sendJson(response, 200, {
+              ok: true,
+              resource: await service.updateCustomResource(
+                user,
+                id,
+                input satisfies CustomResourceUpdateInput,
+              ),
+            });
             return;
           }
           if (request.method !== "POST") {
@@ -560,6 +692,58 @@ export function createResourceMarketRoutes(
         }
       },
     },
+    {
+      kind: "exact",
+      path: "/api/collab/resources/lifecycle/delist",
+      handler: async (request, response) => {
+        try {
+          assertSameOrigin(request);
+          if (request.method !== "POST") {
+            throw new ResourceMarketError(
+              "invalid_input",
+              "method not allowed",
+            );
+          }
+          const user = principal(request);
+          const input = (await body(
+            request,
+            lifecycleMutationSchema,
+          )) as LifecycleMutationInput;
+          sendJson(response, 200, {
+            ok: true,
+            ...(await service.delistResource(user, input)),
+          });
+        } catch (cause) {
+          routeError(response, cause);
+        }
+      },
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/resources/lifecycle/relist",
+      handler: async (request, response) => {
+        try {
+          assertSameOrigin(request);
+          if (request.method !== "POST") {
+            throw new ResourceMarketError(
+              "invalid_input",
+              "method not allowed",
+            );
+          }
+          const user = principal(request);
+          const input = (await body(
+            request,
+            lifecycleMutationSchema,
+          )) as LifecycleMutationInput;
+          sendJson(response, 200, {
+            ok: true,
+            ...(await service.relistResource(user, input)),
+          });
+        } catch (cause) {
+          routeError(response, cause);
+        }
+      },
+    },
   ];
 }
 
@@ -572,6 +756,12 @@ export async function apply(ctx: MarketContext): Promise<void> {
       customAssets: domain.table(
         "custom_assets",
       ) as KvTableLike<CustomResourceRecord>,
+      lifecycle: domain.table(
+        "resource_lifecycle",
+      ) as KvTableLike<ResourceLifecycleRecord>,
+      lifecycleAudit: domain.table(
+        "resource_lifecycle_audit",
+      ) as KvTableLike<ResourceLifecycleAudit>,
     },
     {
       workbench: () => lookup<WorkbenchV2Port>(ctx, "collabWorkbenchV2"),

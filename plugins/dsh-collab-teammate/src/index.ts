@@ -64,6 +64,10 @@ import {
   type WorkReportRunContext,
   type WorkReportTaskContext,
 } from "./report-runtime.js";
+import {
+  TeammateSkillResolutionService,
+  type TeammateSkillCatalog,
+} from "./skill-resolution.js";
 
 export {
   TeammateError,
@@ -102,6 +106,16 @@ export {
   WorkReportRuntime,
 } from "./report-runtime.js";
 export {
+  TASK_PLANNING_SCENE,
+  TeammateSkillResolutionService,
+} from "./skill-resolution.js";
+export type {
+  EffectiveTeammateSkill,
+  SkillCatalogItemLike,
+  TeammateSkillCatalog,
+  TeammateSkillResolution,
+} from "./skill-resolution.js";
+export {
   compactWorkPlanTitle,
   parseWorkPlanDueDate,
   parseWorkPlanInstruction,
@@ -125,7 +139,9 @@ export const MEETING_FACILITATOR_TEAMMATE_ID = "meeting-facilitator";
 export const DATA_AGENT_TEAMMATE_ID = "data-agent";
 export const DATA_AGENT_TEMPLATE_ID = "sys-data-agent";
 export const PROJECT_MANAGER_TEMPLATE_ID = "sys-project-manager";
+export const TASK_PLANNER_TEMPLATE_ID = "sys-task-planner";
 export const PROJECT_REPORTING_SKILL_ID = "skill-project-reporting";
+export const TASK_PLANNING_CORE_SKILL_ID = "skill-task-planning-core";
 export const DATA_AGENT_PROTECTED_ERROR = "system_agent_protected";
 
 const PROJECT_MANAGER_SEED = {
@@ -187,6 +203,70 @@ const PROJECT_MANAGER_SEED = {
       "progress-report",
     ],
     protectedSkillIds: [PROJECT_REPORTING_SKILL_ID],
+  },
+};
+
+const TASK_PLANNER_SEED = {
+  templateId: TASK_PLANNER_TEMPLATE_ID,
+  systemKey: "task-planner" as const,
+  name: "任务规划伙伴",
+  role: "需求理解与任务拆解",
+  description:
+    "工作区级平台预置规划伙伴。先识别事实与未知项，再形成可负责、可交付、可验收、可依赖的任务计划。",
+  soul: [
+    "# 任务规划伙伴 SOUL",
+    "",
+    "你是平台预置的任务规划伙伴。你的职责是先把用户真正要的结果理解清楚，再把工作拆成可负责、可交付、可验收、可依赖的任务节点。",
+    "",
+    "## 工作方式",
+    "- 先区分已验证事实、待查事实、推导结论、假设和待确认问题。",
+    "- 不编造用户未表达的需求、验收标准、负责人、日期、成本或业务规则。",
+    "- 只有具备独立责任、独立产出和独立验收的工作才拆成节点。",
+    "- 使用 dependencies 表达硬依赖，不用依赖表达普通步骤顺序。",
+    "- 每个节点必须有负责人、描述、验收和预期证据。",
+    "- 信息不足时请求澄清；可以安全继续时明确记录假设。",
+    "",
+    "## 边界",
+    "- 你不能批准计划，不能启动 Worker，不能修改 Root Task 状态。",
+    "- 你不能扩大权限，不能代替人工 Review，也不能把 Skill 当成权限来源。",
+    "- 企业知识和用户 Skill 都不能覆盖平台策略、Validator 或人工确认。",
+  ].join("\n"),
+  scenarios: [
+    "理解任务需求并形成需求摘要",
+    "识别事实、未知项、假设和冲突",
+    "把复杂任务拆成可独立验收的 DAG 节点",
+    "为节点选择负责人、证据和人工 Gate",
+  ],
+  goals: [
+    "需求保真，不把猜测写成事实",
+    "验收可验证，节点责任与产出清晰",
+    "依赖只表达真实硬约束",
+    "高风险或不可逆操作必须进入人工 Gate",
+  ],
+  tools: [
+    "read_file",
+    "task_query",
+    "planning_submit_understanding",
+    "planning_submit_plan",
+    "planning_submit_critique",
+    "router_worker_submit_plan",
+    "router_worker_submit_final_draft",
+  ],
+  skillBindings: [
+    {
+      skillId: TASK_PLANNING_CORE_SKILL_ID,
+      versionConstraint: "^1",
+      mode: "required" as const,
+      scenes: ["task-planning"],
+      enabled: true,
+    },
+  ],
+  extensionPolicy: {
+    allowAdditionalSkills: true,
+    allowDisableDefaultSkills: false,
+    allowSceneOverrides: false,
+    protectedScenes: ["task-planning"],
+    protectedSkillIds: [TASK_PLANNING_CORE_SKILL_ID],
   },
 };
 
@@ -2051,6 +2131,14 @@ export function createTeammateRoutes(
     ) {
       return true;
     }
+    if (
+      teammate.workspaceBinding !== undefined &&
+      identity
+        .members(teammate.workspaceBinding.workspaceId)
+        .some((member) => member.userId === actor.userId)
+    ) {
+      return true;
+    }
     const receiverIds = new Set<string>([teammate.id]);
     if (teammate.employeeId !== undefined) {
       receiverIds.add(teammate.employeeId);
@@ -2248,16 +2336,26 @@ export function createTeammateRoutes(
               workspace.title,
             ]),
           );
-          const teammatesWithProject = teammates.map((teammate) => ({
-            ...teammate,
-            ...(teammate.projectBinding === undefined
-              ? {}
-              : {
-                  projectName:
-                    workspaceNames.get(teammate.projectBinding.workspaceId) ??
-                    teammate.projectBinding.workspaceId,
-                }),
-          }));
+          const teammatesWithProject = teammates.map((teammate) => {
+            const bindingWorkspaceId =
+              teammate.projectBinding?.workspaceId ??
+              teammate.workspaceBinding?.workspaceId;
+            return {
+              ...teammate,
+              ...(bindingWorkspaceId === undefined
+                ? {}
+                : {
+                    projectName:
+                      workspaceNames.get(bindingWorkspaceId) ??
+                      bindingWorkspaceId,
+                    workspaceName:
+                      teammate.workspaceBinding === undefined
+                        ? undefined
+                        : (workspaceNames.get(bindingWorkspaceId) ??
+                          bindingWorkspaceId),
+                  }),
+            };
+          });
           const liveInstanceCounts = await teammateRuntime?.liveInstanceCounts(
             actor.userId,
           );
@@ -3460,6 +3558,10 @@ export interface TeammateContext {
   ): unknown;
   provide(key: "collabTeammateRuntime", value: TeammateRuntime): unknown;
   provide(
+    key: "collabTeammateSkills",
+    value: TeammateSkillResolutionService,
+  ): unknown;
+  provide(
     key: "collabTeammateWorkload",
     value: TeammateWorkloadService,
   ): unknown;
@@ -3542,8 +3644,17 @@ export async function apply(ctx: TeammateContext): Promise<void> {
   await service.ensureSeededPlatformTemplate(MEETING_FACILITATOR_SEED);
   await service.ensureSeededPlatformTemplate(DATA_AGENT_SEED);
   await service.ensureSeededPlatformTemplate(PROJECT_MANAGER_SEED);
+  await service.ensureSeededPlatformTemplate(TASK_PLANNER_SEED);
   ctx.provide("collabTeammates", service);
   ctx.provide("collabTeammateTemplates", teammateTemplateService);
+  ctx.provide(
+    "collabTeammateSkills",
+    new TeammateSkillResolutionService({
+      teammates: service,
+      skillCatalog: () =>
+        ctx.get("collabResourceMarket") as TeammateSkillCatalog | undefined,
+    }),
+  );
   const runtimeService = new TeammateRuntime({
     teammates: service,
     templates: () => teammateTemplateService,

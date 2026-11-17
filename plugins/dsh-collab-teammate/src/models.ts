@@ -33,6 +33,7 @@ export const SYSTEM_AGENT_KEYS = [
   "data-agent",
   "meeting-facilitator",
   "project-manager",
+  "task-planner",
 ] as const;
 
 export const teammateSourceSchema = z.enum(TEAMMATE_SOURCES);
@@ -93,6 +94,13 @@ export const projectAgentBindingSchema = z.object({
   visibility: z.literal("project").default("project"),
 });
 
+export const workspaceAgentBindingSchema = z.object({
+  workspaceId: idSchema,
+  roleKey: z.literal("task-planner"),
+  managedBy: z.literal("platform").default("platform"),
+  visibility: z.literal("workspace").default("workspace"),
+});
+
 export const teammateSchema = z.object({
   id: idSchema,
   source: teammateSourceSchema,
@@ -117,6 +125,8 @@ export const teammateSchema = z.object({
   systemKey: systemAgentKeySchema.optional(),
   /** 项目级托管 Agent 的稳定归属；同一项目同一角色只能有一个实例。 */
   projectBinding: projectAgentBindingSchema.optional(),
+  /** 工作区级平台托管 Agent；不改变 projectBinding 的项目经理语义。 */
+  workspaceBinding: workspaceAgentBindingSchema.optional(),
   protected: systemAgentProtectionSchema.optional(),
   resettableScopes: z.array(resettableScopeSchema).max(8).optional(),
   personaId: idSchema.optional(),
@@ -209,6 +219,7 @@ export type InstanceSkillExtension = z.infer<
   typeof instanceSkillExtensionSchema
 >;
 export type ProjectAgentBinding = z.infer<typeof projectAgentBindingSchema>;
+export type WorkspaceAgentBinding = z.infer<typeof workspaceAgentBindingSchema>;
 export type Teammate = z.infer<typeof teammateSchema>;
 export type TeammateTemplate = z.infer<typeof teammateTemplateSchema>;
 export type TeammateEvent = z.infer<typeof teammateEventSchema>;

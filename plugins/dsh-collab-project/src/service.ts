@@ -272,6 +272,7 @@ export interface ProjectUpsertInput {
   readonly rolesRevision?: number | undefined;
   readonly rolesUpdatedAt?: string | undefined;
   readonly rolesUpdatedBy?: string | undefined;
+  readonly reportSchedule?: ProjectRecord["reportSchedule"] | undefined;
 }
 
 /**
@@ -367,6 +368,10 @@ export class ProjectService {
       rolesRevision: input.rolesRevision ?? existing?.rolesRevision ?? 1,
       rolesUpdatedAt: input.rolesUpdatedAt ?? existing?.rolesUpdatedAt,
       rolesUpdatedBy: input.rolesUpdatedBy ?? existing?.rolesUpdatedBy,
+      reportSchedule:
+        input.reportSchedule ??
+        existing?.reportSchedule ??
+        projectRecordSchema.shape.reportSchedule.parse(undefined),
       createdAt: existing?.createdAt ?? timestamp,
       updatedAt: timestamp,
     });
@@ -664,6 +669,8 @@ export class ProjectService {
     readonly skillId?: string | undefined;
     readonly skillVersion?: string | undefined;
     readonly triggerSource?: ProjectReportRecord["triggerSource"] | undefined;
+    readonly generationMode?: ProjectReportRecord["generationMode"] | undefined;
+    readonly generationError?: string | undefined;
     readonly sourceRefs?: readonly string[] | undefined;
     readonly content: string;
   }): Promise<ProjectReportRecord> {
@@ -688,6 +695,13 @@ export class ProjectService {
         ? {}
         : { skillVersion: input.skillVersion }),
       triggerSource: input.triggerSource ?? "api",
+      generationMode:
+        input.generationMode ??
+        existing?.generationMode ??
+        "deterministic_fallback",
+      ...(input.generationError === undefined
+        ? {}
+        : { generationError: input.generationError }),
       sourceRefs: [...(input.sourceRefs ?? [])],
       content: input.content,
       createdAt: existing?.createdAt ?? this.nowIso(),

@@ -37,6 +37,8 @@ export interface RouterAgentDispatchInput {
   readonly principalType?:
     "transitional-agent" | "digital-employee" | "principal-runtime" | undefined;
   readonly ticketId?: string | undefined;
+  readonly contextPackId?: string | undefined;
+  readonly sessionBindingId?: string | undefined;
   readonly sessionId?: string | undefined;
   readonly payload: {
     readonly instanceTitle: string;

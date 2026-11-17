@@ -7,13 +7,7 @@ const CLIENT = resolve(import.meta.dirname, "../client/index.js");
 describe("resource market client contract", () => {
   it("renders the three platform tabs and the two workbench market tabs", () => {
     const source = readFileSync(CLIENT, "utf8");
-    for (const label of [
-      "Skill",
-      "MCP",
-      "工作台市场",
-      "工作台方案",
-      "功能插件",
-    ]) {
+    for (const label of ["Skill", "MCP", "工作台", "工作台方案", "功能插件"]) {
       expect(source).toContain(label);
     }
     expect(source).toContain('route !== "resource-market"');
@@ -96,6 +90,12 @@ describe("resource market client contract", () => {
     const source = readFileSync(CLIENT, "utf8");
     expect(source).toContain("同时添加到 AI 伙伴（可选）");
     expect(source).toContain("仅安装到资源库");
+    expect(source).toContain("function skillMountTargets(skill)");
+    expect(source).toContain("安装到指定组件");
+    expect(source).toContain("pmrm-install-target");
+    expect(source).toContain("同一挂载点仅启用一个 Skill");
+    expect(source).toContain("/api/collab/resources/skills/binding");
+    expect(source).toContain("设为当前方案");
     expect(source).toContain("/api/collab/teammates/skills/extend");
     expect(source).toContain("installAgentIds.map");
     expect(source).toContain("item.ownerUserId === userId");
@@ -118,5 +118,39 @@ describe("resource market client contract", () => {
     expect(source).toContain("Skill 指令正文");
     expect(source).toContain("/api/collab/resources/skills/official/save");
     expect(source).toContain("发布官方 Skill");
+  });
+
+  it("offers editable custom resource cards and updates them in place", () => {
+    const source = readFileSync(CLIENT, "utf8");
+    expect(source).toContain("编辑自定义资源");
+    expect(source).toContain("编辑资源");
+    expect(source).toContain("openCustomResourceEdit");
+    expect(source).toContain('method: "PATCH"');
+    expect(source).toContain("保存修改");
+    expect(source).toContain("actions?.canEdit");
+  });
+
+  it("supports permission-aware delist and relist actions", () => {
+    const source = readFileSync(CLIENT, "utf8");
+    expect(source).toContain("/api/collab/resources/lifecycle/${action}");
+    expect(source).toContain("actions?.canDelist");
+    expect(source).toContain("actions?.canRelist");
+    expect(source).toContain("resourceSourceLabel");
+    expect(source).toContain("平台资源");
+    expect(source).toContain("用户共享");
+    expect(source).toContain("确认下架");
+    expect(source).toContain("重新上架");
+    expect(source).toContain("查看已下架");
+    expect(source).toContain('publicationStatus",');
+    expect(source).toContain("expectedRevision");
+  });
+
+  it("lets users choose a sharing scope when registering custom resources", () => {
+    const source = readFileSync(CLIENT, "utf8");
+    expect(source).toContain("共享范围");
+    expect(source).toContain("私有，仅自己可见");
+    expect(source).toContain("共享到资源市场");
+    expect(source).toContain("sharingScope: registerForm.sharingScope");
+    expect(source).toContain("管理员已锁定");
   });
 });

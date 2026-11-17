@@ -52,6 +52,29 @@ window.__ModuleLoader__.load({
       weekly: "项目周报",
       progress: "进度汇报",
     };
+    const REPORT_SCHEDULE_FREQUENCY_LABELS = {
+      daily: "每天",
+      weekdays: "每个工作日",
+      weekly: "每周",
+      monthly: "每月",
+    };
+    const REPORT_WEEKDAY_LABELS = [
+      "周日",
+      "周一",
+      "周二",
+      "周三",
+      "周四",
+      "周五",
+      "周六",
+    ];
+    const DEFAULT_REPORT_SCHEDULE = {
+      enabled: true,
+      frequency: "daily",
+      time: "08:00",
+      timezone: "Asia/Shanghai",
+      weekday: 1,
+      dayOfMonth: 1,
+    };
     const PRIORITY_RANK = { P1: 0, P2: 1, P3: 2 };
     const PRIORITY_DISPLAY = { P1: "P0", P2: "P1", P3: "P2" };
     const priorityLabel = (value) => PRIORITY_DISPLAY[value] ?? value;
@@ -679,6 +702,18 @@ window.__ModuleLoader__.load({
       .pmproj-toolbar{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;}
       .pmproj-history-search{width:min(360px,100%);}
       .pmproj-toolbar input[type="date"],.pmproj-toolbar input[type="search"]{height:30px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:0 8px;min-width:0;}
+      .pmproj-report-tab-head{display:flex;align-items:center;gap:10px;min-height:32px;min-width:0;}
+      .pmproj-report-tab-head h3{flex:none;margin:0;font-size:13.5px;line-height:1.4;}
+      .pmproj-report-filters{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex:1;min-width:0;flex-wrap:wrap;}
+      .pmproj-report-filters>select{height:30px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:11.5px;padding:0 7px;}
+      .pmproj-report-filters>.pmproj-btn{flex:none;}
+      .pmproj-report-dates{display:inline-flex;align-items:center;gap:6px;color:var(--dsw-alias-label-tertiary);font-size:10.5px;white-space:nowrap;min-width:0;}
+      .pmproj-report-dates input{width:122px;height:30px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:11.5px;padding:0 7px;min-width:0;}
+      .pmproj-report-search{display:inline-flex;align-items:center;gap:6px;flex:1 1 180px;min-width:130px;max-width:340px;height:30px;padding:0 9px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-tertiary);}
+      .pmproj-report-search:focus-within{border-color:var(--dsw-alias-accent-primary,#4f8ef7);box-shadow:var(--focus-ring);}
+      .pmproj-report-search svg{width:13px;height:13px;flex:none;}
+      .pmproj-report-search input{flex:1;min-width:0;height:28px;border:0;outline:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:11.5px;padding:0;}
+      .pmproj-report-setup{width:30px;height:30px;flex:none;margin-left:auto;padding:0;}
       .pmproj-output-toolbar{display:flex;align-items:center;gap:7px;flex-wrap:wrap;}
       .pmproj-output-search{display:flex;align-items:center;gap:6px;flex:1 1 260px;min-width:180px;height:30px;padding:0 8px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-base);}
       .pmproj-output-search svg{width:13px;height:13px;flex:none;color:var(--dsw-alias-label-secondary);}
@@ -704,6 +739,7 @@ window.__ModuleLoader__.load({
       .pmproj-output-empty{padding:28px;border:0.5px dashed var(--dsw-alias-border-l3);border-radius:7px;color:var(--dsw-alias-label-secondary);text-align:center;font-size:12px;}
       .pmproj-report{display:flex;flex-direction:column;gap:8px;padding:12px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:7px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
       .pmproj-report-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+      .pmproj-report-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0;}
       .pmproj-report-head h3{margin:0;font-size:13px;}
       .pmproj-report-head small{color:var(--dsw-alias-label-secondary);font-size:10.5px;}
       .pmproj-history{display:grid;gap:8px;}
@@ -762,6 +798,8 @@ window.__ModuleLoader__.load({
       .pmproj-checkbox{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-secondary);font-size:11px;white-space:nowrap;cursor:pointer;}
       .pmproj-checkbox:has(input:checked){border-color:color-mix(in srgb,var(--dsw-alias-button-primary-fill) 50%,transparent);color:var(--dsw-alias-label-primary);background:color-mix(in srgb,var(--dsw-alias-button-primary-fill) 12%,transparent);}
       .pmproj-checkbox input{margin:0;}
+      .pmproj-field>.pmproj-checkbox{justify-self:start;width:auto;}
+      .pmproj-field .pmproj-checkbox input{width:14px;height:14px;padding:0;flex:none;}
       .pmproj-modal-mask{position:fixed;inset:0;z-index:60;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(8,10,14,.55);}
       .pmproj-modal-mask.open{display:flex;}
       .pmproj-modal{width:min(680px,100%);max-height:86vh;overflow:auto;padding:16px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));box-shadow:0 18px 48px rgba(0,0,0,.35);}
@@ -862,11 +900,42 @@ window.__ModuleLoader__.load({
         h("path", { d: "M5 21h14", key: "base" }),
       );
 
-    function Pill({ tone, children }) {
+    const SettingsIcon = () =>
+      h(
+        "svg",
+        {
+          viewBox: "0 0 24 24",
+          width: 14,
+          height: 14,
+          fill: "none",
+          stroke: "currentColor",
+          strokeWidth: 2,
+          strokeLinecap: "round",
+          strokeLinejoin: "round",
+          "aria-hidden": "true",
+        },
+        h("path", {
+          d: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z",
+          key: "path",
+        }),
+        h("circle", { cx: 12, cy: 12, r: 3, key: "circle" }),
+      );
+
+    function Pill({ tone, children, title }) {
       return h(
         "span",
-        { className: `pmproj-pill ${tone ?? ""}`.trim() },
+        {
+          className: `pmproj-pill ${tone ?? ""}`.trim(),
+          ...(title === undefined ? {} : { title }),
+        },
         children,
+      );
+    }
+
+    function normalizeReportMarkdown(content) {
+      return String(content ?? "").replace(
+        /^## RAG 结论[ \t]*$/gm,
+        "## 一句话结论",
       );
     }
 
@@ -874,7 +943,7 @@ window.__ModuleLoader__.load({
       return h(
         "div",
         { className: "pmproj-markdown" },
-        markdownBlocks(content),
+        markdownBlocks(normalizeReportMarkdown(content)),
       );
     }
 
@@ -1024,6 +1093,53 @@ window.__ModuleLoader__.load({
       return cause instanceof Error ? cause.message : String(cause);
     }
 
+    function normalizeReportSchedule(value) {
+      const schedule = value ?? {};
+      return {
+        enabled: schedule.enabled !== false,
+        frequency:
+          REPORT_SCHEDULE_FREQUENCY_LABELS[schedule.frequency] === undefined
+            ? DEFAULT_REPORT_SCHEDULE.frequency
+            : schedule.frequency,
+        time:
+          typeof schedule.time === "string" &&
+          /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(schedule.time)
+            ? schedule.time
+            : DEFAULT_REPORT_SCHEDULE.time,
+        timezone:
+          typeof schedule.timezone === "string" && schedule.timezone !== ""
+            ? schedule.timezone
+            : DEFAULT_REPORT_SCHEDULE.timezone,
+        weekday:
+          Number.isInteger(schedule.weekday) &&
+          schedule.weekday >= 0 &&
+          schedule.weekday <= 6
+            ? schedule.weekday
+            : DEFAULT_REPORT_SCHEDULE.weekday,
+        dayOfMonth:
+          Number.isInteger(schedule.dayOfMonth) &&
+          schedule.dayOfMonth >= 1 &&
+          schedule.dayOfMonth <= 28
+            ? schedule.dayOfMonth
+            : DEFAULT_REPORT_SCHEDULE.dayOfMonth,
+      };
+    }
+
+    function reportScheduleSummary(value) {
+      const schedule = normalizeReportSchedule(value);
+      if (!schedule.enabled) return "自动生成已停用";
+      if (schedule.frequency === "weekdays") {
+        return `每个工作日 ${schedule.time}`;
+      }
+      if (schedule.frequency === "weekly") {
+        return `每${REPORT_WEEKDAY_LABELS[schedule.weekday]} ${schedule.time}`;
+      }
+      if (schedule.frequency === "monthly") {
+        return `每月 ${schedule.dayOfMonth} 日 ${schedule.time}`;
+      }
+      return `每天 ${schedule.time}`;
+    }
+
     function ProjectGlobalPage(props) {
       const route = props.useShellRoute?.((state) => state.route);
       if (route !== "projects") return null;
@@ -1037,7 +1153,7 @@ window.__ModuleLoader__.load({
       const [viewer, setViewer] = react.useState(null);
       const [selectedId, setSelectedId] = react.useState("");
       const [search, setSearch] = react.useState("");
-      const [tab, setTab] = react.useState("members");
+      const [tab, setTab] = react.useState("reports");
       const [view, setView] = react.useState("detail");
       const [memberManageMode, setMemberManageMode] = react.useState(false);
       const [detail, setDetail] = react.useState(null);
@@ -1092,7 +1208,13 @@ window.__ModuleLoader__.load({
       const [reportFrom, setReportFrom] = react.useState("");
       const [reportTo, setReportTo] = react.useState("");
       const [reportSearch, setReportSearch] = react.useState("");
+      const [reportSearchDraft, setReportSearchDraft] = react.useState("");
       const [reportType, setReportType] = react.useState("daily");
+      const [reportScheduleOpen, setReportScheduleOpen] = react.useState(false);
+      const [reportScheduleDraft, setReportScheduleDraft] = react.useState({
+        ...DEFAULT_REPORT_SCHEDULE,
+      });
+      const [reportNotice, setReportNotice] = react.useState("");
       const [history, setHistory] = react.useState([]);
       const [historyLoading, setHistoryLoading] = react.useState(false);
       const [historySearch, setHistorySearch] = react.useState("");
@@ -1128,6 +1250,11 @@ window.__ModuleLoader__.load({
         const timer = window.setTimeout(() => setRoleNotice(""), 6_000);
         return () => window.clearTimeout(timer);
       }, [roleNotice]);
+      react.useEffect(() => {
+        if (reportNotice === "") return undefined;
+        const timer = window.setTimeout(() => setReportNotice(""), 4_000);
+        return () => window.clearTimeout(timer);
+      }, [reportNotice]);
 
       const loadProjects = react.useCallback(async () => {
         if (token() === null) {
@@ -1178,7 +1305,7 @@ window.__ModuleLoader__.load({
           setViewer(null);
           setSelectedId("");
           setSearch("");
-          setTab("members");
+          setTab("reports");
           setView("detail");
           setMemberManageMode(false);
           setDetail(null);
@@ -1204,6 +1331,11 @@ window.__ModuleLoader__.load({
           setRoleNotice("");
           setDraftGuard(null);
           setReports([]);
+          setReportSearch("");
+          setReportSearchDraft("");
+          setReportScheduleOpen(false);
+          setReportScheduleDraft({ ...DEFAULT_REPORT_SCHEDULE });
+          setReportNotice("");
           setHistory([]);
           setOutputs([]);
           setOutputsFor("");
@@ -1235,6 +1367,9 @@ window.__ModuleLoader__.load({
               )}`,
             );
             setDetail(result);
+            setReportScheduleDraft(
+              normalizeReportSchedule(result.project?.reportSchedule),
+            );
             setDetailLoading(false);
           } catch (cause) {
             setDetailLoading(false);
@@ -1339,8 +1474,14 @@ window.__ModuleLoader__.load({
       }, [tab, selectedId, loadHistory]);
 
       react.useEffect(() => {
-        setTab("members");
+        setTab("reports");
         setMemberManageMode(false);
+        setReports([]);
+        setReportSearch("");
+        setReportSearchDraft("");
+        setReportScheduleOpen(false);
+        setReportScheduleDraft({ ...DEFAULT_REPORT_SCHEDULE });
+        setReportNotice("");
         setOutputs([]);
         setOutputsFor("");
         setOutputsLoading(false);
@@ -1521,7 +1662,7 @@ window.__ModuleLoader__.load({
           });
           setLeaveOpen(false);
           setDetail(null);
-          setTab("members");
+          setTab("reports");
           await loadProjects();
         } catch (cause) {
           fail(cause);
@@ -2269,6 +2410,53 @@ window.__ModuleLoader__.load({
             }),
           });
           await loadReports(selectedProject.workspaceId);
+        } catch (cause) {
+          fail(cause);
+        } finally {
+          setBusy("");
+        }
+      };
+
+      const openReportSchedule = () => {
+        setReportScheduleDraft(
+          normalizeReportSchedule(detail?.project?.reportSchedule),
+        );
+        setReportScheduleOpen(true);
+      };
+
+      const saveReportSchedule = async () => {
+        if (selectedProject === null) return;
+        setBusy("report-schedule");
+        try {
+          const result = await request(
+            "/api/collab/projects/reports/schedule",
+            {
+              method: "POST",
+              body: JSON.stringify({
+                workspaceId: selectedProject.workspaceId,
+                schedule: normalizeReportSchedule(reportScheduleDraft),
+              }),
+            },
+          );
+          const schedule = normalizeReportSchedule(
+            result.reportSchedule ?? reportScheduleDraft,
+          );
+          setReportScheduleDraft(schedule);
+          setDetail((current) =>
+            current === null
+              ? current
+              : {
+                  ...current,
+                  project: {
+                    ...current.project,
+                    reportSchedule: schedule,
+                  },
+                },
+          );
+          setReportScheduleOpen(false);
+          setReportNotice(
+            `项目日报生成设置已保存：${reportScheduleSummary(schedule)}`,
+          );
         } catch (cause) {
           fail(cause);
         } finally {
@@ -3602,51 +3790,107 @@ window.__ModuleLoader__.load({
           { className: "pmproj-panel" },
           h(
             "div",
-            { className: "pmproj-toolbar" },
-            h("input", {
-              type: "date",
-              value: reportFrom,
-              "aria-label": "项目日报开始日期",
-              onChange: (event) => setReportFrom(event.target.value),
-            }),
-            h("span", { className: "pmproj-hint" }, "至"),
-            h("input", {
-              type: "date",
-              value: reportTo,
-              "aria-label": "项目日报结束日期",
-              onChange: (event) => setReportTo(event.target.value),
-            }),
-            h("input", {
-              type: "search",
-              value: reportSearch,
-              placeholder: "关键词",
-              "aria-label": "搜索项目日报",
-              onChange: (event) => setReportSearch(event.target.value),
-            }),
+            { className: "pmproj-report-tab-head" },
+            h("h3", null, "项目日报"),
             h(
-              "select",
-              {
-                value: reportType,
-                "aria-label": "项目汇报类型",
-                onChange: (event) => setReportType(event.target.value),
-              },
-              h("option", { value: "daily" }, "项目日报"),
-              h("option", { value: "weekly" }, "项目周报"),
-              h("option", { value: "progress" }, "进度汇报"),
-            ),
-            canManage
-              ? h(
-                  "button",
-                  {
-                    className: "pmproj-btn small",
-                    type: "button",
-                    disabled: busy === "report",
-                    onClick: () => void generateReport(),
+              "div",
+              { className: "pmproj-report-filters" },
+              h(
+                "select",
+                {
+                  value: reportType,
+                  "aria-label": "项目汇报类型",
+                  onChange: (event) => setReportType(event.target.value),
+                },
+                h("option", { value: "daily" }, "项目日报"),
+                h("option", { value: "weekly" }, "项目周报"),
+                h("option", { value: "progress" }, "进度汇报"),
+              ),
+              h(
+                "label",
+                { className: "pmproj-report-dates" },
+                h("input", {
+                  type: "date",
+                  value: reportFrom,
+                  "aria-label": "项目日报开始日期",
+                  onChange: (event) => setReportFrom(event.target.value),
+                }),
+                h("span", null, "至"),
+                h("input", {
+                  type: "date",
+                  value: reportTo,
+                  "aria-label": "项目日报结束日期",
+                  onChange: (event) => setReportTo(event.target.value),
+                }),
+              ),
+              h(
+                "label",
+                { className: "pmproj-report-search" },
+                SearchIcon(),
+                h("input", {
+                  type: "search",
+                  value: reportSearchDraft,
+                  placeholder: "关键词",
+                  "aria-label": "搜索项目日报",
+                  onChange: (event) => setReportSearchDraft(event.target.value),
+                  onKeyDown: (event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      setReportSearch(reportSearchDraft);
+                    }
                   },
-                  `更新${REPORT_TYPE_LABELS[reportType] ?? "项目日报"}`,
-                )
-              : null,
+                }),
+              ),
+              h(
+                "button",
+                {
+                  className: "pmproj-btn secondary small",
+                  type: "button",
+                  onClick: () => setReportSearch(reportSearchDraft),
+                },
+                "搜索",
+              ),
+              h(
+                "button",
+                {
+                  className: "pmproj-btn small",
+                  type: "button",
+                  disabled: busy === "report" || !canManage,
+                  title: canManage
+                    ? `按当前类型生成${
+                        REPORT_TYPE_LABELS[reportType] ?? "项目日报"
+                      }`
+                    : "仅项目负责人或平台管理员可以更新日报",
+                  onClick: () => void generateReport(),
+                },
+                busy === "report" ? "更新中…" : "更新日报",
+              ),
+            ),
+            h(
+              "button",
+              {
+                className: "pmproj-btn secondary small pmproj-report-setup",
+                type: "button",
+                "aria-label": "项目日报生成设置",
+                title: `项目日报生成设置 · ${reportScheduleSummary(
+                  detail?.project?.reportSchedule ?? reportScheduleDraft,
+                )}`,
+                onClick: openReportSchedule,
+              },
+              SettingsIcon(),
+            ),
           ),
+          reportNotice === ""
+            ? null
+            : h(
+                "div",
+                {
+                  className: "pmproj-notice",
+                  role: "status",
+                  "aria-live": "polite",
+                },
+                reportNotice,
+              ),
           latest === null
             ? h("div", { className: "pmproj-empty" }, "没有匹配的项目日报。")
             : h(
@@ -3656,12 +3900,27 @@ window.__ModuleLoader__.load({
                   "div",
                   { className: "pmproj-report-head" },
                   h(
-                    "h3",
-                    null,
-                    `${latest.date} ${
-                      REPORT_TYPE_LABELS[latest.reportType ?? "daily"] ??
-                      "项目日报"
-                    }`,
+                    "div",
+                    { className: "pmproj-report-title" },
+                    h(
+                      "h3",
+                      null,
+                      `${latest.date} ${
+                        REPORT_TYPE_LABELS[latest.reportType ?? "daily"] ??
+                        "项目日报"
+                      }`,
+                    ),
+                    latest.generationMode === "agent"
+                      ? h(Pill, { tone: "done" }, "PM Agent 生成")
+                      : h(
+                          Pill,
+                          {
+                            tone: "notice",
+                            title:
+                              latest.generationError ?? "未记录具体回退原因",
+                          },
+                          "模板回退",
+                        ),
                   ),
                   h(
                     "small",
@@ -3694,12 +3953,28 @@ window.__ModuleLoader__.load({
                       "div",
                       { className: "pmproj-report-head" },
                       h(
-                        "h3",
-                        null,
-                        `${report.date} ${
-                          REPORT_TYPE_LABELS[report.reportType ?? "daily"] ??
-                          "项目日报"
-                        }`,
+                        "div",
+                        { className: "pmproj-report-title" },
+                        h(
+                          "h3",
+                          null,
+                          `${report.date} ${
+                            REPORT_TYPE_LABELS[report.reportType ?? "daily"] ??
+                            "项目日报"
+                          }`,
+                        ),
+                        report.generationMode === "agent"
+                          ? h(Pill, { tone: "done" }, "PM Agent 生成")
+                          : h(
+                              Pill,
+                              {
+                                tone: "notice",
+                                title:
+                                  report.generationError ??
+                                  "未记录具体回退原因",
+                              },
+                              "模板回退",
+                            ),
                       ),
                       h(
                         "small",
@@ -3887,6 +4162,7 @@ window.__ModuleLoader__.load({
           return h("div", { className: "pmproj-loading" }, "正在加载项目详情…");
         }
         const tabs = [
+          { key: "reports", label: "项目日报", count: reports.length },
           {
             key: "members",
             label: "成员权限",
@@ -3910,20 +4186,19 @@ window.__ModuleLoader__.load({
                 ? outputs.length
                 : undefined,
           },
-          { key: "reports", label: "项目日报", count: reports.length },
           ...(canManage
             ? [{ key: "history", label: "历史记录", count: history.length }]
             : []),
         ];
         const body =
-          tab === "tasks"
-            ? renderTasksTab()
-            : tab === "workflows"
-              ? renderWorkflowsTab()
-              : tab === "outputs"
-                ? renderOutputsTab()
-                : tab === "reports"
-                  ? renderReportsTab()
+          tab === "reports"
+            ? renderReportsTab()
+            : tab === "tasks"
+              ? renderTasksTab()
+              : tab === "workflows"
+                ? renderWorkflowsTab()
+                : tab === "outputs"
+                  ? renderOutputsTab()
                   : tab === "history"
                     ? renderHistoryTab()
                     : renderMembersTab();
@@ -4843,6 +5118,186 @@ window.__ModuleLoader__.load({
               h("div", { className: "pmproj-list" }, renderTemplateList()),
             ),
             h("main", { className: "pmproj-detail" }, renderTemplateDetail()),
+          ),
+        );
+
+      const renderReportScheduleModal = () =>
+        h(
+          "div",
+          {
+            className: `pmproj-modal-mask ${
+              reportScheduleOpen ? "open" : ""
+            }`.trim(),
+          },
+          h(
+            "div",
+            { className: "pmproj-modal", role: "dialog", "aria-modal": "true" },
+            h(
+              "div",
+              { className: "pmproj-modal-head" },
+              h("h2", null, "项目日报生成设置"),
+              h(
+                "button",
+                {
+                  className: "pmproj-btn secondary small",
+                  type: "button",
+                  onClick: () => setReportScheduleOpen(false),
+                },
+                "关闭",
+              ),
+            ),
+            h(
+              "div",
+              { className: "pmproj-form-grid" },
+              h(
+                "label",
+                { className: "pmproj-field wide" },
+                h("span", { className: "label" }, "自动生成"),
+                h(
+                  "label",
+                  { className: "pmproj-checkbox" },
+                  h("input", {
+                    type: "checkbox",
+                    checked: reportScheduleDraft.enabled,
+                    disabled: !canManage,
+                    onChange: (event) =>
+                      setReportScheduleDraft((current) => ({
+                        ...current,
+                        enabled: event.target.checked,
+                      })),
+                  }),
+                  reportScheduleDraft.enabled
+                    ? "已启用，按计划生成项目日报"
+                    : "已停用自动生成",
+                ),
+              ),
+              h(
+                "label",
+                { className: "pmproj-field" },
+                h("span", { className: "label" }, "生成频次"),
+                h(
+                  "select",
+                  {
+                    value: reportScheduleDraft.frequency,
+                    disabled: !canManage,
+                    onChange: (event) =>
+                      setReportScheduleDraft((current) => ({
+                        ...current,
+                        frequency: event.target.value,
+                      })),
+                  },
+                  Object.entries(REPORT_SCHEDULE_FREQUENCY_LABELS).map(
+                    ([value, label]) =>
+                      h("option", { key: value, value }, label),
+                  ),
+                ),
+              ),
+              h(
+                "label",
+                { className: "pmproj-field" },
+                h("span", { className: "label" }, "生成时间"),
+                h("input", {
+                  type: "time",
+                  value: reportScheduleDraft.time,
+                  disabled: !canManage,
+                  onChange: (event) =>
+                    setReportScheduleDraft((current) => ({
+                      ...current,
+                      time: event.target.value,
+                    })),
+                }),
+              ),
+              reportScheduleDraft.frequency === "weekly"
+                ? h(
+                    "label",
+                    { className: "pmproj-field" },
+                    h("span", { className: "label" }, "每周生成日"),
+                    h(
+                      "select",
+                      {
+                        value: reportScheduleDraft.weekday,
+                        disabled: !canManage,
+                        onChange: (event) =>
+                          setReportScheduleDraft((current) => ({
+                            ...current,
+                            weekday: Number(event.target.value),
+                          })),
+                      },
+                      REPORT_WEEKDAY_LABELS.map((label, value) =>
+                        h("option", { key: value, value }, label),
+                      ),
+                    ),
+                  )
+                : null,
+              reportScheduleDraft.frequency === "monthly"
+                ? h(
+                    "label",
+                    { className: "pmproj-field" },
+                    h("span", { className: "label" }, "每月生成日"),
+                    h(
+                      "select",
+                      {
+                        value: reportScheduleDraft.dayOfMonth,
+                        disabled: !canManage,
+                        onChange: (event) =>
+                          setReportScheduleDraft((current) => ({
+                            ...current,
+                            dayOfMonth: Number(event.target.value),
+                          })),
+                      },
+                      Array.from({ length: 28 }, (_, index) => index + 1).map(
+                        (day) =>
+                          h("option", { key: day, value: day }, `${day} 日`),
+                      ),
+                    ),
+                  )
+                : null,
+              h(
+                "label",
+                { className: "pmproj-field" },
+                h("span", { className: "label" }, "时区"),
+                h("input", {
+                  value: reportScheduleDraft.timezone,
+                  readOnly: true,
+                }),
+              ),
+              h(
+                "p",
+                { className: "pmproj-hint wide" },
+                canManage
+                  ? `默认每天 08:00 自动生成。当前计划：${reportScheduleSummary(
+                      reportScheduleDraft,
+                    )}。同一日期已有项目日报时不会重复覆盖。`
+                  : `当前计划：${reportScheduleSummary(
+                      reportScheduleDraft,
+                    )}。仅项目负责人或平台管理员可以修改生成设置。`,
+              ),
+              h(
+                "div",
+                { className: "pmproj-footer wide" },
+                h(
+                  "button",
+                  {
+                    className: "pmproj-btn secondary",
+                    type: "button",
+                    onClick: () => setReportScheduleOpen(false),
+                  },
+                  canManage ? "取消" : "关闭",
+                ),
+                canManage
+                  ? h(
+                      "button",
+                      {
+                        className: "pmproj-btn",
+                        type: "button",
+                        disabled: busy === "report-schedule",
+                        onClick: () => void saveReportSchedule(),
+                      },
+                      busy === "report-schedule" ? "保存中…" : "保存设置",
+                    )
+                  : null,
+              ),
+            ),
           ),
         );
 
@@ -6451,6 +6906,7 @@ window.__ModuleLoader__.load({
               ),
             ),
         renderCreateModal(),
+        renderReportScheduleModal(),
         renderLeaveModal(),
         renderEditModal(),
         renderMemberModal(),
@@ -6481,6 +6937,9 @@ window.__ModuleLoader__.load({
       groupOutputsByDay,
       formatFileSize,
       outputLoadErrorMessage,
+      normalizeReportSchedule,
+      reportScheduleSummary,
+      normalizeReportMarkdown,
       parseReportBlocks,
       roleCodeKey,
       roleFieldsDiffer,

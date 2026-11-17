@@ -286,6 +286,44 @@ describe("Router / Worker plan service", () => {
     ]);
   });
 
+  it("can create a planning proposal directly in proposed status", async () => {
+    const { service } = setup();
+    const result = await service.saveCreate(actor, {
+      workspaceId: "workspace-1",
+      rootTaskId: "root-1",
+      source: "router",
+      routerAgentId: "planner-agent",
+      initialStatus: "proposed",
+      graph,
+    });
+    expect(result.plan.status).toBe("proposed");
+    expect(result.version.status).toBe("proposed");
+  });
+
+  it("supports an audited policy approval without impersonating a human approval", async () => {
+    const { service } = setup();
+    const result = await service.saveCreate(actor, {
+      workspaceId: "workspace-1",
+      rootTaskId: "root-1",
+      source: "router",
+      routerAgentId: "planner-agent",
+      initialStatus: "proposed",
+      graph,
+    });
+    const approved = await service.approveByPolicy(actor, {
+      planId: result.plan.id,
+      expectedRevision: result.plan.revision,
+      policy: "risk-based",
+      reason: "low risk",
+    });
+    expect(approved).toMatchObject({
+      status: "approved",
+      approvedByPolicy: true,
+      approvalPolicy: "risk-based",
+      confirmedByName: "Planning Service",
+    });
+  });
+
   it("returns a replanned root task to review for plan confirmation", async () => {
     const { service, taskStatuses, statusChanges, taskActivities } = setup();
     const result = await service.saveCreate(actor, {

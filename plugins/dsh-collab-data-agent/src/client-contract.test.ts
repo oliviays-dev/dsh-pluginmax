@@ -61,6 +61,29 @@ describe("Data Agent client contract", () => {
     expect(source).not.toContain("report.html ?? `<");
   });
 
+  it("opens an existing conversation and scrolls to the latest message", () => {
+    const source = readFileSync(CLIENT, "utf8");
+    expect(source).toContain('"pluginmax:data-agent-open-conversation"');
+    expect(source).toContain('setView("chat")');
+    expect(source).toContain(
+      "chatRef.current.scrollTop = chatRef.current.scrollHeight",
+    );
+    const server = readFileSync(
+      resolve(import.meta.dirname, "../src/index.ts"),
+      "utf8",
+    );
+    expect(server).toContain("latestAiMessage");
+    expect(server).toContain('message.senderType === "ai-partner"');
+  });
+
+  it("distinguishes workspace loading from a genuinely empty workspace list", () => {
+    const source = readFileSync(CLIENT, "utf8");
+    expect(source).toContain("const [workspacesLoading, setWorkspacesLoading]");
+    expect(source).toContain('"正在加载 Data Agent…"');
+    expect(source).toContain('"请选择工作区或会话"');
+    expect(source).toContain('"当前没有可用的工作区"');
+  });
+
   it("renders assistant chat messages as Markdown", () => {
     const source = readFileSync(CLIENT, "utf8");
     expect(source).toContain("function renderMarkdownDocument(");
@@ -199,7 +222,7 @@ describe("Data Agent client contract", () => {
     expect(source).not.toContain('h("span", null, "工作区")');
     expect(source).not.toContain('"aria-label": "选择工作区"');
     expect(source).toContain(
-      ".pmda-context-controls{display:grid;grid-template-columns:auto minmax(0,1fr)",
+      ".pmda-context-controls{display:grid;grid-template-columns:minmax(0,1fr) auto",
     );
     expect(source).toContain('{ className: "pmda-tab-actions" }');
     expect(source).toContain(
@@ -298,16 +321,29 @@ describe("Data Agent client contract", () => {
     expect(source).not.toContain("pluginmax:task-capture-selection");
     expect(source).toContain("[data-meeting-message-id]");
     expect(source).toContain("[data-data-agent-conversation-id]");
+    expect(source).toContain("[data-task-id]");
+    expect(source).toContain('sourceType: "task"');
+    expect(source).toContain("来自于：");
+    expect(source).toContain("preserveCurrentView: true");
+    expect(source).not.toContain("preserveCurrentView: fromTask");
+    expect(source).not.toContain("pluginmax:navigate");
     expect(source).toContain("selection.taskCapture");
     expect(source).toContain("[data-data-agent-panel='true']");
   });
 
-  it("orders new conversation before a grouped searchable switcher", () => {
+  it("places a grouped searchable switcher before a subdued new conversation action", () => {
     const source = readFileSync(CLIENT, "utf8");
     const newConversation = source.indexOf('className: "pmda-session-new"');
     const switcher = source.indexOf('className: "pmda-session-switch"');
     expect(newConversation).toBeGreaterThan(0);
-    expect(switcher).toBeGreaterThan(newConversation);
+    expect(switcher).toBeGreaterThan(0);
+    expect(newConversation).toBeGreaterThan(switcher);
+    expect(source).toContain(
+      ".pmda-session-new{height:29px;display:inline-flex;align-items:center;gap:5px;padding:0 9px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary)",
+    );
+    expect(source).toContain(
+      ".pmda-session-new:hover{border-color:var(--dsw-alias-border-l4);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}",
+    );
     expect(source).toContain("function groupConversationsByProject(");
     expect(source).toContain("conversationProjectId(conversation)");
     expect(source).toContain("left.title.localeCompare(right.title");

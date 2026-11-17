@@ -59,6 +59,13 @@ export const planNodeSchema = z.object({
   acceptance: z.array(z.string().trim().min(1).max(500)).min(1).max(30),
   dependencies: z.array(z.string().trim().min(1).max(120)).max(100).default([]),
   reviewMode: z.enum(["none", "agent", "human"]).default("human"),
+  risk: z.enum(["low", "medium", "high", "irreversible"]).optional(),
+  humanGate: z.enum(["none", "before_start", "before_complete"]).optional(),
+  evidenceRequirements: z
+    .array(z.string().trim().min(1).max(500))
+    .max(30)
+    .optional(),
+  rationale: z.string().trim().max(4_000).optional(),
   autoSubmitReview: z.boolean().optional(),
   autoApproveReview: z.boolean().optional(),
   executionPolicy: taskExecutionPolicySchema.optional(),
@@ -124,10 +131,10 @@ export const planRecordSchema = z.object({
   createdBy: idSchema,
   confirmedBy: idSchema.optional(),
   confirmedByName: z.string().trim().min(1).max(200).optional(),
-  confirmedByRole: z
-    .enum(["admin", "owner", "member", "guest"])
-    .optional(),
+  confirmedByRole: z.enum(["admin", "owner", "member", "guest"]).optional(),
   confirmedAt: isoTimeSchema.optional(),
+  approvedByPolicy: z.boolean().optional(),
+  approvalPolicy: z.string().trim().max(200).optional(),
   createdAt: isoTimeSchema,
   updatedAt: isoTimeSchema,
 });

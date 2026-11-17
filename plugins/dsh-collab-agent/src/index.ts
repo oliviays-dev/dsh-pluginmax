@@ -630,7 +630,14 @@ function iso(date: Date): string {
 function parseOrInvalid<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value);
   if (!result.success) {
-    throw new AgentError("invalid_input", "invalid request payload");
+    const detail = result.error.issues
+      .slice(0, 4)
+      .map((issue) => `${issue.path.join(".") || "payload"}: ${issue.message}`)
+      .join("; ");
+    throw new AgentError(
+      "invalid_input",
+      `invalid request payload${detail === "" ? "" : `: ${detail}`}`,
+    );
   }
   return result.data;
 }
@@ -1816,7 +1823,7 @@ export class AgentTaskRuntime {
         let allow = [...allowCandidates];
         for (let attempt = 0; attempt < 4; attempt += 1) {
           try {
-        tools.restrict({ allow });
+            tools.restrict({ allow });
             break;
           } catch (cause) {
             const message =

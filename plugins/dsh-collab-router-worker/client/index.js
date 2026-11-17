@@ -17,6 +17,14 @@ window.__ModuleLoader__.load({
     function locallyEnabled(workspaceId) {
       return window.localStorage.getItem(enabledKey(workspaceId)) === "true";
     }
+    function planningEnabledKey(workspaceId) {
+      return `pluginmax.router-worker.planning.enabled.${workspaceId}`;
+    }
+    function locallyPlanningEnabled(workspaceId) {
+      return (
+        window.localStorage.getItem(planningEnabledKey(workspaceId)) === "true"
+      );
+    }
     function publishPlan(taskId, value) {
       planCache.set(taskId, value);
       for (const listener of planListeners) listener();
@@ -100,6 +108,8 @@ window.__ModuleLoader__.load({
       .pmrw-unsaved-actions{display:flex;justify-content:flex-end;gap:7px;}
       .pmrw-button.danger{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 38%,var(--dsw-alias-border-l3));color:var(--dsw-alias-state-error-primary,#e5534b);}
       .pmrw-modal{width:min(560px,100%);max-height:calc(100dvh - 40px);overflow:auto;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-primary);box-shadow:0 18px 60px rgba(0,0,0,.28);}
+      .pmrw-planning-dialog{width:min(560px,calc(100vw - 32px));max-height:calc(100dvh - 32px);margin:auto;padding:0;overflow:auto;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;outline:none;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-primary);box-shadow:0 18px 60px rgba(0,0,0,.28);}
+      .pmrw-planning-dialog::backdrop{background:rgba(0,0,0,.42);}
       .pmrw-modal *{box-sizing:border-box;}
       .pmrw-modal-head{display:flex;align-items:flex-start;gap:12px;padding:16px 18px;border-bottom:1px solid var(--dsw-alias-border-l2);}
       .pmrw-modal-head>div{min-width:0;flex:1;}
@@ -114,6 +124,13 @@ window.__ModuleLoader__.load({
       .pmrw-settings-card>div{min-width:0;flex:1;}
       .pmrw-settings-card strong{font-size:12px;}
       .pmrw-settings-card p{margin:4px 0 0;color:var(--dsw-alias-label-secondary);font-size:10.5px;line-height:1.5;}
+      .pmrw-planning-toggle{display:flex;align-items:flex-start;gap:8px;cursor:pointer;}
+      .pmrw-planning-toggle input{margin:2px 0 0;}
+      .pmrw-planning-toggle>span{min-width:0;display:grid;gap:2px;}
+      .pmrw-planning-toggle em{color:var(--dsw-alias-label-tertiary);font-size:10px;font-style:normal;line-height:1.45;}
+      .pmrw-planning-progress{display:flex;align-items:center;gap:8px;padding:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:11px;}
+      .pmrw-spinner{width:14px;height:14px;flex:none;border:2px solid var(--dsw-alias-border-l3);border-top-color:var(--dsw-alias-accent-primary,#4f8ef7);border-radius:50%;animation:pmrw-spin .8s linear infinite;}
+      @keyframes pmrw-spin{to{transform:rotate(360deg);}}
       .pmrw-state{flex:none;padding:2px 6px;border-radius:999px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary);font-size:9px;}
       .pmrw-state.enabled{background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#34c78d) 13%,transparent);color:var(--dsw-alias-state-success-primary,#2f9b6d);}
       .pmrw-plan-persistence-note{margin:0;padding:0 2px;color:var(--dsw-alias-label-secondary);font-size:10px;line-height:1.55;}
@@ -126,7 +143,10 @@ window.__ModuleLoader__.load({
       .pmrw-task-plan-center{position:absolute;inset:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
       .pmrw-task-plan-center.graph-fullscreen{position:fixed;inset:0;z-index:100;}
       .pmrw-plan-head{display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--dsw-alias-border-l2);}
-      .pmrw-plan-head>div:first-child{min-width:0;flex:1;display:grid;gap:3px;}
+      .pmrw-plan-back{flex:none;width:30px;height:30px;display:inline-grid;place-items:center;padding:0;border:1px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);cursor:pointer;}
+      .pmrw-plan-back:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
+      .pmrw-plan-back svg{width:16px;height:16px;}
+      .pmrw-plan-head-copy{min-width:0;flex:1;display:grid;gap:3px;}
       .pmrw-plan-head strong{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
       .pmrw-plan-head span{color:var(--dsw-alias-label-tertiary);font-size:10px;}
       .pmrw-plan-head small{color:var(--dsw-alias-label-secondary);font-size:9px;}
@@ -416,6 +436,9 @@ window.__ModuleLoader__.load({
       const [open, setOpen] = react.useState(false);
       const [workspaceId, setWorkspaceId] = react.useState(initialWorkspace);
       const [settings, setSettings] = react.useState(null);
+      const [planningSettings, setPlanningSettings] = react.useState(null);
+      const [planningEnabled, setPlanningEnabled] = react.useState(false);
+      const [planningMode, setPlanningMode] = react.useState("standard");
       const [routerAgents, setRouterAgents] = react.useState([]);
       const [defaultRouterId, setDefaultRouterId] = react.useState("");
       const [busy, setBusy] = react.useState(false);
@@ -425,6 +448,8 @@ window.__ModuleLoader__.load({
         if (!open) return;
         setWorkspaceId(initialWorkspace);
         setSettings(stateByWorkspace.get(initialWorkspace) ?? null);
+        setPlanningSettings(null);
+        setPlanningEnabled(false);
       }, [open, initialWorkspace]);
 
       const load = async (targetWorkspaceId) => {
@@ -432,16 +457,31 @@ window.__ModuleLoader__.load({
         setBusy(true);
         setError("");
         try {
-          const [settingsBody, routerBody] = await Promise.all([
+          const [settingsBody, routerBody, planningBody] = await Promise.all([
             request(
               `/api/collab/router-worker/settings?workspaceId=${encodeURIComponent(targetWorkspaceId)}`,
             ),
             request(
               `/api/collab/router-worker/router-agents?workspaceId=${encodeURIComponent(targetWorkspaceId)}`,
             ),
+            request(
+              `/api/collab/router-worker/planning/settings?workspaceId=${encodeURIComponent(targetWorkspaceId)}`,
+            ),
           ]);
           stateByWorkspace.set(targetWorkspaceId, settingsBody.settings);
           setSettings(settingsBody.settings);
+          const planning = planningBody.result?.settings ?? null;
+          setPlanningSettings(planning);
+          setPlanningEnabled(planning?.enabled === true);
+          setPlanningMode(
+            planning?.humanOwner?.defaultMode ??
+              planning?.agentOwnerPolicy?.mode ??
+              "standard",
+          );
+          window.localStorage.setItem(
+            planningEnabledKey(targetWorkspaceId),
+            String(planning?.enabled === true),
+          );
           const agents = Array.isArray(routerBody.result?.agents)
             ? routerBody.result.agents
             : [];
@@ -492,6 +532,29 @@ window.__ModuleLoader__.load({
             String(result.settings.enabled === true),
           );
           setSettings(result.settings);
+          const planningResult = await request(
+            "/api/collab/router-worker/planning/settings/update",
+            {
+              method: "POST",
+              body: JSON.stringify({
+                workspaceId,
+                enabled: nextEnabled && planningEnabled,
+                humanOwner: { defaultMode: planningMode },
+                agentOwnerPolicy: { mode: planningMode },
+                ...(planningSettings === null
+                  ? {}
+                  : { expectedRevision: planningSettings.revision }),
+              }),
+            },
+          );
+          const nextPlanningSettings =
+            planningResult.result?.settings ?? planningSettings;
+          setPlanningSettings(nextPlanningSettings);
+          setPlanningEnabled(nextPlanningSettings?.enabled === true);
+          window.localStorage.setItem(
+            planningEnabledKey(workspaceId),
+            String(nextPlanningSettings?.enabled === true),
+          );
           window.dispatchEvent(
             new CustomEvent("pluginmax:router-worker-gate", {
               detail: result.settings,
@@ -589,6 +652,8 @@ window.__ModuleLoader__.load({
                               const next = event.target.value;
                               setWorkspaceId(next);
                               setSettings(stateByWorkspace.get(next) ?? null);
+                              setPlanningSettings(null);
+                              setPlanningEnabled(false);
                               void load(next);
                             },
                           },
@@ -618,6 +683,44 @@ window.__ModuleLoader__.load({
                       },
                       enabled ? "已启用" : "未启用",
                     ),
+                  ),
+                  h(
+                    "div",
+                    { className: "pmrw-settings-card" },
+                    h(
+                      "label",
+                      { className: "pmrw-planning-toggle" },
+                      h("input", {
+                        type: "checkbox",
+                        checked: planningEnabled,
+                        disabled: busy,
+                        onChange: (event) =>
+                          setPlanningEnabled(event.target.checked),
+                      }),
+                      h(
+                        "span",
+                        null,
+                        h("strong", null, "AI 任务规划服务"),
+                        h(
+                          "em",
+                          null,
+                          "默认关闭。启用后可从任务详情生成需求摘要、事实账本和可编辑 Plan Draft。",
+                        ),
+                      ),
+                    ),
+                    planningEnabled
+                      ? h(
+                          "select",
+                          {
+                            value: planningMode,
+                            onChange: (event) =>
+                              setPlanningMode(event.target.value),
+                          },
+                          h("option", { value: "quick" }, "快速"),
+                          h("option", { value: "standard" }, "标准"),
+                          h("option", { value: "deep" }, "深度"),
+                        )
+                      : null,
                   ),
                   h(
                     "label",
@@ -1094,7 +1197,21 @@ window.__ModuleLoader__.load({
 
     function PlanEntry(props) {
       const [recoveredEnabled, setRecoveredEnabled] = react.useState(false);
+      const [planningOpen, setPlanningOpen] = react.useState(false);
+      const [planningMode, setPlanningMode] = react.useState("standard");
+      const [planningBusy, setPlanningBusy] = react.useState(false);
+      const [planningStatus, setPlanningStatus] = react.useState("");
+      const [planningError, setPlanningError] = react.useState("");
+      const planningDialogRef = react.useRef(null);
       const plan = usePlan(props.taskId);
+      react.useEffect(() => {
+        const dialog = planningDialogRef.current;
+        if (planningOpen && dialog !== null && !dialog.open) {
+          dialog.showModal();
+        } else if (!planningOpen && dialog?.open === true) {
+          dialog.close();
+        }
+      }, [planningOpen]);
       const localFlag = window.localStorage.getItem(
         enabledKey(props.workspaceId),
       );
@@ -1135,7 +1252,9 @@ window.__ModuleLoader__.load({
           .catch(() => undefined);
         return undefined;
       }, [enabled, props.taskId, props.workspaceId, shouldLoadPlan]);
-      if (!enabled) return null;
+      const planningEnabled =
+        enabled && locallyPlanningEnabled(props.workspaceId);
+      if (!enabled && !planningEnabled) return null;
       const confirmation = planConfirmationMeta(plan?.plan?.status);
       const pendingConfirmation = confirmation.pending;
       const planHint =
@@ -1144,34 +1263,216 @@ window.__ModuleLoader__.load({
           : pendingConfirmation
             ? "任务规划待确认，打开任务规划图"
             : "打开任务规划";
+      const startPlanning = async () => {
+        setPlanningBusy(true);
+        setPlanningError("");
+        setPlanningStatus("正在创建 Planning Run");
+        try {
+          const started = await request(
+            "/api/collab/router-worker/planning/start",
+            {
+              method: "POST",
+              body: JSON.stringify({
+                workspaceId: props.workspaceId,
+                rootTaskId: props.taskId,
+                expectedTaskRevision: props.task?.updatedAt ?? "",
+                mode: planningMode,
+              }),
+            },
+          );
+          let run = started.result?.run;
+          if (!run?.id) throw new Error("Planning Run 创建失败");
+          for (let attempt = 0; attempt < 80; attempt += 1) {
+            if (run.status === "failed") {
+              throw new Error(run.error ?? "任务规划失败");
+            }
+            if (run.status === "cancelled") {
+              throw new Error(run.cancelReason ?? "任务规划已取消");
+            }
+            if (
+              ["review_required", "succeeded"].includes(run.status) &&
+              run.planId
+            ) {
+              await fetchPlan(props.taskId, props.workspaceId);
+              setPlanningOpen(false);
+              setPlanningStatus("");
+              props.onOpenPlan();
+              return;
+            }
+            setPlanningStatus(
+              run.status === "understanding"
+                ? "正在理解需求与整理事实"
+                : run.status === "drafting"
+                  ? "正在生成并校验计划"
+                  : run.status === "critiquing"
+                    ? "正在独立评审计划"
+                    : run.status === "validating"
+                      ? "正在执行质量与风险校验"
+                  : run.status === "preparing"
+                    ? "正在准备上下文与 Skill"
+                    : `规划状态：${run.status}`,
+            );
+            await new Promise((resolve) => window.setTimeout(resolve, 1500));
+            const status = await request(
+              `/api/collab/router-worker/planning/status?runId=${encodeURIComponent(run.id)}`,
+            );
+            run = status.result?.run ?? run;
+          }
+          throw new Error("任务规划等待超时，可稍后打开任务规划查看结果");
+        } catch (cause) {
+          setPlanningError(
+            cause instanceof Error ? cause.message : "任务规划启动失败",
+          );
+        } finally {
+          setPlanningBusy(false);
+        }
+      };
       return h(
-        "button",
-        {
-          className: `pmtask-detail-action neutral pmrw-detail-plan-entry${pendingConfirmation ? " pending" : ""}`,
-          style: { position: "relative" },
-          type: "button",
-          title: planHint,
-          "aria-label": planHint,
-          "aria-pressed": props.planOpen === true,
-          onClick: props.onOpenPlan,
-        },
-        "任务规划",
-        pendingConfirmation
-          ? h("span", {
-              className: "pmrw-plan-unread-dot",
-              "aria-hidden": "true",
-              style: {
-                position: "absolute",
-                top: "-3px",
-                right: "-3px",
-                width: "7px",
-                height: "7px",
-                borderRadius: "50%",
-                background: "var(--dsw-alias-state-error-primary,#e5534b)",
-                boxShadow: "0 0 0 1px var(--dsw-alias-bg-layer-1)",
-                pointerEvents: "none",
+        react.Fragment,
+        null,
+        enabled && typeof props.onOpenPlan === "function"
+          ? h(
+              "button",
+              {
+                className: `pmtask-detail-action neutral pmrw-detail-plan-entry${pendingConfirmation ? " pending" : ""}`,
+                style: { position: "relative" },
+                type: "button",
+                title: planHint,
+                "aria-label": planHint,
+                "aria-pressed": props.planOpen === true,
+                onClick: props.onOpenPlan,
               },
-            })
+              "任务规划",
+              pendingConfirmation
+                ? h("span", {
+                    className: "pmrw-plan-unread-dot",
+                    "aria-hidden": "true",
+                    style: {
+                      position: "absolute",
+                      top: "-3px",
+                      right: "-3px",
+                      width: "7px",
+                      height: "7px",
+                      borderRadius: "50%",
+                      background: "var(--dsw-alias-state-error-primary,#e5534b)",
+                      boxShadow: "0 0 0 1px var(--dsw-alias-bg-layer-1)",
+                      pointerEvents: "none",
+                    },
+                  })
+                : null,
+            )
+          : null,
+        planningEnabled
+          ? h(
+              "button",
+              {
+                className: "pmtask-detail-action neutral pmrw-detail-plan-entry",
+                type: "button",
+                onClick: () => {
+                  setPlanningError("");
+                  setPlanningStatus("");
+                  setPlanningOpen(true);
+                },
+              },
+              "AI 规划",
+            )
+          : null,
+        planningOpen
+          ? h(
+              "dialog",
+              {
+                ref: planningDialogRef,
+                className: "pmrw-planning-dialog",
+                "aria-label": "AI 任务规划",
+                onCancel: (event) => {
+                  event.preventDefault();
+                  if (!planningBusy) setPlanningOpen(false);
+                },
+                onClose: () => setPlanningOpen(false),
+                onMouseDown: (event) => {
+                  if (event.target === event.currentTarget && !planningBusy) {
+                    setPlanningOpen(false);
+                  }
+                },
+              },
+              h(
+                "header",
+                { className: "pmrw-modal-head" },
+                h("div", null, h("h2", null, "AI 任务规划")),
+                h(
+                  "button",
+                  {
+                    className: "pmrw-icon-button",
+                    type: "button",
+                    disabled: planningBusy,
+                    onClick: () => setPlanningOpen(false),
+                    "aria-label": "关闭",
+                  },
+                  "×",
+                ),
+              ),
+              h(
+                "div",
+                { className: "pmrw-modal-body" },
+                h(
+                  "p",
+                  { className: "pmrw-plan-persistence-note" },
+                  "先理解需求与事实，再生成可编辑的 Plan Draft。生成后仍需人工编辑、审核和派发。",
+                ),
+                h(
+                  "label",
+                  { className: "pmrw-field" },
+                  "规划模式",
+                  h(
+                    "select",
+                    {
+                      value: planningMode,
+                      disabled: planningBusy,
+                      onChange: (event) =>
+                        setPlanningMode(event.target.value),
+                    },
+                    h("option", { value: "quick" }, "快速"),
+                    h("option", { value: "standard" }, "标准"),
+                    h("option", { value: "deep" }, "深度"),
+                  ),
+                ),
+                planningStatus
+                  ? h(
+                      "div",
+                      { className: "pmrw-planning-progress" },
+                      h("span", { className: "pmrw-spinner" }),
+                      planningStatus,
+                    )
+                  : null,
+                planningError
+                  ? h("p", { className: "pmrw-error" }, planningError)
+                  : null,
+              ),
+              h(
+                "footer",
+                { className: "pmrw-modal-foot" },
+                h(
+                  "button",
+                  {
+                    className: "pmrw-button secondary",
+                    type: "button",
+                    disabled: planningBusy,
+                    onClick: () => setPlanningOpen(false),
+                  },
+                  "取消",
+                ),
+                h(
+                  "button",
+                  {
+                    className: "pmrw-button primary",
+                    type: "button",
+                    disabled: planningBusy,
+                    onClick: () => void startPlanning(),
+                  },
+                  planningBusy ? "规划中..." : "开始规划",
+                ),
+              ),
+            )
           : null,
       );
     }
@@ -1819,8 +2120,32 @@ window.__ModuleLoader__.load({
           "header",
           { className: "pmrw-plan-head" },
           h(
+            "button",
+            {
+              className: "pmrw-plan-back",
+              type: "button",
+              title: "返回对话",
+              "aria-label": "返回对话",
+              onClick: props.onClosePlan,
+            },
+            h(
+              "svg",
+              {
+                viewBox: "0 0 24 24",
+                fill: "none",
+                stroke: "currentColor",
+                strokeWidth: 2,
+                strokeLinecap: "round",
+                strokeLinejoin: "round",
+                "aria-hidden": "true",
+              },
+              h("path", { d: "M19 12H5" }),
+              h("path", { d: "m12 19-7-7 7-7" }),
+            ),
+          ),
+          h(
             "div",
-            null,
+            { className: "pmrw-plan-head-copy" },
             h(
               "div",
               { className: "pmrw-plan-title-line" },
@@ -1857,19 +2182,6 @@ window.__ModuleLoader__.load({
                     .join(" · "),
                 )
               : null,
-          ),
-          h(
-            "div",
-            { className: "pmrw-plan-head-actions" },
-            h(
-              "button",
-              {
-                className: "pmrw-button secondary",
-                type: "button",
-                onClick: props.onClosePlan,
-              },
-              "返回对话",
-            ),
           ),
         ),
         result?.plan?.status === "finalizing"
@@ -1959,7 +2271,7 @@ window.__ModuleLoader__.load({
                 type: "button",
                 onClick: () => setView("graph"),
               },
-              "图",
+              "网络",
             ),
             h(
               "button",
@@ -1971,6 +2283,16 @@ window.__ModuleLoader__.load({
               "列表",
             ),
           ),
+          planConfirmation.key !== ""
+            ? h(
+                "span",
+                {
+                  className: `pmrw-plan-status-pill ${planConfirmation.tone}`,
+                  "data-plan-confirmation": planConfirmation.key,
+                },
+                planConfirmation.label,
+              )
+            : null,
           result?.plan &&
             canManagePlan &&
             ["draft", "proposed", "approved"].includes(result.plan.status)
@@ -2006,16 +2328,6 @@ window.__ModuleLoader__.load({
                   onClick: () => void deleteSelected(),
                 },
                 busy === "delete" ? "删除中..." : "删除任务",
-              )
-            : null,
-          planConfirmation.key !== ""
-            ? h(
-                "span",
-                {
-                  className: `pmrw-plan-status-pill ${planConfirmation.tone}`,
-                  "data-plan-confirmation": planConfirmation.key,
-                },
-                planConfirmation.label,
               )
             : null,
           result?.plan

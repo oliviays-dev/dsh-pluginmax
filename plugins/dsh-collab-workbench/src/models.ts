@@ -8,6 +8,8 @@ export const followTypeSchema = z.enum([
   "workflow",
   "meeting",
   "project",
+  "data-agent",
+  "brief",
 ]);
 
 export const followRecordSchema = z.object({

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { DataAgentService, type KvTableLike, type DataAgentTables } from "./service.js";
+import {
+  DataAgentService,
+  summarizeConversationTitle,
+  type KvTableLike,
+  type DataAgentTables,
+} from "./service.js";
 import type {
   DataAgentAttachment,
   DataAgentAuditEvent,
@@ -58,6 +63,21 @@ const actor = {
 };
 
 describe("DataAgentService", () => {
+  it("summarizes conversation titles to one line within 18 characters", async () => {
+    const longTitle =
+      "帮我先看一下今天华东手机和平板的交付时效以及异常原因";
+    const summary = summarizeConversationTitle(longTitle);
+    expect(Array.from(summary)).toHaveLength(18);
+    expect(summary.endsWith("…")).toBe(true);
+    const dataAgent = service();
+    const conversation = await dataAgent.createConversation(actor, {
+      workspaceId: "ws-main",
+      page: "workbench",
+      title: longTitle,
+    });
+    expect(conversation.title).toBe(summary);
+  });
+
   it("completes a regular chat run without creating a report", async () => {
     const dataAgent = service();
     const conversation = await dataAgent.createConversation(actor, {

@@ -33,6 +33,7 @@ window.__ModuleLoader__.load({
         "M21 21l-4.3-4.3M10.8 18a7.2 7.2 0 1 1 0-14.4 7.2 7.2 0 0 1 0 14.4Z",
       ),
       close: icon("M18 6 6 18M6 6l12 12"),
+      edit: icon("M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"),
       store: icon("M3 9l2-5h14l2 5M4 9v11h16V9M9 20v-6h6v6"),
       plus: icon("M12 5v14M5 12h14"),
       arrow: icon("M5 12h14M13 6l6 6-6 6"),
@@ -96,7 +97,8 @@ window.__ModuleLoader__.load({
 .pmrm-chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 13px;}
 .pmrm-category-strip{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:0 0 15px;padding-bottom:13px;border-bottom:1px solid var(--dsw-alias-border-l2);}
 .pmrm-category-strip .pmrm-chip{min-height:27px;padding:3px 11px;font-size:10px;}
-.pmrm-category-strip .pmrm-custom-action{margin-left:auto;}
+.pmrm-category-strip .pmrm-category-actions{margin-left:auto;display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.pmrm-category-strip .pmrm-custom-action{margin-left:0;}
 .pmrm-chip{padding:3px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:9.5px;cursor:pointer;}
 .pmrm-chip.active{border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 40%,transparent);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 12%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7);}
 .pmrm-filterbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:-3px 0 13px;padding:8px 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-1);}
@@ -196,9 +198,25 @@ window.__ModuleLoader__.load({
 .pmrm-install-agent-copy strong,.pmrm-install-agent-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .pmrm-install-agent-copy strong{font-size:10.5px;}
 .pmrm-install-agent-copy small{color:var(--dsw-alias-label-tertiary);font-size:9px;}
+.pmrm-install-targets{display:grid;gap:6px;}
+.pmrm-install-target{display:grid;grid-template-columns:16px minmax(0,1fr) auto;align-items:center;gap:8px;padding:9px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-1);cursor:pointer;}
+.pmrm-install-target.selected{border-color:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 50%,var(--dsw-alias-border-l3));background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 8%,var(--dsw-alias-bg-layer-1));}
+.pmrm-install-target input{width:14px;height:14px;margin:0;accent-color:var(--dsw-alias-accent-primary,#4f8ef7);}
+.pmrm-install-target-copy{display:grid;gap:2px;min-width:0;}
+.pmrm-install-target-copy strong{min-width:0;overflow:hidden;font-size:10.5px;text-overflow:ellipsis;white-space:nowrap;}
+.pmrm-install-target-copy small{min-width:0;overflow:hidden;color:var(--dsw-alias-label-tertiary);font-size:9px;text-overflow:ellipsis;white-space:nowrap;}
+.pmrm-install-target-active{display:flex;align-items:center;gap:5px;color:var(--dsw-alias-label-tertiary);font-size:9px;white-space:nowrap;}
+.pmrm-install-target-active input{width:12px;height:12px;}
+.pmrm-target-list{display:grid;gap:6px;}
+.pmrm-target-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:8px;padding:8px 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);}
+.pmrm-target-copy{display:grid;gap:2px;min-width:0;}
+.pmrm-target-copy strong{min-width:0;overflow:hidden;font-size:10.5px;text-overflow:ellipsis;white-space:nowrap;}
+.pmrm-target-copy small{color:var(--dsw-alias-label-tertiary);font-size:9px;overflow-wrap:anywhere;}
+.pmrm-target-state{padding:1px 6px;border-radius:999px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font-size:9px;line-height:1.7;white-space:nowrap;}
+.pmrm-target-state.active{color:var(--dsw-alias-state-success-primary,#34d47e);background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#34d47e) 14%,transparent);}
 .pmrm-toast{position:fixed;left:50%;bottom:28px;z-index:80;transform:translateX(-50%);padding:8px 12px;border:1px solid var(--dsw-alias-border-l3);border-radius:8px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 12px 30px rgba(0,0,0,.24);font-size:11px;}
 @media(max-width:1000px){.pmrm-grid,.pmrm-skill-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.pmrm-list{grid-template-columns:1fr;}}
-@media(max-width:700px){.pmrm{margin:-14px;}.pmrm-content{padding:14px;}.pmrm-grid,.pmrm-skill-grid,.pmrm-install-agents{grid-template-columns:1fr;}.pmrm-search{width:100%;order:5;margin:0;}.pmrm-detail{top:0;width:100vw;}.pmrm-brand small{display:none;}.pmrm-preview-canvas{grid-template-columns:1fr;}.pmrm-preview-panel{grid-column:span 1;}.pmrm-custom-form{grid-template-columns:1fr;}.pmrm-category-strip .pmrm-custom-action{margin-left:0;}.pmrm-modal{width:100%;max-height:94vh;}}
+@media(max-width:700px){.pmrm{margin:-14px;}.pmrm-content{padding:14px;}.pmrm-grid,.pmrm-skill-grid,.pmrm-install-agents{grid-template-columns:1fr;}.pmrm-search{width:100%;order:5;margin:0;}.pmrm-detail{top:0;width:100vw;}.pmrm-brand small{display:none;}.pmrm-preview-canvas{grid-template-columns:1fr;}.pmrm-preview-panel{grid-column:span 1;}.pmrm-custom-form{grid-template-columns:1fr;}.pmrm-category-strip .pmrm-category-actions{margin-left:0;}.pmrm-modal{width:100%;max-height:94vh;}}
 `;
 
     function token() {
@@ -290,8 +308,20 @@ window.__ModuleLoader__.load({
 
     function sourceLabel(source) {
       if (source === "provider") return "治理服务";
-      if (source === "user") return "我的资源";
+      if (source === "user") return "用户资源";
       return "种子目录";
+    }
+
+    function resourceSourceLabel(item) {
+      if (item?.origin === "platform") return "平台资源";
+      if (item?.sharingScope === "platform") return "用户共享";
+      return "用户私有";
+    }
+
+    function publicationStatusLabel(item) {
+      if (item?.publicationStatus === "delisted") return "已下架";
+      if (item?.availabilityStatus === "suspended") return "已停用";
+      return "已上架";
     }
 
     function customTypeLabel(value) {
@@ -472,15 +502,42 @@ window.__ModuleLoader__.load({
       return "";
     }
 
+    function skillMountTargets(skill) {
+      const targets = Array.isArray(skill?.mountTargets)
+        ? skill.mountTargets
+        : Array.isArray(skill?.manifest?.mountTargets)
+          ? skill.manifest.mountTargets
+          : [];
+      return targets.filter(
+        (target) =>
+          target?.type === "component-slot" &&
+          typeof target.targetId === "string" &&
+          typeof target.componentLabel === "string" &&
+          typeof target.slotLabel === "string",
+      );
+    }
+
+    function skillTargetLabel(target) {
+      return `${target.componentLabel} · ${target.slotLabel}`;
+    }
+
+    function skillBindingFor(skill, targetId) {
+      return (skill?.bindings ?? []).find(
+        (binding) => binding.targetId === targetId,
+      );
+    }
+
     function SkillMarketCard({
       item,
       custom = false,
       onOpen,
       onInstall,
       onUninstall,
+      onEdit,
       actionDisabled = false,
     }) {
       const installed = item.status === "enabled";
+      const canInstall = item.actions?.canInstall !== false;
       const developer = custom ? item.publisherName : item.publisher?.name;
       const category = custom ? "自定义" : item.category;
       const usage =
@@ -519,10 +576,26 @@ window.__ModuleLoader__.load({
               item.description || "暂无 Skill 说明。",
             ),
           ),
-          onInstall || onUninstall
+          onInstall || onUninstall || (custom && onEdit)
             ? h(
                 "div",
                 { className: "pmrm-skill-actions" },
+                custom && item.actions?.canEdit === true && onEdit !== undefined
+                  ? h(
+                      "button",
+                      {
+                        type: "button",
+                        className: "pmrm-btn",
+                        disabled: actionDisabled,
+                        onClick: (event) => {
+                          event.stopPropagation();
+                          onEdit(item);
+                        },
+                      },
+                      ICONS.edit,
+                      "编辑",
+                    )
+                  : null,
                 h(
                   "button",
                   {
@@ -532,14 +605,18 @@ window.__ModuleLoader__.load({
                       actionDisabled ||
                       (installed
                         ? onUninstall === undefined
-                        : onInstall === undefined),
+                        : !canInstall || onInstall === undefined),
                     onClick: (event) => {
                       event.stopPropagation();
                       if (installed) onUninstall?.(item);
                       else onInstall?.(item);
                     },
                   },
-                  installed ? "卸载" : "安装",
+                  installed
+                    ? "卸载"
+                    : canInstall
+                      ? "安装"
+                      : publicationStatusLabel(item),
                 ),
               )
             : null,
@@ -567,6 +644,24 @@ window.__ModuleLoader__.load({
             { className: "pmrm-skill-tag", "data-skill-tag": "developer" },
             developer || "未知",
           ),
+          h(
+            "span",
+            { className: "pmrm-skill-tag", "data-skill-tag": "origin" },
+            resourceSourceLabel(item),
+          ),
+          ...skillMountTargets(item)
+            .slice(0, 1)
+            .map((target) =>
+              h(
+                "span",
+                {
+                  className: "pmrm-skill-tag",
+                  "data-skill-tag": "target",
+                  title: skillTargetLabel(target),
+                },
+                `适用于 ${target.componentLabel}`,
+              ),
+            ),
         ),
       );
     }
@@ -584,7 +679,9 @@ window.__ModuleLoader__.load({
           ? "断开连接"
           : item.status === "pending"
             ? "等待验证"
-            : "连接";
+            : item.actions?.canInstall === false
+              ? publicationStatusLabel(item)
+              : "连接";
       return h(
         "article",
         { className: "pmrm-resource" },
@@ -618,6 +715,7 @@ window.__ModuleLoader__.load({
             h("span", null, item.publisher.name),
             h("span", null, `v${item.version}`),
             h("span", null, kind === "mcp" ? item.protocol : item.category),
+            h("span", null, resourceSourceLabel(item)),
             h("span", null, sourceLabel(item.source)),
           ),
           h(
@@ -638,7 +736,11 @@ window.__ModuleLoader__.load({
                     item.status === "connected"
                       ? "pmrm-btn"
                       : "pmrm-btn primary",
-                  disabled: actionDisabled || item.status === "pending",
+                  disabled:
+                    actionDisabled ||
+                    item.status === "pending" ||
+                    (item.status !== "connected" &&
+                      item.actions?.canInstall === false),
                   onClick: () => onAction?.(item),
                 },
                 mcpActionLabel,
@@ -657,7 +759,7 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function CustomResourceCard({ item, onOpen, onAction }) {
+    function CustomResourceCard({ item, onOpen, onAction, onEdit }) {
       return h(
         "article",
         { className: "pmrm-resource" },
@@ -679,9 +781,19 @@ window.__ModuleLoader__.load({
             h(
               "span",
               {
-                className: `pmrm-status${item.status === "enabled" ? " ok" : ""}`,
+                className: `pmrm-status${
+                  item.publicationStatus === "delisted"
+                    ? " warn"
+                    : item.status === "enabled"
+                      ? " ok"
+                      : ""
+                }`,
               },
-              item.status === "enabled" ? "已安装" : "已注册",
+              item.publicationStatus === "delisted"
+                ? "已下架"
+                : item.status === "enabled"
+                  ? "已安装"
+                  : "已注册",
             ),
           ),
           h("p", null, item.description || "用户注册的自定义资源"),
@@ -691,13 +803,25 @@ window.__ModuleLoader__.load({
             h("span", null, customTypeLabel(item.type)),
             h("span", null, `v${item.version}`),
             h("span", null, item.publisherName),
-            h("span", null, sourceLabel("user")),
+            h("span", null, resourceSourceLabel(item)),
             h("span", null, item.permissions.join(" · ") || "未声明额外权限"),
           ),
         ),
         h(
           "div",
           { className: "pmrm-resource-actions" },
+          item.actions?.canEdit === true && onEdit !== undefined
+            ? h(
+                "button",
+                {
+                  type: "button",
+                  className: "pmrm-btn",
+                  onClick: () => onEdit(item),
+                },
+                ICONS.edit,
+                "编辑",
+              )
+            : null,
           item.type === "skill"
             ? h(
                 "button",
@@ -705,10 +829,16 @@ window.__ModuleLoader__.load({
                   type: "button",
                   className:
                     item.status === "enabled" ? "pmrm-btn" : "pmrm-btn primary",
-                  disabled: item.status === "enabled",
+                  disabled:
+                    item.status === "enabled" ||
+                    item.actions?.canInstall === false,
                   onClick: () => onAction?.(item),
                 },
-                item.status === "enabled" ? "已安装" : "安装",
+                item.status === "enabled"
+                  ? "已安装"
+                  : item.actions?.canInstall === false
+                    ? publicationStatusLabel(item)
+                    : "安装",
               )
             : null,
           h(
@@ -733,6 +863,7 @@ window.__ModuleLoader__.load({
       const [publisher, setPublisher] = react.useState("all");
       const [compatibility, setCompatibility] = react.useState("all");
       const [sort, setSort] = react.useState("recommended");
+      const [showDelisted, setShowDelisted] = react.useState(false);
       const [pagination, setPagination] = react.useState({
         page: 1,
         pageCount: 1,
@@ -750,6 +881,9 @@ window.__ModuleLoader__.load({
       const [detail, setDetail] = react.useState(null);
       const [preview, setPreview] = react.useState(null);
       const [installTarget, setInstallTarget] = react.useState(null);
+      const [installTargetIds, setInstallTargetIds] = react.useState([]);
+      const [installActiveTargetId, setInstallActiveTargetId] =
+        react.useState("");
       const [installAgents, setInstallAgents] = react.useState([]);
       const [installAgentIds, setInstallAgentIds] = react.useState([]);
       const [installLoading, setInstallLoading] = react.useState(false);
@@ -761,13 +895,18 @@ window.__ModuleLoader__.load({
       const [registerOpen, setRegisterOpen] = react.useState(false);
       const [registerManifest, setRegisterManifest] = react.useState(null);
       const [officialEditSkill, setOfficialEditSkill] = react.useState(null);
+      const [customEditResource, setCustomEditResource] = react.useState(null);
       const [canManageSkills, setCanManageSkills] = react.useState(false);
+      const [lifecycleDialog, setLifecycleDialog] = react.useState(null);
+      const [lifecycleNote, setLifecycleNote] = react.useState("");
+      const [lifecycleError, setLifecycleError] = react.useState("");
       const [registerForm, setRegisterForm] = react.useState({
         name: "",
         description: "",
         version: "1.0.0",
         publisherName: "",
         permissions: "",
+        sharingScope: "private",
       });
       const [activeWorkbench, setActiveWorkbench] = react.useState(null);
       const [currentUserId, setCurrentUserId] = react.useState("");
@@ -785,6 +924,10 @@ window.__ModuleLoader__.load({
           setLoading(true);
           try {
             const params = new URLSearchParams({ q: search });
+            params.set(
+              "publicationStatus",
+              showDelisted ? "delisted" : "published",
+            );
             if (selectedCategory !== "全部" && selectedCategory !== "自定义") {
               params.set("category", selectedCategory);
             }
@@ -802,7 +945,7 @@ window.__ModuleLoader__.load({
             setLoading(false);
           }
         },
-        [],
+        [showDelisted],
       );
 
       const loadMcps = react.useCallback(
@@ -810,6 +953,10 @@ window.__ModuleLoader__.load({
           setLoading(true);
           try {
             const params = new URLSearchParams({ q: search });
+            params.set(
+              "publicationStatus",
+              showDelisted ? "delisted" : "published",
+            );
             if (selectedCategory !== "全部" && selectedCategory !== "自定义") {
               params.set("category", selectedCategory);
             }
@@ -824,7 +971,7 @@ window.__ModuleLoader__.load({
             setLoading(false);
           }
         },
-        [],
+        [showDelisted],
       );
 
       const loadCustomResources = react.useCallback(
@@ -839,6 +986,10 @@ window.__ModuleLoader__.load({
               q: search,
               category: selectedCategory,
             });
+            params.set(
+              "publicationStatus",
+              showDelisted ? "delisted" : "published",
+            );
             const result = await request(
               `/api/collab/resources/custom?${params.toString()}`,
             );
@@ -847,7 +998,7 @@ window.__ModuleLoader__.load({
             setError(cause.message);
           }
         },
-        [],
+        [showDelisted],
       );
 
       const loadWorkbenchContext = react.useCallback(async () => {
@@ -889,6 +1040,10 @@ window.__ModuleLoader__.load({
               page: String(page),
               pageSize: "24",
             });
+            params.set(
+              "publicationStatus",
+              showDelisted ? "delisted" : "published",
+            );
             if (selectedPublisher !== "all") {
               params.set("publisher", selectedPublisher);
             }
@@ -911,7 +1066,7 @@ window.__ModuleLoader__.load({
             setLoading(false);
           }
         },
-        [],
+        [showDelisted],
       );
 
       const loadPlugins = react.useCallback(
@@ -932,6 +1087,10 @@ window.__ModuleLoader__.load({
               page: String(page),
               pageSize: "24",
             });
+            params.set(
+              "publicationStatus",
+              showDelisted ? "delisted" : "published",
+            );
             if (selectedPublisher !== "all") {
               params.set("publisher", selectedPublisher);
             }
@@ -954,7 +1113,7 @@ window.__ModuleLoader__.load({
             setLoading(false);
           }
         },
-        [],
+        [showDelisted],
       );
 
       const currentCustomType =
@@ -976,14 +1135,43 @@ window.__ModuleLoader__.load({
         setPagination({ page: 1, pageCount: 1, total: 0 });
         setCustomResources([]);
         setQuery("");
-        if (tab === "skill") void loadSkills("", "全部");
-        if (tab === "mcp") void loadMcps("", "全部");
+      }, [route, tab, assetTab]);
+
+      react.useEffect(() => {
+        if (route !== "resource-market") return;
+        if (tab === "skill") {
+          void loadSkills(query, category);
+          void loadCustomResources("skill", query, category);
+        }
+        if (tab === "mcp") {
+          void loadMcps(query, category);
+          void loadCustomResources("mcp", query, category);
+        }
         if (tab === "workbench") {
           void loadWorkbenchContext();
-          if (assetTab === "templates") void loadTemplates();
-          else void loadPlugins();
+          if (assetTab === "templates") {
+            void loadTemplates(
+              query,
+              category,
+              publisher,
+              compatibility,
+              sort,
+              1,
+            );
+            void loadCustomResources("workbench-template", query, category);
+          } else {
+            void loadPlugins(
+              query,
+              category,
+              publisher,
+              compatibility,
+              sort,
+              1,
+            );
+            void loadCustomResources("panel-plugin", query, category);
+          }
         }
-      }, [route, tab, assetTab]);
+      }, [route, tab, assetTab, showDelisted]);
 
       react.useEffect(() => {
         if (route !== "resource-market") return undefined;
@@ -994,6 +1182,7 @@ window.__ModuleLoader__.load({
             setInstallTarget(null);
             setUninstallTarget(null);
             setRegisterOpen(false);
+            setLifecycleDialog(null);
           }
         };
         window.addEventListener("keydown", onKey);
@@ -1121,6 +1310,7 @@ window.__ModuleLoader__.load({
         setPublisher("all");
         setCompatibility("all");
         setSort("recommended");
+        setShowDelisted(false);
         setPagination({ page: 1, pageCount: 1, total: 0 });
         setCustomResources([]);
         void loadWorkbenchContext();
@@ -1128,7 +1318,14 @@ window.__ModuleLoader__.load({
 
       const openInstallDialog = async (skill, custom = false) => {
         if (busy) return;
+        if (skill.actions?.canInstall === false) {
+          showToast(`${publicationStatusLabel(skill)}，暂不可安装`);
+          return;
+        }
         setInstallTarget({ skill, custom });
+        const targets = skillMountTargets(skill);
+        setInstallTargetIds(targets.map((target) => target.targetId));
+        setInstallActiveTargetId(targets[0]?.targetId ?? "");
         setInstallAgentIds([]);
         setInstallAgents([]);
         setInstallError("");
@@ -1165,35 +1362,57 @@ window.__ModuleLoader__.load({
         setInstallError("");
         try {
           const skill = installTarget.skill;
-          await request("/api/collab/resources/skills", {
+          const targets = skillMountTargets(skill);
+          const result = await request("/api/collab/resources/skills", {
             method: "POST",
-            body: JSON.stringify({ skillId: skill.id }),
+            body: JSON.stringify({
+              skillId: skill.id,
+              ...(installTargetIds.length === 0
+                ? {}
+                : { targetIds: installTargetIds }),
+              ...(installTargetIds.includes(installActiveTargetId)
+                ? { activeTargetId: installActiveTargetId }
+                : {}),
+            }),
           });
+          const bindings = result.install?.bindings ?? [];
           if (installTarget.custom) {
             setCustomResources((items) =>
               items.map((item) =>
-                item.id === skill.id ? { ...item, status: "enabled" } : item,
+                item.id === skill.id
+                  ? { ...item, status: "enabled", bindings }
+                  : item,
               ),
             );
             setDetail((current) =>
               current?.kind === "custom" && current.value.id === skill.id
                 ? {
                     ...current,
-                    value: { ...current.value, status: "enabled" },
+                    value: {
+                      ...current.value,
+                      status: "enabled",
+                      bindings,
+                    },
                   }
                 : current,
             );
           } else {
             setSkills((items) =>
               items.map((item) =>
-                item.id === skill.id ? { ...item, status: "enabled" } : item,
+                item.id === skill.id
+                  ? { ...item, status: "enabled", bindings }
+                  : item,
               ),
             );
             setDetail((current) =>
               current?.kind === "skill" && current.value.id === skill.id
                 ? {
                     ...current,
-                    value: { ...current.value, status: "enabled" },
+                    value: {
+                      ...current.value,
+                      status: "enabled",
+                      bindings,
+                    },
                   }
                 : current,
             );
@@ -1224,8 +1443,14 @@ window.__ModuleLoader__.load({
           const failed = results.length - succeeded;
           setInstallTarget(null);
           if (installAgentIds.length === 0) {
+            const targetLabel = targets
+              .filter((target) => installTargetIds.includes(target.targetId))
+              .map(skillTargetLabel)
+              .join("、");
             showToast(
-              `已将「${cleanSkillName(skill.name)}」安装到 Skill 资源库`,
+              targetLabel === ""
+                ? `已将「${cleanSkillName(skill.name)}」安装到 Skill 资源库`
+                : `已安装到 ${targetLabel}`,
             );
           } else if (failed === 0) {
             showToast(`已安装，并添加到 ${String(succeeded)} 个 AI 伙伴`);
@@ -1239,6 +1464,51 @@ window.__ModuleLoader__.load({
             cause instanceof Error ? cause.message : String(cause);
           setInstallError(message);
           showToast(message);
+        } finally {
+          setBusy(false);
+        }
+      };
+
+      const activateSkillTarget = async (skill, target) => {
+        if (busy) return;
+        setBusy(true);
+        try {
+          const result = await request("/api/collab/resources/skills/binding", {
+            method: "POST",
+            body: JSON.stringify({
+              skillId: skill.id,
+              targetId: target.targetId,
+            }),
+          });
+          const bindings = result.install?.bindings ?? [];
+          const update = (item) => {
+            if (item.id === skill.id) return { ...item, bindings };
+            if (
+              !(item.bindings ?? []).some(
+                (binding) => binding.targetId === target.targetId,
+              )
+            ) {
+              return item;
+            }
+            return {
+              ...item,
+              bindings: item.bindings.map((binding) =>
+                binding.targetId === target.targetId
+                  ? { ...binding, active: false }
+                  : binding,
+              ),
+            };
+          };
+          setSkills((items) => items.map(update));
+          setCustomResources((items) => items.map(update));
+          setDetail((current) =>
+            current === null
+              ? current
+              : { ...current, value: update(current.value) },
+          );
+          showToast(`已将「${cleanSkillName(skill.name)}」设为当前方案`);
+        } catch (cause) {
+          showToast(cause.message);
         } finally {
           setBusy(false);
         }
@@ -1424,7 +1694,13 @@ window.__ModuleLoader__.load({
       };
 
       const copyTemplate = async (template) => {
-        if (busy || template.compatibility === "incompatible") return;
+        if (
+          busy ||
+          template.compatibility === "incompatible" ||
+          template.actions?.canInstall === false
+        ) {
+          return;
+        }
         setBusy(true);
         try {
           const result = await request(
@@ -1519,18 +1795,21 @@ window.__ModuleLoader__.load({
 
       const openRegister = () => {
         setOfficialEditSkill(null);
+        setCustomEditResource(null);
         setRegisterForm({
           name: "",
           description: "",
           version: "1.0.0",
           publisherName: currentUserId,
           permissions: "",
+          sharingScope: "private",
         });
         setRegisterManifest(null);
         setRegisterOpen(true);
       };
 
       const openOfficialSkillEdit = (skill) => {
+        setCustomEditResource(null);
         setOfficialEditSkill(skill);
         setRegisterForm({
           name: skill.name,
@@ -1538,12 +1817,35 @@ window.__ModuleLoader__.load({
           version: skill.version,
           publisherName: "Pluginmax 官方",
           permissions: (skill.permissions ?? []).join("，"),
+          sharingScope: "platform",
         });
         setRegisterManifest({
           instructions: skill.instructions ?? "",
           triggers: skill.triggers ?? [],
+          mountTargets: skillMountTargets(skill),
         });
         setRegisterOpen(true);
+      };
+
+      const openCustomResourceEdit = (resource) => {
+        setOfficialEditSkill(null);
+        setCustomEditResource(resource);
+        setRegisterForm({
+          name: resource.name,
+          description: resource.description ?? "",
+          version: resource.version ?? "1.0.0",
+          publisherName: resource.publisherName || currentUserId,
+          permissions: (resource.permissions ?? []).join("，"),
+          sharingScope: resource.sharingScope ?? "private",
+        });
+        setRegisterManifest(resource.manifest ?? null);
+        setRegisterOpen(true);
+      };
+
+      const closeRegister = () => {
+        setRegisterOpen(false);
+        setOfficialEditSkill(null);
+        setCustomEditResource(null);
       };
 
       const submitCustomResource = async (event) => {
@@ -1572,6 +1874,9 @@ window.__ModuleLoader__.load({
                   triggers: Array.isArray(registerManifest?.triggers)
                     ? registerManifest.triggers
                     : [],
+                  mountTargets: Array.isArray(registerManifest?.mountTargets)
+                    ? registerManifest.mountTargets
+                    : [],
                 }),
               },
             );
@@ -1591,35 +1896,60 @@ window.__ModuleLoader__.load({
             showToast(`已发布官方 Skill「${latest.name}」`);
             return;
           }
+          const customInput = {
+            name: registerForm.name,
+            description: registerForm.description,
+            version: registerForm.version,
+            ...(registerForm.publisherName.trim() === "" && currentUserId === ""
+              ? {}
+              : {
+                  publisherName:
+                    registerForm.publisherName.trim() || currentUserId,
+                }),
+            permissions: registerForm.permissions
+              .split(/[\n,，]/)
+              .map((item) => item.trim())
+              .filter(Boolean),
+            sharingScope: registerForm.sharingScope,
+            ...(registerManifest === null
+              ? {}
+              : { manifest: registerManifest }),
+          };
+          if (customEditResource !== null) {
+            const result = await request("/api/collab/resources/custom", {
+              method: "PATCH",
+              body: JSON.stringify({
+                id: customEditResource.id,
+                ...customInput,
+              }),
+            });
+            const replace = (item) =>
+              item.id === result.resource.id
+                ? { ...item, ...result.resource }
+                : item;
+            setCustomResources((items) => items.map(replace));
+            setSkills((items) => items.map(replace));
+            setDetail((current) =>
+              current?.value?.id === result.resource.id
+                ? { kind: "custom", value: result.resource }
+                : current,
+            );
+            closeRegister();
+            showToast(`已更新「${result.resource.name}」`);
+            return;
+          }
           const result = await request("/api/collab/resources/custom", {
             method: "POST",
             body: JSON.stringify({
               type: currentCustomType,
-              name: registerForm.name,
-              description: registerForm.description,
-              version: registerForm.version,
-              ...(registerForm.publisherName.trim() === "" &&
-              currentUserId === ""
-                ? {}
-                : {
-                    publisherName:
-                      registerForm.publisherName.trim() || currentUserId,
-                  }),
-              permissions: registerForm.permissions
-                .split(/[\n,，]/)
-                .map((item) => item.trim())
-                .filter(Boolean),
-              ...(registerManifest === null
-                ? {}
-                : { manifest: registerManifest }),
+              ...customInput,
             }),
           });
           setCustomResources((items) => [
             result.resource,
             ...items.filter((item) => item.id !== result.resource.id),
           ]);
-          setRegisterOpen(false);
-          setOfficialEditSkill(null);
+          closeRegister();
           showToast(`已注册「${result.resource.name}」`);
         } catch (cause) {
           showToast(cause.message);
@@ -1649,8 +1979,94 @@ window.__ModuleLoader__.load({
         }
       };
 
+      const openLifecycleDialog = (resource, resourceType, action) => {
+        setLifecycleDialog({ resource, resourceType, action });
+        setLifecycleNote("");
+        setLifecycleError("");
+      };
+
+      const applyLifecycleResult = (resource) => {
+        const shouldRemain =
+          resource.publicationStatus ===
+          (showDelisted ? "delisted" : "published");
+        const patch = (items) =>
+          items.flatMap((item) => {
+            if (item.id !== resource.resourceId) return [item];
+            return shouldRemain
+              ? [
+                  {
+                    ...item,
+                    ...resource,
+                    actions: resource.actions,
+                  },
+                ]
+              : [];
+          });
+        setSkills(patch);
+        setMcps(patch);
+        setTemplates(patch);
+        setPlugins(patch);
+        setCustomResources(patch);
+        setDetail((current) =>
+          current !== null && current.value.id === resource.resourceId
+            ? {
+                ...current,
+                value: {
+                  ...current.value,
+                  ...resource,
+                  actions: resource.actions,
+                },
+              }
+            : current,
+        );
+      };
+
+      const submitLifecycle = async () => {
+        if (busy || lifecycleDialog === null) return;
+        const action = lifecycleDialog.action;
+        setBusy(true);
+        setLifecycleError("");
+        try {
+          const result = await request(
+            `/api/collab/resources/lifecycle/${action}`,
+            {
+              method: "POST",
+              body: JSON.stringify({
+                resourceType: lifecycleDialog.resourceType,
+                resourceId: lifecycleDialog.resource.id,
+                reasonCode:
+                  action === "delist"
+                    ? lifecycleDialog.resource.origin === "user"
+                      ? "owner_withdraw"
+                      : "platform_governance"
+                    : "relist",
+                ...(lifecycleNote.trim() === ""
+                  ? {}
+                  : { note: lifecycleNote.trim() }),
+                expectedRevision: lifecycleDialog.resource.revision,
+              }),
+            },
+          );
+          applyLifecycleResult(result.resource);
+          setLifecycleDialog(null);
+          showToast(
+            action === "delist"
+              ? `已下架「${lifecycleDialog.resource.name}」`
+              : `已重新上架「${lifecycleDialog.resource.name}」`,
+          );
+        } catch (cause) {
+          setLifecycleError(cause.message);
+        } finally {
+          setBusy(false);
+        }
+      };
+
       const enablePlugin = async (plugin) => {
         if (busy) return;
+        if (plugin.actions?.canInstall === false) {
+          showToast(`${publicationStatusLabel(plugin)}，暂不可添加`);
+          return;
+        }
         if (
           activeWorkbench !== null &&
           activeWorkbench.ownerId !== currentUserId
@@ -1710,7 +2126,11 @@ window.__ModuleLoader__.load({
         setDetail({ kind: "template", value: template, loading: true });
         try {
           const result = await request(
-            `/api/collab/workbench-market/templates/detail?id=${encodeURIComponent(template.id)}&version=${encodeURIComponent(template.version)}`,
+            `/api/collab/workbench-market/templates/detail?id=${encodeURIComponent(template.id)}&version=${encodeURIComponent(template.version)}${
+              template.publicationStatus === "delisted"
+                ? "&includeDelisted=true"
+                : ""
+            }`,
           );
           setDetail({
             kind: "template",
@@ -1740,6 +2160,7 @@ window.__ModuleLoader__.load({
               onInstall: (resource) => void openInstallDialog(resource, true),
               onUninstall: (resource) =>
                 void openUninstallDialog(resource, true),
+              onEdit: openCustomResourceEdit,
             })
           : h(CustomResourceCard, {
               item,
@@ -1747,6 +2168,7 @@ window.__ModuleLoader__.load({
               onOpen: (resource) =>
                 setDetail({ kind: "custom", value: resource }),
               onAction: (resource) => void openInstallDialog(resource, true),
+              onEdit: openCustomResourceEdit,
             }),
       );
       const customSection =
@@ -1754,12 +2176,7 @@ window.__ModuleLoader__.load({
           ? h(
               "div",
               { className: "pmrm-section" },
-              h("h3", null, "我的自定义资源"),
-              h(
-                "p",
-                null,
-                "仅登记资源元数据和清单，不会执行上传内容，也不会修改 DSH 插件图。",
-              ),
+              h("h3", null, "我的与共享资源"),
               h(
                 "div",
                 {
@@ -1773,7 +2190,9 @@ window.__ModuleLoader__.load({
                   ? h(
                       "div",
                       { className: "pmrm-empty" },
-                      "还没有自定义资源，点击上方“注册资源”添加。",
+                      showDelisted
+                        ? "当前没有可管理的已下架资源。"
+                        : "还没有自定义或共享资源，点击上方“注册资源”添加。",
                     )
                   : null,
               ),
@@ -1888,6 +2307,10 @@ window.__ModuleLoader__.load({
               h("span", null, template.publisher.name),
               h("span", null, template.category),
               h("span", null, `v${template.version}`),
+              h("span", null, resourceSourceLabel(template)),
+              template.publicationStatus === "delisted"
+                ? h("span", null, "已下架")
+                : null,
               h("span", null, `${template.panelPlan.length} 个面板`),
               h(
                 "span",
@@ -1909,6 +2332,7 @@ window.__ModuleLoader__.load({
                   {
                     type: "button",
                     className: "pmrm-btn",
+                    disabled: busy || template.publicationStatus === "delisted",
                     onClick: () => void openPreview(template),
                   },
                   "预览",
@@ -1927,7 +2351,10 @@ window.__ModuleLoader__.load({
                   {
                     type: "button",
                     className: "pmrm-btn primary",
-                    disabled: busy || template.compatibility === "incompatible",
+                    disabled:
+                      busy ||
+                      template.actions?.canInstall === false ||
+                      template.compatibility === "incompatible",
                     onClick: () => void copyTemplate(template),
                   },
                   "应用",
@@ -1958,7 +2385,11 @@ window.__ModuleLoader__.load({
               h("span", null, plugin.category),
               h("span", null, `v${plugin.version}`),
               h("span", null, plugin.publisher.name),
+              h("span", null, resourceSourceLabel(plugin)),
               h("span", null, sourceLabel(plugin.source)),
+              plugin.publicationStatus === "delisted"
+                ? h("span", null, "已下架")
+                : null,
             ),
           ),
           h(
@@ -2150,17 +2581,27 @@ window.__ModuleLoader__.load({
         actionLabel =
           detail.loading === true
             ? "正在校验依赖…"
-            : detail.value.compatibility === "incompatible"
-              ? "依赖不可用，暂时无法复制"
-              : "应用到我的工作台";
+            : detail.value.actions?.canInstall === false
+              ? publicationStatusLabel(detail.value)
+              : detail.value.compatibility === "incompatible"
+                ? "依赖不可用，暂时无法复制"
+                : "应用到我的工作台";
         actionDisabled ||=
           detail.loading === true ||
           detail.error !== undefined ||
+          detail.value.actions?.canInstall === false ||
           detail.value.compatibility === "incompatible";
         action = () => void copyTemplate(detail.value);
       } else if (detail?.kind === "skill") {
         actionLabel =
-          detail.value.status === "enabled" ? "卸载 Skill" : "安装 Skill";
+          detail.value.status === "enabled"
+            ? "卸载 Skill"
+            : detail.value.actions?.canInstall === false
+              ? publicationStatusLabel(detail.value)
+              : "安装 Skill";
+        actionDisabled ||=
+          detail.value.status !== "enabled" &&
+          detail.value.actions?.canInstall === false;
         action = () =>
           void (detail.value.status === "enabled"
             ? openUninstallDialog(detail.value, false)
@@ -2171,8 +2612,13 @@ window.__ModuleLoader__.load({
             ? "断开连接"
             : detail.value.status === "pending"
               ? "等待治理验证"
-              : "连接";
-        actionDisabled ||= detail.value.status === "pending";
+              : detail.value.actions?.canInstall === false
+                ? publicationStatusLabel(detail.value)
+                : "连接";
+        actionDisabled ||=
+          detail.value.status === "pending" ||
+          (detail.value.status !== "connected" &&
+            detail.value.actions?.canInstall === false);
         action = () =>
           void (detail.value.status === "connected"
             ? disconnectMcp(detail.value)
@@ -2180,14 +2626,17 @@ window.__ModuleLoader__.load({
       } else if (detail?.kind === "plugin") {
         actionLabel = activeReadOnly
           ? "只读工作台：复制后可编辑"
-          : detail.value.status === "enabled"
-            ? "添加到当前工作台"
-            : detail.value.status === "not_enabled"
-              ? "启用并添加到当前工作台"
-              : assetStatusLabel("plugin", detail.value.status);
+          : detail.value.actions?.canInstall === false
+            ? publicationStatusLabel(detail.value)
+            : detail.value.status === "enabled"
+              ? "添加到当前工作台"
+              : detail.value.status === "not_enabled"
+                ? "启用并添加到当前工作台"
+                : assetStatusLabel("plugin", detail.value.status);
         actionDisabled ||=
           activeReadOnly ||
           activeWorkbench === null ||
+          detail.value.actions?.canInstall === false ||
           ["not_packaged", "disabled", "incompatible"].includes(
             detail.value.status,
           );
@@ -2195,18 +2644,38 @@ window.__ModuleLoader__.load({
       } else if (detail?.kind === "custom") {
         if (detail.value.type === "skill") {
           actionLabel =
-            detail.value.status === "enabled" ? "卸载 Skill" : "安装";
+            detail.value.status === "enabled"
+              ? "卸载 Skill"
+              : detail.value.actions?.canInstall === false
+                ? publicationStatusLabel(detail.value)
+                : "安装";
           actionDisabled = busy;
           action = () =>
             void (detail.value.status === "enabled"
               ? openUninstallDialog(detail.value, true)
               : openInstallDialog(detail.value, true));
         } else {
-          actionLabel = "删除资源";
+          actionLabel = detail.value.actions?.canDelete ? "删除资源" : "";
           actionDisabled = busy;
           action = () => void deleteCustomResource(detail.value);
         }
       }
+      const lifecycleResourceType =
+        detail?.kind === "custom"
+          ? detail.value.type
+          : detail?.kind === "template"
+            ? "workbench-template"
+            : detail?.kind === "plugin"
+              ? "panel-plugin"
+              : detail?.kind;
+      const lifecycleAction =
+        detail?.value?.actions?.canDelist === true
+          ? "delist"
+          : detail?.value?.actions?.canRelist === true
+            ? "relist"
+            : null;
+      const detailMountTargets =
+        detail === null ? [] : skillMountTargets(detail.value);
 
       const detailBody =
         detail === null
@@ -2316,7 +2785,7 @@ window.__ModuleLoader__.load({
                           "div",
                           { className: "pmrm-fact", key: "source" },
                           h("span", null, "来源"),
-                          h("strong", null, "我的资源"),
+                          h("strong", null, resourceSourceLabel(detail.value)),
                         ),
                       ]
                     : detail.kind === "plugin"
@@ -2399,6 +2868,112 @@ window.__ModuleLoader__.load({
                             h("strong", null, sourceLabel(detail.value.source)),
                           ),
                         ],
+              ),
+              detailMountTargets.length === 0
+                ? null
+                : h(
+                    "div",
+                    { className: "pmrm-section" },
+                    h("h3", null, "安装关系"),
+                    h(
+                      "p",
+                      { className: "pmrm-card-meta" },
+                      "安装后绑定到组件挂载点；同一挂载点只启用一个 Skill。",
+                    ),
+                    h(
+                      "div",
+                      { className: "pmrm-target-list" },
+                      ...detailMountTargets.map((target) => {
+                        const binding = skillBindingFor(
+                          detail.value,
+                          target.targetId,
+                        );
+                        const installed =
+                          detail.value.status === "enabled" &&
+                          binding !== undefined;
+                        return h(
+                          "div",
+                          {
+                            className: "pmrm-target-row",
+                            key: target.targetId,
+                          },
+                          h(
+                            "span",
+                            { className: "pmrm-target-copy" },
+                            h("strong", null, skillTargetLabel(target)),
+                            h("small", null, target.targetId),
+                          ),
+                          h(
+                            "span",
+                            {
+                              className: `pmrm-target-state${binding?.active ? " active" : ""}`,
+                            },
+                            binding?.active
+                              ? "当前方案"
+                              : installed
+                                ? "已绑定"
+                                : "未安装",
+                          ),
+                          installed && binding?.active !== true
+                            ? h(
+                                "button",
+                                {
+                                  type: "button",
+                                  className: "pmrm-btn",
+                                  disabled: busy,
+                                  onClick: () =>
+                                    void activateSkillTarget(
+                                      detail.value,
+                                      target,
+                                    ),
+                                },
+                                "设为当前方案",
+                              )
+                            : h("span"),
+                        );
+                      }),
+                    ),
+                  ),
+              h(
+                "div",
+                { className: "pmrm-section" },
+                h("h3", null, "发布状态"),
+                h(
+                  "div",
+                  { className: "pmrm-facts" },
+                  h(
+                    "div",
+                    { className: "pmrm-fact" },
+                    h("span", null, "资源归属"),
+                    h("strong", null, resourceSourceLabel(detail.value)),
+                  ),
+                  h(
+                    "div",
+                    { className: "pmrm-fact" },
+                    h("span", null, "共享范围"),
+                    h(
+                      "strong",
+                      null,
+                      detail.value.sharingScope === "platform"
+                        ? "所有平台成员"
+                        : "仅资源所有者",
+                    ),
+                  ),
+                  h(
+                    "div",
+                    { className: "pmrm-fact" },
+                    h("span", null, "市场状态"),
+                    h("strong", null, publicationStatusLabel(detail.value)),
+                  ),
+                  detail.value.adminLocked === true
+                    ? h(
+                        "div",
+                        { className: "pmrm-fact" },
+                        h("span", null, "治理状态"),
+                        h("strong", null, "管理员已锁定"),
+                      )
+                    : null,
+                ),
               ),
               detail.kind === "template"
                 ? h(
@@ -2547,6 +3122,42 @@ window.__ModuleLoader__.load({
               h(
                 "div",
                 { className: "pmrm-detail-foot" },
+                detail?.kind === "custom" &&
+                  detail.value.actions?.canEdit === true
+                  ? h(
+                      "button",
+                      {
+                        type: "button",
+                        className: "pmrm-btn secondary",
+                        style: { width: "100%", marginBottom: "8px" },
+                        disabled: busy,
+                        onClick: () => openCustomResourceEdit(detail.value),
+                      },
+                      ICONS.edit,
+                      "编辑资源",
+                    )
+                  : null,
+                lifecycleAction !== null && lifecycleResourceType !== undefined
+                  ? h(
+                      "button",
+                      {
+                        type: "button",
+                        className:
+                          lifecycleAction === "delist"
+                            ? "pmrm-btn danger"
+                            : "pmrm-btn secondary",
+                        style: { width: "100%", marginBottom: "8px" },
+                        disabled: busy,
+                        onClick: () =>
+                          openLifecycleDialog(
+                            detail.value,
+                            lifecycleResourceType,
+                            lifecycleAction,
+                          ),
+                      },
+                      lifecycleAction === "delist" ? "下架资源" : "重新上架",
+                    )
+                  : null,
                 canManageSkills &&
                   detail?.kind === "skill" &&
                   detail.value.publisher?.kind === "official"
@@ -2562,17 +3173,19 @@ window.__ModuleLoader__.load({
                       "编辑官方 Skill",
                     )
                   : null,
-                h(
-                  "button",
-                  {
-                    type: "button",
-                    className: "pmrm-btn primary",
-                    style: { width: "100%" },
-                    disabled: actionDisabled,
-                    onClick: action,
-                  },
-                  actionLabel,
-                ),
+                actionLabel === ""
+                  ? null
+                  : h(
+                      "button",
+                      {
+                        type: "button",
+                        className: "pmrm-btn primary",
+                        style: { width: "100%" },
+                        disabled: actionDisabled,
+                        onClick: action,
+                      },
+                      actionLabel,
+                    ),
               ),
             );
 
@@ -2701,6 +3314,9 @@ window.__ModuleLoader__.load({
               ),
             );
 
+      const installMountTargets =
+        installTarget === null ? [] : skillMountTargets(installTarget.skill);
+
       const installModal =
         installTarget === null
           ? null
@@ -2759,6 +3375,86 @@ window.__ModuleLoader__.load({
                     ),
                     h("span", null, "已包含"),
                   ),
+                  installMountTargets.length === 0
+                    ? null
+                    : h(
+                        react.Fragment,
+                        null,
+                        h(
+                          "div",
+                          { className: "pmrm-install-toolbar" },
+                          h("strong", null, "安装到指定组件"),
+                          h(
+                            "span",
+                            { className: "pmrm-card-meta" },
+                            "同一挂载点仅启用一个 Skill",
+                          ),
+                        ),
+                        h(
+                          "div",
+                          { className: "pmrm-install-targets" },
+                          ...installMountTargets.map((target) => {
+                            const selected = installTargetIds.includes(
+                              target.targetId,
+                            );
+                            const active =
+                              installActiveTargetId === target.targetId;
+                            return h(
+                              "div",
+                              {
+                                key: target.targetId,
+                                className: `pmrm-install-target${selected ? " selected" : ""}`,
+                              },
+                              h("input", {
+                                type: "checkbox",
+                                checked: selected,
+                                "aria-label": `安装到 ${skillTargetLabel(target)}`,
+                                onChange: (event) => {
+                                  const checked = event.target.checked;
+                                  setInstallTargetIds((current) => {
+                                    const next = checked
+                                      ? [
+                                          ...new Set([
+                                            ...current,
+                                            target.targetId,
+                                          ]),
+                                        ]
+                                      : current.filter(
+                                          (id) => id !== target.targetId,
+                                        );
+                                    if (active && !checked) {
+                                      setInstallActiveTargetId(next[0] ?? "");
+                                    }
+                                    return next;
+                                  });
+                                },
+                              }),
+                              h(
+                                "span",
+                                { className: "pmrm-install-target-copy" },
+                                h("strong", null, skillTargetLabel(target)),
+                                h("small", null, target.targetId),
+                              ),
+                              h(
+                                "label",
+                                {
+                                  className: "pmrm-install-target-active",
+                                  title: "安装后作为该组件当前启用的方案",
+                                },
+                                h("input", {
+                                  type: "radio",
+                                  name: "skill-install-target",
+                                  checked: active,
+                                  disabled: !selected,
+                                  onChange: () =>
+                                    setInstallActiveTargetId(target.targetId),
+                                }),
+                                "设为当前",
+                              ),
+                            );
+                          }),
+                        ),
+                      ),
                   h(
                     "div",
                     { className: "pmrm-install-toolbar" },
@@ -3014,6 +3710,130 @@ window.__ModuleLoader__.load({
               ),
             );
 
+      const lifecycleModal =
+        lifecycleDialog === null
+          ? null
+          : h(
+              "div",
+              {
+                className: "pmrm-modal-backdrop",
+                onClick: (event) => {
+                  if (event.target === event.currentTarget && !busy) {
+                    setLifecycleDialog(null);
+                  }
+                },
+              },
+              h(
+                "div",
+                {
+                  className: "pmrm-modal",
+                  role: "dialog",
+                  "aria-modal": "true",
+                  "aria-label":
+                    lifecycleDialog.action === "delist"
+                      ? "下架资源"
+                      : "重新上架资源",
+                },
+                h(
+                  "div",
+                  { className: "pmrm-modal-head" },
+                  h(
+                    "div",
+                    null,
+                    h(
+                      "h2",
+                      null,
+                      lifecycleDialog.action === "delist"
+                        ? "下架资源"
+                        : "重新上架资源",
+                    ),
+                    h("p", null, lifecycleDialog.resource.name),
+                  ),
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "pmrm-iconbtn",
+                      disabled: busy,
+                      onClick: () => setLifecycleDialog(null),
+                      "aria-label": "关闭资源状态窗口",
+                    },
+                    ICONS.close,
+                  ),
+                ),
+                h(
+                  "div",
+                  { className: "pmrm-modal-body" },
+                  lifecycleError === ""
+                    ? null
+                    : h("div", { className: "pmrm-error" }, lifecycleError),
+                  h(
+                    "div",
+                    { className: "pmrm-custom-note" },
+                    lifecycleDialog.action === "delist"
+                      ? "下架后资源将从市场默认列表、搜索和推荐中移除，其他成员无法新安装或新连接。已有安装和配置会保留。"
+                      : "重新上架前会重新检查资源状态和共享范围，通过后资源会重新进入资源市场。",
+                  ),
+                  lifecycleDialog.resource.adminLocked === true
+                    ? h(
+                        "div",
+                        {
+                          className: "pmrm-custom-note",
+                          style: { marginTop: "10px" },
+                        },
+                        "该资源已被管理员锁定，资源所有者不能自行重新上架。",
+                      )
+                    : null,
+                  h(
+                    "label",
+                    {
+                      className: "pmrm-custom-form",
+                      style: { marginTop: "12px" },
+                    },
+                    h("span", { className: "full" }, "操作说明（可选）"),
+                    h("textarea", {
+                      className: "full",
+                      maxLength: 1000,
+                      placeholder: "说明下架或重新上架原因，便于审计追溯",
+                      value: lifecycleNote,
+                      onChange: (event) => setLifecycleNote(event.target.value),
+                    }),
+                  ),
+                ),
+                h(
+                  "div",
+                  { className: "pmrm-modal-foot" },
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "pmrm-btn",
+                      disabled: busy,
+                      onClick: () => setLifecycleDialog(null),
+                    },
+                    "取消",
+                  ),
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className:
+                        lifecycleDialog.action === "delist"
+                          ? "pmrm-btn danger"
+                          : "pmrm-btn primary",
+                      disabled: busy,
+                      onClick: () => void submitLifecycle(),
+                    },
+                    busy
+                      ? "提交中…"
+                      : lifecycleDialog.action === "delist"
+                        ? "确认下架"
+                        : "确认重新上架",
+                  ),
+                ),
+              ),
+            );
+
       const registerModal =
         registerOpen === false
           ? null
@@ -3027,9 +3847,11 @@ window.__ModuleLoader__.load({
                   role: "dialog",
                   "aria-modal": "true",
                   "aria-label":
-                    officialEditSkill === null
-                      ? "注册自定义资源"
-                      : "编辑官方 Skill",
+                    officialEditSkill !== null
+                      ? "编辑官方 Skill"
+                      : customEditResource !== null
+                        ? "编辑自定义资源"
+                        : "注册自定义资源",
                   onSubmit: (event) => void submitCustomResource(event),
                 },
                 h(
@@ -3041,9 +3863,11 @@ window.__ModuleLoader__.load({
                     h(
                       "h2",
                       null,
-                      officialEditSkill === null
-                        ? "注册自定义资源"
-                        : "编辑官方 Skill",
+                      officialEditSkill !== null
+                        ? "编辑官方 Skill"
+                        : customEditResource !== null
+                          ? "编辑自定义资源"
+                          : "注册自定义资源",
                     ),
                     h(
                       "p",
@@ -3056,8 +3880,8 @@ window.__ModuleLoader__.load({
                     {
                       type: "button",
                       className: "pmrm-iconbtn",
-                      onClick: () => setRegisterOpen(false),
-                      "aria-label": "关闭注册",
+                      onClick: closeRegister,
+                      "aria-label": "关闭资源编辑窗口",
                     },
                     ICONS.close,
                   ),
@@ -3068,9 +3892,11 @@ window.__ModuleLoader__.load({
                   h(
                     "div",
                     { className: "pmrm-custom-note" },
-                    currentCustomType === "skill"
-                      ? "Skill 只包含指令、输出约定与触发场景，不执行脚本。上传后安装到当前账号，再由智能体定义或 AI 伙伴实例引用。"
-                      : "平台不会执行上传的 JavaScript，也不会修改 DSH Client Modules 图。注册内容用于后续治理审核与资产登记。",
+                    customEditResource !== null
+                      ? "保存会更新原资源及其现有安装，不会创建副本。修改共享范围后，资源市场中其他成员的可见状态会同步变化。"
+                      : currentCustomType === "skill"
+                        ? "Skill 只包含指令、输出约定与触发场景，不执行脚本。上传后安装到当前账号，再由智能体定义或 AI 伙伴实例引用。"
+                        : "平台不会执行上传的 JavaScript，也不会修改 DSH Client Modules 图。注册内容用于后续治理审核与资产登记。",
                   ),
                   h(
                     "div",
@@ -3133,6 +3959,41 @@ window.__ModuleLoader__.load({
                           })),
                       }),
                     ),
+                    officialEditSkill === null
+                      ? h(
+                          "label",
+                          null,
+                          "共享范围",
+                          h(
+                            "select",
+                            {
+                              value: registerForm.sharingScope,
+                              onChange: (event) =>
+                                setRegisterForm((current) => ({
+                                  ...current,
+                                  sharingScope: event.target.value,
+                                })),
+                            },
+                            h(
+                              "option",
+                              {
+                                value: "private",
+                                disabled:
+                                  customEditResource?.sharingScope ===
+                                  "platform",
+                              },
+                              customEditResource?.sharingScope === "platform"
+                                ? "私有（共享资源请先下架）"
+                                : "私有，仅自己可见",
+                            ),
+                            h(
+                              "option",
+                              { value: "platform" },
+                              "共享到资源市场",
+                            ),
+                          ),
+                        )
+                      : null,
                     h(
                       "label",
                       { className: "full" },
@@ -3147,9 +4008,8 @@ window.__ModuleLoader__.load({
                           })),
                       }),
                     ),
-                    officialEditSkill === null
-                      ? null
-                      : h(
+                    officialEditSkill !== null || customEditResource !== null
+                      ? h(
                           "label",
                           { className: "full" },
                           "Skill 指令正文",
@@ -3169,12 +4029,15 @@ window.__ModuleLoader__.load({
                                 instructions: event.target.value,
                               })),
                           }),
-                        ),
+                        )
+                      : null,
                     h(
                       "label",
                       { className: "full" },
                       currentCustomType === "skill"
-                        ? "上传 Skill ZIP、SKILL.md 或 .skill.json"
+                        ? customEditResource !== null
+                          ? "上传新文件以替换清单（可选）"
+                          : "上传 Skill ZIP、SKILL.md 或 .skill.json"
                         : "上传 JSON 清单（可选）",
                       h("input", {
                         type: "file",
@@ -3259,7 +4122,7 @@ window.__ModuleLoader__.load({
                     {
                       type: "button",
                       className: "pmrm-btn",
-                      onClick: () => setRegisterOpen(false),
+                      onClick: closeRegister,
                     },
                     "取消",
                   ),
@@ -3271,16 +4134,22 @@ window.__ModuleLoader__.load({
                       disabled:
                         busy ||
                         registerForm.name.trim() === "" ||
-                        (officialEditSkill !== null &&
+                        ((officialEditSkill !== null ||
+                          customEditResource !== null) &&
+                          currentCustomType === "skill" &&
                           typeof registerManifest?.instructions !== "string"),
                     },
                     busy
-                      ? officialEditSkill === null
-                        ? "注册中…"
-                        : "发布中…"
-                      : officialEditSkill === null
-                        ? "注册资源"
-                        : "发布官方 Skill",
+                      ? customEditResource !== null
+                        ? "保存中…"
+                        : officialEditSkill === null
+                          ? "注册中…"
+                          : "发布中…"
+                      : customEditResource !== null
+                        ? "保存修改"
+                        : officialEditSkill === null
+                          ? "注册资源"
+                          : "发布官方 Skill",
                   ),
                 ),
               ),
@@ -3318,7 +4187,7 @@ window.__ModuleLoader__.load({
             ...[
               ["skill", "Skill"],
               ["mcp", "MCP"],
-              ["workbench", "工作台市场"],
+              ["workbench", "工作台"],
             ].map(([key, label]) =>
               h(
                 "button",
@@ -3382,18 +4251,32 @@ window.__ModuleLoader__.load({
                     item,
                   ),
                 ),
-                category === "自定义"
-                  ? h(
-                      "button",
-                      {
-                        type: "button",
-                        className: "pmrm-btn primary pmrm-custom-action",
-                        onClick: openRegister,
-                      },
-                      ICONS.plus,
-                      "注册资源",
-                    )
-                  : null,
+                h(
+                  "div",
+                  { className: "pmrm-category-actions" },
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: `pmrm-chip${showDelisted ? " active" : ""}`,
+                      "aria-pressed": showDelisted,
+                      onClick: () => setShowDelisted((current) => !current),
+                    },
+                    showDelisted ? "返回在架资源" : "查看已下架",
+                  ),
+                  category === "自定义"
+                    ? h(
+                        "button",
+                        {
+                          type: "button",
+                          className: "pmrm-btn primary pmrm-custom-action",
+                          onClick: openRegister,
+                        },
+                        ICONS.plus,
+                        "注册资源",
+                      )
+                    : null,
+                ),
               ),
               loading
                 ? h(
@@ -3415,6 +4298,7 @@ window.__ModuleLoader__.load({
         previewModal,
         installModal,
         uninstallModal,
+        lifecycleModal,
         registerModal,
         toast !== ""
           ? h("div", { className: "pmrm-toast", role: "status" }, toast)

@@ -36,6 +36,7 @@ export interface PlanActor {
 export interface RootTaskLike {
   readonly id: string;
   readonly workspaceId: string;
+  readonly creationKey?: string | undefined;
   readonly title: string;
   readonly priority: "P1" | "P2" | "P3";
   readonly createdBy?: string | undefined;
@@ -46,6 +47,10 @@ export interface RootTaskLike {
   readonly receiverPrincipalId?: string | undefined;
   readonly due?: string | undefined;
   readonly receiverName?: string | undefined;
+  readonly links?: readonly {
+    readonly type: "meeting" | "workflow" | "document";
+    readonly id: string;
+  }[];
   readonly dependsOn?: readonly string[] | undefined;
   readonly createdByName?: string | undefined;
   readonly messages?: readonly {
@@ -55,6 +60,10 @@ export interface RootTaskLike {
     readonly at?: string | undefined;
     readonly state?: string | undefined;
   }[];
+  readonly events?: readonly {
+    readonly kind: string;
+    readonly actorPrincipalId?: string | undefined;
+  }[];
   readonly status?:
     | "todo"
     | "progress"
@@ -63,6 +72,7 @@ export interface RootTaskLike {
     | "done"
     | "cancelled"
     | undefined;
+  readonly updatedAt?: string | undefined;
 }
 
 export interface TaskCreationLike {
@@ -296,6 +306,7 @@ export class RouterWorkerPlanService {
       readonly routerAgentId?: string | undefined;
       readonly graph: unknown;
       readonly settings?: unknown;
+      readonly initialStatus?: "draft" | "proposed" | undefined;
     },
   ): { readonly plan: PlanRecord; readonly version: PlanVersion } {
     this.requireEnabled(input.workspaceId);
@@ -385,7 +396,7 @@ export class RouterWorkerPlanService {
       ...(routerAgentId === undefined ? {} : { routerAgentId }),
       finalizationMode:
         root.receiverType === "agent" ? "router_managed" : "owner_handoff",
-      status: "draft",
+      status: input.initialStatus ?? "draft",
       currentVersion: 1,
       settings: normalizedSettings,
       revision: 0,
@@ -398,7 +409,7 @@ export class RouterWorkerPlanService {
       planId: plan.id,
       workspaceId: plan.workspaceId,
       version: 1,
-      status: "draft",
+      status: input.initialStatus ?? "draft",
       graph,
       reason: "初始计划",
       createdBy: actor.id,
@@ -885,6 +896,83 @@ export class RouterWorkerPlanService {
       approvedPlan,
       `approved:v${version.version}`,
       `确认任务规划 v${version.version}`,
+    );
+    return approvedPlan;
+  }
+
+  async approveByPolicy(
+    actor: PlanActor,
+    input: {
+      readonly planId: string;
+      readonly expectedRevision: number;
+      readonly policy: "risk-based" | "auto";
+      readonly reason: string;
+    },
+  ): Promise<PlanRecord> {
+    const plan = this.requirePlan(input.planId);
+    if (plan.revision !== input.expectedRevision) {
+      throw new RouterWorkerError("conflict", "计划版本已变化，请刷新后重试");
+    }
+    if (!["draft", "proposed"].includes(plan.status)) {
+      throw new RouterWorkerError("conflict", "当前计划不能自动批准");
+    }
+    const version = this.currentVersion(plan);
+    const issues = validatePlanGraph(version.graph, plan.settings).filter(
+      (issue) => issue.level === "error",
+    );
+    if (issues.length > 0) {
+      throw new RouterWorkerError(
+        "invalid_input",
+        issues.map((issue) => issue.message).join("；"),
+      );
+    }
+    const permission = this.deps.permission?.();
+    if (permission !== undefined) {
+      for (const node of version.graph.nodes) {
+        if (
+          node.receiverType !== "agent" ||
+          node.receiverPrincipalId === undefined
+        ) {
+          continue;
+        }
+        const decision = await permission.resolve({
+          workspaceId: plan.workspaceId,
+          principalId: node.receiverPrincipalId,
+          requestedActions: ["read", "write"],
+          requestedResources: [`router-worker/${plan.id}/${node.id}`],
+        });
+        if (!decision.allowed) {
+          throw new RouterWorkerError(
+            "forbidden",
+            `节点「${node.title}」权限交集不足：${decision.reasons.join("；")}`,
+          );
+        }
+      }
+    }
+    const at = nowIso();
+    const approvedVersion = planVersionSchema.parse({
+      ...version,
+      status: "approved",
+    });
+    const approvedPlan = planRecordSchema.parse({
+      ...plan,
+      status: "approved",
+      approvedByPolicy: true,
+      approvalPolicy: input.policy,
+      confirmedBy: actor.id,
+      confirmedByName: "Planning Service",
+      ...(actor.role === undefined ? {} : { confirmedByRole: actor.role }),
+      confirmedAt: at,
+      revision: plan.revision + 1,
+      updatedAt: at,
+    });
+    await this.tables.versions.put(approvedVersion.id, approvedVersion);
+    await this.tables.plans.put(approvedPlan.id, approvedPlan);
+    await this.recordPlanActivity(
+      actor,
+      approvedPlan,
+      `policy-approved:v${version.version}`,
+      `按 ${input.policy} 策略自动批准任务规划 v${version.version}：${input.reason}`,
     );
     return approvedPlan;
   }

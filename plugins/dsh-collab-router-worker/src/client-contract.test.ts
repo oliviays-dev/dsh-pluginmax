@@ -61,6 +61,32 @@ describe("Router / Worker client contract", () => {
     expect(source).not.toContain("`Router ${");
   });
 
+  it("keeps plan navigation and toolbar actions in the requested order", () => {
+    const header = source.slice(
+      source.indexOf('className: "pmrw-plan-head"'),
+      source.indexOf('className: "pmrw-plan-toolbar"'),
+    );
+    expect(header.indexOf("pmrw-plan-back")).toBeGreaterThan(-1);
+    expect(header.indexOf("pmrw-plan-back")).toBeLessThan(
+      header.indexOf("pmrw-plan-head-copy"),
+    );
+    expect(header).toContain('"aria-label": "返回对话"');
+    expect(header).toContain('h("path", { d: "M19 12H5" })');
+    expect(header).not.toContain("pmrw-plan-head-actions");
+
+    const toolbar = source.slice(
+      source.indexOf('className: "pmrw-plan-toolbar"'),
+      source.indexOf('className: "pmrw-plan-content"'),
+    );
+    expect(toolbar).toContain('"网络"');
+    expect(toolbar).not.toContain(
+      'onClick: () => setView("graph"),\n              },\n              "图",',
+    );
+    expect(toolbar.indexOf("planConfirmation.label")).toBeLessThan(
+      toolbar.indexOf('addOpen ? "取消添加" : "添加任务"'),
+    );
+  });
+
   it("keeps planning available for every task owner and supports Router selection", () => {
     expect(source).toContain("/router-agents?workspaceId=");
     expect(source).toContain("defaultRouterAgentId");
@@ -68,6 +94,21 @@ describe("Router / Worker client contract", () => {
     expect(source).toContain('"人工创建执行计划"');
     expect(source).toContain('"按预置工作流执行"');
     expect(source).toContain("plans/router/status?cycleId=");
+  });
+
+  it("gates AI planning behind workspace settings and reuses PlanCenter", () => {
+    expect(source).toContain("pluginmax.router-worker.planning.enabled.");
+    expect(source).toContain("locallyPlanningEnabled");
+    expect(source).toContain("/api/collab/router-worker/planning/settings?");
+    expect(source).toContain("/api/collab/router-worker/planning/start");
+    expect(source).toContain("/api/collab/router-worker/planning/status?runId=");
+    expect(source).toContain('"AI 规划"');
+    expect(source).toContain("await fetchPlan(props.taskId, props.workspaceId)");
+    expect(source).toContain("props.onOpenPlan()");
+    expect(source).not.toContain("new PlanEditor");
+    expect(source).toContain(".pmrw-planning-dialog");
+    expect(source).toContain("dialog.showModal()");
+    expect(source).toContain('className: "pmrw-planning-dialog"');
   });
 
   it("shows mode-specific configuration only after choosing a start action", () => {

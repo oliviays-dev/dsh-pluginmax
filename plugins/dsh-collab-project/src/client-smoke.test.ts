@@ -124,6 +124,16 @@ interface ClientExports {
     }[];
     formatFileSize(value: number): string;
     outputLoadErrorMessage(cause: unknown): string;
+    normalizeReportSchedule(value?: Record<string, unknown>): {
+      enabled: boolean;
+      frequency: string;
+      time: string;
+      timezone: string;
+      weekday: number;
+      dayOfMonth: number;
+    };
+    reportScheduleSummary(value?: Record<string, unknown>): string;
+    normalizeReportMarkdown(content: string): string;
     parseReportBlocks(content: string): readonly {
       type: string;
       text?: string;
@@ -614,6 +624,20 @@ describe("project management client", () => {
     ]);
   });
 
+  it("replaces the legacy technical report heading without rewriting snapshots", () => {
+    const { exports: client } = loadClientExports();
+    expect(
+      client.__test?.normalizeReportMarkdown(
+        "## RAG 结论\n\n项目健康度判定为「关注」。",
+      ),
+    ).toBe("## 一句话结论\n\n项目健康度判定为「关注」。");
+    expect(
+      client.__test?.normalizeReportMarkdown(
+        "## 指标快照\n\n- 当前未完成 3 项。",
+      ),
+    ).toBe("## 指标快照\n\n- 当前未完成 3 项。");
+  });
+
   it("exposes daily, weekly and progress report generation", () => {
     const source = readFileSync(CLIENT_PATH, "utf8");
     expect(source).toContain("项目日报");
@@ -621,6 +645,92 @@ describe("project management client", () => {
     expect(source).toContain("进度汇报");
     expect(source).toContain("reportType");
     expect(source).toContain('triggerSource: "button"');
+    expect(source).toContain("PM Agent 生成");
+    expect(source).toContain("模板回退");
+    expect(source).toContain('latest.generationMode === "agent"');
+  });
+
+  it("lands on project reports and keeps report controls in task order", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    const initialTab = source.indexOf('react.useState("reports")');
+    const reportsTab = source.indexOf('{ key: "reports", label: "项目日报"');
+    const membersTab = source.indexOf('label: "成员权限"');
+    const title = source.indexOf('h("h3", null, "项目日报")');
+    const typeSelect = source.indexOf('"aria-label": "项目汇报类型"');
+    const searchButton = source.indexOf('"搜索",');
+    const updateButton = source.indexOf('"更新日报",');
+    const setupButton = source.indexOf('"项目日报生成设置"');
+    expect(initialTab).toBeGreaterThan(-1);
+    expect(reportsTab).toBeGreaterThan(-1);
+    expect(reportsTab).toBeLessThan(membersTab);
+    expect(title).toBeGreaterThan(-1);
+    expect(typeSelect).toBeGreaterThan(title);
+    expect(searchButton).toBeGreaterThan(typeSelect);
+    expect(updateButton).toBeGreaterThan(searchButton);
+    expect(setupButton).toBeGreaterThan(updateButton);
+    expect(source).toContain("pmproj-report-setup");
+    expect(source).toContain("margin-left:auto");
+  });
+
+  it("keeps report settings discoverable for members as read-only", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    const updateStart = source.indexOf("title: canManage");
+    const setupStart = source.indexOf('"aria-label": "项目日报生成设置"');
+    const modalStart = source.indexOf("const renderReportScheduleModal");
+    const createModalStart = source.indexOf(
+      "const renderCreateModal",
+      modalStart,
+    );
+    expect(updateStart).toBeGreaterThan(-1);
+    expect(setupStart).toBeGreaterThan(updateStart);
+    expect(source.slice(updateStart, setupStart)).not.toContain(
+      "canManage\n                ? h(",
+    );
+    const modal = source.slice(modalStart, createModalStart);
+    expect(modal).toContain("disabled: !canManage");
+    expect(modal).toContain("仅项目负责人或平台管理员可以修改生成设置");
+    expect(modal).toContain('canManage ? "取消" : "关闭"');
+  });
+
+  it("normalizes the default report schedule and describes each frequency", () => {
+    const { exports: client } = loadClientExports();
+    const helpers = client.__test;
+    expect(helpers?.normalizeReportSchedule()).toMatchObject({
+      enabled: true,
+      frequency: "daily",
+      time: "08:00",
+      timezone: "Asia/Shanghai",
+    });
+    expect(
+      helpers?.reportScheduleSummary({
+        enabled: true,
+        frequency: "daily",
+        time: "08:00",
+      }),
+    ).toBe("每天 08:00");
+    expect(
+      helpers?.reportScheduleSummary({
+        enabled: true,
+        frequency: "weekdays",
+        time: "09:30",
+      }),
+    ).toBe("每个工作日 09:30");
+    expect(
+      helpers?.reportScheduleSummary({
+        enabled: true,
+        frequency: "weekly",
+        weekday: 3,
+        time: "10:15",
+      }),
+    ).toBe("每周三 10:15");
+    expect(
+      helpers?.reportScheduleSummary({
+        enabled: false,
+        frequency: "monthly",
+        dayOfMonth: 8,
+        time: "08:00",
+      }),
+    ).toBe("自动生成已停用");
   });
 
   it("computes project role draft diffs by code", () => {

@@ -34,9 +34,15 @@ import {
   type TaskPrincipalServiceLike,
 } from "./service.js";
 import type { TaskRecord } from "./types.js";
+import type {
+  TaskDispatchReadiness,
+  TaskDispatchReadinessVerdict,
+  TaskDispatchRequestedBy,
+} from "./readiness-gate.js";
 import {
   attachmentDocuments,
   collectDocuments,
+  collectRunFileChangeDocuments,
   loadWorkspaceEvidenceDocuments,
   materializeAgentOutputDocuments,
   mergeDocuments,
@@ -51,6 +57,11 @@ import {
 
 export { TaskError, TaskService, taskDomainSpec };
 export type { TaskActor, TaskRecord };
+export type {
+  TaskDispatchReadiness,
+  TaskDispatchReadinessVerdict,
+  TaskDispatchRequestedBy,
+};
 
 export const name = "dsh-collab-task";
 export const inject = ["storageDomain", "webServer"];
@@ -511,6 +522,23 @@ export function createTaskDocumentQueryService(
         (document) =>
           document.runId !== undefined && ownerRunIds.has(document.runId),
       );
+      const execution = agentService?.taskExecution?.(
+        task.id,
+        task.workspaceId,
+      );
+      const explicitDocuments = await collectRunFileChangeDocuments({
+        root,
+        events: (execution?.events ?? []).filter(
+          (event) =>
+            event.runId !== undefined && taskRunIds.has(event.runId),
+        ),
+        runActors: new Map(
+          ownerRuns.map((run) => [
+            run.id,
+            taskRunActorName(task, run),
+          ]),
+        ),
+      });
       const outputDocuments = await materializeAgentOutputDocuments({
         root,
         taskId: task.id,
@@ -526,6 +554,7 @@ export function createTaskDocumentQueryService(
       return {
         workspaceReady: true,
         documents: mergeDocuments([
+          ...explicitDocuments,
           ...documents,
           ...outputDocuments,
           ...(options.includeUploaded === false
@@ -1491,7 +1520,27 @@ async function taskDocumentBrief(
             output: run.output,
           })),
         }).catch(() => []);
+  const execution =
+    agent?.taskExecution?.(task.id, task.workspaceId) ?? undefined;
+  const explicitDocuments =
+    root === undefined
+      ? []
+      : await collectRunFileChangeDocuments({
+          root,
+          events: (execution?.events ?? []).filter(
+            (event) =>
+              event.runId !== undefined &&
+              ownerRuns.some((run) => run.id === event.runId),
+          ),
+          runActors: new Map(
+            ownerRuns.map((run) => [
+              run.id,
+              taskRunActorName(task, run),
+            ]),
+          ),
+        }).catch(() => []);
   return mergeDocuments([
+    ...explicitDocuments,
     ...produced,
     ...outputDocuments,
     ...attachmentDocuments(
@@ -1938,9 +1987,18 @@ async function dispatchTaskInstruction(
 }
 
 const attachmentUploadSchema = z.object({
+  kind: z.enum(["description", "acceptance"]).default("description"),
   name: z.string().min(1).max(300),
   mimeType: z.string().max(200).optional(),
   contentBase64: z.string().min(1).max(32_000_000),
+});
+const taskAttachmentDraftSchema = z.object({
+  kind: z.enum(["description", "acceptance"]).default("description"),
+  name: z.string().min(1).max(300),
+  size: z.number().int().nonnegative().optional(),
+  mimeType: z.string().max(200).optional(),
+  storedPath: z.string().min(1).max(500).optional(),
+  contentBase64: z.string().min(1).max(32_000_000).optional(),
 });
 const uploadInputSchema = attachmentUploadSchema.extend({
   taskId: z.string().min(1).max(160),
@@ -2028,6 +2086,7 @@ export interface TaskDispatchDependencies {
   readonly context?: (() => TaskContextServiceLike | undefined) | undefined;
   readonly permissions?:
     (() => TaskPermissionServiceLike | undefined) | undefined;
+  readonly readiness?: (() => TaskDispatchReadiness | undefined) | undefined;
 }
 
 export interface TaskDispatchOutcome {
@@ -2044,6 +2103,9 @@ export interface TaskDispatchService {
       readonly scene: "task" | "meeting";
       readonly objectId: string;
       readonly content: string;
+    },
+    options?: {
+      readonly requestedBy?: TaskDispatchRequestedBy | undefined;
     },
   ): Promise<TaskDispatchOutcome>;
 }
@@ -2280,8 +2342,9 @@ export function createTaskDispatcher(deps: TaskDispatchDependencies): (
     readonly objectId: string;
     readonly content: string;
   },
+  requestedBy?: TaskDispatchRequestedBy,
 ) => Promise<TaskDispatchOutcome> {
-  return async (task, currentActor, trigger, contextOverride) => {
+  return async (task, currentActor, trigger, contextOverride, requestedBy) => {
     try {
       const permission = deps.permissions?.();
       if (
@@ -2300,6 +2363,32 @@ export function createTaskDispatcher(deps: TaskDispatchDependencies): (
             "forbidden",
             decision.reasons.join("；") || "项目权限与负责人权限交集不足",
           );
+        }
+      }
+      const readiness = deps.readiness?.();
+      if (readiness !== undefined && task.receiverType === "agent") {
+        let verdict: TaskDispatchReadinessVerdict;
+        try {
+          verdict = await readiness.inspect({
+            task,
+            workspaceId: task.workspaceId,
+            requestedBy: requestedBy ?? "manual",
+          });
+        } catch {
+          verdict = { ready: true };
+        }
+        if (!verdict.ready) {
+          return {
+            task,
+            execution: {
+              status: "deferred",
+              reason: verdict.code,
+              message: verdict.message,
+              ...(verdict.retryToken === undefined
+                ? {}
+                : { retryToken: verdict.retryToken }),
+            },
+          };
         }
       }
       const run = await dispatchTaskInstruction(
@@ -2353,6 +2442,7 @@ export function createTaskRoutes(
   principalRuntime?: () => PrincipalRuntimeServiceLike | undefined,
   context?: () => TaskContextServiceLike | undefined,
   documents?: TaskDocumentQueryService,
+  readiness?: () => TaskDispatchReadiness | undefined,
 ): WebRouteLike[] {
   const documentQuery =
     documents ??
@@ -2593,6 +2683,7 @@ export function createTaskRoutes(
     teammates,
     principalRuntime,
     context,
+    readiness,
   });
   const activeRunStatuses = ["queued", "running", "waiting_input"];
   const activeAgentRunIds = (task: TaskRecord): string[] => {
@@ -2654,6 +2745,7 @@ export function createTaskRoutes(
       readonly objectId: string;
       readonly content: string;
     },
+    requestedBy: TaskDispatchRequestedBy = "manual",
   ): Promise<TaskDispatchOutcome> => {
     if (task.receiverType !== "agent" || task.receiverId === undefined) {
       return { task, execution: { status: "not-agent" } };
@@ -2666,7 +2758,7 @@ export function createTaskRoutes(
     if (!dependenciesSatisfied(task, byId)) {
       return { task, execution: { status: "blocked-dependency" } };
     }
-    return dispatchTask(task, currentActor, trigger, contextOverride);
+    return dispatchTask(task, currentActor, trigger, contextOverride, requestedBy);
   };
   const dispatchUnlockedDependents = async (
     completedTask: TaskRecord,
@@ -2688,7 +2780,13 @@ export function createTaskRoutes(
       ) {
         continue;
       }
-      await dispatchTaskWhenReady(dependent, actorForTaskAutomation(dependent));
+      await dispatchTaskWhenReady(
+        dependent,
+        actorForTaskAutomation(dependent),
+        undefined,
+        undefined,
+        "dependency",
+      );
     }
   };
   service.subscribeChanges((changed) => {
@@ -2813,7 +2911,10 @@ export function createTaskRoutes(
         }
         const cancelledRunIds = await cancelTaskAgentRuns(task);
         return {
-          task: service.get(task.id),
+          task: await service.updateQueueItem(currentActor, {
+            taskId: task.id,
+            queueState: "paused",
+          }),
           cancelledRunIds,
           failedRunIds: [],
         };
@@ -2896,6 +2997,7 @@ export function createTaskRoutes(
                 currentActor.name,
               );
               uploaded.push({
+                kind: attachment.kind,
                 name: document.name,
                 size: document.size,
                 mimeType: document.mimeType,
@@ -2910,7 +3012,13 @@ export function createTaskRoutes(
           if (task.receiverType !== "agent" || task.receiverId === undefined) {
             return { task };
           }
-          return dispatchTaskWhenReady(task, currentActor);
+          return dispatchTaskWhenReady(
+            task,
+            currentActor,
+            undefined,
+            undefined,
+            "assignment",
+          );
         },
         32 * 1024 * 1024,
       ),
@@ -2928,10 +3036,86 @@ export function createTaskRoutes(
           task.receiverId !== undefined &&
           task.status === "todo"
         ) {
-          return dispatchTaskWhenReady(task, currentActor);
+          return dispatchTaskWhenReady(
+            task,
+            currentActor,
+            undefined,
+            undefined,
+            "dependency",
+          );
         }
         return { task };
       }),
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/tasks/attachments/update",
+      handler: mutate(
+        async (_request, currentActor, body) => {
+          const parsed = z
+            .object({
+              taskId: z.string().min(1).max(160),
+              attachments: z.array(taskAttachmentDraftSchema).max(20),
+            })
+            .parse(body);
+          const task = service.get(parsed.taskId);
+          const existingByPath = new Map(
+            task.attachments.flatMap((attachment) =>
+              attachment.storedPath === undefined
+                ? []
+                : [[attachment.storedPath, attachment] as const],
+            ),
+          );
+          const root = workspaceRoot(task);
+          const attachments = [];
+          for (const draft of parsed.attachments) {
+            if (draft.contentBase64 !== undefined) {
+              if (root === undefined) {
+                throw new TaskError("conflict", "任务工作区不可用");
+              }
+              const document = await persistTaskUpload(
+                root,
+                task.id,
+                {
+                  kind: draft.kind,
+                  name: draft.name,
+                  ...(draft.mimeType === undefined
+                    ? {}
+                    : { mimeType: draft.mimeType }),
+                  contentBase64: draft.contentBase64,
+                },
+                currentActor.name,
+              );
+              attachments.push({
+                kind: draft.kind,
+                name: document.name,
+                size: document.size,
+                mimeType: document.mimeType,
+                storedPath: document.relativePath,
+              });
+              continue;
+            }
+            const existing =
+              draft.storedPath === undefined
+                ? undefined
+                : existingByPath.get(draft.storedPath);
+            if (existing === undefined) {
+              throw new TaskError(
+                "invalid_input",
+                "只能保留当前任务已有的附件",
+              );
+            }
+            attachments.push(existing);
+          }
+          return {
+            task: await service.setDescriptionAttachments(currentActor, {
+              taskId: task.id,
+              attachments,
+            }),
+          };
+        },
+        32 * 1024 * 1024,
+      ),
     },
     {
       kind: "exact",
@@ -3025,7 +3209,7 @@ export function createTaskRoutes(
             taskId: z.string().min(1).max(160),
             queueState: z.enum(["idle", "blocked", "paused"]).optional(),
             autoRunEligible: z.boolean().optional(),
-            dependsOn: z.array(z.string().min(1).max(160)).max(1).optional(),
+            dependsOn: z.array(z.string().min(1).max(160)).max(50).optional(),
           })
           .safeParse(body);
         if (!parsed.success) {
@@ -3065,7 +3249,13 @@ export function createTaskRoutes(
         ) {
           return { task };
         }
-        return dispatchTaskWhenReady(task, currentActor);
+        return dispatchTaskWhenReady(
+          task,
+          currentActor,
+          undefined,
+          undefined,
+          "assignment",
+        );
       }),
     },
     {
@@ -3689,8 +3879,7 @@ export async function apply(ctx: TaskContext): Promise<void> {
       workspaces,
     );
     child.provide("collabTaskDocuments", taskDocuments);
-    const dispatchService: TaskDispatchService = {
-      dispatch: createTaskDispatcher({
+    const dispatch = createTaskDispatcher({
         service,
         team: child.collabTeam,
         employees,
@@ -3707,7 +3896,20 @@ export async function apply(ctx: TaskContext): Promise<void> {
         permissions: () =>
           child.get("collabPermission") as
             TaskPermissionServiceLike | undefined,
-      }),
+        readiness: () =>
+          child.get("collabTaskDispatchReadiness") as
+            | TaskDispatchReadiness
+            | undefined,
+      });
+    const dispatchService: TaskDispatchService = {
+      dispatch: (task, actor, context, options) =>
+        dispatch(
+          task,
+          actor,
+          undefined,
+          context,
+          options?.requestedBy,
+        ),
     };
     child.provide("collabTaskDispatch", dispatchService);
     taskDispatchService = dispatchService;
@@ -3730,6 +3932,10 @@ export async function apply(ctx: TaskContext): Promise<void> {
           PrincipalRuntimeServiceLike | undefined,
       () => child.get("collabContext") as TaskContextServiceLike | undefined,
       taskDocuments,
+      () =>
+        child.get("collabTaskDispatchReadiness") as
+          | TaskDispatchReadiness
+          | undefined,
     ).map((route) => child.webServer.register(route) as () => void);
     child.effect(() => () => {
       for (const dispose of disposers) dispose();

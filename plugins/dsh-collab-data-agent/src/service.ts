@@ -53,6 +53,23 @@ export interface DataAgentAccess {
   readonly canManageWorkspace: boolean;
 }
 
+export const DATA_AGENT_TITLE_MAX_CHARS = 18;
+
+/** Data Agent 会话标题统一提炼为一行、最多 18 个字符。 */
+export function summarizeConversationTitle(value: string): string {
+  const text = String(value ?? "")
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/[#>*_`~]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (text === "") return "Data Agent 会话";
+  const characters = Array.from(text);
+  if (characters.length <= DATA_AGENT_TITLE_MAX_CHARS) return text;
+  return `${characters
+    .slice(0, DATA_AGENT_TITLE_MAX_CHARS - 1)
+    .join("")}…`;
+}
+
 export class DataAgentError extends Error {
   constructor(
     readonly code:
@@ -607,7 +624,7 @@ export class DataAgentService {
       ...(input.teammateInstanceId === undefined
         ? {}
         : { teammateInstanceId: input.teammateInstanceId }),
-      title: input.title?.trim() || "Data Agent 会话",
+      title: summarizeConversationTitle(input.title ?? ""),
       visibility,
       sourcePage: input.page,
       ...(input.timeRange === undefined ? {} : { timeRange: input.timeRange }),
@@ -790,7 +807,7 @@ export class DataAgentService {
         updatedAt: timestamp,
         title:
           conversation.title === "Data Agent 会话"
-            ? message.content.slice(0, 80)
+            ? summarizeConversationTitle(message.content)
             : conversation.title,
       }),
     );

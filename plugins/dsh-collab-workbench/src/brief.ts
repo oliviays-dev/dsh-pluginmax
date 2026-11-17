@@ -62,9 +62,7 @@ export function localDayStamp(
   tzOffsetMinutes: number,
 ): string {
   const millis =
-    value instanceof Date
-      ? value.getTime()
-      : (parseTime(value) ?? Date.now());
+    value instanceof Date ? value.getTime() : (parseTime(value) ?? Date.now());
   const shifted = new Date(millis + tzOffsetMinutes * 60_000);
   return [
     shifted.getUTCFullYear().toString().padStart(4, "0"),
@@ -197,7 +195,9 @@ function candidateRecord(input: {
     ...(prior?.readVia === undefined ? {} : { readVia: prior.readVia }),
     priorityScore: candidate.priorityScore,
     occurredAt: candidate.occurredAt,
-    ...(candidate.deadline === undefined ? {} : { deadline: candidate.deadline }),
+    ...(candidate.deadline === undefined
+      ? {}
+      : { deadline: candidate.deadline }),
     deepLink: candidate.deepLink,
     workspaceId: candidate.workspaceId,
     workspaceName: candidate.workspaceName,
@@ -420,6 +420,227 @@ const TAG_LABEL: Record<BriefItemRecord["tag"], string> = {
 
 export function briefTagLabel(tag: BriefItemRecord["tag"]): string {
   return TAG_LABEL[tag];
+}
+
+export type BriefProjectStateKey =
+  | "settled"
+  | "advancing"
+  | "needs_review"
+  | "needs_decision"
+  | "needs_action"
+  | "blocked";
+
+export interface BriefProjectState {
+  key: BriefProjectStateKey;
+  label: string;
+  tone: "success" | "accent" | "warning" | "danger";
+  priority: number;
+  reason: string;
+}
+
+export interface BriefProjectSummaryLine {
+  kind: "progress" | "attention" | "next";
+  label: string;
+  text: string;
+}
+
+export interface BriefProjectDigest {
+  workspaceId: string;
+  workspaceName: string;
+  state: BriefProjectState;
+  lines: BriefProjectSummaryLine[];
+  itemIds: string[];
+}
+
+/**
+ * 项目简报状态机只沿“收敛 -> 推进 -> 确认 -> 决策 -> 处置 -> 受阻”升级。
+ * 没有新的关注信号时向回落；同一快照内取当前命中的最高优先级状态。
+ */
+export const BRIEF_PROJECT_STATE_MACHINE: Readonly<
+  Record<BriefProjectStateKey, BriefProjectState>
+> = {
+  settled: {
+    key: "settled",
+    label: "已收敛",
+    tone: "success",
+    priority: 0,
+    reason: "当前没有需要继续关注的项目信号。",
+  },
+  advancing: {
+    key: "advancing",
+    label: "正常推进",
+    tone: "accent",
+    priority: 1,
+    reason: "项目有有效进展，且没有阻塞或待决策事项。",
+  },
+  needs_review: {
+    key: "needs_review",
+    label: "等待确认",
+    tone: "accent",
+    priority: 2,
+    reason: "项目结果已经形成，正在等待复核、确认或验收。",
+  },
+  needs_decision: {
+    key: "needs_decision",
+    label: "等待决策",
+    tone: "warning",
+    priority: 3,
+    reason: "项目存在需要人工决定或协调后才能继续的事项。",
+  },
+  needs_action: {
+    key: "needs_action",
+    label: "需优先处置",
+    tone: "danger",
+    priority: 4,
+    reason: "项目存在尚未解除的业务异常或推进风险。",
+  },
+  blocked: {
+    key: "blocked",
+    label: "推进受阻",
+    tone: "danger",
+    priority: 5,
+    reason: "项目关键流程已阻塞或执行已中断，需要立即介入。",
+  },
+};
+
+export const BRIEF_PROJECT_STATE_ORDER: readonly BriefProjectStateKey[] = [
+  "blocked",
+  "needs_action",
+  "needs_decision",
+  "needs_review",
+  "advancing",
+  "settled",
+];
+
+function briefProjectActiveItems(
+  items: readonly BriefItemRecord[],
+): BriefItemRecord[] {
+  return items.filter((item) => item.resolved !== true);
+}
+
+export function resolveBriefProjectState(
+  items: readonly BriefItemRecord[],
+): BriefProjectState {
+  const active = briefProjectActiveItems(items);
+  const risks = active.filter((item) => item.section === "risk");
+  const escalations = active.filter((item) => item.section === "escalation");
+  const blocked = risks.some(
+    (item) =>
+      item.condition.kind === "workflow-blocked" ||
+      /阻塞|中断|失败|越权|预算耗尽/u.test(`${item.statusLabel} ${item.title}`),
+  );
+  if (blocked) return BRIEF_PROJECT_STATE_MACHINE.blocked;
+  if (risks.length > 0) return BRIEF_PROJECT_STATE_MACHINE.needs_action;
+  if (escalations.length > 0) {
+    return BRIEF_PROJECT_STATE_MACHINE.needs_decision;
+  }
+  if (
+    active.some(
+      (item) =>
+        item.tag === "review" ||
+        /待复核|待确认|待验收|待处理|待评估/u.test(item.statusLabel),
+    )
+  ) {
+    return BRIEF_PROJECT_STATE_MACHINE.needs_review;
+  }
+  if (active.length > 0) return BRIEF_PROJECT_STATE_MACHINE.advancing;
+  return BRIEF_PROJECT_STATE_MACHINE.settled;
+}
+
+function briefProjectText(value: string, maxLength = 32): string {
+  const clean = value.replace(/\s+/gu, " ").trim();
+  const characters = Array.from(clean);
+  return characters.length > maxLength
+    ? `${characters.slice(0, maxLength).join("")}…`
+    : clean;
+}
+
+function briefProjectSummary(
+  items: readonly BriefItemRecord[],
+): BriefProjectSummaryLine[] {
+  const active = briefProjectActiveItems(items);
+  const progress = active.filter((item) => item.section === "conclusion");
+  const risks = active.filter((item) => item.section === "risk");
+  const escalations = active.filter((item) => item.section === "escalation");
+  const progressText =
+    progress.length === 0
+      ? "本期暂无已确认结果。"
+      : `${progress
+          .slice(0, 2)
+          .map((item) => briefProjectText(item.title))
+          .join("、")}${
+          progress.length > 2 ? `等 ${progress.length} 项` : ""
+        }已形成阶段性结果。`;
+  const attentionCounts = [
+    risks.length > 0 ? `${risks.length} 项异常` : "",
+    escalations.length > 0 ? `${escalations.length} 项待处理` : "",
+  ].filter(Boolean);
+  const attentionLead = risks[0] ?? escalations[0];
+  const attentionText =
+    attentionLead === undefined
+      ? "当前没有新增异常或待决策事项。"
+      : `${attentionCounts.join("、")}，优先关注「${briefProjectText(
+          attentionLead.title,
+        )}」。`;
+  const state = resolveBriefProjectState(items);
+  const nextText =
+    state.key === "blocked" || state.key === "needs_action"
+      ? `先${risks[0]?.actionLabel || "处置"}「${briefProjectText(
+          risks[0]?.title ?? attentionLead?.title ?? "",
+        )}」。`
+      : state.key === "needs_decision"
+        ? `先确认「${briefProjectText(
+            escalations[0]?.title ?? attentionLead?.title ?? "",
+          )}」。`
+        : state.key === "needs_review"
+          ? "完成复核或验收后再关闭当前事项。"
+          : state.key === "advancing"
+            ? "当前无新增风险，按既定计划继续推进。"
+            : "当前进展已收敛，无需额外操作。";
+  return [
+    { kind: "progress", label: "关键进展", text: progressText },
+    { kind: "attention", label: "需要关注", text: attentionText },
+    { kind: "next", label: "建议", text: nextText },
+  ];
+}
+
+function briefProjectKey(item: BriefItemRecord): string {
+  return item.workspaceId || item.workspaceName || "unassigned";
+}
+
+export function briefProjectDigests(
+  items: readonly BriefItemRecord[],
+): BriefProjectDigest[] {
+  const byProject = new Map<string, BriefItemRecord[]>();
+  for (const item of items) {
+    const key = briefProjectKey(item);
+    const current = byProject.get(key) ?? [];
+    current.push(item);
+    byProject.set(key, current);
+  }
+  return [...byProject.entries()]
+    .map(([key, projectItems]) => {
+      const sorted = [...projectItems].sort(
+        (left, right) =>
+          right.priorityScore - left.priorityScore ||
+          right.occurredAt.localeCompare(left.occurredAt),
+      );
+      const workspaceName =
+        sorted.find((item) => item.workspaceName.trim() !== "")
+          ?.workspaceName ?? "未归属项目";
+      return {
+        workspaceId: sorted[0]?.workspaceId ?? key,
+        workspaceName,
+        state: resolveBriefProjectState(sorted),
+        lines: briefProjectSummary(sorted),
+        itemIds: sorted.map((item) => item.itemId),
+      } satisfies BriefProjectDigest;
+    })
+    .sort(
+      (left, right) =>
+        right.state.priority - left.state.priority ||
+        left.workspaceName.localeCompare(right.workspaceName, "zh-CN"),
+    );
 }
 
 /**

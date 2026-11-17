@@ -16,6 +16,7 @@ import {
 import {
   projectHealthSchema,
   projectMemberKindSchema,
+  projectReportScheduleSchema,
   projectReportTypeSchema,
   projectRoleDefinitionSchema,
   projectStatusSchema,
@@ -26,6 +27,7 @@ import {
   type ProjectRecord,
   type ProjectRoleDefinition,
   type ProjectReportRecord,
+  type ProjectReportSchedule,
   type ProjectReportType,
   type ProjectRoleRecord,
   type ProjectTemplateRecord,
@@ -42,6 +44,7 @@ export type {
   ProjectRecord,
   ProjectRoleDefinition,
   ProjectReportRecord,
+  ProjectReportSchedule,
   ProjectRoleRecord,
   ProjectTemplateRecord,
   RoleMappingAssignee,
@@ -282,6 +285,22 @@ interface TeammateRuntimeLike {
       readonly role: GlobalRole;
     };
   }): Promise<TeammateLike | undefined>;
+  ensureRuntime?(input: {
+    readonly teammateId: string;
+    readonly workspaceId: string;
+    readonly actor: {
+      readonly userId: string;
+      readonly name: string;
+      readonly role: GlobalRole;
+    };
+    readonly workspaceRole?: MemberRole | undefined;
+  }): Promise<{
+    readonly teammateId: string;
+    readonly principalId?: string | undefined;
+    readonly profileId: string;
+    readonly personaId?: string | undefined;
+    readonly execution?: "builtin" | "external" | undefined;
+  }>;
 }
 
 interface TaskLike {
@@ -557,7 +576,7 @@ interface DataAgentOutputServiceLike {
   report(reportId: string): DataAgentReportOutputLike;
 }
 
-interface ProjectDependencies {
+export interface ProjectDependencies {
   readonly team: TeamServiceLike;
   readonly workspaces: WorkspaceRegistryLike;
   readonly assignments: () => AssignmentServiceLike | undefined;
@@ -572,6 +591,7 @@ interface ProjectDependencies {
   readonly dataAgent?: () => DataAgentOutputServiceLike | undefined;
   readonly principals?: () => PrincipalServiceLike | undefined;
   readonly skillCatalog?: () => ProjectSkillCatalogLike | undefined;
+  readonly agent?: () => ProjectAgentServiceLike | undefined;
   readonly now?: () => Date;
 }
 
@@ -583,6 +603,8 @@ interface ProjectReportAgentRunLike {
   readonly createdBy: string;
   readonly sessionId?: string | undefined;
   readonly status: string;
+  readonly output?: { readonly summary: string } | undefined;
+  readonly error?: string | undefined;
 }
 
 interface ProjectReportAgentServiceLike {
@@ -590,6 +612,40 @@ interface ProjectReportAgentServiceLike {
     readonly workspaceId?: string | undefined;
     readonly instanceId?: string | undefined;
   }): readonly ProjectReportAgentRunLike[];
+}
+
+interface ProjectAgentServiceLike {
+  run?(runId: string): ProjectReportAgentRunLike | undefined;
+  runs(filter?: {
+    readonly workspaceId?: string | undefined;
+    readonly instanceId?: string | undefined;
+  }): readonly ProjectReportAgentRunLike[];
+  dispatch(input: {
+    readonly workspaceId: string;
+    readonly workspacePath?: string | undefined;
+    readonly profileId: string;
+    readonly source: "chat";
+    readonly instanceId: string;
+    readonly nodeId: string;
+    readonly dispatchKey: string;
+    readonly trigger: "manual-dispatch";
+    readonly attempt: number;
+    readonly runSeq: number;
+    readonly maxAttempts: number;
+    readonly timeoutMs: number;
+    readonly personaId?: string | undefined;
+    readonly principalId?: string | undefined;
+    readonly principalType?: "principal-runtime" | undefined;
+    readonly payload: {
+      readonly instanceTitle: string;
+      readonly nodeName: string;
+      readonly nodeDescription: string;
+      readonly profileName: string;
+      readonly deliverables: readonly [];
+      readonly context: Readonly<Record<string, string | number | boolean>>;
+    };
+    readonly createdBy: string;
+  }): Promise<ProjectReportAgentRunLike>;
 }
 
 interface ProjectSkillCatalogLike {
@@ -719,6 +775,61 @@ function scopeLabel(permissions: readonly string[]): string {
 
 function nowIso(now: () => Date): string {
   return now().toISOString();
+}
+
+export interface ProjectReportScheduleClock {
+  readonly date: string;
+  readonly time: string;
+  readonly weekday: number;
+  readonly dayOfMonth: number;
+}
+
+/** 按计划时区计算日期、时间与周几，避免依赖服务端进程本地时区。 */
+export function projectReportScheduleClock(
+  value: Date,
+  timezone = "Asia/Shanghai",
+): ProjectReportScheduleClock {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(value);
+  const part = (type: Intl.DateTimeFormatPartTypes): string =>
+    parts.find((item) => item.type === type)?.value ?? "";
+  const year = part("year");
+  const month = part("month");
+  const day = part("day");
+  const date = `${year}-${month}-${day}`;
+  return {
+    date,
+    time: `${part("hour").padStart(2, "0")}:${part("minute").padStart(2, "0")}`,
+    weekday: new Date(
+      Date.UTC(Number(year), Number(month) - 1, Number(day)),
+    ).getUTCDay(),
+    dayOfMonth: Number(day),
+  };
+}
+
+/** 判断计划在本次调度检查时是否到期；到达时间后当天仍会补跑。 */
+export function isProjectReportScheduleDue(
+  schedule: ProjectReportSchedule,
+  clock: ProjectReportScheduleClock,
+): boolean {
+  if (!schedule.enabled || clock.time < schedule.time) return false;
+  if (schedule.frequency === "weekdays") {
+    return clock.weekday >= 1 && clock.weekday <= 5;
+  }
+  if (schedule.frequency === "weekly") {
+    return clock.weekday === schedule.weekday;
+  }
+  if (schedule.frequency === "monthly") {
+    return clock.dayOfMonth === schedule.dayOfMonth;
+  }
+  return true;
 }
 
 function dateOf(iso: string): string {
@@ -2295,7 +2406,7 @@ function assessProjectReport(input: ReportInput): ProjectReportAssessment {
 }
 
 /**
- * 项目日报正文：按 senior-pm 的 RAG、计划偏差和风险登记册思路生成。
+ * 项目日报正文：按 senior-pm 的健康度、计划偏差和风险登记册思路生成。
  * 只汇总已确认结果与需要关注的异常，不把“最近更新的任务”当作进展。
  */
 export function buildProjectReportContent(input: ReportInput): string {
@@ -2340,7 +2451,7 @@ export function buildProjectReportContent(input: ReportInput): string {
             next: "需要支持或决策",
           }
         : {
-            conclusion: "RAG 结论",
+            conclusion: "一句话结论",
             snapshot: "指标快照",
             results: "关键结果",
             risks: "风险与异常",
@@ -3139,79 +3250,14 @@ export function createProjectRoutes(
     project: ProjectRecord;
     teammate: TeammateLike | undefined;
     warning?: string;
-  }> => {
-    const teammates = dependencies.teammates();
-    if (teammates?.ensureProjectManagerAgent === undefined) {
-      return {
-        project: initialProject,
-        teammate: undefined,
-        warning: "AI伙伴服务不可用，项目经理未初始化",
-      };
-    }
-    const userName =
-      team.users().find((user) => user.id === current.userId)?.name ??
-      current.userId;
-    const teammateActor = {
-      userId: current.userId,
-      name: userName,
-      role: globalRoleOf(current.role),
-    };
-    let project = initialProject;
-    let teammate: TeammateLike | undefined;
-    try {
-      teammate = await teammates.ensureProjectManagerAgent({
-        workspaceId: workspace.id,
-        projectName: workspace.title,
-        actor: teammateActor,
-      });
-      const systemRole = service.role("role-pm");
-      if (
-        systemRole !== undefined &&
-        !project.projectRoles.some((role) => role.id === "role-pm")
-      ) {
-        const timestamp = nowIso(now);
-        project = await service.upsertProject({
-          workspaceId: workspace.id,
-          projectRoles: [
-            {
-              id: systemRole.id,
-              name: systemRole.name,
-              code: systemRole.code,
-              category: systemRole.category,
-              description: systemRole.description,
-              permissions: [...systemRole.permissions],
-            },
-            ...project.projectRoles,
-          ],
-          rolesInitialized: true,
-          rolesRevision: project.rolesRevision + 1,
-          rolesUpdatedAt: timestamp,
-          rolesUpdatedBy: current.userId,
-        });
-      }
-      const assignments = dependencies.assignments();
-      if (assignments !== undefined && systemRole !== undefined) {
-        const roleActor = actorOf(current, team, workspace.id);
-        await syncProjectSeats(service, assignments, roleActor, project, now);
-        await assignments.assign(roleActor, {
-          workspaceId: workspace.id,
-          seatId: "role-pm",
-          assigneeKind: "agent",
-          assigneeId: teammate.id,
-        });
-      }
-      return { project, teammate };
-    } catch (cause) {
-      return {
-        project,
-        teammate,
-        warning:
-          cause instanceof Error
-            ? `项目经理初始化失败：${cause.message}`
-            : "项目经理初始化失败",
-      };
-    }
-  };
+  }> =>
+    ensureProjectManagerInstance({
+      service,
+      dependencies,
+      current,
+      workspace,
+      project: initialProject,
+    });
 
   /**
    * 新建项目：把一个已存在的本地目录注册为 DSH 工作区（项目），
@@ -4725,6 +4771,58 @@ export function createProjectRoutes(
     }
   };
 
+  const reportScheduleUpdate = async (
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> => {
+    try {
+      assertSameOrigin(request);
+      const body = await readBodyAs(
+        request,
+        z.object({
+          workspaceId: z.string().trim().min(1).max(160),
+          schedule: projectReportScheduleSchema,
+        }),
+      );
+      const current = requireProjectManager(request, team, body.workspaceId);
+      const workspace = workspaces.get(body.workspaceId);
+      if (workspace === undefined) {
+        throw new ProjectError("not_found", "项目不存在");
+      }
+      const project = await ensureProjectRecord(workspace);
+      const updated = await service.upsertProject({
+        workspaceId: body.workspaceId,
+        reportSchedule: body.schedule,
+      });
+      await appendProjectAudit(current, body.workspaceId, {
+        category: "report",
+        action: "report.schedule.update",
+        targetId: body.workspaceId,
+        targetName: workspace.title,
+        summary: `更新项目日报生成设置`,
+        detail: {
+          自动生成: body.schedule.enabled ? "启用" : "停用",
+          频次: body.schedule.frequency,
+          时间: body.schedule.time,
+          时区: body.schedule.timezone,
+          ...(body.schedule.frequency === "weekly"
+            ? { 星期: String(body.schedule.weekday) }
+            : {}),
+          ...(body.schedule.frequency === "monthly"
+            ? { 日期: String(body.schedule.dayOfMonth) }
+            : {}),
+          原时间: project.reportSchedule.time,
+        },
+      });
+      sendJson(response, 200, {
+        ok: true,
+        reportSchedule: updated.reportSchedule,
+      });
+    } catch (cause) {
+      routeError(response, cause);
+    }
+  };
+
   const reportsGenerate = async (
     request: IncomingMessage,
     response: ServerResponse,
@@ -4752,22 +4850,16 @@ export function createProjectRoutes(
       }
       const date = body.date ?? today();
       const timestamp = nowIso(now);
-      let project = await ensureProjectRecord(workspace);
-      let projectManager = dependencies
-        .teammates()
-        ?.projectManagerFor?.(body.workspaceId);
-      if (projectManager === undefined) {
-        const manager = await provisionProjectManager(
-          current,
-          workspace,
-          project,
-        );
-        project = manager.project;
-        projectManager = manager.teammate;
-      }
+      const initialProject = await ensureProjectRecord(workspace);
+      const manager = await provisionProjectManager(
+        current,
+        workspace,
+        initialProject,
+      );
+      const project = manager.project;
+      const projectManager = manager.teammate;
       const tasks = tasksOf(body.workspaceId);
       const workflows = workflowsOf(body.workspaceId);
-      const runId = `report-run-${randomUUID()}`;
       const reportTypeLabel =
         body.reportType === "weekly"
           ? "项目周报"
@@ -4783,6 +4875,18 @@ export function createProjectRoutes(
             { requireInstallation: false },
           )
       )?.[0];
+      const generatedReport = await generateProjectReportContent({
+        dependencies,
+        workspace,
+        project,
+        projectManager,
+        current,
+        tasks,
+        workflows,
+        date,
+        reportType: body.reportType,
+      });
+      const runId = generatedReport.agentRunId ?? `report-run-${randomUUID()}`;
       const report = await service.saveReport({
         workspaceId: body.workspaceId,
         date,
@@ -4800,18 +4904,15 @@ export function createProjectRoutes(
         skillId: "skill-project-reporting",
         skillVersion: reportSkill?.version ?? "1.0.0",
         triggerSource: body.triggerSource,
+        generationMode: generatedReport.generationMode,
+        ...(generatedReport.generationError === undefined
+          ? {}
+          : { generationError: generatedReport.generationError }),
         sourceRefs: [
           ...tasks.map((task) => `task:${task.id}`),
           ...workflows.map((workflow) => `workflow:${workflow.id}`),
         ],
-        content: buildProjectReportContent({
-          project,
-          workspace,
-          tasks,
-          workflows,
-          today: date,
-          reportType: body.reportType,
-        }),
+        content: generatedReport.content,
       });
       await appendProjectAudit(current, body.workspaceId, {
         category: "report",
@@ -4825,6 +4926,10 @@ export function createProjectRoutes(
           触发来源: body.triggerSource,
           运行ID: runId,
           撰写人: report.generatedBy,
+          生成方式: generatedReport.generationMode,
+          ...(generatedReport.generationError === undefined
+            ? {}
+            : { 回退原因: generatedReport.generationError }),
           ...(projectManager === undefined
             ? {}
             : { 项目经理: projectManager.name }),
@@ -4966,6 +5071,11 @@ export function createProjectRoutes(
     { kind: "exact", path: "/api/collab/projects/reports", handler: reports },
     {
       kind: "exact",
+      path: "/api/collab/projects/reports/schedule",
+      handler: reportScheduleUpdate,
+    },
+    {
+      kind: "exact",
       path: "/api/collab/projects/reports/generate",
       handler: reportsGenerate,
     },
@@ -5004,6 +5114,10 @@ export function followWorkspaceProjects(
   team: TeamServiceLike,
   workspaces: WorkspaceRegistryLike,
   controller: WorkspaceControllerLike,
+  onProvisioned?: (
+    workspace: WorkspaceLike,
+    project: ProjectRecord,
+  ) => Promise<void> | void,
 ): () => void {
   const abort = new AbortController();
   void (async () => {
@@ -5013,7 +5127,16 @@ export function followWorkspaceProjects(
           for (const item of frame.value?.items ?? []) {
             const id = item.workspaceId ?? item.id;
             if (id !== undefined) {
-              await provisionProject(service, team, workspaces, id);
+              const project = await provisionProject(
+                service,
+                team,
+                workspaces,
+                id,
+              );
+              const workspace = workspaces.get(id);
+              if (project !== undefined && workspace !== undefined) {
+                await onProvisioned?.(workspace, project);
+              }
             }
           }
           continue;
@@ -5021,7 +5144,16 @@ export function followWorkspaceProjects(
         if (frame.type === "upsert") {
           const id = frame.workspace?.workspaceId ?? frame.workspace?.id;
           if (id !== undefined) {
-            await provisionProject(service, team, workspaces, id);
+            const project = await provisionProject(
+              service,
+              team,
+              workspaces,
+              id,
+            );
+            const workspace = workspaces.get(id);
+            if (project !== undefined && workspace !== undefined) {
+              await onProvisioned?.(workspace, project);
+            }
           }
         }
       }
@@ -5030,6 +5162,647 @@ export function followWorkspaceProjects(
     }
   })();
   return () => abort.abort();
+}
+
+function scheduledReportActor(
+  project: ProjectRecord,
+  team: TeamServiceLike,
+): TeamPrincipalLike {
+  const ownerId =
+    project.ownerId ??
+    team
+      .members(project.workspaceId)
+      .find((member) => member.memberRole === "owner")?.userId;
+  const user = team.users().find((candidate) => candidate.id === ownerId);
+  if (user !== undefined) {
+    return { userId: user.id, role: globalRoleOf(user.role) };
+  }
+  const admin = team.users().find((candidate) => candidate.role === "admin");
+  return admin === undefined
+    ? { userId: "system", role: "admin" }
+    : { userId: admin.id, role: "admin" };
+}
+
+export async function ensureProjectManagerInstance(input: {
+  readonly service: ProjectService;
+  readonly dependencies: ProjectDependencies;
+  readonly current: TeamPrincipalLike;
+  readonly workspace: WorkspaceLike;
+  readonly project: ProjectRecord;
+}): Promise<{
+  readonly project: ProjectRecord;
+  readonly teammate: TeammateLike | undefined;
+  readonly warning?: string;
+}> {
+  const { service, dependencies, current, workspace } = input;
+  const teammates = dependencies.teammates();
+  if (teammates?.ensureProjectManagerAgent === undefined) {
+    return {
+      project: input.project,
+      teammate: undefined,
+      warning: "AI伙伴服务不可用，项目经理未初始化",
+    };
+  }
+  const userName =
+    dependencies.team.users().find((user) => user.id === current.userId)
+      ?.name ?? current.userId;
+  const teammateActor = {
+    userId: current.userId,
+    name: userName,
+    role: globalRoleOf(current.role),
+  };
+  let project = input.project;
+  let teammate: TeammateLike | undefined;
+  try {
+    teammate = await teammates.ensureProjectManagerAgent({
+      workspaceId: workspace.id,
+      projectName: workspace.title,
+      actor: teammateActor,
+    });
+    const systemRole = service.role("role-pm");
+    if (
+      systemRole !== undefined &&
+      !project.projectRoles.some((role) => role.id === "role-pm")
+    ) {
+      const timestamp = nowIso(dependencies.now ?? (() => new Date()));
+      project = await service.upsertProject({
+        workspaceId: workspace.id,
+        projectRoles: [
+          {
+            id: systemRole.id,
+            name: systemRole.name,
+            code: systemRole.code,
+            category: systemRole.category,
+            description: systemRole.description,
+            permissions: [...systemRole.permissions],
+          },
+          ...project.projectRoles,
+        ],
+        rolesInitialized: true,
+        rolesRevision: project.rolesRevision + 1,
+        rolesUpdatedAt: timestamp,
+        rolesUpdatedBy: current.userId,
+      });
+    }
+    const assignments = dependencies.assignments();
+    if (assignments !== undefined && systemRole !== undefined) {
+      const roleActor = actorOf(current, dependencies.team, workspace.id);
+      await syncProjectSeats(
+        service,
+        assignments,
+        roleActor,
+        project,
+        dependencies.now ?? (() => new Date()),
+      );
+      await assignments.assign(roleActor, {
+        workspaceId: workspace.id,
+        seatId: "role-pm",
+        assigneeKind: "agent",
+        assigneeId: teammate.id,
+      });
+    }
+    return { project, teammate };
+  } catch (cause) {
+    return {
+      project,
+      teammate,
+      warning:
+        cause instanceof Error
+          ? `项目经理初始化失败：${cause.message}`
+          : "项目经理初始化失败",
+    };
+  }
+}
+
+interface ProjectReportGenerationResult {
+  readonly content: string;
+  readonly generationMode: "agent" | "deterministic_fallback";
+  readonly agentRunId?: string;
+  readonly generationError?: string;
+}
+
+function reportHeadingsFor(reportType: ProjectReportType): readonly string[] {
+  return reportType === "weekly"
+    ? [
+        "本周结论",
+        "目标与里程碑进展",
+        "关键结果",
+        "阻塞、依赖与需决策事项",
+        "下周计划",
+      ]
+    : reportType === "progress"
+      ? ["当前状态", "与计划的差异", "已完成", "风险与依赖", "需要支持或决策"]
+      : ["一句话结论", "指标快照", "关键结果", "风险与异常", "待确认与下一步"];
+}
+
+function normalizeProjectAgentReport(content: string): string {
+  const fenced = content
+    .trim()
+    .replace(/^```(?:markdown|md)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
+  const headingIndex = fenced.search(/^##\s+/m);
+  return headingIndex < 0 ? fenced : fenced.slice(headingIndex).trim();
+}
+
+function validateProjectAgentReport(
+  content: string,
+  allowedSource: string,
+  reportType: ProjectReportType,
+):
+  | { readonly valid: true; readonly content: string }
+  | {
+      readonly valid: false;
+      readonly error: string;
+    } {
+  const normalized = normalizeProjectAgentReport(content);
+  if (normalized === "") {
+    return { valid: false, error: "Agent 返回内容为空" };
+  }
+  const missing = reportHeadingsFor(reportType).filter(
+    (heading) => !new RegExp(`^##\\s+${heading}\\s*$`, "m").test(normalized),
+  );
+  if (missing.length > 0) {
+    return {
+      valid: false,
+      error: `缺少必需小节：${missing.join("、")}`,
+    };
+  }
+  if (/^#\s+/m.test(normalized)) {
+    return { valid: false, error: "报告不应包含一级标题" };
+  }
+  const allowedNumbers = new Set(allowedSource.match(/\d+(?:\.\d+)?/g) ?? []);
+  const contentWithoutListNumbers = normalized.replace(/^\s*\d+[.)]\s+/gm, "");
+  const unsupportedNumbers = [
+    ...new Set(contentWithoutListNumbers.match(/\d+(?:\.\d+)?/g) ?? []),
+  ].filter((value) => !allowedNumbers.has(value));
+  if (unsupportedNumbers.length > 0) {
+    return {
+      valid: false,
+      error: `包含事实包之外的数字：${unsupportedNumbers.slice(0, 6).join("、")}`,
+    };
+  }
+  return { valid: true, content: normalized };
+}
+
+async function waitForProjectAgentRun(
+  agent: ProjectAgentServiceLike,
+  runId: string,
+  timeoutMs: number,
+): Promise<ProjectReportAgentRunLike | undefined> {
+  const terminal = new Set([
+    "succeeded",
+    "failed",
+    "timeout",
+    "cancelled",
+    "interrupted",
+  ]);
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() <= deadline) {
+    const run =
+      agent.run?.(runId) ??
+      agent.runs().find((candidate) => candidate.id === runId);
+    if (run !== undefined && terminal.has(run.status)) return run;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  return agent.run?.(runId);
+}
+
+/**
+ * 确定性事实包约束的 PM Agent 生成。数字必须来自事实包，标题必须满足
+ * 汇报结构；任一校验失败均回退到确定性模板并记录原因。
+ */
+export async function generateProjectReportContent(input: {
+  readonly dependencies: ProjectDependencies;
+  readonly workspace: WorkspaceLike;
+  readonly project: ProjectRecord;
+  readonly projectManager: TeammateLike | undefined;
+  readonly current: TeamPrincipalLike;
+  readonly tasks: readonly TaskLike[];
+  readonly workflows: readonly WorkflowInstanceLike[];
+  readonly date: string;
+  readonly reportType: ProjectReportType;
+}): Promise<ProjectReportGenerationResult> {
+  const baseline = buildProjectReportContent({
+    project: input.project,
+    workspace: input.workspace,
+    tasks: input.tasks,
+    workflows: input.workflows,
+    today: input.date,
+    reportType: input.reportType,
+  });
+  const assessment = assessProjectReport({
+    project: input.project,
+    workspace: input.workspace,
+    tasks: input.tasks,
+    workflows: input.workflows,
+    today: input.date,
+    reportType: input.reportType,
+  });
+  const projectManager = input.projectManager;
+  const runtime = input.dependencies.teammates();
+  const agent = input.dependencies.agent?.();
+  if (
+    projectManager === undefined ||
+    runtime?.ensureRuntime === undefined ||
+    agent === undefined
+  ) {
+    return {
+      content: baseline,
+      generationMode: "deterministic_fallback",
+      generationError: "项目经理 Agent 运行服务不可用",
+    };
+  }
+  try {
+    const memberRole = memberRoleOf(
+      input.dependencies.team,
+      input.workspace.id,
+      input.current.userId,
+    );
+    const ensured = await runtime.ensureRuntime({
+      teammateId: projectManager.id,
+      workspaceId: input.workspace.id,
+      actor: {
+        userId: input.current.userId,
+        name:
+          input.dependencies.team
+            .users()
+            .find((user) => user.id === input.current.userId)?.name ??
+          input.current.userId,
+        role: globalRoleOf(input.current.role),
+      },
+      ...(memberRole === undefined ? {} : { workspaceRole: memberRole }),
+    });
+    const reportLabel =
+      input.reportType === "weekly"
+        ? "项目周报"
+        : input.reportType === "progress"
+          ? "进度汇报"
+          : "项目日报";
+    const factPack = {
+      workspaceId: input.workspace.id,
+      projectName: input.workspace.title,
+      date: input.date,
+      reportType: input.reportType,
+      project: {
+        status: input.project.status,
+        health: input.project.health,
+        progress: input.project.progress,
+        startDate: input.project.startDate,
+        targetDate: input.project.targetDate,
+        description: input.project.description,
+      },
+      metrics: {
+        totalTasks: input.tasks.length,
+        openTasks: assessment.openTasks.length,
+        completedTasks: assessment.completedTasks.length,
+        inProgressTasks: assessment.inProgressTasks.length,
+        reviewTasks: assessment.reviewTasks.length,
+        overdueTasks: assessment.overdueTasks.length,
+        abnormalTasks: assessment.abnormalTasks.length,
+        unassignedTasks: assessment.unassignedTasks.length,
+        needsInputTasks: assessment.needsInputTasks.length,
+        totalWorkflows: input.workflows.length,
+        completedWorkflows: assessment.completedWorkflows.length,
+        blockedWorkflows: assessment.blockedWorkflows.length,
+        failedWorkflows: assessment.failedWorkflows.length,
+        waitingWorkflows: assessment.waitingWorkflows.length,
+        taskStatusCounts: input.tasks.reduce<Record<string, number>>(
+          (counts, task) => ({
+            ...counts,
+            [task.status]: (counts[task.status] ?? 0) + 1,
+          }),
+          {},
+        ),
+        openPriorityCounts: assessment.openTasks.reduce<Record<string, number>>(
+          (counts, task) => ({
+            ...counts,
+            [task.priority]: (counts[task.priority] ?? 0) + 1,
+          }),
+          {},
+        ),
+        dueDateCounts: input.tasks.reduce<Record<string, number>>(
+          (counts, task) =>
+            task.due === undefined || task.due === ""
+              ? counts
+              : {
+                  ...counts,
+                  [task.due]: (counts[task.due] ?? 0) + 1,
+                },
+          {},
+        ),
+        abnormalDueDateCounts: input.tasks.reduce<Record<string, number>>(
+          (counts, task) =>
+            task.status !== "abnormal" ||
+            task.due === undefined ||
+            task.due === ""
+              ? counts
+              : {
+                  ...counts,
+                  [task.due]: (counts[task.due] ?? 0) + 1,
+                },
+          {},
+        ),
+      },
+      tasks: input.tasks.map((task) => ({
+        id: task.id,
+        title: task.title,
+        status: task.status,
+        priority: task.priority,
+        receiverName: task.receiverName ?? "",
+        due: task.due ?? "",
+        progress: task.progress ?? 0,
+        receiverState: task.receiverState ?? "",
+        needsInput: task.needsInput === true,
+        queueState: task.queueState ?? "",
+        anomaly: task.executionAnomaly?.message ?? "",
+        acceptance:
+          task.comments
+            ?.filter((comment) => comment.isKeyConsensus === true)
+            .map((comment) => comment.content) ?? [],
+      })),
+      workflows: input.workflows.map((workflow) => ({
+        id: workflow.id,
+        title: workflow.title,
+        status: workflow.status,
+        updatedAt: workflow.updatedAt,
+      })),
+      deterministicBaseline: baseline,
+    };
+    const serializedFactPack = JSON.stringify(factPack);
+    const instruction = [
+      `请为项目「${input.workspace.title}」生成 ${input.date} ${reportLabel}。`,
+      "",
+      "必须遵守：",
+      "- 只依据下方事实包，不新增事实包之外的数字、日期、负责人或结论。",
+      "- 直接输出完整 Markdown 报告，不要输出思考过程、解释、代码块或一级标题。",
+      `- 必须依次包含以下二级标题：${reportHeadingsFor(input.reportType)
+        .map((heading) => `## ${heading}`)
+        .join("、")}。`,
+      "- 先给结论，再给证据；结果优先于动作；风险和下一步必须具体。",
+      "- 不得调用 project_report_generate，也不能自行写入文件。",
+      "",
+      "## 项目事实包",
+      serializedFactPack,
+    ].join("\n");
+    const dispatched = await agent.dispatch({
+      workspaceId: input.workspace.id,
+      workspacePath: input.workspace.path,
+      profileId: ensured.profileId,
+      source: "chat",
+      instanceId: `project-report-${input.workspace.id}`,
+      nodeId: "project-report",
+      dispatchKey: `project-report:${input.workspace.id}:${input.date}:${input.reportType}`,
+      trigger: "manual-dispatch",
+      attempt: 1,
+      runSeq: 1,
+      maxAttempts: 1,
+      timeoutMs: 90_000,
+      ...(ensured.personaId === undefined
+        ? {}
+        : { personaId: ensured.personaId }),
+      ...(ensured.principalId === undefined
+        ? {}
+        : {
+            principalId: ensured.principalId,
+            principalType: "principal-runtime" as const,
+          }),
+      payload: {
+        instanceTitle: `${input.date} ${reportLabel}`,
+        nodeName: "项目汇报生成",
+        nodeDescription: instruction.slice(0, 2_000),
+        profileName: projectManager.name,
+        deliverables: [],
+        context: {
+          instruction,
+          reportType: input.reportType,
+          reportDate: input.date,
+          projectId: input.workspace.id,
+          transcript: "",
+        },
+      },
+      createdBy: input.current.userId,
+    });
+    const completed = await waitForProjectAgentRun(
+      agent,
+      dispatched.id,
+      95_000,
+    );
+    if (completed?.status !== "succeeded") {
+      return {
+        content: baseline,
+        generationMode: "deterministic_fallback",
+        ...(dispatched.id === "" ? {} : { agentRunId: dispatched.id }),
+        generationError:
+          completed?.error ??
+          `项目经理 Agent 运行状态为 ${completed?.status ?? "unknown"}`,
+      };
+    }
+    const validation = validateProjectAgentReport(
+      completed.output?.summary ?? "",
+      serializedFactPack,
+      input.reportType,
+    );
+    if (!validation.valid) {
+      return {
+        content: baseline,
+        generationMode: "deterministic_fallback",
+        agentRunId: dispatched.id,
+        generationError: validation.error,
+      };
+    }
+    return {
+      content: validation.content,
+      generationMode: "agent",
+      agentRunId: dispatched.id,
+    };
+  } catch (cause) {
+    return {
+      content: baseline,
+      generationMode: "deterministic_fallback",
+      generationError: cause instanceof Error ? cause.message : String(cause),
+    };
+  }
+}
+
+/**
+ * 检查一次到期项目并生成日报。调度器与手动更新共用同一份项目事实、
+ * 项目经理 Agent 和日报快照存储；当天已有日报时直接跳过，避免重复覆盖。
+ */
+export async function runScheduledProjectReports(
+  service: ProjectService,
+  dependencies: ProjectDependencies,
+): Promise<{ generated: number; skipped: number }> {
+  const now = dependencies.now ?? (() => new Date());
+  let generated = 0;
+  let skipped = 0;
+  for (const project of service.projects()) {
+    const schedule = project.reportSchedule;
+    if (!schedule.enabled) continue;
+    const clock = projectReportScheduleClock(now(), schedule.timezone);
+    if (!isProjectReportScheduleDue(schedule, clock)) continue;
+    if (
+      service.report(project.workspaceId, clock.date, "daily") !== undefined
+    ) {
+      skipped += 1;
+      continue;
+    }
+    const workspace = dependencies.workspaces.get(project.workspaceId);
+    if (workspace === undefined) continue;
+    try {
+      const current = scheduledReportActor(project, dependencies.team);
+      const manager = await ensureProjectManagerInstance({
+        service,
+        dependencies,
+        current,
+        workspace,
+        project,
+      });
+      const scheduledProject = manager.project;
+      const projectManager = manager.teammate;
+      const tasks = [
+        ...(dependencies.tasks()?.list(project.workspaceId) ?? []),
+      ];
+      const workflows = [
+        ...(dependencies.workflows()?.instances(project.workspaceId) ?? []),
+      ];
+      const generatedAt = `${clock.date.slice(5)} ${clock.time}`;
+      const generatedReport = await generateProjectReportContent({
+        dependencies,
+        workspace,
+        project: scheduledProject,
+        projectManager,
+        current,
+        tasks,
+        workflows,
+        date: clock.date,
+        reportType: "daily",
+      });
+      const runId = generatedReport.agentRunId ?? `report-run-${randomUUID()}`;
+      const report = await service.saveReport({
+        workspaceId: project.workspaceId,
+        date: clock.date,
+        reportType: "daily",
+        generatedAt,
+        generatedBy: projectManager?.name ?? "项目 AI",
+        ...(projectManager === undefined
+          ? {}
+          : { generatedByTeammateId: projectManager.id }),
+        runId,
+        skillId: "skill-project-reporting",
+        skillVersion: "1.0.0",
+        triggerSource: "schedule",
+        generationMode: generatedReport.generationMode,
+        ...(generatedReport.generationError === undefined
+          ? {}
+          : { generationError: generatedReport.generationError }),
+        sourceRefs: [
+          ...tasks.map((task) => `task:${task.id}`),
+          ...workflows.map((workflow) => `workflow:${workflow.id}`),
+        ],
+        content: generatedReport.content,
+      });
+      await service.appendAudit({
+        workspaceId: project.workspaceId,
+        actorId: current.userId,
+        actorName: "定时任务",
+        actorRole: "system",
+        category: "report",
+        action: "report.generate",
+        targetId: clock.date,
+        targetName: `${clock.date} 项目日报`,
+        summary: `定时生成 ${clock.date} 项目日报`,
+        detail: {
+          日期: clock.date,
+          报告类型: "daily",
+          触发来源: "schedule",
+          运行ID: runId,
+          撰写人: report.generatedBy,
+          生成方式: generatedReport.generationMode,
+          ...(generatedReport.generationError === undefined
+            ? {}
+            : { 回退原因: generatedReport.generationError }),
+          计划时间: schedule.time,
+          时区: schedule.timezone,
+        },
+      });
+      generated += 1;
+    } catch {
+      skipped += 1;
+    }
+  }
+  return { generated, skipped };
+}
+
+export interface ProjectReportSchedulerOptions {
+  readonly intervalMs?: number;
+  readonly initialDelayMs?: number;
+}
+
+/** 启动分钟级检查；timer.unref 让插件测试和短生命周期进程可以正常退出。 */
+export function startProjectReportScheduler(
+  service: ProjectService,
+  dependencies: ProjectDependencies,
+  options: ProjectReportSchedulerOptions = {},
+): () => void {
+  let running = false;
+  const tick = async (): Promise<void> => {
+    if (running) return;
+    running = true;
+    try {
+      await runScheduledProjectReports(service, dependencies);
+    } catch {
+      // 单个调度轮次失败不终止后续检查。
+    } finally {
+      running = false;
+    }
+  };
+  const timer = setInterval(() => void tick(), options.intervalMs ?? 60_000);
+  timer.unref?.();
+  const initialTimer = setTimeout(
+    () => void tick(),
+    options.initialDelayMs ?? 5_000,
+  );
+  initialTimer.unref?.();
+  return () => {
+    clearInterval(timer);
+    clearTimeout(initialTimer);
+  };
+}
+
+function projectDependenciesFor(
+  ctx: ProjectContext,
+  team: TeamServiceLike,
+  workspaces: WorkspaceRegistryLike,
+): ProjectDependencies {
+  return {
+    team,
+    workspaces,
+    assignments: () =>
+      ctx.get("collabAssignment") as AssignmentServiceLike | undefined,
+    employees: () =>
+      ctx.get("collabEmployee") as EmployeeServiceLike | undefined,
+    teammates: () =>
+      ctx.get("collabTeammateRuntime") as TeammateRuntimeLike | undefined,
+    tasks: () => ctx.get("collabTasks") as TaskServiceLike | undefined,
+    taskDocuments: () =>
+      ctx.get("collabTaskDocuments") as
+        TaskDocumentQueryServiceLike | undefined,
+    workflows: () =>
+      ctx.get("collabWorkflow") as WorkflowServiceLike | undefined,
+    meetings: () => ctx.get("collabMeeting") as MeetingServiceLike | undefined,
+    meetingFiles: () =>
+      ctx.get("collabMeetingFiles") as MeetingFileServiceLike | undefined,
+    meetingMinutes: () =>
+      ctx.get("collabMeetingMinutes") as MeetingMinutesServiceLike | undefined,
+    dataAgent: () =>
+      ctx.get("collabDataAgent") as DataAgentOutputServiceLike | undefined,
+    principals: () =>
+      ctx.get("collabPrincipal") as PrincipalServiceLike | undefined,
+    skillCatalog: () =>
+      ctx.get("collabResourceMarket") as ProjectSkillCatalogLike | undefined,
+    agent: () => ctx.get("collabAgent") as ProjectAgentServiceLike | undefined,
+  };
 }
 
 export async function apply(ctx: ProjectContext): Promise<void> {
@@ -5048,47 +5821,39 @@ export async function apply(ctx: ProjectContext): Promise<void> {
     const workspaces = child.get("workspaceRegistry") as
       WorkspaceRegistryLike | undefined;
     if (workspaces === undefined) return;
-    /** 启动时为已有工作区补齐项目记录与编号（幂等，已有编号不变）。 */
+    const reportDependencies = projectDependenciesFor(
+      child,
+      child.collabTeam,
+      workspaces,
+    );
+    /** 启动时补齐项目记录、编号与项目托管 PM 实例，所有操作均幂等。 */
     void (async () => {
       for (const workspace of workspaces.list()) {
-        await provisionProject(
+        const project = await provisionProject(
           service,
           child.collabTeam,
           workspaces,
           workspace.id,
         );
+        if (project === undefined) continue;
+        const current = scheduledReportActor(project, child.collabTeam);
+        await ensureProjectManagerInstance({
+          service,
+          dependencies: reportDependencies,
+          current,
+          workspace,
+          project,
+        });
       }
     })().catch(() => undefined);
-    const disposers = createProjectRoutes(service, {
-      team: child.collabTeam,
-      workspaces,
-      assignments: () =>
-        child.get("collabAssignment") as AssignmentServiceLike | undefined,
-      employees: () =>
-        child.get("collabEmployee") as EmployeeServiceLike | undefined,
-      teammates: () =>
-        child.get("collabTeammateRuntime") as TeammateRuntimeLike | undefined,
-      tasks: () => child.get("collabTasks") as TaskServiceLike | undefined,
-      taskDocuments: () =>
-        child.get("collabTaskDocuments") as
-          TaskDocumentQueryServiceLike | undefined,
-      workflows: () =>
-        child.get("collabWorkflow") as WorkflowServiceLike | undefined,
-      meetings: () =>
-        child.get("collabMeeting") as MeetingServiceLike | undefined,
-      meetingFiles: () =>
-        child.get("collabMeetingFiles") as MeetingFileServiceLike | undefined,
-      meetingMinutes: () =>
-        child.get("collabMeetingMinutes") as
-          MeetingMinutesServiceLike | undefined,
-      dataAgent: () =>
-        child.get("collabDataAgent") as DataAgentOutputServiceLike | undefined,
-      principals: () =>
-        child.get("collabPrincipal") as PrincipalServiceLike | undefined,
-      skillCatalog: () =>
-        child.get("collabResourceMarket") as
-          ProjectSkillCatalogLike | undefined,
-    }).map((route) => child.webServer.register(route) as () => void);
+    const disposers = createProjectRoutes(service, reportDependencies).map(
+      (route) => child.webServer.register(route) as () => void,
+    );
+    const stopReportScheduler = startProjectReportScheduler(
+      service,
+      reportDependencies,
+    );
+    ctx.effect(() => stopReportScheduler);
     const toolDisposer =
       child.tools?.get?.("project_report_generate") === undefined
         ? child.tools?.register({
@@ -5202,6 +5967,8 @@ export async function apply(ctx: ProjectContext): Promise<void> {
                 skillId: "skill-project-reporting",
                 skillVersion: reportSkill?.version ?? "1.0.0",
                 triggerSource: run.source === "task" ? "task" : "chat",
+                generationMode: "deterministic_fallback",
+                generationError: "项目经理工具调用路径当前使用确定性模板生成",
                 sourceRefs: [
                   ...tasks.map((task) => `task:${task.id}`),
                   ...workflows.map((workflow) => `workflow:${workflow.id}`),
@@ -5233,6 +6000,7 @@ export async function apply(ctx: ProjectContext): Promise<void> {
                   触发来源: run.source === "task" ? "task" : "chat",
                   运行ID: runId,
                   项目经理: projectManager.name,
+                  生成方式: "deterministic_fallback",
                   ...(args.focus === undefined ? {} : { 关注点: args.focus }),
                 },
               });
@@ -5264,11 +6032,26 @@ export async function apply(ctx: ProjectContext): Promise<void> {
       child.workspaceController ??
       (child.get("workspaceController") as WorkspaceControllerLike | undefined);
     if (workspaces === undefined || controller?.follow === undefined) return;
+    const dependencies = projectDependenciesFor(
+      child,
+      child.collabTeam,
+      workspaces,
+    );
     const stop = followWorkspaceProjects(
       service,
       child.collabTeam,
       workspaces,
       controller,
+      async (workspace, project) => {
+        const current = scheduledReportActor(project, child.collabTeam);
+        await ensureProjectManagerInstance({
+          service,
+          dependencies,
+          current,
+          workspace,
+          project,
+        });
+      },
     );
     child.effect(() => stop);
   });

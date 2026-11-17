@@ -38,7 +38,25 @@ describe("Workbench V2 client contract", () => {
     expect(source).toContain("pmwb2-scope");
     expect(source).toContain("pmwb2-resize-width");
     expect(source).toContain("pmwb2-resize-height");
+    expect(source).toContain(".pmwb2-canvas.masonry-ready");
+    expect(source).toContain("const layoutCanvas = react.useCallback");
+    expect(source).toContain("const pending = cards.map((card, index) => ({");
+    expect(source).toContain("while (pending.length > 0)");
+    expect(source).toContain("const columns = width <= 640 ? 1 : width <= 900 ? 2 : 6");
+    expect(source).toContain("new ResizeObserver(schedule)");
     expect(source).toContain("onRuntime");
+    expect(source).toContain("meta?.metaSuffix");
+    expect(source).toContain("meta?.metaSuffixTitle");
+    expect(source).toContain(
+      ".pmwb2-card.has-height{display:flex;flex-direction:column;}",
+    );
+    expect(source).toContain(
+      ".pmwb2-card.has-height .pmwb2-card-body{min-height:0;flex:1 1 auto;max-height:none;}",
+    );
+    expect(source).toContain(
+      ".pmwb2-card[data-plugin-id=\"pluginmax.daily-brief\"] .pmwb2-card-body{padding-top:8px;}",
+    );
+    expect(source).toContain("height: `${panel.height}px`");
     expect(source).toContain("配置面板");
     expect(source).toContain("删除面板");
     expect(source).toContain("panelSettings.title");

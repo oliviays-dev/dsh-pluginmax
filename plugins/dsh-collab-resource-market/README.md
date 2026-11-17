@@ -15,6 +15,16 @@ users may install it and attach it to their own AI partners; only platform
 administrators can update the official instructions through
 `POST /api/collab/resources/skills/official/save`.
 
+Skills that customize a specific component declare `mountTargets` with
+`type: "component-slot"`. A target ID combines the host panel and slot, for
+example `workbench.panel.pluginmax.daily-brief#project-summary`. Installation
+records keep these relationships in `bindings`; each target has at most one
+active skill. Users can select targets during installation and switch between
+installed compatible skills through
+`POST /api/collab/resources/skills/binding`. A consuming component resolves its
+current skill with
+`GET /api/collab/resources/skills/binding?targetId=<component-slot-id>`.
+
 Workbench market responses include publisher/compatibility filters, pagination,
 real panel titles, dependency status, and compatibility information. Template
 copy and panel-add calls are idempotent when the client supplies an
@@ -28,6 +38,12 @@ JSON manifest. Registrations are persisted in `custom_assets`; uploaded content 
 never executed and does not modify the DSH Client Modules graph. Users can remove
 their own registrations, and platform administrators can remove test or invalid
 entries.
+
+Custom resources can be edited in place through
+`PATCH /api/collab/resources/custom`. Owners can update their own metadata,
+manifest, and sharing scope; platform administrators can also edit resources
+that have already been shared to the market. Private resources remain visible
+to their owner only.
 
 Template previews render current-account panel data in a read-only modal before
 the user applies the template.

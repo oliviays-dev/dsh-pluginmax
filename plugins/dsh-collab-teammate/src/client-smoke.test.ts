@@ -28,6 +28,29 @@ interface ClientExports {
       item: { id: string };
       instanceIds: readonly string[];
     }[];
+    runtimeDirectoryGroup(
+      teammate: {
+        name: string;
+        ownerUserId: string;
+        templateId?: string | undefined;
+        systemKey?: string | undefined;
+        protected?: unknown;
+        projectBinding?: unknown;
+      },
+      templates?: readonly {
+        id: string;
+        source?: string | undefined;
+        systemKey?: string | undefined;
+        protected?: unknown;
+      }[],
+      currentUserId?: string | undefined,
+    ): string;
+    templateDirectoryGroup(template: {
+      source: string;
+      systemKey?: string | undefined;
+      protected?: unknown;
+    }): string;
+    matchesDirectoryFilter(group: string, filter: string): boolean;
     markdownTableCells(line: string): readonly string[];
     isMarkdownTableSeparator(line: string): boolean;
     runtimeDetailEditPolicy(editing: boolean): {
@@ -216,6 +239,111 @@ function loadClientExports(): ClientExports {
 }
 
 describe("AI Teammate runtime client", () => {
+  it("keeps the desktop directory scrollable with a sticky group header", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain(".pmtm-directory-scroll{flex:1;min-height:0;");
+    expect(source).toContain("overflow-y:auto");
+    expect(source).toContain("scrollbar-gutter:stable");
+    expect(source).toContain("position:sticky;top:0");
+    expect(source).toContain(".pmtm-editor{min-height:0;overflow:auto;}");
+  });
+
+  it("labels project-managed instances in the AI partner list", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain("pmtm-item-status-row");
+    expect(source).toContain('"项目托管"');
+    expect(source).toContain('"平台内置"');
+    expect(source).toContain("justify-content:flex-start");
+    expect(source).toContain("item.projectBinding !== undefined");
+    expect(source).toContain("项目 ${item.projectName");
+  });
+
+  it("classifies runtime AI partners and templates for directory filters", () => {
+    const exported = loadClientExports();
+    const test = exported.__test;
+    const builtInTemplate = {
+      id: "sys-project-manager",
+      source: "platform",
+      systemKey: "project-manager",
+    };
+    expect(
+      test?.runtimeDirectoryGroup(
+        {
+          name: "PM_采购韧性",
+          ownerUserId: "olivia",
+          templateId: "sys-project-manager",
+          systemKey: "project-manager",
+          projectBinding: { workspaceId: "ws-1" },
+        },
+        [builtInTemplate],
+        "olivia",
+      ),
+    ).toBe("project");
+    expect(
+      test?.runtimeDirectoryGroup(
+        { name: "PM_旧数据", ownerUserId: "olivia" },
+        [],
+        "olivia",
+      ),
+    ).toBe("project");
+    expect(
+      test?.runtimeDirectoryGroup(
+        {
+          name: "项目经理",
+          ownerUserId: "olivia",
+          templateId: "sys-project-manager",
+        },
+        [builtInTemplate],
+        "olivia",
+      ),
+    ).toBe("builtin");
+    expect(
+      test?.runtimeDirectoryGroup(
+        { name: "我的伙伴", ownerUserId: "olivia" },
+        [],
+        "olivia",
+      ),
+    ).toBe("mine");
+    expect(
+      test?.runtimeDirectoryGroup(
+        { name: "他人伙伴", ownerUserId: "peter" },
+        [],
+        "olivia",
+      ),
+    ).toBe("other");
+    expect(
+      test?.templateDirectoryGroup({
+        source: "platform",
+        protected: { deletable: false },
+      }),
+    ).toBe("builtin");
+    expect(test?.templateDirectoryGroup({ source: "platform" })).toBe(
+      "platform",
+    );
+    expect(test?.templateDirectoryGroup({ source: "personal" })).toBe(
+      "personal",
+    );
+    expect(test?.matchesDirectoryFilter("mine", "all")).toBe(true);
+    expect(test?.matchesDirectoryFilter("mine", "builtin")).toBe(false);
+  });
+
+  it("renders default-all directory filters for both AI partner tabs", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain('"AI伙伴类型筛选"');
+    expect(source).toContain('"智能体定义筛选"');
+    expect(source).toMatch(
+      /runtimeDirectoryFilter[\s\S]{0,100}?react\.useState\("all"\)/,
+    );
+    expect(source).toMatch(
+      /templateDirectoryFilter[\s\S]{0,100}?react\.useState\("all"\)/,
+    );
+    expect(source).toContain('{ key: "builtin", label: "平台内置" }');
+    expect(source).toContain('{ key: "project", label: "项目托管" }');
+    expect(source).toContain('{ key: "mine", label: "我的" }');
+    expect(source).toContain('{ key: "platform", label: "平台模版" }');
+    expect(source).toContain('{ key: "personal", label: "个人模版" }');
+  });
+
   it("creates AI companions with a project through the bundled runtime route", () => {
     const source = readFileSync(CLIENT_PATH, "utf8");
     expect(source).toContain('"/api/collab/teammates/create-with-employee"');
@@ -378,6 +506,13 @@ describe("AI Teammate runtime client", () => {
     const source = readFileSync(CLIENT_PATH, "utf8");
     expect(source).toMatch(
       /archivedOnly\s*\?\s*item\.state === "archived"\s*:\s*item\.state !== "archived"/,
+    );
+  });
+
+  it("marks protected platform definitions in the definition list", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toMatch(
+      /className: "pmtm-item-status-row"[\s\S]{0,400}?tab === "definition" &&\s*\(item\.systemKey !== undefined \|\|\s*item\.protected !== undefined\)[\s\S]{0,200}?className: "pmtm-built-in-chip"[\s\S]{0,100}?"平台内置"/,
     );
   });
 
@@ -666,9 +801,7 @@ describe("AI Teammate runtime client", () => {
         sandboxMode: "workspace-write",
         networkAccess: true,
       }),
-    ).toEqual(
-      expect.arrayContaining(["沙箱：可写工作区", "网络：开启"]),
-    );
+    ).toEqual(expect.arrayContaining(["沙箱：可写工作区", "网络：开启"]));
   });
 
   it("validates structured runtime configuration before save", () => {

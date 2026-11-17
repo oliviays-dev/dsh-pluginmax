@@ -26,6 +26,20 @@ import {
   taskWorkflowRefSchema,
 } from "./types.js";
 
+const FATAL_EXECUTION_ANOMALY_CODES = new Set<TaskExecutionAnomaly["code"]>([
+  "run_failed",
+  "run_timeout",
+  "run_interrupted",
+  "plan_failed",
+  "tool_failed",
+]);
+
+function isFatalExecutionAnomaly(
+  anomaly: TaskExecutionAnomaly | undefined,
+): boolean {
+  return anomaly !== undefined && FATAL_EXECUTION_ANOMALY_CODES.has(anomaly.code);
+}
+
 export interface KvTableLike<V> {
   get(key: string): V | undefined;
   entries(): IterableIterator<[string, V]>;
@@ -166,7 +180,7 @@ function agentRunMessageContent(
     );
   }
   if (run.status === "cancelled")
-    return taskMessageContent(run.error?.trim() || "已停止执行。");
+    return taskMessageContent(run.error?.trim() || "执行已暂停。");
   if (run.status === "interrupted")
     return taskMessageContent(run.error?.trim() || "执行已中断。");
   if (run.status === "timeout")
@@ -218,7 +232,7 @@ const createInputSchema = z.object({
   acceptance: z.array(z.string().min(1).max(500)).min(1).max(30),
   executionPolicy: taskExecutionPolicySchema.optional(),
   due: z.string().max(40).optional(),
-  dependsOn: z.array(z.string().min(1).max(160)).max(1).optional(),
+  dependsOn: z.array(z.string().min(1).max(160)).max(50).optional(),
   links: z
     .array(
       z.object({
@@ -242,7 +256,7 @@ const updateInputSchema = z.object({
   acceptance: z.array(z.string().min(1).max(500)).min(1).max(30),
   executionPolicy: taskExecutionPolicySchema.optional(),
   due: z.string().max(40).optional(),
-  dependsOn: z.array(z.string().min(1).max(160)).max(1).optional(),
+  dependsOn: z.array(z.string().min(1).max(160)).max(50).optional(),
   autoSubmitReview: z.boolean().optional(),
 });
 
@@ -579,9 +593,6 @@ export class TaskService {
     const dependencies = [
       ...new Set(values.map((value) => value.trim()).filter(Boolean)),
     ];
-    if (dependencies.length > 1) {
-      throw new TaskError("invalid_input", "任务最多只能选择一个前置任务");
-    }
     const pending = [...dependencies];
     const visited = new Set<string>();
     while (pending.length > 0) {
@@ -662,7 +673,30 @@ export class TaskService {
       };
     }
     const projectionFor = this.options.executionProjection;
-    if (projectionFor === undefined) return undefined;
+    if (projectionFor === undefined) {
+      if (
+        task.workflow === undefined &&
+        task.autoSubmitReview &&
+        !steps.some((step) => step.done)
+      ) {
+        return {
+          code: "missing_acceptance",
+          message:
+            "Agent 本轮没有显式确认任何验收项，需要人工检查交付物后处理",
+          runId: run.id,
+          at,
+        };
+      }
+      if (task.executionPolicy?.evidence.requireToolEvents === true) {
+        return {
+          code: "missing_execution_evidence",
+          message: "执行策略要求记录工具调用，但当前没有可验证的执行投影",
+          runId: run.id,
+          at,
+        };
+      }
+      return undefined;
+    }
     const projection = projectionFor(task.id, task.workspaceId);
     if (projection === undefined) {
       return {
@@ -683,19 +717,6 @@ export class TaskService {
         at,
       };
     }
-    if (
-      task.workflow === undefined &&
-      task.autoSubmitReview &&
-      !steps.some((step) => step.done)
-    ) {
-      return {
-        code: "missing_acceptance",
-        message:
-          "Agent 本轮没有显式确认任何验收项，需要人工检查交付物后处理",
-        runId: run.id,
-        at,
-      };
-    }
     const plan = projection.plan;
     if (
       plan?.status === "failed" ||
@@ -709,22 +730,27 @@ export class TaskService {
       };
     }
     const events = projection.events.filter((event) => event.runId === run.id);
-    const executionError = events.find(
+    const terminalFailureIndex = events.findLastIndex(
       (event) => event.type === "error" || event.type === "step.failed",
     );
-    if (executionError !== undefined) {
+    const terminalSuccessIndex = events.findLastIndex(
+      (event) =>
+        event.type === "step.completed" ||
+        (event.type === "tool.result" && event.data?.isError !== true),
+    );
+    if (terminalFailureIndex >= 0 && terminalFailureIndex > terminalSuccessIndex) {
+      const executionError = events[terminalFailureIndex];
       return {
         code: "plan_failed",
-        message: executionError.summary,
+        message: executionError?.summary ?? "执行步骤失败，需要人工介入",
         runId: run.id,
         at,
       };
     }
-    const toolFailure = events.find(
-      (event) =>
-        event.type === "tool.result" && event.data?.isError === true,
+    const toolFailure = events.findLast(
+      (event) => event.type === "tool.result",
     );
-    if (toolFailure !== undefined) {
+    if (toolFailure?.data?.isError === true) {
       return {
         code: "tool_failed",
         message:
@@ -741,8 +767,21 @@ export class TaskService {
     );
     if (deniedGate !== undefined) {
       return {
-        code: "tool_failed",
+        code: "gate_denied",
         message: deniedGate.reason,
+        runId: run.id,
+        at,
+      };
+    }
+    if (
+      task.workflow === undefined &&
+      task.autoSubmitReview &&
+      !steps.some((step) => step.done)
+    ) {
+      return {
+        code: "missing_acceptance",
+        message:
+          "Agent 本轮没有显式确认任何验收项，需要人工检查交付物后处理",
         runId: run.id,
         at,
       };
@@ -2417,11 +2456,12 @@ export class TaskService {
       steps,
     );
     if (anomaly !== undefined) {
+      const fatalAnomaly = isFatalExecutionAnomaly(anomaly);
       return this.put(
         this.event(
           {
             ...task,
-            status: "abnormal",
+            status: fatalAnomaly ? "abnormal" : "progress",
             progress: Math.max(task.progress, progressForSteps(steps), 86),
             steps,
             needsInput: false,
@@ -2430,8 +2470,10 @@ export class TaskService {
             updatedAt: this.now(),
           },
           actor,
-          "status",
-          `${actor.name} 提交交付物，但执行过程异常：${anomaly.message}`,
+          fatalAnomaly ? "status" : "message",
+          fatalAnomaly
+            ? `${actor.name} 提交交付物，但执行过程异常：${anomaly.message}`
+            : `${actor.name} 提交交付物，等待人工确认：${anomaly.message}`,
         ),
       );
     }
@@ -2551,6 +2593,7 @@ export class TaskService {
     const executionAnomaly = isActive
       ? this.executionAnomalyForRun(task, run)
       : undefined;
+    const fatalExecutionAnomaly = isFatalExecutionAnomaly(executionAnomaly);
     // 审批 Task 必须由明确的通过/退回动作驱动，Agent 执行成功不能代表审批结论。
     const isApprovalTask = task.workflow?.approvalPolicy !== undefined;
     const workflowReviewRequired = task.workflow?.reviewRequired !== false;
@@ -2618,7 +2661,7 @@ export class TaskService {
             ? Math.max(86, progressForSteps(steps))
             : task.progress,
         status:
-          executionAnomaly !== undefined
+          fatalExecutionAnomaly
             ? "abnormal"
             : workflowDirect
               ? "done"
@@ -2634,7 +2677,11 @@ export class TaskService {
       actor,
       "message",
       executionAnomaly !== undefined
-        ? `${receiverName} 执行异常，需要人工介入：${executionAnomaly.message}`
+        ? fatalExecutionAnomaly
+          ? `${receiverName} 执行异常，需要人工介入：${executionAnomaly.message}`
+          : executionAnomaly.code === "dependency_unmet"
+            ? `${receiverName} 的执行等待前置任务完成`
+            : `${receiverName} 已产出结果，等待人工确认验收证据`
         : run.status === "succeeded"
           ? `${receiverName} 返回了执行反馈`
         : needsInput

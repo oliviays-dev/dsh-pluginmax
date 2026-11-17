@@ -74,6 +74,15 @@ describe("shell client navigation", () => {
     ).toHaveLength(1);
   });
 
+  it("reloads after login so every plugin loads with the new token", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(
+      source.match(
+        /window\.localStorage\.setItem\("pluginmax\.collab\.token", body\.token\);\s*window\.dispatchEvent\(new CustomEvent\("pluginmax:collab-token"\)\);\s*window\.location\.reload\(\);/g,
+      ),
+    ).toHaveLength(2);
+  });
+
   it("turns the settings dialog into a single-column layout on phones", () => {
     const source = readFileSync(CLIENT_PATH, "utf8");
     expect(source).toContain("@media (max-width:600px)");
@@ -259,8 +268,8 @@ describe("shell client navigation", () => {
     const registerEnd = source.indexOf("ctx.effect(() =>", registerStart);
     const registration = source.slice(registerStart, registerEnd);
     expect(source).toContain("window.__pluginmaxSidePanel");
-    expect(source).toContain('openTab(tab)');
-    expect(source).toContain('closeTab(tab)');
+    expect(source).toContain("openTab(tab)");
+    expect(source).toContain("closeTab(tab)");
     expect(source).toContain("toggleExpanded()");
     expect(registration).toContain('"pluginmax.global.actions": {');
     expect(source).toContain("renderActions: () =>");

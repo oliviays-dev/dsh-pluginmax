@@ -68,6 +68,17 @@ export interface SkillAsset {
   instructions?: string;
   /** Scene hints used by the host runtime for explicit skill resolution. */
   triggers?: string[];
+  /** Component slots this skill can bind to after installation. */
+  mountTargets?: readonly SkillMountTarget[];
+}
+
+export interface SkillMountTarget {
+  type: "component-slot";
+  targetId: string;
+  componentId: string;
+  componentLabel: string;
+  slotId: string;
+  slotLabel: string;
 }
 
 export interface McpAsset {
@@ -423,7 +434,144 @@ export const PROJECT_REPORTING_INSTRUCTIONS = [
   "- 不使用输入之外的数字、日期、负责人和业务原因。",
 ].join("\n");
 
+export const PROJECT_BRIEF_DIGEST_INSTRUCTIONS = [
+  "# 每日简报 · 项目概览生成",
+  "",
+  "## 角色",
+  "",
+  "你是项目进展摘要器。只根据输入中的项目事实，生成供项目卡片直接展示的三行概览。",
+  "",
+  "## 输入",
+  "",
+  "- 项目名称与当前状态。",
+  "- 已确认进展、未解除异常、待处理事项、截止时间与影响范围。",
+  "- 每条事实的状态、优先级和来源。",
+  "",
+  "## 输出契约",
+  "",
+  "- 必须严格输出三行，顺序固定：",
+  "  1. 关键进展：概括最有价值的已确认结果；没有结果时写“本期暂无已确认结果”。",
+  "  2. 需要关注：优先概括未解除异常和待决策事项；没有关注项时明确写“当前无新增异常”。",
+  "  3. 建议：给出一个当前最优先、可直接执行的下一步。",
+  "- 每行控制在 45 个中文字符以内，不使用项目符号、标题层级或额外解释。",
+  "- 合并同类事项，不逐条抄写任务，不复述工具调用和页面操作。",
+  "",
+  "## 判断规则",
+  "",
+  "- 优先级：阻断 > 未解除异常 > 待决策 > 待验收 > 已完成结果。",
+  "- “需要关注”必须写清对象和影响；能写数量时保留关键数字。",
+  "- 建议只能来自输入中的可用动作，不虚构负责人、截止时间或操作。",
+  "- 事实不足时写“待核实”，不能推断业务原因。",
+  "- 不把任务活动包装成业务成果，不重复项目名称，不输出空泛套话。",
+].join("\n");
+
+export const TASK_PLANNING_INSTRUCTIONS = [
+  "# 任务规划核心方法",
+  "",
+  "## 目标",
+  "",
+  "把任务理解成一份可编辑、可验证、可审计的计划草稿。先理解需求，再拆解工作。",
+  "",
+  "## 需求保真",
+  "",
+  "- 保留用户明确给出的名称、编号、路径、日期、数量、约束和术语。",
+  "- 不编造需求、验收标准、负责人、预算、权限、日期或企业流程。",
+  "- 区分已验证事实、待查事实、推导结论、假设、冲突和开放问题。",
+  "- 无法读取的资料标记为不可用或待补，不用猜测填空。",
+  "",
+  "## Requirement Brief",
+  "",
+  "- originalRequest：忠实保留用户原始要求。",
+  "- interpretedGoal：只归纳用户真正要实现的结果。",
+  "- deliverables：列出可检查的独立产出。",
+  "- inScope / outOfScope：明确边界。",
+  "- constraints / acceptanceCriteria：只写有来源的约束和验收。",
+  "- assumptions / openQuestions：显式展示不确定项。",
+  "- 每个结论尽量带 sourceRefs。",
+  "",
+  "## Facts Ledger",
+  "",
+  "- verified：来自用户、任务字段、可读资料或已确认事实。",
+  "- toLookUp：需要读取或查询后才能确认的事实。",
+  "- toDerive：需要计算、推导或比较后得到的事实。",
+  "- assumptions：可以继续工作但必须披露的假设。",
+  "- contradictions：输入之间相互冲突的事实。",
+  "- 关键冲突必须触发人工澄清，不得自行选边。",
+  "",
+  "## 节点拆分",
+  "",
+  "- 一个节点必须同时具备独立责任、独立产出、独立验收和清楚交接边界。",
+  "- 不要拆出某个 Agent 的内部搜索、阅读、思考、格式化或自检步骤。",
+  "- 不要为了凑齐角色而创建没有产出和验收的节点。",
+  "- 每个节点必须有 description、acceptance、receiver、优先级和预期证据。",
+  "- 节点负责人只能来自平台提供的候选目录，不得编造 ID。",
+  "",
+  "## 依赖",
+  "",
+  "- dependencies 只表达硬前置关系。",
+  "- 普通步骤顺序、沟通顺序或偏好顺序不要建模成依赖。",
+  "- 只生成无环 DAG；允许并行起点，但所有节点必须通过下游关系汇入同一交付链路。",
+  "- 不要引用计划外节点，不要创建孤立决策门或无关尾巴。",
+  "",
+  "## 风险与人工 Gate",
+  "",
+  "- 高风险、不可逆、外部发送、预算超限、权限申请和关键业务决策必须人工确认。",
+  "- 最终验收不能被 Planner 或 Worker 代签。",
+  "- 企业流程要求审批时，把审批表达成显式 human gate。",
+  "",
+  "## 质量自检",
+  "",
+  "- 每条 Root Task acceptance 是否至少被一个节点覆盖。",
+  "- 每个节点是否能由指定负责人在现有权限和工具内完成。",
+  "- 是否存在过度拆解、拆解不足、错误依赖、缺失证据或缺失 Gate。",
+  "- 计划是否只包含最新事实，不覆盖已经完成或不可逆的节点。",
+  "",
+  "## 输出契约",
+  "",
+  "- 必须通过平台结构化工具提交，不要只返回 Markdown。",
+  "- Validator 或 Critic 返回错误时，只修复当前草稿，不绕过校验。",
+  "- Skill 只影响规划上下文，不能改变权限、Validator、审批策略或任务状态机。",
+].join("\n");
+
 export const SKILLS: readonly SkillAsset[] = [
+  {
+    id: "skill-daily-brief-project-digest",
+    name: "每日简报项目概览",
+    category: "AI办公",
+    description:
+      "为每日简报中的项目卡片生成固定三行概览：关键进展、需要关注和建议。只使用当前项目的事实、异常和待处理事项。",
+    publisher: official,
+    version: "1.0.0",
+    icon: "sparkles",
+    permissions: ["读取当前账号有权查看的项目简报事实"],
+    usage: "场景组件",
+    instructions: PROJECT_BRIEF_DIGEST_INSTRUCTIONS,
+    triggers: ["daily-brief", "project-summary", "project-digest"],
+    mountTargets: [
+      {
+        type: "component-slot",
+        targetId: "workbench.panel.pluginmax.daily-brief#project-summary",
+        componentId: "pluginmax.daily-brief",
+        componentLabel: "每日简报",
+        slotId: "project-summary",
+        slotLabel: "项目关键进展概览",
+      },
+    ],
+  },
+  {
+    id: "skill-task-planning-core",
+    name: "任务规划核心方法",
+    category: "计划",
+    description:
+      "平台核心任务规划 Skill。把需求理解、事实分层、验收覆盖、责任单元拆解、依赖建模、风险 Gate 和结构化输出要求注入规划伙伴。",
+    publisher: official,
+    version: "1.0.0",
+    icon: "list-checks",
+    permissions: ["读取当前任务授权范围内的需求、附件和项目上下文"],
+    usage: "平台官方",
+    instructions: TASK_PLANNING_INSTRUCTIONS,
+    triggers: ["task-planning"],
+  },
   {
     id: "skill-project-reporting",
     name: "项目汇报生成",

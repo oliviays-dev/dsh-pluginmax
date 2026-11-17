@@ -648,7 +648,9 @@ window.__ModuleLoader__.load({
         children: [
           jsxRuntime.jsx("path", { d: "m3 9 2-5h14l2 5" }),
           jsxRuntime.jsx("path", { d: "M4 9v11h16V9M9 20v-6h6v6" }),
-          jsxRuntime.jsx("path", { d: "M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0" }),
+          jsxRuntime.jsx("path", {
+            d: "M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0",
+          }),
         ],
       }),
     };
@@ -1042,6 +1044,7 @@ window.__ModuleLoader__.load({
           }
           window.localStorage.setItem("pluginmax.collab.token", body.token);
           window.dispatchEvent(new CustomEvent("pluginmax:collab-token"));
+          window.location.reload();
           setAccount(body.user);
           setAuthOpen(false);
           setAuthForm({ userId: "", password: "" });
@@ -1293,6 +1296,7 @@ window.__ModuleLoader__.load({
           }
           window.localStorage.setItem("pluginmax.collab.token", body.token);
           window.dispatchEvent(new CustomEvent("pluginmax:collab-token"));
+          window.location.reload();
         } catch (cause) {
           setError(friendlyAuthError(cause));
         } finally {
@@ -1553,9 +1557,7 @@ window.__ModuleLoader__.load({
           minimum,
           window.innerWidth - sidebarWidth - detailsWidth - minimumMainWidth,
         );
-        return Math.round(
-          Math.max(minimum, Math.min(nextWidth, maximum)),
-        );
+        return Math.round(Math.max(minimum, Math.min(nextWidth, maximum)));
       };
       return jsxRuntime.jsx("div", {
         role: "separator",
