@@ -1,0 +1,172 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="940" viewBox="0 0 1500 940" role="img" aria-labelledby="title desc">
+  <title id="title">任务主状态机</title>
+  <desc id="desc">展示任务待处理、进行中、待验收、已完成、已取消五个主状态，以及归档、队列、等待补充、Run状态等正交标志。</desc>
+  <defs>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#6fa8ff"/>
+    </marker>
+    <marker id="arrow-gray" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#8795a6"/>
+    </marker>
+    <marker id="arrow-red" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#e06b6b"/>
+    </marker>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000" flood-opacity=".28"/>
+    </filter>
+    <style>
+      .bg { fill: #0f1217; }
+      .panel { fill: #15191f; stroke: #2c333c; stroke-width: 1; }
+      .title { fill: #f2f5f8; font: 700 28px -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif; }
+      .subtitle { fill: #8f9baa; font: 400 14px -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif; }
+      .pill { fill: #1c2533; stroke: #36506f; }
+      .pill-text { fill: #a9c9f4; font: 650 12px -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif; }
+      .state-card { fill: #181c22; stroke: #343c46; stroke-width: 1.2; }
+      .state-card.todo { stroke: #778493; }
+      .state-card.progress { stroke: #4f8ef7; }
+      .state-card.review { stroke: #e8a33d; }
+      .state-card.done { stroke: #34d47e; }
+      .state-card.cancelled { stroke: #f26d6d; }
+      .state-code { fill: #748191; font: 600 11px ui-monospace,SFMono-Regular,Menlo,monospace; }
+      .state-name { fill: #f1f4f7; font: 700 24px -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif; }
+      .state-desc { fill: #9ba7b5; font: 400 12px -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif; }
+      .state-foot { fill: #c2ccd8; font: 500 11px -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif; }
+      .edge { fill: none; stroke: #6fa8ff; stroke-width: 2; }
+      .edge.secondary { stroke: #8795a6; stroke-dasharray: 7 6; }
+      .edge.cancel { stroke: #e06b6b; stroke-dasharray: 6 6; }
+      .edge-label { fill: #b9c8da; font: 500 11px -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif; }
+      .edge-label.dim { fill: #8693a2; }
+      .legend-title { fill: #dce4ed; font: 650 13px -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif; }
+      .legend-text { fill: #8e9baa; font: 400 11.5px -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif; }
+      .orth-card { fill: #171b21; stroke: #2e353e; }
+      .orth-key { fill: #718091; font: 600 10px ui-monospace,SFMono-Regular,Menlo,monospace; }
+      .orth-value { fill: #e2e8ef; font: 600 12px -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif; }
+      .orth-desc { fill: #8f9cab; font: 400 10.5px -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif; }
+      .accent-blue { fill: #4f8ef7; }
+      .accent-amber { fill: #e8a33d; }
+      .accent-green { fill: #34d47e; }
+      .accent-red { fill: #f26d6d; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1500" height="940"/>
+  <circle cx="1330" cy="90" r="170" fill="#4f8ef7" opacity=".035"/>
+  <circle cx="90" cy="850" r="200" fill="#34d47e" opacity=".025"/>
+
+  <text x="54" y="58" class="title">任务主状态机</text>
+  <text x="54" y="84" class="subtitle">5 个主状态表达生命周期；归档、队列、等待补充和 Run 异常保持为正交状态</text>
+  <rect class="pill" x="1310" y="35" width="136" height="30" rx="15"/>
+  <text x="1378" y="55" class="pill-text" text-anchor="middle">建议口径 v1</text>
+
+  <!-- Main state cards -->
+  <g filter="url(#shadow)">
+    <rect class="state-card todo" x="60" y="190" width="250" height="140" rx="12"/>
+    <rect class="state-card progress" x="410" y="190" width="250" height="140" rx="12"/>
+    <rect class="state-card review" x="760" y="190" width="250" height="140" rx="12"/>
+    <rect class="state-card done" x="1110" y="190" width="250" height="140" rx="12"/>
+    <rect class="state-card cancelled" x="1110" y="605" width="250" height="130" rx="12"/>
+  </g>
+
+  <rect class="accent-blue" x="60" y="205" width="4" height="110" rx="2" opacity=".4"/>
+  <text x="82" y="221" class="state-code">todo</text>
+  <text x="82" y="253" class="state-name">待处理</text>
+  <text x="82" y="278" class="state-desc">已建立，尚未进入实际执行</text>
+  <text x="82" y="304" class="state-foot">开始 · 认领 · 派发 AI</text>
+
+  <rect class="accent-blue" x="410" y="205" width="4" height="110" rx="2"/>
+  <text x="432" y="221" class="state-code">progress</text>
+  <text x="432" y="253" class="state-name">进行中</text>
+  <text x="432" y="278" class="state-desc">人工执行或 AI Run 正在处理</text>
+  <text x="432" y="304" class="state-foot">等待补充 · 失败重试 · 改派</text>
+
+  <rect class="accent-amber" x="760" y="205" width="4" height="110" rx="2"/>
+  <text x="782" y="221" class="state-code">review</text>
+  <text x="782" y="253" class="state-name">待验收</text>
+  <text x="782" y="278" class="state-desc">已提交结果，等待验收结论</text>
+  <text x="782" y="304" class="state-foot">通过 · 退回 · 查看执行记录</text>
+
+  <rect class="accent-green" x="1110" y="205" width="4" height="110" rx="2"/>
+  <text x="1132" y="221" class="state-code">done</text>
+  <text x="1132" y="253" class="state-name">已完成</text>
+  <text x="1132" y="278" class="state-desc">任务生命周期闭环</text>
+  <text x="1132" y="304" class="state-foot">归档 · 显式重开</text>
+
+  <rect class="accent-red" x="1110" y="620" width="4" height="100" rx="2"/>
+  <text x="1132" y="636" class="state-code">cancelled</text>
+  <text x="1132" y="668" class="state-name">已取消</text>
+  <text x="1132" y="693" class="state-desc">主动终止，不视为完成</text>
+  <text x="1132" y="719" class="state-foot">不可重开 · 仅归档 / 复原</text>
+
+  <!-- Normal transitions -->
+  <path class="edge" d="M310 260 H410" marker-end="url(#arrow-blue)"/>
+  <text x="360" y="245" class="edge-label" text-anchor="middle">开始 / 认领 / AI派发</text>
+
+  <path class="edge" d="M660 260 H760" marker-end="url(#arrow-blue)"/>
+  <text x="710" y="245" class="edge-label" text-anchor="middle">提交验收 / 自动提交</text>
+
+  <path class="edge" d="M1010 260 H1110" marker-end="url(#arrow-blue)"/>
+  <text x="1060" y="245" class="edge-label" text-anchor="middle">验收通过</text>
+
+  <path class="edge" d="M845 330 V390 Q845 410 825 410 H700 Q680 410 680 390 V330" marker-end="url(#arrow-blue)"/>
+  <text x="762" y="430" class="edge-label" text-anchor="middle">退回继续处理</text>
+  <text x="762" y="447" class="edge-label dim" text-anchor="middle">恢复原执行负责人</text>
+
+  <path class="edge secondary" d="M535 190 C630 105 1150 105 1235 190" marker-end="url(#arrow-gray)"/>
+  <text x="885" y="123" class="edge-label dim" text-anchor="middle">无验收完成 / 自动通过 / 工作流直通</text>
+
+  <path class="edge secondary" d="M1235 190 C1205 48 260 48 185 190" marker-end="url(#arrow-gray)"/>
+  <text x="710" y="66" class="edge-label dim" text-anchor="middle">显式重开 / 追加新要求 / 重新指派</text>
+
+  <!-- Cancellation paths -->
+  <path class="edge cancel" d="M185 330 V495 Q185 515 205 515 H1070 Q1090 515 1090 535 V605" marker-end="url(#arrow-red)"/>
+  <path class="edge cancel" d="M535 330 V470 Q535 492 557 492 H1038 Q1060 492 1060 514 V605" marker-end="url(#arrow-red)"/>
+  <path class="edge cancel" d="M885 330 V560 Q885 580 905 580 H1090 Q1110 580 1110 600" marker-end="url(#arrow-red)"/>
+  <rect x="1000" y="526" width="68" height="24" rx="12" fill="#23191b" stroke="#61383c"/>
+  <text x="1034" y="542" class="edge-label" text-anchor="middle" fill="#ed9b9b">取消</text>
+
+  <!-- Return to queue -->
+  <path class="edge secondary" d="M805 190 C785 150 215 150 185 190" marker-end="url(#arrow-gray)"/>
+  <text x="500" y="150" class="edge-label dim" text-anchor="middle">退回并重新排队</text>
+
+  <!-- Orthogonal states panel -->
+  <rect class="panel" x="60" y="500" width="790" height="370" rx="14"/>
+  <text x="86" y="534" class="legend-title">正交状态：不新增主状态，但改变可执行性和 UI 表达</text>
+  <text x="86" y="556" class="legend-text">主状态回答“任务处于哪个阶段”，正交状态回答“这个阶段当前是否可推进、是否需要我处理”。</text>
+
+  <rect class="orth-card" x="86" y="580" width="350" height="64" rx="8"/>
+  <text x="102" y="601" class="orth-key">archivedAt</text>
+  <text x="102" y="621" class="orth-value">归档态</text>
+  <text x="198" y="621" class="orth-desc">全任务只读；复原后回到原主状态</text>
+
+  <rect class="orth-card" x="452" y="580" width="372" height="64" rx="8"/>
+  <text x="468" y="601" class="orth-key">queueState</text>
+  <text x="468" y="621" class="orth-value">idle / blocked / paused</text>
+  <text x="468" y="637" class="orth-desc">只影响 todo 是否可自动出队，不改变主状态</text>
+
+  <rect class="orth-card" x="86" y="660" width="350" height="64" rx="8"/>
+  <text x="102" y="681" class="orth-key">needsInput</text>
+  <text x="102" y="701" class="orth-value">等待补充</text>
+  <text x="198" y="701" class="orth-desc">任务仍为 progress，补充后继续 Run</text>
+
+  <rect class="orth-card" x="452" y="660" width="372" height="64" rx="8"/>
+  <text x="468" y="681" class="orth-key">Run status</text>
+  <text x="468" y="701" class="orth-value">queued / running / failed / timeout</text>
+  <text x="468" y="717" class="orth-desc">失败不把主任务改成失败，进入重试或改派</text>
+
+  <rect class="orth-card" x="86" y="740" width="738" height="72" rx="8"/>
+  <text x="102" y="762" class="orth-key">reviewSubmitter + autoSubmitReview + autoApproveReview</text>
+  <text x="102" y="784" class="orth-value">进入 Review 时保存执行人快照；根据自动提交和自动通过开关决定落到 review 还是 done</text>
+  <text x="102" y="800" class="orth-desc">退回时恢复 reviewSubmitter，确保任务回到真正的执行负责人</text>
+
+  <!-- Legend -->
+  <g transform="translate(1080,780)">
+    <rect class="panel" x="-20" y="-24" width="356" height="122" rx="12"/>
+    <text x="0" y="0" class="legend-title">图例</text>
+    <line x1="0" y1="24" x2="42" y2="24" stroke="#6fa8ff" stroke-width="2" marker-end="url(#arrow-blue)"/>
+    <text x="56" y="28" class="legend-text">正常业务动作</text>
+    <line x1="0" y1="52" x2="42" y2="52" stroke="#8795a6" stroke-width="2" stroke-dasharray="7 6" marker-end="url(#arrow-gray)"/>
+    <text x="56" y="56" class="legend-text">重开 / 重新排队 / 直通</text>
+    <line x1="0" y1="80" x2="42" y2="80" stroke="#e06b6b" stroke-width="2" stroke-dasharray="6 6" marker-end="url(#arrow-red)"/>
+    <text x="56" y="84" class="legend-text">取消或工作流终止</text>
+  </g>
+</svg>

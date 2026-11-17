@@ -1,0 +1,100 @@
+domain:
+  id: orders
+  datasetId: orders-facts
+  connectionId: orders-readonly-source
+  connectorType: orders-readonly
+  manifestVersion: orders-manifest-v2
+  semanticVersion: orders-semantic-v1
+
+resourceMarket:
+  mcp:
+    assetId: mcp-orders-mock
+    name: Mock 订单管理系统
+    publisher: Third-party OMS
+    protocol: MCP
+    tools:
+      - orders_health
+      - orders_query
+    permissions:
+      - orders.read
+      - payments.read
+      - fulfillment.read
+    mockServer:
+      transport: stdio
+      command: node
+      args:
+        - plugins/dsh-collab-data-orders/mock/order-mcp-server.mjs
+    realServer:
+      transport: streamable-http
+      urlRef: env:ORDERS_MCP_URL
+      credentialRef: env:ORDERS_MCP_TOKEN
+
+runtimeProfile:
+  # 复用 Data Agent 通用 Runtime；订单域不新增执行器、QueryRun 或工具。
+  allowedTools:
+    - entity.read
+    - data.catalog.search
+    - dataset.describe
+    - query.explain
+    - metric.query
+    - dataset.query.readonly
+    - ask_user_question
+    - report.render
+    - artifact.write
+  dataConnectionScopes:
+    - orders-readonly-source
+  maxRows: 500
+  maxMinutes: 15
+  resultTokenBudget: 8000
+
+template:
+  id: sys-data-agent
+  capabilityRefs:
+    - id: skill.order-exception-analysis
+      version: v1.0
+  # 订单知识只在 Skill 中维护，系统 SOUL 不增加订单专用规则。
+  skillMode: data-fabric-configuration
+
+aiPartner:
+  teammateId: data-agent
+  defaultTimeRange: today
+  timezone: Asia/Shanghai
+  clarificationMode: hybrid
+  maxRowsPerQuery: 500
+  queryTimeoutMs: 15000
+  preferredMetricIds:
+    - order_exception_rate
+    - order_exception_count
+    - fulfillment_timeout_rate
+    - payment_failure_rate
+    - cancel_rate
+
+production:
+  transport: mcp
+  mcpAssetId: mcp-orders-mock
+  mcpToolName: orders_query
+  credentialRef: env:ORDERS_MCP_TOKEN
+  httpFallback:
+    transport: http-json
+    endpointRef: env:ORDERS_READONLY_ENDPOINT
+    credentialRef: env:ORDERS_READONLY_TOKEN
+  responseContract:
+    orders: OrderRecord[]
+    dataCutoffAt: ISO-8601
+    freshness: string
+    scannedRows: number
+  blockedUntil:
+    - real read-only endpoint is provisioned
+    - environment secret references resolve on the hosting node
+    - source ACL and field mapping are verified against the real order system
+
+demo:
+  explicit: true
+  transport: mcp
+  mcpAssetId: mcp-orders-mock
+  mcpToolName: orders_query
+  datasetIsFixture: true
+  evidenceMarker: demo:orders-demo-v1
+  prohibitedUses:
+    - production reporting
+    - real permissions acceptance

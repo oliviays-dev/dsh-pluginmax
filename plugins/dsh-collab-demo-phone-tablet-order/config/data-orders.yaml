@@ -1,0 +1,8 @@
+workspaceTitle: "手机平板订单履约演示"
+mode: demo
+transport: mcp
+mcpAssetId: mcp-orders-phone-tablet-demo
+mcpToolName: orders_query
+fixture: data/orders-fixture.json
+readOnly: true
+fallbackToDefaultOrders: false

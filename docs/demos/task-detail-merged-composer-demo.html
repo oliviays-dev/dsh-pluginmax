@@ -1,0 +1,2017 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>任务详情 · 合并讨论与执行输入 Demo</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0d1116;
+        --bg-soft: #11161c;
+        --panel: #151a21;
+        --panel-2: #1a2028;
+        --panel-3: #202731;
+        --line: #2b333e;
+        --line-strong: #3a4552;
+        --text: #edf2f7;
+        --muted: #9ca8b6;
+        --faint: #6f7b88;
+        --blue: #72a7ff;
+        --blue-strong: #3c7eea;
+        --blue-soft: rgba(77, 133, 235, 0.14);
+        --green: #54c99a;
+        --green-soft: rgba(68, 183, 134, 0.12);
+        --amber: #e5ad54;
+        --amber-soft: rgba(222, 159, 66, 0.12);
+        --red: #ef7982;
+        --red-soft: rgba(224, 91, 102, 0.12);
+        --purple: #b7a1ff;
+        --purple-soft: rgba(141, 116, 228, 0.13);
+        --shadow: 0 18px 50px rgba(0, 0, 0, 0.26);
+        font-family:
+          Inter, "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-width: 320px;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--text);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      button,
+      input,
+      textarea,
+      select {
+        font: inherit;
+      }
+
+      button {
+        color: inherit;
+      }
+
+      .sprite {
+        position: absolute;
+        width: 0;
+        height: 0;
+        overflow: hidden;
+      }
+
+      .icon {
+        width: 15px;
+        height: 15px;
+        flex: none;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .app {
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: 230px minmax(0, 1fr);
+      }
+
+      .rail {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        border-right: 1px solid var(--line);
+        background: #101419;
+      }
+
+      .brand {
+        height: 58px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 18px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+        font-weight: 700;
+        letter-spacing: 0.01em;
+      }
+
+      .brand-mark {
+        width: 25px;
+        height: 25px;
+        display: grid;
+        place-items: center;
+        border-radius: 7px;
+        background: var(--blue-soft);
+        color: var(--blue);
+      }
+
+      .rail-nav {
+        display: grid;
+        gap: 3px;
+        padding: 13px 10px;
+      }
+
+      .rail-item {
+        height: 35px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 10px;
+        border: 0;
+        border-radius: 7px;
+        background: transparent;
+        color: var(--muted);
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .rail-item:hover {
+        background: var(--panel);
+        color: var(--text);
+      }
+
+      .rail-item.active {
+        background: var(--blue-soft);
+        color: #bad3ff;
+      }
+
+      .rail-separator {
+        margin: 8px 13px;
+        border-top: 1px solid var(--line);
+      }
+
+      .project-list {
+        min-height: 0;
+        flex: 1;
+        padding: 4px 10px 18px;
+        overflow: auto;
+      }
+
+      .project-title {
+        padding: 8px 9px 5px;
+        color: var(--faint);
+        font-size: 10.5px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+
+      .project-row {
+        min-width: 0;
+        display: grid;
+        grid-template-columns: 8px minmax(0, 1fr);
+        gap: 8px;
+        align-items: start;
+        padding: 8px 9px;
+        border-radius: 7px;
+        color: var(--muted);
+      }
+
+      .project-row:first-of-type {
+        background: rgba(255, 255, 255, 0.025);
+        color: var(--text);
+      }
+
+      .project-dot {
+        width: 7px;
+        height: 7px;
+        margin-top: 5px;
+        border-radius: 50%;
+        background: var(--blue);
+      }
+
+      .project-copy {
+        min-width: 0;
+      }
+
+      .project-copy strong,
+      .project-copy small {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .project-copy strong {
+        font-size: 11.5px;
+        font-weight: 600;
+      }
+
+      .project-copy small {
+        margin-top: 2px;
+        color: var(--faint);
+        font-size: 9.5px;
+      }
+
+      .main {
+        min-width: 0;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        background:
+          linear-gradient(rgba(255, 255, 255, 0.012) 1px, transparent 1px)
+            0 0 / 100% 36px,
+          var(--bg);
+      }
+
+      .topbar {
+        min-height: 64px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 13px 22px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(13, 17, 22, 0.96);
+      }
+
+      .page-title {
+        margin: 0;
+        font-size: 21px;
+        line-height: 1.2;
+      }
+
+      .demo-switcher {
+        min-width: 205px;
+        height: 34px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 0 10px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--panel);
+        color: var(--muted);
+      }
+
+      .demo-switcher span {
+        flex: none;
+        color: var(--faint);
+        font-size: 10px;
+      }
+
+      .demo-switcher select {
+        min-width: 0;
+        flex: 1;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: var(--text);
+        font-size: 11.5px;
+      }
+
+      .top-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-left: auto;
+      }
+
+      .scope-switch {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        padding: 2px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--panel);
+      }
+
+      .scope-switch button {
+        height: 27px;
+        padding: 0 9px;
+        border: 0;
+        border-radius: 5px;
+        background: transparent;
+        color: var(--muted);
+        font-size: 10.5px;
+        cursor: pointer;
+      }
+
+      .scope-switch button.active {
+        background: var(--panel-3);
+        color: var(--blue);
+      }
+
+      .ghost-button,
+      .primary-button,
+      .danger-button,
+      .icon-button {
+        height: 34px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+
+      .ghost-button {
+        padding: 0 11px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        color: var(--muted);
+      }
+
+      .ghost-button:hover,
+      .icon-button:hover {
+        border-color: var(--line-strong);
+        background: var(--panel-2);
+        color: var(--text);
+      }
+
+      .primary-button {
+        padding: 0 12px;
+        border: 1px solid transparent;
+        background: #f2f5f8;
+        color: #11161c;
+        font-weight: 650;
+      }
+
+      .primary-button:hover {
+        background: #fff;
+      }
+
+      .danger-button {
+        padding: 0 11px;
+        border: 1px solid rgba(239, 121, 130, 0.34);
+        background: transparent;
+        color: var(--red);
+      }
+
+      .icon-button {
+        width: 34px;
+        padding: 0;
+        border: 1px solid var(--line);
+        background: var(--panel);
+      }
+
+      .page {
+        min-width: 0;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 14px 22px 22px;
+      }
+
+      .detail-shell {
+        min-width: 0;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        background: var(--bg-soft);
+        box-shadow: var(--shadow);
+      }
+
+      .detail-bar {
+        min-height: 45px;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .crumb {
+        min-width: 0;
+        flex: 1;
+        overflow: hidden;
+        color: var(--muted);
+        font-size: 10.5px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .crumb strong {
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      .status-pill,
+      .type-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        height: 21px;
+        padding: 0 7px;
+        border-radius: 4px;
+        font-size: 9.5px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
+      .status-pill.progress {
+        color: var(--blue);
+        background: var(--blue-soft);
+      }
+
+      .status-pill.review {
+        color: var(--amber);
+        background: var(--amber-soft);
+      }
+
+      .status-pill.done {
+        color: var(--green);
+        background: var(--green-soft);
+      }
+
+      .status-pill.cancelled {
+        color: var(--red);
+        background: var(--red-soft);
+      }
+
+      .status-pill.workflow {
+        color: var(--purple);
+        background: var(--purple-soft);
+      }
+
+      .project-chip {
+        height: 22px;
+        display: inline-flex;
+        align-items: center;
+        padding: 0 7px;
+        border-radius: 4px;
+        background: var(--panel);
+        color: var(--muted);
+        font-size: 9.5px;
+        white-space: nowrap;
+      }
+
+      .detail-grid {
+        min-width: 0;
+        min-height: 650px;
+        flex: 1;
+        display: grid;
+        grid-template-columns: minmax(0, 1.36fr) minmax(370px, 0.92fr);
+        overflow: hidden;
+      }
+
+      .conversation {
+        min-width: 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        border-right: 1px solid var(--line);
+      }
+
+      .message-scroll {
+        min-height: 0;
+        flex: 1;
+        overflow: auto;
+        padding: 13px 14px 10px;
+        scrollbar-gutter: stable;
+      }
+
+      .message {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+
+      .message.self {
+        flex-direction: row-reverse;
+      }
+
+      .avatar {
+        width: 28px;
+        height: 28px;
+        flex: none;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        background: #256d5b;
+        color: white;
+        font-size: 9px;
+        font-weight: 700;
+      }
+
+      .avatar.agent {
+        background: #5c49a5;
+      }
+
+      .avatar.system {
+        background: var(--panel-3);
+        color: var(--muted);
+      }
+
+      .message-main {
+        width: fit-content;
+        min-width: 0;
+        max-width: min(72%, 620px);
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .message.self .message-main {
+        align-items: flex-end;
+      }
+
+      .message-meta {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+        color: var(--faint);
+        font-size: 9.5px;
+      }
+
+      .message-meta strong {
+        color: var(--muted);
+        font-size: 10.5px;
+      }
+
+      .message.self .message-meta {
+        justify-content: flex-end;
+      }
+
+      .message-badge {
+        height: 17px;
+        display: inline-flex;
+        align-items: center;
+        padding: 0 5px;
+        border-radius: 4px;
+        font-size: 8.5px;
+        font-weight: 600;
+      }
+
+      .message-badge.run {
+        color: var(--purple);
+        background: var(--purple-soft);
+      }
+
+      .message-badge.discussion {
+        color: var(--muted);
+        background: var(--panel-3);
+      }
+
+      .message-badge.execution {
+        color: var(--blue);
+        background: var(--blue-soft);
+      }
+
+      .message-badge.consensus {
+        color: var(--green);
+        background: var(--green-soft);
+      }
+
+      .bubble {
+        margin-top: 4px;
+        padding: 7px 10px;
+        border: 1px solid var(--line);
+        border-radius: 3px 8px 8px 8px;
+        background: var(--panel-2);
+        color: #dce4ed;
+        font-size: 11.5px;
+        line-height: 1.45;
+        text-align: left;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+
+      .message.self .bubble {
+        border-color: rgba(94, 148, 242, 0.34);
+        border-radius: 8px 3px 8px 8px;
+        background: rgba(65, 119, 216, 0.15);
+      }
+
+      .message.system-message .bubble {
+        border-style: dashed;
+        background: var(--panel);
+        color: var(--muted);
+      }
+
+      .message-actions {
+        display: flex;
+        gap: 5px;
+        margin-top: 5px;
+      }
+
+      .message-action {
+        height: 22px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0 7px;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        background: transparent;
+        color: var(--faint);
+        font-size: 9px;
+        cursor: pointer;
+      }
+
+      .message-action:hover {
+        border-color: var(--line-strong);
+        color: var(--text);
+      }
+
+      .composer {
+        flex: none;
+        margin: 0 12px 12px;
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+      }
+
+      .composer:focus-within {
+        border-color: rgba(91, 157, 255, 0.56);
+        box-shadow: 0 0 0 3px rgba(91, 157, 255, 0.08);
+      }
+
+      .composer-tools {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+        padding: 7px 8px 0;
+      }
+
+      .tool {
+        width: 26px;
+        height: 26px;
+        display: grid;
+        place-items: center;
+        padding: 0;
+        border: 0;
+        border-radius: 5px;
+        background: transparent;
+        color: var(--faint);
+        cursor: pointer;
+      }
+
+      .tool:hover {
+        background: var(--panel-3);
+        color: var(--text);
+      }
+
+      .tool .icon {
+        width: 13px;
+        height: 13px;
+      }
+
+      .composer textarea {
+        width: 100%;
+        min-height: 66px;
+        padding: 9px 10px;
+        border: 0;
+        outline: 0;
+        resize: vertical;
+        background: transparent;
+        color: var(--text);
+        font-size: 11.5px;
+        line-height: 1.55;
+      }
+
+      .composer textarea::placeholder {
+        color: var(--faint);
+      }
+
+      .composer-foot {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        padding: 7px 8px 8px;
+        border-top: 1px solid var(--line);
+      }
+
+      .intent-group {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        padding: 2px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--bg-soft);
+      }
+
+      .intent-button {
+        height: 25px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0 7px;
+        border: 0;
+        border-radius: 4px;
+        background: transparent;
+        color: var(--faint);
+        font-size: 9.5px;
+        cursor: pointer;
+      }
+
+      .intent-button .icon {
+        width: 11px;
+        height: 11px;
+      }
+
+      .intent-button.active {
+        background: var(--panel-3);
+        color: var(--text);
+      }
+
+      .intent-button:disabled {
+        opacity: 0.36;
+        cursor: not-allowed;
+      }
+
+      .effect-preview {
+        min-width: 0;
+        flex: 1;
+        display: inline-flex;
+        align-items: center;
+        color: var(--faint);
+        font-size: 9px;
+      }
+
+      .effect-preview strong {
+        min-width: 0;
+        overflow: hidden;
+        color: var(--faint);
+        font-weight: 400;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .effect-preview.run strong {
+        color: var(--faint);
+      }
+
+      .composer-actions {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        margin-left: auto;
+      }
+
+      .composer-actions .ghost-button,
+      .composer-actions .primary-button {
+        height: 30px;
+      }
+
+      .composer-actions .primary-button {
+        max-width: 220px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .composer-actions .primary-button.trigger-run {
+        background: #d8e5ff;
+        color: #14233b;
+      }
+
+      .side {
+        min-width: 0;
+        min-height: 0;
+        overflow: auto;
+        background: var(--bg-soft);
+        scrollbar-gutter: stable;
+      }
+
+      .side-head {
+        display: grid;
+        gap: 9px;
+        padding: 14px 15px 11px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .side-title {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+      }
+
+      .side-title h1 {
+        min-width: 0;
+        flex: 1;
+        margin: 0;
+        font-size: 17px;
+        line-height: 1.34;
+      }
+
+      .side-description {
+        margin: 0;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.58;
+      }
+
+      .action-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+
+      .detail-action {
+        height: 29px;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 0 8px;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        background: var(--panel);
+        color: var(--muted);
+        font-size: 10px;
+        cursor: pointer;
+      }
+
+      .detail-action .icon {
+        width: 11px;
+        height: 11px;
+      }
+
+      .detail-action.primary {
+        border-color: transparent;
+        background: #f1f4f7;
+        color: #141a21;
+        font-weight: 650;
+      }
+
+      .detail-action.caution {
+        border-color: rgba(229, 173, 84, 0.35);
+        color: var(--amber);
+      }
+
+      .detail-action.danger {
+        border-color: rgba(239, 121, 130, 0.34);
+        color: var(--red);
+      }
+
+      .tabs {
+        position: sticky;
+        top: 0;
+        z-index: 3;
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        border-bottom: 1px solid var(--line);
+        background: var(--bg-soft);
+      }
+
+      .tab {
+        height: 38px;
+        min-width: 0;
+        padding: 0 4px;
+        border: 0;
+        border-bottom: 2px solid transparent;
+        background: transparent;
+        color: var(--faint);
+        font-size: 9.5px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      .tab:hover {
+        background: var(--panel);
+        color: var(--muted);
+      }
+
+      .tab.active {
+        border-bottom-color: var(--blue);
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      .pane {
+        display: none;
+        padding: 13px 15px 18px;
+      }
+
+      .pane.active {
+        display: block;
+      }
+
+      .info-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 7px;
+      }
+
+      .info-item {
+        min-width: 0;
+        display: grid;
+        gap: 4px;
+        padding: 8px 9px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel);
+      }
+
+      .info-item.wide {
+        grid-column: 1 / -1;
+      }
+
+      .info-item > span {
+        color: var(--faint);
+        font-size: 8.5px;
+      }
+
+      .info-item > strong {
+        color: var(--text);
+        font-size: 10.5px;
+        font-weight: 500;
+        overflow-wrap: anywhere;
+      }
+
+      .owner-inline {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .owner-inline .avatar {
+        width: 21px;
+        height: 21px;
+        font-size: 7px;
+      }
+
+      .strategy-row {
+        display: flex;
+        gap: 4px;
+        flex-wrap: wrap;
+      }
+
+      .strategy-tag {
+        padding: 2px 5px;
+        border-radius: 4px;
+        background: var(--panel-3);
+        color: var(--muted);
+        font-size: 8.5px;
+      }
+
+      .execution-card {
+        display: grid;
+        gap: 8px;
+        margin-bottom: 10px;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--panel);
+      }
+
+      .section-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin: 0;
+        font-size: 10.5px;
+      }
+
+      .section-title span {
+        color: var(--faint);
+        font-size: 8.5px;
+        font-weight: 400;
+      }
+
+      .run-select {
+        width: 100%;
+        height: 31px;
+        padding: 0 8px;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        background: var(--bg-soft);
+        color: var(--text);
+        font-size: 9.5px;
+      }
+
+      .run-output {
+        max-height: 190px;
+        overflow: auto;
+        padding: 9px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel-2);
+        color: var(--muted);
+        font-size: 10px;
+        line-height: 1.6;
+        white-space: pre-wrap;
+      }
+
+      .doc-card {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 9px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel);
+      }
+
+      .doc-icon {
+        width: 29px;
+        height: 29px;
+        flex: none;
+        display: grid;
+        place-items: center;
+        border-radius: 6px;
+        background: var(--blue-soft);
+        color: var(--blue);
+        font-size: 8px;
+        font-weight: 700;
+      }
+
+      .doc-copy {
+        min-width: 0;
+        flex: 1;
+      }
+
+      .doc-copy strong,
+      .doc-copy small {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .doc-copy strong {
+        font-size: 10px;
+      }
+
+      .doc-copy small {
+        margin-top: 2px;
+        color: var(--faint);
+        font-size: 8.5px;
+      }
+
+      .empty-state {
+        padding: 26px 12px;
+        border: 1px dashed var(--line);
+        border-radius: 7px;
+        color: var(--faint);
+        font-size: 10px;
+        text-align: center;
+      }
+
+      .timeline {
+        display: grid;
+        gap: 9px;
+      }
+
+      .timeline-item {
+        display: grid;
+        grid-template-columns: 67px minmax(0, 1fr);
+        gap: 8px;
+        color: var(--muted);
+        font-size: 9.5px;
+      }
+
+      .timeline-item time {
+        color: var(--faint);
+        font-size: 8.5px;
+        white-space: nowrap;
+      }
+
+      .toast {
+        position: fixed;
+        left: 50%;
+        bottom: 22px;
+        z-index: 20;
+        max-width: min(420px, calc(100vw - 34px));
+        padding: 8px 12px;
+        border: 1px solid var(--line-strong);
+        border-radius: 6px;
+        background: #202832;
+        color: var(--text);
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.3);
+        font-size: 10.5px;
+        opacity: 0;
+        transform: translate(-50%, 8px);
+        pointer-events: none;
+        transition:
+          opacity 0.16s ease,
+          transform 0.16s ease;
+      }
+
+      .toast.show {
+        opacity: 1;
+        transform: translate(-50%, 0);
+      }
+
+      @media (max-width: 1080px) {
+        .app {
+          grid-template-columns: 190px minmax(0, 1fr);
+        }
+
+        .detail-grid {
+          display: block;
+          min-height: 0;
+          overflow: visible;
+        }
+
+        .conversation {
+          min-height: 620px;
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+
+        .side {
+          overflow: visible;
+        }
+
+        .tabs {
+          position: static;
+        }
+      }
+
+      @media (max-width: 760px) {
+        .app {
+          display: block;
+        }
+
+        .rail {
+          display: none;
+        }
+
+        .topbar {
+          align-items: flex-start;
+          flex-wrap: wrap;
+          padding: 12px;
+        }
+
+        .page-title {
+          font-size: 18px;
+        }
+
+        .demo-switcher {
+          order: 3;
+          width: 100%;
+          min-width: 0;
+        }
+
+        .top-actions {
+          gap: 5px;
+        }
+
+        .scope-switch {
+          display: none;
+        }
+
+        .top-actions .ghost-button {
+          display: none;
+        }
+
+        .page {
+          padding: 10px;
+        }
+
+        .detail-bar {
+          flex-wrap: wrap;
+        }
+
+        .crumb {
+          flex-basis: calc(100% - 90px);
+        }
+
+        .conversation {
+          min-height: 0;
+        }
+
+        .message-main {
+          max-width: 82%;
+        }
+
+        .message-scroll {
+          padding-right: 9px;
+          padding-left: 9px;
+        }
+
+        .composer {
+          margin: 0 8px 8px;
+        }
+
+        .effect-preview {
+          flex-basis: 100%;
+          order: 3;
+        }
+
+        .composer-actions {
+          width: 100%;
+        }
+
+        .composer-actions .primary-button {
+          min-width: 0;
+          flex: 1;
+          max-width: none;
+        }
+
+        .info-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .info-item.wide {
+          grid-column: auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <svg class="sprite" aria-hidden="true">
+      <symbol id="i-grid" viewBox="0 0 24 24">
+        <rect x="3" y="3" width="7" height="7" rx="1" />
+        <rect x="14" y="3" width="7" height="7" rx="1" />
+        <rect x="3" y="14" width="7" height="7" rx="1" />
+        <rect x="14" y="14" width="7" height="7" rx="1" />
+      </symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24">
+        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+      </symbol>
+      <symbol id="i-list" viewBox="0 0 24 24">
+        <path d="M9 6h11M9 12h11M9 18h11" />
+        <path d="m3 6 1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2" />
+      </symbol>
+      <symbol id="i-workflow" viewBox="0 0 24 24">
+        <rect x="4" y="4" width="6" height="5" rx="1" />
+        <rect x="14" y="15" width="6" height="5" rx="1" />
+        <path d="M10 6.5h4a3 3 0 0 1 3 3V15" />
+      </symbol>
+      <symbol id="i-message" viewBox="0 0 24 24">
+        <path d="M21 15a4 4 0 0 1-4 4H8l-5 3 1.7-5.1A7 7 0 0 1 3 12V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z" />
+      </symbol>
+      <symbol id="i-bot" viewBox="0 0 24 24">
+        <rect x="4" y="7" width="16" height="12" rx="3" />
+        <path d="M9 12h.01M15 12h.01M9 16h6M12 3v4" />
+      </symbol>
+      <symbol id="i-store" viewBox="0 0 24 24">
+        <path d="M3 9h18l-2-5H5Z" />
+        <path d="M5 9v11h14V9M9 20v-6h6v6" />
+      </symbol>
+      <symbol id="i-chevron-left" viewBox="0 0 24 24">
+        <path d="m15 18-6-6 6-6" />
+      </symbol>
+      <symbol id="i-star" viewBox="0 0 24 24">
+        <path d="m12 3 2.7 5.7 6.3.8-4.6 4.3 1.2 6.2L12 17.1 6.4 20l1.2-6.2L3 9.5l6.3-.8Z" />
+      </symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24">
+        <path d="M20 12a8 8 0 1 1-2.3-5.7L20 8" />
+        <path d="M20 3v5h-5" />
+      </symbol>
+      <symbol id="i-panel" viewBox="0 0 24 24">
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <path d="M9 4v16" />
+      </symbol>
+      <symbol id="i-chevron-up" viewBox="0 0 24 24">
+        <path d="m6 15 6-6 6 6" />
+      </symbol>
+      <symbol id="i-smile" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01" />
+      </symbol>
+      <symbol id="i-paperclip" viewBox="0 0 24 24">
+        <path d="m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l8.6-8.6a4 4 0 1 1 5.6 5.7l-8.6 8.6a2 2 0 0 1-2.8-2.8l8.5-8.5" />
+      </symbol>
+      <symbol id="i-at-sign" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="4" />
+        <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" />
+      </symbol>
+      <symbol id="i-send" viewBox="0 0 24 24">
+        <path d="m22 2-7 20-4-9-9-4Z" />
+        <path d="M22 2 11 13" />
+      </symbol>
+      <symbol id="i-message-circle" viewBox="0 0 24 24">
+        <path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.5 9 9 0 0 1-4-1L3 21l2-5a8.5 8.5 0 1 1 16-4.5Z" />
+      </symbol>
+      <symbol id="i-check" viewBox="0 0 24 24">
+        <path d="M20 6 9 17l-5-5" />
+      </symbol>
+      <symbol id="i-x" viewBox="0 0 24 24">
+        <path d="M6 6l12 12M18 6 6 18" />
+      </symbol>
+      <symbol id="i-archive" viewBox="0 0 24 24">
+        <rect x="3" y="4" width="18" height="5" rx="1" />
+        <path d="M5 9v10h14V9M9 13h6" />
+      </symbol>
+      <symbol id="i-external" viewBox="0 0 24 24">
+        <path d="M15 3h6v6M10 14 21 3" />
+        <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
+      </symbol>
+      <symbol id="i-download" viewBox="0 0 24 24">
+        <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />
+      </symbol>
+    </svg>
+
+    <div class="app">
+      <aside class="rail">
+        <div class="brand">
+          <span class="brand-mark">
+            <svg class="icon"><use href="#i-grid"></use></svg>
+          </span>
+          <span>DSH Enterprise+</span>
+        </div>
+        <nav class="rail-nav" aria-label="主导航">
+          <button class="rail-item">
+            <svg class="icon"><use href="#i-grid"></use></svg>
+            工作台
+          </button>
+          <button class="rail-item">
+            <svg class="icon"><use href="#i-folder"></use></svg>
+            项目
+          </button>
+          <button class="rail-item active">
+            <svg class="icon"><use href="#i-list"></use></svg>
+            任务
+          </button>
+          <button class="rail-item">
+            <svg class="icon"><use href="#i-workflow"></use></svg>
+            工作流
+          </button>
+          <button class="rail-item">
+            <svg class="icon"><use href="#i-message"></use></svg>
+            沟通
+          </button>
+          <button class="rail-item">
+            <svg class="icon"><use href="#i-bot"></use></svg>
+            AI伙伴
+          </button>
+          <button class="rail-item">
+            <svg class="icon"><use href="#i-store"></use></svg>
+            资源市场
+          </button>
+        </nav>
+        <div class="rail-separator"></div>
+        <div class="project-list">
+          <div class="project-title">项目</div>
+          <div class="project-row">
+            <span class="project-dot"></span>
+            <span class="project-copy">
+              <strong>Pluginmax smoke</strong>
+              <small>小白 PD · 发布风险同步</small>
+            </span>
+          </div>
+          <div class="project-row">
+            <span class="project-dot" style="background: var(--faint)"></span>
+            <span class="project-copy">
+              <strong>供应链异常处置</strong>
+              <small>陆行 · 订单缺口复核</small>
+            </span>
+          </div>
+          <div class="project-row">
+            <span class="project-dot" style="background: var(--faint)"></span>
+            <span class="project-copy">
+              <strong>客户成功工作台</strong>
+              <small>陈晓 · 客户回访整理</small>
+            </span>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <h1 class="page-title">任务</h1>
+          <label class="demo-switcher">
+            <span>演示场景</span>
+            <select id="scenarioSelect" aria-label="切换演示场景">
+              <option value="ai-progress">AI 执行中</option>
+              <option value="human-progress">人类执行中</option>
+              <option value="review">待验收</option>
+              <option value="done">已完成</option>
+              <option value="workflow">工作流任务</option>
+            </select>
+          </label>
+          <div class="top-actions">
+            <div class="scope-switch" aria-label="项目范围">
+              <button class="active">仅看已加入</button>
+              <button>平台全量</button>
+            </div>
+            <button class="ghost-button">草稿箱 <span id="draftCount">1</span></button>
+            <button class="icon-button" aria-label="刷新">
+              <svg class="icon"><use href="#i-refresh"></use></svg>
+            </button>
+            <button class="primary-button">新建任务</button>
+            <button class="icon-button" aria-label="打开侧边栏">
+              <svg class="icon"><use href="#i-panel"></use></svg>
+            </button>
+          </div>
+        </header>
+
+        <div class="page">
+          <section class="detail-shell" aria-label="任务详情">
+            <div class="detail-bar">
+              <button class="ghost-button" aria-label="返回任务看板">
+                <svg class="icon"><use href="#i-chevron-left"></use></svg>
+                返回
+              </button>
+              <div class="crumb">
+                任务 / <strong id="crTitle">subagent 家会话终验</strong>
+              </div>
+              <span class="project-chip">项目 · Pluginmax smoke</span>
+              <button class="icon-button" title="关注任务" aria-label="关注任务">
+                <svg class="icon"><use href="#i-star"></use></svg>
+              </button>
+            </div>
+
+            <div class="detail-grid">
+              <section class="conversation" aria-label="任务会话">
+                <div class="message-scroll" id="messageScroll">
+                  <article class="message self">
+                    <span class="avatar">AD</span>
+                    <div class="message-main">
+                      <div class="message-meta">
+                        <strong>我</strong>
+                        <span>10/31 10:32</span>
+                        <span class="message-badge execution">指令 · 驱动执行</span>
+                      </div>
+                      <div class="bubble">必须通过 subagent_fork 完成本任务，并返回确认。</div>
+                    </div>
+                  </article>
+
+                  <article class="message">
+                    <span class="avatar agent">DE</span>
+                    <div class="message-main">
+                      <div class="message-meta">
+                        <strong>小白 PD</strong>
+                        <span>Agent</span>
+                        <span>10/31 10:33</span>
+                        <span class="message-badge run">执行反馈</span>
+                      </div>
+                      <div class="bubble">
+                        已完成 subagent_fork 验证，返回结果中保留了委派链与执行身份。当前缺少一次端到端 trace 证据，建议补充后进入最终验收。
+                      </div>
+                    </div>
+                  </article>
+
+                  <article class="message">
+                    <span class="avatar">CX</span>
+                    <div class="message-main">
+                      <div class="message-meta">
+                        <strong>陈晓</strong>
+                        <span>10/31 10:35</span>
+                        <span class="message-badge discussion">讨论 · 仅记录</span>
+                      </div>
+                      <div class="bubble">
+                        验收口径应按“能否复现完整调用链”来判断，不要把单纯返回一段文本算作通过。
+                      </div>
+                    </div>
+                  </article>
+
+                  <article class="message self">
+                    <span class="avatar">AD</span>
+                    <div class="message-main">
+                      <div class="message-meta">
+                        <strong>我</strong>
+                        <span>10/31 10:36</span>
+                        <span class="message-badge discussion">讨论 · 仅记录</span>
+                      </div>
+                      <div class="bubble">
+                        以 trace 是否完整作为本轮验收门槛；仅返回口头确认不视为通过。
+                      </div>
+                      <div class="message-actions">
+                        <button class="message-action mark-consensus" type="button">
+                          <svg class="icon"><use href="#i-check"></use></svg>
+                          标记为关键共识
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                </div>
+
+                <form class="composer" id="composer">
+                  <div class="composer-tools">
+                    <button class="tool" type="button" title="插入表情" aria-label="插入表情">
+                      <svg class="icon"><use href="#i-smile"></use></svg>
+                    </button>
+                    <button class="tool" type="button" title="上传附件" aria-label="上传附件">
+                      <svg class="icon"><use href="#i-paperclip"></use></svg>
+                    </button>
+                    <button class="tool" type="button" id="insertMention" title="通知人员或 AI伙伴" aria-label="通知人员或 AI伙伴">
+                      <svg class="icon"><use href="#i-at-sign"></use></svg>
+                    </button>
+                  </div>
+                  <textarea
+                    id="composerInput"
+                    rows="3"
+                    placeholder="补充要求或推进说明，发送后将交给任务负责人，并通知到 @ 的人员 / AI 伙伴"
+                  ></textarea>
+                  <div class="composer-foot">
+                    <div class="intent-group" role="group" aria-label="发送目的">
+                      <button class="intent-button" type="button" data-intent="discussion">
+                        <svg class="icon"><use href="#i-message-circle"></use></svg>
+                        讨论
+                      </button>
+                      <button class="intent-button active" type="button" data-intent="execution">
+                        <svg class="icon"><use href="#i-send"></use></svg>
+                        <span id="executionIntentLabel">指令</span>
+                      </button>
+                    </div>
+                    <div class="effect-preview run" id="effectPreview" aria-live="polite">
+                      <strong id="effectText">将触发一次 Agent Run，并同步之前关键共识</strong>
+                    </div>
+                    <div class="composer-actions">
+                      <button class="ghost-button" type="button" id="clearComposer">清空</button>
+                      <button class="primary-button trigger-run" type="submit" id="sendButton">
+                        <span id="sendButtonText">发送</span>
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              </section>
+
+              <aside class="side">
+                <header class="side-head">
+                  <div class="side-title">
+                    <h1 id="sideTitle">subagent 家会话终验</h1>
+                    <span class="status-pill progress" id="sideStatus">进行中</span>
+                  </div>
+                  <p class="side-description" id="sideDescription">
+                    必须通过 subagent_fork 完成本任务，并返回确认。
+                  </p>
+                  <div class="action-row" id="actionRow"></div>
+                </header>
+
+                <nav class="tabs" role="tablist" aria-label="任务信息视图">
+                  <button class="tab active" type="button" data-tab="basic">基础信息</button>
+                  <button class="tab" type="button" data-tab="execution">AI执行记录</button>
+                  <button class="tab" type="button" data-tab="documents">产出文档</button>
+                  <button class="tab" type="button" data-tab="activity">任务动态</button>
+                </nav>
+
+                <section class="pane active" data-pane="basic">
+                  <div class="info-grid">
+                    <div class="info-item wide">
+                      <span>负责人</span>
+                      <strong class="owner-inline">
+                        <span class="avatar agent" id="ownerAvatar">DE</span>
+                        <span id="ownerName">小白 PD（平台 Admin）</span>
+                      </strong>
+                    </div>
+                    <div class="info-item">
+                      <span>归属项目</span>
+                      <strong>Pluginmax smoke</strong>
+                    </div>
+                    <div class="info-item">
+                      <span>任务类型</span>
+                      <strong>任务</strong>
+                    </div>
+                    <div class="info-item">
+                      <span>优先级</span>
+                      <strong>P1</strong>
+                    </div>
+                    <div class="info-item">
+                      <span>截止时间</span>
+                      <strong>11/02 18:00</strong>
+                    </div>
+                    <div class="info-item">
+                      <span>任务状态</span>
+                      <strong id="infoStatus">进行中</strong>
+                    </div>
+                    <div class="info-item">
+                      <span>创建人</span>
+                      <strong>Admin</strong>
+                    </div>
+                    <div class="info-item wide">
+                      <span>执行策略</span>
+                      <strong class="strategy-row">
+                        <span class="strategy-tag">公开网页 禁止</span>
+                        <span class="strategy-tag">工具确认 开启</span>
+                        <span class="strategy-tag">工具事件 记录</span>
+                      </strong>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="pane" data-pane="execution">
+                  <div class="execution-card">
+                    <h2 class="section-title">AI执行记录 <span>1 轮</span></h2>
+                    <select class="run-select">
+                      <option>第 1 轮 · 小白 PD · 执行中</option>
+                    </select>
+                  </div>
+                  <div class="execution-card">
+                    <h2 class="section-title">执行过程 <span>进行中</span></h2>
+                    <div class="run-output">
+                      正在核对 subagent_fork 的返回值与执行身份…</div>
+                  </div>
+                  <div class="execution-card">
+                    <h2 class="section-title">Agent 执行计划 <span>结构化</span></h2>
+                    <div class="timeline">
+                      <div class="timeline-item"><time>10:33</time><span>读取任务要求与验收口径</span></div>
+                      <div class="timeline-item"><time>10:34</time><span>建立 subagent 委派链</span></div>
+                      <div class="timeline-item"><time>10:35</time><span>核对返回结果和执行证据</span></div>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="pane" data-pane="documents">
+                  <div class="doc-card">
+                    <span class="doc-icon">MD</span>
+                    <span class="doc-copy">
+                      <strong>subagent-verification.md</strong>
+                      <small>小白 PD · 10/31 10:36 · 第 1 轮</small>
+                    </span>
+                    <button class="icon-button" aria-label="下载文档">
+                      <svg class="icon"><use href="#i-download"></use></svg>
+                    </button>
+                  </div>
+                </section>
+
+                <section class="pane" data-pane="activity">
+                  <div class="timeline">
+                    <div class="timeline-item"><time>10:32</time><span>Admin 创建并派发任务</span></div>
+                    <div class="timeline-item"><time>10:33</time><span>小白 PD 开始执行</span></div>
+                    <div class="timeline-item"><time>10:35</time><span>陈晓添加了讨论</span></div>
+                    <div class="timeline-item"><time>10:36</time><span>Admin 标记了关键共识</span></div>
+                  </div>
+                </section>
+              </aside>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script>
+      const scenarios = {
+        "ai-progress": {
+          title: "subagent 家会话终验",
+          description: "必须通过 subagent_fork 完成本任务，并返回确认。",
+          owner: "小白 PD（平台 Admin）",
+          ownerShort: "DE",
+          ownerKind: "agent",
+          status: "progress",
+          statusLabel: "进行中",
+          defaultTab: "execution",
+          defaultIntent: "execution",
+          executionEnabled: true,
+          executionLabel: "发给负责人",
+          sendLabel: "发送给 小白 PD",
+          discussionEffect: "仅记录讨论，不进入本次执行上下文",
+          executionEffect: "将触发一次 Agent Run，并同步之前关键共识",
+          effectTone: "run",
+          actions: [
+            ["check", "提交验收", "primary"],
+            ["external", "打开会话", ""],
+            ["x", "取消任务", "danger"],
+          ],
+          runtimeOwner: "小白 PD",
+          runtimeRun: "Run 1 · 执行中",
+          runtimeStep: "正在核对执行证据与缺口",
+          runtimeQueue: "队列空闲",
+          activityPrefix: "小白 PD 正在执行",
+        },
+        "human-progress": {
+          title: "订单缺口影响范围确认",
+          description: "确认本周订单缺口影响范围，并给出客户沟通优先级。",
+          owner: "陆行（供应链计划）",
+          ownerShort: "陆",
+          ownerKind: "",
+          status: "progress",
+          statusLabel: "进行中",
+          defaultTab: "basic",
+          defaultIntent: "execution",
+          executionEnabled: true,
+          executionLabel: "发给负责人",
+          sendLabel: "发送给 陆行",
+          discussionEffect: "仅记录讨论，不会通知负责人",
+          executionEffect: "将通知负责人，并同步之前关键共识",
+          effectTone: "",
+          actions: [
+            ["check", "提交验收", "primary"],
+            ["x", "取消任务", "danger"],
+          ],
+          runtimeOwner: "陆行",
+          runtimeRun: "人工执行 · 进行中",
+          runtimeStep: "正在整理客户订单缺口",
+          runtimeQueue: "人工任务",
+          activityPrefix: "陆行正在处理任务",
+        },
+        review: {
+          title: "客户回访结论整理",
+          description: "整理本周客户回访结论，并标记需要销售负责人跟进的风险项。",
+          owner: "陈晓（客户成功）",
+          ownerShort: "CX",
+          ownerKind: "agent",
+          status: "review",
+          statusLabel: "待验收",
+          defaultTab: "execution",
+          defaultIntent: "discussion",
+          executionEnabled: false,
+          executionLabel: "发给负责人",
+          sendLabel: "发布讨论",
+          discussionEffect: "仅记录讨论；继续执行请使用“退回”",
+          executionEffect: "仅记录讨论；继续执行请使用“退回”",
+          effectTone: "",
+          actions: [
+            ["check", "通过", "primary"],
+            ["x", "退回", "caution"],
+            ["archive", "归档", ""],
+          ],
+          runtimeOwner: "陈晓",
+          runtimeRun: "交付已提交 · 待验收",
+          runtimeStep: "等待评审结论",
+          runtimeQueue: "Review",
+          activityPrefix: "执行人已提交验收",
+        },
+        done: {
+          title: "发布风险同步纪要",
+          description: "完成发布风险同步纪要，并保留关键结论和后续责任人。",
+          owner: "小白 PD（平台 Admin）",
+          ownerShort: "DE",
+          ownerKind: "agent",
+          status: "done",
+          statusLabel: "已完成",
+          defaultTab: "execution",
+          defaultIntent: "discussion",
+          executionEnabled: true,
+          executionLabel: "追加要求并重开",
+          sendLabel: "追加要求并重开",
+          discussionEffect: "仅记录讨论，不会重新开启任务",
+          executionEffect: "将追加要求、重新开启任务，并同步之前关键共识",
+          effectTone: "run",
+          actions: [["archive", "归档", ""]],
+          runtimeOwner: "小白 PD",
+          runtimeRun: "Run 1 · 已完成",
+          runtimeStep: "任务已闭环",
+          runtimeQueue: "已完成",
+          activityPrefix: "小白 PD 完成交付",
+        },
+        workflow: {
+          title: "人工审批：发布窗口确认",
+          description: "审批发布窗口与回滚方案，审批结论由工作流节点统一控制。",
+          owner: "流程审批节点",
+          ownerShort: "WF",
+          ownerKind: "agent",
+          status: "workflow",
+          statusLabel: "工作流",
+          defaultTab: "basic",
+          defaultIntent: "discussion",
+          executionEnabled: false,
+          executionLabel: "发给负责人",
+          sendLabel: "发布讨论",
+          discussionEffect: "工作流讨论不进入执行上下文；执行入口在节点详情",
+          executionEffect: "工作流任务的执行入口在节点详情",
+          effectTone: "",
+          actions: [
+            ["external", "打开工作流节点", "primary"],
+            ["check", "通过审批", ""],
+            ["x", "退回审批", "caution"],
+          ],
+          runtimeOwner: "流程审批节点",
+          runtimeRun: "Workflow · 等待审批",
+          runtimeStep: "当前节点：人工审批",
+          runtimeQueue: "Workflow",
+          activityPrefix: "工作流节点等待审批",
+        },
+      };
+
+      let currentScenario = scenarios["ai-progress"];
+      let currentIntent = currentScenario.defaultIntent;
+
+      const $ = (selector) => document.querySelector(selector);
+
+      function escapeHtml(value) {
+        return String(value).replace(/[&<>"']/g, (char) => {
+          return {
+            "&": "&amp;",
+            "<": "&lt;",
+            ">": "&gt;",
+            '"': "&quot;",
+            "'": "&#39;",
+          }[char];
+        });
+      }
+
+      function icon(name) {
+        return `<svg class="icon"><use href="#i-${name}"></use></svg>`;
+      }
+
+      function nowLabel() {
+        return new Intl.DateTimeFormat("zh-CN", {
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        }).format(new Date());
+      }
+
+      function showToast(message) {
+        const toast = $("#toast");
+        toast.textContent = message;
+        toast.classList.add("show");
+        window.clearTimeout(showToast.timer);
+        showToast.timer = window.setTimeout(
+          () => toast.classList.remove("show"),
+          1800,
+        );
+      }
+
+      function setStatus(element, status, label) {
+        element.className = `status-pill ${status}`;
+        element.textContent = label;
+      }
+
+      function renderActions() {
+        $("#actionRow").innerHTML = currentScenario.actions
+          .map(
+            ([iconName, label, tone]) => `
+              <button class="detail-action ${tone}" type="button">
+                ${icon(iconName)}
+                ${escapeHtml(label)}
+              </button>
+            `,
+          )
+          .join("");
+      }
+
+      function renderScenario() {
+        $("#demoScenario")?.removeAttribute("data-placeholder");
+        $("#crTitle").textContent = currentScenario.title;
+        $("#sideTitle").textContent = currentScenario.title;
+        $("#sideDescription").textContent = currentScenario.description;
+        setStatus(
+          $("#sideStatus"),
+          currentScenario.status,
+          currentScenario.statusLabel,
+        );
+        $("#infoStatus").textContent = currentScenario.statusLabel;
+        $("#ownerName").textContent = currentScenario.owner;
+        $("#ownerAvatar").textContent = currentScenario.ownerShort;
+        $("#ownerAvatar").className = `avatar ${currentScenario.ownerKind}`;
+        $("#executionIntentLabel").textContent = "指令";
+        currentIntent = currentScenario.defaultIntent;
+        const executionButton = $('[data-intent="execution"]');
+        executionButton.disabled = !currentScenario.executionEnabled;
+        renderIntent();
+        renderActions();
+        switchTab(currentScenario.defaultTab);
+      }
+
+      function renderIntent() {
+        document.querySelectorAll(".intent-button").forEach((button) => {
+          button.classList.toggle(
+            "active",
+            button.dataset.intent === currentIntent,
+          );
+        });
+        const runIntent = currentIntent === "execution";
+        $("#effectText").textContent = runIntent
+          ? currentScenario.executionEffect
+          : currentScenario.discussionEffect;
+        $("#effectPreview").classList.toggle(
+          "run",
+          runIntent && currentScenario.effectTone === "run",
+        );
+        $("#sendButton").classList.toggle(
+          "trigger-run",
+          runIntent && currentScenario.effectTone === "run",
+        );
+        $("#sendButtonText").textContent = "发送";
+        const textarea = $("#composerInput");
+        if (runIntent) {
+          textarea.placeholder =
+            currentScenario.status === "done"
+              ? "补充新的执行要求；发送后会重新开启任务，并同步之前关键共识"
+              : "补充要求或推进说明，发送后将交给任务负责人，并通知到 @ 的人员 / AI 伙伴";
+        } else {
+          textarea.placeholder =
+            currentScenario.executionEnabled
+              ? "参与讨论或记录背景信息；发送后不会触发执行"
+              : currentScenario.status === "workflow"
+                ? "参与工作流节点讨论；发送后不会触发执行"
+                : "参与讨论；需要继续执行时请使用任务状态操作";
+        }
+      }
+
+      function switchTab(name) {
+        document.querySelectorAll(".tab").forEach((tab) => {
+          tab.classList.toggle("active", tab.dataset.tab === name);
+          tab.setAttribute(
+            "aria-selected",
+            String(tab.dataset.tab === name),
+          );
+        });
+        document.querySelectorAll(".pane").forEach((pane) => {
+          pane.classList.toggle("active", pane.dataset.pane === name);
+        });
+      }
+
+      function appendMessage({ self, name, initial, agent, content, intent }) {
+        const isExecution = intent === "execution";
+        const badge = isExecution
+          ? `<span class="message-badge execution">${
+              currentScenario.status === "done"
+                ? "追加要求 · 重新开启"
+                : "执行要求 · 已提交"
+            }</span>`
+          : `<span class="message-badge discussion">讨论 · 仅记录</span>`;
+        const action = isExecution
+          ? ""
+          : `<div class="message-actions">
+               <button class="message-action mark-consensus" type="button">
+                 ${icon("check")} 标记为关键共识
+               </button>
+             </div>`;
+        const article = document.createElement("article");
+        article.className = `message${self ? " self" : ""}`;
+        article.innerHTML = `
+          <span class="avatar ${agent ? "agent" : ""}">${escapeHtml(initial)}</span>
+          <div class="message-main">
+            <div class="message-meta">
+              <strong>${escapeHtml(name)}</strong>
+              <span>${escapeHtml(nowLabel())}</span>
+              ${badge}
+            </div>
+            <div class="bubble">${escapeHtml(content)}</div>
+            ${action}
+          </div>
+        `;
+        $("#messageScroll").appendChild(article);
+        $("#messageScroll").scrollTop = $("#messageScroll").scrollHeight;
+      }
+
+      $("#scenarioSelect").addEventListener("change", (event) => {
+        currentScenario = scenarios[event.target.value];
+        renderScenario();
+        showToast(`已切换到：${event.target.selectedOptions[0].textContent}`);
+      });
+
+      document.querySelectorAll(".intent-button").forEach((button) => {
+        button.addEventListener("click", () => {
+          if (button.disabled) return;
+          currentIntent = button.dataset.intent;
+          renderIntent();
+        });
+      });
+
+      document.querySelectorAll(".tab").forEach((tab) => {
+        tab.addEventListener("click", () => switchTab(tab.dataset.tab));
+      });
+
+      $("#insertMention")?.addEventListener("click", () => {
+        const input = $("#composerInput");
+        const start = input.selectionStart ?? input.value.length;
+        const end = input.selectionEnd ?? start;
+        input.value = `${input.value.slice(0, start)}@${input.value.slice(end)}`;
+        input.focus();
+        input.setSelectionRange(start + 1, start + 1);
+      });
+
+      $("#clearComposer").addEventListener("click", () => {
+        $("#composerInput").value = "";
+      });
+
+      $("#composer").addEventListener("submit", (event) => {
+        event.preventDefault();
+        const content = $("#composerInput").value.trim();
+        if (content === "") {
+          $("#composerInput").focus();
+          return;
+        }
+        appendMessage({
+          self: true,
+          name: "我",
+          initial: "AD",
+          agent: false,
+          content,
+          intent: currentIntent,
+        });
+        $("#composerInput").value = "";
+        if (currentIntent === "execution") {
+          showToast(
+            currentScenario.status === "done"
+              ? "已追加要求并重新开启任务"
+              : currentScenario.executionEffect,
+          );
+        } else {
+          showToast("讨论已记录，不会触发执行；可稍后标记为关键共识");
+        }
+      });
+
+      $("#composerInput").addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+          event.preventDefault();
+          $("#composer").requestSubmit();
+        }
+      });
+
+      $("#messageScroll").addEventListener("click", (event) => {
+        const button = event.target.closest(".mark-consensus");
+        if (!button) return;
+        const message = button.closest(".message");
+        const badges = message.querySelector(".message-meta");
+        button.closest(".message-actions").remove();
+        const badge = document.createElement("span");
+        badge.className = "message-badge consensus";
+        badge.textContent = "关键共识 · 下轮同步";
+        badges.appendChild(badge);
+        showToast("已标记为关键共识，将在下一次真实执行时同步给 Agent");
+      });
+
+      renderScenario();
+    </script>
+  </body>
+</html>

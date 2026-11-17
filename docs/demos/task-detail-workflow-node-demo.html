@@ -1,0 +1,1998 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>任务详情 · 工作流节点协作 Demo</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b1016;
+        --bg-soft: #10161d;
+        --panel: #151b23;
+        --panel-2: #1a212a;
+        --panel-3: #202934;
+        --line: #2a3440;
+        --line-strong: #3a4756;
+        --text: #edf3fa;
+        --muted: #9ba8b7;
+        --faint: #6f7d8c;
+        --workflow: #82b4ff;
+        --workflow-strong: #4b89f0;
+        --workflow-soft: rgba(91, 151, 245, 0.14);
+        --workflow-line: rgba(111, 167, 255, 0.48);
+        --green: #54c99a;
+        --green-soft: rgba(68, 183, 134, 0.12);
+        --amber: #e5ad54;
+        --amber-soft: rgba(222, 159, 66, 0.12);
+        --red: #ef7982;
+        --red-soft: rgba(224, 91, 102, 0.12);
+        --purple: #b7a1ff;
+        --purple-soft: rgba(141, 116, 228, 0.13);
+        --shadow: 0 20px 54px rgba(0, 0, 0, 0.28);
+        font-family:
+          Inter, "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        min-width: 320px;
+        min-height: 100%;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        overflow: hidden;
+        background: var(--bg);
+        color: var(--text);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      button,
+      textarea,
+      select {
+        font: inherit;
+      }
+
+      button {
+        color: inherit;
+      }
+
+      .sprite {
+        position: absolute;
+        width: 0;
+        height: 0;
+        overflow: hidden;
+      }
+
+      .icon {
+        width: 15px;
+        height: 15px;
+        flex: none;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .app {
+        height: 100vh;
+        display: grid;
+        grid-template-columns: 230px minmax(0, 1fr);
+      }
+
+      .rail {
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        border-right: 1px solid var(--line);
+        background: #0f141a;
+      }
+
+      .brand {
+        height: 58px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 18px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+        font-weight: 700;
+      }
+
+      .brand-mark {
+        width: 26px;
+        height: 26px;
+        display: grid;
+        place-items: center;
+        border-radius: 7px;
+        background: var(--workflow-soft);
+        color: var(--workflow);
+      }
+
+      .rail-nav {
+        display: grid;
+        gap: 3px;
+        padding: 13px 10px;
+      }
+
+      .rail-item {
+        height: 35px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 10px;
+        border: 0;
+        border-radius: 7px;
+        background: transparent;
+        color: var(--muted);
+        text-align: left;
+      }
+
+      .rail-item.active {
+        background: var(--workflow-soft);
+        color: #c3dcff;
+      }
+
+      .rail-separator {
+        margin: 8px 13px;
+        border-top: 1px solid var(--line);
+      }
+
+      .project-list {
+        min-height: 0;
+        flex: 1;
+        padding: 4px 10px 18px;
+        overflow: auto;
+      }
+
+      .project-title {
+        padding: 8px 9px 5px;
+        color: var(--faint);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+      }
+
+      .project-row {
+        display: grid;
+        grid-template-columns: 8px minmax(0, 1fr);
+        gap: 8px;
+        padding: 8px 9px;
+        border-radius: 7px;
+        color: var(--muted);
+      }
+
+      .project-row.active {
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--text);
+      }
+
+      .project-dot {
+        width: 7px;
+        height: 7px;
+        margin-top: 5px;
+        border-radius: 50%;
+        background: var(--workflow);
+      }
+
+      .project-copy {
+        min-width: 0;
+      }
+
+      .project-copy strong,
+      .project-copy small {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .project-copy strong {
+        font-size: 11.5px;
+        font-weight: 600;
+      }
+
+      .project-copy small {
+        margin-top: 2px;
+        color: var(--faint);
+        font-size: 9.5px;
+      }
+
+      .main {
+        min-width: 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .topbar {
+        min-height: 64px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 11px 20px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(11, 16, 22, 0.96);
+      }
+
+      .page-title {
+        margin: 0;
+        font-size: 21px;
+        line-height: 1.2;
+      }
+
+      .top-context {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin-left: 6px;
+        color: var(--muted);
+        font-size: 10.5px;
+      }
+
+      .top-context .workflow-chip {
+        flex: none;
+      }
+
+      .top-context span:last-child {
+        max-width: 360px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .top-actions {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin-left: auto;
+      }
+
+      .scope-switch {
+        height: 30px;
+        display: inline-flex;
+        align-items: center;
+        padding: 2px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+      }
+
+      .scope-switch button {
+        height: 24px;
+        padding: 0 9px;
+        border: 0;
+        border-radius: 5px;
+        background: transparent;
+        color: var(--faint);
+        font-size: 10px;
+      }
+
+      .scope-switch button.active {
+        background: var(--panel-2);
+        color: var(--workflow);
+      }
+
+      .ghost-button,
+      .primary-button,
+      .danger-button,
+      .icon-button {
+        height: 34px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 0 11px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--panel);
+        color: var(--muted);
+        font-size: 11px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      .ghost-button:hover,
+      .icon-button:hover {
+        border-color: var(--line-strong);
+        color: var(--text);
+      }
+
+      .primary-button {
+        border-color: transparent;
+        background: #f2f5f8;
+        color: #11161c;
+        font-weight: 650;
+      }
+
+      .danger-button {
+        border-color: rgba(239, 121, 130, 0.36);
+        background: transparent;
+        color: var(--red);
+      }
+
+      .icon-button {
+        width: 34px;
+        padding: 0;
+      }
+
+      .page {
+        min-width: 0;
+        min-height: 0;
+        flex: 1;
+        display: flex;
+        padding: 14px;
+        overflow: hidden;
+      }
+
+      .detail-shell {
+        width: 100%;
+        min-width: 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        background: var(--bg-soft);
+        box-shadow: var(--shadow);
+      }
+
+      .detail-bar {
+        min-height: 45px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 11px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .detail-bar .ghost-button {
+        height: 29px;
+        padding: 0 9px;
+      }
+
+      .crumb {
+        min-width: 0;
+        flex: 1;
+        overflow: hidden;
+        color: var(--muted);
+        font-size: 10.5px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .crumb strong {
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      .project-chip,
+      .workflow-chip,
+      .status-pill {
+        height: 22px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0 7px;
+        border-radius: 4px;
+        font-size: 9.5px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
+      .project-chip {
+        background: var(--panel);
+        color: var(--muted);
+        font-weight: 400;
+      }
+
+      .workflow-chip {
+        background: var(--workflow-soft);
+        color: var(--workflow);
+      }
+
+      .status-pill {
+        background: var(--amber-soft);
+        color: var(--amber);
+      }
+
+      .detail-grid {
+        min-width: 0;
+        min-height: 0;
+        flex: 1;
+        display: grid;
+        grid-template-columns: minmax(0, 1.34fr) minmax(390px, 0.92fr);
+        overflow: hidden;
+      }
+
+      .conversation {
+        min-width: 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        border-right: 1px solid var(--line);
+      }
+
+      .message-scroll {
+        min-height: 0;
+        flex: 1;
+        overflow: auto;
+        padding: 15px 16px 10px;
+        scrollbar-gutter: stable;
+      }
+
+      .message {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        margin-bottom: 15px;
+      }
+
+      .message.self {
+        flex-direction: row-reverse;
+      }
+
+      .avatar {
+        width: 29px;
+        height: 29px;
+        flex: none;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        background: #28745f;
+        color: #fff;
+        font-size: 8.5px;
+        font-weight: 700;
+      }
+
+      .avatar.workflow {
+        border: 1px solid rgba(130, 180, 255, 0.34);
+        background: var(--workflow-soft);
+        color: var(--workflow);
+      }
+
+      .avatar.agent {
+        background: #5e4aa8;
+      }
+
+      .message-main {
+        width: fit-content;
+        min-width: 0;
+        max-width: min(72%, 620px);
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .message.self .message-main {
+        align-items: flex-end;
+      }
+
+      .message-meta {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+        color: var(--faint);
+        font-size: 9.5px;
+      }
+
+      .message-meta strong {
+        color: var(--muted);
+        font-size: 10.5px;
+      }
+
+      .message.self .message-meta {
+        justify-content: flex-end;
+      }
+
+      .message-badge {
+        height: 17px;
+        display: inline-flex;
+        align-items: center;
+        padding: 0 5px;
+        border-radius: 4px;
+        font-size: 8.5px;
+        font-weight: 600;
+      }
+
+      .message-badge.workflow {
+        color: var(--workflow);
+        background: var(--workflow-soft);
+      }
+
+      .message-badge.analysis {
+        border: 1px solid rgba(130, 180, 255, 0.38);
+        color: #a9caff;
+        background: rgba(77, 125, 211, 0.07);
+      }
+
+      .message-badge.feedback {
+        color: var(--purple);
+        background: var(--purple-soft);
+      }
+
+      .bubble {
+        margin-top: 4px;
+        padding: 9px 11px;
+        border: 1px solid var(--line);
+        border-radius: 3px 8px 8px 8px;
+        background: var(--panel-2);
+        color: #dce5ef;
+        font-size: 11.5px;
+        line-height: 1.58;
+        text-align: left;
+        white-space: normal;
+        overflow-wrap: anywhere;
+      }
+
+      .bubble p {
+        margin: 0;
+        white-space: normal;
+      }
+
+      .bubble p + p {
+        margin-top: 8px;
+      }
+
+      .message.workflow-message .bubble {
+        border-color: rgba(130, 180, 255, 0.24);
+        background:
+          linear-gradient(90deg, rgba(85, 145, 236, 0.09), transparent 65%),
+          var(--panel-2);
+      }
+
+      .message.analysis-message .bubble {
+        border-color: rgba(130, 180, 255, 0.28);
+        background: rgba(50, 83, 138, 0.09);
+      }
+
+      .message.self .bubble {
+        border-color: var(--workflow-line);
+        border-radius: 8px 3px 8px 8px;
+        background: rgba(65, 119, 216, 0.16);
+      }
+
+      .workflow-meta {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+      }
+
+      .workflow-meta span {
+        padding: 2px 6px;
+        border: 1px solid rgba(130, 180, 255, 0.22);
+        border-radius: 4px;
+        color: #a9c9f7;
+        font-size: 9px;
+      }
+
+      .analysis-list {
+        margin: 7px 0 0;
+        padding-left: 17px;
+        color: var(--muted);
+      }
+
+      .analysis-list li + li {
+        margin-top: 4px;
+      }
+
+      .typing {
+        display: inline-flex;
+        gap: 3px;
+        padding: 2px 0;
+      }
+
+      .typing span {
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: var(--workflow);
+        animation: pulse 1s infinite alternate;
+      }
+
+      .typing span:nth-child(2) {
+        animation-delay: 0.18s;
+      }
+
+      .typing span:nth-child(3) {
+        animation-delay: 0.36s;
+      }
+
+      @keyframes pulse {
+        from {
+          opacity: 0.32;
+          transform: translateY(1px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(-1px);
+        }
+      }
+
+      .composer {
+        flex: none;
+        margin: 0 14px 14px;
+        overflow: hidden;
+        border: 1px solid var(--workflow-line);
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow:
+          0 10px 28px rgba(0, 0, 0, 0.2),
+          0 0 0 1px rgba(94, 153, 246, 0.04) inset;
+      }
+
+      .composer:focus-within {
+        border-color: rgba(130, 180, 255, 0.72);
+        box-shadow:
+          0 10px 28px rgba(0, 0, 0, 0.2),
+          0 0 0 3px rgba(98, 155, 247, 0.1);
+      }
+
+      .composer-tools {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+        padding: 7px 8px 0;
+      }
+
+      .tool {
+        width: 27px;
+        height: 27px;
+        display: grid;
+        place-items: center;
+        padding: 0;
+        border: 0;
+        border-radius: 5px;
+        background: transparent;
+        color: var(--faint);
+        cursor: pointer;
+      }
+
+      .tool:hover {
+        background: var(--panel-3);
+        color: var(--workflow);
+      }
+
+      .tool .icon {
+        width: 13px;
+        height: 13px;
+      }
+
+      .composer textarea {
+        width: 100%;
+        min-height: 67px;
+        padding: 9px 10px;
+        border: 0;
+        outline: 0;
+        resize: vertical;
+        background: transparent;
+        color: var(--text);
+        font-size: 11.5px;
+        line-height: 1.55;
+      }
+
+      .composer textarea::placeholder {
+        color: var(--faint);
+      }
+
+      .composer-foot {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 8px 9px;
+        border-top: 1px solid var(--line);
+      }
+
+      .workflow-mode {
+        height: 27px;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        flex: none;
+        padding: 0 8px;
+        border: 1px solid rgba(130, 180, 255, 0.28);
+        border-radius: 5px;
+        background: var(--workflow-soft);
+        color: var(--workflow);
+        font-size: 9.5px;
+        font-weight: 600;
+      }
+
+      .workflow-mode .icon {
+        width: 11px;
+        height: 11px;
+      }
+
+      .workflow-hint {
+        min-width: 0;
+        flex: 1;
+        color: #8298b4;
+        font-size: 9.5px;
+        line-height: 1.45;
+      }
+
+      .composer-actions {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        margin-left: auto;
+      }
+
+      .composer-actions .ghost-button,
+      .composer-actions .workflow-send {
+        height: 30px;
+      }
+
+      .workflow-send {
+        height: 30px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        padding: 0 11px;
+        border: 1px solid transparent;
+        border-radius: 6px;
+        background: var(--workflow);
+        color: #0d1829;
+        font-size: 10.5px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .workflow-send:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      .workflow-send .icon {
+        width: 12px;
+        height: 12px;
+      }
+
+      .side {
+        min-width: 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        background: var(--bg-soft);
+      }
+
+      .side-head {
+        flex: none;
+        display: grid;
+        gap: 8px;
+        padding: 14px 16px 11px;
+        border-bottom: 1px solid var(--line);
+        background: var(--bg-soft);
+      }
+
+      .side-title {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+      }
+
+      .side-title h1 {
+        min-width: 0;
+        flex: 1;
+        margin: 0;
+        font-size: 17px;
+        line-height: 1.34;
+      }
+
+      .side-description {
+        margin: 0;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.58;
+      }
+
+      .workflow-reference {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--workflow);
+        font-size: 10px;
+      }
+
+      .workflow-reference .icon {
+        width: 12px;
+        height: 12px;
+      }
+
+      .action-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+
+      .detail-action {
+        height: 29px;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 0 9px;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        background: var(--panel);
+        color: var(--muted);
+        font-size: 10px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      .detail-action .icon {
+        width: 11px;
+        height: 11px;
+      }
+
+      .detail-action.primary {
+        border-color: transparent;
+        background: #f1f4f7;
+        color: #141a21;
+        font-weight: 650;
+      }
+
+      .detail-action.workflow {
+        border-color: rgba(130, 180, 255, 0.32);
+        color: var(--workflow);
+      }
+
+      .detail-action.caution {
+        border-color: rgba(229, 173, 84, 0.35);
+        color: var(--amber);
+      }
+
+      .detail-action:disabled {
+        opacity: 0.42;
+        cursor: not-allowed;
+      }
+
+      .open-session {
+        margin-left: auto;
+        padding: 2px 0;
+        border: 0;
+        background: transparent;
+        color: var(--faint);
+        font-size: 10px;
+        cursor: pointer;
+      }
+
+      .open-session:hover {
+        color: var(--text);
+        text-decoration: underline;
+        text-underline-offset: 3px;
+      }
+
+      .tabs {
+        flex: none;
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        border-bottom: 1px solid var(--line);
+        background: var(--bg-soft);
+      }
+
+      .tab {
+        height: 38px;
+        min-width: 0;
+        padding: 0 4px;
+        border: 0;
+        border-bottom: 2px solid transparent;
+        background: transparent;
+        color: var(--faint);
+        font-size: 9.5px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      .tab.active {
+        border-bottom-color: var(--workflow);
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      .side-scroll {
+        min-height: 0;
+        flex: 1;
+        overflow: auto;
+        scrollbar-gutter: stable;
+      }
+
+      .pane {
+        display: none;
+        padding: 14px 16px 20px;
+      }
+
+      .pane.active {
+        display: block;
+      }
+
+      .info-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 7px;
+      }
+
+      .info-item {
+        min-width: 0;
+        display: grid;
+        gap: 4px;
+        padding: 8px 9px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel);
+      }
+
+      .info-item.wide {
+        grid-column: 1 / -1;
+      }
+
+      .info-item > span {
+        color: var(--faint);
+        font-size: 8.5px;
+      }
+
+      .info-item > strong {
+        color: var(--text);
+        font-size: 10.5px;
+        font-weight: 500;
+        overflow-wrap: anywhere;
+      }
+
+      .owner-inline {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .owner-inline .avatar {
+        width: 22px;
+        height: 22px;
+        font-size: 7px;
+      }
+
+      .strategy-row {
+        display: flex;
+        gap: 4px;
+        flex-wrap: wrap;
+      }
+
+      .strategy-tag {
+        padding: 2px 5px;
+        border-radius: 4px;
+        background: var(--panel-3);
+        color: var(--muted);
+        font-size: 8.5px;
+      }
+
+      .basic-edit {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 10px;
+      }
+
+      .basic-edit button {
+        height: 26px;
+        padding: 0 8px;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        background: var(--panel);
+        color: var(--muted);
+        font-size: 9.5px;
+        cursor: pointer;
+      }
+
+      .execution-card {
+        display: grid;
+        gap: 8px;
+        margin-bottom: 11px;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--panel);
+      }
+
+      .section-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin: 0;
+        font-size: 10.5px;
+      }
+
+      .section-title span {
+        color: var(--faint);
+        font-size: 8.5px;
+        font-weight: 400;
+      }
+
+      .run-select {
+        width: 100%;
+        height: 31px;
+        padding: 0 8px;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        background: var(--bg-soft);
+        color: var(--text);
+        font-size: 9.5px;
+      }
+
+      .run-output {
+        padding: 9px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel-2);
+        color: var(--muted);
+        font-size: 10px;
+        line-height: 1.6;
+        white-space: pre-wrap;
+      }
+
+      .timeline {
+        display: grid;
+        gap: 9px;
+      }
+
+      .timeline-item {
+        display: grid;
+        grid-template-columns: 58px minmax(0, 1fr);
+        gap: 8px;
+        color: var(--muted);
+        font-size: 9.5px;
+      }
+
+      .timeline-item time {
+        color: var(--faint);
+        font-size: 8.5px;
+      }
+
+      .doc-card {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 9px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel);
+      }
+
+      .doc-icon {
+        width: 30px;
+        height: 30px;
+        flex: none;
+        display: grid;
+        place-items: center;
+        border-radius: 6px;
+        background: var(--workflow-soft);
+        color: var(--workflow);
+        font-size: 8px;
+        font-weight: 700;
+      }
+
+      .doc-copy {
+        min-width: 0;
+        flex: 1;
+      }
+
+      .doc-copy strong,
+      .doc-copy small {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .doc-copy strong {
+        font-size: 10px;
+      }
+
+      .doc-copy small {
+        margin-top: 2px;
+        color: var(--faint);
+        font-size: 8.5px;
+      }
+
+      .empty-state {
+        padding: 26px 12px;
+        border: 1px dashed var(--line);
+        border-radius: 7px;
+        color: var(--faint);
+        font-size: 10px;
+        text-align: center;
+      }
+
+      .toast {
+        position: fixed;
+        left: 50%;
+        bottom: 22px;
+        z-index: 30;
+        max-width: min(440px, calc(100vw - 34px));
+        padding: 8px 12px;
+        border: 1px solid rgba(130, 180, 255, 0.28);
+        border-radius: 6px;
+        background: #1b2634;
+        color: #dcecff;
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.3);
+        font-size: 10.5px;
+        opacity: 0;
+        transform: translate(-50%, 8px);
+        pointer-events: none;
+        transition:
+          opacity 0.16s ease,
+          transform 0.16s ease;
+      }
+
+      .toast.show {
+        opacity: 1;
+        transform: translate(-50%, 0);
+      }
+
+      .dialog-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 25;
+        display: none;
+        place-items: center;
+        padding: 20px;
+        background: rgba(4, 8, 12, 0.66);
+        backdrop-filter: blur(3px);
+      }
+
+      .dialog-backdrop.open {
+        display: grid;
+      }
+
+      .dialog {
+        width: min(380px, 100%);
+        padding: 18px;
+        border: 1px solid var(--line-strong);
+        border-radius: 9px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
+      }
+
+      .dialog h2 {
+        margin: 0;
+        font-size: 15px;
+      }
+
+      .dialog p {
+        margin: 8px 0 16px;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.6;
+      }
+
+      .dialog-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 6px;
+      }
+
+      @media (max-width: 1080px) {
+        .app {
+          grid-template-columns: 196px minmax(0, 1fr);
+        }
+
+        .detail-grid {
+          grid-template-columns: minmax(0, 1fr) minmax(350px, 0.92fr);
+        }
+
+        .top-context span:last-child {
+          display: none;
+        }
+      }
+
+      @media (max-width: 900px) {
+        body {
+          overflow: auto;
+        }
+
+        .app {
+          height: auto;
+          min-height: 100vh;
+          display: block;
+        }
+
+        .rail {
+          display: none;
+        }
+
+        .main {
+          min-height: 100vh;
+        }
+
+        .page {
+          overflow: visible;
+        }
+
+        .detail-shell {
+          overflow: visible;
+        }
+
+        .detail-grid {
+          display: block;
+          overflow: visible;
+        }
+
+        .conversation {
+          min-height: 620px;
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+
+        .side {
+          overflow: visible;
+        }
+
+        .side-scroll {
+          overflow: visible;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .topbar {
+          flex-wrap: wrap;
+          padding: 11px 12px;
+        }
+
+        .top-context,
+        .scope-switch,
+        .top-actions .ghost-button {
+          display: none;
+        }
+
+        .page-title {
+          font-size: 18px;
+        }
+
+        .page {
+          padding: 9px;
+        }
+
+        .detail-bar {
+          flex-wrap: wrap;
+        }
+
+        .crumb {
+          min-width: 0;
+          flex-basis: calc(100% - 78px);
+        }
+
+        .project-chip {
+          display: none;
+        }
+
+        .conversation {
+          min-height: 580px;
+        }
+
+        .message-scroll {
+          padding: 12px 10px 8px;
+        }
+
+        .message-main {
+          max-width: 82%;
+        }
+
+        .composer {
+          margin: 0 9px 9px;
+        }
+
+        .composer-foot {
+          align-items: flex-start;
+          flex-wrap: wrap;
+        }
+
+        .workflow-hint {
+          flex-basis: calc(100% - 112px);
+        }
+
+        .composer-actions {
+          width: 100%;
+          margin-left: 0;
+        }
+
+        .composer-actions .workflow-send {
+          flex: 1;
+        }
+
+        .info-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .info-item.wide {
+          grid-column: auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <svg class="sprite" aria-hidden="true">
+      <symbol id="i-grid" viewBox="0 0 24 24">
+        <rect x="3" y="3" width="7" height="7" rx="1" />
+        <rect x="14" y="3" width="7" height="7" rx="1" />
+        <rect x="3" y="14" width="7" height="7" rx="1" />
+        <rect x="14" y="14" width="7" height="7" rx="1" />
+      </symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24">
+        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+      </symbol>
+      <symbol id="i-list" viewBox="0 0 24 24">
+        <path d="M9 6h11M9 12h11M9 18h11" />
+        <path d="m3 6 1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2" />
+      </symbol>
+      <symbol id="i-workflow" viewBox="0 0 24 24">
+        <rect x="4" y="4" width="6" height="5" rx="1" />
+        <rect x="14" y="15" width="6" height="5" rx="1" />
+        <path d="M10 6.5h4a3 3 0 0 1 3 3V15" />
+      </symbol>
+      <symbol id="i-message" viewBox="0 0 24 24">
+        <path d="M21 15a4 4 0 0 1-4 4H8l-5 3 1.7-5.1A7 7 0 0 1 3 12V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z" />
+      </symbol>
+      <symbol id="i-bot" viewBox="0 0 24 24">
+        <rect x="4" y="7" width="16" height="12" rx="3" />
+        <path d="M9 12h.01M15 12h.01M9 16h6M12 3v4" />
+      </symbol>
+      <symbol id="i-store" viewBox="0 0 24 24">
+        <path d="M3 9h18l-2-5H5Z" />
+        <path d="M5 9v11h14V9M9 20v-6h6v6" />
+      </symbol>
+      <symbol id="i-chevron-left" viewBox="0 0 24 24">
+        <path d="m15 18-6-6 6-6" />
+      </symbol>
+      <symbol id="i-star" viewBox="0 0 24 24">
+        <path d="m12 3 2.7 5.7 6.3.8-4.6 4.3 1.2 6.2L12 17.1 6.4 20l1.2-6.2L3 9.5l6.3-.8Z" />
+      </symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24">
+        <path d="M20 12a8 8 0 1 1-2.3-5.7L20 8" />
+        <path d="M20 3v5h-5" />
+      </symbol>
+      <symbol id="i-panel" viewBox="0 0 24 24">
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <path d="M9 4v16" />
+      </symbol>
+      <symbol id="i-paperclip" viewBox="0 0 24 24">
+        <path d="m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l8.6-8.6a4 4 0 1 1 5.6 5.7l-8.6 8.6a2 2 0 0 1-2.8-2.8l8.5-8.5" />
+      </symbol>
+      <symbol id="i-at-sign" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="4" />
+        <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" />
+      </symbol>
+      <symbol id="i-send" viewBox="0 0 24 24">
+        <path d="m22 2-7 20-4-9-9-4Z" />
+        <path d="M22 2 11 13" />
+      </symbol>
+      <symbol id="i-check" viewBox="0 0 24 24">
+        <path d="M20 6 9 17l-5-5" />
+      </symbol>
+      <symbol id="i-x" viewBox="0 0 24 24">
+        <path d="M6 6l12 12M18 6 6 18" />
+      </symbol>
+      <symbol id="i-external" viewBox="0 0 24 24">
+        <path d="M15 3h6v6M10 14 21 3" />
+        <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
+      </symbol>
+      <symbol id="i-download" viewBox="0 0 24 24">
+        <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />
+      </symbol>
+      <symbol id="i-corner-down-left" viewBox="0 0 24 24">
+        <path d="m9 10-5 5 5 5" />
+        <path d="M20 4v7a4 4 0 0 1-4 4H4" />
+      </symbol>
+    </svg>
+
+    <div class="app">
+      <aside class="rail">
+        <div class="brand">
+          <span class="brand-mark">
+            <svg class="icon"><use href="#i-grid"></use></svg>
+          </span>
+          <span>DSH Enterprise+</span>
+        </div>
+        <nav class="rail-nav" aria-label="主导航">
+          <button class="rail-item">
+            <svg class="icon"><use href="#i-grid"></use></svg>
+            工作台
+          </button>
+          <button class="rail-item">
+            <svg class="icon"><use href="#i-folder"></use></svg>
+            项目
+          </button>
+          <button class="rail-item active">
+            <svg class="icon"><use href="#i-list"></use></svg>
+            任务
+          </button>
+          <button class="rail-item">
+            <svg class="icon"><use href="#i-workflow"></use></svg>
+            工作流
+          </button>
+          <button class="rail-item">
+            <svg class="icon"><use href="#i-message"></use></svg>
+            沟通
+          </button>
+          <button class="rail-item">
+            <svg class="icon"><use href="#i-bot"></use></svg>
+            AI伙伴
+          </button>
+          <button class="rail-item">
+            <svg class="icon"><use href="#i-store"></use></svg>
+            资源市场
+          </button>
+        </nav>
+        <div class="rail-separator"></div>
+        <div class="project-list">
+          <div class="project-title">项目</div>
+          <div class="project-row active">
+            <span class="project-dot"></span>
+            <span class="project-copy">
+              <strong>1001-外接 agent 测试</strong>
+              <small>Demo 软件开发工作流 01</small>
+            </span>
+          </div>
+          <div class="project-row">
+            <span class="project-dot" style="background: var(--faint)"></span>
+            <span class="project-copy">
+              <strong>Pluginmax smoke</strong>
+              <small>发布风险复核</small>
+            </span>
+          </div>
+          <div class="project-row">
+            <span class="project-dot" style="background: var(--faint)"></span>
+            <span class="project-copy">
+              <strong>供应链异常处置</strong>
+              <small>订单缺口复核</small>
+            </span>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <h1 class="page-title">任务</h1>
+          <div class="top-context">
+            <span class="workflow-chip">
+              <svg class="icon"><use href="#i-workflow"></use></svg>
+              工作流节点
+            </span>
+            <span>Demo 软件开发工作流 01 / 测试文档设计</span>
+          </div>
+          <div class="top-actions">
+            <div class="scope-switch" aria-label="项目范围">
+              <button class="active">仅看已加入</button>
+              <button>平台全量</button>
+            </div>
+            <button class="ghost-button">草稿箱</button>
+            <button class="icon-button" aria-label="刷新">
+              <svg class="icon"><use href="#i-refresh"></use></svg>
+            </button>
+            <button class="primary-button">新建任务</button>
+            <button class="icon-button" aria-label="打开侧边栏">
+              <svg class="icon"><use href="#i-panel"></use></svg>
+            </button>
+          </div>
+        </header>
+
+        <div class="page">
+          <section class="detail-shell" aria-label="工作流节点任务详情">
+            <div class="detail-bar">
+              <button class="ghost-button" type="button" id="backButton">
+                <svg class="icon"><use href="#i-chevron-left"></use></svg>
+                看板
+              </button>
+              <div class="crumb">
+                任务 / <strong>TSK-MV8U8NZH-70E2</strong>
+                Demo 软件开发工作流 01 · 测试文档设计
+              </div>
+              <span class="project-chip">项目 · 1001-外接 agent 测试</span>
+              <button class="icon-button" title="关注任务" aria-label="关注任务">
+                <svg class="icon"><use href="#i-star"></use></svg>
+              </button>
+            </div>
+
+            <div class="detail-grid">
+              <section class="conversation" aria-label="工作流节点会话">
+                <div class="message-scroll" id="messageScroll">
+                  <article class="message workflow-message">
+                    <span class="avatar workflow">工</span>
+                    <div class="message-main">
+                      <div class="message-meta">
+                        <strong>工作流</strong>
+                        <span>10/15 09:06</span>
+                        <span class="message-badge workflow">工作流 · 节点任务</span>
+                      </div>
+                      <div class="bubble">
+                        <p>
+                          依据 PRD 设计测试策略、用例与验收口径，供代码测试阶段执行。
+                        </p>
+                        <p>完成后需要人工 Review。</p>
+                        <div class="workflow-meta">
+                          <span>Demo 软件开发工作流 01</span>
+                          <span>节点：测试文档设计</span>
+                          <span>人工审批节点</span>
+                        </div>
+                      </div>
+                    </div>
+                  </article>
+
+                  <article class="message analysis-message">
+                    <span class="avatar agent">柯</span>
+                    <div class="message-main">
+                      <div class="message-meta">
+                        <strong>柯真 01 测试</strong>
+                        <span>Agent</span>
+                        <span>10/15 09:08</span>
+                        <span class="message-badge feedback">执行反馈</span>
+                      </div>
+                      <div class="bubble">
+                        <p>
+                          当前测试方案已经覆盖主流程，但审批前建议补齐以下边界：
+                        </p>
+                        <ol class="analysis-list">
+                          <li>测试文档缺少异常中断后的恢复步骤。</li>
+                          <li>验收口径未明确「失败用例」是否阻断节点。</li>
+                          <li>建议补充一次真实外部 Agent 的回归记录。</li>
+                        </ol>
+                      </div>
+                    </div>
+                  </article>
+
+                  <article class="message">
+                    <span class="avatar agent">柯</span>
+                    <div class="message-main">
+                      <div class="message-meta">
+                        <strong>柯真 01 测试</strong>
+                        <span>Agent</span>
+                        <span>10/15 09:10</span>
+                        <span class="message-badge feedback">执行反馈</span>
+                      </div>
+                      <div class="bubble">
+                        <p>
+                          节点执行因服务重启中断。正式重试、转人工或提交节点产物请在右侧操作区或工作流页面完成。
+                        </p>
+                      </div>
+                    </div>
+                  </article>
+                </div>
+
+                <form class="composer" id="composer">
+                  <div class="composer-tools">
+                    <button
+                      class="tool"
+                      type="button"
+                      title="上传附件"
+                      aria-label="上传附件"
+                    >
+                      <svg class="icon"><use href="#i-paperclip"></use></svg>
+                    </button>
+                    <button
+                      class="tool"
+                      type="button"
+                      id="mentionButton"
+                      title="提及协作者"
+                      aria-label="提及协作者"
+                    >
+                      <svg class="icon"><use href="#i-at-sign"></use></svg>
+                    </button>
+                  </div>
+                  <textarea
+                    id="composerInput"
+                    rows="3"
+                    placeholder="询问审批依据、方案风险或需要补充的材料"
+                  ></textarea>
+                  <div class="composer-foot">
+                    <span class="workflow-mode">
+                      <svg class="icon"><use href="#i-message"></use></svg>
+                      讨论
+                    </span>
+                    <span class="workflow-hint"
+                      >可分析方案、准备材料；审批与提交请前往工作流节点。</span
+                    >
+                    <div class="composer-actions">
+                      <button class="ghost-button" type="button" id="clearButton">
+                        清空
+                      </button>
+                      <button
+                        class="workflow-send"
+                        type="submit"
+                        id="sendButton"
+                        disabled
+                      >
+                        <svg class="icon"><use href="#i-send"></use></svg>
+                        发送讨论
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              </section>
+
+              <aside class="side">
+                <header class="side-head">
+                  <div class="side-title">
+                    <h1>Demo 软件开发工作流 01 · 测试文档设计</h1>
+                    <span class="status-pill" id="sideStatus">待审批</span>
+                  </div>
+                  <p class="side-description">
+                    依据 PRD 设计测试策略、用例与验收口径，供代码测试阶段执行。完成后需要人工审批。
+                  </p>
+                  <div class="workflow-reference">
+                    <svg class="icon"><use href="#i-workflow"></use></svg>
+                    <span>Demo 软件开发工作流 01 / 测试文档设计</span>
+                  </div>
+                  <div class="action-row">
+                    <button class="detail-action workflow" type="button" id="openWorkflow">
+                      <svg class="icon"><use href="#i-external"></use></svg>
+                      打开工作流节点
+                    </button>
+                    <button class="detail-action primary" type="button" data-decision="approve">
+                      <svg class="icon"><use href="#i-check"></use></svg>
+                      通过
+                    </button>
+                    <button class="detail-action caution" type="button" data-decision="reject">
+                      <svg class="icon"><use href="#i-corner-down-left"></use></svg>
+                      退回
+                    </button>
+                    <button class="open-session" type="button" id="openSession">
+                      打开会话
+                    </button>
+                  </div>
+                </header>
+
+                <nav class="tabs" role="tablist" aria-label="任务信息视图">
+                  <button class="tab" type="button" data-tab="basic">基础信息</button>
+                  <button class="tab active" type="button" data-tab="execution">
+                    AI执行记录
+                  </button>
+                  <button class="tab" type="button" data-tab="documents">产出文档</button>
+                  <button class="tab" type="button" data-tab="activity">任务动态</button>
+                </nav>
+
+                <div class="side-scroll">
+                  <section class="pane" data-pane="basic">
+                    <div class="info-grid">
+                      <div class="info-item wide">
+                        <span>负责人</span>
+                        <strong class="owner-inline">
+                          <span class="avatar agent">柯</span>
+                          <span>柯真 01 测试（平台 Admin）</span>
+                        </strong>
+                      </div>
+                      <div class="info-item">
+                        <span>归属项目</span>
+                        <strong>1001-外接 agent 测试</strong>
+                      </div>
+                      <div class="info-item">
+                        <span>任务类型</span>
+                        <strong>工作流节点</strong>
+                      </div>
+                      <div class="info-item">
+                        <span>优先级</span>
+                        <strong>P1</strong>
+                      </div>
+                      <div class="info-item">
+                        <span>截止时间</span>
+                        <strong>10/16 18:00</strong>
+                      </div>
+                      <div class="info-item">
+                        <span>创建人</span>
+                        <strong>Admin</strong>
+                      </div>
+                      <div class="info-item">
+                        <span>执行运行时</span>
+                        <strong>Codex CLI · 搜索只读</strong>
+                      </div>
+                      <div class="info-item">
+                        <span>模型 / 推理强度</span>
+                        <strong>deepseek-flash（默认） · 高</strong>
+                      </div>
+                      <div class="info-item wide">
+                        <span>执行策略</span>
+                        <strong class="strategy-row">
+                          <span class="strategy-tag">公开网页 允许</span>
+                          <span class="strategy-tag">工具确认 开启</span>
+                          <span class="strategy-tag">工具事件 记录</span>
+                        </strong>
+                      </div>
+                    </div>
+                    <div class="basic-edit">
+                      <button type="button" id="editBasic">编辑</button>
+                    </div>
+                  </section>
+
+                  <section class="pane active" data-pane="execution">
+                    <div class="execution-card">
+                      <h2 class="section-title">AI执行记录 <span>1 轮</span></h2>
+                      <select class="run-select" aria-label="选择执行轮次">
+                        <option>第 1 轮 · 柯真 01 测试 · 已中断</option>
+                      </select>
+                    </div>
+                    <div class="execution-card">
+                      <h2 class="section-title">执行过程 <span>已中断</span></h2>
+                      <div class="run-output">
+                        服务重启导致运行中断。当前记录保留中断前的事件与上下文，正式重试请在右侧工作流节点中操作。
+                      </div>
+                    </div>
+                    <div class="execution-card">
+                      <h2 class="section-title">Agent 执行计划</h2>
+                      <div class="timeline">
+                        <div class="timeline-item">
+                          <time>09:06</time>
+                          <span>读取工作流节点要求与 PRD</span>
+                        </div>
+                        <div class="timeline-item">
+                          <time>09:07</time>
+                          <span>整理测试策略与验收口径</span>
+                        </div>
+                        <div class="timeline-item">
+                          <time>09:10</time>
+                          <span>服务重启，等待人工处理</span>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section class="pane" data-pane="documents">
+                    <div class="doc-card">
+                      <span class="doc-icon">MD</span>
+                      <span class="doc-copy">
+                        <strong>测试文档设计.md</strong>
+                        <small>柯真 01 测试 · 10/15 09:09 · 第 1 轮</small>
+                      </span>
+                      <button class="icon-button" aria-label="下载文档">
+                        <svg class="icon"><use href="#i-download"></use></svg>
+                      </button>
+                    </div>
+                  </section>
+
+                  <section class="pane" data-pane="activity">
+                    <div class="timeline">
+                      <div class="timeline-item">
+                        <time>10/15 09:06</time>
+                        <span>工作流派发「测试文档设计」节点任务</span>
+                      </div>
+                      <div class="timeline-item">
+                        <time>10/15 09:08</time>
+                        <span>柯真 01 测试提交节点分析</span>
+                      </div>
+                      <div class="timeline-item">
+                        <time>10/15 09:10</time>
+                        <span>节点执行因服务重启中断</span>
+                      </div>
+                      <div class="timeline-item">
+                        <time>10/15 09:12</time>
+                        <span>任务进入人工审批</span>
+                      </div>
+                    </div>
+                  </section>
+                </div>
+              </aside>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <div class="dialog-backdrop" id="decisionDialog" role="presentation">
+      <section
+        class="dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="decisionTitle"
+      >
+        <h2 id="decisionTitle">确认审批结论</h2>
+        <p id="decisionCopy"></p>
+        <div class="dialog-actions">
+          <button class="ghost-button" type="button" id="cancelDecision">
+            取消
+          </button>
+          <button class="primary-button" type="button" id="confirmDecision">
+            确认
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <script>
+      const $ = (selector) => document.querySelector(selector);
+      const $$ = (selector) => [...document.querySelectorAll(selector)];
+      const messageScroll = $("#messageScroll");
+      const composerInput = $("#composerInput");
+      const sendButton = $("#sendButton");
+      const toast = $("#toast");
+      const decisionDialog = $("#decisionDialog");
+      let toastTimer;
+      let pendingDecision = "";
+
+      function showToast(message) {
+        toast.textContent = message;
+        toast.classList.add("show");
+        window.clearTimeout(toastTimer);
+        toastTimer = window.setTimeout(() => {
+          toast.classList.remove("show");
+        }, 2400);
+      }
+
+      function scrollMessagesToBottom() {
+        window.requestAnimationFrame(() => {
+          messageScroll.scrollTop = messageScroll.scrollHeight;
+        });
+      }
+
+      function escapeHtml(value) {
+        return value
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      $$(".tab").forEach((tab) => {
+        tab.addEventListener("click", () => {
+          $$(".tab").forEach((item) => {
+            item.classList.toggle("active", item === tab);
+          });
+          $$(".pane").forEach((pane) => {
+            pane.classList.toggle(
+              "active",
+              pane.dataset.pane === tab.dataset.tab,
+            );
+          });
+        });
+      });
+
+      composerInput.addEventListener("input", () => {
+        sendButton.disabled = composerInput.value.trim() === "";
+      });
+
+      $("#clearButton").addEventListener("click", () => {
+        composerInput.value = "";
+        sendButton.disabled = true;
+        composerInput.focus();
+      });
+
+      $("#mentionButton").addEventListener("click", () => {
+        const mention = "@柯真 01 测试 ";
+        composerInput.value = `${mention}${composerInput.value}`;
+        composerInput.focus();
+        composerInput.setSelectionRange(mention.length, mention.length);
+        sendButton.disabled = false;
+      });
+
+      $("#composer").addEventListener("submit", (event) => {
+        event.preventDefault();
+        const content = composerInput.value.trim();
+        if (content === "") return;
+
+        const message = document.createElement("article");
+        message.className = "message self";
+        message.innerHTML = `
+          <span class="avatar">AD</span>
+          <div class="message-main">
+            <div class="message-meta">
+              <strong>我</strong>
+              <span>刚刚</span>
+              <span class="message-badge workflow">工作流讨论</span>
+            </div>
+            <div class="bubble" style="white-space: pre-wrap">${escapeHtml(content)}</div>
+          </div>
+        `;
+        messageScroll.appendChild(message);
+        composerInput.value = "";
+        sendButton.disabled = true;
+        scrollMessagesToBottom();
+        showToast("讨论已发送，工作流状态未改变");
+
+        const typing = document.createElement("article");
+        typing.className = "message analysis-message";
+        typing.innerHTML = `
+          <span class="avatar agent">柯</span>
+          <div class="message-main">
+            <div class="message-meta">
+              <strong>柯真 01 测试</strong>
+              <span>Agent</span>
+              <span>正在分析</span>
+              <span class="message-badge feedback">执行反馈</span>
+            </div>
+            <div class="bubble"><span class="typing"><span></span><span></span><span></span></span></div>
+          </div>
+        `;
+        window.setTimeout(() => {
+          messageScroll.appendChild(typing);
+          scrollMessagesToBottom();
+        }, 280);
+
+        window.setTimeout(() => {
+          const bubble = typing.querySelector(".bubble");
+          bubble.textContent =
+            "建议在审批前明确失败用例的阻断规则，并补充异常中断后的恢复步骤。该反馈仅用于节点讨论，不会改变工作流状态，也不代表审批结论。";
+          scrollMessagesToBottom();
+        }, 1250);
+      });
+
+      composerInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault();
+          $("#composer").requestSubmit();
+        }
+      });
+
+      $("#openWorkflow").addEventListener("click", () => {
+        showToast("已定位到工作流节点：测试文档设计");
+      });
+
+      $("#openSession").addEventListener("click", () => {
+        showToast("已打开当前节点的 Agent 会话");
+      });
+
+      $("#backButton").addEventListener("click", () => {
+        showToast("返回任务看板");
+      });
+
+      $("#editBasic").addEventListener("click", () => {
+        showToast("此 Demo 聚焦工作流协作入口，基础信息编辑沿用正式详情页");
+      });
+
+      $$("[data-decision]").forEach((button) => {
+        button.addEventListener("click", () => {
+          pendingDecision = button.dataset.decision;
+          const approved = pendingDecision === "approve";
+          $("#decisionTitle").textContent = approved ? "确认通过审批" : "确认退回审批";
+          $("#decisionCopy").textContent = approved
+            ? "通过后会由工作流节点推进任务状态。该结论不能从左侧讨论区提交。"
+            : "退回后需要在工作流页面补充退回原因。该操作不能由 Agent 的讨论回复代替。";
+          $("#confirmDecision").textContent = approved ? "确认通过" : "去填写退回原因";
+          decisionDialog.classList.add("open");
+        });
+      });
+
+      $("#cancelDecision").addEventListener("click", () => {
+        decisionDialog.classList.remove("open");
+      });
+
+      decisionDialog.addEventListener("click", (event) => {
+        if (event.target === decisionDialog) {
+          decisionDialog.classList.remove("open");
+        }
+      });
+
+      $("#confirmDecision").addEventListener("click", () => {
+        decisionDialog.classList.remove("open");
+        if (pendingDecision === "approve") {
+          $("#sideStatus").textContent = "已通过";
+          $("#sideStatus").style.background = "var(--green-soft)";
+          $("#sideStatus").style.color = "var(--green)";
+          $$("[data-decision]").forEach((button) => {
+            button.disabled = true;
+          });
+          showToast("审批已通过，工作流节点状态已更新");
+          return;
+        }
+        $("#sideStatus").textContent = "已退回";
+        $("#sideStatus").style.background = "var(--red-soft)";
+        $("#sideStatus").style.color = "var(--red)";
+        $$("[data-decision]").forEach((button) => {
+          button.disabled = true;
+        });
+        showToast("已进入工作流退回流程，请填写退回原因");
+      });
+    </script>
+  </body>
+</html>
