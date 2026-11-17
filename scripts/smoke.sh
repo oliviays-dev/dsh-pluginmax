@@ -240,23 +240,22 @@ code="$(api POST /roles/materialize "$OUTSIDER_TOKEN" "{\"workspaceId\":\"$WORKS
 expect_code 403 "$code" "non-member role materialization"
 
 code="$(api POST /roles/materialize "$TOKEN" "{\"workspaceId\":\"$WORKSPACE_ID\",\"typeId\":\"product\"}" "http://127.0.0.1:$PORT")"
-expect_code 201 "$code" "workspace type materialization"
-
-code="$(api POST /roles/seats/claim "$TOKEN" "{\"workspaceId\":\"$WORKSPACE_ID\",\"seatId\":\"owner\"}" "http://127.0.0.1:$PORT")"
-expect_code 201 "$code" "human role claim"
-grep -q '"leader":true' "$BODY" || {
-  echo "first role claim should become leader" >&2
+expect_code 409 "$code" "workspace type materialization after project initialization"
+grep -q '"code":"conflict"' "$BODY" || {
+  echo "workspace type materialization should report the project-role conflict" >&2
   cat "$BODY" >&2
   exit 1
 }
 
-code="$(api POST /roles/seats/assign "$TOKEN" "{\"workspaceId\":\"$WORKSPACE_ID\",\"seatId\":\"builder\",\"assigneeKind\":\"agent\",\"assigneeId\":\"session-a\",\"personaId\":\"architect\"}" "http://127.0.0.1:$PORT")"
-expect_code 201 "$code" "agent role assignment"
-
 code="$(api GET "/roles/seats?workspaceId=$WORKSPACE_ID" "$TOKEN" "" "http://127.0.0.1:$PORT")"
-expect_code 200 "$code" "role seat list"
-grep -q '"assigneeId":"session-a"' "$BODY" || {
-  echo "role seat list is missing assigned agent" >&2
+expect_code 200 "$code" "project-backed role seat list"
+grep -q '"seatId":"role-pm"' "$BODY" || {
+  echo "project-backed role seat list is missing the project manager seat" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+grep -q '"id":"facilitator"' "$BODY" || {
+  echo "project-backed role seat list is missing the facilitator seat" >&2
   cat "$BODY" >&2
   exit 1
 }
@@ -402,11 +401,32 @@ grep -q '"canManage":true' "$BODY" || {
   exit 1
 }
 
+code="$(api POST /roles/seats/claim "$TOKEN" "{\"workspaceId\":\"$PROJECT_ID\",\"seatId\":\"role-owner\"}" "http://127.0.0.1:$PORT")"
+expect_code 201 "$code" "human project role claim"
+grep -q '"seatId":"role-owner"' "$BODY" || {
+  echo "human project role claim did not select role-owner" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+
+code="$(api POST /roles/seats/assign "$TOKEN" "{\"workspaceId\":\"$PROJECT_ID\",\"seatId\":\"role-dev\",\"assigneeKind\":\"agent\",\"assigneeId\":\"session-a\",\"personaId\":\"architect\"}" "http://127.0.0.1:$PORT")"
+expect_code 201 "$code" "agent project role assignment"
+
+code="$(api GET "/roles/seats?workspaceId=$PROJECT_ID" "$TOKEN" "" "http://127.0.0.1:$PORT")"
+expect_code 200 "$code" "project role seat list"
+grep -q '"assigneeId":"session-a"' "$BODY" || {
+  echo "project role seat list is missing assigned agent" >&2
+  cat "$BODY" >&2
+  exit 1
+}
+
 code="$(api POST /projects/update "$TOKEN" "{\"workspaceId\":\"$PROJECT_ID\",\"status\":\"进行中\",\"health\":\"健康\",\"progress\":40,\"description\":\"smoke project\"}" "http://127.0.0.1:$PORT")"
 expect_code 200 "$code" "project update"
 
 code="$(api GET "/projects/detail?workspaceId=$PROJECT_ID" "$TOKEN")"
 expect_code 200 "$code" "project detail for role draft"
+ROLES_REVISION_BEFORE="$(node -e 'const body=require(process.argv[1]);process.stdout.write(String(body.project.rolesRevision))' "$BODY")"
+ROLES_REVISION_AFTER=$((ROLES_REVISION_BEFORE + 1))
 
 # 草稿确认：整组覆盖生效，改名 + 新增角色。
 node -e '
@@ -439,7 +459,7 @@ grep -q '"SMOKE_PROJECT_ROLE"' "$BODY" || {
   cat "$BODY" >&2
   exit 1
 }
-grep -q '"revision":2' "$BODY" || {
+grep -q "\"revision\":$ROLES_REVISION_AFTER" "$BODY" || {
   echo "project roles confirm did not bump rolesRevision" >&2
   cat "$BODY" >&2
   exit 1
@@ -450,12 +470,12 @@ expect_code 200 "$code" "project member save"
 
 code="$(api POST /projects/reports/generate "$TOKEN" "{\"workspaceId\":\"$PROJECT_ID\"}" "http://127.0.0.1:$PORT")"
 expect_code 200 "$code" "project report generation"
-grep -q 'RAG 结论' "$BODY" || {
-  echo "project report is missing the RAG 结论 section" >&2
+grep -q '一句话结论' "$BODY" || {
+  echo "project report is missing the executive conclusion" >&2
   cat "$BODY" >&2
   exit 1
 }
-grep -q 'Pluginmax smoke项目PM' "$BODY" || {
+grep -q 'PM_Pluginmax smoke' "$BODY" || {
   echo "project report is missing the project manager attribution" >&2
   cat "$BODY" >&2
   exit 1
