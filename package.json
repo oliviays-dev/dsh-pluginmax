@@ -10,7 +10,7 @@
   },
   "scripts": {
     "build": "corepack pnpm -r build",
-    "check": "corepack pnpm run typecheck && corepack pnpm run lint && corepack pnpm run test && corepack pnpm run build && corepack pnpm run contract && corepack pnpm run pack:check",
+    "check": "corepack pnpm run typecheck && corepack pnpm run lint && corepack pnpm run build && corepack pnpm run test && corepack pnpm run contract && corepack pnpm run pack:check",
     "contract": "node scripts/contract.mjs",
     "format:check": "corepack pnpm exec prettier --check .",
     "lint": "corepack pnpm exec oxlint packages plugins",

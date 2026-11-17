@@ -59,7 +59,7 @@ jobs:
             exit "$smoke_status"
           fi
       - name: Upload smoke diagnostics
-        if: failure()
+        if: failure() && hashFiles('.tmp/smoke-diagnostics.txt') != ''
         uses: actions/upload-artifact@v4
         with:
           name: smoke-diagnostics
