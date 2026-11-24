@@ -1,0 +1,47 @@
+{
+  "name": "dsh-collab-demo-ai-server-120",
+  "version": "0.1.0",
+  "description": "Optional AI Server 120 order decision Mock MCP assets",
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/**/*",
+    "mock/**/*",
+    "config/**/*",
+    "documents/**/*",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsdown && cp client/index.js lib/client.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "dsh-collab-resource-market": "workspace:*",
+    "yaml": "^2.9.1",
+    "zod": "4.4.3"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [],
+      "immediately": true,
+      "headless": true
+    }
+  }
+}

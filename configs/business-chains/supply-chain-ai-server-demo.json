@@ -1,0 +1,279 @@
+{
+  "businessChain": {
+    "templateId": "chain-ai-server",
+    "chainKey": "ai-server-delivery",
+    "displayName": "AI Server 履约交付链路",
+    "projectTypeCodes": [
+      "采购类"
+    ],
+    "snapshotPolicy": "pin-at-project-create",
+    "allowUnboundExternalNodes": true
+  },
+  "workflow": {
+    "key": "business-chain-ai-server",
+    "version": 19,
+    "name": "AI Server 履约交付链路",
+    "description": "供应链 Demo 完整链路：客户下单、履约复期、原材料采购、生产制造、成品发货。",
+    "nodes": [
+      {
+        "id": "order-intake",
+        "name": "确认订单",
+        "type": "task",
+        "ownerRole": "Order Fulfillment",
+        "ownerRoleCode": "GSC_ORDER_FULFILLMENT",
+        "stageCode": "ORDER_INTAKE",
+        "sequence": 1,
+        "summaryMetric": "order-quantity",
+        "fields": [
+          {
+            "key": "orderDate",
+            "label": "下单日期",
+            "bindings": [
+              {
+                "system": "OMS",
+                "objectId": "SO-AIS-120-20261119",
+                "path": "orderDate"
+              }
+            ]
+          },
+          {
+            "key": "ordered",
+            "label": "订单数量",
+            "bindings": [
+              {
+                "system": "OMS",
+                "objectId": "SO-AIS-120-20261119",
+                "path": "currentQuantity"
+              }
+            ]
+          },
+          {
+            "key": "planned",
+            "label": "交期要求",
+            "bindings": [
+              {
+                "system": "APS-PLANNING",
+                "objectId": "SO-AIS-120",
+                "path": "demand.minimumOnTimeQuantity"
+              },
+              {
+                "system": "APS-PLANNING",
+                "objectId": "SO-AIS-120",
+                "path": "demand.deadlineAt"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "fulfillment-commitment",
+        "name": "履约复期",
+        "type": "task",
+        "ownerRole": "Planning",
+        "ownerRoleCode": "GSC_PLANNING",
+        "stageCode": "FULFILLMENT_COMMITMENT",
+        "sequence": 2,
+        "summaryMetric": "delivery-commitment",
+        "fields": [
+          {
+            "key": "promisedDate",
+            "label": "承诺交期",
+            "bindings": [
+              {
+                "system": "OMS",
+                "objectId": "SO-AIS-120-20261119",
+                "path": "deadlineAt"
+              }
+            ]
+          },
+          {
+            "key": "revisedFinish",
+            "label": "复期完成",
+            "bindings": [
+              {
+                "system": "APS-PLANNING",
+                "objectId": "SO-AIS-120",
+                "path": "commitment.status"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "supply-prep",
+        "name": "原材料采购",
+        "type": "task",
+        "ownerRole": "Procurement",
+        "ownerRoleCode": "GSC_PROCUREMENT",
+        "stageCode": "SUPPLY_PREP",
+        "sequence": 3,
+        "summaryMetric": "kit-readiness",
+        "fields": [
+          {
+            "key": "planned",
+            "label": "计划到货",
+            "bindings": [
+              {
+                "system": "SRM",
+                "objectId": "GPU-MODULE-H",
+                "path": "supplyCommitment.committedQuantity"
+              }
+            ]
+          },
+          {
+            "key": "revised",
+            "label": "变更到货",
+            "bindings": [
+              {
+                "system": "SRM",
+                "objectId": "GPU-MODULE-H",
+                "path": "supplyCommitment.onTimeAvailableQuantity"
+              }
+            ]
+          },
+          {
+            "key": "actual",
+            "label": "到料",
+            "bindings": [
+              {
+                "system": "SRM",
+                "objectId": "GPU-MODULE-H",
+                "path": "supplyCommitment.receivedQuantity"
+              }
+            ]
+          },
+          {
+            "key": "poStatus",
+            "label": "在途",
+            "bindings": [
+              {
+                "system": "SRM",
+                "objectId": "GPU-MODULE-H",
+                "path": "supplierRelationship.status"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "assembly",
+        "name": "生产制造",
+        "type": "task",
+        "ownerRole": "Manufacturing",
+        "ownerRoleCode": "GSC_MANUFACTURING",
+        "stageCode": "ASSEMBLY",
+        "sequence": 4,
+        "summaryMetric": "actual-output",
+        "fields": [
+          {
+            "key": "kitProduction",
+            "label": "投产",
+            "bindings": [
+              {
+                "system": "MES",
+                "objectId": "LINE-AI-02",
+                "path": "kitReadyQuantity"
+              }
+            ]
+          },
+          {
+            "key": "workInProgress",
+            "label": "在制品",
+            "bindings": [
+              {
+                "system": "MES",
+                "objectId": "LINE-AI-02",
+                "path": "wipSnapshot.wipQuantity"
+              }
+            ]
+          },
+          {
+            "key": "actualOutput",
+            "label": "产出",
+            "bindings": [
+              {
+                "system": "MES",
+                "objectId": "LINE-AI-02",
+                "path": "completedQuantity"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "finished-goods-shipment",
+        "name": "成品发货",
+        "type": "task",
+        "ownerRole": "Logistics",
+        "ownerRoleCode": "GSC_LOGISTICS",
+        "stageCode": "FINISHED_GOODS_SHIPMENT",
+        "sequence": 5,
+        "summaryMetric": "shipped-quantity",
+        "fields": [
+          {
+            "key": "batch1Planned",
+            "label": "批次1 计划",
+            "bindings": [
+              {
+                "system": "WMS",
+                "objectId": "OUT-AIS120-01",
+                "path": "batches.batch1.planned"
+              }
+            ]
+          },
+          {
+            "key": "batch1Actual",
+            "label": "批次1 实际",
+            "bindings": [
+              {
+                "system": "WMS",
+                "objectId": "OUT-AIS120-01",
+                "path": "batches.batch1.actual"
+              }
+            ]
+          },
+          {
+            "key": "batch2Planned",
+            "label": "批次2 计划",
+            "bindings": [
+              {
+                "system": "WMS",
+                "objectId": "OUT-AIS120-01",
+                "path": "batches.batch2.planned"
+              }
+            ]
+          },
+          {
+            "key": "batch2Actual",
+            "label": "批次2 实际",
+            "bindings": [
+              {
+                "system": "WMS",
+                "objectId": "OUT-AIS120-01",
+                "path": "batches.batch2.actual"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "from": "order-intake",
+        "to": "fulfillment-commitment"
+      },
+      {
+        "from": "fulfillment-commitment",
+        "to": "supply-prep"
+      },
+      {
+        "from": "supply-prep",
+        "to": "assembly"
+      },
+      {
+        "from": "assembly",
+        "to": "finished-goods-shipment"
+      }
+    ]
+  }
+}

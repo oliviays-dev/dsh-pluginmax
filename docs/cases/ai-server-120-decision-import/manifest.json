@@ -1,0 +1,195 @@
+{
+  "schemaVersion": "case-import-package-v1",
+  "caseId": "ai-server-120-decision-20261119",
+  "title": "AI Server 120 台订单 14 天交付决策",
+  "ownerRole": "Order Fulfillment",
+  "finalDecisionOwner": "供应链负责人",
+  "businessChain": {
+    "chainKey": "ai-server-delivery",
+    "workflowKey": "business-chain-ai-server",
+    "workflowVersion": 19,
+    "roles": [
+      "Order Fulfillment",
+      "Planning",
+      "Procurement",
+      "Manufacturing",
+      "Quality",
+      "Logistics"
+    ],
+    "systems": [
+      "OMS",
+      "SRM",
+      "APS-PLANNING",
+      "MES",
+      "WMS",
+      "QMS"
+    ]
+  },
+  "runtimeModes": [
+    {
+      "id": "project-file-mock",
+      "description": "将六份 Markdown 上传为项目资料，由 AI 伙伴通过 read_file 按文件名读取。",
+      "requiresMcpProvider": false,
+      "mustNotClaimMcpConnected": true
+    },
+    {
+      "id": "real-mcp",
+      "description": "由 dsh-collab-demo-ai-server-120 注册六个资产，完成 initialize、tools/list 和 tools/call。",
+      "requiresMcpProvider": true,
+      "mustNotClaimMcpConnected": false,
+      "providerPlugin": "plugins/dsh-collab-demo-ai-server-120",
+      "providerId": "ai-server-120-mock-mcp-provider"
+    }
+  ],
+  "mcpAssets": [
+    {
+      "assetId": "mcp-mock-oms-ai-server-120",
+      "file": "mcp/01-oms-mock-mcp.md",
+      "sourceSystem": "OMS",
+      "primaryConsumer": "Order Fulfillment"
+    },
+    {
+      "assetId": "mcp-mock-srm-ai-server-120",
+      "file": "mcp/02-srm-mock-mcp.md",
+      "sourceSystem": "SRM",
+      "primaryConsumer": "Procurement"
+    },
+    {
+      "assetId": "mcp-mock-aps-planning-ai-server-120",
+      "file": "mcp/03-aps-planning-mock-mcp.md",
+      "sourceSystem": "APS-PLANNING",
+      "primaryConsumer": "Planning"
+    },
+    {
+      "assetId": "mcp-mock-mes-ai-server-120",
+      "file": "mcp/04-mes-mock-mcp.md",
+      "sourceSystem": "MES",
+      "primaryConsumer": "Manufacturing"
+    },
+    {
+      "assetId": "mcp-mock-wms-ai-server-120",
+      "file": "mcp/05-wms-logistics-mock-mcp.md",
+      "sourceSystem": "WMS",
+      "primaryConsumer": "Logistics"
+    },
+    {
+      "assetId": "mcp-mock-qms-ai-server-120",
+      "file": "mcp/06-qms-mock-mcp.md",
+      "sourceSystem": "QMS",
+      "primaryConsumer": "Quality"
+    }
+  ],
+  "teammateTemplates": [
+    {
+      "key": "order-fulfillment-decision-owner",
+      "name": "订单履行决策负责人 AI 伙伴",
+      "role": "Order Fulfillment",
+      "soulFile": "ai-teammates/souls/01-order-fulfillment-SOUL.md",
+      "primaryMcpAssets": [
+        "mcp-mock-oms-ai-server-120",
+        "mcp-mock-aps-planning-ai-server-120"
+      ]
+    },
+    {
+      "key": "planning-ai-server-120",
+      "name": "AI Server 计划专员",
+      "role": "Planning",
+      "soulFile": "ai-teammates/souls/02-planning-SOUL.md",
+      "primaryMcpAssets": [
+        "mcp-mock-oms-ai-server-120",
+        "mcp-mock-srm-ai-server-120",
+        "mcp-mock-aps-planning-ai-server-120",
+        "mcp-mock-mes-ai-server-120",
+        "mcp-mock-wms-ai-server-120",
+        "mcp-mock-qms-ai-server-120"
+      ]
+    },
+    {
+      "key": "procurement-ai-server-120",
+      "name": "AI Server 采购专员",
+      "role": "Procurement",
+      "soulFile": "ai-teammates/souls/03-procurement-SOUL.md",
+      "primaryMcpAssets": [
+        "mcp-mock-srm-ai-server-120",
+        "mcp-mock-oms-ai-server-120"
+      ]
+    },
+    {
+      "key": "manufacturing-ai-server-120",
+      "name": "AI Server 制造专员",
+      "role": "Manufacturing",
+      "soulFile": "ai-teammates/souls/04-manufacturing-SOUL.md",
+      "primaryMcpAssets": [
+        "mcp-mock-mes-ai-server-120",
+        "mcp-mock-qms-ai-server-120"
+      ]
+    },
+    {
+      "key": "logistics-ai-server-120",
+      "name": "AI Server 物流专员",
+      "role": "Logistics",
+      "soulFile": "ai-teammates/souls/06-logistics-SOUL.md",
+      "primaryMcpAssets": [
+        "mcp-mock-wms-ai-server-120",
+        "mcp-mock-mes-ai-server-120",
+        "mcp-mock-qms-ai-server-120"
+      ]
+    }
+  ],
+  "instanceSoulUpdates": {
+    "workspaceId": "706e06a4-0cd4-4bdc-bbde-f9a5484e6e15",
+    "mode": "update-existing-only",
+    "createsInstances": false,
+    "script": "system-update/update-existing-instance-souls.mjs",
+    "qualityOwner": "existing human Quality seat",
+    "files": {
+      "Order Fulfillment": "system-update/instance-souls/01-order-fulfillment-instance-SOUL.md",
+      "Planning": "system-update/instance-souls/02-planning-instance-SOUL.md",
+      "Procurement": "system-update/instance-souls/03-procurement-instance-SOUL.md",
+      "Manufacturing": "system-update/instance-souls/04-manufacturing-instance-SOUL.md",
+      "Logistics": "system-update/instance-souls/05-logistics-instance-SOUL.md"
+    }
+  },
+  "taskTree": {
+    "root": "prompts/00-root-task.md",
+    "children": [
+      "prompts/01-planning-subtask.md",
+      "prompts/02-procurement-subtask.md",
+      "prompts/03-manufacturing-subtask.md",
+      "prompts/05-logistics-subtask.md",
+      "prompts/06-human-decision-subtask.md"
+    ]
+  },
+  "meeting": {
+    "initiator": "Order Fulfillment",
+    "agenda": "prompts/10-meeting-agenda.md",
+    "openingMessage": "prompts/11-meeting-opening-message.md",
+    "finalDecisionOwner": "供应链负责人"
+  },
+  "expectedDecision": {
+    "defaultOption": "B",
+    "fallbackOption": "A",
+    "conditionalExternalOption": "C",
+    "onTimeQuantity": 106,
+    "minimumCommitment": 96,
+    "estimatedCost": 8.6,
+    "currencyUnit": "CNY_million",
+    "remainingQuantity": 14,
+    "mcpConfirmed120": false
+  },
+  "validation": {
+    "mcpFiles": 6,
+    "teammateTemplates": 5,
+    "rootTasks": 1,
+    "aiSubtasks": 3,
+    "humanSubtasks": 2,
+    "qualityGate": "inside manufacturing",
+    "expectedMcpSnapshots": 1,
+    "costsMustMatch": {
+      "A": 3.6,
+      "B": 8.6,
+      "C": 7.6,
+      "D": 12.6
+    }
+  }
+}

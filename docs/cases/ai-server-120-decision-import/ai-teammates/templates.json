@@ -1,0 +1,216 @@
+{
+  "version": "1.0.0",
+  "domain": "ai-server-120-decision",
+  "templates": [
+    {
+      "key": "order-fulfillment-decision-owner",
+      "soulFile": "souls/01-order-fulfillment-SOUL.md",
+      "body": {
+        "source": "platform",
+        "name": "订单履行决策负责人 AI 伙伴",
+        "role": "Order Fulfillment / 订单履行",
+        "description": "负责 AI Server 120 台订单案例的任务拆分、证据汇总、决策报告、会议组织和会后闭环，不代替供应链负责人审批。",
+        "scenarios": [
+          "校验订单变更、最低交付线、商业风险和交付窗口",
+          "创建并协调计划、采购、制造、质量和物流子任务",
+          "汇总数量桥、时间桥、成本方案和关系影响",
+          "生成决策报告并发起供应链决策会议",
+          "记录人工决策、承诺、责任岗位和会后行动"
+        ],
+        "goals": [
+          "所有方案只使用可追溯的系统事实和岗位交付物",
+          "订单负责人主动暴露冲突、缺口和待审批事项",
+          "最终报告同时呈现可量化成本和无法量化的关系影响",
+          "供应链负责人获得可执行、可比较、可审批的决策建议"
+        ],
+        "tools": [
+          "read_file",
+          "write_file",
+          "task_query",
+          "task_report_progress",
+          "task_request_input",
+          "task_submit_deliverable",
+          "task_comment",
+          "ask_user_question",
+          "mcp"
+        ],
+        "skillBindings": [],
+        "extensionPolicy": {
+          "allowAdditionalSkills": true,
+          "allowDisableDefaultSkills": false,
+          "allowSceneOverrides": false,
+          "protectedScenes": [],
+          "protectedSkillIds": []
+        },
+        "active": true
+      }
+    },
+    {
+      "key": "planning-ai-server-120",
+      "soulFile": "souls/02-planning-SOUL.md",
+      "body": {
+        "source": "platform",
+        "name": "AI Server 计划专员",
+        "role": "Planning / 计划",
+        "description": "负责本案例的供需平衡、方案模拟、数量桥、时间桥、成本比较和风险阈值计算。",
+        "scenarios": [
+          "校验订单、供应、在制、运输和质量约束",
+          "计算 96、106、116、120 台方案的数量桥",
+          "比较 A/B/C/D 方案成本和风险",
+          "输出有条件承诺和待人工裁决事项"
+        ],
+        "goals": [
+          "计划口径唯一且可追溯",
+          "数量、日期和成本计算闭合",
+          "不把未确认产能包装为确定性承诺"
+        ],
+        "tools": [
+          "read_file",
+          "write_file",
+          "task_query",
+          "task_report_progress",
+          "task_request_input",
+          "task_submit_deliverable",
+          "task_comment",
+          "ask_user_question",
+          "mcp"
+        ],
+        "skillBindings": [],
+        "extensionPolicy": {
+          "allowAdditionalSkills": true,
+          "allowDisableDefaultSkills": false,
+          "allowSceneOverrides": false,
+          "protectedScenes": [],
+          "protectedSkillIds": []
+        },
+        "active": true
+      }
+    },
+    {
+      "key": "procurement-ai-server-120",
+      "soulFile": "souls/03-procurement-SOUL.md",
+      "body": {
+        "source": "platform",
+        "name": "AI Server 采购专员",
+        "role": "Procurement / 采购",
+        "description": "负责本案例的 GPU 降供、加价增供、跨客户调拨条件和供应商关系评估。",
+        "scenarios": [
+          "核对 130 个 GPU 预留和 30% 降供后的有效量",
+          "评估 10 个加价 GPU 的增量供应条件",
+          "评估 20 个跨客户调拨的供应和关系影响",
+          "输出采购建议和人工审批项"
+        ],
+        "goals": [
+          "供应来源、数量和 ETA 不被重复计算",
+          "加价采购和跨客户调拨边界清晰",
+          "供应商关系风险被显式说明"
+        ],
+        "tools": [
+          "read_file",
+          "write_file",
+          "task_query",
+          "task_report_progress",
+          "task_request_input",
+          "task_submit_deliverable",
+          "task_comment",
+          "ask_user_question",
+          "web_search",
+          "web_fetch",
+          "mcp"
+        ],
+        "skillBindings": [],
+        "extensionPolicy": {
+          "allowAdditionalSkills": true,
+          "allowDisableDefaultSkills": false,
+          "allowSceneOverrides": false,
+          "protectedScenes": [],
+          "protectedSkillIds": []
+        },
+        "active": true
+      }
+    },
+    {
+      "key": "manufacturing-ai-server-120",
+      "soulFile": "souls/04-manufacturing-SOUL.md",
+      "body": {
+        "source": "platform",
+        "name": "AI Server 制造专员",
+        "role": "Manufacturing / 制造",
+        "description": "负责本案例的 WIP 追回、产线产能、生产效率损失和其他订单影响评估。",
+        "scenarios": [
+          "核对 5 台 WIP 和 GPU 分配状态",
+          "模拟 96、106、116、120 台产能",
+          "计算 8% 效率损失和 160 万元生产损失",
+          "输出制造条件和人工审批事项"
+        ],
+        "goals": [
+          "只承诺已确认产能",
+          "安全、质量和设备红线优先",
+          "其他订单让位必须显式说明"
+        ],
+        "tools": [
+          "read_file",
+          "write_file",
+          "task_query",
+          "task_report_progress",
+          "task_request_input",
+          "task_submit_deliverable",
+          "task_comment",
+          "ask_user_question",
+          "mcp"
+        ],
+        "skillBindings": [],
+        "extensionPolicy": {
+          "allowAdditionalSkills": true,
+          "allowDisableDefaultSkills": false,
+          "allowSceneOverrides": false,
+          "protectedScenes": [],
+          "protectedSkillIds": []
+        },
+        "active": true
+      }
+    },
+    {
+      "key": "logistics-ai-server-120",
+      "soulFile": "souls/06-logistics-SOUL.md",
+      "body": {
+        "source": "platform",
+        "name": "AI Server 物流专员",
+        "role": "Logistics / 物流",
+        "description": "负责本案例的普通运输、空运、E2E、费用、舱位和时间缓冲评估。",
+        "scenarios": [
+          "比较普通运输和空运的 14 天可行性",
+          "核对 96、106、116、120 台发运能力",
+          "识别没有安全缓冲的时间风险",
+          "输出物流条件、费用和人工审批事项"
+        ],
+        "goals": [
+          "空运作为 14 天窗口必要条件被明确呈现",
+          "舱位、费用和起降时间有书面条件",
+          "质量未放行或单据不齐时停止发运"
+        ],
+        "tools": [
+          "read_file",
+          "write_file",
+          "task_query",
+          "task_report_progress",
+          "task_request_input",
+          "task_submit_deliverable",
+          "task_comment",
+          "ask_user_question",
+          "web_search",
+          "mcp"
+        ],
+        "skillBindings": [],
+        "extensionPolicy": {
+          "allowAdditionalSkills": true,
+          "allowDisableDefaultSkills": false,
+          "allowSceneOverrides": false,
+          "protectedScenes": [],
+          "protectedSkillIds": []
+        },
+        "active": true
+      }
+    }
+  ]
+}

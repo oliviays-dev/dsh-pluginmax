@@ -1,0 +1,177 @@
+{
+  "businessChain": {
+    "templateId": "chain-software-hotfix",
+    "chainKey": "software-hotfix-delivery",
+    "displayName": "软件线上故障修复链路",
+    "projectTypeCodes": [
+      "研发类",
+      "software-hotfix"
+    ],
+    "snapshotPolicy": "pin-at-project-create",
+    "allowUnboundExternalNodes": true
+  },
+  "workflow": {
+    "key": "business-chain-software-hotfix",
+    "version": 1,
+    "name": "软件线上故障修复链路",
+    "description": "从线上故障受理、热修复、代码评审、回归验证到发布观察的短链路。",
+    "nodes": [
+      {
+        "id": "incident-triage",
+        "name": "故障受理与定级",
+        "type": "task",
+        "stageCode": "INCIDENT_TRIAGE",
+        "sequence": 1,
+        "summaryMetric": "incident-severity",
+        "fields": [
+          {
+            "key": "severity",
+            "label": "故障等级",
+            "bindings": [
+              {
+                "system": "JIRA",
+                "objectId": "INC-2026-001",
+                "path": "priority"
+              }
+            ]
+          },
+          {
+            "key": "errorRate",
+            "label": "错误率",
+            "bindings": [
+              {
+                "system": "MONITORING",
+                "objectId": "svc-dsh-project",
+                "path": "errorRate"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "hotfix-development",
+        "name": "热修复开发",
+        "type": "task",
+        "stageCode": "HOTFIX_DEVELOPMENT",
+        "sequence": 2,
+        "summaryMetric": "hotfix-progress",
+        "fields": [
+          {
+            "key": "branch",
+            "label": "热修复分支",
+            "bindings": [
+              {
+                "system": "GIT",
+                "objectId": "platform-repo",
+                "path": "hotfixBranch"
+              }
+            ]
+          },
+          {
+            "key": "build",
+            "label": "构建状态",
+            "bindings": [
+              {
+                "system": "CI-CD",
+                "objectId": "hotfix-pipeline",
+                "path": "lastRun.status"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "hotfix-review",
+        "name": "热修复评审",
+        "type": "task",
+        "stageCode": "HOTFIX_REVIEW",
+        "sequence": 3,
+        "summaryMetric": "review-findings",
+        "fields": [
+          {
+            "key": "reviewState",
+            "label": "评审状态",
+            "bindings": [
+              {
+                "system": "GIT",
+                "objectId": "PR-HOTFIX-2026-001",
+                "path": "review.state"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "regression-test",
+        "name": "回归验证",
+        "type": "task",
+        "stageCode": "REGRESSION_TEST",
+        "sequence": 4,
+        "summaryMetric": "test-pass-rate",
+        "fields": [
+          {
+            "key": "passRate",
+            "label": "回归通过率",
+            "bindings": [
+              {
+                "system": "QA",
+                "objectId": "RUN-HOTFIX-2026-001",
+                "path": "summary.passRate"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "hotfix-release",
+        "name": "热修复发布与观察",
+        "type": "task",
+        "stageCode": "HOTFIX_RELEASE",
+        "sequence": 5,
+        "summaryMetric": "service-health",
+        "fields": [
+          {
+            "key": "deployedVersion",
+            "label": "发布版本",
+            "bindings": [
+              {
+                "system": "CI-CD",
+                "objectId": "hotfix-release-pipeline",
+                "path": "release.version"
+              }
+            ]
+          },
+          {
+            "key": "availability",
+            "label": "服务可用性",
+            "bindings": [
+              {
+                "system": "MONITORING",
+                "objectId": "svc-dsh-project",
+                "path": "availability"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "from": "incident-triage",
+        "to": "hotfix-development"
+      },
+      {
+        "from": "hotfix-development",
+        "to": "hotfix-review"
+      },
+      {
+        "from": "hotfix-review",
+        "to": "regression-test"
+      },
+      {
+        "from": "regression-test",
+        "to": "hotfix-release"
+      }
+    ]
+  }
+}

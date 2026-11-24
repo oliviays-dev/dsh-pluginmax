@@ -1,0 +1,303 @@
+{
+  "businessChain": {
+    "templateId": "chain-software-delivery-bugfix",
+    "chainKey": "software-delivery-bugfix-loop",
+    "displayName": "企业软件研发交付（Bug 修复闭环）",
+    "projectTypeCodes": [
+      "研发类",
+      "software-delivery"
+    ],
+    "snapshotPolicy": "pin-at-project-create",
+    "allowUnboundExternalNodes": true
+  },
+  "workflow": {
+    "key": "business-chain-software-delivery-bugfix",
+    "version": 1,
+    "name": "企业软件研发交付（Bug 修复闭环）",
+    "description": "需求、方案、开发、测试、缺陷修复、发布和线上观察的完整研发链路；测试失败进入 Bug 修复，复测两次后仍未通过则触发人工介入。",
+    "nodes": [
+      {
+        "id": "requirement-intake",
+        "name": "需求受理",
+        "type": "task",
+        "stageCode": "REQUIREMENT_INTAKE",
+        "sequence": 1,
+        "summaryMetric": "requirement-readiness",
+        "fields": [
+          {
+            "key": "scope",
+            "label": "需求范围",
+            "bindings": [
+              {
+                "system": "JIRA",
+                "objectId": "REQ-2026-101",
+                "path": "summary"
+              }
+            ]
+          },
+          {
+            "key": "acceptance",
+            "label": "验收标准",
+            "bindings": [
+              {
+                "system": "DOCS",
+                "objectId": "requirements-2026-101",
+                "path": "acceptanceCriteria"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "solution-design",
+        "name": "方案设计",
+        "type": "task",
+        "stageCode": "SOLUTION_DESIGN",
+        "sequence": 2,
+        "summaryMetric": "design-readiness",
+        "fields": [
+          {
+            "key": "targetVersion",
+            "label": "目标版本",
+            "bindings": [
+              {
+                "system": "DOCS",
+                "objectId": "design-2026-101",
+                "path": "version"
+              }
+            ]
+          },
+          {
+            "key": "impact",
+            "label": "影响范围",
+            "bindings": [
+              {
+                "system": "DOCS",
+                "objectId": "design-2026-101",
+                "path": "impactScope"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "development",
+        "name": "开发实现",
+        "type": "task",
+        "stageCode": "DEVELOPMENT",
+        "sequence": 3,
+        "summaryMetric": "implementation-progress",
+        "fields": [
+          {
+            "key": "branch",
+            "label": "实现分支",
+            "bindings": [
+              {
+                "system": "GIT",
+                "objectId": "platform-repo",
+                "path": "workingBranch"
+              }
+            ]
+          },
+          {
+            "key": "build",
+            "label": "构建状态",
+            "bindings": [
+              {
+                "system": "CI-CD",
+                "objectId": "pipeline-main",
+                "path": "lastRun.status"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "qa-testing",
+        "name": "测试验证",
+        "type": "task",
+        "stageCode": "QA_TESTING",
+        "sequence": 4,
+        "summaryMetric": "test-pass-rate",
+        "fields": [
+          {
+            "key": "passRate",
+            "label": "用例通过率",
+            "bindings": [
+              {
+                "system": "QA",
+                "objectId": "RUN-2026-101",
+                "path": "summary.passRate"
+              }
+            ]
+          },
+          {
+            "key": "defects",
+            "label": "缺陷数",
+            "bindings": [
+              {
+                "system": "QA",
+                "objectId": "RUN-2026-101",
+                "path": "summary.defectCount"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "test-result",
+        "name": "测试结果判断",
+        "type": "decision",
+        "stageCode": "TEST_RESULT",
+        "sequence": 5,
+        "summaryMetric": "test-result",
+        "fields": [
+          {
+            "key": "result",
+            "label": "测试结论",
+            "bindings": [
+              {
+                "system": "QA",
+                "objectId": "RUN-2026-101",
+                "path": "summary.result"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "bugfix",
+        "name": "Bug 修复",
+        "type": "task",
+        "stageCode": "BUGFIX",
+        "sequence": 6,
+        "summaryMetric": "open-defects",
+        "fields": [
+          {
+            "key": "priority",
+            "label": "缺陷等级",
+            "bindings": [
+              {
+                "system": "JIRA",
+                "objectId": "BUG-2026-101",
+                "path": "priority"
+              }
+            ]
+          },
+          {
+            "key": "commit",
+            "label": "修复提交",
+            "bindings": [
+              {
+                "system": "GIT",
+                "objectId": "PR-BUGFIX-2026-101",
+                "path": "headSha"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "release",
+        "name": "发布上线",
+        "type": "task",
+        "stageCode": "RELEASE",
+        "sequence": 7,
+        "summaryMetric": "release-status",
+        "fields": [
+          {
+            "key": "deployedVersion",
+            "label": "上线版本",
+            "bindings": [
+              {
+                "system": "CI-CD",
+                "objectId": "release-pipeline-01",
+                "path": "release.version"
+              }
+            ]
+          },
+          {
+            "key": "availability",
+            "label": "服务可用性",
+            "bindings": [
+              {
+                "system": "MONITORING",
+                "objectId": "svc-dsh-project",
+                "path": "availability"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "observe-retro",
+        "name": "线上观察与复盘",
+        "type": "task",
+        "stageCode": "OBSERVE_RETRO",
+        "sequence": 8,
+        "summaryMetric": "service-health",
+        "fields": [
+          {
+            "key": "availability",
+            "label": "服务可用性",
+            "bindings": [
+              {
+                "system": "MONITORING",
+                "objectId": "svc-dsh-project",
+                "path": "availability"
+              }
+            ]
+          },
+          {
+            "key": "actions",
+            "label": "改进项",
+            "bindings": [
+              {
+                "system": "DOCS",
+                "objectId": "retro-2026-101",
+                "path": "actions"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "from": "requirement-intake",
+        "to": "solution-design"
+      },
+      {
+        "from": "solution-design",
+        "to": "development"
+      },
+      {
+        "from": "development",
+        "to": "qa-testing"
+      },
+      {
+        "from": "qa-testing",
+        "to": "test-result"
+      },
+      {
+        "from": "test-result",
+        "to": "release",
+        "condition": "test_result == \"passed\""
+      },
+      {
+        "from": "test-result",
+        "to": "bugfix",
+        "default": true
+      },
+      {
+        "from": "bugfix",
+        "to": "qa-testing",
+        "breakCondition": "attempts >= 2"
+      },
+      {
+        "from": "release",
+        "to": "observe-retro"
+      }
+    ]
+  }
+}

@@ -1,0 +1,216 @@
+{
+  "businessChain": {
+    "templateId": "chain-software-delivery",
+    "chainKey": "software-delivery-standard",
+    "displayName": "企业软件研发交付链路",
+    "projectTypeCodes": [
+      "研发类",
+      "software-delivery"
+    ],
+    "snapshotPolicy": "pin-at-project-create",
+    "allowUnboundExternalNodes": true
+  },
+  "workflow": {
+    "key": "business-chain-software-delivery",
+    "version": 1,
+    "name": "企业软件研发交付链路",
+    "description": "从需求受理、方案设计、开发、代码评审、测试、发布到线上观察与复盘的软件研发主链路。",
+    "nodes": [
+      {
+        "id": "requirement-intake",
+        "name": "需求受理",
+        "type": "task",
+        "stageCode": "REQUIREMENT_INTAKE",
+        "sequence": 1,
+        "summaryMetric": "requirement-readiness",
+        "fields": [
+          {
+            "key": "scope",
+            "label": "需求范围",
+            "bindings": [
+              {
+                "system": "JIRA",
+                "objectId": "REQ-2026-001",
+                "path": "summary"
+              }
+            ]
+          },
+          {
+            "key": "acceptance",
+            "label": "验收标准",
+            "bindings": [
+              {
+                "system": "DOCS",
+                "objectId": "requirements-2026-001",
+                "path": "acceptanceCriteria"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "solution-design",
+        "name": "方案设计",
+        "type": "task",
+        "stageCode": "SOLUTION_DESIGN",
+        "sequence": 2,
+        "summaryMetric": "design-readiness",
+        "fields": [
+          {
+            "key": "targetVersion",
+            "label": "目标版本",
+            "bindings": [
+              {
+                "system": "DOCS",
+                "objectId": "design-2026-001",
+                "path": "version"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "development",
+        "name": "开发实现",
+        "type": "task",
+        "stageCode": "DEVELOPMENT",
+        "sequence": 3,
+        "summaryMetric": "implementation-progress",
+        "fields": [
+          {
+            "key": "branch",
+            "label": "实现分支",
+            "bindings": [
+              {
+                "system": "GIT",
+                "objectId": "platform-repo",
+                "path": "workingBranch"
+              }
+            ]
+          },
+          {
+            "key": "build",
+            "label": "构建状态",
+            "bindings": [
+              {
+                "system": "CI-CD",
+                "objectId": "pipeline-main",
+                "path": "lastRun.status"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "code-review",
+        "name": "代码评审",
+        "type": "task",
+        "stageCode": "CODE_REVIEW",
+        "sequence": 4,
+        "summaryMetric": "review-findings",
+        "fields": [
+          {
+            "key": "reviewState",
+            "label": "评审状态",
+            "bindings": [
+              {
+                "system": "GIT",
+                "objectId": "PR-2026-001",
+                "path": "review.state"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "qa-testing",
+        "name": "测试验证",
+        "type": "task",
+        "stageCode": "QA_TESTING",
+        "sequence": 5,
+        "summaryMetric": "test-pass-rate",
+        "fields": [
+          {
+            "key": "passRate",
+            "label": "用例通过率",
+            "bindings": [
+              {
+                "system": "QA",
+                "objectId": "RUN-2026-001",
+                "path": "summary.passRate"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "release",
+        "name": "发布上线",
+        "type": "task",
+        "stageCode": "RELEASE",
+        "sequence": 6,
+        "summaryMetric": "release-status",
+        "fields": [
+          {
+            "key": "deployedVersion",
+            "label": "上线版本",
+            "bindings": [
+              {
+                "system": "CI-CD",
+                "objectId": "release-pipeline-01",
+                "path": "release.version"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "observe-retro",
+        "name": "线上观察与复盘",
+        "type": "task",
+        "stageCode": "OBSERVE_RETRO",
+        "sequence": 7,
+        "summaryMetric": "service-health",
+        "fields": [
+          {
+            "key": "availability",
+            "label": "服务可用性",
+            "bindings": [
+              {
+                "system": "MONITORING",
+                "objectId": "svc-dsh-project",
+                "path": "availability"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "from": "requirement-intake",
+        "to": "solution-design"
+      },
+      {
+        "from": "solution-design",
+        "to": "development"
+      },
+      {
+        "from": "development",
+        "to": "code-review"
+      },
+      {
+        "from": "code-review",
+        "to": "qa-testing"
+      },
+      {
+        "from": "qa-testing",
+        "to": "release"
+      },
+      {
+        "from": "release",
+        "to": "observe-retro"
+      }
+    ]
+  }
+}

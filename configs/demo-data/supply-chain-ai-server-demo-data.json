@@ -1,0 +1,85 @@
+{
+  "schemaVersion": "project-demo-data-v1",
+  "nodes": {
+    "order-intake": {
+      "status": "completed",
+      "owner": "Order Fulfillment",
+      "exception": "无",
+      "fields": {
+        "orderDate": "2026-11-19",
+        "ordered": "120 台",
+        "planned": "96 台 / 2026-12-03"
+      }
+    },
+    "fulfillment-commitment": {
+      "status": "running",
+      "owner": "Planning",
+      "exception": "无",
+      "fields": {
+        "promisedDate": "待供应链负责人决策",
+        "revisedFinish": "待供应链负责人决策"
+      }
+    },
+    "supply-prep": {
+      "status": "blocked",
+      "owner": "Procurement",
+      "exception": "GPU 预计降供 30%，14 天有效 91 个",
+      "fields": {
+        "planned": "130 个 GPU 预留",
+        "revised": "91 个有效 GPU",
+        "actual": "0 个已到料",
+        "poStatus": "供应商降供 30%，关系承压"
+      }
+    },
+    "assembly": {
+      "status": "running",
+      "owner": "Manufacturing",
+      "exception": "质量放行作为节点内门禁",
+      "fields": {
+        "kitProduction": "91 套待投产",
+        "workInProgress": "5 台",
+        "actualOutput": "0 台"
+      }
+    },
+    "finished-goods-shipment": {
+      "status": "waiting",
+      "owner": "Logistics",
+      "exception": "无",
+      "fields": {
+        "batch1Planned": "2026-11-27 空运 · 96/106 台待决策",
+        "batch1Actual": "未发运",
+        "batch2Planned": "2026-12-03 后 · 14/24 台待决策",
+        "batch2Actual": "未发运"
+      }
+    }
+  },
+  "changeEvents": [
+    {
+      "id": "demo-change-001",
+      "category": "supply",
+      "categoryLabel": "供给变更",
+      "at": "2026-11-18T09:30:00+08:00",
+      "description": "GPU 预留 130 个，预计 30% 降供，14 天有效 91 个。",
+      "source": "SRM",
+      "linkedNodeIds": ["supply-prep"]
+    },
+    {
+      "id": "demo-change-002",
+      "category": "order",
+      "categoryLabel": "订单变更",
+      "at": "2026-11-18T11:00:00+08:00",
+      "description": "客户追加到 120 台，14 天内至少交付 96 台。",
+      "source": "OMS",
+      "linkedNodeIds": ["order-intake", "fulfillment-commitment"]
+    },
+    {
+      "id": "demo-change-003",
+      "category": "manufacturing",
+      "categoryLabel": "制造与质量",
+      "at": "2026-11-19T09:00:00+08:00",
+      "description": "5 台 WIP 可追回；检验能力并入制造节点作为放行门禁。",
+      "source": "MES/QMS",
+      "linkedNodeIds": ["assembly"]
+    }
+  ]
+}

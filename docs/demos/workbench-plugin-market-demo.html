@@ -1,0 +1,4380 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Pluginmax · 可插拔工作台 Demo</title>
+  <style>
+    :root {
+      --bg: #f3f5f7;
+      --surface: #ffffff;
+      --surface-soft: #f8f9fb;
+      --surface-blue: #eef3ff;
+      --rail: #171c26;
+      --rail-2: #202633;
+      --rail-text: #f2f5f9;
+      --rail-muted: #98a2b3;
+      --text: #202632;
+      --muted: #677286;
+      --faint: #909aab;
+      --line: #e0e5eb;
+      --line-strong: #cdd4de;
+      --primary: #3f6ef3;
+      --primary-strong: #315bd1;
+      --primary-soft: #edf2ff;
+      --teal: #148f74;
+      --teal-soft: #e8f7f2;
+      --green: #248a52;
+      --green-soft: #eaf7ef;
+      --amber: #b97316;
+      --amber-soft: #fff4df;
+      --coral: #d95749;
+      --coral-soft: #fff0ee;
+      --violet: #7057ca;
+      --violet-soft: #f1edff;
+      --shadow-1: 0 8px 24px rgba(20, 29, 45, .08);
+      --shadow-2: 0 18px 48px rgba(20, 29, 45, .16);
+      --radius: 8px;
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body {
+      margin: 0;
+      color: var(--text);
+      background: var(--bg);
+      font: 14px/1.5 var(--font);
+      -webkit-font-smoothing: antialiased;
+    }
+    button, input, select, textarea { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+      outline: 2px solid color-mix(in srgb, var(--primary) 50%, transparent);
+      outline-offset: 2px;
+    }
+    button:disabled { cursor: not-allowed; opacity: .45; }
+    svg { display: block; }
+    .i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+    .i-sm { width: 14px; height: 14px; }
+    .i-lg { width: 19px; height: 19px; }
+    .sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+    .sr-only {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+    }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cdd3dc; border: 2px solid transparent; border-radius: 999px; background-clip: padding-box; }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 236px minmax(0, 1fr);
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      height: 100vh;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      color: var(--rail-text);
+      background: var(--rail);
+      border-right: 1px solid rgba(255,255,255,.06);
+    }
+    .brand {
+      height: 64px;
+      flex: none;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 18px;
+      border-bottom: 1px solid rgba(255,255,255,.07);
+    }
+    .brand-mark {
+      width: 30px;
+      height: 30px;
+      flex: none;
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 3px;
+      padding: 5px;
+      border-radius: 8px;
+      color: #fff;
+      background: var(--primary);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.16);
+    }
+    .brand-mark span { border-radius: 2px; background: currentColor; opacity: .92; }
+    .brand-copy { min-width: 0; }
+    .brand-copy strong { display: block; font-size: 14px; line-height: 1.25; letter-spacing: 0; }
+    .brand-copy small { display: block; margin-top: 2px; color: var(--rail-muted); font-size: 10px; }
+    .sidebar-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 10px 18px; }
+    .nav-group + .nav-group { margin-top: 18px; }
+    .nav-label {
+      min-height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 8px;
+      margin-bottom: 5px;
+      color: #7f8a9c;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+    .nav-label button {
+      width: 22px;
+      height: 22px;
+      display: grid;
+      place-items: center;
+      padding: 0;
+      border: 0;
+      border-radius: 5px;
+      color: #8e99aa;
+      background: transparent;
+    }
+    .nav-label button:hover { color: #fff; background: rgba(255,255,255,.08); }
+    .nav-item {
+      width: 100%;
+      min-height: 38px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 7px 9px;
+      border: 0;
+      border-radius: 7px;
+      color: #aeb7c6;
+      background: transparent;
+      text-align: left;
+    }
+    .nav-item:hover { color: #fff; background: rgba(255,255,255,.055); }
+    .nav-item.active { color: #fff; background: rgba(255,255,255,.09); }
+    .nav-item.active .i { color: #91b0ff; }
+    .nav-item span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .nav-badge {
+      flex: none;
+      min-width: 20px;
+      height: 18px;
+      display: grid;
+      place-items: center;
+      padding: 0 5px;
+      border-radius: 999px;
+      color: #dce5f8;
+      background: rgba(255,255,255,.1);
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .wb-nav-list { display: grid; gap: 3px; }
+    .wb-nav-item {
+      width: 100%;
+      min-height: 42px;
+      display: grid;
+      grid-template-columns: 27px minmax(0,1fr) auto;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 7px;
+      border: 0;
+      border-radius: 7px;
+      color: #aeb7c6;
+      background: transparent;
+      text-align: left;
+    }
+    .wb-nav-item:hover { color: #fff; background: rgba(255,255,255,.055); }
+    .wb-nav-item.active { color: #fff; background: rgba(255,255,255,.09); box-shadow: inset 2px 0 0 var(--primary); }
+    .wb-nav-icon {
+      width: 27px;
+      height: 27px;
+      display: grid;
+      place-items: center;
+      border-radius: 7px;
+      color: #fff;
+      background: var(--wb-color, var(--primary));
+    }
+    .wb-nav-copy { min-width: 0; }
+    .wb-nav-copy strong {
+      display: block;
+      overflow: hidden;
+      color: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .wb-nav-copy small {
+      display: block;
+      margin-top: 1px;
+      overflow: hidden;
+      color: #7e899b;
+      font-size: 10px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .wb-nav-item.active .wb-nav-copy small { color: #aeb7c6; }
+    .favorite-star { color: #e7b052; }
+    .sidebar-market {
+      margin-top: 8px;
+      padding: 12px;
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 8px;
+      background: rgba(255,255,255,.035);
+    }
+    .sidebar-market-head { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 650; }
+    .sidebar-market p { margin: 7px 0 10px; color: #8e99aa; font-size: 10.5px; line-height: 1.55; }
+    .sidebar-market button {
+      min-height: 28px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 9px;
+      border: 1px solid rgba(255,255,255,.13);
+      border-radius: 6px;
+      color: #e5eaf3;
+      background: rgba(255,255,255,.06);
+      font-size: 11px;
+    }
+    .sidebar-market button:hover { background: rgba(255,255,255,.1); }
+    .account {
+      flex: none;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 12px 14px;
+      border-top: 1px solid rgba(255,255,255,.07);
+    }
+    .avatar {
+      width: 29px;
+      height: 29px;
+      flex: none;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      color: #533c12;
+      background: #e7c680;
+      font-size: 10px;
+      font-weight: 800;
+    }
+    .account-copy { min-width: 0; flex: 1; }
+    .account-copy strong { display: block; font-size: 11.5px; }
+    .account-copy small { display: block; margin-top: 1px; color: #7f8a9c; font-size: 10px; }
+
+    .main { min-width: 0; min-height: 100vh; transition: margin-right .18s ease; }
+    .editing .main { margin-right: 350px; }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 15;
+      min-height: 64px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 9px 24px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255,255,255,.92);
+      backdrop-filter: blur(14px) saturate(1.25);
+      -webkit-backdrop-filter: blur(14px) saturate(1.25);
+    }
+    .mobile-menu { display: none; }
+    .switcher-anchor { position: relative; min-width: 0; }
+    .workbench-trigger {
+      max-width: min(430px, 42vw);
+      min-height: 44px;
+      display: grid;
+      grid-template-columns: 31px minmax(0,1fr) 16px;
+      align-items: center;
+      gap: 9px;
+      padding: 5px 8px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: transparent;
+      text-align: left;
+    }
+    .workbench-trigger:hover, .workbench-trigger[aria-expanded="true"] {
+      border-color: var(--line);
+      background: var(--surface-soft);
+    }
+    .workbench-trigger-icon {
+      width: 31px;
+      height: 31px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      color: #fff;
+      background: var(--wb-color, var(--primary));
+    }
+    .workbench-trigger-copy { min-width: 0; }
+    .workbench-trigger-copy strong {
+      display: block;
+      overflow: hidden;
+      font-size: 13px;
+      font-weight: 700;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .workbench-trigger-copy small {
+      display: block;
+      margin-top: 1px;
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 10.5px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .trigger-chevron { color: var(--faint); transition: transform .16s ease; }
+    .workbench-trigger[aria-expanded="true"] .trigger-chevron { transform: rotate(180deg); }
+    .top-status {
+      flex: none;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .status-dot { width: 6px; height: 6px; border-radius: 50%; background: #2f9e6e; box-shadow: 0 0 0 3px #e6f5ed; }
+    .top-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+    .btn {
+      min-height: 34px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 6px 12px;
+      border: 1px solid var(--line-strong);
+      border-radius: 7px;
+      color: var(--text);
+      background: var(--surface);
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .btn:hover:not(:disabled) { border-color: #b9c2cf; background: var(--surface-soft); }
+    .btn.primary {
+      border-color: var(--primary);
+      color: #fff;
+      background: var(--primary);
+      box-shadow: 0 1px 2px rgba(38, 72, 166, .2);
+    }
+    .btn.primary:hover:not(:disabled) { border-color: var(--primary-strong); background: var(--primary-strong); }
+    .btn.soft { border-color: transparent; color: var(--primary); background: var(--primary-soft); }
+    .btn.danger { border-color: #f0c2bd; color: #b53c30; background: #fff8f7; }
+    .btn.small { min-height: 29px; padding: 4px 9px; font-size: 11px; }
+    .icon-btn {
+      width: 34px;
+      height: 34px;
+      flex: none;
+      display: inline-grid;
+      place-items: center;
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      color: var(--muted);
+      background: var(--surface);
+    }
+    .icon-btn:hover { color: var(--text); border-color: var(--line-strong); background: var(--surface-soft); }
+    .icon-btn.plain { border-color: transparent; background: transparent; }
+
+    .page {
+      width: 100%;
+      max-width: 1540px;
+      margin: 0 auto;
+      padding: 25px 28px 42px;
+    }
+    .page-head {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 20px;
+    }
+    .page-head-copy { min-width: 0; }
+    .eyebrow {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin: 0 0 5px;
+      color: var(--muted);
+      font-size: 10.5px;
+      font-weight: 650;
+    }
+    .eyebrow .live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--teal); }
+    .page-head h1 {
+      margin: 0;
+      font-size: 24px;
+      line-height: 1.2;
+      font-weight: 720;
+      letter-spacing: 0;
+    }
+    .page-head p {
+      max-width: 760px;
+      margin: 7px 0 0;
+      color: var(--muted);
+      font-size: 12.5px;
+      line-height: 1.65;
+    }
+    .page-meta { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-top: 10px; }
+    .meta-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      min-height: 24px;
+      padding: 2px 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: rgba(255,255,255,.72);
+      font-size: 10.5px;
+    }
+    .page-actions { flex: none; display: flex; align-items: center; gap: 8px; }
+
+    .edit-banner {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      margin: -5px 0 14px;
+      padding: 9px 11px;
+      border: 1px solid #cdd9ff;
+      border-radius: 8px;
+      color: #29489d;
+      background: #f1f5ff;
+      font-size: 11.5px;
+    }
+    .editing .edit-banner { display: flex; }
+    .edit-banner strong { font-weight: 700; }
+    .edit-banner .edit-banner-copy { min-width: 0; flex: 1; }
+    .edit-banner .edit-banner-copy span { color: #5d70a6; }
+    .edit-banner-actions { display: flex; gap: 6px; }
+
+    .workbench-grid {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 14px;
+      align-items: start;
+    }
+    .panel-card {
+      position: relative;
+      grid-column: span var(--span, 3);
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: 0 1px 0 rgba(30, 41, 59, .02);
+      transition: border-color .15s ease, box-shadow .15s ease, opacity .15s ease;
+    }
+    .panel-card:hover { border-color: var(--line-strong); }
+    .editing .panel-card {
+      border-style: dashed;
+      border-color: #b9c8f2;
+      cursor: default;
+    }
+    .editing .panel-card:hover, .editing .panel-card.selected {
+      border-style: solid;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(63, 110, 243, .08);
+    }
+    .panel-card.dragging { opacity: .45; }
+    .panel-card.drop-before::before {
+      content: "";
+      position: absolute;
+      z-index: 4;
+      top: 0;
+      bottom: 0;
+      left: -8px;
+      width: 3px;
+      border-radius: 999px;
+      background: var(--primary);
+    }
+    .panel-head {
+      min-height: 46px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 9px 12px;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface);
+    }
+    .editing .panel-head { user-select: none; }
+    .drag-handle {
+      display: none;
+      width: 19px;
+      height: 24px;
+      flex: none;
+      place-items: center;
+      margin-left: -4px;
+      border-radius: 5px;
+      color: #98a3b5;
+      cursor: grab;
+    }
+    .editing .drag-handle { display: grid; }
+    .drag-handle:active { cursor: grabbing; }
+    .panel-title-wrap { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
+    .plugin-icon {
+      width: 25px;
+      height: 25px;
+      flex: none;
+      display: grid;
+      place-items: center;
+      border-radius: 7px;
+      color: var(--plugin-color, var(--primary));
+      background: var(--plugin-bg, var(--primary-soft));
+    }
+    .plugin-icon .i { width: 14px; height: 14px; }
+    .panel-title-copy { min-width: 0; }
+    .panel-title-copy strong {
+      display: block;
+      overflow: hidden;
+      font-size: 12.5px;
+      line-height: 1.3;
+      font-weight: 700;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .panel-title-copy small {
+      display: block;
+      margin-top: 1px;
+      color: var(--faint);
+      font-size: 9.5px;
+    }
+    .panel-tools { flex: none; display: flex; align-items: center; gap: 3px; }
+    .panel-tool {
+      width: 27px;
+      height: 27px;
+      display: grid;
+      place-items: center;
+      padding: 0;
+      border: 0;
+      border-radius: 6px;
+      color: var(--faint);
+      background: transparent;
+    }
+    .panel-tool:hover { color: var(--text); background: var(--surface-soft); }
+    .panel-body { min-height: 100px; padding: 12px; }
+    .panel-card[data-plugin="brief"] .panel-body { padding: 0; }
+
+    .brief-layout { display: grid; grid-template-columns: minmax(0,1.18fr) minmax(240px,.82fr); }
+    .brief-highlight {
+      min-width: 0;
+      padding: 16px;
+      background: #f1f5ff;
+      border-right: 1px solid #dce5fa;
+    }
+    .brief-kicker { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; }
+    .ai-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      color: var(--violet);
+      background: var(--violet-soft);
+      font-size: 9.5px;
+      font-weight: 700;
+    }
+    .brief-time { color: #7280a1; font-size: 10px; }
+    .brief-highlight h3 { margin: 0; font-size: 15px; line-height: 1.45; font-weight: 720; }
+    .brief-highlight > p { margin: 7px 0 12px; color: #55627c; font-size: 11.5px; line-height: 1.65; }
+    .insight-list { display: grid; gap: 6px; }
+    .insight-row {
+      display: grid;
+      grid-template-columns: 50px minmax(0,1fr) 18px;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 9px;
+      border: 1px solid rgba(112, 135, 188, .19);
+      border-radius: 7px;
+      color: #35445f;
+      background: rgba(255,255,255,.7);
+      text-align: left;
+    }
+    .insight-row:hover { border-color: #9cb0e0; background: #fff; }
+    .tag {
+      width: fit-content;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 20px;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 9.5px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .tag.red { color: #b94337; background: var(--coral-soft); }
+    .tag.amber { color: #9b6417; background: var(--amber-soft); }
+    .tag.green { color: #1c7747; background: var(--green-soft); }
+    .tag.blue { color: #2d57c0; background: var(--primary-soft); }
+    .tag.violet { color: #654cb8; background: var(--violet-soft); }
+    .insight-copy { min-width: 0; font-size: 11px; line-height: 1.5; }
+    .insight-copy b { display: block; color: #2c3850; font-size: 11.5px; }
+    .insight-copy span { color: #71809b; }
+    .brief-side { min-width: 0; padding: 14px 15px; }
+    .side-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 9px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .02em;
+    }
+    .decision-card {
+      display: grid;
+      gap: 7px;
+      padding: 10px;
+      border: 1px solid #f0d5af;
+      border-radius: 7px;
+      background: #fffaf1;
+    }
+    .decision-card strong { font-size: 11.5px; line-height: 1.5; }
+    .decision-card p { margin: 0; color: #76644b; font-size: 10.5px; line-height: 1.5; }
+    .decision-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .mini-btn {
+      min-height: 25px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 7px;
+      border: 1px solid var(--line-strong);
+      border-radius: 5px;
+      color: var(--text);
+      background: #fff;
+      font-size: 10.5px;
+    }
+    .mini-btn:hover { border-color: #b8c1cd; background: var(--surface-soft); }
+    .mini-btn.primary { border-color: #e6b96e; color: #8b5c10; background: #f9dfae; }
+    .brief-source { display: flex; align-items: center; gap: 5px; margin-top: 9px; color: var(--faint); font-size: 9.5px; }
+
+    .list-stack { display: grid; gap: 7px; }
+    .task-row {
+      display: grid;
+      grid-template-columns: 18px minmax(0,1fr) auto;
+      align-items: start;
+      gap: 8px;
+      padding: 8px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--surface-soft);
+    }
+    .task-check {
+      width: 16px;
+      height: 16px;
+      display: grid;
+      place-items: center;
+      margin-top: 1px;
+      padding: 0;
+      border: 1px solid #b7c0ce;
+      border-radius: 4px;
+      color: transparent;
+      background: #fff;
+    }
+    .task-check:hover { border-color: var(--primary); color: #b5c3ed; }
+    .task-row.done .task-check { border-color: var(--green); color: #fff; background: var(--green); }
+    .task-row.done .task-copy strong { color: var(--muted); text-decoration: line-through; }
+    .task-copy { min-width: 0; }
+    .task-copy strong { display: block; font-size: 11.5px; line-height: 1.5; }
+    .task-meta { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-top: 3px; color: var(--faint); font-size: 9.5px; }
+    .dot-sep { width: 2px; height: 2px; border-radius: 50%; background: #c2c8d1; }
+    .priority { flex: none; margin-top: 1px; color: #a8493e; font-size: 9.5px; font-weight: 750; }
+    .panel-footer-link {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 8px;
+      padding: 7px 2px 0;
+      border: 0;
+      color: var(--primary);
+      background: transparent;
+      font-size: 10.5px;
+      font-weight: 650;
+    }
+    .panel-footer-link:hover { color: var(--primary-strong); }
+
+    .metric-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 7px; }
+    .metric-tile { min-width: 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-soft); }
+    .metric-label { display: flex; align-items: center; justify-content: space-between; gap: 5px; color: var(--muted); font-size: 9.5px; }
+    .trend { font-size: 9px; font-weight: 700; }
+    .trend.up { color: var(--green); }
+    .trend.down { color: var(--coral); }
+    .metric-value { margin-top: 5px; font-size: 20px; line-height: 1.1; font-weight: 730; }
+    .metric-value small { margin-left: 2px; color: var(--muted); font-size: 9.5px; font-weight: 500; }
+    .metric-track { height: 4px; margin-top: 8px; overflow: hidden; border-radius: 999px; background: #e6eaf0; }
+    .metric-track span { display: block; height: 100%; border-radius: inherit; background: var(--primary); }
+    .metric-track span.warn { background: var(--amber); }
+    .metric-track span.good { background: var(--teal); }
+
+    .flow-list { display: grid; gap: 4px; }
+    .flow-row {
+      display: grid;
+      grid-template-columns: 8px minmax(0,1fr) auto;
+      align-items: center;
+      gap: 9px;
+      padding: 8px;
+      border-radius: 6px;
+    }
+    .flow-row:hover { background: var(--surface-soft); }
+    .flow-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+    .flow-dot.amber { background: var(--amber); }
+    .flow-dot.blue { background: var(--primary); }
+    .flow-dot.red { background: var(--coral); }
+    .flow-copy { min-width: 0; }
+    .flow-copy strong { display: block; overflow: hidden; font-size: 11px; line-height: 1.5; text-overflow: ellipsis; white-space: nowrap; }
+    .flow-copy small { display: block; margin-top: 2px; color: var(--faint); font-size: 9.5px; }
+    .flow-state { color: var(--muted); font-size: 9.5px; white-space: nowrap; }
+    .flow-progress { grid-column: 2 / 4; height: 3px; margin-top: 2px; overflow: hidden; border-radius: 999px; background: #edf0f4; }
+    .flow-progress span { display: block; height: 100%; border-radius: inherit; background: var(--primary); }
+
+    .meeting-summary { padding: 11px; border: 1px solid var(--line); border-radius: 7px; background: linear-gradient(180deg, #f8f9fc, #fff); }
+    .meeting-summary h4 { margin: 0 0 7px; font-size: 11.5px; }
+    .meeting-summary p { margin: 0; color: var(--muted); font-size: 10.5px; line-height: 1.6; }
+    .decision-list { display: grid; gap: 6px; margin-top: 9px; }
+    .decision-line { display: grid; grid-template-columns: 40px minmax(0,1fr); gap: 7px; align-items: start; color: var(--muted); font-size: 10.5px; line-height: 1.5; }
+    .decision-line b { font-size: 9.5px; }
+
+    .risk-table { display: grid; gap: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 7px; }
+    .risk-row {
+      display: grid;
+      grid-template-columns: minmax(0,1.5fr) 70px 82px 56px;
+      align-items: center;
+      gap: 8px;
+      min-height: 37px;
+      padding: 7px 9px;
+      border-bottom: 1px solid var(--line);
+      font-size: 10.5px;
+    }
+    .risk-row:last-child { border-bottom: 0; }
+    .risk-row > span:first-child { min-width: 0; }
+    .risk-row strong { display: block; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+    .risk-row small { display: block; margin-top: 1px; color: var(--faint); font-size: 9.5px; }
+    .risk-score { display: flex; align-items: center; gap: 5px; color: var(--muted); }
+    .score-bar { width: 34px; height: 4px; overflow: hidden; border-radius: 999px; background: #e8ebf0; }
+    .score-bar i { display: block; height: 100%; border-radius: inherit; background: var(--amber); }
+    .score-bar i.high { background: var(--coral); }
+    .owner { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 9.5px; }
+    .owner-avatar { width: 17px; height: 17px; display: grid; place-items: center; border-radius: 50%; color: #33405a; background: #e7ebf2; font-size: 7.5px; font-weight: 750; }
+
+    .load-list { display: grid; gap: 10px; }
+    .load-person { display: grid; grid-template-columns: 27px minmax(0,1fr) 34px; align-items: center; gap: 8px; }
+    .person-avatar { width: 27px; height: 27px; display: grid; place-items: center; border-radius: 50%; color: #314362; background: #e4e9f1; font-size: 8px; font-weight: 750; }
+    .person-avatar.ai { color: #5c49aa; background: var(--violet-soft); }
+    .load-copy { min-width: 0; }
+    .load-copy strong { display: block; font-size: 10.5px; }
+    .load-track { height: 4px; margin-top: 5px; overflow: hidden; border-radius: 999px; background: #edf0f4; }
+    .load-track span { display: block; height: 100%; border-radius: inherit; background: var(--teal); }
+    .load-track span.warn { background: var(--amber); }
+    .load-value { color: var(--muted); font-size: 9.5px; text-align: right; }
+
+    .schedule-list { display: grid; gap: 5px; }
+    .schedule-row {
+      display: grid;
+      grid-template-columns: 43px minmax(0,1fr) 42px;
+      align-items: center;
+      gap: 8px;
+      padding: 8px;
+      border-bottom: 1px solid var(--line);
+      font-size: 10.5px;
+    }
+    .schedule-row:last-child { border-bottom: 0; }
+    .schedule-time { color: var(--muted); font-size: 9.5px; }
+    .schedule-copy strong { display: block; font-size: 10.5px; }
+    .schedule-copy small { display: block; margin-top: 1px; color: var(--faint); font-size: 9px; }
+
+    .signal-list { display: grid; gap: 7px; }
+    .signal {
+      padding: 9px 10px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--surface-soft);
+    }
+    .signal-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .signal-head strong { font-size: 10.5px; }
+    .signal p { margin: 5px 0 0; color: var(--muted); font-size: 9.5px; line-height: 1.55; }
+
+    .empty-workbench {
+      display: none;
+      min-height: 420px;
+      place-items: center;
+      padding: 32px;
+      border: 1px dashed var(--line-strong);
+      border-radius: 8px;
+      background: rgba(255,255,255,.58);
+      text-align: center;
+    }
+    .empty-workbench.visible { display: grid; }
+    .empty-inner { max-width: 420px; }
+    .empty-icon {
+      width: 48px;
+      height: 48px;
+      display: grid;
+      place-items: center;
+      margin: 0 auto 12px;
+      border-radius: 12px;
+      color: var(--primary);
+      background: var(--primary-soft);
+    }
+    .empty-inner h2 { margin: 0; font-size: 17px; }
+    .empty-inner p { margin: 7px 0 16px; color: var(--muted); font-size: 12px; line-height: 1.65; }
+    .empty-actions { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
+
+    .popover {
+      position: absolute;
+      z-index: 35;
+      top: calc(100% + 7px);
+      left: 0;
+      width: min(390px, calc(100vw - 32px));
+      overflow: hidden;
+      border: 1px solid var(--line-strong);
+      border-radius: 9px;
+      background: var(--surface);
+      box-shadow: var(--shadow-2);
+    }
+    .popover[hidden] { display: none; }
+    .popover-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px 6px; }
+    .popover-head strong { font-size: 11px; }
+    .popover-head span { color: var(--faint); font-size: 9.5px; }
+    .switcher-list { max-height: min(54vh, 430px); overflow: auto; padding: 4px 7px 7px; }
+    .switch-row {
+      width: 100%;
+      min-height: 48px;
+      display: grid;
+      grid-template-columns: 29px minmax(0,1fr) auto;
+      align-items: center;
+      gap: 9px;
+      padding: 6px 7px;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      text-align: left;
+    }
+    .switch-row:hover { background: var(--surface-soft); }
+    .switch-row.active { background: var(--primary-soft); }
+    .switch-row-icon { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 7px; color: #fff; background: var(--wb-color, var(--primary)); }
+    .switch-row-copy { min-width: 0; }
+    .switch-row-copy strong { display: block; overflow: hidden; font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+    .switch-row-copy small { display: block; margin-top: 1px; color: var(--faint); font-size: 9.5px; }
+    .switch-check { color: var(--primary); }
+    .popover-group-label { padding: 7px 8px 3px; color: var(--faint); font-size: 9.5px; font-weight: 650; }
+    .popover-foot { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--line); background: var(--surface-soft); }
+    .popover-foot .btn { flex: 1; min-height: 30px; padding: 3px 8px; font-size: 10.5px; }
+
+    .editor-drawer {
+      position: fixed;
+      z-index: 36;
+      top: 64px;
+      right: 0;
+      bottom: 0;
+      width: 350px;
+      display: none;
+      flex-direction: column;
+      border-left: 1px solid var(--line-strong);
+      background: var(--surface);
+      box-shadow: -16px 0 42px rgba(23, 32, 48, .12);
+    }
+    .editing .editor-drawer { display: flex; }
+    .editor-head { flex: none; padding: 15px 15px 10px; border-bottom: 1px solid var(--line); }
+    .editor-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+    .editor-head h2 { margin: 0; font-size: 15px; }
+    .editor-head p { margin: 4px 0 0; color: var(--muted); font-size: 10.5px; line-height: 1.5; }
+    .editor-tabs { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; margin-top: 12px; padding: 3px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-soft); }
+    .editor-tab { min-height: 29px; padding: 3px 8px; border: 0; border-radius: 5px; color: var(--muted); background: transparent; font-size: 10.5px; font-weight: 650; }
+    .editor-tab.active { color: var(--text); background: var(--surface); box-shadow: 0 1px 3px rgba(20,29,45,.09); }
+    .editor-content { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px 18px; }
+    .search-field { position: relative; }
+    .search-field .i { position: absolute; left: 9px; top: 50%; width: 13px; height: 13px; transform: translateY(-50%); color: var(--faint); pointer-events: none; }
+    .search-field input {
+      width: 100%;
+      min-height: 33px;
+      padding: 6px 9px 6px 30px;
+      border: 1px solid var(--line-strong);
+      border-radius: 7px;
+      background: var(--surface);
+      font-size: 11px;
+    }
+    .category-row { display: flex; gap: 5px; overflow-x: auto; padding: 8px 0 2px; }
+    .category-chip {
+      flex: none;
+      min-height: 25px;
+      padding: 2px 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: var(--surface);
+      font-size: 9.5px;
+    }
+    .category-chip:hover, .category-chip.active { border-color: #b9c7ea; color: var(--primary); background: var(--primary-soft); }
+    .plugin-list { display: grid; gap: 7px; margin-top: 10px; }
+    .plugin-row {
+      display: grid;
+      grid-template-columns: 31px minmax(0,1fr) auto;
+      align-items: center;
+      gap: 9px;
+      padding: 9px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--surface);
+    }
+    .plugin-row:hover { border-color: var(--line-strong); background: var(--surface-soft); }
+    .plugin-row-copy { min-width: 0; }
+    .plugin-row-copy strong { display: block; font-size: 10.5px; }
+    .plugin-row-copy small { display: block; margin-top: 2px; color: var(--faint); font-size: 9px; line-height: 1.4; }
+    .plugin-add {
+      min-height: 25px;
+      padding: 2px 7px;
+      border: 1px solid #bdcbf0;
+      border-radius: 5px;
+      color: var(--primary);
+      background: var(--primary-soft);
+      font-size: 9.5px;
+      font-weight: 650;
+    }
+    .plugin-add:hover { border-color: var(--primary); }
+    .plugin-add.added { border-color: transparent; color: var(--faint); background: var(--surface-soft); }
+    .settings-empty { display: grid; gap: 8px; place-items: center; min-height: 280px; color: var(--faint); text-align: center; }
+    .settings-empty .i { width: 22px; height: 22px; }
+    .settings-empty p { max-width: 220px; margin: 0; font-size: 10.5px; line-height: 1.55; }
+    .settings-card { padding: 11px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-soft); }
+    .settings-card + .settings-card { margin-top: 9px; }
+    .settings-card h3 { margin: 0 0 9px; font-size: 11px; }
+    .field { display: grid; gap: 4px; }
+    .field + .field { margin-top: 10px; }
+    .field > label, .field-label { color: var(--muted); font-size: 9.5px; font-weight: 600; }
+    .input, .select, .textarea {
+      width: 100%;
+      min-height: 33px;
+      padding: 6px 9px;
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      color: var(--text);
+      background: var(--surface);
+      font-size: 11px;
+      outline: none;
+    }
+    .input:focus, .select:focus, .textarea:focus { border-color: #91a9e9; box-shadow: 0 0 0 3px rgba(63,110,243,.08); }
+    .textarea { min-height: 72px; resize: vertical; }
+    .width-options { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
+    .width-option { min-height: 28px; padding: 2px; border: 1px solid var(--line); border-radius: 5px; color: var(--muted); background: var(--surface); font-size: 9.5px; }
+    .width-option.active { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+    .danger-link { padding: 3px 0; border: 0; color: var(--coral); background: transparent; font-size: 9.5px; text-align: left; }
+    .editor-foot { flex: none; padding: 10px 14px; border-top: 1px solid var(--line); background: var(--surface-soft); }
+    .editor-foot .btn { width: 100%; }
+
+    .overlay {
+      position: fixed;
+      z-index: 50;
+      inset: 0;
+      background: var(--bg);
+    }
+    .overlay[hidden] { display: none; }
+    .market-overlay { display: flex; flex-direction: column; }
+    .market-top {
+      flex: none;
+      min-height: 66px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 22px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255,255,255,.96);
+    }
+    .market-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .market-brand-mark { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; color: #fff; background: var(--primary); }
+    .market-brand-copy { min-width: 0; }
+    .market-brand-copy strong { display: block; font-size: 13px; }
+    .market-brand-copy small { display: block; margin-top: 1px; color: var(--muted); font-size: 10px; }
+    .market-search { width: min(460px, 36vw); margin-left: 20px; }
+    .market-search .search-field input { min-height: 36px; background: var(--surface-soft); }
+    .market-top-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+    .market-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 192px minmax(0,1fr); overflow: hidden; }
+    .market-nav {
+      min-height: 0;
+      padding: 16px 10px;
+      overflow-y: auto;
+      border-right: 1px solid var(--line);
+      background: #f8f9fb;
+    }
+    .market-nav-label { padding: 0 8px 6px; color: var(--faint); font-size: 9.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+    .market-nav button {
+      width: 100%;
+      min-height: 34px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 8px;
+      border: 0;
+      border-radius: 6px;
+      color: var(--muted);
+      background: transparent;
+      font-size: 11px;
+      text-align: left;
+    }
+    .market-nav button:hover { color: var(--text); background: #eef1f5; }
+    .market-nav button.active { color: var(--primary); background: var(--primary-soft); font-weight: 650; }
+    .market-nav button .nav-count { margin-left: auto; color: var(--faint); font-size: 9px; }
+    .market-nav-divider { height: 1px; margin: 12px 7px; background: var(--line); }
+    .market-main { min-width: 0; overflow-y: auto; padding: 22px 24px 38px; }
+    .market-main-inner { max-width: 1280px; margin: 0 auto; }
+    .market-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+    .market-heading h1 { margin: 0; font-size: 22px; line-height: 1.25; }
+    .market-heading p { margin: 5px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.55; }
+    .market-tabs { display: inline-flex; padding: 3px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); }
+    .market-tab { min-height: 29px; padding: 3px 12px; border: 0; border-radius: 5px; color: var(--muted); background: transparent; font-size: 10.5px; font-weight: 650; }
+    .market-tab.active { color: var(--text); background: var(--surface-soft); box-shadow: 0 1px 3px rgba(20,29,45,.08); }
+    .market-feature {
+      display: grid;
+      grid-template-columns: minmax(0,1.35fr) minmax(280px,.65fr);
+      gap: 0;
+      overflow: hidden;
+      margin-bottom: 20px;
+      border: 1px solid #d6def0;
+      border-radius: 8px;
+      background: #f2f6ff;
+    }
+    .feature-copy { padding: 18px 20px; align-self: center; }
+    .feature-kicker { display: flex; align-items: center; gap: 6px; color: var(--primary); font-size: 9.5px; font-weight: 750; }
+    .feature-copy h2 { max-width: 620px; margin: 7px 0 6px; font-size: 18px; line-height: 1.4; }
+    .feature-copy p { max-width: 620px; margin: 0; color: #5d6c87; font-size: 11px; line-height: 1.65; }
+    .feature-actions { display: flex; gap: 7px; margin-top: 13px; }
+    .feature-preview { min-height: 150px; padding: 14px; border-left: 1px solid #d6def0; background: #e9f0ff; }
+    .market-filter-row { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin: 0 0 14px; }
+    .market-filter-row .category-chip { min-height: 27px; }
+    .market-filter-row .result-count { margin-left: auto; color: var(--faint); font-size: 10px; }
+    .market-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .market-card {
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+    }
+    .market-card:hover { border-color: #b8c4db; box-shadow: var(--shadow-1); transform: translateY(-1px); }
+    .market-card-button {
+      width: 100%;
+      display: block;
+      padding: 0;
+      border: 0;
+      color: inherit;
+      background: transparent;
+      text-align: left;
+    }
+    .template-preview {
+      height: 138px;
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      grid-auto-rows: 8px;
+      gap: 4px;
+      padding: 14px;
+      overflow: hidden;
+      border-bottom: 1px solid rgba(31, 43, 64, .08);
+    }
+    .preview-supply { background: #e4ecfb; }
+    .preview-review { background: #e8f3ed; }
+    .preview-radar { background: #f1ecfb; }
+    .preview-launch { background: #fcefe9; }
+    .preview-people { background: #e9f3f4; }
+    .preview-exec { background: #edf0f5; }
+    .mini-block {
+      min-width: 0;
+      grid-column: span var(--mspan, 4);
+      display: grid;
+      align-content: start;
+      gap: 3px;
+      padding: 5px;
+      border: 1px solid rgba(48, 67, 97, .1);
+      border-radius: 4px;
+      background: rgba(255,255,255,.86);
+      box-shadow: 0 1px 2px rgba(31,43,64,.04);
+    }
+    .mini-block i { display: block; width: 55%; height: 3px; border-radius: 2px; background: rgba(48, 67, 97, .18); }
+    .mini-block b { display: block; width: 84%; height: 2px; border-radius: 2px; background: rgba(48, 67, 97, .1); }
+    .mini-block em { display: block; width: 38%; height: 11px; margin-top: 1px; border-radius: 2px; background: rgba(63,110,243,.15); }
+    .mini-block.accent { background: #fff; border-color: rgba(63,110,243,.28); }
+    .mini-block.accent em { background: rgba(63,110,243,.32); }
+    .mini-block.warn em { background: rgba(185,115,22,.24); }
+    .mini-block.coral em { background: rgba(217,87,73,.22); }
+    .market-card-content { padding: 12px 13px 13px; }
+    .market-card-title-row { display: flex; align-items: flex-start; gap: 9px; }
+    .market-card-title-row .plugin-icon { width: 28px; height: 28px; }
+    .market-card-title { min-width: 0; flex: 1; }
+    .market-card-title h3 { margin: 0; overflow: hidden; font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
+    .market-card-title p {
+      display: -webkit-box;
+      margin: 4px 0 0;
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.5;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+    }
+    .verified { flex: none; color: var(--primary); }
+    .market-card-meta {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+      padding-top: 9px;
+      border-top: 1px solid var(--line);
+      color: var(--faint);
+      font-size: 9.5px;
+    }
+    .market-card-meta .author { color: var(--muted); }
+    .market-card-meta .spacer { flex: 1; }
+    .metric-inline { display: inline-flex; align-items: center; gap: 4px; }
+    .plugin-market-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; }
+    .plugin-market-card {
+      display: grid;
+      grid-template-columns: 38px minmax(0,1fr) auto;
+      align-items: center;
+      gap: 11px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+    .plugin-market-card:hover { border-color: var(--line-strong); }
+    .plugin-market-card .plugin-icon { width: 38px; height: 38px; border-radius: 9px; }
+    .plugin-market-card .plugin-icon .i { width: 18px; height: 18px; }
+    .plugin-market-copy { min-width: 0; }
+    .plugin-market-copy h3 { margin: 0; font-size: 12px; }
+    .plugin-market-copy p { margin: 3px 0 0; overflow: hidden; color: var(--muted); font-size: 9.5px; line-height: 1.5; text-overflow: ellipsis; white-space: nowrap; }
+    .plugin-market-meta { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 5px; color: var(--faint); font-size: 9px; }
+    .plugin-market-actions { display: flex; align-items: center; gap: 4px; }
+    .market-empty {
+      display: grid;
+      place-items: center;
+      min-height: 300px;
+      border: 1px dashed var(--line-strong);
+      border-radius: 8px;
+      color: var(--muted);
+      background: rgba(255,255,255,.58);
+      text-align: center;
+    }
+    .market-empty strong { display: block; margin-top: 9px; color: var(--text); font-size: 13px; }
+    .market-empty p { margin: 5px 0 0; font-size: 10.5px; }
+    .market-detail {
+      position: fixed;
+      z-index: 53;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: min(430px, 100vw);
+      display: flex;
+      flex-direction: column;
+      border-left: 1px solid var(--line-strong);
+      background: var(--surface);
+      box-shadow: -18px 0 46px rgba(20,29,45,.17);
+      animation: slideIn .18s ease-out;
+    }
+    .market-detail[hidden] { display: none; }
+    @keyframes slideIn { from { transform: translateX(22px); opacity: .5; } to { transform: none; opacity: 1; } }
+    .detail-head { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+    .detail-head strong { font-size: 12px; }
+    .detail-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; }
+    .detail-preview { margin: -2px -2px 16px; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; }
+    .detail-preview .template-preview { height: 168px; border-bottom: 0; }
+    .detail-title-row { display: flex; align-items: flex-start; gap: 10px; }
+    .detail-title-row .plugin-icon { width: 36px; height: 36px; border-radius: 9px; }
+    .detail-title-copy { min-width: 0; flex: 1; }
+    .detail-title-copy h2 { margin: 0; font-size: 17px; line-height: 1.35; }
+    .detail-title-copy p { margin: 4px 0 0; color: var(--muted); font-size: 10.5px; }
+    .detail-description { margin: 13px 0 0; color: #566274; font-size: 11px; line-height: 1.68; }
+    .detail-section { margin-top: 16px; }
+    .detail-section h3 { margin: 0 0 8px; font-size: 10.5px; }
+    .detail-panel-list { display: grid; gap: 5px; }
+    .detail-panel-row { display: flex; align-items: center; gap: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-soft); font-size: 10.5px; }
+    .detail-panel-row span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .permission-box { display: grid; gap: 6px; padding: 10px; border: 1px solid #e9d4b1; border-radius: 7px; color: #715630; background: #fffaf1; font-size: 10px; line-height: 1.55; }
+    .permission-box strong { display: flex; align-items: center; gap: 6px; color: #825a1b; font-size: 10.5px; }
+    .detail-facts { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 7px; margin-top: 12px; }
+    .detail-fact { padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-soft); }
+    .detail-fact span { display: block; color: var(--faint); font-size: 8.5px; }
+    .detail-fact strong { display: block; margin-top: 3px; overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+    .detail-foot { flex: none; display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); background: var(--surface-soft); }
+    .detail-foot .btn { flex: 1; }
+
+    .modal-layer, .drawer-layer {
+      position: fixed;
+      z-index: 60;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      background: rgba(19, 27, 40, .46);
+      backdrop-filter: blur(3px);
+      -webkit-backdrop-filter: blur(3px);
+    }
+    .modal-layer[hidden], .drawer-layer[hidden] { display: none; }
+    .modal-card {
+      width: min(560px, 100%);
+      max-height: min(780px, calc(100vh - 40px));
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border: 1px solid var(--line-strong);
+      border-radius: 10px;
+      background: var(--surface);
+      box-shadow: var(--shadow-2);
+      animation: modalIn .16s ease-out;
+    }
+    .modal-card.wide { width: min(820px, 100%); }
+    @keyframes modalIn { from { transform: translateY(8px); opacity: .6; } to { transform: none; opacity: 1; } }
+    .modal-head { flex: none; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 16px 18px 12px; border-bottom: 1px solid var(--line); }
+    .modal-head h2 { margin: 0; font-size: 16px; }
+    .modal-head p { margin: 4px 0 0; color: var(--muted); font-size: 10.5px; line-height: 1.5; }
+    .modal-content { min-height: 0; overflow-y: auto; padding: 16px 18px 18px; }
+    .modal-foot { flex: none; display: flex; justify-content: flex-end; gap: 7px; padding: 11px 18px; border-top: 1px solid var(--line); background: var(--surface-soft); }
+    .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+    .form-grid .wide { grid-column: 1 / -1; }
+    .starter-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px; }
+    .starter-card {
+      min-height: 104px;
+      display: grid;
+      align-content: start;
+      gap: 7px;
+      padding: 11px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      color: var(--muted);
+      background: var(--surface);
+      text-align: left;
+    }
+    .starter-card:hover { border-color: #b7c5e7; background: var(--surface-soft); }
+    .starter-card.selected { border-color: var(--primary); background: var(--primary-soft); box-shadow: 0 0 0 2px rgba(63,110,243,.08); }
+    .starter-card .starter-icon { width: 27px; height: 27px; display: grid; place-items: center; border-radius: 7px; color: var(--primary); background: #fff; }
+    .starter-card strong { color: var(--text); font-size: 11px; }
+    .starter-card small { font-size: 9.5px; line-height: 1.45; }
+    .segmented { display: flex; gap: 3px; padding: 3px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-soft); }
+    .segmented button { flex: 1; min-height: 28px; padding: 3px 7px; border: 0; border-radius: 5px; color: var(--muted); background: transparent; font-size: 10px; }
+    .segmented button.active { color: var(--text); background: var(--surface); box-shadow: 0 1px 3px rgba(20,29,45,.08); }
+    .manager-list { display: grid; gap: 7px; }
+    .manager-row {
+      display: grid;
+      grid-template-columns: 31px minmax(0,1fr) auto;
+      align-items: center;
+      gap: 10px;
+      padding: 9px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+    }
+    .manager-copy { min-width: 0; }
+    .manager-copy strong { display: block; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+    .manager-copy small { display: block; margin-top: 2px; color: var(--faint); font-size: 9.5px; }
+    .manager-actions { display: flex; gap: 2px; }
+    .manager-actions .icon-btn { width: 28px; height: 28px; }
+    .confirm-copy { color: var(--muted); font-size: 12px; line-height: 1.7; }
+    .toast-stack { position: fixed; z-index: 80; right: 18px; bottom: 18px; width: min(340px, calc(100vw - 36px)); display: grid; gap: 7px; pointer-events: none; }
+    .toast {
+      display: grid;
+      grid-template-columns: 20px minmax(0,1fr);
+      gap: 9px;
+      align-items: start;
+      padding: 10px 11px;
+      border: 1px solid #cfd5df;
+      border-radius: 8px;
+      color: #283346;
+      background: rgba(255,255,255,.98);
+      box-shadow: var(--shadow-1);
+      animation: toastIn .18s ease-out;
+    }
+    @keyframes toastIn { from { transform: translateY(7px); opacity: 0; } to { transform: none; opacity: 1; } }
+    .toast-icon { width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; color: var(--green); background: var(--green-soft); }
+    .toast.error .toast-icon { color: var(--coral); background: var(--coral-soft); }
+    .toast strong { display: block; font-size: 10.5px; }
+    .toast p { margin: 2px 0 0; color: var(--muted); font-size: 9.5px; line-height: 1.45; }
+
+    .scrim { position: fixed; z-index: 25; inset: 0; background: transparent; }
+    .scrim[hidden] { display: none; }
+
+    @media (max-width: 1180px) {
+      .page { padding-left: 20px; padding-right: 20px; }
+      .market-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+      .market-feature { grid-template-columns: minmax(0,1.2fr) minmax(240px,.8fr); }
+      .brief-layout { grid-template-columns: minmax(0,1fr); }
+      .brief-highlight { border-right: 0; border-bottom: 1px solid #dce5fa; }
+      .editor-drawer { width: 330px; }
+    }
+    @media (max-width: 980px) {
+      .app { grid-template-columns: 76px minmax(0, 1fr); }
+      .sidebar { width: 76px; }
+      .brand { justify-content: center; padding: 0; }
+      .brand-copy, .nav-label > span, .nav-item span, .nav-badge, .wb-nav-copy, .favorite-star, .sidebar-market, .account-copy { display: none; }
+      .sidebar-scroll { padding: 10px 9px; }
+      .nav-label { justify-content: center; padding: 0; }
+      .nav-label button { display: none; }
+      .nav-item { justify-content: center; padding: 7px; }
+      .nav-item .i { width: 18px; height: 18px; }
+      .wb-nav-item { grid-template-columns: 1fr; justify-items: center; padding: 5px; }
+      .wb-nav-icon { width: 32px; height: 32px; }
+      .account { justify-content: center; padding: 10px; }
+      .top-status { display: none; }
+      .workbench-trigger { max-width: 45vw; }
+      .editing .editor-drawer { width: min(350px, 100vw); }
+      .market-body { grid-template-columns: 154px minmax(0,1fr); }
+      .market-search { width: min(360px, 33vw); margin-left: 8px; }
+      .market-main { padding: 18px 18px 32px; }
+      .editing .main { margin-right: 330px; }
+    }
+    @media (max-width: 760px) {
+      .app { grid-template-columns: 1fr; }
+      .sidebar {
+        position: fixed;
+        z-index: 48;
+        inset: 0 auto 0 0;
+        width: 244px;
+        transform: translateX(-102%);
+        transition: transform .2s ease;
+      }
+      body.sidebar-open .sidebar { transform: none; }
+      body.sidebar-open::after { content: ""; position: fixed; z-index: 47; inset: 0; background: rgba(17,24,36,.36); }
+      .brand { justify-content: flex-start; padding: 0 18px; }
+      .brand-copy, .nav-label > span, .nav-item span, .nav-badge, .wb-nav-copy, .favorite-star, .sidebar-market, .account-copy { display: block; }
+      .nav-label { justify-content: space-between; padding: 0 8px; }
+      .nav-label button { display: grid; }
+      .sidebar-scroll { padding: 12px 10px 18px; }
+      .nav-item { justify-content: flex-start; padding: 7px 9px; }
+      .wb-nav-item { grid-template-columns: 27px minmax(0,1fr) auto; justify-items: stretch; padding: 5px 7px; }
+      .wb-nav-icon { width: 27px; height: 27px; }
+      .account { justify-content: flex-start; padding: 12px 14px; }
+      .mobile-menu { display: inline-grid; }
+      .topbar { min-height: 58px; padding: 8px 12px; gap: 8px; }
+      .top-status { display: none; }
+      .workbench-trigger { max-width: calc(100vw - 210px); }
+      .top-actions .btn span { display: none; }
+      .top-actions .btn { width: 34px; padding: 0; }
+      .top-actions .more-btn { display: none; }
+      .page { padding: 18px 14px 32px; }
+      .page-head { align-items: flex-start; }
+      .page-head h1 { font-size: 21px; }
+      .page-head-copy p { font-size: 11.5px; }
+      .page-actions { display: none; }
+      .workbench-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+      .panel-card { grid-column: span 2 !important; }
+      .editing .editor-drawer { top: 58px; width: 100vw; }
+      .editing .main { margin-right: 0; }
+      .edit-banner { align-items: flex-start; flex-direction: column; }
+      .edit-banner-actions { width: 100%; }
+      .edit-banner-actions .btn { flex: 1; }
+      .market-top { min-height: 58px; padding: 8px 12px; flex-wrap: wrap; }
+      .market-brand-copy small { display: none; }
+      .market-search { order: 3; width: 100%; margin: 0; }
+      .market-body { display: block; overflow-y: auto; }
+      .market-nav {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        display: flex;
+        gap: 4px;
+        padding: 8px 12px;
+        overflow-x: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .market-nav-label, .market-nav-divider { display: none; }
+      .market-nav button { width: auto; flex: none; min-height: 29px; padding: 3px 8px; }
+      .market-nav button .nav-count { display: none; }
+      .market-main { overflow: visible; padding: 16px 14px 30px; }
+      .market-heading { align-items: flex-start; flex-direction: column; }
+      .market-feature { grid-template-columns: 1fr; }
+      .feature-preview { border-left: 0; border-top: 1px solid #d6def0; }
+      .market-grid { grid-template-columns: 1fr; }
+      .plugin-market-grid { grid-template-columns: 1fr; }
+      .template-preview { height: 150px; }
+      .market-detail { top: 0; width: 100vw; }
+      .modal-layer, .drawer-layer { padding: 10px; }
+      .modal-card { max-height: calc(100vh - 20px); }
+      .starter-grid { grid-template-columns: 1fr; }
+      .form-grid { grid-template-columns: 1fr; }
+      .form-grid .wide { grid-column: auto; }
+      .toast-stack { right: 12px; bottom: 12px; width: calc(100vw - 24px); }
+    }
+    @media (max-width: 480px) {
+      .workbench-trigger { grid-template-columns: 29px minmax(0,1fr) 14px; max-width: calc(100vw - 180px); padding: 4px 5px; }
+      .workbench-trigger-icon { width: 29px; height: 29px; }
+      .workbench-trigger-copy small { display: none; }
+      .top-actions { gap: 4px; }
+      .metric-grid { grid-template-columns: 1fr; }
+      .risk-row { grid-template-columns: minmax(0,1fr) 56px 64px; }
+      .risk-row > :nth-child(4) { display: none; }
+      .brief-highlight { padding: 14px 12px; }
+      .brief-side { padding: 12px; }
+      .panel-body { padding: 10px; }
+      .panel-head { padding-left: 9px; padding-right: 9px; }
+      .market-brand-copy { display: none; }
+      .market-top-actions .btn span { display: none; }
+      .market-top-actions .btn { width: 34px; padding: 0; }
+      .detail-facts { grid-template-columns: 1fr; }
+      .workbench-grid { grid-template-columns: 1fr; }
+      .panel-card { grid-column: span 1 !important; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
+    }
+
+    /* Desktop visual alignment with the existing dsh-pluginmax shell. */
+    :root {
+      color-scheme: dark;
+      --bg: #101215;
+      --surface: #181b20;
+      --surface-soft: #1e2228;
+      --surface-blue: #172033;
+      --rail: #15181d;
+      --rail-2: #1f232a;
+      --rail-text: #eef1f4;
+      --rail-muted: #8d97a5;
+      --text: #e7ebf0;
+      --muted: #9aa4b1;
+      --faint: #6e7886;
+      --line: #2a2f37;
+      --line-strong: #3a414b;
+      --primary: #4f8ef7;
+      --primary-strong: #3f7fe8;
+      --primary-soft: rgba(79, 142, 247, .14);
+      --teal: #4fc4a8;
+      --teal-soft: rgba(46, 170, 142, .14);
+      --green: #50c878;
+      --green-soft: rgba(52, 212, 126, .13);
+      --amber: #e1a94a;
+      --amber-soft: rgba(226, 167, 55, .14);
+      --coral: #f06d64;
+      --coral-soft: rgba(229, 83, 75, .15);
+      --violet: #a48bff;
+      --violet-soft: rgba(164, 139, 255, .14);
+      --shadow-1: 0 12px 28px rgba(0, 0, 0, .22);
+      --shadow-2: 0 18px 46px rgba(0, 0, 0, .38);
+    }
+    body { background: var(--bg); color: var(--text); }
+    .app { grid-template-columns: 264px minmax(0, 1fr); }
+    .sidebar {
+      background: var(--rail);
+      border-right-color: var(--line);
+    }
+    .brand {
+      height: 56px;
+      padding: 0 18px;
+      border-bottom-color: var(--line);
+    }
+    .brand-mark { background: #3d78df; box-shadow: inset 0 0 0 1px rgba(255,255,255,.12); }
+    .brand-copy strong { font-size: 13px; }
+    .brand-copy small { font-size: 9.5px; }
+    .sidebar-scroll { padding: 12px 10px 16px; }
+    .nav-label { color: #7f8998; }
+    .nav-item { min-height: 36px; color: #aab3c0; font-size: 12px; }
+    .nav-item.active {
+      color: var(--text);
+      background: rgba(79, 142, 247, .14);
+      box-shadow: inset 2px 0 0 var(--primary);
+    }
+    .nav-item.active .i { color: var(--primary); }
+    .nav-badge { color: #d7dfeb; background: rgba(255,255,255,.09); }
+    .primary-nav-current { margin-top: 0; }
+    .workbench-nav-row {
+      display: flex;
+      align-items: center;
+      min-height: 36px;
+      gap: 9px;
+      padding: 0 6px 0 0;
+    }
+    .nav-main-action {
+      min-width: 0;
+      min-height: 36px;
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 7px 9px;
+      border: 0;
+      border-radius: 6px;
+      color: inherit;
+      background: transparent;
+      font-size: 12px;
+      text-align: left;
+    }
+    .nav-main-action:hover { background: rgba(255,255,255,.04); }
+    .nav-main-action span { flex: none; }
+    .sidebar-workbench-switch {
+      min-width: 0;
+      max-width: 118px;
+      min-height: 26px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-left: auto;
+      padding: 2px 6px;
+      border: 1px solid rgba(79,142,247,.26);
+      border-radius: 6px;
+      color: #c9d8ff;
+      background: rgba(79,142,247,.12);
+      font-size: 10.5px;
+      font-weight: 600;
+    }
+    .sidebar-workbench-switch:hover { border-color: rgba(79,142,247,.5); background: rgba(79,142,247,.2); }
+    .sidebar-workbench-switch span {
+      min-width: 0;
+      flex: 0 1 auto !important;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .sidebar-workbench-switch .i { width: 12px; height: 12px; flex: none; }
+    .sidebar-workbench-switch[aria-expanded="true"] .trigger-chevron { transform: rotate(180deg); }
+    .sidebar-divider { height: 1px; margin: 14px 8px 12px; background: var(--line); }
+    .sidebar-projects { min-height: 0; }
+    .sidebar-project-head {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      min-height: 30px;
+      padding: 0 6px 4px 8px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 650;
+    }
+    .sidebar-project-head > span { flex: 1; }
+    .sidebar-project-head button,
+    .sidebar-settings {
+      width: 26px;
+      height: 26px;
+      display: grid;
+      place-items: center;
+      padding: 0;
+      border: 0;
+      border-radius: 5px;
+      color: var(--rail-muted);
+      background: transparent;
+    }
+    .sidebar-project-head button:hover,
+    .sidebar-settings:hover { color: var(--text); background: rgba(255,255,255,.06); }
+    .sidebar-project,
+    .sidebar-session {
+      width: 100%;
+      min-height: 34px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 6px 8px;
+      border: 0;
+      border-radius: 6px;
+      color: #aab3c0;
+      background: transparent;
+      font-size: 11.5px;
+      text-align: left;
+    }
+    .sidebar-project:hover,
+    .sidebar-session:hover { color: var(--text); background: rgba(255,255,255,.05); }
+    .sidebar-project.active { color: var(--text); background: rgba(255,255,255,.06); }
+    .sidebar-project span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sidebar-session { padding-left: 34px; }
+    .sidebar-session span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sidebar-session small { flex: none; color: var(--faint); font-size: 9.5px; }
+    .sidebar-settings { flex: none; }
+    .wb-nav-item { min-height: 41px; color: #aab3c0; }
+    .wb-nav-item.active {
+      color: var(--text);
+      background: var(--surface-soft);
+      box-shadow: inset 2px 0 0 var(--wb-color, var(--primary));
+    }
+    .wb-nav-copy strong { font-size: 12px; }
+    .sidebar-market {
+      border-color: var(--line);
+      background: var(--surface);
+    }
+    .sidebar-market button { border-color: var(--line-strong); background: var(--surface-soft); }
+    .account { border-top-color: var(--line); background: var(--rail); }
+    .account-copy strong { color: var(--text); }
+    .main { background: var(--bg); }
+    .topbar {
+      min-height: 56px;
+      padding: 7px 20px;
+      border-bottom-color: var(--line);
+      background: rgba(16, 18, 21, .94);
+    }
+    .workbench-trigger { min-height: 40px; color: var(--text); }
+    .workbench-trigger:hover,
+    .workbench-trigger[aria-expanded="true"] {
+      border-color: var(--line-strong);
+      background: var(--surface);
+    }
+    .workbench-trigger-copy strong { font-size: 15px; }
+    .workbench-trigger-copy small { color: var(--muted); }
+    .trigger-chevron { color: var(--muted); }
+    .top-status { color: var(--muted); }
+    .status-dot { background: var(--green); box-shadow: 0 0 0 3px rgba(52,212,126,.12); }
+    .btn, .icon-btn { border-color: var(--line-strong); color: var(--text); background: var(--surface); }
+    .icon-btn.mobile-menu { display: none; }
+    .btn:hover:not(:disabled), .icon-btn:hover { border-color: #4b535e; background: var(--surface-soft); }
+    .btn.primary { border-color: var(--primary); color: #fff; background: #3f78e6; }
+    .btn.primary:hover:not(:disabled) { border-color: var(--primary); background: #4a83f0; }
+    .btn.soft { color: #91b1ff; background: var(--primary-soft); border-color: transparent; }
+    .btn.danger { color: var(--coral); background: var(--coral-soft); border-color: rgba(240,109,100,.34); }
+    .page { max-width: none; padding: 18px 20px 28px; }
+    .page-head { align-items: flex-start; margin-bottom: 14px; }
+    .eyebrow { margin-bottom: 4px; color: var(--muted); font-size: 10px; }
+    .page-head h1 { font-size: 19px; font-weight: 700; }
+    .page-head p { margin-top: 4px; color: var(--muted); font-size: 12px; }
+    #pageTitle { display: block; }
+    .page-meta { margin-top: 8px; }
+    .meta-chip { border-color: var(--line); color: var(--muted); background: var(--surface); }
+    .page-actions { gap: 6px; flex-wrap: wrap; }
+    .edit-banner {
+      border-color: rgba(79,142,247,.34);
+      color: #bed1ff;
+      background: rgba(79,142,247,.1);
+    }
+    .edit-banner .edit-banner-copy span { color: #8fa7d3; }
+    .workbench-grid { gap: 12px; }
+    .panel-card {
+      border-color: var(--line);
+      background: var(--surface);
+      box-shadow: none;
+    }
+    .panel-card:hover { border-color: var(--line-strong); }
+    .editing .panel-card { border-color: #43577d; }
+    .editing .panel-card:hover,
+    .editing .panel-card.selected {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px rgba(79,142,247,.12);
+    }
+    .panel-head { min-height: 44px; border-bottom-color: var(--line); background: var(--surface); }
+    .drag-handle, .panel-tool { color: var(--faint); }
+    .panel-tool:hover { color: var(--text); background: var(--surface-soft); }
+    .plugin-icon {
+      color: var(--plugin-color, var(--primary));
+      background: color-mix(in srgb, var(--plugin-color, var(--primary)) 16%, var(--surface)) !important;
+    }
+    .panel-title-copy strong { color: var(--text); font-size: 12.5px; }
+    .panel-title-copy small { color: var(--faint); }
+    .panel-body { color: var(--text); }
+    .brief-highlight {
+      border-color: #29364b;
+      background: #172033;
+    }
+    .brief-time { color: #8495b5; }
+    .brief-highlight h3 { color: var(--text); }
+    .brief-highlight > p { color: #a2aec0; }
+    .insight-row {
+      border-color: #2d3b51;
+      color: var(--text);
+      background: rgba(255,255,255,.035);
+    }
+    .insight-row:hover { border-color: #49648f; background: rgba(255,255,255,.055); }
+    .insight-copy b { color: var(--text); }
+    .insight-copy span { color: #8f9caf; }
+    .decision-card {
+      border-color: rgba(226,167,55,.32);
+      background: rgba(226,167,55,.08);
+    }
+    .decision-card p { color: #bfae8d; }
+    .brief-source { color: var(--faint); }
+    .task-row, .metric-tile, .signal {
+      border-color: var(--line);
+      background: var(--surface-soft);
+    }
+    .task-check {
+      border-color: #4a5360;
+      color: transparent;
+      background: #15181d;
+    }
+    .task-check:hover { border-color: var(--primary); color: #526c9f; }
+    .task-copy strong { color: var(--text); }
+    .metric-tile .metric-value { color: var(--text); }
+    .metric-track, .flow-progress, .load-track, .score-bar { background: #2a2f37; }
+    .flow-row:hover { background: var(--surface-soft); }
+    .meeting-summary {
+      border-color: var(--line);
+      background: var(--surface-soft);
+    }
+    .meeting-summary p { color: var(--muted); }
+    .decision-line { color: var(--muted); }
+    .risk-table { border-color: var(--line); }
+    .risk-row { border-bottom-color: var(--line); }
+    .risk-row[style] { background: var(--surface-soft) !important; }
+    .owner-avatar, .person-avatar { color: #c8d3e4; background: #2a3039; }
+    .person-avatar.ai { color: var(--violet); background: var(--violet-soft); }
+    .schedule-row { border-bottom-color: var(--line); }
+    .mini-btn { border-color: var(--line-strong); color: var(--text); background: var(--surface); }
+    .mini-btn:hover { background: var(--surface-soft); }
+    .mini-btn.primary { border-color: rgba(226,167,55,.45); color: #ecc475; background: rgba(226,167,55,.18); }
+    .empty-workbench {
+      border-color: var(--line-strong);
+      background: rgba(24,27,32,.7);
+    }
+    .empty-icon { color: var(--primary); background: var(--primary-soft); }
+    .popover {
+      border-color: var(--line-strong);
+      background: var(--surface);
+    }
+    .switch-row:hover { background: var(--surface-soft); }
+    .switch-row.active { background: var(--primary-soft); }
+    .switch-row-copy strong { color: var(--text); }
+    .popover-foot { border-top-color: var(--line); background: var(--surface-soft); }
+    .editor-drawer {
+      border-left-color: var(--line-strong);
+      background: var(--surface);
+      box-shadow: -14px 0 32px rgba(0,0,0,.28);
+    }
+    .editor-head, .editor-foot { border-color: var(--line); }
+    .editor-head p { color: var(--muted); }
+    .editor-tabs { border-color: var(--line); background: #13161a; }
+    .editor-tab { color: var(--muted); }
+    .editor-tab.active { color: var(--text); background: var(--surface-soft); box-shadow: none; }
+    .search-field input, .input, .select, .textarea {
+      border-color: var(--line-strong);
+      color: var(--text);
+      background: #13161a;
+    }
+    .category-chip { border-color: var(--line); color: var(--muted); background: var(--surface); }
+    .category-chip:hover, .category-chip.active { border-color: #4c6a9f; color: #9fbdff; background: var(--primary-soft); }
+    .plugin-row, .settings-card, .detail-panel-row {
+      border-color: var(--line);
+      background: var(--surface);
+    }
+    .plugin-row:hover { border-color: var(--line-strong); background: var(--surface-soft); }
+    .plugin-row-copy strong { color: var(--text); }
+    .plugin-add { border-color: rgba(79,142,247,.38); color: #a9c2ff; background: var(--primary-soft); }
+    .plugin-add.added { color: var(--faint); background: var(--surface-soft); }
+    .settings-card { background: var(--surface-soft); }
+    .width-option { border-color: var(--line); color: var(--muted); background: var(--surface); }
+    .width-option.active { border-color: var(--primary); color: #a9c2ff; background: var(--primary-soft); }
+    .editor-foot { background: var(--surface-soft); }
+    .market-overlay { background: var(--bg); }
+    .market-top {
+      min-height: 58px;
+      border-bottom-color: var(--line);
+      background: rgba(16,18,21,.96);
+    }
+    .market-brand-copy strong { color: var(--text); }
+    .market-search .search-field input { background: var(--surface); }
+    .market-body { background: var(--bg); }
+    .market-nav {
+      border-right-color: var(--line);
+      background: #121519;
+    }
+    .market-nav button { color: var(--muted); }
+    .market-nav button:hover { color: var(--text); background: var(--surface-soft); }
+    .market-nav button.active { color: #a8c1ff; background: var(--primary-soft); }
+    .market-main { background: var(--bg); }
+    .market-heading h1 { color: var(--text); font-size: 19px; }
+    .market-heading p { color: var(--muted); font-size: 11.5px; }
+    .market-tabs { border-color: var(--line); background: var(--surface); }
+    .market-tab { color: var(--muted); }
+    .market-tab.active { color: var(--text); background: var(--surface-soft); box-shadow: none; }
+    .market-feature {
+      border-color: #2d3b54;
+      background: #151d2a;
+    }
+    .feature-copy h2 { color: var(--text); }
+    .feature-copy p { color: #94a1b4; }
+    .feature-preview { border-left-color: #2d3b54; background: #121a27; }
+    .market-card, .plugin-market-card { border-color: var(--line); background: var(--surface); }
+    .market-card:hover, .plugin-market-card:hover { border-color: var(--line-strong); }
+    .market-card-title h3, .plugin-market-copy h3 { color: var(--text); }
+    .market-card-title p, .plugin-market-copy p { color: var(--muted); }
+    .market-card-meta { border-top-color: var(--line); }
+    .template-preview { border-bottom-color: rgba(255,255,255,.05); }
+    .preview-supply { background: #172238; }
+    .preview-review { background: #16251f; }
+    .preview-radar { background: #211b31; }
+    .preview-launch { background: #2a1d1b; }
+    .preview-people { background: #17252a; }
+    .preview-exec { background: #1c2027; }
+    .mini-block {
+      border-color: #303844;
+      background: rgba(24,27,32,.94);
+      box-shadow: none;
+    }
+    .mini-block i { background: rgba(255,255,255,.24); }
+    .mini-block b { background: rgba(255,255,255,.1); }
+    .mini-block em { background: rgba(79,142,247,.34); }
+    .mini-block.warn em { background: rgba(226,167,55,.34); }
+    .mini-block.coral em { background: rgba(229,83,75,.34); }
+    .market-detail {
+      border-left-color: var(--line-strong);
+      background: var(--surface);
+      box-shadow: -16px 0 38px rgba(0,0,0,.34);
+    }
+    .global-switcher {
+      position: fixed;
+      z-index: 70;
+      max-height: calc(100vh - 24px);
+    }
+    .resource-layer {
+      position: fixed;
+      z-index: 18;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 264px;
+      display: flex;
+      justify-content: stretch;
+      background: var(--bg);
+    }
+    .resource-layer[hidden],
+    .resource-main[hidden],
+    .market-body[hidden],
+    .market-detail[hidden] { display: none !important; }
+    .resource-panel {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      height: 100%;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: var(--bg);
+    }
+    .resource-top { flex: none; gap: 14px; padding: 10px 16px; }
+    .resource-top .market-brand { flex: none; }
+    .resource-top .market-search { width: min(310px, 27vw); margin-left: auto; }
+    .resource-top .market-top-actions { margin-left: 0; }
+    .resource-tabs {
+      flex: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 3px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--surface);
+    }
+    .resource-tab {
+      min-height: 29px;
+      padding: 3px 12px;
+      border: 0;
+      border-radius: 5px;
+      color: var(--muted);
+      background: transparent;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .resource-tab:hover { color: var(--text); background: var(--surface-soft); }
+    .resource-tab.active { color: var(--text); background: #2a3039; }
+    .resource-main {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 22px 24px 36px;
+      background: var(--bg);
+    }
+    .resource-main-inner { max-width: none; margin: 0 auto; }
+    .resource-heading {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 14px;
+    }
+    .resource-heading h1 { margin: 0; font-size: 19px; line-height: 1.3; }
+    .resource-heading p { margin: 5px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.55; }
+    .resource-heading-actions { display: flex; align-items: center; gap: 7px; flex: none; }
+    .resource-summary {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+    .resource-summary-chip {
+      min-height: 25px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: var(--surface);
+      font-size: 9.5px;
+    }
+    .resource-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .resource-card {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+    .resource-card:hover { border-color: var(--line-strong); }
+    .resource-card-head { display: flex; align-items: flex-start; gap: 10px; }
+    .resource-card-icon {
+      width: 34px;
+      height: 34px;
+      flex: none;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      color: var(--resource-color, var(--primary));
+      background: color-mix(in srgb, var(--resource-color, var(--primary)) 16%, var(--surface));
+    }
+    .resource-card-title { min-width: 0; flex: 1; }
+    .resource-card-title h2 { margin: 0; font-size: 12.5px; line-height: 1.4; }
+    .resource-card-title p { margin: 3px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+    .resource-card-description { margin: 0; color: #9ba6b5; font-size: 10.5px; line-height: 1.6; }
+    .resource-card-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      color: var(--faint);
+      font-size: 9.5px;
+    }
+    .resource-card-foot {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-top: auto;
+      padding-top: 9px;
+      border-top: 1px solid var(--line);
+    }
+    .resource-card-foot > span { flex: 1; color: var(--faint); font-size: 9.5px; }
+    .resource-card-foot .btn { min-height: 27px; padding: 3px 8px; font-size: 10px; }
+    .resource-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      color: var(--muted);
+      font-size: 9.5px;
+    }
+    .resource-status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+    .resource-status.pending::before { background: var(--amber); }
+    .resource-status.off::before { background: var(--faint); }
+    .resource-empty {
+      display: grid;
+      place-items: center;
+      min-height: 280px;
+      border: 1px dashed var(--line-strong);
+      border-radius: 8px;
+      color: var(--muted);
+      text-align: center;
+    }
+    .resource-empty strong { display: block; margin-top: 8px; color: var(--text); font-size: 12px; }
+    .resource-empty p { margin: 5px 0 0; font-size: 10px; }
+    .resource-panel .market-detail {
+      position: absolute;
+      z-index: 8;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: min(430px, 100%);
+    }
+    .resource-panel .market-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .resource-panel .market-main { padding: 20px 20px 32px; }
+    .resource-panel .market-feature { grid-template-columns: minmax(0,1.2fr) minmax(240px,.8fr); }
+    .detail-head, .detail-foot { border-color: var(--line); }
+    .detail-title-copy h2 { color: var(--text); }
+    .detail-description { color: #a5afbc; }
+    .permission-box {
+      border-color: rgba(226,167,55,.28);
+      color: #b9a785;
+      background: rgba(226,167,55,.08);
+    }
+    .permission-box strong { color: #e2bd77; }
+    .detail-fact { border-color: var(--line); background: var(--surface-soft); }
+    .detail-foot { background: var(--surface-soft); }
+    .modal-layer, .drawer-layer { background: rgba(3,5,8,.65); }
+    .modal-card { border-color: var(--line-strong); background: var(--surface); }
+    .modal-head, .modal-foot { border-color: var(--line); }
+    .modal-head p { color: var(--muted); }
+    .modal-foot { background: var(--surface-soft); }
+    .starter-card { border-color: var(--line); color: var(--muted); background: var(--surface); }
+    .starter-card:hover { border-color: var(--line-strong); background: var(--surface-soft); }
+    .starter-card.selected { border-color: var(--primary); background: var(--primary-soft); }
+    .starter-card .starter-icon { color: #a8c2ff; background: var(--surface-soft); }
+    .segmented { border-color: var(--line); background: #13161a; }
+    .segmented button { color: var(--muted); }
+    .segmented button.active { color: var(--text); background: var(--surface-soft); box-shadow: none; }
+    .manager-row { border-color: var(--line); background: var(--surface); }
+    .manager-copy strong { color: var(--text); }
+    .toast {
+      border-color: var(--line-strong);
+      color: var(--text);
+      background: rgba(24,27,32,.98);
+    }
+    .toast p { color: var(--muted); }
+    .market-empty { border-color: var(--line-strong); color: var(--muted); background: rgba(24,27,32,.55); }
+    .risk-row[style] { color: var(--faint) !important; }
+    .market-filter-row .category-chip { background: var(--surface); }
+    .market-card-button:hover { color: inherit; }
+    .market-nav-divider { background: var(--line); }
+    .brand-copy small, .wb-nav-copy small, .account-copy small { color: var(--rail-muted); }
+    @media (max-width: 1180px) {
+      .editing .main { margin-right: 330px; }
+      .resource-panel { width: 100%; }
+      .resource-panel .market-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .resource-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 980px) {
+      .app { grid-template-columns: 76px minmax(0,1fr); }
+      .sidebar-workbench-switch { display: none; }
+      .resource-layer { left: 76px; }
+      .resource-panel { width: 100%; }
+    }
+    @media (max-width: 760px) {
+      .app { grid-template-columns: 1fr; }
+      .icon-btn.mobile-menu { display: inline-grid; }
+      .editing .main { margin-right: 0; }
+      .page { padding: 16px 14px 28px; }
+      .page-head { flex-wrap: wrap; }
+      .page-head-copy { width: 100%; }
+      .page-actions { width: 100%; display: flex; justify-content: flex-end; }
+      .page-actions .btn span { display: none; }
+      .page-actions .btn { width: 34px; padding: 0; }
+      .sidebar-workbench-switch { display: flex; }
+      #pageTitle { display: block; }
+      .resource-layer { left: 0; }
+      .resource-panel { width: 100%; }
+      .resource-top {
+        min-height: 56px;
+        flex-wrap: wrap;
+        align-content: flex-start;
+        padding: 9px 12px;
+        background: rgba(16,18,21,.98);
+      }
+      .resource-top .market-brand { flex: 1; }
+      .resource-top .market-search { order: 4; width: 100%; margin: 0; }
+      .resource-tabs { order: 3; width: 100%; display: grid; grid-template-columns: repeat(3, 1fr); }
+      .resource-tab { width: 100%; }
+      .resource-main { padding: 16px 14px 28px; }
+      .resource-grid { grid-template-columns: 1fr; }
+      .resource-heading { align-items: flex-start; flex-direction: column; }
+      .resource-panel .market-grid { grid-template-columns: 1fr; }
+      .resource-panel .market-feature { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <svg class="sprite" aria-hidden="true">
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
+    <symbol id="i-layout" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></symbol>
+    <symbol id="i-briefcase" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18M10 12v2h4v-2"/></symbol>
+    <symbol id="i-check-square" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></symbol>
+    <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol>
+    <symbol id="i-store" viewBox="0 0 24 24"><path d="M3 9l1.5-5h15L21 9"/><path d="M5 13v7h14v-7"/><path d="M9 20v-5h6v5"/><path d="M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></symbol>
+    <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 2 3 6.3 7 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 7-1Z"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1-2.1 2.1-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V20h-3v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1-2.1-2.1.1-.1A1.6 1.6 0 0 0 7.2 15a1.6 1.6 0 0 0-1.5-1H5v-3h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1 2.1-2.1.1.1a1.6 1.6 0 0 0 1.8.3 1.6 1.6 0 0 0 1-1.5V4h3v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1 2.1 2.1-.1.1a1.6 1.6 0 0 0-.3 1.8 1.6 1.6 0 0 0 1.5 1h.1v3h-.1a1.6 1.6 0 0 0-1.4 1Z"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5"/><path d="M4 17v-5h5"/><path d="M6.2 8a7 7 0 0 1 11.5-1L20 12M4 12l2.3 5a7 7 0 0 0 11.5-1"/></symbol>
+    <symbol id="i-grip" viewBox="0 0 24 24"><circle cx="9" cy="5" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="19" r="1"/></symbol>
+    <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="m12 3 1.2 3.8L17 8l-3.8 1.2L12 13l-1.2-3.8L7 8l3.8-1.2Z"/><path d="m19 14 .7 2.3L22 17l-2.3.7L19 20l-.7-2.3L16 17l2.3-.7Z"/><path d="m5 14 .7 2.3L8 17l-2.3.7L5 20l-.7-2.3L2 17l2.3-.7Z"/></symbol>
+    <symbol id="i-list-checks" viewBox="0 0 24 24"><path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17"/><path d="M11 6h10M11 12h10M11 18h10"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 16v-5M12 16V7M17 16v-3"/></symbol>
+    <symbol id="i-workflow" viewBox="0 0 24 24"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="15" width="6" height="6" rx="1"/><path d="M9 6h4a3 3 0 0 1 3 3v6"/><path d="m13 12 3 3 3-3"/></symbol>
+    <symbol id="i-message" viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/><path d="M8 9h8M8 13h5"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="m12 3 9 17H3Z"/><path d="M12 9v4M12 17h.01"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></symbol>
+    <symbol id="i-radar" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><path d="M12 3v9l6 6"/><circle cx="12" cy="12" r="1"/></symbol>
+    <symbol id="i-box" viewBox="0 0 24 24"><path d="m21 8-9-5-9 5 9 5Z"/><path d="m3 8 9 5 9-5M3 8v8l9 5 9-5V8M12 13v8"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 15H6L5 6M10 11v6M14 11v6"/></symbol>
+    <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+    <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5"/><path d="M5 21h14"/></symbol>
+    <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 7 4 12l5 5"/><path d="M4 12h9a7 7 0 0 1 7 7"/></symbol>
+    <symbol id="i-redo" viewBox="0 0 24 24"><path d="m15 7 5 5-5 5"/><path d="M20 12h-9a7 7 0 0 0-7 7"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M13 9v11"/></symbol>
+    <symbol id="i-move" viewBox="0 0 24 24"><path d="M12 2v20M2 12h20M8 6l4-4 4 4M8 18l4 4 4-4M6 8l-4 4 4 4M18 8l4 4-4 4"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+  </svg>
+
+  <div class="app" id="app">
+    <aside class="sidebar" aria-label="主导航">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+        <div class="brand-copy">
+          <strong>DSH Enterprise+</strong>
+          <small>Pluginmax 工作空间</small>
+        </div>
+      </div>
+      <div class="sidebar-scroll">
+        <div class="nav-group primary-nav-current">
+          <div class="nav-item active workbench-nav-row" id="workbenchNavRow">
+            <button class="nav-main-action" type="button" data-action="show-workbench">
+              <svg class="i"><use href="#i-layout"></use></svg>
+              <span>工作台</span>
+            </button>
+            <button class="sidebar-workbench-switch" id="workbenchTrigger" type="button" data-action="toggle-switcher" aria-expanded="false" aria-controls="workbenchPopover">
+              <span id="triggerName">供应链作战台</span>
+              <svg class="i i-sm trigger-chevron"><use href="#i-chevron-down"></use></svg>
+            </button>
+          </div>
+          <button class="nav-item" type="button"><svg class="i"><use href="#i-briefcase"></use></svg><span>项目</span></button>
+          <button class="nav-item" type="button"><svg class="i"><use href="#i-check-square"></use></svg><span>任务</span><span class="nav-badge">12</span></button>
+          <button class="nav-item" type="button"><svg class="i"><use href="#i-workflow"></use></svg><span>工作流</span></button>
+          <button class="nav-item" type="button"><svg class="i"><use href="#i-message"></use></svg><span>沟通</span></button>
+          <button class="nav-item" type="button"><svg class="i"><use href="#i-users"></use></svg><span>AI伙伴</span></button>
+          <button class="nav-item" id="resourceMarketNav" type="button" data-action="open-market"><svg class="i"><use href="#i-store"></use></svg><span>资源市场</span><span class="nav-badge">24</span></button>
+        </div>
+        <div class="sidebar-divider"></div>
+        <div class="sidebar-projects">
+          <div class="sidebar-project-head">
+            <span>项目</span>
+            <button type="button" aria-label="搜索项目"><svg class="i i-sm"><use href="#i-search"></use></svg></button>
+            <button type="button" aria-label="项目筛选"><svg class="i i-sm"><use href="#i-settings"></use></svg></button>
+            <button type="button" aria-label="新建项目"><svg class="i i-sm"><use href="#i-plus"></use></svg></button>
+          </div>
+          <button class="sidebar-project active" type="button"><svg class="i i-sm"><use href="#i-briefcase"></use></svg><span>Pluginmax smoke</span></button>
+          <button class="sidebar-session" type="button"><span>供应链周会准备</span><small>16 天</small></button>
+          <button class="sidebar-session" type="button"><span>供应风险指标复盘</span><small>18 天</small></button>
+          <button class="sidebar-session" type="button"><span>项目上线检查清单</span><small>18 天</small></button>
+          <button class="sidebar-project" type="button"><svg class="i i-sm"><use href="#i-briefcase"></use></svg><span>1015-Demo 演示</span></button>
+        </div>
+      </div>
+      <div class="account">
+        <div class="avatar">OY</div>
+        <div class="account-copy"><strong>Olivia Yang</strong><small>产品与供应链</small></div>
+        <button class="sidebar-settings" type="button" aria-label="设置"><svg class="i i-sm"><use href="#i-settings"></use></svg></button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <section class="page" id="dashboardView">
+        <div class="page-head">
+          <div class="page-head-copy">
+            <p class="eyebrow"><span class="live-dot"></span><span id="todayLabel">10 月 28 日，星期三</span><span>·</span><span>过去 24 小时</span></p>
+            <h1 id="pageTitle">供应链作战台</h1>
+            <p id="pageDescription">把今天需要判断、推进和追责的事项放在一个桌面上。</p>
+            <div class="page-meta" id="pageMeta"></div>
+          </div>
+          <div class="page-actions">
+            <button class="icon-btn plain mobile-menu" type="button" data-action="toggle-sidebar" aria-label="打开导航"><svg class="i"><use href="#i-menu"></use></svg></button>
+            <button class="btn" id="editButton" type="button" data-action="toggle-edit"><svg class="i i-sm"><use href="#i-pencil"></use></svg><span>编辑布局</span></button>
+            <button class="btn primary" type="button" data-action="open-market"><svg class="i i-sm"><use href="#i-store"></use></svg><span>资源市场</span></button>
+            <button class="btn" type="button" data-action="quick-add"><svg class="i i-sm"><use href="#i-plus"></use></svg>添加插件</button>
+            <button class="icon-btn" type="button" data-action="refresh-all" aria-label="刷新全部面板"><svg class="i"><use href="#i-refresh"></use></svg></button>
+            <button class="icon-btn plain more-btn" type="button" data-action="open-manager" aria-label="工作台更多操作"><svg class="i"><use href="#i-more"></use></svg></button>
+          </div>
+        </div>
+
+        <div class="edit-banner">
+          <div class="edit-banner-copy"><strong>正在布置工作台</strong> <span>拖动面板标题调整顺序，点击面板修改宽度和配置。</span></div>
+          <div class="edit-banner-actions">
+            <button class="btn small" type="button" data-action="undo" title="撤销"><svg class="i i-sm"><use href="#i-undo"></use></svg>撤销</button>
+            <button class="btn small" type="button" data-action="redo" title="重做"><svg class="i i-sm"><use href="#i-redo"></use></svg>重做</button>
+            <button class="btn small" type="button" data-action="cancel-edit">取消</button>
+            <button class="btn primary small" type="button" data-action="save-edit"><svg class="i i-sm"><use href="#i-check"></use></svg>保存布局</button>
+          </div>
+        </div>
+
+        <div class="workbench-grid" id="workbenchGrid"></div>
+        <div class="empty-workbench" id="emptyWorkbench">
+          <div class="empty-inner">
+            <div class="empty-icon"><svg class="i i-lg"><use href="#i-panel"></use></svg></div>
+            <h2>这张工作台还是空的</h2>
+            <p>从已安装插件中添加面板，或复制一套市场方案作为起点。</p>
+            <div class="empty-actions">
+              <button class="btn primary" type="button" data-action="quick-add">添加插件</button>
+              <button class="btn" type="button" data-action="open-market">浏览资源市场</button>
+              <button class="btn" type="button" data-action="new-workbench-copy">复制已有工作台</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="popover global-switcher" id="workbenchPopover" hidden>
+    <div class="popover-head"><strong>切换工作台</strong><span id="popoverCount">4 个工作台</span></div>
+    <div class="switcher-list" id="switcherList"></div>
+    <div class="popover-foot">
+      <button class="btn" type="button" data-action="new-workbench"><svg class="i i-sm"><use href="#i-plus"></use></svg>新建</button>
+      <button class="btn" type="button" data-action="open-manager"><svg class="i i-sm"><use href="#i-settings"></use></svg>管理工作台</button>
+    </div>
+  </div>
+
+  <aside class="editor-drawer" id="editorDrawer" aria-label="工作台编辑器">
+    <div class="editor-head">
+      <div class="editor-head-row">
+        <div><h2>布置工作台</h2><p>插件只决定画面组合，不会改变业务权限。</p></div>
+        <button class="icon-btn plain" type="button" data-action="cancel-edit" aria-label="关闭编辑器"><svg class="i"><use href="#i-x"></use></svg></button>
+      </div>
+      <div class="editor-tabs">
+        <button class="editor-tab active" type="button" data-action="editor-tab" data-tab="library">插件库</button>
+        <button class="editor-tab" type="button" data-action="editor-tab" data-tab="settings">面板设置</button>
+      </div>
+    </div>
+    <div class="editor-content" id="editorContent"></div>
+    <div class="editor-foot"><button class="btn" type="button" data-action="open-market"><svg class="i i-sm"><use href="#i-store"></use></svg>从资源市场查找插件</button></div>
+  </aside>
+
+  <section class="resource-layer" id="marketOverlay" hidden aria-label="资源市场">
+    <aside class="resource-panel">
+    <header class="market-top resource-top">
+      <div class="market-brand">
+        <div class="market-brand-mark"><svg class="i"><use href="#i-store"></use></svg></div>
+        <div class="market-brand-copy"><strong>资源市场</strong><small>Skill、MCP 与工作台方案</small></div>
+      </div>
+      <div class="resource-tabs" role="tablist" aria-label="资源类型">
+        <button class="resource-tab active" type="button" data-action="resource-tab" data-tab="skill" role="tab" aria-selected="true">Skill</button>
+        <button class="resource-tab" type="button" data-action="resource-tab" data-tab="mcp" role="tab" aria-selected="false">MCP</button>
+        <button class="resource-tab" type="button" data-action="resource-tab" data-tab="workbench" role="tab" aria-selected="false">工作台市场</button>
+      </div>
+      <div class="market-search">
+        <label class="search-field">
+          <svg class="i"><use href="#i-search"></use></svg>
+          <span class="sr-only">搜索资源市场</span>
+          <input id="marketSearch" type="search" placeholder="搜索 Skill、MCP 或工作台方案" autocomplete="off">
+        </label>
+      </div>
+      <div class="market-top-actions">
+        <button class="icon-btn" type="button" data-action="close-market" aria-label="关闭资源市场"><svg class="i"><use href="#i-x"></use></svg></button>
+      </div>
+    </header>
+    <main class="resource-main" id="resourceMain"></main>
+    <div class="market-body" id="workbenchMarketBody" hidden>
+      <nav class="market-nav" aria-label="市场分类">
+        <div class="market-nav-label">发现</div>
+        <button class="active" type="button" data-action="market-nav" data-category="全部"><svg class="i i-sm"><use href="#i-sparkles"></use></svg><span>编辑精选</span><span class="nav-count">12</span></button>
+        <button type="button" data-action="market-nav" data-category="运营"><svg class="i i-sm"><use href="#i-box"></use></svg><span>运营与供应链</span><span class="nav-count">6</span></button>
+        <button type="button" data-action="market-nav" data-category="项目"><svg class="i i-sm"><use href="#i-briefcase"></use></svg><span>项目协作</span><span class="nav-count">5</span></button>
+        <button type="button" data-action="market-nav" data-category="管理"><svg class="i i-sm"><use href="#i-chart"></use></svg><span>经营与管理</span><span class="nav-count">4</span></button>
+        <button type="button" data-action="market-nav" data-category="情报"><svg class="i i-sm"><use href="#i-radar"></use></svg><span>研究与情报</span><span class="nav-count">3</span></button>
+        <div class="market-nav-divider"></div>
+        <div class="market-nav-label">我的资产</div>
+        <button type="button" data-action="market-nav" data-category="已添加"><svg class="i i-sm"><use href="#i-check"></use></svg><span>已添加插件</span></button>
+        <button type="button" data-action="market-nav" data-category="团队"><svg class="i i-sm"><use href="#i-users"></use></svg><span>团队共享</span></button>
+      </nav>
+      <main class="market-main">
+        <div class="market-main-inner">
+          <div class="market-heading">
+            <div><h1 id="marketHeading">为今天的工作，换一张桌面</h1><p id="marketSubheading">从完整工作台方案开始，也可以只添加需要的能力。</p></div>
+            <div class="market-tabs" role="tablist" aria-label="市场资产类型">
+              <button class="market-tab active" type="button" data-action="market-tab" data-tab="templates" role="tab">工作台方案</button>
+              <button class="market-tab" type="button" data-action="market-tab" data-tab="plugins" role="tab">功能插件</button>
+            </div>
+          </div>
+          <div id="marketFeatured"></div>
+          <div class="market-filter-row" id="marketFilters"></div>
+          <div class="market-grid" id="marketGrid"></div>
+          <div class="market-empty" id="marketEmpty" hidden><div><svg class="i i-lg" style="margin:0 auto"><use href="#i-search"></use></svg><strong>没有找到匹配内容</strong><p>换一个关键词或分类再试试。</p></div></div>
+        </div>
+      </main>
+    </div>
+    <aside class="market-detail" id="marketDetail" hidden></aside>
+    </aside>
+  </section>
+
+  <div class="modal-layer" id="modalLayer" hidden role="dialog" aria-modal="true" aria-labelledby="modalTitle"></div>
+  <div class="toast-stack" id="toastStack" aria-live="polite"></div>
+  <div class="scrim" id="scrim" hidden></div>
+
+  <script>
+    const $ = (selector, root = document) => root.querySelector(selector);
+    const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+    const STORAGE_KEY = "pluginmax-workbench-market-demo-v1";
+    const STORAGE_VERSION = 1;
+    const clone = (value) => JSON.parse(JSON.stringify(value));
+
+    const icon = (name, className = "") =>
+      `<svg class="i ${className}" aria-hidden="true"><use href="#i-${name}"></use></svg>`;
+
+    const escapeHtml = (value) =>
+      String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+
+    const PANELS = {
+      brief: {
+        name: "今日简报",
+        subtitle: "AI 摘要 · 刚刚更新",
+        icon: "sparkles",
+        category: "AI",
+        color: "#7057ca",
+        bg: "#f1edff",
+        span: 4,
+        description: "聚合进展、异常与待决策事项，按影响程度排序。",
+      },
+      todo: {
+        name: "我的待办",
+        subtitle: "任务 · 4 项待处理",
+        icon: "list-checks",
+        category: "任务",
+        color: "#2e66d8",
+        bg: "#edf2ff",
+        span: 2,
+        description: "把待处理、待验收和逾期任务放在同一张执行清单。",
+      },
+      focus: {
+        name: "重点关注",
+        subtitle: "任务与工作流",
+        icon: "star",
+        category: "任务",
+        color: "#ad771d",
+        bg: "#fff5df",
+        span: 3,
+        description: "集中展示主动关注的任务、工作流和会议。",
+      },
+      metrics: {
+        name: "核心指标",
+        subtitle: "供应链 · 实时",
+        icon: "chart",
+        category: "数据",
+        color: "#168a74",
+        bg: "#e8f7f2",
+        span: 3,
+        description: "用一屏内的四到六个指标判断业务是否正常。",
+      },
+      workflow: {
+        name: "工作流运行",
+        subtitle: "6 个运行实例",
+        icon: "workflow",
+        category: "流程",
+        color: "#3169d6",
+        bg: "#edf2ff",
+        span: 3,
+        description: "查看运行、等待、阻塞和即将超时的流程实例。",
+      },
+      meeting: {
+        name: "会议结论",
+        subtitle: "最近 24 小时",
+        icon: "message",
+        category: "协作",
+        color: "#3d8254",
+        bg: "#eaf7ef",
+        span: 2,
+        description: "将会议结论与待确认事项直接转为下一步行动。",
+      },
+      supply: {
+        name: "供应风险",
+        subtitle: "7 项需关注",
+        icon: "alert",
+        category: "供应链",
+        color: "#c65143",
+        bg: "#fff0ee",
+        span: 4,
+        description: "按影响、紧迫度和承诺日期聚合物料与供应商风险。",
+      },
+      people: {
+        name: "团队负载",
+        subtitle: "本周资源占用",
+        icon: "users",
+        category: "管理",
+        color: "#2c7c83",
+        bg: "#e9f3f4",
+        span: 3,
+        description: "比较真人与 AI 伙伴的工作负载，提前发现瓶颈。",
+      },
+      calendar: {
+        name: "今日节奏",
+        subtitle: "4 个日程",
+        icon: "clock",
+        category: "协作",
+        color: "#5b66c9",
+        bg: "#eeeffc",
+        span: 2,
+        description: "把会议、决策窗口和专注时段放在同一条时间线上。",
+      },
+      radar: {
+        name: "行业雷达",
+        subtitle: "外部信号 · 12 条",
+        icon: "radar",
+        category: "研究",
+        color: "#7452be",
+        bg: "#f1ecfb",
+        span: 4,
+        description: "汇总竞品、政策和市场变化，并标明对当前项目的影响。",
+      },
+      budget: {
+        name: "预算与达成",
+        subtitle: "采购预算 · 10 月",
+        icon: "chart",
+        category: "管理",
+        color: "#9f6a17",
+        bg: "#fff5df",
+        span: 2,
+        description: "展示预算消耗、价格达成与异常支出。",
+      },
+    };
+
+    const makePanel = (pluginId, span, instanceId) => ({
+      instanceId: instanceId || `pi-${pluginId}-${Date.now()}-${Math.random().toString(16).slice(2, 7)}`,
+      pluginId,
+      span,
+      title: "",
+      config: {},
+    });
+
+    const initialWorkbenches = () => [
+      {
+        id: "wb-supply",
+        name: "供应链作战台",
+        description: "把今天需要判断、推进和追责的事项放在一个桌面上。",
+        icon: "box",
+        color: "#3f6ef3",
+        visibility: "private",
+        favorite: true,
+        updated: "刚刚",
+        panels: [
+          makePanel("brief", 4, "pi-brief-1"),
+          makePanel("todo", 2, "pi-todo-1"),
+          makePanel("metrics", 3, "pi-metrics-1"),
+          makePanel("workflow", 3, "pi-workflow-1"),
+          makePanel("meeting", 2, "pi-meeting-1"),
+          makePanel("supply", 4, "pi-supply-1"),
+        ],
+      },
+      {
+        id: "wb-review",
+        name: "本周经营复盘",
+        description: "每周一次的指标、流程和资源复盘，只看真正需要解释的变化。",
+        icon: "chart",
+        color: "#168a74",
+        visibility: "private",
+        favorite: true,
+        updated: "2 小时前",
+        panels: [
+          makePanel("metrics", 6, "pi-metrics-2"),
+          makePanel("workflow", 3, "pi-workflow-2"),
+          makePanel("supply", 3, "pi-supply-2"),
+          makePanel("meeting", 3, "pi-meeting-2"),
+          makePanel("focus", 3, "pi-focus-2"),
+        ],
+      },
+      {
+        id: "wb-launch",
+        name: "项目上线",
+        description: "上线窗口前的发布、阻塞、决策和人员协作视图。",
+        icon: "layout",
+        color: "#c65d48",
+        visibility: "team",
+        favorite: false,
+        updated: "昨天",
+        panels: [
+          makePanel("brief", 4, "pi-brief-3"),
+          makePanel("todo", 2, "pi-todo-3"),
+          makePanel("workflow", 4, "pi-workflow-3"),
+          makePanel("meeting", 2, "pi-meeting-3"),
+        ],
+      },
+      {
+        id: "wb-personal",
+        name: "个人专注台",
+        description: "不追求完整，只保留今天最重要的三件事。",
+        icon: "clock",
+        color: "#7057ca",
+        visibility: "private",
+        favorite: false,
+        updated: "周日",
+        panels: [
+          makePanel("todo", 3, "pi-todo-4"),
+          makePanel("focus", 3, "pi-focus-4"),
+          makePanel("calendar", 6, "pi-calendar-4"),
+        ],
+      },
+    ];
+
+    const MARKET_TEMPLATES = [
+      {
+        id: "tpl-supply",
+        name: "供应链作战台",
+        category: "运营",
+        tag: "编辑精选",
+        description: "把供应异常、承诺日期、任务和会议决策放在一张桌面上。适合采购、计划和交付负责人。",
+        publisher: "Pluginmax 官方",
+        publisherInitial: "PM",
+        verified: true,
+        installs: "1.8k",
+        rating: "4.9",
+        updated: "今天",
+        preview: "supply",
+        color: "#3f6ef3",
+        icon: "box",
+        panels: [
+          { pluginId: "brief", span: 4 },
+          { pluginId: "todo", span: 2 },
+          { pluginId: "metrics", span: 3 },
+          { pluginId: "workflow", span: 3 },
+          { pluginId: "meeting", span: 2 },
+          { pluginId: "supply", span: 4 },
+        ],
+        permissions: ["读取你有权限查看的待办、会议和供应风险摘要", "读取工作区指标与工作流运行状态"],
+      },
+      {
+        id: "tpl-review",
+        name: "经营周复盘",
+        category: "管理",
+        tag: "团队常用",
+        description: "按指标、流程、资源和结论组织每周复盘，保留变化原因和下一步动作。",
+        publisher: "Operations Guild",
+        publisherInitial: "OG",
+        verified: true,
+        installs: "946",
+        rating: "4.8",
+        updated: "2 天前",
+        preview: "review",
+        color: "#168a74",
+        icon: "chart",
+        panels: [
+          { pluginId: "metrics", span: 6 },
+          { pluginId: "workflow", span: 3 },
+          { pluginId: "supply", span: 3 },
+          { pluginId: "meeting", span: 3 },
+          { pluginId: "focus", span: 3 },
+        ],
+        permissions: ["读取你所在项目的指标、工作流与会议", "读取你有权访问的团队负载摘要"],
+      },
+      {
+        id: "tpl-radar",
+        name: "产品发现台",
+        category: "情报",
+        tag: "AI 原生",
+        description: "把外部情报、用户反馈、待办和项目会议放到同一上下文，适合产品与研究团队。",
+        publisher: "Research Studio",
+        publisherInitial: "RS",
+        verified: true,
+        installs: "721",
+        rating: "4.7",
+        updated: "5 天前",
+        preview: "radar",
+        color: "#7057ca",
+        icon: "radar",
+        panels: [
+          { pluginId: "radar", span: 4 },
+          { pluginId: "brief", span: 2 },
+          { pluginId: "todo", span: 3 },
+          { pluginId: "meeting", span: 3 },
+        ],
+        permissions: ["读取已配置的公开外部情报源", "读取你有权限访问的任务与会议摘要"],
+      },
+      {
+        id: "tpl-launch",
+        name: "项目上线指挥台",
+        category: "项目",
+        tag: "高协作",
+        description: "围绕上线窗口集中管理发布任务、阻塞项、决策会和跨团队依赖。",
+        publisher: "Delivery Lab",
+        publisherInitial: "DL",
+        verified: true,
+        installs: "684",
+        rating: "4.8",
+        updated: "1 周前",
+        preview: "launch",
+        color: "#c65d48",
+        icon: "layout",
+        panels: [
+          { pluginId: "brief", span: 4 },
+          { pluginId: "todo", span: 2 },
+          { pluginId: "workflow", span: 4 },
+          { pluginId: "meeting", span: 2 },
+        ],
+        permissions: ["读取项目任务、工作流与会议结论", "读取你有权限查看的上线风险"],
+      },
+      {
+        id: "tpl-people",
+        name: "团队健康度",
+        category: "管理",
+        tag: "管理者",
+        description: "用负载、逾期、协作密度和阻塞分布识别团队瓶颈，不下钻个人绩效。",
+        publisher: "People Ops",
+        publisherInitial: "PO",
+        verified: false,
+        installs: "392",
+        rating: "4.5",
+        updated: "1 周前",
+        preview: "people",
+        color: "#2c7c83",
+        icon: "users",
+        panels: [
+          { pluginId: "people", span: 4 },
+          { pluginId: "metrics", span: 2 },
+          { pluginId: "workflow", span: 3 },
+          { pluginId: "meeting", span: 3 },
+        ],
+        permissions: ["读取授权范围内的团队负载与流程状态", "不包含个人绩效数据"],
+      },
+      {
+        id: "tpl-exec",
+        name: "管理驾驶舱",
+        category: "管理",
+        tag: "高层视图",
+        description: "跨项目查看经营指标、资源瓶颈、风险和责任追踪，每个数字都能回到来源。",
+        publisher: "Pluginmax 官方",
+        publisherInitial: "PM",
+        verified: true,
+        installs: "1.2k",
+        rating: "4.8",
+        updated: "3 天前",
+        preview: "exec",
+        color: "#48566b",
+        icon: "chart",
+        panels: [
+          { pluginId: "metrics", span: 6 },
+          { pluginId: "supply", span: 3 },
+          { pluginId: "people", span: 3 },
+          { pluginId: "workflow", span: 4 },
+          { pluginId: "budget", span: 2 },
+        ],
+        permissions: ["读取当前账号获准访问的组织与项目汇总", "管理员身份不会自动扩大业务数据权限"],
+      },
+    ];
+
+    const MARKET_PLUGIN_IDS = ["brief", "todo", "metrics", "workflow", "meeting", "supply", "people", "calendar", "radar", "budget"];
+
+    const RESOURCE_SKILLS = [
+      {
+        id: "skill-supplier-risk",
+        name: "供应商交期风险评估",
+        category: "供应链",
+        description: "结合订单、承诺日期和历史履约记录，输出风险等级、影响范围与处置建议。",
+        author: "Pluginmax 官方",
+        version: "v2.1.0",
+        installed: true,
+        color: "#f06d64",
+        icon: "alert",
+        usage: "1.2k 次调用",
+      },
+      {
+        id: "skill-cost-variance",
+        name: "采购价格差异分析",
+        category: "采购",
+        description: "对比目标价、合同价与实际结算价，识别异常差异并生成可追溯的解释。",
+        author: "Operations Guild",
+        version: "v1.8.3",
+        installed: true,
+        color: "#4fc4a8",
+        icon: "chart",
+        usage: "846 次调用",
+      },
+      {
+        id: "skill-8d-summary",
+        name: "8D 报告摘要",
+        category: "质量",
+        description: "读取质量报告并抽取根因、纠正措施、责任人和待确认证据。",
+        author: "Quality Lab",
+        version: "v1.4.0",
+        installed: false,
+        color: "#e1a94a",
+        icon: "shield",
+        usage: "532 次调用",
+      },
+      {
+        id: "skill-meeting-actions",
+        name: "会议行动项提取",
+        category: "协作",
+        description: "从会议记录中提取决策、负责人和截止时间，并映射为可追踪任务。",
+        author: "Pluginmax 官方",
+        version: "v3.0.1",
+        installed: true,
+        color: "#4f8ef7",
+        icon: "message",
+        usage: "2.4k 次调用",
+      },
+      {
+        id: "skill-change-impact",
+        name: "需求变更影响分析",
+        category: "项目",
+        description: "分析需求变化对范围、里程碑、资源和交付风险的影响，给出评审清单。",
+        author: "Delivery Lab",
+        version: "v1.2.4",
+        installed: false,
+        color: "#a48bff",
+        icon: "workflow",
+        usage: "391 次调用",
+      },
+      {
+        id: "skill-supplier-profile",
+        name: "供应商画像",
+        category: "供应链",
+        description: "汇总资质、绩效、集中度和外部风险，生成可复用的供应商尽调摘要。",
+        author: "Research Studio",
+        version: "v1.6.2",
+        installed: false,
+        color: "#677ff1",
+        icon: "box",
+        usage: "624 次调用",
+      },
+    ];
+
+    const RESOURCE_MCPS = [
+      {
+        id: "mcp-sap-mm",
+        name: "SAP MM 采购订单",
+        description: "查询采购订单、收货状态、供应商承诺日期和价格条件。",
+        protocol: "HTTP / OAuth 2.0",
+        tools: 8,
+        status: "connected",
+        color: "#4f8ef7",
+        icon: "box",
+        scope: "采购订单只读",
+      },
+      {
+        id: "mcp-feishu",
+        name: "飞书项目空间",
+        description: "读取项目群消息、任务、文档和会议纪要，并把结论回写项目。",
+        protocol: "SSE / App Token",
+        tools: 12,
+        status: "connected",
+        color: "#4fc4a8",
+        icon: "message",
+        scope: "项目消息读写",
+      },
+      {
+        id: "mcp-wecom",
+        name: "企业微信通讯录",
+        description: "按权限查询成员、组织关系和值班信息，用于会议与任务指派。",
+        protocol: "HTTP / OAuth 2.0",
+        tools: 5,
+        status: "pending",
+        color: "#3f9a72",
+        icon: "users",
+        scope: "通讯录只读",
+      },
+      {
+        id: "mcp-qcc",
+        name: "企查查企业风险",
+        description: "查询供应商工商、司法和经营异常信号，供风险评估 Skill 调用。",
+        protocol: "HTTP / API Key",
+        tools: 4,
+        status: "connected",
+        color: "#e1a94a",
+        icon: "radar",
+        scope: "公开企业信息",
+      },
+      {
+        id: "mcp-knowledge",
+        name: "内部知识库",
+        description: "检索企业制度、采购规范和项目复盘文档，返回带出处的证据片段。",
+        protocol: "HTTP / mTLS",
+        tools: 3,
+        status: "connected",
+        color: "#a48bff",
+        icon: "briefcase",
+        scope: "有权文档只读",
+      },
+      {
+        id: "mcp-github",
+        name: "GitHub 交付源",
+        description: "读取 Issue、Pull Request 和发布记录，用于上线工作台与交付追踪。",
+        protocol: "HTTP / OAuth",
+        tools: 7,
+        status: "off",
+        color: "#9aa4b1",
+        icon: "workflow",
+        scope: "指定仓库只读",
+      },
+    ];
+
+    const previewBlocks = {
+      supply: [[8, 43, "accent"], [4, 26, ""], [4, 26, ""], [5, 35, ""], [7, 35, "warn"], [4, 24, ""], [8, 24, "coral"]],
+      review: [[12, 31, ""], [6, 42, "accent"], [6, 42, "warn"], [6, 28, ""], [6, 28, "coral"]],
+      radar: [[8, 46, "accent"], [4, 46, ""], [6, 37, ""], [6, 37, "warn"]],
+      launch: [[8, 43, "accent"], [4, 26, ""], [4, 26, ""], [8, 39, "warn"], [4, 39, ""]],
+      people: [[8, 43, "accent"], [4, 43, ""], [6, 38, ""], [6, 38, "warn"]],
+      exec: [[12, 27, ""], [6, 35, "accent"], [6, 35, "coral"], [8, 31, ""], [4, 31, "warn"]],
+    };
+
+    function templatePreview(template, card = true) {
+      const blocks = previewBlocks[template.preview] || previewBlocks.supply;
+      return `
+        <div class="template-preview preview-${template.preview}" aria-hidden="true">
+          ${blocks.map(([span, height, tone]) => `
+            <span class="mini-block ${tone || ""}" style="--mspan:${span};height:${height}px">
+              <i></i><b></b>${card ? "<em></em>" : "<b></b>"}
+            </span>`).join("")}
+        </div>`;
+    }
+
+    function loadStoredState() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (parsed.version !== STORAGE_VERSION || !Array.isArray(parsed.workbenches) || !parsed.workbenches.length) return null;
+        const normalized = parsed.workbenches.filter((wb) => wb && typeof wb.id === "string" && Array.isArray(wb.panels));
+        if (!normalized.length) return null;
+        return {
+          workbenches: normalized.map((wb) => ({
+            ...wb,
+            name: String(wb.name || "未命名工作台").slice(0, 40),
+            panels: wb.panels.filter((panel) => PANELS[panel.pluginId]).map((panel) => ({
+              ...panel,
+              instanceId: panel.instanceId || `pi-${panel.pluginId}-${Math.random().toString(16).slice(2, 8)}`,
+              span: [1, 2, 3, 4, 5, 6].includes(Number(panel.span)) ? Number(panel.span) : PANELS[panel.pluginId].span,
+              title: typeof panel.title === "string" ? panel.title : "",
+              config: panel.config && typeof panel.config === "object" ? panel.config : {},
+            })),
+          })),
+          activeId: parsed.activeId,
+        };
+      } catch {
+        return null;
+      }
+    }
+
+    const stored = loadStoredState();
+    const state = {
+      workbenches: stored ? stored.workbenches : initialWorkbenches(),
+      activeId: stored?.activeId || "wb-supply",
+      edit: false,
+      editSnapshot: null,
+      history: [],
+      future: [],
+      selectedPanel: null,
+      editorTab: "library",
+      pluginSearch: "",
+      pluginCategory: "全部",
+      marketOpen: false,
+      resourceTab: "skill",
+      enabledSkills: RESOURCE_SKILLS.filter((skill) => skill.installed).map((skill) => skill.id),
+      connectedMcps: RESOURCE_MCPS.filter((mcp) => mcp.status === "connected").map((mcp) => mcp.id),
+      marketTab: "templates",
+      marketCategory: "全部",
+      marketSearch: "",
+      marketSelected: null,
+      pendingConfirm: null,
+      newStarter: "blank",
+      newVisibility: "private",
+    };
+    if (!state.workbenches.some((wb) => wb.id === state.activeId)) {
+      state.activeId = state.workbenches[0]?.id || null;
+    }
+
+    function activeWorkbench() {
+      return state.workbenches.find((wb) => wb.id === state.activeId) || state.workbenches[0];
+    }
+
+    function setMainView(view) {
+      const resourceOpen = view === "resource";
+      $("#dashboardView").hidden = resourceOpen;
+      $("#marketOverlay").hidden = !resourceOpen;
+      $("#workbenchNavRow")?.classList.toggle("active", !resourceOpen);
+      $("#resourceMarketNav")?.classList.toggle("active", resourceOpen);
+    }
+
+    function saveState() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+          version: STORAGE_VERSION,
+          activeId: state.activeId,
+          workbenches: state.workbenches,
+        }));
+      } catch {
+        toast("偏好未能保存", "浏览器存储不可用，本次演示仍可继续。", "error");
+      }
+    }
+
+    function visibilityLabel(visibility) {
+      return visibility === "team" ? "团队可见" : "仅自己";
+    }
+
+    function visibilityIcon(visibility) {
+      return visibility === "team" ? "users" : "lock";
+    }
+
+    function todayText() {
+      return new Intl.DateTimeFormat("zh-CN", {
+        month: "long",
+        day: "numeric",
+        weekday: "long",
+      }).format(new Date());
+    }
+
+    function pluginStyle(plugin) {
+      return `--plugin-color:${plugin.color};--plugin-bg:${plugin.bg}`;
+    }
+
+    function workbenchStyle(workbench) {
+      return `--wb-color:${workbench.color || "#3f6ef3"}`;
+    }
+
+    function toast(title, message = "", tone = "success") {
+      const stack = $("#toastStack");
+      const node = document.createElement("div");
+      node.className = `toast ${tone === "error" ? "error" : ""}`;
+      node.innerHTML = `
+        <span class="toast-icon">${icon(tone === "error" ? "alert" : "check", "i-sm")}</span>
+        <div><strong>${escapeHtml(title)}</strong>${message ? `<p>${escapeHtml(message)}</p>` : ""}</div>`;
+      stack.appendChild(node);
+      window.setTimeout(() => {
+        node.style.opacity = "0";
+        node.style.transform = "translateY(5px)";
+        node.style.transition = "opacity .18s ease, transform .18s ease";
+        window.setTimeout(() => node.remove(), 220);
+      }, 3300);
+    }
+
+    function renderSidebar() {
+      const current = activeWorkbench();
+      if (current) $(".workbench-nav-row")?.setAttribute("title", current.name);
+    }
+
+    function renderSwitcher() {
+      const current = activeWorkbench();
+      if (!current) return;
+      const sorted = [...state.workbenches].sort((a, b) => Number(b.favorite) - Number(a.favorite));
+      const favorites = sorted.filter((wb) => wb.favorite);
+      const others = sorted.filter((wb) => !wb.favorite);
+      const row = (wb) => `
+        <button class="switch-row ${wb.id === current.id ? "active" : ""}" type="button" data-action="switch-workbench" data-id="${escapeHtml(wb.id)}">
+          <span class="switch-row-icon" style="${workbenchStyle(wb)}">${icon(wb.icon || "layout", "i-sm")}</span>
+          <span class="switch-row-copy"><strong>${escapeHtml(wb.name)}</strong><small>${visibilityLabel(wb.visibility)} · ${wb.panels.length} 个插件 · ${escapeHtml(wb.updated || "刚刚")}</small></span>
+          ${wb.id === current.id ? `<svg class="i i-sm switch-check"><use href="#i-check"></use></svg>` : ""}
+        </button>`;
+      $("#popoverCount").textContent = `${state.workbenches.length} 个工作台`;
+      $("#switcherList").innerHTML = `
+        ${favorites.length ? '<div class="popover-group-label">常用</div>' : ""}
+        ${favorites.map(row).join("")}
+        ${others.length ? '<div class="popover-group-label">其他工作台</div>' : ""}
+        ${others.map(row).join("")}`;
+    }
+
+    function renderCurrentWorkbench() {
+      const current = activeWorkbench();
+      if (!current) return;
+      document.documentElement.style.setProperty("--wb-color", current.color || "#3f6ef3");
+      $("#triggerName").textContent = current.name;
+      $("#pageTitle").textContent = current.name;
+      $("#pageDescription").textContent = current.description || "按自己的工作方式组合今天的入口。";
+      $("#todayLabel").textContent = todayText();
+      $("#pageMeta").innerHTML = `
+        <span class="meta-chip">${icon("panel", "i-sm")}${current.panels.length} 个插件</span>
+        <span class="meta-chip">${icon(visibilityIcon(current.visibility), "i-sm")}${visibilityLabel(current.visibility)}</span>
+        <span class="meta-chip">${icon("clock", "i-sm")}更新于 ${escapeHtml(current.updated || "刚刚")}</span>`;
+      $("#workbenchGrid").innerHTML = current.panels.map(renderPanel).join("");
+      $("#workbenchGrid").hidden = current.panels.length === 0;
+      $("#emptyWorkbench").classList.toggle("visible", current.panels.length === 0);
+      $$(".panel-card").forEach((card) => {
+        card.style.setProperty("--span", card.dataset.span || "6");
+      });
+    }
+
+    function renderPanel(panel) {
+      const plugin = PANELS[panel.pluginId];
+      if (!plugin) {
+        return `
+          <article class="panel-card" data-panel-id="${escapeHtml(panel.instanceId)}" data-plugin="unknown" data-span="${panel.span || 6}" style="--span:${panel.span || 6}">
+            <header class="panel-head"><div class="plugin-icon">${icon("alert", "i-sm")}</div><div class="panel-title-copy"><strong>能力不可用</strong><small>插件未安装或已禁用</small></div></header>
+            <div class="panel-body"><div class="permission-box"><strong>${icon("info", "i-sm")}无法加载面板</strong><span>该工作台引用了当前环境不可用的插件。移除面板不会影响其他布局。</span></div></div>
+          </article>`;
+      }
+      const selected = state.edit && state.selectedPanel === panel.instanceId;
+      return `
+        <article class="panel-card ${selected ? "selected" : ""}" data-panel-id="${escapeHtml(panel.instanceId)}" data-plugin="${escapeHtml(panel.pluginId)}" data-span="${panel.span}" style="--span:${panel.span}" draggable="${state.edit}">
+          <header class="panel-head">
+            <span class="drag-handle" title="拖动排序">${icon("grip", "i-sm")}</span>
+            <div class="panel-title-wrap">
+              <div class="plugin-icon" style="${pluginStyle(plugin)}">${icon(plugin.icon, "i-sm")}</div>
+              <div class="panel-title-copy"><strong>${escapeHtml(panel.title || plugin.name)}</strong><small>${escapeHtml(plugin.subtitle)}</small></div>
+            </div>
+            <div class="panel-tools">
+              <button class="panel-tool" type="button" data-action="refresh-panel" data-id="${escapeHtml(panel.instanceId)}" aria-label="刷新${escapeHtml(plugin.name)}" title="刷新">${icon("refresh", "i-sm")}</button>
+              <button class="panel-tool" type="button" data-action="panel-settings" data-id="${escapeHtml(panel.instanceId)}" aria-label="配置${escapeHtml(plugin.name)}" title="配置面板">${icon("more", "i-sm")}</button>
+            </div>
+          </header>
+          <div class="panel-body">${panelBody(panel.pluginId)}</div>
+        </article>`;
+    }
+
+    function panelBody(pluginId) {
+      if (pluginId === "brief") {
+        return `
+          <div class="brief-layout">
+            <div class="brief-highlight">
+              <div class="brief-kicker"><span class="ai-badge">${icon("sparkles", "i-sm")}AI 摘要</span><span class="brief-time">08:30 生成 · 覆盖 3 个工作区</span></div>
+              <h3>今天有 3 件事会影响交付承诺</h3>
+              <p>华南仓的物料缺口已经影响到两个订单；同时，客户验收窗口提前到明天下午。</p>
+              <div class="insight-list">
+                <button class="insight-row" type="button" data-action="demo-link"><span class="tag red">风险</span><span class="insight-copy"><b>关键连接器缺料 1,200 件</b><span>预计阻断 10 月 30 日交付 · 建议立即锁定替代产能</span></span>${icon("chevron-right", "i-sm")}</button>
+                <button class="insight-row" type="button" data-action="demo-link"><span class="tag amber">待决策</span><span class="insight-copy"><b>客户要求提前 24 小时验收</b><span>需在 14:00 前确认测试窗口与责任人</span></span>${icon("chevron-right", "i-sm")}</button>
+                <button class="insight-row" type="button" data-action="demo-link"><span class="tag green">进展</span><span class="insight-copy"><b>供应商 B 已接受加急排产</b><span>新增 800 件，10 月 31 日到仓</span></span>${icon("chevron-right", "i-sm")}</button>
+              </div>
+            </div>
+            <div class="brief-side">
+              <div class="side-title"><span>需要你判断</span><span class="tag amber">1 项</span></div>
+              <div class="decision-card">
+                <strong>是否接受客户提前验收？</strong>
+                <p>AI 建议：接受，但将范围限制在核心 3 个流程。测试资源可在 14:00 前释放。</p>
+                <div class="decision-actions"><button class="mini-btn primary" type="button" data-action="demo-link">查看建议</button><button class="mini-btn" type="button" data-action="demo-link">打开任务</button></div>
+              </div>
+              <div class="brief-source">${icon("shield", "i-sm")}仅聚合你有权限查看的内容</div>
+            </div>
+          </div>`;
+      }
+      if (pluginId === "todo") {
+        return `
+          <div class="list-stack">
+            ${[
+              ["P0", "确认连接器替代供应商的质检窗口", "10:30 前", "供应风险"],
+              ["P1", "回复客户提前验收的最终范围", "今天", "项目上线"],
+              ["P1", "验收采购价格达成分析", "今天", "经营复盘"],
+              ["P2", "补齐下周供应商例会材料", "明天", "常规任务"],
+            ].map(([priority, title, due, source], index) => `
+              <div class="task-row" data-task-row>
+                <button class="task-check" type="button" data-action="task-toggle" aria-label="完成任务">${icon("check", "i-sm")}</button>
+                <div class="task-copy"><strong>${title}</strong><div class="task-meta"><span>${source}</span><span class="dot-sep"></span><span>${due}</span></div></div>
+                <span class="priority">${priority}</span>
+              </div>`).join("")}
+          </div>
+          <button class="panel-footer-link" type="button" data-action="demo-link"><span>查看全部 12 项待办</span>${icon("arrow-right", "i-sm")}</button>`;
+      }
+      if (pluginId === "focus") {
+        return `
+          <div class="list-stack">
+            <div class="task-row"><span class="task-check" style="color:var(--amber);border-color:#efd6a8;background:var(--amber-soft)">${icon("star", "i-sm")}</span><div class="task-copy"><strong>华南仓缺料处置闭环</strong><div class="task-meta"><span>工作流 WF-197</span><span class="dot-sep"></span><span>等待客户确认</span></div></div><span class="tag amber">关注</span></div>
+            <div class="task-row"><span class="task-check" style="color:var(--amber);border-color:#efd6a8;background:var(--amber-soft)">${icon("star", "i-sm")}</span><div class="task-copy"><strong>供应商 B 产能恢复计划</strong><div class="task-meta"><span>任务 TSK-1031</span><span class="dot-sep"></span><span>今天更新</span></div></div><span class="tag blue">进行中</span></div>
+            <div class="task-row"><span class="task-check" style="color:var(--amber);border-color:#efd6a8;background:var(--amber-soft)">${icon("star", "i-sm")}</span><div class="task-copy"><strong>Q4 采购价格达成复盘</strong><div class="task-meta"><span>任务 TSK-1027</span><span class="dot-sep"></span><span>下周一截止</span></div></div><span class="tag green">顺利</span></div>
+          </div>`;
+      }
+      if (pluginId === "metrics") {
+        const metrics = [
+          ["OTIF", "96.4", "%", "up", "+1.8%", 86, "good"],
+          ["库存天数", "18.2", "天", "down", "-1.4", 64, ""],
+          ["准时交付", "93.7", "%", "down", "-0.9%", 72, "warn"],
+          ["风险指数", "2.6", "", "up", "+0.3", 58, "warn"],
+        ];
+        return `<div class="metric-grid">${metrics.map(([label, value, unit, trend, change, width, tone]) => `
+          <div class="metric-tile">
+            <div class="metric-label"><span>${label}</span><span class="trend ${trend}">${change}</span></div>
+            <div class="metric-value">${value}<small>${unit}</small></div>
+            <div class="metric-track"><span class="${tone}" style="width:${width}%"></span></div>
+          </div>`).join("")}</div>
+          <button class="panel-footer-link" type="button" data-action="demo-link"><span>查看指标与口径</span>${icon("arrow-right", "i-sm")}</button>`;
+      }
+      if (pluginId === "workflow") {
+        return `
+          <div class="flow-list">
+            ${[
+              ["blue", "华南仓缺料处置", "已到替代产能确认 · 预计 14:00 完成", "进行中 · 67%", 67],
+              ["amber", "客户提前验收准备", "等待测试窗口确认", "等待 · 42%", 42],
+              ["red", "供应商 B 质量复核", "缺少 8D 报告，已阻塞 6 小时", "阻塞 · 28%", 28],
+              ["blue", "Q4 价格达成复盘", "合同差异项由采购复核", "进行中 · 81%", 81],
+            ].map(([tone, title, meta, stateText, progress]) => `
+              <div class="flow-row">
+                <span class="flow-dot ${tone}"></span>
+                <div class="flow-copy"><strong>${title}</strong><small>${meta}</small></div>
+                <span class="flow-state">${stateText}</span>
+                <span class="flow-progress"><span style="width:${progress}%"></span></span>
+              </div>`).join("")}
+          </div>
+          <button class="panel-footer-link" type="button" data-action="demo-link"><span>打开全部工作流</span>${icon("arrow-right", "i-sm")}</button>`;
+      }
+      if (pluginId === "meeting") {
+        return `
+          <div class="meeting-summary">
+            <h4>供应商协同会 · 核心结论</h4>
+            <p>供应商 B 接受 800 件加急排产，但要求今天 16:00 前确认质量复核责任人。</p>
+            <div class="decision-list">
+              <div class="decision-line"><span class="tag green">已确认</span><span>加急排产与到仓窗口</span></div>
+              <div class="decision-line"><span class="tag amber">待确认</span><span>8D 报告与复核责任人</span></div>
+              <div class="decision-line"><span class="tag blue">下一步</span><span>14:30 前同步客户验收范围</span></div>
+            </div>
+          </div>
+          <button class="panel-footer-link" type="button" data-action="demo-link"><span>查看完整纪要与参会人</span>${icon("arrow-right", "i-sm")}</button>`;
+      }
+      if (pluginId === "supply") {
+        return `
+          <div class="risk-table">
+            <div class="risk-row" style="min-height:29px;background:var(--surface-soft);color:var(--faint);font-size:9px"><span>风险与影响</span><span>承诺</span><span>Owner</span><span>等级</span></div>
+            ${[
+              ["关键连接器缺料", "华南仓 · 影响 2 个订单", "10/30", "采购 · 林然", "高", 88, "high"],
+              ["供应商 B 质量复核", "缺少 8D 报告 · 已阻塞", "10/29", "质量 · 周擎", "高", 82, "high"],
+              ["替代产能价格上浮", "预计增加 3.6% 采购成本", "10/31", "采购 · 陈曦", "中", 58, ""],
+              ["海外物流舱位收紧", "影响 1 批补货 · 可改空运", "11/02", "物流 · 王桐", "关注", 32, ""],
+            ].map(([title, meta, date, owner, level, score, tone]) => `
+              <div class="risk-row">
+                <span><strong>${title}</strong><small>${meta}</small></span>
+                <span class="flow-state">${date}</span>
+                <span class="owner"><span class="owner-avatar">${owner.split("·")[1]?.trim().slice(0,1) || "R"}</span>${owner.split("·")[0]}</span>
+                <span class="tag ${tone === "high" ? "red" : level === "中" ? "amber" : "blue"}">${level}</span>
+              </div>`).join("")}
+          </div>
+          <button class="panel-footer-link" type="button" data-action="demo-link"><span>打开供应风险工作区</span>${icon("arrow-right", "i-sm")}</button>`;
+      }
+      if (pluginId === "people") {
+        return `
+          <div class="load-list">
+            ${[
+              ["YL", "杨林", "采购负责人", 84, "warn", false],
+              ["ZQ", "周擎", "质量工程师", 92, "warn", false],
+              ["AI", "Research Avatar", "AI 研究伙伴", 61, "", true],
+              ["WT", "王桐", "物流计划", 47, "", false],
+            ].map(([initials, name, role, value, tone, ai]) => `
+              <div class="load-person">
+                <span class="person-avatar ${ai ? "ai" : ""}">${initials}</span>
+                <div class="load-copy"><strong>${name} <span style="color:var(--faint);font-weight:400">· ${role}</span></strong><div class="load-track"><span class="${tone}" style="width:${value}%"></span></div></div>
+                <span class="load-value">${value}%</span>
+              </div>`).join("")}
+          </div>
+          <button class="panel-footer-link" type="button" data-action="demo-link"><span>查看资源与瓶颈</span>${icon("arrow-right", "i-sm")}</button>`;
+      }
+      if (pluginId === "calendar") {
+        return `
+          <div class="schedule-list">
+            ${[
+              ["09:30", "供应商协同会", "4 人 · 已生成纪要", "会议"],
+              ["11:00", "客户验收范围确认", "决策窗口 · 45 分钟", "关键"],
+              ["14:30", "替代产能质检验收", "与供应商 B 联合评审", "任务"],
+              ["16:00", "专注时段", "关闭消息提醒", "专注"],
+            ].map(([time, title, meta, kind]) => `
+              <div class="schedule-row">
+                <span class="schedule-time">${time}</span>
+                <span class="schedule-copy"><strong>${title}</strong><small>${meta}</small></span>
+                <span class="tag ${kind === "关键" ? "amber" : kind === "会议" ? "blue" : "green"}">${kind}</span>
+              </div>`).join("")}
+          </div>`;
+      }
+      if (pluginId === "radar") {
+        return `
+          <div class="signal-list">
+            <div class="signal"><div class="signal-head"><strong>连接器现货价格连续两周上行</strong><span class="tag amber">中影响</span></div><p>与你负责的 3 个物料直接相关，建议在周五询价前更新目标价。</p></div>
+            <div class="signal"><div class="signal-head"><strong>区域仓新增临时运力政策</strong><span class="tag green">机会</span></div><p>可能降低 10 月底补货的空运成本，需物流团队确认适用条件。</p></div>
+            <div class="signal"><div class="signal-head"><strong>竞品发布新品交付周期承诺</strong><span class="tag blue">竞品</span></div><p>交付承诺从 14 天缩短至 10 天，可能影响重点客户的比较标准。</p></div>
+          </div>`;
+      }
+      if (pluginId === "budget") {
+        return `
+          <div class="metric-grid">
+            <div class="metric-tile"><div class="metric-label"><span>预算使用</span><span>68%</span></div><div class="metric-value">1.36<small>M</small></div><div class="metric-track"><span style="width:68%"></span></div></div>
+            <div class="metric-tile"><div class="metric-label"><span>价格达成</span><span class="trend up">+1.2%</span></div><div class="metric-value">97.8<small>%</small></div><div class="metric-track"><span class="good" style="width:82%"></span></div></div>
+          </div>
+          <div class="permission-box" style="margin-top:9px"><strong>${icon("alert", "i-sm")}异常支出需要解释</strong><span>替代产能空运费用较计划高 3.6%，已关联到“关键连接器缺料”风险。</span></div>`;
+      }
+      return `<div class="permission-box"><strong>${icon("info", "i-sm")}暂无预览</strong><span>该插件的演示内容尚未配置。</span></div>`;
+    }
+
+    function renderEditor() {
+      const content = $("#editorContent");
+      if (!state.edit) {
+        content.innerHTML = "";
+        return;
+      }
+      $$(".editor-tab").forEach((tab) => {
+        tab.classList.toggle("active", tab.dataset.tab === state.editorTab);
+      });
+      if (state.editorTab === "settings") {
+        renderPanelSettings();
+      } else {
+        renderPluginLibrary();
+      }
+    }
+
+    function renderPluginLibrary() {
+      const categories = ["全部", ...new Set(Object.values(PANELS).map((plugin) => plugin.category))];
+      const query = state.pluginSearch.trim().toLowerCase();
+      const current = activeWorkbench();
+      const existing = new Set(current.panels.map((panel) => panel.pluginId));
+      const plugins = Object.entries(PANELS).filter(([, plugin]) => {
+        const matchesCategory = state.pluginCategory === "全部" || plugin.category === state.pluginCategory;
+        const matchesQuery = !query || plugin.name.toLowerCase().includes(query) || plugin.description.toLowerCase().includes(query);
+        return matchesCategory && matchesQuery;
+      });
+      $("#editorContent").innerHTML = `
+        <label class="search-field">${icon("search")}<span class="sr-only">搜索插件</span><input id="pluginSearch" type="search" value="${escapeHtml(state.pluginSearch)}" placeholder="搜索已安装插件" autocomplete="off"></label>
+        <div class="category-row">${categories.map((category) => `<button class="category-chip ${category === state.pluginCategory ? "active" : ""}" type="button" data-action="plugin-category" data-category="${escapeHtml(category)}">${escapeHtml(category)}</button>`).join("")}</div>
+        <div class="plugin-list">
+          ${plugins.length ? plugins.map(([id, plugin]) => {
+            const added = existing.has(id);
+            return `
+              <div class="plugin-row">
+                <span class="plugin-icon" style="${pluginStyle(plugin)}">${icon(plugin.icon, "i-sm")}</span>
+                <span class="plugin-row-copy"><strong>${escapeHtml(plugin.name)}</strong><small>${escapeHtml(plugin.category)} · ${escapeHtml(plugin.description)}</small></span>
+                <button class="plugin-add ${added ? "added" : ""}" type="button" data-action="add-panel" data-plugin-id="${id}" ${added ? "disabled" : ""}>${added ? "已添加" : "添加"}</button>
+              </div>`;
+          }).join("") : `<div class="settings-empty">${icon("search")}<p>没有匹配的插件。</p></div>`}
+        </div>`;
+    }
+
+    function renderPanelSettings() {
+      const current = activeWorkbench();
+      const panel = current.panels.find((item) => item.instanceId === state.selectedPanel);
+      if (!panel) {
+        $("#editorContent").innerHTML = `<div class="settings-empty">${icon("panel")}<p>在工作台中选择一个面板，再调整它的标题和宽度。</p></div>`;
+        return;
+      }
+      const plugin = PANELS[panel.pluginId];
+      const widths = [1, 2, 3, 4, 5, 6];
+      $("#editorContent").innerHTML = `
+        <div class="settings-card">
+          <h3>${escapeHtml(plugin.name)}</h3>
+          <div class="field"><label for="panelTitleInput">面板标题</label><input class="input" id="panelTitleInput" value="${escapeHtml(panel.title || plugin.name)}" maxlength="30"></div>
+          <div class="field"><span class="field-label">面板宽度</span><div class="width-options">${widths.map((width) => `<button class="width-option ${Number(panel.span) === width ? "active" : ""}" type="button" data-action="panel-width" data-width="${width}">${width}/6</button>`).join("")}</div></div>
+        </div>
+        <div class="settings-card">
+          <h3>插件信息</h3>
+          <div class="detail-panel-row"><span style="${pluginStyle(plugin)}" class="plugin-icon">${icon(plugin.icon, "i-sm")}</span><span>${escapeHtml(plugin.description)}</span></div>
+          <p style="margin:8px 0 0;color:var(--faint);font-size:9.5px;line-height:1.55">插件版本 1.4.2 · 数据权限沿用当前账号，不因添加到工作台而变化。</p>
+        </div>
+        <div class="settings-card">
+          <h3>危险操作</h3>
+          <button class="danger-link" type="button" data-action="remove-panel" data-id="${escapeHtml(panel.instanceId)}">从工作台移除这个面板</button>
+        </div>`;
+    }
+
+    function renderAll() {
+      document.body.classList.toggle("editing", state.edit);
+      const editButton = $("#editButton");
+      editButton.innerHTML = state.edit
+        ? `${icon("check", "i-sm")}<span>保存布局</span>`
+        : `${icon("pencil", "i-sm")}<span>编辑布局</span>`;
+      renderSidebar();
+      renderSwitcher();
+      renderCurrentWorkbench();
+      renderEditor();
+      renderResourceMarket();
+      setMainView(state.marketOpen ? "resource" : "workbench");
+    }
+
+    function setSwitcher(open, anchor = $("#workbenchTrigger")) {
+      $("#workbenchPopover").hidden = !open;
+      $("#workbenchTrigger").setAttribute("aria-expanded", String(open));
+      $("#scrim").hidden = true;
+      if (open && anchor) {
+        const popover = $("#workbenchPopover");
+        const rect = anchor.getBoundingClientRect();
+        const width = Math.min(390, window.innerWidth - 24);
+        popover.style.width = `${width}px`;
+        popover.style.left = `${Math.max(12, Math.min(rect.right + 8, window.innerWidth - width - 12))}px`;
+        popover.style.top = `${Math.max(12, Math.min(rect.top, window.innerHeight - 160))}px`;
+      }
+    }
+
+    function pushHistory() {
+      if (!state.edit) return;
+      state.history.push(clone(activeWorkbench().panels));
+      if (state.history.length > 20) state.history.shift();
+      state.future = [];
+    }
+
+    function startEdit() {
+      if (state.edit) return;
+      state.edit = true;
+      state.editSnapshot = clone(activeWorkbench().panels);
+      state.history = [];
+      state.future = [];
+      state.selectedPanel = null;
+      state.editorTab = "library";
+      state.pluginSearch = "";
+      state.pluginCategory = "全部";
+      setSwitcher(false);
+      renderAll();
+    }
+
+    function cancelEdit(showMessage = true) {
+      if (!state.edit) return;
+      const current = activeWorkbench();
+      if (state.editSnapshot) current.panels = clone(state.editSnapshot);
+      state.edit = false;
+      state.editSnapshot = null;
+      state.history = [];
+      state.future = [];
+      state.selectedPanel = null;
+      renderAll();
+      if (showMessage) toast("已取消编辑", "工作台已恢复为进入编辑前的状态。");
+    }
+
+    function saveEdit() {
+      if (!state.edit) return;
+      const current = activeWorkbench();
+      current.updated = "刚刚";
+      state.edit = false;
+      state.editSnapshot = null;
+      state.history = [];
+      state.future = [];
+      state.selectedPanel = null;
+      saveState();
+      renderAll();
+      toast("布局已保存", "下次切换或刷新后会恢复这张工作台。");
+    }
+
+    function undoEdit() {
+      if (!state.history.length) {
+        toast("没有可撤销的操作", "继续调整后可通过撤销回退。", "error");
+        return;
+      }
+      state.future.push(clone(activeWorkbench().panels));
+      activeWorkbench().panels = state.history.pop();
+      if (!activeWorkbench().panels.some((panel) => panel.instanceId === state.selectedPanel)) {
+        state.selectedPanel = null;
+      }
+      renderAll();
+    }
+
+    function redoEdit() {
+      if (!state.future.length) {
+        toast("没有可重做的操作", "先撤销一次调整，再尝试重做。", "error");
+        return;
+      }
+      state.history.push(clone(activeWorkbench().panels));
+      activeWorkbench().panels = state.future.pop();
+      if (!activeWorkbench().panels.some((panel) => panel.instanceId === state.selectedPanel)) {
+        state.selectedPanel = null;
+      }
+      renderAll();
+    }
+
+    function addPanel(pluginId) {
+      if (!PANELS[pluginId]) return;
+      if (!state.edit) startEdit();
+      const current = activeWorkbench();
+      if (current.panels.some((panel) => panel.pluginId === pluginId)) {
+        toast("这个插件已经添加", "同一个工作台暂不演示多实例。", "error");
+        return;
+      }
+      pushHistory();
+      const panel = makePanel(pluginId, PANELS[pluginId].span);
+      current.panels.push(panel);
+      state.selectedPanel = panel.instanceId;
+      state.editorTab = "settings";
+      renderAll();
+      toast("已添加面板", `${PANELS[pluginId].name}已出现在工作台底部。`);
+    }
+
+    function removePanel(instanceId) {
+      const current = activeWorkbench();
+      const panel = current.panels.find((item) => item.instanceId === instanceId);
+      if (!panel) return;
+      const plugin = PANELS[panel.pluginId];
+      openConfirm(
+        `从当前工作台移除“${plugin.name}”？只删除这个面板实例，不会卸载插件。`,
+        () => {
+          pushHistory();
+          activeWorkbench().panels = activeWorkbench().panels.filter((item) => item.instanceId !== instanceId);
+          state.selectedPanel = null;
+          state.editorTab = "library";
+          renderAll();
+          toast("面板已移除", "点击“保存布局”后生效。");
+        },
+        "移除面板",
+      );
+    }
+
+    function changePanelWidth(width) {
+      const panel = activeWorkbench().panels.find((item) => item.instanceId === state.selectedPanel);
+      if (!panel || Number(panel.span) === Number(width)) return;
+      pushHistory();
+      panel.span = Number(width);
+      renderAll();
+    }
+
+    function doSwitchWorkbench(id) {
+      if (!state.workbenches.some((wb) => wb.id === id)) return;
+      if (id === state.activeId) {
+        setSwitcher(false);
+        return;
+      }
+      state.edit = false;
+      state.editSnapshot = null;
+      state.history = [];
+      state.future = [];
+      state.selectedPanel = null;
+      if (state.marketOpen) closeMarket();
+      state.activeId = id;
+      const current = activeWorkbench();
+      current.updated = "刚刚";
+      saveState();
+      setSwitcher(false);
+      document.body.classList.remove("sidebar-open");
+      renderAll();
+      toast("已切换工作台", `${current.name}的面板与布局已恢复。`);
+    }
+
+    function switchWorkbench(id) {
+      if (state.edit) {
+        openConfirm("当前工作台有未保存的布局修改。切换后这些修改会丢失，是否继续？", () => {
+          doSwitchWorkbench(id);
+        }, "放弃并切换");
+        return;
+      }
+      doSwitchWorkbench(id);
+    }
+
+    function uniqueWorkbenchName(base) {
+      const clean = String(base || "未命名工作台").trim().slice(0, 40) || "未命名工作台";
+      if (!state.workbenches.some((wb) => wb.name === clean)) return clean;
+      let index = 2;
+      while (state.workbenches.some((wb) => wb.name === `${clean} ${index}`)) index += 1;
+      return `${clean} ${index}`;
+    }
+
+    function showModal(content, wide = false) {
+      const layer = $("#modalLayer");
+      layer.hidden = false;
+      layer.innerHTML = `<div class="modal-card ${wide ? "wide" : ""}" role="document">${content}</div>`;
+    }
+
+    function closeModal() {
+      const layer = $("#modalLayer");
+      layer.hidden = true;
+      layer.innerHTML = "";
+      state.pendingConfirm = null;
+    }
+
+    function openConfirm(message, callback, confirmLabel = "确认") {
+      state.pendingConfirm = callback;
+      showModal(`
+        <div class="modal-head">
+          <div><h2 id="modalTitle">请确认操作</h2><p>该操作会影响当前工作台或工作台配置。</p></div>
+          <button class="icon-btn plain" type="button" data-action="close-modal" aria-label="关闭">${icon("x")}</button>
+        </div>
+        <div class="modal-content"><p class="confirm-copy">${escapeHtml(message)}</p></div>
+        <div class="modal-foot">
+          <button class="btn" type="button" data-action="close-modal">取消</button>
+          <button class="btn danger" type="button" data-action="confirm-ok">${escapeHtml(confirmLabel)}</button>
+        </div>`);
+    }
+
+    function openNewWorkbench(starter = "blank") {
+      setSwitcher(false);
+      closeMarket();
+      state.newStarter = starter;
+      state.newVisibility = "private";
+      showModal(`
+        <div class="modal-head">
+          <div><h2 id="modalTitle">新建工作台</h2><p>先选择起点，创建后仍可以继续调整。</p></div>
+          <button class="icon-btn plain" type="button" data-action="close-modal" aria-label="关闭">${icon("x")}</button>
+        </div>
+        <div class="modal-content">
+          <div class="form-grid">
+            <label class="field wide"><span class="field-label">工作台名称</span><input class="input" id="newWorkbenchName" maxlength="40" placeholder="例如：供应商质量周会"></label>
+            <div class="field wide">
+              <span class="field-label">选择起点</span>
+              <div class="starter-grid">
+                <button class="starter-card ${starter === "blank" ? "selected" : ""}" type="button" data-action="new-starter" data-starter="blank">
+                  <span class="starter-icon">${icon("panel", "i-sm")}</span><strong>空白工作台</strong><small>从插件库开始，完全按自己的方式组合。</small>
+                </button>
+                <button class="starter-card ${starter === "copy" ? "selected" : ""}" type="button" data-action="new-starter" data-starter="copy">
+                  <span class="starter-icon">${icon("copy", "i-sm")}</span><strong>复制当前</strong><small>保留当前布局与面板，作为另一套工作方式。</small>
+                </button>
+                <button class="starter-card ${starter === "template" ? "selected" : ""}" type="button" data-action="new-starter" data-starter="template">
+                  <span class="starter-icon">${icon("store", "i-sm")}</span><strong>经营周复盘</strong><small>复制市场方案，一次带入完整布局。</small>
+                </button>
+              </div>
+            </div>
+            <div class="field wide">
+              <span class="field-label">可见范围</span>
+              <div class="segmented">
+                <button class="active" type="button" data-action="new-visibility" data-visibility="private">${icon("lock", "i-sm")} 仅自己</button>
+                <button type="button" data-action="new-visibility" data-visibility="team">${icon("users", "i-sm")} 团队可见</button>
+              </div>
+              <p style="margin:6px 0 0;color:var(--faint);font-size:9.5px;line-height:1.55">可见范围只决定谁能打开工作台，不会改变任务、会议和指标的数据权限。</p>
+            </div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn" type="button" data-action="close-modal">取消</button>
+          <button class="btn primary" type="button" data-action="create-workbench">${icon("plus", "i-sm")}创建工作台</button>
+        </div>`);
+      window.setTimeout(() => $("#newWorkbenchName")?.focus(), 30);
+    }
+
+    function createWorkbenchFromModal() {
+      const input = $("#newWorkbenchName");
+      const rawName = input?.value.trim() || "";
+      if (!rawName) {
+        input?.focus();
+        toast("请填写工作台名称", "名称最多 40 个字符。", "error");
+        return;
+      }
+      let panels = [];
+      let color = "#3f6ef3";
+      let iconName = "layout";
+      let description = "一张按自己的工作方式组合出来的工作台。";
+      if (state.newStarter === "copy") {
+        const source = activeWorkbench();
+        panels = source.panels.map((panel) => makePanel(panel.pluginId, panel.span));
+        color = source.color;
+        iconName = source.icon;
+        description = `复制自“${source.name}”。`;
+      } else if (state.newStarter === "template") {
+        const template = MARKET_TEMPLATES.find((item) => item.id === "tpl-review");
+        panels = template.panels.map((panel) => makePanel(panel.pluginId, panel.span));
+        color = template.color;
+        iconName = template.icon;
+        description = template.description;
+      }
+      const name = uniqueWorkbenchName(rawName);
+      const newWorkbench = {
+        id: `wb-${Date.now()}`,
+        name,
+        description,
+        icon: iconName,
+        color,
+        visibility: state.newVisibility,
+        favorite: false,
+        updated: "刚刚",
+        panels,
+      };
+      state.workbenches.push(newWorkbench);
+      state.activeId = newWorkbench.id;
+      state.edit = false;
+      state.editSnapshot = null;
+      state.history = [];
+      state.future = [];
+      state.selectedPanel = null;
+      saveState();
+      closeModal();
+      renderAll();
+      toast("工作台已创建", name === rawName ? "现在可以继续添加插件。" : `重名已自动处理为“${name}”。`);
+      if (!panels.length) startEdit();
+    }
+
+    function showManagerModal() {
+      const sorted = [...state.workbenches].sort((a, b) => Number(b.favorite) - Number(a.favorite));
+      showModal(`
+        <div class="modal-head">
+          <div><h2 id="modalTitle">管理工作台</h2><p>${state.workbenches.length} 个工作台，重命名和排序只影响你自己。</p></div>
+          <button class="icon-btn plain" type="button" data-action="close-modal" aria-label="关闭">${icon("x")}</button>
+        </div>
+        <div class="modal-content">
+          <div class="manager-list">
+            ${sorted.map((wb) => `
+              <div class="manager-row">
+                <span class="wb-nav-icon" style="${workbenchStyle(wb)}">${icon(wb.icon || "layout", "i-sm")}</span>
+                <div class="manager-copy"><strong>${escapeHtml(wb.name)} ${wb.id === state.activeId ? '<span class="tag blue">当前</span>' : ""}</strong><small>${visibilityLabel(wb.visibility)} · ${wb.panels.length} 个插件 · ${escapeHtml(wb.updated || "刚刚")}</small></div>
+                <div class="manager-actions">
+                  <button class="icon-btn plain" type="button" data-action="manager-rename" data-id="${escapeHtml(wb.id)}" title="重命名" aria-label="重命名">${icon("pencil", "i-sm")}</button>
+                  <button class="icon-btn plain" type="button" data-action="manager-favorite" data-id="${escapeHtml(wb.id)}" title="${wb.favorite ? "取消常用" : "设为常用"}" aria-label="${wb.favorite ? "取消常用" : "设为常用"}">${icon("star", "i-sm")}</button>
+                  <button class="icon-btn plain" type="button" data-action="manager-duplicate" data-id="${escapeHtml(wb.id)}" title="复制" aria-label="复制">${icon("copy", "i-sm")}</button>
+                  <button class="icon-btn plain" type="button" data-action="manager-delete" data-id="${escapeHtml(wb.id)}" title="删除" aria-label="删除">${icon("trash", "i-sm")}</button>
+                </div>
+              </div>`).join("")}
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn" type="button" data-action="close-modal">关闭</button>
+          <button class="btn primary" type="button" data-action="new-workbench">${icon("plus", "i-sm")}新建工作台</button>
+        </div>`, true);
+    }
+
+    function openManager() {
+      setSwitcher(false);
+      if (state.marketOpen) closeMarket();
+      showManagerModal();
+    }
+
+    function openRenameModal(id) {
+      const wb = state.workbenches.find((item) => item.id === id);
+      if (!wb) return;
+      showModal(`
+        <div class="modal-head">
+          <div><h2 id="modalTitle">重命名工作台</h2><p>名称会出现在切换器和侧栏中。</p></div>
+          <button class="icon-btn plain" type="button" data-action="close-modal" aria-label="关闭">${icon("x")}</button>
+        </div>
+        <div class="modal-content"><label class="field"><span class="field-label">工作台名称</span><input class="input" id="renameInput" maxlength="40" value="${escapeHtml(wb.name)}"></label></div>
+        <div class="modal-foot">
+          <button class="btn" type="button" data-action="open-manager">返回</button>
+          <button class="btn primary" type="button" data-action="rename-confirm" data-id="${escapeHtml(id)}">保存名称</button>
+        </div>`);
+      window.setTimeout(() => {
+        const input = $("#renameInput");
+        input?.focus();
+        input?.select();
+      }, 30);
+    }
+
+    function renameWorkbench(id) {
+      const wb = state.workbenches.find((item) => item.id === id);
+      const input = $("#renameInput");
+      const name = input?.value.trim();
+      if (!wb) return;
+      if (!name) {
+        input?.focus();
+        toast("名称不能为空", "请输入 1 到 40 个字符。", "error");
+        return;
+      }
+      wb.name = name.slice(0, 40);
+      wb.updated = "刚刚";
+      saveState();
+      renderAll();
+      showManagerModal();
+      toast("名称已更新", wb.name);
+    }
+
+    function duplicateWorkbench(id) {
+      const source = state.workbenches.find((wb) => wb.id === id);
+      if (!source) return;
+      const duplicate = {
+        ...clone(source),
+        id: `wb-${Date.now()}`,
+        name: uniqueWorkbenchName(`${source.name} 副本`),
+        favorite: false,
+        updated: "刚刚",
+        panels: source.panels.map((panel) => makePanel(panel.pluginId, panel.span)),
+      };
+      state.workbenches.push(duplicate);
+      saveState();
+      renderAll();
+      showManagerModal();
+      toast("工作台已复制", duplicate.name);
+    }
+
+    function deleteWorkbench(id) {
+      if (state.workbenches.length <= 1) {
+        toast("至少保留一个工作台", "可以先创建一个新工作台，再删除当前工作台。", "error");
+        return;
+      }
+      const wb = state.workbenches.find((item) => item.id === id);
+      if (!wb) return;
+      openConfirm(`删除“${wb.name}”？面板布局会一并删除，但不会删除任务、会议和插件。`, () => {
+        const deletingActive = state.activeId === id;
+        state.workbenches = state.workbenches.filter((item) => item.id !== id);
+        if (deletingActive) {
+          state.activeId = state.workbenches.find((item) => item.favorite)?.id || state.workbenches[0].id;
+        }
+        state.edit = false;
+        state.editSnapshot = null;
+        saveState();
+        closeModal();
+        renderAll();
+        toast("工作台已删除", deletingActive ? "已切换到最近可用的工作台。" : wb.name);
+      }, "删除工作台");
+    }
+
+    function renderResourceMarket() {
+      if (!$("#workbenchMarketBody") || !$("#resourceMain")) return;
+      const isWorkbenchMarket = state.resourceTab === "workbench";
+      $$(".resource-tab").forEach((tab) => {
+        const active = tab.dataset.tab === state.resourceTab;
+        tab.classList.toggle("active", active);
+        tab.setAttribute("aria-selected", String(active));
+      });
+      $("#workbenchMarketBody").hidden = !isWorkbenchMarket;
+      $("#resourceMain").hidden = isWorkbenchMarket;
+      $("#marketSearch").placeholder = isWorkbenchMarket
+        ? "搜索工作台方案、插件或发布者"
+        : state.resourceTab === "skill"
+          ? "搜索 Skill 名称、分类或发布者"
+          : "搜索 MCP、协议或能力范围";
+      if (isWorkbenchMarket) {
+        renderMarket();
+      } else {
+        closeMarketDetail();
+        renderResourceLibrary();
+      }
+    }
+
+    function renderResourceLibrary() {
+      const query = state.marketSearch.trim().toLowerCase();
+      const isSkill = state.resourceTab === "skill";
+      if (isSkill) {
+        const items = RESOURCE_SKILLS.filter((skill) => {
+          const score = `${skill.name} ${skill.description} ${skill.category} ${skill.author}`.toLowerCase();
+          return !query || score.includes(query);
+        });
+        $("#resourceMain").innerHTML = `
+          <div class="resource-main-inner">
+            <div class="resource-heading">
+              <div><h1>Skill 资源</h1><p>当前工作区可用 6 个 Skill，其中 ${state.enabledSkills.length} 个已启用。</p></div>
+              <div class="resource-heading-actions"><button class="btn" type="button" data-action="resource-action">${icon("plus", "i-sm")}创建 Skill</button></div>
+            </div>
+            <div class="resource-summary">
+              <span class="resource-summary-chip">${icon("check", "i-sm")}${state.enabledSkills.length} 个已启用</span>
+              <span class="resource-summary-chip">${icon("shield", "i-sm")}由工作区管理员治理</span>
+              <span class="resource-summary-chip">${icon("users", "i-sm")}团队共享 4 个</span>
+            </div>
+            <div class="resource-grid">
+              ${items.length ? items.map((skill) => {
+                const enabled = state.enabledSkills.includes(skill.id);
+                return `
+                  <article class="resource-card">
+                    <div class="resource-card-head">
+                      <span class="resource-card-icon" style="--resource-color:${skill.color}">${icon(skill.icon, "i-sm")}</span>
+                      <div class="resource-card-title"><h2>${escapeHtml(skill.name)}</h2><p>${escapeHtml(skill.author)} · ${skill.version}</p></div>
+                      <span class="tag ${enabled ? "green" : "blue"}">${enabled ? "已启用" : "可安装"}</span>
+                    </div>
+                    <p class="resource-card-description">${escapeHtml(skill.description)}</p>
+                    <div class="resource-card-meta"><span>${escapeHtml(skill.category)}</span><span>·</span><span>${escapeHtml(skill.usage)}</span><span>·</span><span>只读业务上下文</span></div>
+                    <div class="resource-card-foot"><span>${enabled ? "可被 AI 伙伴与工作流调用" : "安装后需要确认数据权限"}</span><button class="btn ${enabled ? "" : "soft"}" type="button" data-action="resource-install" data-resource-id="${skill.id}">${enabled ? "查看配置" : "安装"}</button></div>
+                  </article>`;
+              }).join("") : `<div class="resource-empty" style="grid-column:1/-1"><div>${icon("search", "i-lg")}<strong>没有匹配的 Skill</strong><p>换一个关键词再试。</p></div></div>`}
+            </div>
+          </div>`;
+      } else {
+        const items = RESOURCE_MCPS.filter((mcp) => {
+          const score = `${mcp.name} ${mcp.description} ${mcp.protocol} ${mcp.scope}`.toLowerCase();
+          return !query || score.includes(query);
+        });
+        $("#resourceMain").innerHTML = `
+          <div class="resource-main-inner">
+            <div class="resource-heading">
+              <div><h1>MCP 连接</h1><p>连接业务系统并暴露受控工具，当前 ${state.connectedMcps.length} 个连接运行正常。</p></div>
+              <div class="resource-heading-actions"><button class="btn" type="button" data-action="resource-action">${icon("plus", "i-sm")}添加 MCP</button></div>
+            </div>
+            <div class="resource-summary">
+              <span class="resource-summary-chip">${icon("check", "i-sm")}${state.connectedMcps.length} 个已连接</span>
+              <span class="resource-summary-chip">${icon("lock", "i-sm")}工具调用逐次鉴权</span>
+              <span class="resource-summary-chip">${icon("workflow", "i-sm")}39 个可用工具</span>
+            </div>
+            <div class="resource-grid">
+              ${items.length ? items.map((mcp) => {
+                const connected = state.connectedMcps.includes(mcp.id);
+                return `
+                  <article class="resource-card">
+                    <div class="resource-card-head">
+                      <span class="resource-card-icon" style="--resource-color:${mcp.color}">${icon(mcp.icon, "i-sm")}</span>
+                      <div class="resource-card-title"><h2>${escapeHtml(mcp.name)}</h2><p>${escapeHtml(mcp.protocol)} · ${mcp.tools} 个工具</p></div>
+                      <span class="resource-status ${connected ? "" : mcp.status === "pending" ? "pending" : "off"}">${connected ? "已连接" : mcp.status === "pending" ? "待验证" : "未连接"}</span>
+                    </div>
+                    <p class="resource-card-description">${escapeHtml(mcp.description)}</p>
+                    <div class="resource-card-meta"><span>${icon("shield", "i-sm")}${escapeHtml(mcp.scope)}</span><span>·</span><span>最近健康检查 2 分钟前</span></div>
+                    <div class="resource-card-foot"><span>${connected ? "可用于 Skill 与工作台面板" : "连接前需要管理员授权"}</span><button class="btn ${connected ? "" : "soft"}" type="button" data-action="resource-connect" data-resource-id="${mcp.id}">${connected ? "管理连接" : "连接"}</button></div>
+                  </article>`;
+              }).join("") : `<div class="resource-empty" style="grid-column:1/-1"><div>${icon("search", "i-lg")}<strong>没有匹配的 MCP</strong><p>换一个关键词再试。</p></div></div>`}
+            </div>
+          </div>`;
+      }
+    }
+
+    function openMarket() {
+      if (state.edit) {
+        openConfirm("当前工作台有未保存的布局修改。进入资源市场前需要先退出编辑，是否继续？", () => {
+          cancelEdit(false);
+          openMarket();
+        }, "退出编辑");
+        return;
+      }
+      closeModal();
+      setSwitcher(false);
+      state.marketOpen = true;
+      state.resourceTab = "skill";
+      state.marketSelected = null;
+      state.marketSearch = "";
+      $("#marketSearch").value = "";
+      $("#marketOverlay").hidden = false;
+      $("#marketDetail").hidden = true;
+      document.body.classList.remove("sidebar-open");
+      document.body.style.overflow = "";
+      setMainView("resource");
+      renderResourceMarket();
+    }
+
+    function closeMarket() {
+      state.marketOpen = false;
+      state.marketSelected = null;
+      $("#marketOverlay").hidden = true;
+      $("#marketDetail").hidden = true;
+      document.body.style.overflow = "";
+      setMainView("workbench");
+    }
+
+    function renderMarketFilters(items, categories) {
+      $("#marketFilters").innerHTML = `
+        ${categories.map((category) => `<button class="category-chip ${state.marketCategory === category ? "active" : ""}" type="button" data-action="market-category" data-category="${escapeHtml(category)}">${escapeHtml(category)}</button>`).join("")}
+        <span class="result-count">${items.length} 个结果</span>`;
+    }
+
+    function renderMarket() {
+      if (!$("#marketGrid")) return;
+      $$(".market-tab").forEach((tab) => {
+        tab.classList.toggle("active", tab.dataset.tab === state.marketTab);
+      });
+      const query = state.marketSearch.trim().toLowerCase();
+      const isTemplates = state.marketTab === "templates";
+      const heading = isTemplates ? "为今天的工作，换一张桌面" : "按能力扩展你的工作台";
+      const subheading = isTemplates ? "复制一套完整方案，也可以只挑选其中需要的面板。" : "插件可以在多张工作台之间复用，数据权限仍由原业务域控制。";
+      $("#marketHeading").textContent = heading;
+      $("#marketSubheading").textContent = subheading;
+
+      if (isTemplates) {
+        const categories = ["全部", "运营", "项目", "管理", "情报", ...(state.marketCategory === "团队" ? ["团队"] : [])];
+        if (!categories.includes(state.marketCategory)) state.marketCategory = "全部";
+        let items = MARKET_TEMPLATES.filter((template) => {
+          const matchesCategory =
+            state.marketCategory === "全部" ||
+            template.category === state.marketCategory ||
+            (state.marketCategory === "团队" && template.publisher !== "Pluginmax 官方");
+          const haystack = `${template.name} ${template.description} ${template.category} ${template.publisher}`.toLowerCase();
+          return matchesCategory && (!query || haystack.includes(query));
+        });
+        renderMarketFilters(items, categories.filter((category) => category !== "团队"));
+        const featured = MARKET_TEMPLATES[0];
+        const showFeatured = !query && (state.marketCategory === "全部" || state.marketCategory === "运营");
+        $("#marketFeatured").innerHTML = showFeatured ? `
+          <section class="market-feature">
+            <div class="feature-copy">
+              <div class="feature-kicker">${icon("sparkles", "i-sm")}编辑精选 · 供应链</div>
+              <h2>把“看见风险”变成“今天就能推进”的工作台</h2>
+              <p>今日简报、供应风险、任务和工作流被放进同一条操作链路，每个异常都能找到负责人和下一步。</p>
+              <div class="feature-actions">
+                <button class="btn primary small" type="button" data-action="market-detail" data-kind="template" data-id="${featured.id}">查看方案</button>
+                <button class="btn small" type="button" data-action="copy-template" data-id="${featured.id}">复制到我的工作台</button>
+              </div>
+            </div>
+            <div class="feature-preview">${templatePreview(featured, false)}</div>
+          </section>` : "";
+        $("#marketGrid").innerHTML = items.map((template) => `
+          <article class="market-card">
+            <button class="market-card-button" type="button" data-action="market-detail" data-kind="template" data-id="${template.id}">
+              ${templatePreview(template)}
+              <div class="market-card-content">
+                <div class="market-card-title-row">
+                  <span class="plugin-icon" style="--plugin-color:${template.color};--plugin-bg:${template.color}18">${icon(template.icon, "i-sm")}</span>
+                  <div class="market-card-title"><h3>${escapeHtml(template.name)}</h3><p>${escapeHtml(template.description)}</p></div>
+                  ${template.verified ? `<span class="verified" title="官方认证">${icon("shield", "i-sm")}</span>` : ""}
+                </div>
+                <div class="market-card-meta">
+                  <span class="tag ${template.tag === "编辑精选" ? "blue" : "green"}">${escapeHtml(template.tag)}</span>
+                  <span class="author">${escapeHtml(template.publisher)}</span>
+                  <span class="spacer"></span>
+                  <span class="metric-inline">${icon("download", "i-sm")}${template.installs}</span>
+                  <span class="metric-inline">${icon("star", "i-sm")}${template.rating}</span>
+                </div>
+              </div>
+            </button>
+          </article>`).join("");
+        $("#marketEmpty").hidden = items.length > 0;
+        $("#marketGrid").hidden = items.length === 0;
+      } else {
+        const categories = ["全部", "AI", "任务", "数据", "流程", "协作", "供应链", "管理", "研究", "已添加"];
+        if (!categories.includes(state.marketCategory)) state.marketCategory = "全部";
+        const current = activeWorkbench();
+        const installed = new Set(current.panels.map((panel) => panel.pluginId));
+        let items = MARKET_PLUGIN_IDS.map((id) => ({ id, ...PANELS[id] })).filter((plugin) => {
+          const matchesCategory =
+            state.marketCategory === "全部" ||
+            plugin.category === state.marketCategory ||
+            (state.marketCategory === "已添加" && installed.has(plugin.id));
+          const haystack = `${plugin.name} ${plugin.description} ${plugin.category}`.toLowerCase();
+          return matchesCategory && (!query || haystack.includes(query));
+        });
+        renderMarketFilters(items, categories);
+        $("#marketFeatured").innerHTML = "";
+        $("#marketGrid").className = "plugin-market-grid";
+        $("#marketGrid").innerHTML = items.map((plugin) => {
+          const added = installed.has(plugin.id);
+          return `
+            <article class="plugin-market-card">
+              <span class="plugin-icon" style="${pluginStyle(plugin)}">${icon(plugin.icon, "i-sm")}</span>
+              <div class="plugin-market-copy"><h3>${escapeHtml(plugin.name)}</h3><p>${escapeHtml(plugin.description)}</p><div class="plugin-market-meta"><span>${escapeHtml(plugin.category)}</span><span>·</span><span>v1.4.2</span><span>·</span><span>Pluginmax 官方</span></div></div>
+              <div class="plugin-market-actions">
+                <button class="icon-btn plain" type="button" data-action="market-detail" data-kind="plugin" data-id="${plugin.id}" title="查看详情" aria-label="查看详情">${icon("eye", "i-sm")}</button>
+                <button class="btn small ${added ? "" : "soft"}" type="button" data-action="market-add-plugin" data-id="${plugin.id}" ${added ? "disabled" : ""}>${added ? "已添加" : "添加"}</button>
+              </div>
+            </article>`;
+        }).join("");
+        $("#marketEmpty").hidden = items.length > 0;
+        $("#marketGrid").hidden = items.length === 0;
+      }
+      renderMarketDetail();
+    }
+
+    function openMarketDetail(kind, id) {
+      state.marketSelected = { kind, id };
+      renderMarketDetail();
+    }
+
+    function closeMarketDetail() {
+      state.marketSelected = null;
+      $("#marketDetail").hidden = true;
+      $("#marketDetail").innerHTML = "";
+    }
+
+    function renderMarketDetail() {
+      const detail = $("#marketDetail");
+      if (!state.marketSelected) {
+        detail.hidden = true;
+        detail.innerHTML = "";
+        return;
+      }
+      const { kind, id } = state.marketSelected;
+      const current = activeWorkbench();
+      const added = current.panels.some((panel) => panel.pluginId === id);
+      if (kind === "template") {
+        const template = MARKET_TEMPLATES.find((item) => item.id === id);
+        if (!template) return closeMarketDetail();
+        detail.innerHTML = `
+          <div class="detail-head"><strong>工作台方案</strong><button class="icon-btn plain" type="button" data-action="close-market-detail" aria-label="关闭详情">${icon("x")}</button></div>
+          <div class="detail-scroll">
+            <div class="detail-preview">${templatePreview(template, false)}</div>
+            <div class="detail-title-row">
+              <span class="plugin-icon" style="--plugin-color:${template.color};--plugin-bg:${template.color}18">${icon(template.icon, "i-sm")}</span>
+              <div class="detail-title-copy"><h2>${escapeHtml(template.name)}</h2><p>${escapeHtml(template.publisher)} ${template.verified ? "· 已认证" : ""}</p></div>
+            </div>
+            <p class="detail-description">${escapeHtml(template.description)}</p>
+            <div class="detail-facts">
+              <div class="detail-fact"><span>方案版本</span><strong>v2.3.0</strong></div>
+              <div class="detail-fact"><span>最近更新</span><strong>${escapeHtml(template.updated)}</strong></div>
+              <div class="detail-fact"><span>使用量</span><strong>${template.installs} 次复制</strong></div>
+              <div class="detail-fact"><span>包含面板</span><strong>${template.panels.length} 个</strong></div>
+            </div>
+            <div class="detail-section">
+              <h3>方案包含</h3>
+              <div class="detail-panel-list">${template.panels.map((panel) => {
+                const plugin = PANELS[panel.pluginId];
+                return `<div class="detail-panel-row"><span class="plugin-icon" style="${pluginStyle(plugin)}">${icon(plugin.icon, "i-sm")}</span><span>${escapeHtml(plugin.name)}</span><small style="color:var(--faint)">${panel.span}/6</small></div>`;
+              }).join("")}</div>
+            </div>
+            <div class="detail-section">
+              <h3>需要的权限</h3>
+              <div class="permission-box"><strong>${icon("shield", "i-sm")}复制不会扩大你的数据权限</strong>${template.permissions.map((permission) => `<span>· ${escapeHtml(permission)}</span>`).join("")}</div>
+            </div>
+          </div>
+          <div class="detail-foot"><button class="btn primary" type="button" data-action="copy-template" data-id="${template.id}">${icon("copy", "i-sm")}复制到我的工作台</button></div>`;
+      } else {
+        const plugin = PANELS[id];
+        if (!plugin) return closeMarketDetail();
+        detail.innerHTML = `
+          <div class="detail-head"><strong>功能插件</strong><button class="icon-btn plain" type="button" data-action="close-market-detail" aria-label="关闭详情">${icon("x")}</button></div>
+          <div class="detail-scroll">
+            <div class="detail-title-row">
+              <span class="plugin-icon" style="${pluginStyle(plugin)}">${icon(plugin.icon, "i-sm")}</span>
+              <div class="detail-title-copy"><h2>${escapeHtml(plugin.name)}</h2><p>Pluginmax 官方 · v1.4.2 · 已认证</p></div>
+            </div>
+            <p class="detail-description">${escapeHtml(plugin.description)}</p>
+            <div class="detail-facts">
+              <div class="detail-fact"><span>分类</span><strong>${escapeHtml(plugin.category)}</strong></div>
+              <div class="detail-fact"><span>默认宽度</span><strong>${plugin.span}/6</strong></div>
+              <div class="detail-fact"><span>兼容宿主</span><strong>DSH 0.1.x</strong></div>
+              <div class="detail-fact"><span>当前状态</span><strong>${added ? "已在此工作台" : "可添加"}</strong></div>
+            </div>
+            <div class="detail-section">
+              <h3>数据与权限</h3>
+              <div class="permission-box"><strong>${icon("lock", "i-sm")}最小权限申请</strong><span>只读取当前账号本来就有权访问的数据。安装插件不会自动获得新项目或新工作区的数据。</span></div>
+            </div>
+            <div class="detail-section">
+              <h3>适合放在</h3>
+              <div class="detail-panel-list"><div class="detail-panel-row">${icon("layout", "i-sm")}<span>运营、项目和日常执行类工作台</span></div><div class="detail-panel-row">${icon("users", "i-sm")}<span>需要与团队共享同一组关键信息的场景</span></div></div>
+            </div>
+          </div>
+          <div class="detail-foot">
+            <button class="btn ${added ? "" : "primary"}" type="button" data-action="market-add-plugin" data-id="${plugin.id}" ${added ? "disabled" : ""}>${added ? "已添加到当前工作台" : "添加到当前工作台"}</button>
+          </div>`;
+      }
+      detail.hidden = false;
+    }
+
+    function copyTemplate(templateId) {
+      const template = MARKET_TEMPLATES.find((item) => item.id === templateId);
+      if (!template) return;
+      if (state.edit) {
+        const original = activeWorkbench();
+        if (state.editSnapshot) original.panels = clone(state.editSnapshot);
+      }
+      state.edit = false;
+      state.editSnapshot = null;
+      state.history = [];
+      state.future = [];
+      const name = uniqueWorkbenchName(template.name);
+      const workbench = {
+        id: `wb-${Date.now()}`,
+        name,
+        description: template.description,
+        icon: template.icon,
+        color: template.color,
+        visibility: "private",
+        favorite: false,
+        updated: "刚刚",
+        panels: template.panels.map((panel) => makePanel(panel.pluginId, panel.span)),
+        sourceTemplate: { id: template.id, version: "2.3.0" },
+      };
+      state.workbenches.push(workbench);
+      state.activeId = workbench.id;
+      state.marketOpen = false;
+      state.marketSelected = null;
+      $("#marketOverlay").hidden = true;
+      $("#marketDetail").hidden = true;
+      document.body.style.overflow = "";
+      saveState();
+      renderAll();
+      toast("方案已复制", `“${name}”现在是你的独立工作台，市场更新不会覆盖它。`);
+    }
+
+    function addPluginFromMarket(pluginId) {
+      if (!PANELS[pluginId]) return;
+      if (activeWorkbench().panels.some((panel) => panel.pluginId === pluginId)) {
+        toast("已经添加到当前工作台", "可以直接在工作台里调整它的位置和宽度。", "error");
+        return;
+      }
+      closeMarket();
+      startEdit();
+      addPanel(pluginId);
+    }
+
+    function handleClick(event) {
+      if (event.target.closest("#scrim")) {
+        setSwitcher(false);
+        return;
+      }
+      const actionNode = event.target.closest("[data-action]");
+      if (
+        !$("#workbenchPopover").hidden &&
+        !event.target.closest("#workbenchPopover") &&
+        !event.target.closest("#workbenchTrigger")
+      ) {
+        setSwitcher(false);
+      }
+      if (!actionNode) {
+        if (state.edit) {
+          const card = event.target.closest(".panel-card");
+          if (card) {
+            state.selectedPanel = card.dataset.panelId;
+            state.editorTab = "settings";
+            renderAll();
+          }
+        }
+        return;
+      }
+      const action = actionNode.dataset.action;
+      switch (action) {
+        case "toggle-sidebar":
+          document.body.classList.toggle("sidebar-open");
+          break;
+        case "show-workbench":
+          document.body.classList.remove("sidebar-open");
+          if (state.marketOpen) closeMarket();
+          break;
+        case "toggle-switcher":
+          setSwitcher($("#workbenchPopover").hidden, actionNode);
+          break;
+        case "switch-workbench":
+          switchWorkbench(actionNode.dataset.id);
+          break;
+        case "new-workbench":
+          openNewWorkbench();
+          break;
+        case "new-workbench-copy":
+          openNewWorkbench("copy");
+          break;
+        case "open-manager":
+          openManager();
+          break;
+        case "toggle-edit":
+          state.edit ? saveEdit() : startEdit();
+          break;
+        case "save-edit":
+          saveEdit();
+          break;
+        case "cancel-edit":
+          cancelEdit();
+          break;
+        case "undo":
+          undoEdit();
+          break;
+        case "redo":
+          redoEdit();
+          break;
+        case "quick-add":
+          if (!state.edit) startEdit();
+          state.editorTab = "library";
+          renderAll();
+          window.setTimeout(() => $("#pluginSearch")?.focus(), 30);
+          break;
+        case "refresh-all":
+          activeWorkbench().updated = "刚刚";
+          saveState();
+          renderAll();
+          toast("已刷新全部面板", "数据更新于刚刚。");
+          break;
+        case "refresh-panel": {
+          const svg = actionNode.querySelector("svg");
+          svg?.animate(
+            [{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }],
+            { duration: 520, easing: "ease-out" },
+          );
+          toast("面板已刷新", "保留当前筛选与滚动位置。");
+          break;
+        }
+        case "panel-settings":
+          if (!state.edit) startEdit();
+          state.selectedPanel = actionNode.dataset.id;
+          state.editorTab = "settings";
+          renderAll();
+          break;
+        case "remove-panel":
+          removePanel(actionNode.dataset.id);
+          break;
+        case "panel-width":
+          changePanelWidth(actionNode.dataset.width);
+          break;
+        case "add-panel":
+          addPanel(actionNode.dataset.pluginId);
+          break;
+        case "editor-tab":
+          state.editorTab = actionNode.dataset.tab;
+          renderEditor();
+          break;
+        case "plugin-category":
+          state.pluginCategory = actionNode.dataset.category;
+          renderPluginLibrary();
+          break;
+        case "task-toggle":
+          actionNode.closest(".task-row")?.classList.toggle("done");
+          break;
+        case "demo-link":
+          toast("演示入口", "正式产品会打开对应任务、工作流或详情页。");
+          break;
+        case "open-market":
+          openMarket();
+          break;
+        case "close-market":
+          closeMarket();
+          break;
+        case "resource-tab":
+          state.resourceTab = actionNode.dataset.tab;
+          state.marketCategory = "全部";
+          state.marketSelected = null;
+          state.marketSearch = "";
+          $("#marketSearch").value = "";
+          closeMarketDetail();
+          renderResourceMarket();
+          break;
+        case "resource-install": {
+          const skill = RESOURCE_SKILLS.find((item) => item.id === actionNode.dataset.resourceId);
+          if (!skill) break;
+          if (state.enabledSkills.includes(skill.id)) {
+            toast("Skill 配置", `${skill.name}已启用，正式产品会打开参数与权限配置。`);
+          } else {
+            state.enabledSkills.push(skill.id);
+            renderResourceLibrary();
+            toast("Skill 已安装", `${skill.name}可在 AI 伙伴与工作流中调用。`);
+          }
+          break;
+        }
+        case "resource-connect": {
+          const mcp = RESOURCE_MCPS.find((item) => item.id === actionNode.dataset.resourceId);
+          if (!mcp) break;
+          if (state.connectedMcps.includes(mcp.id)) {
+            toast("MCP 连接管理", `${mcp.name}当前运行正常，正式产品会展示健康检查和工具列表。`);
+          } else {
+            toast("连接需要管理员授权", `${mcp.name}将先创建连接申请，不会直接获得数据权限。`, "error");
+          }
+          break;
+        }
+        case "resource-action":
+          toast("资源操作", "正式产品会进入对应的创建或接入流程。");
+          break;
+        case "market-tab":
+          state.marketTab = actionNode.dataset.tab;
+          state.marketCategory = "全部";
+          closeMarketDetail();
+          renderMarket();
+          break;
+        case "market-category":
+          state.marketCategory = actionNode.dataset.category;
+          closeMarketDetail();
+          renderMarket();
+          break;
+        case "market-nav":
+          if (actionNode.dataset.category === "已添加") {
+            state.marketTab = "plugins";
+            state.marketCategory = "已添加";
+          } else if (actionNode.dataset.category === "团队") {
+            state.marketTab = "templates";
+            state.marketCategory = "团队";
+          } else {
+            state.marketCategory = actionNode.dataset.category;
+          }
+          $$(".market-nav button").forEach((button) => button.classList.toggle("active", button === actionNode));
+          closeMarketDetail();
+          renderMarket();
+          break;
+        case "market-detail":
+          openMarketDetail(actionNode.dataset.kind, actionNode.dataset.id);
+          break;
+        case "close-market-detail":
+          closeMarketDetail();
+          break;
+        case "copy-template":
+          copyTemplate(actionNode.dataset.id);
+          break;
+        case "market-add-plugin":
+          addPluginFromMarket(actionNode.dataset.id);
+          break;
+        case "new-starter":
+          state.newStarter = actionNode.dataset.starter;
+          $$("[data-action='new-starter']").forEach((button) => button.classList.toggle("selected", button === actionNode));
+          break;
+        case "new-visibility":
+          state.newVisibility = actionNode.dataset.visibility;
+          $$("[data-action='new-visibility']").forEach((button) => button.classList.toggle("active", button === actionNode));
+          break;
+        case "create-workbench":
+          createWorkbenchFromModal();
+          break;
+        case "manager-rename":
+          openRenameModal(actionNode.dataset.id);
+          break;
+        case "rename-confirm":
+          renameWorkbench(actionNode.dataset.id);
+          break;
+        case "manager-favorite": {
+          const wb = state.workbenches.find((item) => item.id === actionNode.dataset.id);
+          if (!wb) break;
+          wb.favorite = !wb.favorite;
+          saveState();
+          renderAll();
+          showManagerModal();
+          toast(wb.favorite ? "已设为常用" : "已取消常用", wb.name);
+          break;
+        }
+        case "manager-duplicate":
+          duplicateWorkbench(actionNode.dataset.id);
+          break;
+        case "manager-delete":
+          deleteWorkbench(actionNode.dataset.id);
+          break;
+        case "confirm-ok": {
+          const callback = state.pendingConfirm;
+          closeModal();
+          callback?.();
+          break;
+        }
+        case "close-modal":
+          closeModal();
+          break;
+        default:
+          break;
+      }
+    }
+
+    function handleInput(event) {
+      if (event.target.id === "pluginSearch") {
+        state.pluginSearch = event.target.value;
+        renderPluginLibrary();
+        const input = $("#pluginSearch");
+        input?.focus();
+        input?.setSelectionRange(input.value.length, input.value.length);
+      }
+      if (event.target.id === "marketSearch") {
+        state.marketSearch = event.target.value;
+        if (state.resourceTab === "workbench") {
+          closeMarketDetail();
+          renderMarket();
+        } else {
+          renderResourceLibrary();
+        }
+      }
+    }
+
+    function handleChange(event) {
+      if (event.target.id === "panelTitleInput") {
+        const panel = activeWorkbench().panels.find((item) => item.instanceId === state.selectedPanel);
+        if (!panel) return;
+        pushHistory();
+        panel.title = event.target.value.trim().slice(0, 30);
+        renderAll();
+      }
+    }
+
+    let draggedPanelId = null;
+
+    function handleDragStart(event) {
+      if (!state.edit) {
+        event.preventDefault();
+        return;
+      }
+      if (event.target.closest("button, input, select, textarea")) {
+        event.preventDefault();
+        return;
+      }
+      const card = event.target.closest(".panel-card");
+      if (!card) return;
+      draggedPanelId = card.dataset.panelId;
+      card.classList.add("dragging");
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", draggedPanelId);
+    }
+
+    function clearDropTargets() {
+      $$(".panel-card").forEach((card) => card.classList.remove("drop-before", "dragging"));
+    }
+
+    function handleDragOver(event) {
+      if (!state.edit || !draggedPanelId) return;
+      event.preventDefault();
+      const card = event.target.closest(".panel-card");
+      if (!card || card.dataset.panelId === draggedPanelId) return;
+      event.dataTransfer.dropEffect = "move";
+      $$(".panel-card").forEach((item) => item.classList.remove("drop-before"));
+      card.classList.add("drop-before");
+    }
+
+    function handleDrop(event) {
+      if (!state.edit || !draggedPanelId) return;
+      event.preventDefault();
+      const target = event.target.closest(".panel-card");
+      if (!target || target.dataset.panelId === draggedPanelId) {
+        clearDropTargets();
+        draggedPanelId = null;
+        return;
+      }
+      const current = activeWorkbench();
+      const from = current.panels.findIndex((panel) => panel.instanceId === draggedPanelId);
+      let to = current.panels.findIndex((panel) => panel.instanceId === target.dataset.panelId);
+      if (from < 0 || to < 0) return;
+      pushHistory();
+      const [moved] = current.panels.splice(from, 1);
+      if (from < to) to -= 1;
+      current.panels.splice(to, 0, moved);
+      draggedPanelId = null;
+      clearDropTargets();
+      renderAll();
+    }
+
+    function handleKeydown(event) {
+      if (event.key === "Escape") {
+        if (!$("#modalLayer").hidden) {
+          closeModal();
+          return;
+        }
+        if (!$("#marketDetail").hidden) {
+          closeMarketDetail();
+          return;
+        }
+        if (state.marketOpen) {
+          closeMarket();
+          return;
+        }
+        if (!$("#workbenchPopover").hidden) {
+          setSwitcher(false);
+          return;
+        }
+        document.body.classList.remove("sidebar-open");
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s" && state.edit) {
+        event.preventDefault();
+        saveEdit();
+      }
+    }
+
+    document.addEventListener("click", handleClick);
+    document.addEventListener("input", handleInput);
+    document.addEventListener("change", handleChange);
+    document.addEventListener("keydown", handleKeydown);
+    const grid = $("#workbenchGrid");
+    grid.addEventListener("dragstart", handleDragStart);
+    grid.addEventListener("dragover", handleDragOver);
+    grid.addEventListener("drop", handleDrop);
+    grid.addEventListener("dragend", () => {
+      draggedPanelId = null;
+      clearDropTargets();
+    });
+    $("#modalLayer").addEventListener("click", (event) => {
+      if (event.target === $("#modalLayer")) closeModal();
+    });
+    window.addEventListener("resize", () => {
+      if (window.innerWidth > 760) document.body.classList.remove("sidebar-open");
+    });
+
+    renderAll();
+  </script>
+</body>
+</html>

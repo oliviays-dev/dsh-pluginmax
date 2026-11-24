@@ -7,6 +7,20 @@ window.__ModuleLoader__.load({
     const react = require("react");
     const jsxRuntime = require("react/jsx-runtime");
 
+    function formatTime(value) {
+      const time = new Date(value);
+      if (Number.isNaN(time.getTime())) return value;
+      return time.toLocaleString("zh-CN", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      });
+    }
+
     const CanarySection = () => {
       const [state, setState] = react.useState({
         phase: "loading",
@@ -24,7 +38,11 @@ window.__ModuleLoader__.load({
             const body = await response.json();
             setState({
               phase: "ready",
-              detail: `${body.domain}: ${body.records.at(-1)?.startedAt ?? "unknown"}`,
+              detail: `${body.domain}: ${
+                body.records.at(-1)?.startedAt
+                  ? formatTime(body.records.at(-1).startedAt)
+                  : "unknown"
+              }`,
             });
           })
           .catch((error) => {
@@ -47,7 +65,10 @@ window.__ModuleLoader__.load({
               "用于验证 DSH 的 out-of-tree 插件、存储、命令、工具、HTTP 路由和设置页槽位。",
           }),
           jsxRuntime.jsx("p", {
-            style: state.phase === "error" ? { color: "#b42318" } : undefined,
+            style:
+              state.phase === "error"
+                ? { color: "var(--dsw-alias-state-error-primary)" }
+                : undefined,
             children:
               state.phase === "loading"
                 ? "正在检查..."

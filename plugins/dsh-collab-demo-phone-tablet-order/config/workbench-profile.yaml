@@ -1,0 +1,79 @@
+schemaVersion: "1.0"
+profileId: "phone-tablet-order-v1"
+pluginId: "dsh-collab-demo-phone-tablet-order"
+detachable: true
+title: "手机/平板订单履约"
+dataMode: "demo"
+implementationStatus:
+  configIsRuntimeSource: true
+  notes: "Demo 插件只读取 metrics.selected；正式工作台指标与用户偏好不受影响"
+
+layout:
+  visibleModules:
+    - "metrics"
+    - "brief"
+    - "todo"
+    - "focus"
+  hiddenModules:
+    - "meeting-minutes"
+    - "control"
+    - "supplier"
+
+metrics:
+  selected:
+    - "otif"
+    - "inventory-turn"
+    - "supplier-otd"
+    - "price-achievement"
+  liveMetric:
+    id: "otif"
+    label: "订单准时履约率"
+    expectedValue: "94.1"
+    expectedUnit: "%"
+    expectedTrend: "-1.8pt"
+    dataMode: "demo"
+    sourceNote: "OTIF 来自 MCP OMS · orders_query；其余 3 项为静态演示数据 · 非生产"
+
+brief:
+  title: "每日简报"
+  summary: |
+    本期识别 3 项经营结果、2 项异常和 1 项待确认决策。
+    重点围绕华东 126 单订单异常推进处置，并确认成品仓再平衡方案。
+  items:
+    - type: "conclusion"
+      title: "替代供应方案已确认"
+      body: "替代供应商 B 交期确认 12 天，可覆盖 29/37 张受影响订单。"
+      statusLabel: "已确认"
+      actionLabel: "查看方案"
+    - type: "progress"
+      title: "支付失败原因已完成归因"
+      body: "52 单支付失败中，31 单可自动重试，21 单需人工核对支付凭证。"
+      statusLabel: "待复核"
+      actionLabel: "查看归因"
+    - type: "progress"
+      title: "成品仓再平衡草案已完成"
+      body: "75 单可转本地仓履约，预计减少履约超时 24 单。"
+      statusLabel: "待确认"
+      actionLabel: "查看草案"
+    - type: "data-exception"
+      title: "华东手机/平板订单异常"
+      body: "支付失败 52 单（41.3%）、履约超时 43 单（34.1%）、取消 31 单（24.6%）；异常集中在数码成品订单。"
+      actionLabel: "分析原因"
+    - type: "data-exception"
+      title: "履约超时集中在华东仓"
+      body: "履约超时 43 单，占全部异常 34.1%，主要集中在华东仓现货订单。"
+      actionLabel: "分析原因"
+    - type: "decision"
+      title: "是否需要创建成品仓订单再平衡工单"
+      body: "需要先核实 SKU、IMEI/SN、库存归属和跨仓交接约束。"
+
+supplyExceptionSeed:
+  # 仅在第 4 项工作台显示改造中需要；若采用隐藏模块方案，可忽略。
+  title: "成品仓订单再平衡"
+  item:
+    severity: "high"
+    title: "37 单等待成品仓订单再平衡"
+    recommendation: "人工确认 SKU、IMEI/SN 和库存归属后，由履约 AI 伙伴创建 Mock WMS 工单。"
+    owner: "周宁"
+    deadline: "17:00 前"
+    impact: "影响 37 单高货值手机/平板订单履约"

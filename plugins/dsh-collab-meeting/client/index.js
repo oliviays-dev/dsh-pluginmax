@@ -1,0 +1,10309 @@
+window.__ModuleLoader__.load({
+  id: "dsh-collab-meeting",
+  factory: (require) => {
+    const module = { exports: {} };
+    const exports = module.exports;
+    Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
+    const react = require("react");
+    const jsxRuntime = require("react/jsx-runtime");
+
+    /* ── constants ── */
+
+    const TOKEN_KEY = "pluginmax.collab.token";
+    const PANEL_LAST_MEETING_KEY =
+      "pluginmax.collab.meeting.panel.lastMeetingId";
+    const RECENT_EMPTY_MEETING_IDS_KEY =
+      "pluginmax.collab.meeting.recentEmptyMeetingIds";
+    const SYSTEM_DEFAULT_WORKSPACE_ID = "system.default";
+    const SYSTEM_DEFAULT_WORKSPACE = {
+      id: SYSTEM_DEFAULT_WORKSPACE_ID,
+      title: "默认项目",
+      path: "",
+      isMember: true,
+      memberRole: "member",
+      ownerId: "system",
+    };
+    const CONTEXT_POLICY_DEFAULTS = {
+      warningRatio: 0.7,
+      compactRatio: 0.85,
+      rolloverRatio: 0.95,
+      preserveRecentMessages: 12,
+      maxTriggerDepth: 3,
+      maxConcurrentAgentsPerScene: 3,
+    };
+    const CONTEXT_POLICY_SCENES = ["chat", "group", "meeting"];
+    const CHAT_TYPING_STYLE_ID = "pluginmax-chat-typing-style";
+
+    const ensureChatTypingStyles = () => {
+      if (
+        typeof document === "undefined" ||
+        document.getElementById?.(CHAT_TYPING_STYLE_ID) !== null
+      ) {
+        return;
+      }
+      const style = document.createElement("style");
+      style.id = CHAT_TYPING_STYLE_ID;
+      style.textContent = `
+        .pmchat-typing-strip{display:flex;align-items:center;gap:8px;min-height:24px;padding:2px 8px;color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1.4;overflow:hidden;}
+        .pmchat-typing-strip>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+        .pmchat-typing-dots{display:inline-flex;align-items:center;gap:3px;height:12px;flex:none;}
+        .pmchat-typing-dots i{width:4px;height:4px;border-radius:50%;background:var(--dsw-alias-accent-primary,#4f8ef7);animation:pmchat-typing-dot 1.1s ease-in-out infinite;}
+        .pmchat-typing-dots i:nth-child(2){animation-delay:.15s;}
+        .pmchat-typing-dots i:nth-child(3){animation-delay:.3s;}
+        @keyframes pmchat-typing-dot{0%,60%,100%{opacity:.25;transform:translateY(0);}30%{opacity:1;transform:translateY(-2px);}}
+      `;
+      document.head?.appendChild(style);
+    };
+
+    const chatTypingNames = (participants, transcript) => {
+      const active = new Map(
+        participants
+          .filter(
+            (participant) =>
+              participant.status === "active" &&
+              (participant.executionState ?? "active") === "active" &&
+              participant.kind !== "human",
+          )
+          .map((participant) => [
+            participant.id,
+            {
+              displayName: participant.displayName,
+              targetId: participant.refId,
+            },
+          ]),
+      );
+      const hasPendingDelivery = (message) =>
+        (message.deliveries ?? []).some(
+          (delivery) =>
+            delivery.status === "pending" && active.has(delivery.participantId),
+        );
+      // 只认最近一次人工消息或 AI 接力消息。历史消息中的 pending 不能
+      // 永久把成员挂在“正在输入”，否则新消息没有触发任何人时仍会误显示。
+      let turnIndex = -1;
+      for (let index = transcript.length - 1; index >= 0; index -= 1) {
+        const message = transcript[index];
+        if (
+          message.senderKind === "human" ||
+          (message.senderKind === "agent" && hasPendingDelivery(message))
+        ) {
+          turnIndex = index;
+          break;
+        }
+      }
+      if (turnIndex < 0) return [];
+      const repliedTargetIds = new Set(
+        transcript
+          .slice(turnIndex + 1)
+          .filter((message) => message.senderKind === "agent")
+          .map((message) => message.senderId),
+      );
+      const pending = new Set();
+      for (const delivery of transcript[turnIndex].deliveries ?? []) {
+        const participant = active.get(delivery.participantId);
+        if (
+          delivery.status === "pending" &&
+          participant !== undefined &&
+          !repliedTargetIds.has(participant.targetId)
+        ) {
+          pending.add(delivery.participantId);
+        }
+      }
+      return [...pending].map(
+        (participantId) => active.get(participantId).displayName,
+      );
+    };
+
+    const chatTypingStrip = (statusText) =>
+      statusText === ""
+        ? null
+        : h(
+            "div",
+            {
+              className: "pmchat-typing-strip",
+              role: "status",
+              "aria-live": "polite",
+              "data-meeting-typing-strip": "true",
+            },
+            h("span", null, statusText),
+            h(
+              "span",
+              { className: "pmchat-typing-dots", "aria-hidden": "true" },
+              h("i"),
+              h("i"),
+              h("i"),
+            ),
+          );
+
+    const isUnreadConversationMessage = (message, actorId, read) => {
+      if (message.senderKind === "human" && message.senderId === actorId) {
+        return false;
+      }
+      const lastReadSeq = Number(read?.lastReadSeq ?? 0);
+      const lastReadAt = String(read?.updatedAt ?? "");
+      return (
+        Number(message.sequence ?? 0) > lastReadSeq ||
+        (lastReadAt !== "" && String(message.createdAt ?? "") > lastReadAt)
+      );
+    };
+
+    ensureChatTypingStyles();
+
+    /* ── module-level store (open/close shared by toggle + panel) ── */
+
+    const sidePanel =
+      window.__pluginmaxSidePanel ??
+      (() => {
+        let state = {
+          open: false,
+          openTabs: [],
+          activeTab: undefined,
+          lastTab: "communication",
+          expanded: false,
+          tabMeta: {},
+        };
+        const defaultTab = (type) => ({
+          type,
+          title:
+            type === "data-agent"
+              ? "数据洞察"
+              : type === "task-drafts"
+                ? "任务草稿"
+                : "沟通",
+          sessionId: "",
+        });
+        const typeOf = (tab) =>
+          state.tabMeta?.[tab]?.type ?? String(tab).split(":")[0];
+        const describe = (tab) => {
+          const type = typeOf(tab);
+          return {
+            ...defaultTab(type),
+            ...(state.tabMeta?.[tab] ?? {}),
+          };
+        };
+        const tabId = (type) =>
+          type === "task-drafts"
+            ? "task-drafts"
+            : `${type}:${
+                window.crypto?.randomUUID?.() ??
+                `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
+              }`;
+        const listeners = new Set();
+        const emit = (next) => {
+          state = next;
+          window.__pluginmaxShell?.setMeetingOpen(state.open);
+          window.__pluginmaxShell?.setSidePanelExpanded?.(state.expanded);
+          for (const listener of listeners) listener();
+        };
+        const fallback = {
+          getSnapshot: () => state,
+          subscribe(listener) {
+            listeners.add(listener);
+            return () => listeners.delete(listener);
+          },
+          openTab(tab) {
+            const meta =
+              state.tabMeta?.[tab] ?? defaultTab(String(tab).split(":")[0]);
+            emit({
+              ...state,
+              open: true,
+              openTabs: state.openTabs.includes(tab)
+                ? state.openTabs
+                : [...state.openTabs, tab],
+              activeTab: tab,
+              lastTab: tab,
+              tabMeta: {
+                ...state.tabMeta,
+                [tab]: meta,
+              },
+            });
+          },
+          closeTab(tab) {
+            const closingIndex = state.openTabs.indexOf(tab);
+            const openTabs = state.openTabs.filter((item) => item !== tab);
+            const activeTab =
+              state.activeTab !== tab && openTabs.includes(state.activeTab)
+                ? state.activeTab
+                : openTabs[Math.min(closingIndex, openTabs.length - 1)];
+            emit({
+              ...state,
+              open: openTabs.length > 0,
+              openTabs,
+              activeTab,
+              lastTab: activeTab,
+              expanded: openTabs.length > 0 ? state.expanded : false,
+            });
+          },
+          openNewTab(type) {
+            const existing =
+              type === "task-drafts"
+                ? state.openTabs.find((tab) => typeOf(tab) === type)
+                : undefined;
+            if (existing !== undefined) {
+              this.activate(existing);
+              return existing;
+            }
+            const tab = tabId(type);
+            const ordinal =
+              state.openTabs.filter((item) => typeOf(item) === type).length + 1;
+            const meta = {
+              ...defaultTab(type),
+              title:
+                type === "communication"
+                  ? `新沟通 ${ordinal}`
+                  : type === "data-agent"
+                    ? `新数据洞察 ${ordinal}`
+                    : "任务草稿",
+            };
+            emit({
+              ...state,
+              open: true,
+              openTabs: [...state.openTabs, tab],
+              activeTab: tab,
+              lastTab: tab,
+              tabMeta: { ...state.tabMeta, [tab]: meta },
+            });
+            return tab;
+          },
+          updateTab(tab, patch) {
+            if (!state.openTabs.includes(tab)) return;
+            emit({
+              ...state,
+              tabMeta: {
+                ...state.tabMeta,
+                [tab]: { ...describe(tab), ...patch },
+              },
+            });
+          },
+          reorderTab(sourceTab, targetTab) {
+            if (sourceTab === targetTab) return;
+            const sourceIndex = state.openTabs.indexOf(sourceTab);
+            const targetIndex = state.openTabs.indexOf(targetTab);
+            if (sourceIndex < 0 || targetIndex < 0) return;
+            const openTabs = [...state.openTabs];
+            const [moved] = openTabs.splice(sourceIndex, 1);
+            openTabs.splice(targetIndex, 0, moved);
+            emit({ ...state, openTabs });
+          },
+          describeTab(tab) {
+            return describe(tab);
+          },
+          tabsOfType(type) {
+            return state.openTabs.filter((tab) => typeOf(tab) === type);
+          },
+          activateType(type) {
+            const existing = state.openTabs.find((tab) => typeOf(tab) === type);
+            if (existing !== undefined) {
+              this.activate(existing);
+              return existing;
+            }
+            return this.openNewTab(type);
+          },
+          toggleTab(tab) {
+            if (state.open && state.activeTab === tab) this.closeTab(tab);
+            else this.openTab(tab);
+          },
+          openWorkspace(tabs, active = tabs[0]) {
+            const requestedTabs = [...new Set(tabs)];
+            const openTabs =
+              state.openTabs.length > 0 ? state.openTabs : requestedTabs;
+            const tabMeta = { ...state.tabMeta };
+            for (const tab of openTabs) {
+              tabMeta[tab] ??= defaultTab(String(tab).split(":")[0]);
+            }
+            const nextActive = openTabs.includes(state.activeTab)
+              ? state.activeTab
+              : openTabs.includes(active)
+                ? active
+                : openTabs[0];
+            emit({
+              ...state,
+              open: openTabs.length > 0,
+              openTabs,
+              activeTab: nextActive,
+              lastTab: nextActive,
+              expanded: openTabs.length > 0 ? state.expanded : false,
+              tabMeta,
+            });
+          },
+          activate(tab) {
+            if (!state.openTabs.includes(tab)) return;
+            emit({
+              ...state,
+              open: true,
+              activeTab: tab,
+              lastTab: tab,
+            });
+          },
+          closeAll() {
+            emit({
+              ...state,
+              open: false,
+              expanded: false,
+            });
+          },
+          restore() {
+            this.openTab(state.lastTab ?? "communication");
+          },
+          setExpanded(expanded) {
+            emit({ ...state, expanded: expanded === true });
+          },
+          toggleExpanded() {
+            this.setExpanded(!state.expanded);
+          },
+        };
+        window.__pluginmaxSidePanel = fallback;
+        return fallback;
+      })();
+    const store = {
+      listeners: new Set(),
+      // 跨视图数据联动：右侧栏与会议页各自持有一份会议数据，
+      // 任一侧改完数据后通知另一侧重新拉取，避免两处显示不一致。
+      changeListeners: new Set(),
+      openPanel() {
+        sidePanel?.activateType("communication");
+        this.emit();
+      },
+      toggle() {
+        const snapshot = sidePanel?.getSnapshot?.();
+        if (
+          snapshot?.open === true &&
+          sidePanel.describeTab(snapshot.activeTab).type === "communication"
+        ) {
+          sidePanel.closeTab(snapshot.activeTab);
+        } else {
+          sidePanel?.activateType("communication");
+        }
+        this.emit();
+      },
+      close() {
+        const snapshot = sidePanel?.getSnapshot?.();
+        if (
+          sidePanel?.describeTab(snapshot?.activeTab)?.type === "communication"
+        )
+          sidePanel.closeTab(snapshot.activeTab);
+        this.emit();
+      },
+      subscribe(fn) {
+        this.listeners.add(fn);
+        return () => {
+          this.listeners.delete(fn);
+        };
+      },
+      bumpChange(source) {
+        for (const fn of this.changeListeners) fn(source);
+      },
+      subscribeChange(fn) {
+        this.changeListeners.add(fn);
+        return () => {
+          this.changeListeners.delete(fn);
+        };
+      },
+      emit() {
+        for (const fn of this.listeners) fn(this.getSnapshot());
+      },
+      getSnapshot() {
+        const snapshot = sidePanel?.getSnapshot?.();
+        return Boolean(
+          snapshot?.open === true &&
+          sidePanel.describeTab(snapshot.activeTab).type === "communication",
+        );
+      },
+      getContainerSnapshot() {
+        return Boolean(sidePanel?.getSnapshot?.().open);
+      },
+    };
+
+    if (sidePanel !== undefined) {
+      sidePanel.subscribe(() => store.emit());
+    }
+    Object.defineProperty(store, "open", {
+      enumerable: true,
+      get: () => store.getSnapshot(),
+    });
+
+    window.__pluginmaxMeeting = store;
+
+    function openTaskDraft(detail) {
+      window.__pluginmaxTaskDraftContext = detail;
+      window.__pluginmaxSidePanel?.openTab("task-drafts");
+      window.dispatchEvent(
+        new CustomEvent("pluginmax:task-draft-open", { detail }),
+      );
+    }
+
+    /*
+     * 「仅看已加入 / 平台全量」是跨模块偏好：任务、会议、工作流、Teammate
+     * 与工作台共用同一个 window store，点击跨模块跳转时沿用用户当前选择。
+     * 这里幂等创建，谁先加载谁初始化。
+     */
+    function ensureScopeStore() {
+      if (window.__pluginmaxScope) return window.__pluginmaxScope;
+      let all = false;
+      const listeners = new Set();
+      window.__pluginmaxScope = {
+        getSnapshot: () => all,
+        setAll: (next) => {
+          const value = next === true;
+          if (value === all) return;
+          all = value;
+          for (const listener of listeners) listener();
+        },
+        subscribe: (listener) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+      };
+      return window.__pluginmaxScope;
+    }
+    const scopeStore = ensureScopeStore();
+
+    function usePanelContainerOpen() {
+      return react.useSyncExternalStore(
+        (listener) => sidePanel?.subscribe?.(() => listener()) ?? (() => {}),
+        () => store.getContainerSnapshot(),
+        () => store.getContainerSnapshot(),
+      );
+    }
+
+    function useSidePanelState() {
+      return react.useSyncExternalStore(
+        (listener) => sidePanel?.subscribe?.(() => listener()) ?? (() => {}),
+        () =>
+          sidePanel?.getSnapshot?.() ?? {
+            open: false,
+            openTabs: [],
+            activeTab: undefined,
+            expanded: false,
+          },
+        () =>
+          sidePanel?.getSnapshot?.() ?? {
+            open: false,
+            openTabs: [],
+            activeTab: undefined,
+            expanded: false,
+          },
+      );
+    }
+
+    function useViewportWidth() {
+      const [width, setWidth] = react.useState(() => window.innerWidth || 1440);
+      react.useEffect(() => {
+        const onResize = () => setWidth(window.innerWidth || 1440);
+        window.addEventListener("resize", onResize);
+        return () => window.removeEventListener("resize", onResize);
+      }, []);
+      return width;
+    }
+
+    /* ── element helper ── */
+
+    const h = (type, props, ...children) =>
+      jsxRuntime.jsxs(
+        type,
+        Object.assign({}, props, {
+          // 兼容两种写法：子节点既可通过展开参数传入，也可写成 props.children。
+          // 否则 `h("h1", { children: "会议" })` 会被覆盖成 undefined，文本丢失。
+          children:
+            children.length === 0
+              ? props
+                ? props.children
+                : undefined
+              : children.length === 1
+                ? children[0]
+                : children,
+        }),
+      );
+
+    const sidePanelTabsStyle = {
+      root: {
+        display: "flex",
+        alignItems: "stretch",
+        flexShrink: 0,
+        gap: 2,
+        height: 49,
+        minHeight: 49,
+        position: "relative",
+        zIndex: 12,
+        padding: "6px 8px 0 6px",
+        borderBottom: "1px solid var(--dsw-alias-border-l2)",
+        background: "var(--dsw-alias-bg-layer-2)",
+      },
+      tab: {
+        position: "relative",
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        minWidth: 0,
+        height: 42,
+        padding: "0 7px 0 9px",
+        flex: "0 0 100px",
+        width: 100,
+        minWidth: 100,
+        maxWidth: 100,
+        border: 0,
+        background: "transparent",
+        color: "var(--dsw-alias-label-secondary)",
+        font: "inherit",
+        fontSize: 11,
+        cursor: "grab",
+      },
+      tabButton: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        height: "100%",
+        minWidth: 0,
+        padding: "0 4px 0 9px",
+        border: 0,
+        background: "transparent",
+        color: "inherit",
+        font: "inherit",
+        fontSize: 11,
+        cursor: "pointer",
+      },
+      close: {
+        width: 18,
+        height: 18,
+        display: "grid",
+        placeItems: "center",
+        padding: 0,
+        border: 0,
+        borderRadius: 4,
+        background: "transparent",
+        color: "var(--dsw-alias-label-tertiary)",
+        cursor: "pointer",
+      },
+      actionWrap: {
+        display: "flex",
+        alignItems: "center",
+        gap: 2,
+        flex: "none",
+        marginLeft: 4,
+        paddingLeft: 6,
+        borderLeft: "1px solid var(--dsw-alias-border-l2)",
+      },
+      utility: {
+        width: 24,
+        height: 24,
+        display: "grid",
+        placeItems: "center",
+        padding: 0,
+        border: 0,
+        borderRadius: 5,
+        background: "transparent",
+        color: "var(--dsw-alias-label-primary)",
+        cursor: "pointer",
+      },
+      panelToggle: {
+        width: 32,
+        height: 32,
+        display: "grid",
+        placeItems: "center",
+        padding: 0,
+        border: 0,
+        borderRadius: 5,
+        background: "transparent",
+        color: "var(--dsw-alias-label-primary)",
+        cursor: "pointer",
+        transform: "translateY(0.5px)",
+      },
+    };
+
+    function SidePanelTabs() {
+      const snapshot = useSidePanelState();
+      const [newTabOpen, setNewTabOpen] = react.useState(false);
+      const [draggingTab, setDraggingTab] = react.useState("");
+      const activeTabRef = react.useRef(null);
+      const newTabWrapRef = react.useRef(null);
+      const tabs = snapshot.openTabs ?? [];
+      react.useEffect(() => {
+        activeTabRef.current?.scrollIntoView?.({
+          block: "nearest",
+          inline: "nearest",
+        });
+      }, [snapshot.activeTab, tabs.length]);
+      react.useEffect(() => {
+        if (!newTabOpen) return undefined;
+        const closeOnOutsidePointer = (event) => {
+          if (!newTabWrapRef.current?.contains(event.target)) {
+            setNewTabOpen(false);
+          }
+        };
+        const closeOnEscape = (event) => {
+          if (event.key === "Escape") setNewTabOpen(false);
+        };
+        document.addEventListener("pointerdown", closeOnOutsidePointer, true);
+        document.addEventListener("keydown", closeOnEscape);
+        return () => {
+          document.removeEventListener(
+            "pointerdown",
+            closeOnOutsidePointer,
+            true,
+          );
+          document.removeEventListener("keydown", closeOnEscape);
+        };
+      }, [newTabOpen]);
+      if (tabs.length === 0) return null;
+      const labels = {
+        "data-agent": "spark",
+        communication: "message",
+        "task-drafts": "task",
+      };
+      const sidePanelTabIcon = (type, size = 13) =>
+        svgIcon(
+          type === "data-agent"
+            ? [
+                "m12 3 1.5 5.5L19 10l-5.5 1.5L12 17l-1.5-5.5L5 10l5.5-1.5Z",
+                "M19 16l.7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7Z",
+              ]
+            : type === "task-drafts"
+              ? [
+                  "M9 6h11M9 12h11M9 18h11",
+                  "m3 6 1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2",
+                ]
+              : [
+                  "M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z",
+                ],
+          size,
+        );
+      const moveTabFocus = (event, index) => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+          return;
+        }
+        event.preventDefault();
+        const nextIndex =
+          event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? tabs.length - 1
+              : event.key === "ArrowLeft"
+                ? (index - 1 + tabs.length) % tabs.length
+                : (index + 1) % tabs.length;
+        const nextTab = tabs[nextIndex];
+        window.__pluginmaxSidePanel?.openTab(nextTab);
+        window.requestAnimationFrame(() => {
+          const target = [...document.querySelectorAll("[data-tab]")].find(
+            (node) =>
+              node.dataset.tab === nextTab && node.getClientRects().length > 0,
+          );
+          target?.querySelector('button[role="tab"]')?.focus();
+        });
+      };
+      return h(
+        react.Fragment,
+        null,
+        h(
+          "div",
+          {
+            role: "tablist",
+            "aria-label": "侧边工作区",
+            style: sidePanelTabsStyle.root,
+          },
+          h(
+            "div",
+            {
+              style: {
+                display: "flex",
+                alignItems: "stretch",
+                gap: 2,
+                minWidth: 0,
+                flex: 1,
+                overflowX: "auto",
+                scrollbarWidth: "none",
+                WebkitOverflowScrolling: "touch",
+              },
+            },
+            ...tabs.map((tab, tabIndex) => {
+              const active = snapshot.activeTab === tab;
+              const descriptor = sidePanel.describeTab(tab);
+              const type = descriptor.type;
+              const label = descriptor.title;
+              return h(
+                "div",
+                {
+                  key: tab,
+                  "data-tab": tab,
+                  "data-tab-type": type,
+                  ref: active ? activeTabRef : undefined,
+                  draggable: true,
+                  onDragStart: (event) => {
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("text/plain", tab);
+                    setDraggingTab(tab);
+                  },
+                  onDragOver: (event) => {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                  },
+                  onDrop: (event) => {
+                    event.preventDefault();
+                    const source =
+                      event.dataTransfer.getData("text/plain") || draggingTab;
+                    window.__pluginmaxSidePanel?.reorderTab?.(source, tab);
+                    setDraggingTab("");
+                  },
+                  onDragEnd: () => setDraggingTab(""),
+                  style: Object.assign(
+                    {},
+                    sidePanelTabsStyle.tab,
+                    active
+                      ? {
+                          color: "var(--dsw-alias-label-primary)",
+                          borderRadius: "6px 6px 0 0",
+                          background: "var(--dsw-alias-bg-layer-3)",
+                          fontWeight: 600,
+                          opacity: draggingTab === tab ? 0.55 : 1,
+                        }
+                      : draggingTab === tab
+                        ? { opacity: 0.55 }
+                        : {},
+                  ),
+                },
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    role: "tab",
+                    "aria-selected": active,
+                    style: sidePanelTabsStyle.tabButton,
+                    "data-tab-type": type,
+                    onClick: () => window.__pluginmaxSidePanel?.openTab(tab),
+                    onKeyDown: (event) => moveTabFocus(event, tabIndex),
+                  },
+                  sidePanelTabIcon(type),
+                  h(
+                    "span",
+                    {
+                      style: {
+                        minWidth: 0,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      },
+                    },
+                    label,
+                  ),
+                ),
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    style: sidePanelTabsStyle.close,
+                    title: `关闭${label}`,
+                    "aria-label": `关闭${label}`,
+                    onClick: () => {
+                      sidePanel.closeTab(tab);
+                    },
+                  },
+                  svgIcon(["M18 6 6 18", "M6 6l12 12"], 10),
+                ),
+                active
+                  ? h("span", {
+                      "data-tab-indicator": "true",
+                      "aria-hidden": true,
+                      style: {
+                        position: "absolute",
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        height: 2,
+                        borderRadius: "2px 2px 0 0",
+                        background: "var(--dsw-alias-label-primary)",
+                        pointerEvents: "none",
+                      },
+                    })
+                  : null,
+              );
+            }),
+          ),
+          h(
+            "div",
+            { style: sidePanelTabsStyle.actionWrap },
+            h(
+              "div",
+              {
+                ref: newTabWrapRef,
+                style: { position: "relative", flex: "none" },
+              },
+              h(
+                "button",
+                {
+                  type: "button",
+                  style: sidePanelTabsStyle.utility,
+                  "aria-label": "新建侧栏标签",
+                  "data-new-tab-launcher": "true",
+                  title: "新建标签",
+                  "aria-haspopup": "menu",
+                  "aria-expanded": newTabOpen,
+                  onClick: () => setNewTabOpen((value) => !value),
+                },
+                svgIcon(["M12 5v14M5 12h14"], 12),
+              ),
+              newTabOpen
+                ? h(
+                    "div",
+                    {
+                      role: "menu",
+                      style: {
+                        position: "absolute",
+                        right: 0,
+                        top: 30,
+                        zIndex: 30,
+                        minWidth: 150,
+                        padding: 5,
+                        border: "1px solid var(--dsw-alias-border-l2)",
+                        borderRadius: 7,
+                        background: "var(--dsw-alias-bg-layer-1)",
+                        boxShadow: "0 10px 28px rgba(0,0,0,.2)",
+                      },
+                    },
+                    ...[
+                      ["communication", "对话"],
+                      ["data-agent", "数据洞察"],
+                      ["task-drafts", "任务草稿"],
+                    ].map(([type, label]) =>
+                      h(
+                        "button",
+                        {
+                          key: type,
+                          type: "button",
+                          className: "pmda-tab-new-item",
+                          role: "menuitem",
+                          "data-new-tab-type": type,
+                          style: {
+                            width: "100%",
+                            padding: "8px 9px",
+                            border: 0,
+                            borderRadius: 5,
+                            background: "transparent",
+                            color: "var(--dsw-alias-label-primary)",
+                            textAlign: "left",
+                            font: "inherit",
+                            fontSize: 11,
+                            lineHeight: 1.4,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 7,
+                            cursor: "pointer",
+                          },
+                          onClick: () => {
+                            window.__pluginmaxSidePanel?.openNewTab(type);
+                            setNewTabOpen(false);
+                          },
+                        },
+                        sidePanelTabIcon(type, 12),
+                        h("span", null, label),
+                      ),
+                    ),
+                  )
+                : null,
+            ),
+            h(
+              "button",
+              {
+                type: "button",
+                style: sidePanelTabsStyle.utility,
+                title: snapshot.expanded ? "还原侧边栏" : "展开侧边栏",
+                "aria-label": snapshot.expanded ? "还原侧边栏" : "展开侧边栏",
+                onClick: () => {
+                  window.__pluginmaxSidePanel?.toggleExpanded();
+                },
+              },
+              svgIcon(
+                snapshot.expanded
+                  ? ["M3 8h5V3", "M21 8h-5V3", "M3 16h5v5", "M21 16h-5v5"]
+                  : ["M8 3H3v5", "M16 3h5v5", "M8 21H3v-5", "M16 21h5v-5"],
+                13,
+              ),
+            ),
+            h(
+              "button",
+              {
+                type: "button",
+                style: sidePanelTabsStyle.panelToggle,
+                title: "关闭侧边栏",
+                "aria-label": "关闭侧边栏",
+                onClick: () => {
+                  window.__pluginmaxSidePanel?.closeAll();
+                },
+              },
+              svgIcon(["M4 4h16v16H4Z", "M10 4v16"], 15),
+            ),
+          ),
+        ),
+      );
+    }
+
+    /**
+     * 展示层清理：模型偶尔会把思考过程或工具调用标记写进正文
+     * （例如 `<|DSML| calls>` / `<|DSML| invoke name="Bash">`）。
+     * 这里隐去这类块，并在正文含 Markdown 标题时只保留标题之后的正文，
+     * 避免群聊里出现工具调用乱码。
+     */
+    function displayContent(raw) {
+      if (typeof raw !== "string") return raw;
+      // 服务端固定通知不是纪要正文，不能进入“无结构化标题即失败”的兜底。
+      if (/^会议纪要 v\d+ 已生成。$/.test(raw.trim())) return raw.trim();
+      let text = raw;
+      // 注意：模型输出的是全角竖线「｜」，这里同时兼容半角「|」。
+      const start = text.search(/<[|｜]+\s*[|｜]?\s*DSML/i);
+      if (start >= 0) text = text.slice(0, start);
+      text = text.replace(/<[|｜]+\s*[|｜]?[^>\n]*>/g, "");
+      const match = /^#{1,6}\s/m.exec(text);
+      if (match !== null && match.index > 0) text = text.slice(match.index);
+      const cleaned = text.trim();
+      // 纪要消息（「会议纪要 vN …」）如果清理后没有结构化标题，
+      // 说明该版本只有思考过程/工具调用，直接给占位说明，避免误导。
+      if (/^会议纪要 v\d/.test(raw) && !/^#{1,6}\s/m.test(cleaned)) {
+        return "（该版本未生成结构化纪要）";
+      }
+      return cleaned === "" ? "（本次未生成可用内容）" : cleaned;
+    }
+
+    /**
+     * 会议聊天里的安全 Markdown 渲染：覆盖标题、列表、表格、引用、链接、
+     * 加粗、斜体、删除线、行内代码与代码块。全部通过 React 节点输出，
+     * 不注入原始 HTML。
+     */
+    function renderChatMarkdown(raw) {
+      const text = typeof raw === "string" ? raw : "";
+      if (text.trim() === "") return null;
+      const blocks = [];
+      let listItems = [];
+      let ordered = false;
+      let inCode = false;
+      let codeLines = [];
+      let seq = 0;
+      const inline = (source, keyBase) => {
+        const parts = [];
+        const pattern =
+          /(\*\*(.+?)\*\*|~~(.+?)~~|`([^`]+)`|\[([^\]]+)\]\(([^)\s]+)\)|\*([^*\n]+)\*)/g;
+        let last = 0;
+        let match;
+        let i = 0;
+        while ((match = pattern.exec(source)) !== null) {
+          if (match.index > last) parts.push(source.slice(last, match.index));
+          if (match[2] !== undefined) {
+            parts.push(h("strong", { key: `${keyBase}-b${i}` }, match[2]));
+          } else if (match[3] !== undefined) {
+            parts.push(h("del", { key: `${keyBase}-d${i}` }, match[3]));
+          } else if (match[4] !== undefined) {
+            parts.push(
+              h(
+                "code",
+                {
+                  key: `${keyBase}-c${i}`,
+                  style: {
+                    background: "var(--dsw-alias-bg-layer-2)",
+                    borderRadius: 4,
+                    fontFamily: "ui-monospace,SFMono-Regular,Menlo,monospace",
+                    fontSize: "0.92em",
+                    padding: "1px 4px",
+                  },
+                },
+                match[4],
+              ),
+            );
+          } else if (match[5] !== undefined) {
+            const href = match[6];
+            const safeHref = /^(https?:|mailto:|#|\/)/i.test(href)
+              ? href
+              : undefined;
+            parts.push(
+              safeHref === undefined
+                ? match[5]
+                : h(
+                    "a",
+                    {
+                      key: `${keyBase}-a${i}`,
+                      href: safeHref,
+                      target: safeHref.startsWith("#") ? undefined : "_blank",
+                      rel: "noreferrer noopener",
+                      style: {
+                        color: "var(--dsw-alias-accent-primary,#4f8ef7)",
+                        textDecoration: "underline",
+                      },
+                    },
+                    match[5],
+                  ),
+            );
+          } else if (match[7] !== undefined) {
+            parts.push(h("em", { key: `${keyBase}-i${i}` }, match[7]));
+          }
+          last = pattern.lastIndex;
+          i += 1;
+        }
+        if (last < source.length) parts.push(source.slice(last));
+        return parts;
+      };
+      const flushList = () => {
+        if (listItems.length === 0) return;
+        const Tag = ordered ? "ol" : "ul";
+        const key = `list-${seq}`;
+        blocks.push(
+          h(
+            Tag,
+            { key, style: { margin: "2px 0", paddingLeft: 18 } },
+            ...listItems.map((item, i) =>
+              h("li", { key: `li-${seq}-${i}` }, ...inline(item, i)),
+            ),
+          ),
+        );
+        listItems = [];
+        seq += 1;
+      };
+      const splitTableRow = (line) =>
+        line
+          .trim()
+          .replace(/^\|/, "")
+          .replace(/\|$/, "")
+          .split("|")
+          .map((cell) => cell.trim());
+      const tableAlignment = (cell) =>
+        cell.startsWith(":") && cell.endsWith(":")
+          ? "center"
+          : cell.endsWith(":")
+            ? "right"
+            : "left";
+      const tableCellStyle = {
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        padding: "5px 8px",
+        textAlign: "left",
+        verticalAlign: "top",
+      };
+      const lines = text.split("\n");
+      for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+        const line = lines[lineIndex];
+        if (line.trim().startsWith("```")) {
+          if (inCode) {
+            blocks.push(
+              h(
+                "pre",
+                {
+                  key: `code-${seq}`,
+                  style: {
+                    background: "var(--dsw-alias-bg-base)",
+                    borderRadius: 6,
+                    fontFamily: "ui-monospace,SFMono-Regular,Menlo,monospace",
+                    fontSize: 12,
+                    overflowX: "auto",
+                    padding: "8px 10px",
+                  },
+                },
+                codeLines.join("\n"),
+              ),
+            );
+            seq += 1;
+            codeLines = [];
+            inCode = false;
+          } else {
+            flushList();
+            inCode = true;
+          }
+          continue;
+        }
+        if (inCode) {
+          codeLines.push(line);
+          continue;
+        }
+        const headingMatch = line.match(/^(#{1,6})\s+(.*)/);
+        if (headingMatch) {
+          flushList();
+          const level = Math.min(headingMatch[1].length, 6);
+          blocks.push(
+            h(
+              `h${level}`,
+              {
+                key: `h-${seq}`,
+                style: {
+                  fontSize: level <= 2 ? 14 : 13,
+                  fontWeight: 650,
+                  margin: "6px 0 2px",
+                },
+              },
+              ...inline(headingMatch[2], seq),
+            ),
+          );
+          seq += 1;
+          continue;
+        }
+        const tableHeader = line.includes("|") ? splitTableRow(line) : [];
+        const tableDivider =
+          lineIndex + 1 < lines.length && lines[lineIndex + 1].includes("|")
+            ? splitTableRow(lines[lineIndex + 1])
+            : [];
+        if (
+          tableHeader.length > 0 &&
+          tableDivider.length === tableHeader.length &&
+          tableDivider.every((cell) => /^:?-{3,}:?$/.test(cell))
+        ) {
+          flushList();
+          const alignments = tableDivider.map(tableAlignment);
+          const rows = [];
+          lineIndex += 2;
+          while (
+            lineIndex < lines.length &&
+            lines[lineIndex].trim() !== "" &&
+            lines[lineIndex].includes("|")
+          ) {
+            rows.push(splitTableRow(lines[lineIndex]));
+            lineIndex += 1;
+          }
+          lineIndex -= 1;
+          const tableKey = `table-${seq}`;
+          blocks.push(
+            h(
+              "div",
+              {
+                key: tableKey,
+                style: { margin: "6px 0", overflowX: "auto" },
+              },
+              h(
+                "table",
+                {
+                  style: {
+                    borderCollapse: "collapse",
+                    fontSize: 12,
+                    minWidth: "100%",
+                  },
+                },
+                h(
+                  "thead",
+                  null,
+                  h(
+                    "tr",
+                    null,
+                    ...tableHeader.map((cell, cellIndex) =>
+                      h(
+                        "th",
+                        {
+                          key: `${tableKey}-h-${cellIndex}`,
+                          style: Object.assign({}, tableCellStyle, {
+                            background: "var(--dsw-alias-bg-layer-2)",
+                            fontWeight: 650,
+                            textAlign: alignments[cellIndex],
+                          }),
+                        },
+                        ...inline(cell, `${tableKey}-h-${cellIndex}`),
+                      ),
+                    ),
+                  ),
+                ),
+                h(
+                  "tbody",
+                  null,
+                  ...rows.map((row, rowIndex) =>
+                    h(
+                      "tr",
+                      { key: `${tableKey}-r-${rowIndex}` },
+                      ...tableHeader.map((_, cellIndex) =>
+                        h(
+                          "td",
+                          {
+                            key: `${tableKey}-c-${rowIndex}-${cellIndex}`,
+                            style: Object.assign({}, tableCellStyle, {
+                              textAlign: alignments[cellIndex],
+                            }),
+                          },
+                          ...inline(
+                            row[cellIndex] ?? "",
+                            `${tableKey}-c-${rowIndex}-${cellIndex}`,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+          seq += 1;
+          continue;
+        }
+        if (/^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/.test(line)) {
+          flushList();
+          blocks.push(
+            h("hr", {
+              key: `hr-${seq}`,
+              style: {
+                border: "none",
+                borderTop: "0.5px solid var(--dsw-alias-border-l3)",
+                margin: "8px 0",
+              },
+            }),
+          );
+          seq += 1;
+          continue;
+        }
+        if (/^\s*>\s?/.test(line)) {
+          flushList();
+          const quoteLines = [];
+          while (
+            lineIndex < lines.length &&
+            /^\s*>\s?/.test(lines[lineIndex])
+          ) {
+            quoteLines.push(lines[lineIndex].replace(/^\s*>\s?/, ""));
+            lineIndex += 1;
+          }
+          lineIndex -= 1;
+          const quoteKey = `quote-${seq}`;
+          blocks.push(
+            h(
+              "blockquote",
+              {
+                key: quoteKey,
+                style: {
+                  borderLeft:
+                    "2px solid var(--dsw-alias-accent-primary,#4f8ef7)",
+                  color: "var(--dsw-alias-label-secondary)",
+                  margin: "6px 0",
+                  padding: "2px 0 2px 10px",
+                },
+              },
+              ...quoteLines.map((quoteLine, quoteIndex) =>
+                h(
+                  "div",
+                  { key: `${quoteKey}-${quoteIndex}` },
+                  ...inline(quoteLine, `${quoteKey}-${quoteIndex}`),
+                ),
+              ),
+            ),
+          );
+          seq += 1;
+          continue;
+        }
+        const unorderedMatch = line.match(/^\s*[-·*]\s+(.*)/);
+        const orderedMatch = line.match(/^\s*\d+[.．]\s+(.*)/);
+        if (unorderedMatch) {
+          if (ordered) flushList();
+          ordered = false;
+          listItems.push(unorderedMatch[1]);
+          continue;
+        }
+        if (orderedMatch) {
+          if (!ordered) flushList();
+          ordered = true;
+          listItems.push(orderedMatch[1]);
+          continue;
+        }
+        if (line.trim() === "") {
+          flushList();
+          continue;
+        }
+        flushList();
+        blocks.push(
+          h(
+            "p",
+            { key: `p-${seq}`, style: { margin: "2px 0" } },
+            ...inline(line, seq),
+          ),
+        );
+        seq += 1;
+      }
+      flushList();
+      if (inCode && codeLines.length > 0) {
+        blocks.push(
+          h(
+            "pre",
+            {
+              key: `code-${seq}`,
+              style: {
+                background: "var(--dsw-alias-bg-base)",
+                borderRadius: 6,
+                fontFamily: "ui-monospace,SFMono-Regular,Menlo,monospace",
+                fontSize: 12,
+                overflowX: "auto",
+                padding: "8px 10px",
+              },
+            },
+            codeLines.join("\n"),
+          ),
+        );
+      }
+      return h("div", null, ...blocks);
+    }
+
+    /* ── meeting panel (shell.overlay slot): list + group chat only ── */
+
+    const svgIcon = (paths, size = 15) =>
+      h(
+        "svg",
+        {
+          viewBox: "0 0 24 24",
+          width: size,
+          height: size,
+          fill: "none",
+          stroke: "currentColor",
+          strokeWidth: 1.7,
+          strokeLinecap: "round",
+          strokeLinejoin: "round",
+          "aria-hidden": true,
+        },
+        ...paths.map((d, index) => h("path", { key: index, d })),
+      );
+
+    /** 会议切换操作位：只用放大镜图标，不加矩形边线。 */
+    const searchIcon = (size = 14) =>
+      h(
+        "svg",
+        {
+          viewBox: "0 0 24 24",
+          width: size,
+          height: size,
+          fill: "none",
+          stroke: "currentColor",
+          strokeWidth: 1.7,
+          strokeLinecap: "round",
+          strokeLinejoin: "round",
+          "aria-hidden": true,
+        },
+        h("circle", { cx: 11, cy: 11, r: 7.5 }),
+        h("path", { d: "m21 21-4.3-4.3" }),
+      );
+
+    const backIcon = () => svgIcon(["m15 18-6-6 6-6"], 14);
+    const plusCircleIcon = () =>
+      h(
+        "svg",
+        {
+          viewBox: "0 0 24 24",
+          width: 16,
+          height: 16,
+          fill: "none",
+          stroke: "currentColor",
+          strokeWidth: 1.8,
+          strokeLinecap: "round",
+          strokeLinejoin: "round",
+          "aria-hidden": true,
+        },
+        h("circle", { cx: 12, cy: 12, r: 9 }),
+        h("path", { d: "M12 8v8" }),
+        h("path", { d: "M8 12h8" }),
+      );
+
+    const addMemberIcon = () =>
+      svgIcon(
+        [
+          "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2",
+          "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8",
+          "M19 8v6",
+          "M22 11h-6",
+        ],
+        14,
+      );
+
+    const clipIcon = () =>
+      svgIcon(
+        [
+          "m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48",
+        ],
+        11,
+      );
+
+    const atIcon = () =>
+      h(
+        "svg",
+        {
+          viewBox: "0 0 24 24",
+          width: 11,
+          height: 11,
+          fill: "none",
+          stroke: "currentColor",
+          strokeWidth: 1.7,
+          strokeLinecap: "round",
+          strokeLinejoin: "round",
+          "aria-hidden": true,
+        },
+        h("circle", { cx: 12, cy: 12, r: 4 }),
+        h("path", { d: "M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94" }),
+      );
+
+    const videoIcon = () =>
+      h(
+        "svg",
+        {
+          viewBox: "0 0 24 24",
+          width: 15,
+          height: 15,
+          fill: "none",
+          stroke: "currentColor",
+          strokeWidth: 1.7,
+          strokeLinecap: "round",
+          strokeLinejoin: "round",
+          "aria-hidden": true,
+        },
+        h("path", {
+          d: "m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5",
+        }),
+        h("rect", { x: 2, y: 6, width: 14, height: 12, rx: 2 }),
+      );
+
+    const sendIcon = () => svgIcon(["m22 2-7 20-4-9-9-4Z", "M22 2 11 13"], 13);
+    const settingsIcon = () =>
+      svgIcon(
+        [
+          "M4 21v-7",
+          "M4 10V3",
+          "M12 21v-9",
+          "M12 8V3",
+          "M20 21v-5",
+          "M20 12V3",
+          "M1 14h6",
+          "M9 8h6",
+          "M17 16h6",
+        ],
+        15,
+      );
+    const GROUP_CHAT_ICON =
+      "data:image/png;base64,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";
+
+    const groupChatIcon = (size) =>
+      h("img", {
+        src: GROUP_CHAT_ICON,
+        alt: "",
+        "aria-hidden": true,
+        "data-group-chat-icon": size === undefined ? "list" : "header",
+        style: {
+          borderRadius: 6,
+          display: "block",
+          flexShrink: 0,
+          height: size ?? "100%",
+          objectFit: "cover",
+          objectPosition: "center",
+          width: size ?? "100%",
+        },
+      });
+
+    const downloadIcon = () =>
+      svgIcon(["M12 3v12", "m7 10 5 5 5-5", "M5 21h14"], 12);
+
+    const downloadMinutesMarkdown = (meeting, version) => {
+      const content = String(version?.content ?? "");
+      if (content.trim() === "") return;
+      const safeTitle = String(meeting?.title ?? "会议")
+        .replace(/[\\/:*?"<>|]/g, "_")
+        .trim();
+      const filename = `${safeTitle || "会议"}-会议纪要-v${version.version}.md`;
+      const url = URL.createObjectURL(
+        new Blob([content], { type: "text/markdown;charset=utf-8" }),
+      );
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    };
+
+    /** 姓名缩写：与任务管理页同一套规则（按空格分词，取前两段首字母）。 */
+    const initials = (value) =>
+      String(value ?? "?")
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((part) => part[0])
+        .join("")
+        .slice(0, 2)
+        .toUpperCase();
+
+    /* ── 头像：与 AI Teammates / 任务管理页同一套 ── */
+
+    const AVATAR_PRESETS = [
+      {
+        id: "sky",
+        bg: "#d9efff",
+        shirt: "#568fd8",
+        skin: "#f1c5a3",
+        hair: "#244d77",
+        accent: "#ffd166",
+        hairStyle: "wave",
+        glasses: false,
+      },
+      {
+        id: "sunset",
+        bg: "#ffe5d8",
+        shirt: "#db6d65",
+        skin: "#d99a76",
+        hair: "#743d2d",
+        accent: "#ff8d7a",
+        hairStyle: "bun",
+        glasses: false,
+      },
+      {
+        id: "forest",
+        bg: "#def6e8",
+        shirt: "#3f9d73",
+        skin: "#e3b08d",
+        hair: "#245543",
+        accent: "#67d4a1",
+        hairStyle: "side",
+        glasses: false,
+      },
+      {
+        id: "berry",
+        bg: "#f1e2ff",
+        shirt: "#7d59c6",
+        skin: "#efb38f",
+        hair: "#533275",
+        accent: "#c06cff",
+        hairStyle: "bob",
+        glasses: false,
+      },
+      {
+        id: "lemon",
+        bg: "#fff3c9",
+        shirt: "#d7a62e",
+        skin: "#d49974",
+        hair: "#414554",
+        accent: "#f2cb45",
+        hairStyle: "wave",
+        glasses: true,
+      },
+      {
+        id: "ocean",
+        bg: "#d9f4ff",
+        shirt: "#2f84a8",
+        skin: "#ce9874",
+        hair: "#164f6f",
+        accent: "#4fc3e8",
+        hairStyle: "bun",
+        glasses: true,
+      },
+    ];
+
+    const avatarHair = (preset) => {
+      const fill = preset.hair;
+      if (preset.hairStyle === "bun")
+        return [
+          h("circle", { key: "bun", cx: 47, cy: 14, r: 6, fill }),
+          h("path", {
+            key: "bun-body",
+            d: "M16 29c0-12 7-19 16-19 9 0 16 7 16 19-5-3-8-8-9-12-5 7-14 11-23 12Z",
+            fill,
+          }),
+        ];
+      if (preset.hairStyle === "side")
+        return [
+          h("path", {
+            key: "side",
+            d: "M17 27c1-11 8-17 17-17 8 0 14 5 15 15-7-1-11-5-14-10-4 6-11 10-18 12Z",
+            fill,
+          }),
+        ];
+      if (preset.hairStyle === "bob")
+        return [
+          h("path", {
+            key: "bob",
+            d: "M16 28c0-12 7-18 16-18s16 7 16 18v13h-6V30c-7 1-13-1-19-6-1 5-3 8-7 10Z",
+            fill,
+          }),
+        ];
+      return [
+        h("path", {
+          key: "wave",
+          d: "M16 29c0-12 7-19 17-19 10 0 16 7 16 19-4-2-7-6-9-10-5 6-14 9-24 10Z",
+          fill,
+        }),
+      ];
+    };
+
+    const AVATAR_ART_STYLE = {
+      background: "#20242a",
+      border: "2px solid var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-base))",
+      borderRadius: "50%",
+      display: "block",
+      height: "100%",
+      objectFit: "cover",
+      overflow: "hidden",
+      width: "100%",
+    };
+
+    const avatarArt = (value) => {
+      if (typeof value === "string" && value.startsWith("data:image/"))
+        return h("img", { style: AVATAR_ART_STYLE, src: value, alt: "" });
+      const preset =
+        AVATAR_PRESETS.find((item) => item.id === value) ?? AVATAR_PRESETS[0];
+      const children = [
+        h("rect", { key: "bg", width: 64, height: 64, fill: preset.bg }),
+        h("circle", {
+          key: "a1",
+          cx: 52,
+          cy: 12,
+          r: 10,
+          fill: preset.accent,
+          opacity: 0.28,
+        }),
+        h("circle", {
+          key: "a2",
+          cx: 10,
+          cy: 52,
+          r: 14,
+          fill: preset.accent,
+          opacity: 0.18,
+        }),
+        h("rect", {
+          key: "neck",
+          x: 28,
+          y: 39,
+          width: 8,
+          height: 11,
+          rx: 4,
+          fill: preset.skin,
+        }),
+        h("path", {
+          key: "shirt",
+          d: "M9 64c2-13 11-20 23-20s21 7 23 20Z",
+          fill: preset.shirt,
+        }),
+        h("circle", { key: "ear-l", cx: 18, cy: 30, r: 4, fill: preset.skin }),
+        h("circle", { key: "ear-r", cx: 46, cy: 30, r: 4, fill: preset.skin }),
+        h("circle", { key: "face", cx: 32, cy: 29, r: 16, fill: preset.skin }),
+        ...avatarHair(preset),
+        h("circle", {
+          key: "eye-l",
+          cx: 25.5,
+          cy: 31,
+          r: 1.8,
+          fill: "#20232a",
+        }),
+        h("circle", {
+          key: "eye-r",
+          cx: 38.5,
+          cy: 31,
+          r: 1.8,
+          fill: "#20232a",
+        }),
+        h("path", {
+          key: "mouth",
+          d: "M27 38c3 3 7 3 10 0",
+          fill: "none",
+          stroke: "#9a5c52",
+          strokeWidth: 1.8,
+          strokeLinecap: "round",
+        }),
+      ];
+      if (preset.glasses) {
+        children.push(
+          h(
+            "g",
+            {
+              key: "glasses",
+              fill: "none",
+              stroke: preset.hair,
+              strokeWidth: 1.8,
+            },
+            h("circle", { cx: 25.5, cy: 31, r: 5.4 }),
+            h("circle", { cx: 38.5, cy: 31, r: 5.4 }),
+            h("path", { d: "M31 31h2" }),
+          ),
+        );
+      }
+      return h(
+        "svg",
+        { viewBox: "0 0 64 64", style: AVATAR_ART_STYLE, "aria-hidden": true },
+        ...children,
+      );
+    };
+
+    /** 人类头像：与任务管理页同款 26px 圆角方块 + 姓名缩写（自己显示「我」）。 */
+    const initialsAvatarStyle = {
+      alignItems: "center",
+      background: "#2f9e66",
+      borderRadius: 7,
+      color: "#fff",
+      display: "grid",
+      flexShrink: 0,
+      fontSize: 10,
+      fontWeight: 700,
+      height: 26,
+      placeItems: "center",
+      width: 26,
+    };
+
+    /** AI teammate 头像：渐变光环 + 生成式头像（平台实例用蓝色光环）。 */
+    const teammateRingStyle = (platform) => ({
+      alignItems: "center",
+      background: platform
+        ? "#63b8ff"
+        : "conic-gradient(from 210deg,#8b6cff,#4f8ef7,#7ed0ff,#ff79c9,#8b6cff)",
+      borderRadius: "50%",
+      boxShadow: platform
+        ? "0 0 0 1px rgba(99,184,255,.55)"
+        : "0 0 0 1px rgba(139,108,255,.26)",
+      display: "grid",
+      flexShrink: 0,
+      height: 26,
+      padding: 2,
+      placeItems: "center",
+      width: 26,
+    });
+
+    /**
+     * 会话头像：系统=灰底、人类=缩写圆角方块、AI=光环 + 生成式头像。
+     * 中间对话区与右侧栏共用，样式与 AI Teammates / 任务管理页一致。
+     */
+    const chatAvatar = (message, mine, teammates) => {
+      if (message.senderKind === "system")
+        return h(
+          "span",
+          {
+            style: Object.assign({}, initialsAvatarStyle, {
+              background: "var(--dsw-alias-bg-layer-3)",
+              color: "var(--dsw-alias-label-secondary)",
+            }),
+          },
+          "系",
+        );
+      if (message.senderKind === "human")
+        return h(
+          "span",
+          { style: initialsAvatarStyle },
+          mine ? "我" : initials(message.senderName),
+        );
+      const list = teammates ?? [];
+      const teammate =
+        list.find((item) => item.id === message.senderId) ??
+        list.find((item) => item.name === message.senderName);
+      return h(
+        "span",
+        {
+          style: teammateRingStyle(teammate?.source === "platform"),
+          title: message.senderName,
+        },
+        avatarArt(teammate?.avatar),
+      );
+    };
+
+    const participantAvatarNode = (participant, teammates) => {
+      if (participant.kind === "human") {
+        return h(
+          "span",
+          { style: initialsAvatarStyle },
+          initials(participant.displayName),
+        );
+      }
+      const teammate = (teammates ?? []).find(
+        (item) =>
+          item.id === participant.teammateInstanceId ||
+          item.id === participant.refId,
+      );
+      return h(
+        "span",
+        { style: teammateRingStyle(teammate?.source === "platform") },
+        avatarArt(teammate?.avatar),
+      );
+    };
+
+    const panelStyles = {
+      root: {
+        alignItems: "stretch",
+        display: "flex",
+        inset: 0,
+        justifyContent: "flex-end",
+        overflow: "hidden",
+        pointerEvents: "none",
+        position: "absolute",
+        zIndex: 20,
+      },
+      panel: {
+        background: "var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-base))",
+        borderLeft: "0.5px solid var(--dsw-alias-border-l2)",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+        pointerEvents: "auto",
+        position: "relative",
+        width: "100%",
+      },
+      head: {
+        alignItems: "center",
+        borderBottom: "0.5px solid var(--dsw-alias-border-l2)",
+        display: "flex",
+        flexShrink: 0,
+        flexWrap: "wrap",
+        gap: 8,
+        padding: "12px 14px 10px",
+      },
+      headerAvatar: {
+        alignItems: "center",
+        display: "grid",
+        flexShrink: 0,
+        height: 30,
+        justifyContent: "center",
+        placeItems: "center",
+        width: 30,
+      },
+      meetingAvatar: {
+        alignItems: "center",
+        background: "var(--dsw-alias-bg-layer-3)",
+        borderRadius: 7,
+        color: "var(--dsw-alias-accent-primary,#4f8ef7)",
+        display: "grid",
+        flexShrink: 0,
+        height: 26,
+        placeItems: "center",
+        width: 26,
+      },
+      title: {
+        flex: 1,
+        fontSize: 14,
+        fontWeight: 600,
+        margin: 0,
+        minWidth: 0,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+      },
+      select: {
+        background: "var(--dsw-alias-bg-layer-1)",
+        border: "0.5px solid var(--dsw-alias-border-l2)",
+        borderRadius: 6,
+        color: "inherit",
+        fontSize: 12,
+        padding: "5px 7px",
+      },
+      btn: {
+        alignItems: "center",
+        background: "transparent",
+        border: "0.5px solid var(--dsw-alias-border-l2)",
+        borderRadius: 6,
+        color: "inherit",
+        cursor: "pointer",
+        display: "inline-flex",
+        fontSize: 12,
+        gap: 4,
+        justifyContent: "center",
+        padding: "5px 9px",
+      },
+      list: {
+        display: "flex",
+        flexDirection: "column",
+        gap: 4,
+        overflowY: "auto",
+        padding: 8,
+      },
+      item: {
+        background: "var(--dsw-alias-bg-layer-1)",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: 7,
+        color: "inherit",
+        cursor: "pointer",
+        display: "block",
+        padding: "9px 10px",
+        textAlign: "left",
+        width: "100%",
+      },
+      itemActive: {
+        background:
+          "color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 10%,var(--dsw-alias-bg-layer-1))",
+        borderColor:
+          "color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 55%,transparent)",
+        boxShadow: "inset 2px 0 0 var(--dsw-alias-accent-primary,#4f8ef7)",
+      },
+      meta: { color: "var(--dsw-alias-label-secondary)", fontSize: 11 },
+      empty: {
+        alignItems: "center",
+        border: "0.5px dashed var(--dsw-alias-border-l3)",
+        borderRadius: 7,
+        color: "var(--dsw-alias-label-secondary)",
+        display: "grid",
+        flex: 1,
+        fontSize: 12,
+        justifyContent: "center",
+        minHeight: 280,
+        padding: 28,
+        textAlign: "center",
+      },
+      chat: {
+        display: "flex",
+        flex: 1,
+        flexDirection: "column",
+        minHeight: 0,
+        minWidth: 0,
+      },
+      stream: {
+        display: "flex",
+        flex: 1,
+        flexDirection: "column",
+        gap: 8,
+        overflowY: "auto",
+        padding: 10,
+      },
+      bubble: {
+        background: "var(--dsw-alias-bg-layer-2)",
+        border: "0.5px solid var(--dsw-alias-border-l2)",
+        borderRadius: "3px 8px 8px 8px",
+        fontSize: 13,
+        lineHeight: 1.55,
+        maxWidth: "100%",
+        padding: "7px 10px",
+        whiteSpace: "pre-wrap",
+        wordBreak: "break-word",
+      },
+      bubbleMine: {
+        background:
+          "color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 12%,var(--dsw-alias-bg-layer-2))",
+        borderColor:
+          "color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 35%,transparent)",
+        borderRadius: "8px 3px 8px 8px",
+      },
+      systemMessage: {
+        color: "var(--dsw-alias-label-tertiary)",
+        fontSize: 10,
+        padding: "5px 0",
+        textAlign: "center",
+        width: "100%",
+      },
+      form: {
+        borderTop: "0.5px solid var(--dsw-alias-border-l2)",
+        display: "flex",
+        gap: 6,
+        padding: 8,
+      },
+      textarea: {
+        background: "var(--dsw-alias-bg-layer-1)",
+        border: "0.5px solid var(--dsw-alias-border-l2)",
+        borderRadius: 6,
+        color: "inherit",
+        flex: 1,
+        fontFamily: "inherit",
+        fontSize: 12,
+        // 默认多留一行高度，避免刚打开就只能看到一行。
+        minHeight: 52,
+        padding: "6px 8px",
+        resize: "vertical",
+      },
+      error: {
+        background: "rgba(220,60,60,0.14)",
+        borderRadius: 6,
+        color: "#e06a6a",
+        fontSize: 11,
+        margin: "0 10px 8px",
+        padding: "6px 8px",
+      },
+      notice: {
+        background: "rgba(52,212,126,0.12)",
+        borderRadius: 6,
+        color: "#34d47e",
+        fontSize: 11,
+        margin: "0 10px 8px",
+        padding: "6px 8px",
+      },
+      picker: {
+        alignItems: "center",
+        display: "flex",
+        flexShrink: 0,
+        gap: 6,
+        padding: "8px 10px 0",
+      },
+      search: {
+        background: "var(--dsw-alias-bg-layer-1)",
+        border: "0.5px solid var(--dsw-alias-border-l2)",
+        borderRadius: 6,
+        color: "inherit",
+        flex: 1,
+        fontFamily: "inherit",
+        fontSize: 12,
+        minWidth: 0,
+        padding: "6px 8px",
+      },
+      dialogOverlay: {
+        alignItems: "center",
+        background: "rgba(0,0,0,0.4)",
+        display: "flex",
+        inset: 0,
+        justifyContent: "center",
+        position: "absolute",
+        zIndex: 30,
+      },
+      dialog: {
+        background: "var(--dsw-alias-bg-layer-1)",
+        borderRadius: 8,
+        boxShadow: "0 12px 40px rgba(0,0,0,0.35)",
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+        maxHeight: "80%",
+        padding: 14,
+        width: 340,
+      },
+      dialogTitle: { fontSize: 14, fontWeight: 600 },
+      dialogBody: {
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+        overflowY: "auto",
+      },
+      dialogActions: {
+        display: "flex",
+        gap: 6,
+        justifyContent: "flex-end",
+        marginTop: 4,
+      },
+      checkRow: {
+        alignItems: "center",
+        display: "flex",
+        fontSize: 12,
+        gap: 8,
+        padding: "6px 0",
+      },
+      block: {
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+      },
+      divider: {
+        borderTop: "0.5px solid var(--dsw-alias-border-l2)",
+        margin: "2px 0",
+      },
+      // 头像样式对齐任务管理页：26px 圆角方块 + 姓名缩写。
+      chip: {
+        background: "var(--dsw-alias-bg-layer-3)",
+        borderRadius: 4,
+        color: "var(--dsw-alias-label-secondary)",
+        flexShrink: 0,
+        fontSize: 10,
+        padding: "1px 5px",
+      },
+      name: {
+        flex: 1,
+        minWidth: 0,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+      },
+      btnPrimary: {
+        background: "var(--dsw-alias-accent-fill, #2f6feb)",
+        border: "none",
+        borderRadius: 6,
+        color: "#fff",
+        cursor: "pointer",
+        fontSize: 12,
+        padding: "6px 12px",
+      },
+      titleWrap: {
+        alignItems: "center",
+        display: "flex",
+        flex: 1,
+        gap: 6,
+        minWidth: 0,
+      },
+      // 会议切换操作位：无边框，只用图标表达（放大镜）。
+      iconGhost: {
+        alignItems: "center",
+        background: "transparent",
+        border: "none",
+        borderRadius: 6,
+        color: "var(--dsw-alias-label-secondary)",
+        cursor: "pointer",
+        display: "grid",
+        flexShrink: 0,
+        height: 22,
+        placeItems: "center",
+        width: 22,
+      },
+      titleText: {
+        flex: "0 1 auto",
+        fontSize: 14,
+        fontWeight: 600,
+        minWidth: 0,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+      },
+      aiBadge: {
+        background: "linear-gradient(135deg,#6f53d6,#2f6feb)",
+        borderRadius: 4,
+        color: "#fff",
+        flexShrink: 0,
+        fontSize: 9,
+        fontWeight: 700,
+        letterSpacing: 0.4,
+        padding: "1px 4px",
+      },
+      // 输入框上方的附件 / @ 操作位：浅背景、无边框、图标更小。
+      composerBtn: {
+        alignItems: "center",
+        background: "var(--dsw-alias-bg-layer-2)",
+        border: "none",
+        borderRadius: 6,
+        color: "var(--dsw-alias-label-secondary)",
+        cursor: "pointer",
+        display: "grid",
+        flexShrink: 0,
+        height: 22,
+        placeItems: "center",
+        width: 22,
+      },
+      sendBtn: {
+        alignItems: "center",
+        background: "var(--dsw-alias-accent-primary,#4f8ef7)",
+        border: "none",
+        borderRadius: 6,
+        color: "#fff",
+        cursor: "pointer",
+        display: "grid",
+        flexShrink: 0,
+        height: 26,
+        placeItems: "center",
+        width: 26,
+      },
+      iconBtn: {
+        alignItems: "center",
+        background: "transparent",
+        border: "0.5px solid var(--dsw-alias-border-l2)",
+        borderRadius: 6,
+        color: "inherit",
+        cursor: "pointer",
+        display: "grid",
+        flexShrink: 0,
+        height: 26,
+        placeItems: "center",
+        width: 26,
+      },
+      dropdown: {
+        background: "var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-layer-1))",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: 8,
+        boxShadow: "0 20px 52px rgba(0,0,0,0.58), 0 2px 8px rgba(0,0,0,0.34)",
+        display: "flex",
+        flexDirection: "column",
+        flexShrink: 0,
+        gap: 6,
+        left: 14,
+        padding: 10,
+        position: "absolute",
+        right: 14,
+        top: 62,
+        zIndex: 40,
+      },
+      dropdownList: {
+        display: "flex",
+        flexDirection: "column",
+        gap: 2,
+        maxHeight: 220,
+        overflowY: "auto",
+      },
+      dropdownItem: {
+        alignItems: "center",
+        background: "transparent",
+        border: "none",
+        borderRadius: 6,
+        color: "inherit",
+        cursor: "pointer",
+        display: "flex",
+        fontSize: 12,
+        gap: 8,
+        justifyContent: "space-between",
+        padding: "6px 8px",
+        textAlign: "left",
+      },
+      dropdownItemActive: {
+        background:
+          "color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 10%,var(--dsw-alias-bg-layer-2))",
+        border:
+          "0.5px solid color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 55%,transparent)",
+      },
+      dropdownItemUnavailable: {
+        color: "var(--dsw-alias-label-tertiary)",
+        filter: "grayscale(1)",
+        opacity: 0.55,
+      },
+      dropdownItemIdle: {
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        background: "var(--dsw-alias-bg-layer-2)",
+      },
+      switchCopy: {
+        display: "grid",
+        flex: 1,
+        gap: 1,
+        minWidth: 0,
+        textAlign: "left",
+      },
+      dropdownAvatar: {
+        alignItems: "center",
+        display: "grid",
+        flexShrink: 0,
+        height: 26,
+        placeItems: "center",
+        width: 26,
+      },
+      switchName: {
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+      },
+      switchMeta: {
+        color: "var(--dsw-alias-label-tertiary)",
+        fontSize: 10,
+      },
+      switchTime: {
+        color: "var(--dsw-alias-label-tertiary)",
+        flexShrink: 0,
+        fontSize: 10,
+        whiteSpace: "nowrap",
+      },
+      dropdownFooter: {
+        display: "flex",
+        justifyContent: "flex-end",
+        marginTop: 2,
+      },
+      contentView: {
+        display: "flex",
+        flex: 1,
+        flexDirection: "column",
+        gap: 8,
+        minHeight: 0,
+        padding: 10,
+      },
+      detailView: {
+        display: "flex",
+        flex: 1,
+        flexDirection: "column",
+        minHeight: 0,
+      },
+      newView: {
+        display: "flex",
+        flex: 1,
+        flexDirection: "column",
+        gap: 12,
+        minHeight: 0,
+        overflowY: "auto",
+        padding: 10,
+      },
+      listSection: {
+        display: "flex",
+        flexDirection: "column",
+        gap: 5,
+      },
+      sectionTitle: {
+        color: "var(--dsw-alias-label-secondary)",
+        fontSize: 11,
+        fontWeight: 600,
+      },
+      field: {
+        display: "grid",
+        gap: 4,
+        fontSize: 11,
+      },
+      textLink: {
+        color: "var(--dsw-alias-label-secondary)",
+        cursor: "pointer",
+        fontSize: 11,
+        textDecoration: "underline",
+        textDecorationColor:
+          "color-mix(in srgb,var(--dsw-alias-label-secondary) 45%,transparent)",
+        textUnderlineOffset: 3,
+      },
+      tabs: {
+        background: "var(--dsw-alias-bg-layer-1)",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: 7,
+        display: "flex",
+        flexShrink: 0,
+        gap: 2,
+        margin: "10px 10px 8px",
+        padding: 3,
+      },
+      tab: {
+        background: "transparent",
+        border: "none",
+        borderRadius: 5,
+        color: "var(--dsw-alias-label-secondary)",
+        cursor: "pointer",
+        flex: 1,
+        fontSize: 11,
+        padding: "5px 6px",
+      },
+      tabActive: {
+        background: "#4f8ef7",
+        color: "#fff",
+        fontWeight: 600,
+      },
+      panelSection: {
+        display: "flex",
+        flex: 1,
+        flexDirection: "column",
+        gap: 10,
+        minHeight: 0,
+        overflowY: "auto",
+        padding: 10,
+      },
+      summarySectionHead: {
+        alignItems: "center",
+        display: "flex",
+        gap: 8,
+        justifyContent: "space-between",
+      },
+      minutesBody: {
+        background: "var(--dsw-alias-bg-layer-1)",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: 7,
+        flex: 1,
+        fontSize: 12,
+        minHeight: 0,
+        overflowY: "auto",
+        padding: 10,
+      },
+      settings: {
+        display: "flex",
+        flex: 1,
+        flexDirection: "column",
+        gap: 14,
+        minHeight: 0,
+        overflowY: "auto",
+        padding: 12,
+      },
+      composer: {
+        alignItems: "center",
+        display: "flex",
+        flexShrink: 0,
+        gap: 6,
+      },
+      mentionMenu: {
+        background: "var(--dsw-alias-bg-layer-1)",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: 6,
+        bottom: "100%",
+        boxShadow: "0 12px 28px rgba(0,0,0,0.18)",
+        display: "flex",
+        flexDirection: "column",
+        left: 10,
+        maxHeight: 200,
+        overflowY: "auto",
+        padding: 4,
+        position: "absolute",
+        right: 10,
+        zIndex: 20,
+      },
+      mentionItem: {
+        alignItems: "center",
+        background: "transparent",
+        border: "none",
+        borderRadius: 5,
+        color: "inherit",
+        cursor: "pointer",
+        display: "flex",
+        fontSize: 12,
+        gap: 8,
+        padding: "6px 7px",
+        textAlign: "left",
+        width: "100%",
+      },
+      mentionCopy: { display: "grid", gap: 1, minWidth: 0, textAlign: "left" },
+      mentionName: {
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+      },
+      mentionMeta: {
+        color: "var(--dsw-alias-label-tertiary)",
+        fontSize: 10,
+        lineHeight: 1.35,
+      },
+      groupTitle: {
+        color: "var(--dsw-alias-label-secondary)",
+        fontSize: 11,
+        fontWeight: 600,
+      },
+    };
+
+    const MeetingPanel = (props) => {
+      const open = usePanelContainerOpen();
+      const sharedPanel = useSidePanelState();
+      const [accountName, setAccountName] = react.useState("");
+      const [meetings, setMeetings] = react.useState([]);
+      const [query, setQuery] = react.useState("");
+      const [meetingId, setMeetingId] = react.useState(
+        () => window.localStorage.getItem(PANEL_LAST_MEETING_KEY) ?? "",
+      );
+      const [detail, setDetail] = react.useState(null);
+      const [minutes, setMinutes] = react.useState(null);
+      const [teammates, setTeammates] = react.useState([]);
+      const [content, setContent] = react.useState("");
+      const [error, setError] = react.useState("");
+      const [notice, setNotice] = react.useState("");
+      const [busy, setBusy] = react.useState("");
+      const [refreshKey, setRefreshKey] = react.useState(0);
+      const [panelTab, setPanelTab] = react.useState("conversation");
+      // 状态反馈条 3 秒后自动消失。
+      react.useEffect(() => {
+        if (notice === "" && error === "") return undefined;
+        const timer = window.setTimeout(() => {
+          setNotice("");
+          setError("");
+        }, 3_000);
+        return () => window.clearTimeout(timer);
+      }, [notice, error]);
+      const [panelView, setPanelView] = react.useState("list");
+      const [taskCaptureOpen, setTaskCaptureOpen] = react.useState(false);
+      const [taskCaptureSeed, setTaskCaptureSeed] = react.useState({});
+      const previousOpenRef = react.useRef(false);
+      const [switcherOpen, setSwitcherOpen] = react.useState(false);
+      const [newMeetingTitle, setNewMeetingTitle] = react.useState("");
+      const [workspaceOptions, setWorkspaceOptions] = react.useState([
+        SYSTEM_DEFAULT_WORKSPACE,
+      ]);
+      const [newWorkspaceId, setNewWorkspaceId] = react.useState(
+        SYSTEM_DEFAULT_WORKSPACE_ID,
+      );
+      const [people, setPeople] = react.useState([]);
+      const [inviteOpen, setInviteOpen] = react.useState(false);
+      const [inviteQuery, setInviteQuery] = react.useState("");
+      const [inviteSelected, setInviteSelected] = react.useState([]);
+      const [minutesOverwriteOpen, setMinutesOverwriteOpen] =
+        react.useState(false);
+      const [titleDraft, setTitleDraft] = react.useState("");
+      const [mentionOpen, setMentionOpen] = react.useState(false);
+      const [mentionIds, setMentionIds] = react.useState([]);
+      const [mentionQuery, setMentionQuery] = react.useState("");
+      const messagesRef = react.useRef(null);
+      const fileRef = react.useRef(null);
+      const composerInputRef = react.useRef(null);
+      const mentionAnchorRef = react.useRef(null);
+      const switcherPanelRef = react.useRef(null);
+      const switcherButtonRef = react.useRef(null);
+      const activeCommunicationTab =
+        sharedPanel.open === true &&
+        sharedPanel.activeTab !== undefined &&
+        sidePanel.describeTab(sharedPanel.activeTab).type === "communication"
+          ? sharedPanel.activeTab
+          : "";
+
+      const openTaskCapture = (seed = {}) => {
+        const currentMeeting = detail?.meeting;
+        if (currentMeeting === undefined) return;
+        const currentTranscript = detail?.transcript ?? [];
+        openTaskDraft({
+          sourceType: currentMeeting.kind === "ai" ? "ai-chat" : "meeting",
+          sourceId: currentMeeting.id,
+          sourceTitle: currentMeeting.title,
+          workspaceId: currentMeeting.workspaceId,
+          messageIds: seed.messageIds ?? [],
+          selectionText: seed.selectionText ?? "",
+          messageOptions: currentTranscript.map((message) => ({
+            id: message.id,
+            senderName:
+              message.provenance?.role === "representative"
+                ? `${message.senderName} · AI 参会代表`
+                : message.senderKind === "agent"
+                  ? `${message.senderName} · AI`
+                  : message.senderId === detail?.actorId
+                    ? "我"
+                    : message.senderName,
+            content: message.content,
+            createdAt: message.createdAt,
+          })),
+          actionItemIds: [],
+          onSaved: () => {
+            window.dispatchEvent(
+              new CustomEvent("pluginmax:task-capture-refresh"),
+            );
+          },
+        });
+      };
+
+      react.useEffect(
+        () =>
+          store.subscribeChange((source) => {
+            if (source !== "panel") setRefreshKey((key) => key + 1);
+          }),
+        [],
+      );
+
+      react.useEffect(() => {
+        const onTokenChange = () => {
+          if (window.localStorage.getItem("pluginmax.collab.token") === null) {
+            setMeetings([]);
+            setMeetingId("");
+            setDetail(null);
+            setMinutes(null);
+            setTeammates([]);
+            setAccountName("");
+          }
+          setRefreshKey((key) => key + 1);
+        };
+        window.addEventListener("pluginmax:collab-token", onTokenChange);
+        return () =>
+          window.removeEventListener("pluginmax:collab-token", onTokenChange);
+      }, []);
+
+      const fail = (cause) =>
+        setError(cause instanceof Error ? cause.message : String(cause));
+
+      react.useEffect(() => {
+        if (!open) return undefined;
+        let disposed = false;
+        (async () => {
+          try {
+            const [ws, me, team] = await Promise.all([
+              request("/api/collab/team/workspaces"),
+              request("/api/collab/auth/me").catch(() => ({})),
+              request("/api/collab/teammates?workspaceId=system.default").catch(
+                () => ({ teammates: [] }),
+              ),
+            ]);
+            if (disposed) return;
+            const platformAdmin = me.user?.role === "admin";
+            setAccountName(me.user?.name ?? "");
+            setTeammates(team.teammates ?? []);
+            // 抽屉顶部的会议选择器跨项目：把当前用户已加入项目的会议合并。
+            const joined = [
+              ...(ws.workspaces ?? []).filter(
+                (workspace) =>
+                  (platformAdmin || workspace.isMember === true) &&
+                  workspace.id !== SYSTEM_DEFAULT_WORKSPACE_ID,
+              ),
+              SYSTEM_DEFAULT_WORKSPACE,
+            ];
+            setWorkspaceOptions(joined);
+            setNewWorkspaceId((current) =>
+              joined.some((workspace) => workspace.id === current)
+                ? current
+                : (joined[0]?.id ?? SYSTEM_DEFAULT_WORKSPACE_ID),
+            );
+            const lists = await Promise.all(
+              joined.map((workspace) =>
+                request(
+                  `/api/collab/meetings?workspaceId=${encodeURIComponent(workspace.id)}`,
+                )
+                  .then((result) => result.meetings ?? [])
+                  .catch(() => []),
+              ),
+            );
+            if (disposed) return;
+            const merged = lists
+              .flat()
+              .filter(
+                (item) =>
+                  !(
+                    item.kind === "ai" &&
+                    item.workspaceId === SYSTEM_DEFAULT_WORKSPACE_ID &&
+                    item.aiContextMode !== "participant-projects-v1"
+                  ),
+              )
+              .sort((left, right) =>
+                String(meetingActivityTime(right) ?? "").localeCompare(
+                  String(meetingActivityTime(left) ?? ""),
+                ),
+              );
+            setMeetings(merged);
+            const withHistory = merged.filter(
+              (item) =>
+                meetingHasConversation(item) || isActiveGroupConversation(item),
+            );
+            const remembered =
+              window.localStorage.getItem(PANEL_LAST_MEETING_KEY) ?? "";
+            setMeetingId((current) => {
+              const preferred = current || remembered;
+              return withHistory.some((item) => item.id === preferred)
+                ? preferred
+                : (withHistory[0]?.id ?? "");
+            });
+          } catch (cause) {
+            if (!disposed) fail(cause);
+          }
+        })();
+        return () => {
+          disposed = true;
+        };
+      }, [open, refreshKey]);
+
+      react.useEffect(() => {
+        if (!open || meetingId === "") {
+          setDetail(null);
+          setMinutes(null);
+          return undefined;
+        }
+        let disposed = false;
+        (async () => {
+          try {
+            const result = await request(
+              `/api/collab/meeting?meetingId=${encodeURIComponent(meetingId)}`,
+            );
+            const minuteResult =
+              result.meeting?.kind === "ai"
+                ? null
+                : await request(
+                    `/api/collab/meeting/minutes?meetingId=${encodeURIComponent(meetingId)}`,
+                  ).catch(() => null);
+            if (disposed) return;
+            setDetail(result);
+            setMinutes(minuteResult);
+          } catch (cause) {
+            if (!disposed) fail(cause);
+          }
+        })();
+        return () => {
+          disposed = true;
+        };
+      }, [open, meetingId, refreshKey]);
+
+      react.useEffect(() => {
+        if ((panelTab !== "settings" && !inviteOpen) || meetingId === "")
+          return undefined;
+        let disposed = false;
+        request(
+          `/api/collab/meeting/people?meetingId=${encodeURIComponent(meetingId)}`,
+        )
+          .then((result) => {
+            if (!disposed) setPeople(result.people ?? []);
+          })
+          .catch(() => undefined);
+        return () => {
+          disposed = true;
+        };
+      }, [panelTab, inviteOpen, meetingId]);
+
+      // 切换会议时回到常规会话视图并收起下拉。
+      react.useEffect(() => {
+        if (open && !previousOpenRef.current) {
+          setPanelView("list");
+          setSwitcherOpen(false);
+          setQuery("");
+        }
+        previousOpenRef.current = open;
+      }, [open]);
+
+      react.useEffect(() => {
+        setTaskCaptureOpen(false);
+        setTaskCaptureSeed({});
+      }, [meetingId]);
+
+      react.useEffect(() => {
+        if (activeCommunicationTab === "") return;
+        const descriptor = window.__pluginmaxSidePanel?.describeTab?.(
+          activeCommunicationTab,
+        );
+        const sessionId = descriptor?.sessionId ?? "";
+        setMeetingId(sessionId);
+        setPanelView(sessionId === "" ? "list" : "detail");
+      }, [activeCommunicationTab]);
+
+      react.useEffect(() => {
+        const receiveSelection = (event) => {
+          const detail = event?.detail;
+          if (
+            detail?.surface !== "rail" ||
+            detail.sourceId !== meetingId ||
+            typeof detail.text !== "string" ||
+            detail.text.trim() === ""
+          ) {
+            return;
+          }
+          openTaskDraft({
+            sourceType: detail.sourceType,
+            sourceId: detail.sourceId,
+            sourceTitle: detail.sourceTitle,
+            workspaceId: detail.workspaceId,
+            messageIds:
+              typeof detail.messageId === "string" && detail.messageId !== ""
+                ? [detail.messageId]
+                : [],
+            selectionText: detail.text,
+            messageOptions: [],
+            actionItemIds: [],
+          });
+        };
+        window.addEventListener(
+          "pluginmax:task-capture-selection",
+          receiveSelection,
+        );
+        return () =>
+          window.removeEventListener(
+            "pluginmax:task-capture-selection",
+            receiveSelection,
+          );
+      }, [meetingId]);
+
+      react.useEffect(() => {
+        setPanelTab("conversation");
+        setInviteOpen(false);
+        setSwitcherOpen(false);
+      }, [meetingId]);
+
+      react.useEffect(() => {
+        if (
+          !open ||
+          !switcherOpen ||
+          panelView !== "detail" ||
+          typeof document === "undefined"
+        ) {
+          return undefined;
+        }
+        // 打开下拉的这一轮 click 不参与判断，避免刚展开就被关闭。
+        let armed = false;
+        const timer = window.setTimeout(() => {
+          armed = true;
+        }, 0);
+        const onPointerDown = (event) => {
+          if (!armed) return;
+          const target = event.target;
+          if (
+            switcherPanelRef.current?.contains?.(target) ||
+            switcherButtonRef.current?.contains?.(target)
+          ) {
+            return;
+          }
+          setSwitcherOpen(false);
+        };
+        const onKeyDown = (event) => {
+          if (event.key !== "Escape") return;
+          setSwitcherOpen(false);
+          switcherButtonRef.current?.focus?.();
+        };
+        document.addEventListener("mousedown", onPointerDown);
+        document.addEventListener("keydown", onKeyDown);
+        return () => {
+          window.clearTimeout(timer);
+          document.removeEventListener("mousedown", onPointerDown);
+          document.removeEventListener("keydown", onKeyDown);
+        };
+      }, [open, panelView, switcherOpen]);
+
+      react.useEffect(() => {
+        if (meetingId === "") {
+          window.localStorage.removeItem(PANEL_LAST_MEETING_KEY);
+          return;
+        }
+        window.localStorage.setItem(PANEL_LAST_MEETING_KEY, meetingId);
+      }, [meetingId]);
+
+      // 会议名称默认处于可编辑态：进入设置视图或标题变化时同步草稿。
+      react.useEffect(() => {
+        if (panelTab !== "settings") return;
+        setTitleDraft(detail?.meeting?.title ?? "");
+      }, [panelTab, detail?.meeting?.title]);
+
+      react.useEffect(() => {
+        if (!open || meetingId === "") return undefined;
+        const versions = minutes?.versions ?? [];
+        const generating = versions.some(
+          (version) =>
+            version.status === "generating" || version.status === "pending",
+        );
+        if (!generating) return undefined;
+        const timer = window.setInterval(
+          () => setRefreshKey((key) => key + 1),
+          4_000,
+        );
+        return () => window.clearInterval(timer);
+      }, [open, meetingId, minutes]);
+
+      react.useEffect(() => {
+        // 任意新消息（系统 / 人类 / AI）到达后，始终跟随到最新位置。
+        if (messagesRef.current)
+          messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
+      }, [detail]);
+
+      react.useEffect(() => {
+        if (
+          detail?.meeting?.kind !== "ai" ||
+          detail?.meeting?.status !== "active"
+        ) {
+          return undefined;
+        }
+        const waitingForReply =
+          chatTypingNames(detail?.participants ?? [], detail?.transcript ?? [])
+            .length > 0;
+        if (!waitingForReply) return undefined;
+        const timer = window.setInterval(
+          () => setRefreshKey((key) => key + 1),
+          2_000,
+        );
+        return () => window.clearInterval(timer);
+      }, [detail]);
+
+      if (!open) return null;
+
+      const meeting = detail?.meeting;
+      const isAiConversation = meeting?.kind === "ai";
+      const isGroupConversation =
+        meeting?.kind === "meeting" && meeting?.conversationMode === "group";
+      const activePanelTab = isAiConversation ? "conversation" : panelTab;
+      const transcript = detail?.transcript ?? [];
+      const actorId = detail?.actorId ?? "";
+      const joined = (detail?.participants ?? []).some(
+        (participant) =>
+          participant.kind === "human" &&
+          participant.status === "active" &&
+          participant.refId === actorId,
+      );
+      const participants = detail?.participants ?? [];
+      const panelTypingNames = chatTypingNames(participants, transcript);
+      const panelTypingStatus =
+        panelTypingNames.length === 0
+          ? ""
+          : `${panelTypingNames.join("、")} 正在输入`;
+      const aiConversationTeammate = isAiConversation
+        ? teammates.find((item) => item.id === meeting?.teammateInstanceId)
+        : undefined;
+      const panelAiCount = participants.filter(
+        (participant) =>
+          participant.status === "active" && participant.kind !== "human",
+      ).length;
+      const panelMinutesVersion = [...(minutes?.versions ?? [])]
+        .reverse()
+        .find((version) => String(version.content ?? "").trim() !== "");
+      const panelMentionOptions = participants.filter(
+        (participant) =>
+          participant.status === "active" &&
+          !(participant.kind === "human" && participant.refId === actorId) &&
+          (mentionQuery === "" ||
+            (participant.displayName ?? "")
+              .toLowerCase()
+              .includes(mentionQuery.toLowerCase())),
+      );
+      const focusPanelComposerAt = (cursor) => {
+        window.requestAnimationFrame(() => {
+          const field = composerInputRef.current;
+          if (!field) return;
+          field.focus();
+          field.setSelectionRange(cursor, cursor);
+        });
+      };
+      const closePanelMention = () => {
+        setMentionOpen(false);
+        setMentionQuery("");
+        mentionAnchorRef.current = null;
+      };
+      const insertPanelMentionTrigger = () => {
+        const input = composerInputRef.current;
+        const start = input?.selectionStart ?? content.length;
+        const end = input?.selectionEnd ?? start;
+        mentionAnchorRef.current = { start };
+        setContent(`${content.slice(0, start)}@${content.slice(end)}`);
+        setMentionOpen(true);
+        setMentionQuery("");
+        focusPanelComposerAt(start + 1);
+      };
+      const togglePanelMention = () => {
+        if (mentionOpen) {
+          closePanelMention();
+          return;
+        }
+        insertPanelMentionTrigger();
+      };
+      const panelMentionChanged = (value) => {
+        setContent(value);
+        const range = mentionTokenRange(value);
+        if (range) {
+          mentionAnchorRef.current = { start: range.start };
+          setMentionOpen(true);
+          setMentionQuery(value.slice(range.start + 1, range.end));
+        } else {
+          closePanelMention();
+        }
+      };
+      const pickPanelMention = (participant) => {
+        const range = mentionTokenRange(
+          content,
+          mentionAnchorRef.current?.start,
+        );
+        const start = range?.start ?? content.length;
+        const end = range?.end ?? content.length;
+        const token = `@${participant.displayName} `;
+        const cursor = start + token.length;
+        setContent(`${content.slice(0, start)}${token}${content.slice(end)}`);
+        setMentionIds((current) => [...new Set([...current, participant.id])]);
+        closePanelMention();
+        focusPanelComposerAt(cursor);
+      };
+      // 未启用时接口返回 null，统一收敛成 undefined，避免后续判空遗漏。
+      const facilitator = minutes?.facilitator ?? undefined;
+      // 会议成员 = 启用的 AI Facilitator（如果有）+ 普通参会人。
+      // 两者共用一张列表，保证「成员里有它 = facilitator 已启用」。
+      // 平台 Facilitator 实例只以「席位」形态出现，历史遗留的
+      // `participant/ai` 记录不再重复展示，避免同一 AI 出现两行。
+      const facilitatorTeammate = teammates.find(
+        (item) => item.systemKey === "meeting-facilitator",
+      );
+      const facilitatorTeammateId =
+        facilitatorTeammate?.id ?? "meeting-facilitator";
+      const isFacilitatorParticipant = (participant) =>
+        participant.systemKey === "meeting-facilitator" ||
+        (participant.teammateInstanceId ?? participant.refId) ===
+          facilitatorTeammateId ||
+        (participant.teammateInstanceId ?? participant.refId) ===
+          "meeting-facilitator";
+      const humanMemberRows = participants
+        .filter(
+          (participant) =>
+            participant.status === "active" && participant.kind === "human",
+        )
+        .map((participant) => ({
+          id: participant.id,
+          label: participant.displayName,
+          kind: "human",
+          teammateId: participant.refId,
+          facilitator: false,
+          active: true,
+          participantId: participant.id,
+        }));
+      const aiMemberRows = participants
+        .filter(
+          (participant) =>
+            participant.status === "active" &&
+            participant.kind !== "human" &&
+            !(
+              participant.kind === "ai_teammate" &&
+              isFacilitatorParticipant(participant)
+            ),
+        )
+        .map((participant) => ({
+          id: participant.id,
+          label: participant.displayName,
+          kind: "ai",
+          teammateId: participant.teammateInstanceId ?? participant.refId,
+          facilitator: false,
+          active: true,
+          participantId: participant.id,
+        }));
+      const memberRows = [
+        ...humanMemberRows,
+        ...(facilitator === undefined
+          ? []
+          : [
+              {
+                id: `facilitator:${facilitator.id}`,
+                label: facilitatorTeammate?.name ?? "会议 Facilitator",
+                kind: "ai",
+                teammateId: facilitatorTeammateId,
+                tag: "会议服务",
+                facilitator: true,
+                active: true,
+              },
+            ]),
+        ...aiMemberRows,
+      ];
+      const panelWorkspaceNameById = new Map(
+        workspaceOptions.map((workspace) => [
+          workspace.id,
+          workspaceLabel(workspace),
+        ]),
+      );
+      const panelTeammateById = new Map(
+        teammates.map((teammate) => [teammate.id, teammate]),
+      );
+      const panelSearchScore = (item) => {
+        const teammate = panelTeammateById.get(item.teammateInstanceId);
+        return relevanceScore(
+          [
+            { text: item.title, weight: 1.3 },
+            { text: teammate?.name, weight: 1.2 },
+            { text: teammate?.ownerName, weight: 1.1 },
+            { text: panelWorkspaceNameById.get(item.workspaceId), weight: 1 },
+            { text: item.agenda, weight: 0.4 },
+            { text: item.summary, weight: 0.35 },
+            { text: meetingLastMessageText(item), weight: 0.45 },
+          ],
+          query,
+        );
+      };
+      const matchedRows = meetings
+        .filter(
+          (item) =>
+            meetingHasConversation(item) || isActiveGroupConversation(item),
+        )
+        .map((item) => ({
+          item,
+          score: normalizeSearchText(query) === "" ? 0 : panelSearchScore(item),
+        }))
+        .filter(({ score }) => normalizeSearchText(query) === "" || score > 0)
+        .sort(
+          (left, right) =>
+            right.score - left.score ||
+            String(meetingActivityTime(right.item) ?? "").localeCompare(
+              String(meetingActivityTime(left.item) ?? ""),
+            ),
+        )
+        .map(({ item }) => item);
+      const panelAiByTeammate = new Map();
+      const panelOtherRows = [];
+      for (const item of matchedRows) {
+        if (item.kind !== "ai") {
+          panelOtherRows.push(item);
+          continue;
+        }
+        if (item.status !== "active" || item.teammateInstanceId === undefined) {
+          continue;
+        }
+        const current = panelAiByTeammate.get(item.teammateInstanceId);
+        if (preferAiConversation(current, item)) {
+          panelAiByTeammate.set(item.teammateInstanceId, item);
+        }
+      }
+      const matched = [...panelOtherRows, ...panelAiByTeammate.values()].sort(
+        (left, right) =>
+          String(meetingActivityTime(right) ?? "").localeCompare(
+            String(meetingActivityTime(left) ?? ""),
+          ),
+      );
+      const myTeammates = teammates.filter((item) => item.state !== "archived");
+      const activeTeammateIds = new Set(
+        participants
+          .filter((participant) => participant.status === "active")
+          .map(
+            (participant) =>
+              participant.teammateInstanceId ?? participant.refId,
+          ),
+      );
+      // 邀请对象不分人类/AI：一起列在一个可搜索的清单里。
+      const inviteKeyword = inviteQuery.trim().toLowerCase();
+      const inviteCandidates = [
+        ...people.map((person) => ({
+          key: `human:${person.id}`,
+          kind: "human",
+          name: person.name,
+          inMeeting: person.state === "active",
+        })),
+        ...myTeammates.map((item) => ({
+          key: `ai:${item.id}`,
+          kind: "ai",
+          name: item.name,
+          avatar: item.avatar,
+          source: item.source,
+          // 平台「会议 Facilitator」实例就是会议里的 Facilitator 席位：
+          // facilitator 已启用 ⇔ 它已在会议中，两者是同一件事。
+          inMeeting:
+            activeTeammateIds.has(item.id) ||
+            (facilitator !== undefined &&
+              (item.id === facilitatorTeammateId ||
+                item.systemKey === "meeting-facilitator")),
+        })),
+      ].filter(
+        (candidate) =>
+          inviteKeyword === "" ||
+          candidate.name.toLowerCase().includes(inviteKeyword),
+      );
+      const post = (path, body) =>
+        request(path, { method: "POST", body: JSON.stringify(body) });
+      const run = async (labelOrAction, maybeAction) => {
+        const label = typeof labelOrAction === "string" ? labelOrAction : "run";
+        const action =
+          typeof maybeAction === "function" ? maybeAction : labelOrAction;
+        setBusy(label);
+        setError("");
+        setNotice("");
+        try {
+          await action();
+          setRefreshKey((key) => key + 1);
+          store.bumpChange("panel");
+        } catch (cause) {
+          fail(cause);
+        } finally {
+          setBusy("");
+        }
+      };
+      const uploadFile = async (file) => {
+        if (file === undefined) return;
+        const data = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () =>
+            resolve(String(reader.result ?? "").split(",")[1] ?? "");
+          reader.onerror = () => reject(new Error("读取文件失败"));
+          reader.readAsDataURL(file);
+        });
+        await run(() =>
+          post("/api/collab/meeting/file", {
+            meetingId,
+            name: file.name,
+            mime: file.type || "application/octet-stream",
+            data,
+          }),
+        );
+      };
+      const saveTitle = async () => {
+        const next = titleDraft.trim();
+        if (next === "") return;
+        await run(async () => {
+          await post("/api/collab/meeting/update", { meetingId, title: next });
+          setNotice("会议名称已更新");
+        });
+      };
+      const removePanelMember = async (row) => {
+        await run(() =>
+          row.facilitator
+            ? post("/api/collab/meeting/facilitator/close", { meetingId })
+            : post("/api/collab/meeting/participant/remove", {
+                meetingId,
+                participantId: row.participantId,
+              }),
+        );
+      };
+      const confirmInvite = async () => {
+        const humans = inviteSelected
+          .filter((key) => key.startsWith("human:"))
+          .map((key) => key.slice("human:".length));
+        const instances = inviteSelected
+          .filter((key) => key.startsWith("ai:"))
+          .map((key) => key.slice("ai:".length));
+        if (humans.length === 0 && instances.length === 0) return;
+        await run(async () => {
+          let targetMeetingId = meetingId;
+          if (isAiConversation) {
+            const result = await post("/api/collab/meeting/convert-to-group", {
+              meetingId,
+            });
+            const groupId = result?.meeting?.id;
+            if (typeof groupId !== "string" || groupId === "") {
+              throw new Error("群聊创建失败");
+            }
+            targetMeetingId = groupId;
+            setMeetings((current) => [
+              Object.assign({}, result.meeting, {
+                messageCount: 0,
+                unreadCount: 0,
+                lastActivityAt: result.meeting.updatedAt,
+                lastMessage: null,
+              }),
+              ...current.filter((item) => item.id !== groupId),
+            ]);
+            setMeetingId(groupId);
+            if (activeCommunicationTab !== "") {
+              window.__pluginmaxSidePanel?.updateTab?.(activeCommunicationTab, {
+                sessionId: groupId,
+                title: result.meeting.title,
+              });
+            }
+          }
+          if (humans.length > 0) {
+            await post("/api/collab/meeting/participants/invite", {
+              meetingId: targetMeetingId,
+              people: humans.map((id) => ({ targetId: id })),
+            });
+          }
+          for (const instanceId of instances) {
+            const invited = teammates.find((item) => item.id === instanceId);
+            if (
+              instanceId === facilitatorTeammateId ||
+              invited?.systemKey === "meeting-facilitator"
+            ) {
+              // 邀请平台 Facilitator 实例 = 启用会议 AI Facilitator（同一状态）。
+              if (facilitator === undefined) {
+                await post("/api/collab/meeting/facilitator/open", {
+                  meetingId: targetMeetingId,
+                });
+              }
+              continue;
+            }
+            const teammate = teammates.find((item) => item.id === instanceId);
+            await post("/api/collab/meeting/participant/ai", {
+              meetingId: targetMeetingId,
+              teammateInstanceId: instanceId,
+              displayName: teammate?.name ?? instanceId,
+              speechMode: "mention",
+            });
+          }
+          if (isAiConversation) {
+            const titled = await post(
+              "/api/collab/meeting/group-title/generate",
+              { meetingId: targetMeetingId },
+            );
+            const title = titled?.meeting?.title;
+            if (typeof title === "string" && title !== "") {
+              setMeetings((current) =>
+                current.map((item) =>
+                  item.id === targetMeetingId
+                    ? Object.assign({}, item, {
+                        title,
+                        updatedAt: titled.meeting.updatedAt ?? item.updatedAt,
+                      })
+                    : item,
+                ),
+              );
+              if (activeCommunicationTab !== "") {
+                window.__pluginmaxSidePanel?.updateTab?.(
+                  activeCommunicationTab,
+                  { sessionId: targetMeetingId, title },
+                );
+              }
+            }
+          }
+          setInviteSelected([]);
+          setInviteOpen(false);
+          setNotice("已发送邀请");
+        });
+      };
+      const openConversation = (item) => {
+        setMeetingId(item.id);
+        if (activeCommunicationTab !== "") {
+          window.__pluginmaxSidePanel?.updateTab?.(activeCommunicationTab, {
+            sessionId: item.id,
+            title: item.title,
+          });
+        }
+        setPanelView("detail");
+        setSwitcherOpen(false);
+        setQuery("");
+      };
+      const createMeeting = async () => {
+        const title = newMeetingTitle.trim();
+        if (title === "" || busy !== "") return;
+        setBusy("new-meeting");
+        setError("");
+        try {
+          const result = await post("/api/collab/meetings", {
+            workspaceId: newWorkspaceId,
+            title,
+            displayName: accountName,
+          });
+          if (result?.meeting?.id) {
+            const created = Object.assign({}, result.meeting, {
+              messageCount: 0,
+              unreadCount: 0,
+              lastActivityAt: result.meeting.updatedAt,
+              lastMessage: null,
+            });
+            setMeetings((current) => [
+              created,
+              ...current.filter((item) => item.id !== created.id),
+            ]);
+            setMeetingId(created.id);
+            if (activeCommunicationTab !== "") {
+              window.__pluginmaxSidePanel?.updateTab?.(activeCommunicationTab, {
+                sessionId: created.id,
+                title: created.title,
+              });
+            }
+            setPanelView("detail");
+            setNewMeetingTitle("");
+          }
+        } catch (cause) {
+          fail(cause);
+        } finally {
+          setBusy("");
+        }
+      };
+      const createAiConversation = async (teammate) => {
+        if (busy !== "") return;
+        setBusy(`new-ai:${teammate.id}`);
+        setError("");
+        try {
+          const result = await post("/api/collab/meetings", {
+            workspaceId: SYSTEM_DEFAULT_WORKSPACE_ID,
+            title: teammate.name,
+            kind: "ai",
+            teammateInstanceId: teammate.id,
+            teammateName: teammate.name,
+            displayName: accountName,
+          });
+          if (result?.meeting?.id) {
+            const existing = meetings.find(
+              (item) => item.id === result.meeting.id,
+            );
+            const created = Object.assign({}, existing, result.meeting, {
+              messageCount:
+                result.meeting.messageCount ?? existing?.messageCount ?? 0,
+              unreadCount:
+                result.meeting.unreadCount ?? existing?.unreadCount ?? 0,
+              lastActivityAt:
+                result.meeting.lastActivityAt ??
+                existing?.lastActivityAt ??
+                result.meeting.updatedAt,
+            });
+            setMeetings((current) => [
+              created,
+              ...current.filter((item) => item.id !== created.id),
+            ]);
+            setMeetingId(created.id);
+            if (activeCommunicationTab !== "") {
+              window.__pluginmaxSidePanel?.updateTab?.(activeCommunicationTab, {
+                sessionId: created.id,
+                title: created.title,
+              });
+            }
+            setPanelView("detail");
+          }
+        } catch (cause) {
+          fail(cause);
+        } finally {
+          setBusy("");
+        }
+      };
+      const panelHeaderAvatar =
+        panelView !== "detail" || meeting === undefined
+          ? null
+          : isAiConversation
+            ? h(
+                "span",
+                {
+                  style: Object.assign(
+                    {},
+                    panelStyles.headerAvatar,
+                    teammateRingStyle(
+                      aiConversationTeammate?.source === "platform",
+                    ),
+                    { height: 30, padding: 2, width: 30 },
+                  ),
+                  title: meeting.title,
+                  "aria-label": `${meeting.title} 头像`,
+                },
+                avatarArt(aiConversationTeammate?.avatar),
+              )
+            : h(
+                "span",
+                {
+                  style: Object.assign(
+                    {},
+                    panelStyles.headerAvatar,
+                    panelStyles.meetingAvatar,
+                    { height: 30, width: 30 },
+                  ),
+                  title: meeting.title,
+                  "aria-label": `${meeting.title} 头像`,
+                },
+                isGroupConversation ? groupChatIcon(30) : videoIcon(),
+              );
+      const communicationRowNode = (item) => {
+        const aiConversation = item.kind === "ai";
+        const teammate = aiConversation
+          ? teammates.find(
+              (candidate) => candidate.id === item.teammateInstanceId,
+            )
+          : undefined;
+        const unavailable =
+          aiConversation &&
+          (teammate === undefined || teammateIsUnavailable(teammate));
+        const unavailableReason = unavailable
+          ? teammateUnavailableReason(teammate)
+          : "";
+        const workspaceName = panelWorkspaceNameById.get(item.workspaceId);
+        const meta = aiConversation
+          ? [
+              teammate?.ownerName ? `${teammate.ownerName} 的 AI` : "AI 伙伴",
+              unavailableReason,
+              workspaceName,
+            ]
+          : [
+              item.status === "active" ? "" : meetingStatusLabel(item.status),
+              workspaceName,
+            ];
+        return h(
+          "button",
+          {
+            type: "button",
+            key: item.id,
+            "aria-label": `打开对话 ${item.title}`,
+            "data-ai-unavailable": unavailable ? "true" : undefined,
+            title: unavailable ? unavailableReason : undefined,
+            style: Object.assign(
+              {},
+              panelStyles.dropdownItem,
+              panelStyles.dropdownItemIdle,
+              item.id === meetingId ? panelStyles.dropdownItemActive : {},
+              unavailable ? panelStyles.dropdownItemUnavailable : {},
+            ),
+            onClick: () => openConversation(item),
+          },
+          aiConversation
+            ? h(
+                "span",
+                {
+                  style: Object.assign(
+                    {},
+                    panelStyles.dropdownAvatar,
+                    teammateRingStyle(teammate?.source === "platform"),
+                  ),
+                  title: item.title,
+                  "aria-label": `${item.title} 头像`,
+                },
+                avatarArt(teammate?.avatar),
+              )
+            : h(
+                "span",
+                {
+                  style: panelStyles.meetingAvatar,
+                  title: item.title,
+                  "aria-label": `${item.title} 头像`,
+                },
+                videoIcon(),
+              ),
+          h("span", { style: panelStyles.switchCopy }, [
+            h("span", {
+              style: panelStyles.switchName,
+              children: item.title,
+            }),
+            h("span", {
+              style: panelStyles.switchMeta,
+              children: meta.filter(Boolean).join(" · "),
+            }),
+          ]),
+          h("time", {
+            style: panelStyles.switchTime,
+            dateTime: meetingActivityTime(item),
+            children: timeShort(meetingActivityTime(item)) || "—",
+          }),
+        );
+      };
+      const listView = h(
+        "div",
+        { style: panelStyles.contentView },
+        h("input", {
+          style: Object.assign({}, panelStyles.search, {
+            boxSizing: "border-box",
+            flex: "0 0 auto",
+            height: 34,
+            minHeight: 34,
+          }),
+          value: query,
+          placeholder: "搜索对话",
+          "aria-label": "搜索对话",
+          onChange: (event) => setQuery(event.target.value),
+        }),
+        h(
+          "div",
+          {
+            style: Object.assign({}, panelStyles.dropdownList, {
+              flex: 1,
+              maxHeight: "none",
+            }),
+          },
+          ...(matched.length === 0
+            ? [
+                h("div", {
+                  style: panelStyles.meta,
+                  children: "暂无有历史记录的对话",
+                }),
+              ]
+            : matched.map((item) => communicationRowNode(item))),
+        ),
+      );
+      const newCommunicationView = h(
+        "div",
+        { style: panelStyles.newView },
+        h("div", { style: panelStyles.listSection }, [
+          h("div", {
+            style: panelStyles.sectionTitle,
+            children: "与 AI 伙伴开始聊天",
+          }),
+          h(
+            "div",
+            { style: panelStyles.dropdownList },
+            ...(myTeammates.length === 0
+              ? [
+                  h("div", {
+                    style: panelStyles.meta,
+                    children: "暂无可用的 AI 伙伴",
+                  }),
+                ]
+              : myTeammates.map((teammate) =>
+                  (() => {
+                    const unavailable = teammateIsUnavailable(teammate);
+                    const unavailableReason = unavailable
+                      ? teammateUnavailableReason(teammate)
+                      : "";
+                    return h(
+                      "button",
+                      {
+                        key: teammate.id,
+                        type: "button",
+                        style: Object.assign(
+                          {},
+                          panelStyles.dropdownItem,
+                          panelStyles.dropdownItemIdle,
+                          unavailable
+                            ? panelStyles.dropdownItemUnavailable
+                            : {},
+                        ),
+                        "aria-label": `与 ${teammate.name} 开始聊天`,
+                        "aria-disabled": unavailable || undefined,
+                        "data-ai-unavailable": unavailable ? "true" : undefined,
+                        title: unavailable ? unavailableReason : undefined,
+                        disabled: busy !== "" || unavailable,
+                        onClick: () => void createAiConversation(teammate),
+                      },
+                      h(
+                        "span",
+                        {
+                          style: Object.assign(
+                            {},
+                            panelStyles.dropdownAvatar,
+                            teammateRingStyle(teammate.source === "platform"),
+                          ),
+                        },
+                        avatarArt(teammate.avatar),
+                      ),
+                      h("span", { style: panelStyles.switchCopy }, [
+                        h("span", {
+                          style: panelStyles.switchName,
+                          children: teammate.name,
+                        }),
+                        h("span", {
+                          style: panelStyles.switchMeta,
+                          children: unavailable
+                            ? unavailableReason
+                            : teammate.ownerName
+                              ? `${teammate.ownerName} 的 AI · 聊天`
+                              : "AI 伙伴 · 聊天",
+                        }),
+                      ]),
+                    );
+                  })(),
+                )),
+          ),
+        ]),
+        h("div", { style: panelStyles.divider }),
+        h(
+          "form",
+          {
+            style: panelStyles.listSection,
+            onSubmit: (event) => {
+              event.preventDefault();
+              void createMeeting();
+            },
+          },
+          [
+            h("div", {
+              style: panelStyles.sectionTitle,
+              children: "新建会议",
+            }),
+            h("label", { style: panelStyles.field }, [
+              h("span", { children: "会议主题" }),
+              h("input", {
+                style: panelStyles.search,
+                value: newMeetingTitle,
+                placeholder: "输入会议主题",
+                "aria-label": "新沟通会议主题",
+                onChange: (event) => setNewMeetingTitle(event.target.value),
+              }),
+            ]),
+            h("label", { style: panelStyles.field }, [
+              h("span", { children: "关联项目" }),
+              h(
+                "select",
+                {
+                  style: panelStyles.search,
+                  value: newWorkspaceId,
+                  "aria-label": "新沟通关联项目",
+                  onChange: (event) => setNewWorkspaceId(event.target.value),
+                },
+                ...workspaceOptions.map((workspace) =>
+                  h("option", {
+                    key: workspace.id,
+                    value: workspace.id,
+                    children: workspaceLabel(workspace),
+                  }),
+                ),
+              ),
+            ]),
+            h(
+              "div",
+              { style: { display: "flex", justifyContent: "flex-end" } },
+              h("button", {
+                type: "submit",
+                style: Object.assign(
+                  {},
+                  panelStyles.btnPrimary,
+                  busy !== "" || newMeetingTitle.trim() === ""
+                    ? { cursor: "default", opacity: 0.5 }
+                    : {},
+                ),
+                disabled: busy !== "" || newMeetingTitle.trim() === "",
+                children: busy === "new-meeting" ? "创建中…" : "创建会议",
+              }),
+            ),
+          ],
+        ),
+      );
+      const headerTitle =
+        panelView === "list"
+          ? "对话"
+          : panelView === "new"
+            ? "新建沟通"
+            : (meeting?.title ?? "沟通");
+      const headerMeta =
+        panelView === "detail" && meeting
+          ? isGroupConversation
+            ? null
+            : isAiConversation
+              ? `${aiConversationTeammate?.ownerName ? `${aiConversationTeammate.ownerName} 的 AI` : "AI 伙伴"} · ${meetingTimeLabel(meeting)}`
+              : `${meetingTimeLabel(meeting)} · ${meetingStatusLabel(meeting.status)} · ${participants.filter((participant) => participant.status === "active").length} 人 · ${panelAiCount} 个 AI`
+          : null;
+
+      return h(
+        "div",
+        {
+          className: "pm-meeting-side-panel-root",
+          "data-data-agent-entity":
+            meeting === undefined ? undefined : "meeting",
+          "data-data-agent-id": meeting?.id,
+          "data-data-agent-title": meeting?.title,
+          "data-workspace-id": meeting?.workspaceId,
+          "data-side-panel-expanded":
+            sharedPanel.expanded === true ? "true" : undefined,
+          style:
+            activeCommunicationTab !== ""
+              ? panelStyles.root
+              : Object.assign({}, panelStyles.root, { display: "none" }),
+        },
+        h(
+          "div",
+          {
+            className: "pm-meeting-side-panel",
+            style: sharedPanel.expanded
+              ? Object.assign({}, panelStyles.panel, {
+                  width: "100%",
+                  borderLeft: 0,
+                })
+              : panelStyles.panel,
+          },
+          [
+            h(SidePanelTabs),
+            h("div", { style: panelStyles.head }, [
+              panelView !== "list"
+                ? h(
+                    "button",
+                    {
+                      type: "button",
+                      style: panelStyles.iconBtn,
+                      title: "返回对话列表",
+                      "aria-label": "返回对话列表",
+                      onClick: () => setPanelView("list"),
+                    },
+                    backIcon(),
+                  )
+                : null,
+              panelHeaderAvatar,
+              h("div", { style: { flex: 1, minWidth: 0 } }, [
+                h("div", { style: panelStyles.titleWrap }, [
+                  h("span", {
+                    style: panelStyles.titleText,
+                    title: headerTitle,
+                    children: headerTitle,
+                  }),
+                  panelView === "detail" && meeting
+                    ? h(
+                        "button",
+                        {
+                          ref: switcherButtonRef,
+                          type: "button",
+                          style: panelStyles.iconGhost,
+                          title: "搜索 / 切换对话",
+                          "aria-label": "切换对话",
+                          "aria-haspopup": "dialog",
+                          "aria-expanded": switcherOpen,
+                          onClick: () => setSwitcherOpen((value) => !value),
+                        },
+                        searchIcon(),
+                      )
+                    : null,
+                  panelView === "detail" &&
+                  meeting &&
+                  (isAiConversation || facilitator)
+                    ? h("span", { style: panelStyles.aiBadge, children: "AI" })
+                    : null,
+                ]),
+                headerMeta !== null
+                  ? h("div", {
+                      style: panelStyles.meta,
+                      children: headerMeta,
+                    })
+                  : null,
+              ]),
+              panelView === "detail" &&
+              isAiConversation &&
+              meeting.status === "active" &&
+              joined
+                ? h(
+                    "button",
+                    {
+                      type: "button",
+                      style: panelStyles.iconBtn,
+                      title: "添加参与方",
+                      "aria-label": "添加参与方",
+                      disabled: busy !== "",
+                      onClick: () => {
+                        setInviteQuery("");
+                        setInviteSelected([]);
+                        setInviteOpen(true);
+                      },
+                    },
+                    addMemberIcon(),
+                  )
+                : null,
+              h(
+                "button",
+                {
+                  type: "button",
+                  style: panelStyles.iconBtn,
+                  title: "新建沟通",
+                  "aria-label": "新建沟通",
+                  onClick: () => {
+                    setPanelView("new");
+                    setNewMeetingTitle("");
+                  },
+                },
+                plusCircleIcon(),
+              ),
+            ]),
+            panelView === "detail" && switcherOpen
+              ? h(
+                  "div",
+                  {
+                    ref: switcherPanelRef,
+                    role: "dialog",
+                    "aria-label": "切换对话",
+                    style: panelStyles.dropdown,
+                  },
+                  h("input", {
+                    style: Object.assign({}, panelStyles.search, {
+                      background: "var(--dsw-alias-bg-base)",
+                      borderColor: "var(--dsw-alias-border-l3)",
+                      boxSizing: "border-box",
+                      flex: "0 0 auto",
+                      height: 34,
+                      minHeight: 34,
+                    }),
+                    value: query,
+                    placeholder: "搜索对话",
+                    "aria-label": "搜索并切换对话",
+                    autoFocus: true,
+                    onChange: (event) => setQuery(event.target.value),
+                  }),
+                  h(
+                    "div",
+                    {
+                      style: Object.assign({}, panelStyles.dropdownList, {
+                        maxHeight: 240,
+                      }),
+                    },
+                    ...(matched.length === 0
+                      ? [
+                          h("div", {
+                            style: panelStyles.meta,
+                            children: "没有匹配的历史对话",
+                          }),
+                        ]
+                      : matched.map((item) => communicationRowNode(item))),
+                  ),
+                  h(
+                    "div",
+                    { style: panelStyles.dropdownFooter },
+                    h("button", {
+                      type: "button",
+                      style: Object.assign({}, panelStyles.textLink, {
+                        background: "transparent",
+                        border: "none",
+                        font: "inherit",
+                        padding: 0,
+                      }),
+                      onClick: () => {
+                        setSwitcherOpen(false);
+                        setPanelView("list");
+                      },
+                      children: "查看对话列表",
+                    }),
+                  ),
+                )
+              : null,
+            error
+              ? h("div", { style: panelStyles.error, children: error })
+              : null,
+            notice
+              ? h("div", { style: panelStyles.notice, children: notice })
+              : null,
+            panelView === "list"
+              ? listView
+              : panelView === "new"
+                ? newCommunicationView
+                : h(
+                    "div",
+                    {
+                      style: panelStyles.detailView,
+                      "data-data-agent-text-surface": "communication-detail",
+                    },
+                    [
+                      meeting && !isAiConversation
+                        ? h(
+                            "div",
+                            {
+                              role: "tablist",
+                              "aria-label": "会议侧栏页签",
+                              style: panelStyles.tabs,
+                            },
+                            ...[
+                              ["conversation", "对话"],
+                              ["minutes", "纪要"],
+                              ["settings", "设置"],
+                            ].map(([key, label]) =>
+                              h("button", {
+                                key,
+                                type: "button",
+                                role: "tab",
+                                style: Object.assign(
+                                  {},
+                                  panelStyles.tab,
+                                  activePanelTab === key
+                                    ? panelStyles.tabActive
+                                    : {},
+                                ),
+                                "aria-selected": activePanelTab === key,
+                                onClick: () => setPanelTab(key),
+                                children: label,
+                              }),
+                            ),
+                          )
+                        : null,
+                      activePanelTab === "settings" && meeting
+                        ? h("div", { style: panelStyles.settings }, [
+                            // 会议名称默认就是可编辑态，不需要先点一下才能改。
+                            h("div", { style: panelStyles.block }, [
+                              h("div", {
+                                style: panelStyles.groupTitle,
+                                children: "会议名称",
+                              }),
+                              h(
+                                "div",
+                                {
+                                  style: {
+                                    alignItems: "center",
+                                    display: "flex",
+                                    gap: 8,
+                                  },
+                                },
+                                h("input", {
+                                  style: Object.assign({}, panelStyles.search, {
+                                    flex: 1,
+                                  }),
+                                  value: titleDraft,
+                                  placeholder: "会议名称",
+                                  "aria-label": "会议名称",
+                                  onChange: (event) =>
+                                    setTitleDraft(event.target.value),
+                                  onKeyDown: (event) => {
+                                    if (event.key === "Enter") {
+                                      event.preventDefault();
+                                      void saveTitle();
+                                    }
+                                  },
+                                }),
+                                h("button", {
+                                  type: "button",
+                                  style: Object.assign(
+                                    {},
+                                    panelStyles.btnPrimary,
+                                    busy !== "" ||
+                                      titleDraft.trim() === "" ||
+                                      titleDraft.trim() === meeting.title
+                                      ? { cursor: "default", opacity: 0.5 }
+                                      : {},
+                                  ),
+                                  disabled:
+                                    busy !== "" ||
+                                    titleDraft.trim() === "" ||
+                                    titleDraft.trim() === meeting.title,
+                                  onClick: () => void saveTitle(),
+                                  children: "保存",
+                                }),
+                              ),
+                            ]),
+                            h("div", { style: panelStyles.divider }),
+                            h("div", { style: panelStyles.block }, [
+                              h("div", {
+                                style: panelStyles.groupTitle,
+                                children: "AI 会议 Facilitator",
+                              }),
+                              h(
+                                "label",
+                                {
+                                  style: {
+                                    alignItems: "center",
+                                    background: "var(--dsw-alias-bg-layer-1)",
+                                    border:
+                                      "0.5px solid var(--dsw-alias-border-l3)",
+                                    borderRadius: 6,
+                                    cursor:
+                                      meeting.status === "archived" ||
+                                      busy !== ""
+                                        ? "not-allowed"
+                                        : "pointer",
+                                    display: "flex",
+                                    gap: 8,
+                                    opacity:
+                                      meeting.status === "archived" ||
+                                      busy !== ""
+                                        ? 0.55
+                                        : 1,
+                                    padding: "8px 9px",
+                                  },
+                                },
+                                h("input", {
+                                  type: "checkbox",
+                                  checked: facilitator !== undefined,
+                                  disabled:
+                                    meeting.status === "archived" ||
+                                    busy !== "",
+                                  onChange: (event) =>
+                                    void run(() =>
+                                      event.target.checked
+                                        ? post(
+                                            "/api/collab/meeting/facilitator/open",
+                                            {
+                                              meetingId,
+                                            },
+                                          )
+                                        : post(
+                                            "/api/collab/meeting/facilitator/close",
+                                            {
+                                              meetingId,
+                                            },
+                                          ),
+                                    ),
+                                }),
+                                h("span", {
+                                  style: {
+                                    flex: 1,
+                                    fontSize: 12,
+                                    fontWeight: 500,
+                                  },
+                                  children: "启用 AI 会议 Facilitator",
+                                }),
+                                h("span", {
+                                  style: panelStyles.meta,
+                                  children: facilitator ? "已启用" : "未启用",
+                                }),
+                              ),
+                            ]),
+                            h("div", { style: panelStyles.divider }),
+                            h("div", { style: panelStyles.block }, [
+                              h(
+                                "div",
+                                {
+                                  style: {
+                                    alignItems: "center",
+                                    display: "flex",
+                                    gap: 8,
+                                  },
+                                },
+                                h("span", {
+                                  style: panelStyles.groupTitle,
+                                  children: "会议成员",
+                                }),
+                                h("span", { style: { flex: 1 } }),
+                                h("button", {
+                                  type: "button",
+                                  style: Object.assign(
+                                    {},
+                                    panelStyles.btnPrimary,
+                                    busy !== ""
+                                      ? { cursor: "not-allowed", opacity: 0.55 }
+                                      : {},
+                                  ),
+                                  disabled: busy !== "",
+                                  onClick: () => {
+                                    setInviteQuery("");
+                                    setInviteSelected([]);
+                                    setInviteOpen(true);
+                                  },
+                                  children: "邀请成员",
+                                }),
+                              ),
+                              ...memberRows.map((row) => {
+                                const teammate =
+                                  row.kind === "ai"
+                                    ? teammates.find(
+                                        (item) =>
+                                          item.id === row.teammateId ||
+                                          item.name === row.label,
+                                      )
+                                    : undefined;
+                                return h(
+                                  "div",
+                                  { key: row.id, style: panelStyles.checkRow },
+                                  row.kind === "ai"
+                                    ? h(
+                                        "span",
+                                        {
+                                          style: teammateRingStyle(
+                                            teammate?.source === "platform",
+                                          ),
+                                        },
+                                        avatarArt(teammate?.avatar),
+                                      )
+                                    : h(
+                                        "span",
+                                        { style: initialsAvatarStyle },
+                                        initials(row.label),
+                                      ),
+                                  h("span", {
+                                    style: panelStyles.name,
+                                    children: row.label,
+                                  }),
+                                  row.tag
+                                    ? h("span", {
+                                        style: panelStyles.chip,
+                                        children: row.tag,
+                                      })
+                                    : null,
+                                  row.active
+                                    ? h("button", {
+                                        type: "button",
+                                        style: panelStyles.btn,
+                                        disabled: busy !== "",
+                                        onClick: () =>
+                                          void removePanelMember(row),
+                                        children: "移除",
+                                      })
+                                    : h("span", {
+                                        style: panelStyles.meta,
+                                        children: "已离会",
+                                      }),
+                                );
+                              }),
+                            ]),
+                          ])
+                        : !meeting
+                          ? h("div", {
+                              style: panelStyles.meta,
+                              children: "请选择会议",
+                            })
+                          : activePanelTab === "minutes"
+                            ? h("div", { style: panelStyles.panelSection }, [
+                                h(
+                                  "div",
+                                  { style: panelStyles.summarySectionHead },
+                                  [
+                                    h("div", {
+                                      style: { fontSize: 13, fontWeight: 600 },
+                                      children: "会议纪要",
+                                    }),
+                                    h(
+                                      "div",
+                                      { style: { display: "flex", gap: 6 } },
+                                      panelMinutesVersion === undefined
+                                        ? null
+                                        : h("button", {
+                                            type: "button",
+                                            style: panelStyles.btn,
+                                            title: "下载 Markdown",
+                                            "aria-label":
+                                              "下载会议纪要 Markdown",
+                                            onClick: () =>
+                                              downloadMinutesMarkdown(
+                                                meeting,
+                                                panelMinutesVersion,
+                                              ),
+                                            children: [
+                                              downloadIcon(),
+                                              h("span", { children: "下载" }),
+                                            ],
+                                          }),
+                                      meeting.status !== "archived" &&
+                                        facilitator !== undefined
+                                        ? h("button", {
+                                            type: "button",
+                                            style: panelStyles.btn,
+                                            disabled: busy !== "" || !joined,
+                                            onClick: () => {
+                                              if (
+                                                panelMinutesVersion !==
+                                                undefined
+                                              ) {
+                                                setMinutesOverwriteOpen(true);
+                                                return;
+                                              }
+                                              void run("minutes", () =>
+                                                post(
+                                                  "/api/collab/meeting/minutes/trigger",
+                                                  { meetingId },
+                                                ),
+                                              );
+                                            },
+                                            children:
+                                              busy === "minutes"
+                                                ? "生成中…"
+                                                : "更新纪要",
+                                          })
+                                        : null,
+                                    ),
+                                  ],
+                                ),
+                                panelMinutesVersion === undefined
+                                  ? h("div", {
+                                      style: panelStyles.meta,
+                                      children: "暂无会议纪要",
+                                    })
+                                  : h(
+                                      "div",
+                                      { style: panelStyles.minutesBody },
+                                      renderChatMarkdown(
+                                        panelMinutesVersion.content,
+                                      ),
+                                    ),
+                                panelMinutesVersion === undefined
+                                  ? null
+                                  : h("div", {
+                                      style: panelStyles.meta,
+                                      children: `更新于：${timeFull(
+                                        panelMinutesVersion.updatedAt ??
+                                          panelMinutesVersion.createdAt,
+                                      )}`,
+                                    }),
+                              ])
+                            : h("div", { style: panelStyles.chat }, [
+                                h(
+                                  "div",
+                                  {
+                                    ref: messagesRef,
+                                    style: panelStyles.stream,
+                                  },
+                                  ...transcript.map((message) => {
+                                    if (message.senderKind === "system")
+                                      return h("div", {
+                                        key: message.id,
+                                        style: panelStyles.systemMessage,
+                                        children: displayContent(
+                                          message.content,
+                                        ),
+                                      });
+                                    const mine =
+                                      message.senderKind === "human" &&
+                                      message.senderId === actorId;
+                                    const label =
+                                      message.provenance?.role ===
+                                      "representative"
+                                        ? `${message.senderName} · AI 参会代表`
+                                        : message.senderKind === "agent"
+                                          ? `${message.senderName} · AI`
+                                          : mine
+                                            ? "我"
+                                            : message.senderName;
+                                    return h(
+                                      "div",
+                                      {
+                                        key: message.id,
+                                        "data-meeting-id": meeting.id,
+                                        "data-meeting-title": meeting.title,
+                                        "data-meeting-kind": meeting.kind,
+                                        "data-meeting-surface": "rail",
+                                        "data-meeting-message-id": message.id,
+                                        style: {
+                                          alignItems: "flex-start",
+                                          display: "flex",
+                                          flexDirection: mine
+                                            ? "row-reverse"
+                                            : "row",
+                                          gap: 8,
+                                        },
+                                      },
+                                      chatAvatar(message, mine, teammates),
+                                      h(
+                                        "div",
+                                        {
+                                          style: {
+                                            alignItems: mine
+                                              ? "flex-end"
+                                              : "flex-start",
+                                            display: "flex",
+                                            flexDirection: "column",
+                                            gap: 2,
+                                            maxWidth: "calc(100% - 34px)",
+                                            minWidth: 0,
+                                          },
+                                        },
+                                        h("div", {
+                                          style: panelStyles.meta,
+                                          children: `${label} · ${timeShort(message.createdAt)}`,
+                                        }),
+                                        h(
+                                          "div",
+                                          {
+                                            style: Object.assign(
+                                              {},
+                                              panelStyles.bubble,
+                                              mine
+                                                ? panelStyles.bubbleMine
+                                                : {},
+                                            ),
+                                          },
+                                          h(
+                                            "div",
+                                            null,
+                                            renderChatMarkdown(
+                                              displayContent(message.content),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  }),
+                                  transcript.length === 0
+                                    ? h("div", {
+                                        style: panelStyles.meta,
+                                        children: "暂无消息",
+                                      })
+                                    : null,
+                                ),
+                                meeting.status === "active"
+                                  ? joined
+                                    ? h(
+                                        "form",
+                                        {
+                                          style: {
+                                            background:
+                                              "var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-layer-1))",
+                                            border:
+                                              "0.5px solid var(--dsw-alias-border-l3)",
+                                            borderRadius: 6,
+                                            flexShrink: 0,
+                                            margin: "0 8px 8px",
+                                            padding: 8,
+                                            position: "relative",
+                                          },
+                                          onSubmit: async (event) => {
+                                            event.preventDefault();
+                                            const text = content.trim();
+                                            if (text === "") return;
+                                            setContent("");
+                                            closePanelMention();
+                                            await run(() =>
+                                              post(
+                                                "/api/collab/meeting/message",
+                                                {
+                                                  meetingId,
+                                                  content: text,
+                                                  mentions: mentionIds,
+                                                },
+                                              ),
+                                            );
+                                            window.dispatchEvent?.(
+                                              new CustomEvent(
+                                                "pluginmax:workbench-v2-refresh",
+                                              ),
+                                            );
+                                            setMentionIds([]);
+                                          },
+                                        },
+                                        chatTypingStrip(panelTypingStatus),
+                                        h(
+                                          "div",
+                                          { style: panelStyles.composer },
+                                          h(
+                                            "button",
+                                            {
+                                              type: "button",
+                                              style: panelStyles.composerBtn,
+                                              title: "上传文件",
+                                              "aria-label": "上传文件",
+                                              onClick: () =>
+                                                fileRef.current?.click(),
+                                            },
+                                            clipIcon(),
+                                          ),
+                                          h(
+                                            "button",
+                                            {
+                                              type: "button",
+                                              style: panelStyles.composerBtn,
+                                              title: "提及成员",
+                                              "aria-label": "提及成员",
+                                              onClick: togglePanelMention,
+                                            },
+                                            atIcon(),
+                                          ),
+                                          h(
+                                            "button",
+                                            {
+                                              type: "button",
+                                              style: panelStyles.composerBtn,
+                                              title: "整理任务草稿",
+                                              "aria-label": "整理任务草稿",
+                                              disabled:
+                                                busy !== "" ||
+                                                transcript.length === 0,
+                                              onClick: () => openTaskCapture(),
+                                            },
+                                            h(
+                                              "svg",
+                                              {
+                                                viewBox: "0 0 24 24",
+                                                width: 15,
+                                                height: 15,
+                                                fill: "none",
+                                                stroke: "currentColor",
+                                                strokeWidth: 1.8,
+                                                strokeLinecap: "round",
+                                                strokeLinejoin: "round",
+                                                "aria-hidden": true,
+                                              },
+                                              h("path", {
+                                                d: "M9 6h11M9 12h11M9 18h11",
+                                              }),
+                                              h("path", {
+                                                d: "m3 6 1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2",
+                                              }),
+                                            ),
+                                          ),
+                                          h("input", {
+                                            ref: fileRef,
+                                            type: "file",
+                                            style: { display: "none" },
+                                            onChange: (event) => {
+                                              const file =
+                                                event.target.files?.[0];
+                                              if (file !== undefined)
+                                                void uploadFile(file);
+                                              event.target.value = "";
+                                            },
+                                          }),
+                                          mentionOpen
+                                            ? panelMentionOptions.length > 0
+                                              ? h(
+                                                  "div",
+                                                  {
+                                                    style:
+                                                      panelStyles.mentionMenu,
+                                                  },
+                                                  ...panelMentionOptions.map(
+                                                    (participant) =>
+                                                      h(
+                                                        "button",
+                                                        {
+                                                          type: "button",
+                                                          key: participant.id,
+                                                          style:
+                                                            panelStyles.mentionItem,
+                                                          onClick: () =>
+                                                            pickPanelMention(
+                                                              participant,
+                                                            ),
+                                                        },
+                                                        participantAvatarNode(
+                                                          participant,
+                                                          teammates,
+                                                        ),
+                                                        h(
+                                                          "span",
+                                                          {
+                                                            style:
+                                                              panelStyles.mentionCopy,
+                                                          },
+                                                          h("span", {
+                                                            style:
+                                                              panelStyles.mentionName,
+                                                            children:
+                                                              participant.displayName,
+                                                          }),
+                                                          h("span", {
+                                                            style:
+                                                              panelStyles.mentionMeta,
+                                                            children:
+                                                              participant.kind ===
+                                                              "human"
+                                                                ? "会议成员"
+                                                                : participant.ownerName
+                                                                  ? `${participant.ownerName} 的 AI`
+                                                                  : "AI 成员",
+                                                          }),
+                                                        ),
+                                                      ),
+                                                  ),
+                                                )
+                                              : h(
+                                                  "div",
+                                                  {
+                                                    style:
+                                                      panelStyles.mentionMenu,
+                                                  },
+                                                  h("div", {
+                                                    style:
+                                                      panelStyles.mentionItem,
+                                                    children: "没有匹配成员",
+                                                  }),
+                                                )
+                                            : null,
+                                        ),
+                                        h(
+                                          "div",
+                                          {
+                                            style: {
+                                              alignItems: "flex-end",
+                                              display: "flex",
+                                              gap: 6,
+                                              marginTop: 6,
+                                            },
+                                          },
+                                          h("textarea", {
+                                            ref: composerInputRef,
+                                            style: Object.assign(
+                                              {},
+                                              panelStyles.textarea,
+                                              {
+                                                background: "transparent",
+                                                border: "none",
+                                                minHeight: 64,
+                                                padding: 2,
+                                              },
+                                            ),
+                                            value: content,
+                                            placeholder: "输入消息，@ 成员…",
+                                            onChange: (event) =>
+                                              panelMentionChanged(
+                                                event.target.value,
+                                              ),
+                                          }),
+                                          h("button", {
+                                            type: "submit",
+                                            style: Object.assign(
+                                              {},
+                                              panelStyles.sendBtn,
+                                              {
+                                                opacity:
+                                                  busy !== "" ||
+                                                  content.trim() === ""
+                                                    ? 0.45
+                                                    : 1,
+                                              },
+                                            ),
+                                            title: "发送消息",
+                                            "aria-label": "发送消息",
+                                            disabled:
+                                              busy !== "" ||
+                                              content.trim() === "",
+                                            children: sendIcon(),
+                                          }),
+                                        ),
+                                      )
+                                    : h(
+                                        "div",
+                                        { style: { padding: 10 } },
+                                        h("button", {
+                                          type: "button",
+                                          style: panelStyles.btn,
+                                          disabled: busy !== "",
+                                          onClick: () =>
+                                            run(() =>
+                                              post("/api/collab/meeting/join", {
+                                                meetingId,
+                                                displayName:
+                                                  accountName ||
+                                                  `用户-${actorId.slice(0, 6)}`,
+                                              }),
+                                            ),
+                                          children: "加入会议",
+                                        }),
+                                      )
+                                  : null,
+                              ]),
+                      taskCaptureOpen &&
+                      meeting &&
+                      typeof props.renderSlot === "function"
+                        ? props.renderSlot(
+                            "pluginmax.communication.rail.task-capture",
+                            {
+                              mode: "rail",
+                              sourceType: isAiConversation
+                                ? "ai-chat"
+                                : "meeting",
+                              sourceId: meeting.id,
+                              sourceTitle: meeting.title,
+                              workspaceId: meeting.workspaceId,
+                              messageIds: taskCaptureSeed.messageIds ?? [],
+                              selectionText:
+                                taskCaptureSeed.selectionText ?? "",
+                              messageOptions: transcript.map((message) => ({
+                                id: message.id,
+                                senderName:
+                                  message.provenance?.role === "representative"
+                                    ? `${message.senderName} · AI 参会代表`
+                                    : message.senderKind === "agent"
+                                      ? `${message.senderName} · AI`
+                                      : message.senderId === actorId
+                                        ? "我"
+                                        : message.senderName,
+                                content: message.content,
+                                createdAt: message.createdAt,
+                              })),
+                              actionItemIds: [],
+                              onClose: () => {
+                                setTaskCaptureOpen(false);
+                                setTaskCaptureSeed({});
+                              },
+                              onSaved: () => {
+                                window.dispatchEvent(
+                                  new CustomEvent(
+                                    "pluginmax:task-capture-refresh",
+                                  ),
+                                );
+                              },
+                            },
+                          )
+                        : null,
+                      minutesOverwriteOpen && meeting
+                        ? h(
+                            "div",
+                            { style: panelStyles.dialogOverlay },
+                            h("div", { style: panelStyles.dialog }, [
+                              h("div", {
+                                style: panelStyles.dialogTitle,
+                                children: "重新生成会议纪要？",
+                              }),
+                              h("div", {
+                                style: panelStyles.meta,
+                                children:
+                                  "当前会议纪要已有内容，重新生成会覆盖原有内容。",
+                              }),
+                              h("div", { style: panelStyles.dialogActions }, [
+                                h("button", {
+                                  type: "button",
+                                  style: panelStyles.btn,
+                                  onClick: () => setMinutesOverwriteOpen(false),
+                                  children: "取消",
+                                }),
+                                h("button", {
+                                  type: "button",
+                                  style: panelStyles.btnPrimary,
+                                  disabled: busy !== "",
+                                  onClick: () => {
+                                    setMinutesOverwriteOpen(false);
+                                    void run("minutes", () =>
+                                      post(
+                                        "/api/collab/meeting/minutes/trigger",
+                                        {
+                                          meetingId,
+                                        },
+                                      ),
+                                    );
+                                  },
+                                  children: "覆盖生成",
+                                }),
+                              ]),
+                            ]),
+                          )
+                        : null,
+                      inviteOpen && meeting
+                        ? h(
+                            "div",
+                            { style: panelStyles.dialogOverlay },
+                            h("div", { style: panelStyles.dialog }, [
+                              h("div", {
+                                style: panelStyles.dialogTitle,
+                                children: isAiConversation
+                                  ? "添加参与方并创建群聊"
+                                  : "邀请成员",
+                              }),
+                              h("input", {
+                                style: Object.assign({}, panelStyles.search, {
+                                  flex: "none",
+                                }),
+                                value: inviteQuery,
+                                placeholder: "搜索成员或 AI伙伴",
+                                "aria-label": "搜索邀请对象",
+                                onChange: (event) =>
+                                  setInviteQuery(event.target.value),
+                              }),
+                              h(
+                                "div",
+                                {
+                                  style: {
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    gap: 2,
+                                    maxHeight: 260,
+                                    overflowY: "auto",
+                                  },
+                                },
+                                ...(inviteCandidates.length === 0
+                                  ? [
+                                      h("div", {
+                                        style: panelStyles.meta,
+                                        children: "无匹配成员",
+                                      }),
+                                    ]
+                                  : inviteCandidates.map((candidate) =>
+                                      h(
+                                        "label",
+                                        {
+                                          key: candidate.key,
+                                          style: Object.assign(
+                                            {},
+                                            panelStyles.checkRow,
+                                            candidate.inMeeting
+                                              ? { opacity: 0.7 }
+                                              : {},
+                                          ),
+                                        },
+                                        h("input", {
+                                          type: "checkbox",
+                                          // 已在会议中的成员直接勾选 + 禁用，不再写「（已在会议中）」。
+                                          checked:
+                                            candidate.inMeeting ||
+                                            inviteSelected.includes(
+                                              candidate.key,
+                                            ),
+                                          disabled: candidate.inMeeting,
+                                          onChange: (event) =>
+                                            setInviteSelected((current) =>
+                                              event.target.checked
+                                                ? [...current, candidate.key]
+                                                : current.filter(
+                                                    (key) =>
+                                                      key !== candidate.key,
+                                                  ),
+                                            ),
+                                        }),
+                                        // 头像样式参考任务管理页；AI 成员直接用 AI 图标表达身份。
+                                        candidate.kind === "ai"
+                                          ? h(
+                                              "span",
+                                              {
+                                                style: teammateRingStyle(
+                                                  candidate.source ===
+                                                    "platform",
+                                                ),
+                                              },
+                                              avatarArt(candidate.avatar),
+                                            )
+                                          : h(
+                                              "span",
+                                              { style: initialsAvatarStyle },
+                                              initials(candidate.name),
+                                            ),
+                                        h("span", {
+                                          style: panelStyles.name,
+                                          children: candidate.name,
+                                        }),
+                                      ),
+                                    )),
+                              ),
+                              h(
+                                "div",
+                                { style: panelStyles.dialogActions },
+                                h("button", {
+                                  type: "button",
+                                  style: panelStyles.btn,
+                                  onClick: () => setInviteOpen(false),
+                                  children: "取消",
+                                }),
+                                h("button", {
+                                  type: "button",
+                                  style: Object.assign(
+                                    {},
+                                    panelStyles.btnPrimary,
+                                    busy !== "" || inviteSelected.length === 0
+                                      ? { cursor: "default", opacity: 0.5 }
+                                      : {},
+                                  ),
+                                  disabled:
+                                    busy !== "" || inviteSelected.length === 0,
+                                  onClick: () => void confirmInvite(),
+                                  children: busy !== "" ? "处理中…" : "确认",
+                                }),
+                              ),
+                            ]),
+                          )
+                        : null,
+                    ],
+                  ),
+          ],
+        ),
+      );
+    };
+
+    /* ── helpers ── */
+
+    function getToken() {
+      return window.localStorage.getItem(TOKEN_KEY);
+    }
+
+    async function request(path, options = {}) {
+      const token = getToken();
+      const headers = { ...options.headers };
+      if (options.body !== undefined)
+        headers["content-type"] = "application/json";
+      if (token !== null) headers.authorization = `Bearer ${token}`;
+      const response = await fetch(path, {
+        ...options,
+        headers,
+        cache: "no-store",
+      });
+      let body = null;
+      try {
+        body = await response.json();
+      } catch {
+        body = null;
+      }
+      if (!response.ok) {
+        const error = new Error(
+          body?.error?.message ?? `HTTP ${response.status}`,
+        );
+        error.status = response.status;
+        throw error;
+      }
+      return body;
+    }
+
+    function workspaceLabel(workspace) {
+      const title = workspace.title?.trim();
+      if (title) return title;
+      // 项目名缺失时才回退路径；右侧只展示项目名称，不展示完整路径。
+      const path = workspace.path?.trim();
+      if (path) return path;
+      return `未知项目 (${workspace.id.slice(0, 8)})`;
+    }
+
+    /**
+     * 会议关注按钮由 dsh-collab-workbench 提供：服务端持久化、跨页面同步。
+     * 该插件未安装时按钮不渲染，会议面板保持原样。
+     */
+    function MeetingFollowButton(props) {
+      const [ready, setReady] = react.useState(
+        () => typeof window.__pluginmaxFollow?.FollowButton === "function",
+      );
+      react.useEffect(() => {
+        if (ready) return undefined;
+        const onReady = () => setReady(true);
+        window.addEventListener("pluginmax:follow-ready", onReady);
+        return () =>
+          window.removeEventListener("pluginmax:follow-ready", onReady);
+      }, [ready]);
+      const Button = window.__pluginmaxFollow?.FollowButton;
+      if (!ready || typeof Button !== "function") return null;
+      return jsxRuntime.jsx(Button, {
+        type: "meeting",
+        id: props.meetingId,
+        iconOnly: true,
+        compact: true,
+      });
+    }
+
+    /** 完整时间戳：yyyy-mm-dd hh:mm（纪要「更新时间」用）。 */
+    function timeFull(iso) {
+      const at = new Date(iso);
+      if (Number.isNaN(at.getTime())) return String(iso ?? "");
+      const pad = (value) => String(value).padStart(2, "0");
+      return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`;
+    }
+
+    function timeShort(iso) {
+      const time = new Date(iso);
+      if (Number.isNaN(time.getTime())) return iso ?? "";
+      const now = new Date();
+      const sameDay =
+        time.getFullYear() === now.getFullYear() &&
+        time.getMonth() === now.getMonth() &&
+        time.getDate() === now.getDate();
+      if (sameDay) {
+        return time.toLocaleTimeString("zh-CN", {
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        });
+      }
+      return time.toLocaleString("zh-CN", {
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      });
+    }
+
+    /* ── meetings page (pluginmax.global slot) ── */
+
+    const PS = {
+      root: {
+        background: "var(--dsw-alias-bg-base)",
+        boxSizing: "border-box",
+        color: "var(--dsw-alias-label-primary)",
+        display: "flex",
+        flexDirection: "column",
+        gap: 14,
+        height: "calc(100vh - 18px)",
+        // 壳层页面高度是 auto（只设了 min-height），`height:100%` 解析不到，
+        // 于是整页随消息一起被撑高、输入框被推走。用视口上限把高度兜住，
+        // 中间对话列改为内部滚动，输入框自然吸底。
+        maxHeight: "calc(100vh - 18px)",
+        minHeight: 0,
+        padding: 18,
+      },
+      top: {
+        alignItems: "center",
+        display: "flex",
+        flexShrink: 0,
+        flexWrap: "wrap",
+        gap: 8,
+      },
+      topActions: {
+        alignItems: "center",
+        display: "flex",
+        flex: 1,
+        flexWrap: "wrap",
+        gap: 8,
+        justifyContent: "flex-end",
+        minWidth: 0,
+      },
+      topFilters: {
+        alignItems: "center",
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 6,
+        justifyContent: "flex-end",
+        minWidth: 0,
+      },
+      // 与 AI Teammates 页标题对齐（.pmtm-head h1: 19px / line-height 1.3）。
+      title: {
+        flexShrink: 0,
+        fontSize: 19,
+        fontWeight: 600,
+        lineHeight: 1.3,
+        margin: 0,
+        whiteSpace: "nowrap",
+      },
+      select: {
+        background: "var(--dsw-alias-bg-layer-1)",
+        border: "0.5px solid var(--dsw-alias-border-l2)",
+        borderRadius: 6,
+        color: "inherit",
+        fontSize: 13,
+        padding: "6px 8px",
+      },
+      primaryBtn: {
+        // 与任务管理「新建任务」保持同一套主按钮样式。
+        alignItems: "center",
+        background:
+          "var(--dsw-alias-button-primary-fill, var(--dsw-alias-accent-fill, #2f6feb))",
+        border: "none",
+        borderRadius: 6,
+        color: "var(--dsw-alias-label-primary-foreground, #fff)",
+        cursor: "pointer",
+        display: "inline-flex",
+        flexShrink: 0,
+        fontSize: 12.5,
+        fontWeight: 600,
+        gap: 6,
+        height: 34,
+        justifyContent: "center",
+        padding: "0 12px",
+        whiteSpace: "nowrap",
+      },
+      sidebarBtn: {
+        alignItems: "center",
+        background: "transparent",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: 6,
+        color: "inherit",
+        cursor: "pointer",
+        display: "grid",
+        flexShrink: 0,
+        height: 34,
+        placeItems: "center",
+        width: 34,
+      },
+      sidebarBtnActive: {
+        background:
+          "color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 12%,transparent)",
+        borderColor:
+          "color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 50%,transparent)",
+        color: "var(--dsw-alias-accent-primary,#4f8ef7)",
+      },
+      ghostBtn: {
+        background: "transparent",
+        border: "0.5px solid var(--dsw-alias-border-l2)",
+        borderRadius: 6,
+        color: "inherit",
+        cursor: "pointer",
+        fontSize: 12,
+        padding: "5px 9px",
+      },
+      body: {
+        display: "grid",
+        flex: 1,
+        gap: 12,
+        gridTemplateRows: "minmax(0,1fr)",
+        minHeight: 0,
+      },
+      list: {
+        border: "none",
+        borderRadius: 0,
+        display: "flex",
+        flexDirection: "column",
+        flexShrink: 0,
+        gap: 8,
+        minWidth: 0,
+        overflow: "visible",
+      },
+      listHeader: {
+        display: "flex",
+        flexDirection: "column",
+        flexShrink: 0,
+        gap: 8,
+        padding: 0,
+      },
+      listItems: {
+        display: "flex",
+        flex: 1,
+        flexDirection: "column",
+        gap: 8,
+        minHeight: 0,
+        overflowY: "auto",
+        padding: 0,
+      },
+      item: {
+        background: "var(--dsw-alias-bg-layer-1)",
+        // 固定使用不透明深灰，避免主题变量或透明度把边框渲染成白色。
+        border: "1px solid #44454a",
+        borderColor: "#44454a",
+        borderRadius: 7,
+        boxShadow: "none",
+        color: "inherit",
+        cursor: "pointer",
+        display: "grid",
+        gap: 6,
+        outline: "none",
+        padding: "9px 10px",
+        textAlign: "left",
+        width: "100%",
+      },
+      itemIdle: {
+        borderColor: "#44454a",
+      },
+      itemActive: {
+        background:
+          "color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 10%,var(--dsw-alias-bg-layer-1))",
+        borderColor:
+          "color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 55%,transparent)",
+      },
+      itemUnavailable: {
+        color: "var(--dsw-alias-label-tertiary)",
+        filter: "grayscale(1)",
+        opacity: 0.55,
+      },
+      searchShell: {
+        alignItems: "center",
+        background: "var(--dsw-alias-bg-base)",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: 6,
+        display: "flex",
+        gap: 7,
+        height: 32,
+        minWidth: 0,
+        padding: "0 9px",
+      },
+      searchField: {
+        background: "transparent",
+        border: "none",
+        color: "inherit",
+        flex: 1,
+        fontFamily: "inherit",
+        fontSize: 12,
+        minWidth: 0,
+        outline: "none",
+        padding: 0,
+      },
+      typeTags: {
+        alignItems: "center",
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 6,
+      },
+      typeTag: {
+        background: "var(--dsw-alias-bg-layer-2)",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: 999,
+        color: "var(--dsw-alias-label-secondary)",
+        cursor: "pointer",
+        fontSize: 11,
+        height: 28,
+        padding: "0 12px",
+        whiteSpace: "nowrap",
+      },
+      typeTagActive: {
+        background: "var(--dsw-alias-accent-primary,#4f8ef7)",
+        borderColor: "transparent",
+        color: "#fff",
+        fontWeight: 600,
+      },
+      iconBtn: {
+        alignItems: "center",
+        background: "transparent",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: 6,
+        color: "var(--dsw-alias-label-secondary)",
+        cursor: "pointer",
+        display: "grid",
+        flexShrink: 0,
+        height: 32,
+        placeItems: "center",
+        padding: 0,
+        width: 32,
+      },
+      threadHead: {
+        alignItems: "center",
+        display: "flex",
+        gap: 7,
+        minWidth: 0,
+      },
+      threadTitle: {
+        fontSize: 13,
+        fontWeight: 600,
+        lineHeight: 1.4,
+        minWidth: 0,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+      },
+      threadSub: {
+        color: "var(--dsw-alias-label-tertiary)",
+        flexShrink: 0,
+        fontSize: 10,
+        maxWidth: 84,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+      },
+      unavailableTag: {
+        background:
+          "color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 14%,transparent)",
+        border:
+          "0.5px solid color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 42%,transparent)",
+        borderRadius: 999,
+        color: "var(--dsw-alias-state-error-primary,#e5534b)",
+        flexShrink: 0,
+        fontSize: 10,
+        fontWeight: 600,
+        lineHeight: "18px",
+        padding: "0 7px",
+        whiteSpace: "nowrap",
+      },
+      threadPreview: {
+        alignItems: "center",
+        display: "flex",
+        gap: 8,
+        justifyContent: "space-between",
+        minWidth: 0,
+      },
+      threadPreviewText: {
+        color: "var(--dsw-alias-label-secondary)",
+        fontSize: 11,
+        minWidth: 0,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+      },
+      threadSpeaker: {
+        color: "var(--dsw-alias-label-primary)",
+        fontWeight: 400,
+      },
+      threadTime: {
+        color: "var(--dsw-alias-label-tertiary)",
+        flexShrink: 0,
+        fontSize: 10,
+        whiteSpace: "nowrap",
+      },
+      unreadBadge: {
+        alignItems: "center",
+        background: "var(--dsw-alias-accent-primary,#4f8ef7)",
+        borderRadius: 999,
+        color: "#fff",
+        display: "inline-flex",
+        flexShrink: 0,
+        fontSize: 10,
+        fontWeight: 700,
+        height: 18,
+        justifyContent: "center",
+        minWidth: 18,
+        padding: "0 5px",
+      },
+      threadAvatar: {
+        alignItems: "center",
+        background: "var(--dsw-alias-bg-layer-3)",
+        borderRadius: 6,
+        color: "var(--dsw-alias-accent-primary)",
+        display: "grid",
+        flexShrink: 0,
+        height: 24,
+        placeItems: "center",
+        width: 24,
+      },
+      listSection: {
+        alignItems: "center",
+        background: "transparent",
+        border: "none",
+        borderTop: "0.5px solid var(--dsw-alias-border-l3)",
+        color: "var(--dsw-alias-label-secondary)",
+        cursor: "pointer",
+        display: "flex",
+        fontSize: 11,
+        fontWeight: 600,
+        justifyContent: "space-between",
+        marginTop: 2,
+        padding: "8px 4px 4px",
+        textAlign: "left",
+        width: "100%",
+      },
+      listSectionLabel: {
+        alignItems: "center",
+        display: "flex",
+        gap: 6,
+      },
+      meta: { color: "var(--dsw-alias-label-secondary)", fontSize: 11 },
+      chat: {
+        background: "var(--dsw-alias-bg-layer-1)",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: 8,
+        display: "flex",
+        flex: 1,
+        flexDirection: "column",
+        minHeight: 0,
+        minWidth: 0,
+        overflow: "hidden",
+      },
+      chatHead: {
+        alignItems: "center",
+        borderBottom: "0.5px solid var(--dsw-alias-border-l2)",
+        display: "flex",
+        flexShrink: 0,
+        flexWrap: "wrap",
+        gap: 8,
+        padding: "10px 12px",
+      },
+      stream: {
+        display: "flex",
+        flex: 1,
+        flexDirection: "column",
+        gap: 10,
+        minHeight: 0,
+        overflowY: "auto",
+        padding: 12,
+      },
+      bubble: {
+        background: "var(--dsw-alias-bg-layer-2)",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: "3px 8px 8px 8px",
+        fontSize: 13,
+        lineHeight: 1.55,
+        maxWidth: "100%",
+        padding: "7px 10px",
+        whiteSpace: "pre-wrap",
+        wordBreak: "break-word",
+      },
+      bubbleMine: {
+        background:
+          "color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 12%,var(--dsw-alias-bg-layer-2))",
+        borderColor:
+          "color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 35%,transparent)",
+        borderRadius: "8px 3px 8px 8px",
+      },
+      systemMessage: {
+        color: "var(--dsw-alias-label-tertiary)",
+        fontSize: 10,
+        padding: "5px 0",
+        textAlign: "center",
+        width: "100%",
+      },
+      inputRow: {
+        background: "var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-layer-1))",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: 7,
+        display: "flex",
+        flexDirection: "column",
+        flexShrink: 0,
+        gap: 6,
+        margin: "0 10px 10px",
+        padding: 8,
+      },
+      // 输入框上方的附件 / @ 操作位：小图标、浅背景、无边框（与右侧栏一致）。
+      composerTools: { alignItems: "center", display: "flex", gap: 6 },
+      composerBtn: {
+        alignItems: "center",
+        background: "transparent",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: 6,
+        color: "var(--dsw-alias-label-secondary)",
+        cursor: "pointer",
+        display: "grid",
+        flexShrink: 0,
+        height: 26,
+        placeItems: "center",
+        width: 26,
+      },
+      sendBtn: {
+        alignItems: "center",
+        background: "var(--dsw-alias-accent-primary,#4f8ef7)",
+        border: "none",
+        borderRadius: 6,
+        color: "#fff",
+        cursor: "pointer",
+        display: "grid",
+        flexShrink: 0,
+        height: 28,
+        placeItems: "center",
+        width: 28,
+      },
+      composerRow: { alignItems: "flex-end", display: "flex", gap: 8 },
+      mentionMenu: {
+        background: "var(--dsw-alias-bg-layer-1)",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: 6,
+        bottom: "100%",
+        boxShadow: "0 12px 28px rgba(0,0,0,0.18)",
+        display: "flex",
+        flexDirection: "column",
+        left: 10,
+        maxHeight: 200,
+        overflowY: "auto",
+        padding: 4,
+        position: "absolute",
+        right: 10,
+        zIndex: 20,
+      },
+      mentionItem: {
+        alignItems: "center",
+        background: "transparent",
+        border: "none",
+        borderRadius: 5,
+        color: "inherit",
+        cursor: "pointer",
+        display: "flex",
+        fontSize: 12,
+        gap: 8,
+        padding: "6px 7px",
+        textAlign: "left",
+        width: "100%",
+      },
+      mentionCopy: { display: "grid", gap: 1, minWidth: 0, textAlign: "left" },
+      mentionName: {
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+      },
+      mentionMeta: {
+        color: "var(--dsw-alias-label-tertiary)",
+        fontSize: 10,
+        lineHeight: 1.35,
+      },
+      textarea: {
+        background: "transparent",
+        border: "none",
+        borderRadius: 0,
+        color: "inherit",
+        flex: 1,
+        fontFamily: "inherit",
+        fontSize: 13,
+        minHeight: 72,
+        padding: 2,
+        resize: "vertical",
+      },
+      side: {
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: 8,
+        display: "flex",
+        flexDirection: "column",
+        flexShrink: 0,
+        minHeight: 0,
+        overflow: "hidden",
+        position: "relative",
+        width: 300,
+      },
+      tabs: {
+        background: "var(--dsw-alias-bg-layer-1)",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: 7,
+        display: "flex",
+        flexShrink: 0,
+        gap: 2,
+        margin: 8,
+        padding: 3,
+      },
+      tab: {
+        background: "transparent",
+        border: "none",
+        borderRadius: 5,
+        color: "inherit",
+        cursor: "pointer",
+        flex: 1,
+        fontSize: 12,
+        padding: "5px 8px",
+      },
+      tabActive: {
+        background: "#4f8ef7",
+        color: "#fff",
+        fontWeight: 600,
+      },
+      centerTabs: {
+        background: "var(--dsw-alias-bg-layer-1)",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: 7,
+        display: "inline-flex",
+        flexShrink: 0,
+        gap: 2,
+        padding: 3,
+      },
+      centerTab: {
+        background: "transparent",
+        border: "none",
+        borderRadius: 5,
+        color: "var(--dsw-alias-label-secondary)",
+        cursor: "pointer",
+        flex: 1,
+        fontSize: 12,
+        minWidth: 68,
+        padding: "6px 8px",
+        whiteSpace: "nowrap",
+      },
+      centerSettings: {
+        display: "flex",
+        flex: 1,
+        flexDirection: "column",
+        gap: 10,
+        minHeight: 0,
+        overflowY: "auto",
+        padding: 12,
+      },
+      centerMembers: { display: "grid", gap: 6 },
+      centerMember: {
+        alignItems: "center",
+        background: "var(--dsw-alias-bg-layer-1)",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: 6,
+        display: "flex",
+        gap: 8,
+        padding: "7px 9px",
+      },
+      centerMemberCopy: {
+        display: "grid",
+        flex: 1,
+        gap: 1,
+        minWidth: 0,
+      },
+      centerMemberName: {
+        fontSize: 12,
+        fontWeight: 600,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+      },
+      sideBody: {
+        display: "flex",
+        flex: 1,
+        flexDirection: "column",
+        gap: 10,
+        overflowY: "auto",
+        padding: 12,
+      },
+      group: { display: "flex", flexDirection: "column", gap: 4 },
+      summaryCard: {
+        background: "var(--dsw-alias-bg-layer-1)",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: 7,
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+        padding: 10,
+      },
+      summaryHead: {
+        alignItems: "center",
+        display: "flex",
+        gap: 8,
+        justifyContent: "space-between",
+      },
+      summaryFacts: {
+        display: "grid",
+        gap: 6,
+        gridTemplateColumns: "repeat(2,minmax(0,1fr))",
+      },
+      summaryFact: {
+        background: "var(--dsw-alias-bg-layer-2)",
+        borderRadius: 6,
+        display: "grid",
+        gap: 1,
+        minWidth: 0,
+        padding: "7px 8px",
+      },
+      summaryLabel: {
+        color: "var(--dsw-alias-label-tertiary)",
+        fontSize: 10,
+      },
+      summaryValue: {
+        fontSize: 12,
+        fontWeight: 600,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+      },
+      summaryActions: {
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 6,
+      },
+      statusPill: {
+        background:
+          "color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 14%,transparent)",
+        borderRadius: 999,
+        color: "var(--dsw-alias-accent-primary,#4f8ef7)",
+        fontSize: 10,
+        padding: "1px 7px",
+      },
+      briefSection: {
+        background: "var(--dsw-alias-bg-layer-2)",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: 7,
+        display: "grid",
+        gap: 4,
+        padding: "8px 10px",
+      },
+      briefSectionTitle: { fontSize: 12, fontWeight: 600 },
+      groupTitle: {
+        color: "var(--dsw-alias-label-secondary)",
+        fontSize: 11,
+        fontWeight: 600,
+      },
+      row: { alignItems: "center", display: "flex", gap: 6, fontSize: 13 },
+      tag: {
+        background: "var(--dsw-alias-bg-layer-2)",
+        borderRadius: 4,
+        color: "var(--dsw-alias-label-secondary)",
+        fontSize: 10,
+        padding: "1px 5px",
+      },
+      pre: {
+        background: "var(--dsw-alias-bg-layer-1)",
+        borderRadius: 6,
+        fontFamily: "inherit",
+        fontSize: 12,
+        margin: 0,
+        maxHeight: 320,
+        overflow: "auto",
+        padding: 10,
+        whiteSpace: "pre-wrap",
+      },
+      overlay: {
+        alignItems: "center",
+        background: "rgba(0,0,0,0.45)",
+        display: "flex",
+        inset: 0,
+        justifyContent: "center",
+        position: "fixed",
+        zIndex: 60,
+      },
+      modal: {
+        background: "var(--dsw-alias-bg-layer-1)",
+        borderRadius: 10,
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+        maxHeight: "86vh",
+        overflowY: "auto",
+        padding: 18,
+        width: "min(560px, 92vw)",
+      },
+      field: { display: "flex", flexDirection: "column", gap: 4, fontSize: 12 },
+      input: {
+        background: "var(--dsw-alias-bg-base)",
+        border: "0.5px solid var(--dsw-alias-border-l2)",
+        borderRadius: 6,
+        color: "inherit",
+        fontFamily: "inherit",
+        fontSize: 13,
+        padding: "7px 9px",
+      },
+      filterSegment: {
+        alignItems: "center",
+        background: "var(--dsw-alias-bg-layer-1)",
+        border: "0.5px solid var(--dsw-alias-border-l3)",
+        borderRadius: 7,
+        display: "inline-flex",
+        flexShrink: 0,
+        gap: 2,
+        padding: 2,
+      },
+      filterBtn: {
+        background: "transparent",
+        border: "none",
+        borderRadius: 5,
+        color: "var(--dsw-alias-label-secondary)",
+        cursor: "pointer",
+        fontSize: 11,
+        height: 28,
+        padding: "0 9px",
+        whiteSpace: "nowrap",
+      },
+      filterBtnActive: {
+        background: "#4f8ef7",
+        color: "#fff",
+        fontWeight: 600,
+      },
+      // Fixed toast: never participates in layout, so showing/hiding a notice
+      // cannot reflow the page under a pointer mid-click.
+      banner: {
+        borderRadius: 6,
+        bottom: 16,
+        boxShadow: "0 6px 20px rgba(0,0,0,0.18)",
+        fontSize: 12,
+        maxWidth: "50vw",
+        padding: "7px 10px",
+        position: "fixed",
+        right: 16,
+        zIndex: 70,
+      },
+      error: { background: "rgba(220,60,60,0.14)", color: "#e06a6a" },
+      notice: { background: "rgba(60,180,120,0.14)", color: "#4fb783" },
+      picker: { display: "flex", flexDirection: "column", gap: 6 },
+      pickerTrigger: {
+        alignItems: "center",
+        background: "var(--dsw-alias-bg-base)",
+        border: "0.5px solid var(--dsw-alias-border-l2)",
+        borderRadius: 6,
+        color: "inherit",
+        cursor: "pointer",
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 6,
+        minHeight: 34,
+        padding: "5px 9px",
+        width: "100%",
+      },
+      pickerPlaceholder: {
+        color: "var(--dsw-alias-label-secondary)",
+        fontSize: 12,
+      },
+      pickerCaret: {
+        color: "var(--dsw-alias-label-secondary)",
+        fontSize: 10,
+        marginLeft: "auto",
+      },
+      chips: { display: "flex", flexWrap: "wrap", gap: 4 },
+      chip: {
+        alignItems: "center",
+        background: "var(--dsw-alias-bg-layer-2)",
+        borderRadius: 4,
+        display: "inline-flex",
+        fontSize: 11,
+        gap: 4,
+        padding: "2px 6px",
+      },
+      chipRemove: { cursor: "pointer", opacity: 0.7 },
+      pickerPanel: {
+        background: "var(--dsw-alias-bg-base)",
+        border: "0.5px solid var(--dsw-alias-border-l2)",
+        borderRadius: 6,
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+        padding: 6,
+      },
+      pickerSearch: {
+        background: "var(--dsw-alias-bg-base)",
+        border: "0.5px solid var(--dsw-alias-border-l2)",
+        borderRadius: 6,
+        color: "inherit",
+        fontFamily: "inherit",
+        fontSize: 12,
+        padding: "6px 8px",
+      },
+      // 默认可见 10 行（10 × 32 + 9 × 2 间距），超出滚动。
+      pickerList: {
+        display: "flex",
+        flexDirection: "column",
+        gap: 2,
+        maxHeight: 338,
+        overflowY: "auto",
+      },
+      pickerOption: {
+        alignItems: "center",
+        background: "transparent",
+        border: "none",
+        borderRadius: 5,
+        color: "inherit",
+        cursor: "pointer",
+        display: "flex",
+        gap: 8,
+        minHeight: 32,
+        padding: "0 8px",
+        width: "100%",
+      },
+      pickerOptionOn: {
+        background:
+          "color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 12%,transparent)",
+      },
+      pickerOptionOff: { cursor: "not-allowed", opacity: 0.55 },
+      check: {
+        alignItems: "center",
+        border: "1px solid var(--dsw-alias-border-l3)",
+        borderRadius: 4,
+        display: "inline-flex",
+        flexShrink: 0,
+        fontSize: 11,
+        height: 16,
+        justifyContent: "center",
+        width: 16,
+      },
+      checkOn: {
+        background: "var(--dsw-alias-accent-fill, #2f6feb)",
+        borderColor: "var(--dsw-alias-accent-fill, #2f6feb)",
+        color: "#fff",
+      },
+    };
+
+    /**
+     * 简单模糊匹配：优先子串命中，其次按顺序子序列命中，用于下拉框内搜索。
+     */
+    function fuzzyMatch(text, query) {
+      const haystack = String(text ?? "").toLowerCase();
+      const needle = String(query ?? "")
+        .trim()
+        .toLowerCase();
+      if (needle === "") return true;
+      if (haystack.includes(needle)) return true;
+      let cursor = 0;
+      for (const char of haystack) {
+        if (char === needle[cursor]) cursor += 1;
+        if (cursor === needle.length) return true;
+      }
+      return false;
+    }
+
+    /**
+     * 邀请成员用的多选下拉：默认展开、可见 5 行，超出滚动，框内支持模糊搜索。
+     */
+    function InviteMemberPicker(props) {
+      const [open, setOpen] = react.useState(true);
+      const [query, setQuery] = react.useState("");
+      const rootRef = react.useRef(null);
+
+      react.useEffect(() => {
+        if (!open || typeof document === "undefined") return undefined;
+        // 两个坑都要绕开：
+        // 1) 在 mousedown 收起会让面板下方内容上移，同一次点击的 mouseup 落到别的元素上，
+        //    从而吞掉「发送邀请」的首击 —— 所以监听 click（等按钮的 click 先跑完再收起）。
+        // 2) click 又会在「打开弹窗」那一下冒泡到 document，导致刚展开的面板立刻收起 ——
+        //    所以本轮事件循环内先不生效（armed）。
+        let armed = false;
+        const arm = () => {
+          armed = true;
+        };
+        // 用全局 setTimeout：测试环境里 window 桩可能没有它。
+        const timer = setTimeout(arm, 0);
+        const onDocumentClick = (event) => {
+          if (!armed) return;
+          const node = rootRef.current;
+          if (
+            node &&
+            typeof node.contains === "function" &&
+            node.contains(event.target)
+          )
+            return;
+          setOpen(false);
+        };
+        document.addEventListener("click", onDocumentClick);
+        return () => {
+          clearTimeout(timer);
+          document.removeEventListener("click", onDocumentClick);
+        };
+      }, [open]);
+
+      const items = props.items ?? [];
+      const selectedIds = props.selectedIds ?? new Set();
+      const selected = items.filter((item) => selectedIds.has(item.id));
+      const list = items.filter((item) => fuzzyMatch(item.name, query));
+      // agent 参会方在名字后面直接标「（AI）」，和人类成员区分开。
+      const displayName = (item) =>
+        item.kind === "ai" ? `${item.name}（AI）` : item.name;
+
+      return h("div", { ref: rootRef, style: PS.picker }, [
+        h(
+          "div",
+          {
+            role: "button",
+            tabIndex: 0,
+            "aria-expanded": open,
+            "aria-label": "选择邀请成员",
+            style: PS.pickerTrigger,
+            onClick: () => setOpen((value) => !value),
+            onKeyDown: (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                setOpen((value) => !value);
+              }
+            },
+          },
+          [
+            selected.length === 0
+              ? h("span", {
+                  style: PS.pickerPlaceholder,
+                  children: "选择成员…",
+                })
+              : h(
+                  "div",
+                  { style: PS.chips },
+                  selected.map((item) =>
+                    h("span", { key: item.id, style: PS.chip }, [
+                      h("span", { children: displayName(item) }),
+                      h("span", {
+                        role: "button",
+                        "aria-label": `移除 ${item.name}`,
+                        style: PS.chipRemove,
+                        onClick: (event) => {
+                          event.stopPropagation();
+                          props.onToggle(item.id);
+                        },
+                        children: "×",
+                      }),
+                    ]),
+                  ),
+                ),
+            h("span", { style: PS.pickerCaret, children: open ? "▲" : "▼" }),
+          ],
+        ),
+        open
+          ? h("div", { style: PS.pickerPanel }, [
+              h("input", {
+                style: PS.pickerSearch,
+                value: query,
+                placeholder: "搜索成员",
+                "aria-label": "搜索邀请成员",
+                onChange: (event) => setQuery(event.target.value),
+              }),
+              h(
+                "div",
+                { style: PS.pickerList },
+                list.length === 0
+                  ? [
+                      h("div", {
+                        key: "empty",
+                        style: PS.meta,
+                        children: "没有匹配的成员",
+                      }),
+                    ]
+                  : list.map((item) => {
+                      const inMeeting = item.state === "active";
+                      // 已在会议中的参会方默认勾选，且不能再取消/重复邀请。
+                      const checked = selectedIds.has(item.id) || inMeeting;
+                      return h(
+                        "button",
+                        {
+                          type: "button",
+                          key: item.id,
+                          disabled: inMeeting,
+                          "aria-pressed": checked,
+                          style: Object.assign(
+                            {},
+                            PS.pickerOption,
+                            checked ? PS.pickerOptionOn : {},
+                            inMeeting ? PS.pickerOptionOff : {},
+                          ),
+                          onClick: () => {
+                            if (!inMeeting) props.onToggle(item.id);
+                          },
+                        },
+                        [
+                          h("span", {
+                            style: Object.assign(
+                              {},
+                              PS.check,
+                              checked ? PS.checkOn : {},
+                            ),
+                            children: checked ? "✓" : "",
+                          }),
+                          h("span", {
+                            style: { flex: 1, textAlign: "left" },
+                            children: displayName(item),
+                          }),
+                          inMeeting
+                            ? h("span", {
+                                style: PS.meta,
+                                children: "已在会议中",
+                              })
+                            : null,
+                        ],
+                      );
+                    }),
+              ),
+            ])
+          : null,
+      ]);
+    }
+
+    const SPEECH_MODE_OPTIONS = [
+      { id: "mention", label: "被点名" },
+      { id: "key_topic", label: "关键议题" },
+      { id: "observe", label: "观察" },
+      { id: "active", label: "主动参与" },
+    ];
+
+    const splitLines = (text) =>
+      String(text ?? "")
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line !== "");
+
+    const mentionTokenRange = (value, anchorStart) => {
+      if (
+        Number.isInteger(anchorStart) &&
+        anchorStart >= 0 &&
+        anchorStart < value.length &&
+        value[anchorStart] === "@"
+      ) {
+        let end = anchorStart + 1;
+        while (end < value.length && !/\s/.test(value[end])) end += 1;
+        return { start: anchorStart, end };
+      }
+      const match = /@([^\s@]*)$/.exec(value);
+      return match
+        ? { start: match.index, end: match.index + match[0].length }
+        : null;
+    };
+
+    const meetingStatusLabel = (status) =>
+      status === "archived"
+        ? "已归档"
+        : status === "closed"
+          ? "已结束"
+          : status === "draft"
+            ? "未开始"
+            : "进行中";
+
+    const meetingStatusTone = (status) =>
+      Object.assign({}, PS.statusPill, {
+        background:
+          status === "closed"
+            ? "color-mix(in srgb,var(--dsw-alias-state-success-primary,#34d47e) 14%,transparent)"
+            : status === "active"
+              ? "color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 14%,transparent)"
+              : "var(--dsw-alias-bg-layer-2)",
+        color:
+          status === "closed"
+            ? "var(--dsw-alias-state-success-primary,#34d47e)"
+            : status === "active"
+              ? "var(--dsw-alias-accent-primary,#4f8ef7)"
+              : "var(--dsw-alias-label-secondary)",
+      });
+
+    const meetingTimeLabel = (meeting) => {
+      if (meeting?.createdAt === undefined) return "";
+      const start = new Date(meeting.createdAt);
+      if (Number.isNaN(start.getTime())) return "";
+      const now = new Date();
+      const sameDay =
+        start.getFullYear() === now.getFullYear() &&
+        start.getMonth() === now.getMonth() &&
+        start.getDate() === now.getDate();
+      const pad = (value) => String(value).padStart(2, "0");
+      const clock = (value) =>
+        `${pad(value.getHours())}:${pad(value.getMinutes())}`;
+      const startText = sameDay
+        ? `今天 ${clock(start)}`
+        : `${pad(start.getMonth() + 1)}-${pad(start.getDate())} ${clock(start)}`;
+      const end =
+        meeting.closedAt === undefined ? null : new Date(meeting.closedAt);
+      if (end !== null && !Number.isNaN(end.getTime())) {
+        const sameEndDay =
+          start.getFullYear() === end.getFullYear() &&
+          start.getMonth() === end.getMonth() &&
+          start.getDate() === end.getDate();
+        return `${startText} - ${sameEndDay ? clock(end) : `${pad(end.getMonth() + 1)}-${pad(end.getDate())} ${clock(end)}`}`;
+      }
+      return `${startText} 开始`;
+    };
+
+    const normalizeSearchText = (value) =>
+      String(value ?? "")
+        .normalize("NFKC")
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+        .trim();
+
+    /**
+     * 通用搜索按字段命中质量给分。完整命中、前缀、子串依次降级，
+     * 子序列只作为兜底，避免短关键词把无关结果排到前面。
+     */
+    const searchFieldScore = (value, query) => {
+      const text = normalizeSearchText(value);
+      if (text === "" || query === "") return 0;
+      if (text === query) return 1_000;
+      if (text.startsWith(query)) return 850;
+      const index = text.indexOf(query);
+      if (index >= 0) return 700 - Math.min(index, 200);
+      if (query.length > 1 && fuzzyMatch(text, query)) return 300;
+      return 0;
+    };
+
+    const relevanceScore = (fields, rawQuery) => {
+      const query = normalizeSearchText(rawQuery);
+      if (query === "") return 0;
+      const normalized = fields
+        .map((field) => ({
+          text: normalizeSearchText(field.text),
+          weight: field.weight ?? 1,
+        }))
+        .filter((field) => field.text !== "");
+      if (normalized.length === 0) return 0;
+      const tokens = query.split(" ").filter(Boolean);
+      const allTokensMatch = tokens.every((token) =>
+        normalized.some(
+          (field) =>
+            field.text.includes(token) || fuzzyMatch(field.text, token),
+        ),
+      );
+      if (!allTokensMatch) return 0;
+      let score = Math.max(
+        ...normalized.map(
+          (field) => searchFieldScore(field.text, query) * field.weight,
+        ),
+      );
+      for (const token of tokens) {
+        score += Math.max(
+          ...normalized.map(
+            (field) => searchFieldScore(field.text, token) * field.weight,
+          ),
+        );
+      }
+      return score;
+    };
+
+    const isSyntheticMeeting = (meeting) => {
+      const title = String(meeting?.title ?? "").trim();
+      const summary = String(meeting?.summary ?? "");
+      const lastContent = String(meeting?.lastMessage?.content ?? "");
+      return (
+        /^(AUTO-REVIEW|UI-CREATE)\s+会议(?:\s|$)/i.test(title) ||
+        /^自动化会议(?:\s|$)/.test(title) ||
+        summary.includes("浏览器自动化验收清理") ||
+        /^自动化会议消息(?:\s|$)/.test(lastContent)
+      );
+    };
+    const meetingHasConversation = (meeting) =>
+      Number(meeting?.messageCount ?? 0) > 0 && !isSyntheticMeeting(meeting);
+    const isActiveGroupConversation = (meeting) =>
+      meeting?.kind !== "ai" &&
+      meeting?.conversationMode === "group" &&
+      meeting?.status === "active";
+    const meetingActivityTime = (meeting) =>
+      meeting?.lastActivityAt ??
+      meeting?.lastMessage?.createdAt ??
+      meeting?.updatedAt;
+    const aiConversationPriority = (meeting) =>
+      (meetingHasConversation(meeting) ? 2 : 0) +
+      (meeting?.workspaceId === SYSTEM_DEFAULT_WORKSPACE_ID &&
+      meeting?.aiContextMode === "participant-projects-v1"
+        ? 1
+        : 0);
+    const preferAiConversation = (current, candidate) => {
+      if (current === undefined) return true;
+      const priorityDifference =
+        aiConversationPriority(candidate) - aiConversationPriority(current);
+      if (priorityDifference !== 0) return priorityDifference > 0;
+      return (
+        String(meetingActivityTime(candidate) ?? "").localeCompare(
+          String(meetingActivityTime(current) ?? ""),
+        ) > 0
+      );
+    };
+    const meetingLastMessageText = (meeting) =>
+      String(displayContent(meeting?.lastMessage?.content) ?? "")
+        .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+        .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+        .replace(/```[\s\S]*?```/g, (block) =>
+          block.replace(/^```[^\n]*\n?/, "").replace(/```$/, ""),
+        )
+        .replace(/^#{1,6}\s*/gm, "")
+        .replace(/^\s*[-*+]\s+/gm, "")
+        .replace(/^\s*\d+\.\s+/gm, "")
+        .replace(/^>\s?/gm, "")
+        .replace(/[*_~`#|]/g, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 160);
+    const meetingLastMessageSpeaker = (meeting, fallback = "") => {
+      if (meeting?.lastMessage === null || meeting?.lastMessage === undefined)
+        return "";
+      const senderName = String(meeting.lastMessage.senderName ?? "").trim();
+      if (senderName !== "") return senderName;
+      if (meeting.lastMessage.senderKind === "human") return "参会人";
+      if (meeting.lastMessage.senderKind === "agent")
+        return fallback.trim() || "AI";
+      return fallback.trim();
+    };
+    const teammateIsUnavailable = (teammate) =>
+      teammate?.availability?.available === false ||
+      (teammate?.state !== undefined && teammate.state !== "active");
+    const teammateUnavailableReason = (teammate) =>
+      String(
+        (teammate === undefined
+          ? "AI伙伴已失效或不可访问"
+          : teammate.availability?.reason) ??
+          (teammate?.state === "archived"
+            ? "AI伙伴已归档"
+            : teammate?.state === "inactive"
+              ? "AI伙伴已失效"
+              : teammate?.state === "paused"
+                ? "AI伙伴已暂停"
+                : teammate?.state === "draft"
+                  ? "AI伙伴仍是草稿"
+                  : "AI伙伴当前不可用"),
+      );
+    const meetingPreviewText = (meeting, fallback = "暂无消息") =>
+      meetingLastMessageText(meeting) ||
+      String(meeting?.summary ?? "").trim() ||
+      String(meeting?.agenda ?? "").trim() ||
+      (meeting?.messageCount > 0
+        ? `共 ${meeting.messageCount} 条消息`
+        : fallback);
+
+    const errText = (cause) =>
+      cause instanceof Error ? cause.message : String(cause);
+
+    const participantGroup = (participant, facilitatorId) => {
+      if (
+        participant.kind === "facilitator" ||
+        (facilitatorId !== undefined && participant.id === facilitatorId)
+      )
+        return "service";
+      if (
+        participant.kind === "ai_teammate" ||
+        participant.kind === "ai_representative" ||
+        participant.kind === "agent" ||
+        participant.principalUserId !== undefined ||
+        participant.teammateInstanceId !== undefined
+      )
+        return "ai";
+      return "human";
+    };
+
+    function MeetingsPage(props) {
+      const route = props.useShellRoute?.((state) => state.route);
+      const viewportWidth = useViewportWidth();
+      const compactLayout = viewportWidth <= 900;
+      const [workspaces, setWorkspaces] = react.useState([]);
+      // 顶部项目下拉默认「全部」：它是筛选器，不再等同于「当前项目」。
+      const [workspaceFilter, setWorkspaceFilter] = react.useState("all");
+      /**
+       * 方案 B：项目清单默认只看"已加入"；平台管理员可切全量视图。
+       * 状态来自跨模块共享 store，跳转前后保持同一选择。
+       */
+      const [allWorkspaces, setAllWorkspaces] = react.useState([]);
+      const showAllWorkspaces = react.useSyncExternalStore(
+        scopeStore.subscribe,
+        scopeStore.getSnapshot,
+        scopeStore.getSnapshot,
+      );
+      const showAllWorkspacesRef = react.useRef(showAllWorkspaces);
+      react.useEffect(() => {
+        showAllWorkspacesRef.current = showAllWorkspaces;
+      }, [showAllWorkspaces]);
+      const [isPlatformAdmin, setIsPlatformAdmin] = react.useState(false);
+      // 新建会议落到哪个项目：默认取当前可用的项目。
+      const [createWorkspaceId, setCreateWorkspaceId] = react.useState("");
+      const [accountName, setAccountName] = react.useState("");
+      const [accountId, setAccountId] = react.useState("");
+      const [meetings, setMeetings] = react.useState([]);
+      const [meetingId, setMeetingId] = react.useState("");
+      // 深链目标可能只有纪要、没有普通消息。它必须绕过「有对话才可打开」
+      // 的列表过滤，否则从工作台跳转后会被自动选中逻辑切回空列表。
+      const [pinnedMeetingIds, setPinnedMeetingIds] = react.useState(
+        () => new Set(),
+      );
+      const requestedCenterTabRef = react.useRef({
+        meetingId: "",
+        tab: "",
+      });
+      const [recentEmptyMeetingIds, setRecentEmptyMeetingIds] = react.useState(
+        () => {
+          try {
+            const value = JSON.parse(
+              window.localStorage.getItem(RECENT_EMPTY_MEETING_IDS_KEY) ?? "[]",
+            );
+            return new Set(
+              Array.isArray(value)
+                ? value.filter((item) => typeof item === "string")
+                : [],
+            );
+          } catch {
+            return new Set();
+          }
+        },
+      );
+      const [detail, setDetail] = react.useState(null);
+      const [minutes, setMinutes] = react.useState(null);
+      const [teammates, setTeammates] = react.useState([]);
+      const [centerTab, setCenterTab] = react.useState("conversation");
+      const [centerTaskCaptureOpen, setCenterTaskCaptureOpen] =
+        react.useState(false);
+      const [centerTaskCaptureSeed, setCenterTaskCaptureSeed] = react.useState(
+        {},
+      );
+      const [content, setContent] = react.useState("");
+      const fileRef = react.useRef(null);
+      const composerInputRef = react.useRef(null);
+      const mentionAnchorRef = react.useRef(null);
+      const streamRef = react.useRef(null);
+      const searchInputRef = react.useRef(null);
+      const openCenterTaskCapture = (seed = {}) => {
+        const currentMeeting = detail?.meeting;
+        if (currentMeeting === undefined) return;
+        const currentTranscript = detail?.transcript ?? [];
+        openTaskDraft({
+          sourceType: currentMeeting.kind === "ai" ? "ai-chat" : "meeting",
+          sourceId: currentMeeting.id,
+          sourceTitle: currentMeeting.title,
+          workspaceId: currentMeeting.workspaceId,
+          messageIds: seed.messageIds ?? [],
+          selectionText: seed.selectionText ?? "",
+          messageOptions: currentTranscript.map((message) => ({
+            id: message.id,
+            senderName:
+              message.provenance?.role === "representative"
+                ? `${message.senderName} · AI 参会代表`
+                : message.senderKind === "agent"
+                  ? `${message.senderName} · AI`
+                  : message.senderId === detail?.actorId
+                    ? "我"
+                    : message.senderName,
+            content: message.content,
+            createdAt: message.createdAt,
+          })),
+          actionItemIds: [],
+          onSaved: () => {
+            window.dispatchEvent(
+              new CustomEvent("pluginmax:task-capture-refresh"),
+            );
+          },
+        });
+      };
+      const [search, setSearch] = react.useState("");
+      const [communicationFilter, setCommunicationFilter] =
+        react.useState("all");
+      // 与 AI Teammates 一致：已归档的会议不混在正常列表里，用「已归档 N」切换。
+      const [showArchived, setShowArchived] = react.useState(false);
+      const [closedOpen, setClosedOpen] = react.useState(false);
+      const [briefOpen, setBriefOpen] = react.useState(false);
+      const [mentionIds, setMentionIds] = react.useState(() => new Set());
+      const [mentionOpen, setMentionOpen] = react.useState(false);
+      const [mentionQuery, setMentionQuery] = react.useState("");
+      const [busy, setBusy] = react.useState("");
+      const [error, setError] = react.useState("");
+      const [notice, setNotice] = react.useState("");
+      const [refreshKey, setRefreshKey] = react.useState(0);
+      const [createOpen, setCreateOpen] = react.useState(false);
+      const [createMode, setCreateMode] = react.useState("meeting");
+      const [createTeammateId, setCreateTeammateId] = react.useState("");
+      const [contextPolicyOpen, setContextPolicyOpen] = react.useState(false);
+      const [contextPolicyDraft, setContextPolicyDraft] = react.useState(null);
+      const [contextPolicyScene, setContextPolicyScene] =
+        react.useState("defaults");
+      const [contextPolicyBusy, setContextPolicyBusy] = react.useState(false);
+      const [contextPolicyError, setContextPolicyError] = react.useState("");
+      const [contextPolicyResetConfirm, setContextPolicyResetConfirm] =
+        react.useState(false);
+      // 状态反馈条 3 秒后自动消失。
+      react.useEffect(() => {
+        if (notice === "" && error === "") return undefined;
+        const timer = window.setTimeout(() => {
+          setNotice("");
+          setError("");
+        }, 3_000);
+        return () => window.clearTimeout(timer);
+      }, [notice, error]);
+      const [newTitle, setNewTitle] = react.useState("");
+      const [newAgenda, setNewAgenda] = react.useState("");
+      const [delegateOpen, setDelegateOpen] = react.useState(false);
+      const [inviteOpen, setInviteOpen] = react.useState(false);
+      const [invitePeople, setInvitePeople] = react.useState([]);
+      const [inviteIds, setInviteIds] = react.useState(() => new Set());
+      const [dform, setDform] = react.useState({
+        teammateInstanceId: "",
+        speechMode: "mention",
+        goal: "",
+        stance: "",
+        mustSay: "",
+        focusPoints: "",
+      });
+      const [minutesDraft, setMinutesDraft] = react.useState("");
+      const [centerTitleDraft, setCenterTitleDraft] = react.useState("");
+      const [centerAgendaDraft, setCenterAgendaDraft] = react.useState("");
+      const [editingMinutes, setEditingMinutes] = react.useState(false);
+      const [closeOpen, setCloseOpen] = react.useState(false);
+      const [closeSummary, setCloseSummary] = react.useState("");
+      // 「已有纪要时再点生成」的覆盖确认弹窗。
+      const [minutesOverwriteOpen, setMinutesOverwriteOpen] =
+        react.useState(false);
+
+      react.useEffect(() => {
+        const pending = window.__pluginmaxPendingMeeting;
+        if (pending === null || typeof pending !== "object") return;
+        window.__pluginmaxPendingMeeting = null;
+        if (
+          typeof pending.workspaceId === "string" &&
+          pending.workspaceId !== ""
+        ) {
+          setWorkspaceFilter(pending.workspaceId);
+        }
+        if (typeof pending.meetingId === "string" && pending.meetingId !== "") {
+          setPinnedMeetingIds((current) => {
+            if (current.has(pending.meetingId)) return current;
+            return new Set([...current, pending.meetingId]);
+          });
+          requestedCenterTabRef.current = {
+            meetingId: pending.meetingId,
+            tab: pending.tab === "minutes" ? "minutes" : "",
+          };
+          setMeetingId(pending.meetingId);
+        }
+      }, []);
+
+      react.useEffect(() => {
+        const onNavigate = (event) => {
+          const detail = event?.detail;
+          if (detail?.plugin !== "meeting") return;
+          if (
+            typeof detail.workspaceId === "string" &&
+            detail.workspaceId !== ""
+          ) {
+            setWorkspaceFilter(detail.workspaceId);
+          }
+          if (typeof detail.meetingId === "string" && detail.meetingId !== "") {
+            setPinnedMeetingIds((current) => {
+              if (current.has(detail.meetingId)) return current;
+              return new Set([...current, detail.meetingId]);
+            });
+            requestedCenterTabRef.current = {
+              meetingId: detail.meetingId,
+              tab: detail.tab === "minutes" ? "minutes" : "",
+            };
+            setMeetingId(detail.meetingId);
+            setCenterTab(detail.tab === "minutes" ? "minutes" : "conversation");
+          }
+        };
+        window.addEventListener("pluginmax:collab-navigate", onNavigate);
+        return () =>
+          window.removeEventListener("pluginmax:collab-navigate", onNavigate);
+      }, []);
+
+      react.useEffect(
+        () =>
+          store.subscribeChange((source) => {
+            if (source !== "page") setRefreshKey((key) => key + 1);
+          }),
+        [],
+      );
+
+      react.useEffect(() => {
+        const onTokenChange = () => {
+          if (window.localStorage.getItem("pluginmax.collab.token") === null) {
+            setMeetings([]);
+            setMeetingId("");
+            setDetail(null);
+            setMinutes(null);
+            setTeammates([]);
+            setAccountName("");
+            setAccountId("");
+            setAllWorkspaces([]);
+            setWorkspaces([]);
+          }
+          setRefreshKey((key) => key + 1);
+        };
+        window.addEventListener("pluginmax:collab-token", onTokenChange);
+        return () =>
+          window.removeEventListener("pluginmax:collab-token", onTokenChange);
+      }, []);
+
+      react.useEffect(() => {
+        if (route !== "meetings") return undefined;
+        let disposed = false;
+        (async () => {
+          try {
+            const [workspaceResult, me, teammateResult] = await Promise.all([
+              request("/api/collab/team/workspaces"),
+              request("/api/collab/auth/me"),
+              request("/api/collab/teammates?workspaceId=system.default").catch(
+                () => ({ teammates: [] }),
+              ),
+            ]);
+            if (disposed) return;
+            const list = [
+              ...(workspaceResult.workspaces ?? []).filter(
+                (workspace) => workspace.id !== SYSTEM_DEFAULT_WORKSPACE_ID,
+              ),
+              SYSTEM_DEFAULT_WORKSPACE,
+            ];
+            const admin = me.user?.role === "admin";
+            setIsPlatformAdmin(admin);
+            setAllWorkspaces(list);
+            setWorkspaces(
+              admin && showAllWorkspacesRef.current
+                ? list
+                : list.filter((workspace) => workspace.isMember === true),
+            );
+            setAccountName(me.user?.name ?? "");
+            setAccountId(me.user?.id ?? "");
+            setTeammates(
+              (teammateResult.teammates ?? []).filter(
+                (item) => item.state !== "archived",
+              ),
+            );
+            // 平台管理员对全部项目都有建会权限，可选项不止“已加入”的项目；
+            // 否则管理员在未加入任何项目时「新建会议」会一直被禁用。
+            const creatable = admin
+              ? list
+              : list.filter((workspace) => workspace.isMember === true);
+            setCreateWorkspaceId((current) =>
+              current && creatable.some((workspace) => workspace.id === current)
+                ? current
+                : (creatable[0]?.id ?? ""),
+            );
+          } catch (cause) {
+            if (!disposed) setError(errText(cause));
+          }
+        })();
+        return () => {
+          disposed = true;
+        };
+      }, [route, showAllWorkspaces, refreshKey]);
+
+      react.useEffect(() => {
+        if (route !== "meetings") return undefined;
+        // 「全部」= 并列拉取所有可见项目后合并，其余取单个项目。
+        // 平台管理员能对全部项目建会，因此默认「仅看已加入」视图也要把
+        // 自己在未加入项目里创建/主持的会议带出来，否则建完会议列表反而为空。
+        const aggregated =
+          workspaceFilter === "all"
+            ? isPlatformAdmin
+              ? allWorkspaces
+              : workspaces
+            : [];
+        const targets =
+          workspaceFilter === "all"
+            ? aggregated.map((workspace) => workspace.id)
+            : [...new Set([workspaceFilter, SYSTEM_DEFAULT_WORKSPACE_ID])];
+        if (targets.length === 0) return undefined;
+        const joinedIds = new Set(workspaces.map((workspace) => workspace.id));
+        const keep = (meeting) =>
+          workspaceFilter !== "all" ||
+          showAllWorkspaces ||
+          joinedIds.has(meeting.workspaceId) ||
+          (accountId !== "" &&
+            (meeting.createdBy === accountId ||
+              meeting.ownerUserId === accountId));
+        let disposed = false;
+        (async () => {
+          try {
+            const lists = await Promise.all(
+              targets.map((id) =>
+                request(
+                  `/api/collab/meetings?workspaceId=${encodeURIComponent(id)}`,
+                )
+                  .then((result) => result.meetings ?? [])
+                  .catch(() => []),
+              ),
+            );
+            if (disposed) return;
+            setMeetings(
+              lists
+                .flat()
+                .filter(keep)
+                .filter(
+                  (meeting) =>
+                    workspaceFilter === "all" ||
+                    meeting.workspaceId === workspaceFilter ||
+                    (meeting.kind === "ai" &&
+                      meeting.workspaceId === SYSTEM_DEFAULT_WORKSPACE_ID),
+                )
+                .sort((left, right) =>
+                  String(right.updatedAt).localeCompare(String(left.updatedAt)),
+                ),
+            );
+          } catch (cause) {
+            if (!disposed) setError(errText(cause));
+          }
+        })();
+        return () => {
+          disposed = true;
+        };
+      }, [
+        route,
+        workspaceFilter,
+        workspaces,
+        allWorkspaces,
+        isPlatformAdmin,
+        showAllWorkspaces,
+        accountId,
+        refreshKey,
+      ]);
+
+      react.useEffect(() => {
+        if (route !== "meetings") return undefined;
+        const pending = meetings.filter(
+          (item) => item.messageCount === undefined,
+        );
+        if (pending.length === 0) return undefined;
+        let disposed = false;
+        (async () => {
+          const hydrated = [];
+          for (let index = 0; index < pending.length; index += 4) {
+            const batch = pending.slice(index, index + 4);
+            const results = await Promise.all(
+              batch.map(async (item) => {
+                try {
+                  const result = await request(
+                    `/api/collab/meeting?meetingId=${encodeURIComponent(item.id)}`,
+                  );
+                  const actor =
+                    typeof result.actorId === "string" ? result.actorId : "";
+                  const conversation = (result.transcript ?? []).filter(
+                    (message) => message.senderKind !== "system",
+                  );
+                  const lastMessage = conversation.at?.(-1);
+                  return Object.assign({}, item, {
+                    messageCount: conversation.length,
+                    unreadCount: conversation.filter((message) =>
+                      isUnreadConversationMessage(message, actor, result.read),
+                    ).length,
+                    lastMessage:
+                      lastMessage === undefined
+                        ? null
+                        : {
+                            id: lastMessage.id,
+                            senderKind: lastMessage.senderKind,
+                            senderName: lastMessage.senderName,
+                            content: lastMessage.content,
+                            createdAt: lastMessage.createdAt,
+                          },
+                    lastActivityAt: lastMessage?.createdAt ?? item.updatedAt,
+                  });
+                } catch {
+                  return Object.assign({}, item, {
+                    messageCount: 0,
+                    unreadCount: 0,
+                    lastMessage: null,
+                  });
+                }
+              }),
+            );
+            hydrated.push(...results);
+          }
+          if (disposed) return;
+          const byId = new Map(hydrated.map((item) => [item.id, item]));
+          setMeetings((current) =>
+            current.map((item) => byId.get(item.id) ?? item),
+          );
+        })();
+        return () => {
+          disposed = true;
+        };
+      }, [route, meetings]);
+
+      react.useEffect(() => {
+        if (route !== "meetings" || meetingId === "") {
+          setDetail(null);
+          setMinutes(null);
+          return undefined;
+        }
+        let disposed = false;
+        (async () => {
+          try {
+            const detailResult = await request(
+              `/api/collab/meeting?meetingId=${encodeURIComponent(meetingId)}`,
+            );
+            const groupMeeting = detailResult.meeting?.kind !== "ai";
+            const minutesResult = groupMeeting
+              ? await request(
+                  `/api/collab/meeting/minutes?meetingId=${encodeURIComponent(meetingId)}`,
+                ).catch(() => null)
+              : null;
+            if (disposed) return;
+            setDetail(detailResult);
+            setMinutes(minutesResult);
+            const lastSeq =
+              (detailResult?.transcript ?? []).at?.(-1)?.sequence ?? 0;
+            if (lastSeq > 0)
+              request("/api/collab/meeting/read", {
+                method: "POST",
+                body: JSON.stringify({ meetingId, lastReadSeq: lastSeq }),
+              })
+                .then(() => {
+                  if (disposed) return;
+                  setMeetings((current) =>
+                    current.map((item) =>
+                      item.id === meetingId
+                        ? Object.assign({}, item, { unreadCount: 0 })
+                        : item,
+                    ),
+                  );
+                })
+                .catch(() => undefined);
+          } catch (cause) {
+            if (!disposed) setError(errText(cause));
+          }
+        })();
+        return () => {
+          disposed = true;
+        };
+      }, [route, meetingId, refreshKey]);
+
+      react.useEffect(() => {
+        const requested = requestedCenterTabRef.current;
+        if (requested.meetingId === meetingId && requested.meetingId !== "") {
+          setCenterTab(
+            requested.tab === "minutes" ? "minutes" : "conversation",
+          );
+          requestedCenterTabRef.current = { meetingId: "", tab: "" };
+        } else {
+          setCenterTab("conversation");
+        }
+        setCenterTaskCaptureOpen(false);
+        setCenterTaskCaptureSeed({});
+      }, [meetingId]);
+
+      react.useEffect(() => {
+        const receiveSelection = (event) => {
+          const detail = event?.detail;
+          if (
+            detail?.surface !== "center" ||
+            detail.sourceId !== meetingId ||
+            typeof detail.text !== "string" ||
+            detail.text.trim() === ""
+          ) {
+            return;
+          }
+          openTaskDraft({
+            sourceType: detail.sourceType,
+            sourceId: detail.sourceId,
+            sourceTitle: detail.sourceTitle,
+            workspaceId: detail.workspaceId,
+            messageIds:
+              typeof detail.messageId === "string" && detail.messageId !== ""
+                ? [detail.messageId]
+                : [],
+            selectionText: detail.text,
+            messageOptions: [],
+            actionItemIds: [],
+          });
+        };
+        window.addEventListener(
+          "pluginmax:task-capture-selection",
+          receiveSelection,
+        );
+        return () =>
+          window.removeEventListener(
+            "pluginmax:task-capture-selection",
+            receiveSelection,
+          );
+      }, [meetingId]);
+
+      react.useEffect(() => {
+        if (route !== "meetings") return;
+        setCenterTitleDraft(detail?.meeting?.title ?? "");
+        setCenterAgendaDraft(detail?.meeting?.agenda ?? "");
+      }, [route, meetingId, detail?.meeting?.title, detail?.meeting?.agenda]);
+
+      // 纪要生成是异步的：只要还有生成中的版本，就轮询刷新，
+      // 否则界面会一直停在「generating」，看不到待确认或生效状态。
+      react.useEffect(() => {
+        if (route !== "meetings" || meetingId === "") return undefined;
+        const versions = minutes?.versions ?? [];
+        const generating = versions.some(
+          (version) =>
+            version.status === "generating" || version.status === "pending",
+        );
+        if (!generating) return undefined;
+        const timer = window.setInterval(
+          () => setRefreshKey((key) => key + 1),
+          4_000,
+        );
+        return () => window.clearInterval(timer);
+      }, [route, meetingId, minutes]);
+
+      react.useEffect(() => {
+        const groupConversation =
+          detail?.meeting?.kind === "meeting" &&
+          detail?.meeting?.conversationMode === "group";
+        if (groupConversation && centerTab === "minutes") {
+          setCenterTab("conversation");
+        }
+      }, [detail?.meeting?.kind, detail?.meeting?.conversationMode, centerTab]);
+
+      // 会议成员变动签名：邀请/移除后详情刷新时，同时刷新邀请弹窗里的候选列表，
+      // 避免弹窗沿用打开时那份过期名单。
+      const rosterKey = (detail?.participants ?? [])
+        .map(
+          (participant) =>
+            `${participant.id}:${participant.refId}:${participant.status}`,
+        )
+        .join(",");
+
+      react.useEffect(() => {
+        if (!inviteOpen || meetingId === "") return undefined;
+        let disposed = false;
+        (async () => {
+          try {
+            const result = await request(
+              `/api/collab/meeting/people?meetingId=${encodeURIComponent(meetingId)}`,
+            );
+            if (!disposed) setInvitePeople(result.people ?? []);
+          } catch (cause) {
+            if (!disposed) setError(errText(cause));
+          }
+        })();
+        return () => {
+          disposed = true;
+        };
+      }, [inviteOpen, meetingId, refreshKey, rosterKey]);
+
+      const run = async (label, action) => {
+        setBusy(label);
+        setError("");
+        try {
+          await action();
+          setRefreshKey((key) => key + 1);
+          store.bumpChange("page");
+        } catch (cause) {
+          setError(errText(cause));
+        } finally {
+          setBusy("");
+        }
+      };
+
+      const post = (path, body) =>
+        request(path, { method: "POST", body: JSON.stringify(body) });
+      const policyToDraft = (policy) => ({
+        version: policy?.version ?? 0,
+        defaults: {
+          ...CONTEXT_POLICY_DEFAULTS,
+          ...(policy?.defaults ?? {}),
+        },
+        sceneOverrides: {
+          ...(policy?.sceneOverrides ?? {}),
+        },
+      });
+      const openContextPolicySettings = async () => {
+        setContextPolicyOpen(true);
+        setContextPolicyScene("defaults");
+        setContextPolicyError("");
+        setContextPolicyResetConfirm(false);
+        setContextPolicyBusy(true);
+        try {
+          const result = await request(
+            `/api/collab/context/policy?workspaceId=${encodeURIComponent(SYSTEM_DEFAULT_WORKSPACE_ID)}`,
+          );
+          setContextPolicyDraft(policyToDraft(result.policy));
+        } catch (cause) {
+          setContextPolicyError(errText(cause));
+          setContextPolicyDraft(null);
+        } finally {
+          setContextPolicyBusy(false);
+        }
+      };
+      const contextPolicyValuesForScene = (draft, scene) => {
+        if (draft === null) return CONTEXT_POLICY_DEFAULTS;
+        if (scene === "defaults") return draft.defaults;
+        return {
+          ...draft.defaults,
+          ...(draft.sceneOverrides[scene] ?? {}),
+        };
+      };
+      const updateContextPolicyField = (key, value) => {
+        setContextPolicyDraft((current) => {
+          if (current === null) return current;
+          const next = Number(value);
+          if (!Number.isFinite(next)) return current;
+          if (contextPolicyScene === "defaults") {
+            return {
+              ...current,
+              defaults: { ...current.defaults, [key]: next },
+            };
+          }
+          return {
+            ...current,
+            sceneOverrides: {
+              ...current.sceneOverrides,
+              [contextPolicyScene]: {
+                ...contextPolicyValuesForScene(current, contextPolicyScene),
+                [key]: next,
+              },
+            },
+          };
+        });
+      };
+      const toggleContextPolicyInheritance = (inherit) => {
+        if (contextPolicyScene === "defaults") return;
+        setContextPolicyDraft((current) => {
+          if (current === null) return current;
+          const sceneOverrides = { ...current.sceneOverrides };
+          if (inherit) delete sceneOverrides[contextPolicyScene];
+          else
+            sceneOverrides[contextPolicyScene] = {
+              ...contextPolicyValuesForScene(current, contextPolicyScene),
+            };
+          return { ...current, sceneOverrides };
+        });
+      };
+      const saveContextPolicy = async () => {
+        if (contextPolicyDraft === null) return;
+        if (!contextPolicyDraftValid(contextPolicyDraft)) {
+          setContextPolicyError("阈值必须满足：提醒 < 压缩 < 滚动");
+          return;
+        }
+        setContextPolicyBusy(true);
+        setContextPolicyError("");
+        try {
+          const result = await request("/api/collab/context/policy", {
+            method: "PUT",
+            body: JSON.stringify({
+              expectedVersion: contextPolicyDraft.version,
+              defaults: contextPolicyDraft.defaults,
+              sceneOverrides: contextPolicyDraft.sceneOverrides,
+            }),
+          });
+          setContextPolicyDraft(policyToDraft(result.policy));
+          setNotice("上下文设置已保存，将在下一次 AI 触发时生效");
+        } catch (cause) {
+          setContextPolicyError(
+            cause?.status === 409
+              ? "配置已被其他管理员更新，请关闭后重新打开设置再保存"
+              : errText(cause),
+          );
+        } finally {
+          setContextPolicyBusy(false);
+        }
+      };
+      const contextPolicyDraftValid = (draft) =>
+        ["defaults", ...CONTEXT_POLICY_SCENES].every((scene) => {
+          const values = contextPolicyValuesForScene(draft, scene);
+          return (
+            values.warningRatio < values.compactRatio &&
+            values.compactRatio < values.rolloverRatio
+          );
+        });
+      const resetContextPolicy = async () => {
+        if (contextPolicyDraft === null) return;
+        setContextPolicyBusy(true);
+        setContextPolicyError("");
+        try {
+          const result = await request("/api/collab/context/policy/reset", {
+            method: "POST",
+            body: JSON.stringify({
+              expectedVersion: contextPolicyDraft.version,
+            }),
+          });
+          setContextPolicyDraft(policyToDraft(result.policy));
+          setNotice("上下文设置已恢复默认");
+          setContextPolicyResetConfirm(false);
+        } catch (cause) {
+          setContextPolicyError(
+            cause?.status === 409
+              ? "配置已被其他管理员更新，请关闭后重新打开设置再恢复"
+              : errText(cause),
+          );
+        } finally {
+          setContextPolicyBusy(false);
+        }
+      };
+      const contextPolicyFieldNode = (label, key, options = {}) => {
+        const values = contextPolicyValuesForScene(
+          contextPolicyDraft,
+          contextPolicyScene,
+        );
+        const value = values[key];
+        return h("label", { style: PS.field }, [
+          h("span", { children: label }),
+          h("input", {
+            type: "number",
+            style: PS.input,
+            value:
+              options.percent === true
+                ? Math.round(Number(value) * 100)
+                : String(value),
+            min: options.min,
+            max: options.max,
+            step: options.step ?? 1,
+            "aria-label": label,
+            onChange: (event) =>
+              updateContextPolicyField(
+                key,
+                options.percent === true
+                  ? Number(event.target.value) / 100
+                  : event.target.value,
+              ),
+          }),
+        ]);
+      };
+      const rememberEmptyMeeting = (id) => {
+        if (id === "") return;
+        setRecentEmptyMeetingIds((current) => {
+          const next = new Set(current);
+          next.add(id);
+          const limited = [...next].slice(-50);
+          window.localStorage.setItem(
+            RECENT_EMPTY_MEETING_IDS_KEY,
+            JSON.stringify(limited),
+          );
+          return new Set(limited);
+        });
+      };
+
+      // 可见项目：管理员可用全部项目，普通成员仅限已加入的项目。
+      const visibleWorkspaces = isPlatformAdmin ? allWorkspaces : workspaces;
+      const workspaceNameById = new Map(
+        (allWorkspaces.length > 0 ? allWorkspaces : workspaces).map(
+          (workspace) => [workspace.id, workspaceLabel(workspace)],
+        ),
+      );
+      const teammateById = new Map(
+        teammates.map((teammate) => [teammate.id, teammate]),
+      );
+      const myAiTeammates = teammates.filter(
+        (teammate) =>
+          teammate.ownerUserId === accountId &&
+          !teammateIsUnavailable(teammate),
+      );
+      const selectedCreateTeammateId = myAiTeammates.some(
+        (teammate) => teammate.id === createTeammateId,
+      )
+        ? createTeammateId
+        : (myAiTeammates[0]?.id ?? "");
+      const isLegacyDefaultAiConversation = (item) =>
+        item.kind === "ai" &&
+        item.workspaceId === SYSTEM_DEFAULT_WORKSPACE_ID &&
+        item.aiContextMode !== "participant-projects-v1";
+      const isChatConversationItem = (item) =>
+        item.kind === "ai" || item.conversationMode === "group";
+      const communicationKind = (item) =>
+        item.kind === "ai"
+          ? "direct"
+          : item.conversationMode === "group"
+            ? "group"
+            : "meeting";
+      const matchesCommunicationFilter = (item) =>
+        communicationFilter === "all" ||
+        communicationKind(item) === communicationFilter;
+      // AI伙伴 1:1 以伙伴实例为唯一维度，项目只用于运行时取数。
+      const activeAiConversationByTeammate = new Map();
+      for (const item of meetings) {
+        if (
+          item.kind !== "ai" ||
+          item.status !== "active" ||
+          item.teammateInstanceId === undefined ||
+          isLegacyDefaultAiConversation(item)
+        )
+          continue;
+        if (
+          !meetingHasConversation(item) &&
+          !recentEmptyMeetingIds.has(item.id)
+        ) {
+          continue;
+        }
+        const current = activeAiConversationByTeammate.get(
+          item.teammateInstanceId,
+        );
+        if (preferAiConversation(current, item)) {
+          activeAiConversationByTeammate.set(item.teammateInstanceId, item);
+        }
+      }
+      const meetingSearchScore = (item) =>
+        relevanceScore(
+          [
+            { text: item.title, weight: 1.25 },
+            { text: workspaceNameById.get(item.workspaceId), weight: 1 },
+            {
+              text: teammateById.get(item.teammateInstanceId)?.name,
+              weight: 1.2,
+            },
+            {
+              text: teammateById.get(item.teammateInstanceId)?.ownerName,
+              weight: 1,
+            },
+            { text: item.agenda, weight: 0.35 },
+            { text: item.summary, weight: 0.3 },
+            { text: meetingLastMessageText(item), weight: 0.45 },
+          ],
+          search,
+        );
+      const teammateSearchScore = (teammate) => {
+        const activeConversation = activeAiConversationByTeammate.get(
+          teammate.id,
+        );
+        return relevanceScore(
+          [
+            { text: teammate.name, weight: 1.3 },
+            { text: teammate.ownerName, weight: 1.1 },
+            { text: teammate.ownerUserId, weight: 0.65 },
+            {
+              text:
+                activeConversation === undefined
+                  ? ""
+                  : workspaceNameById.get(activeConversation.workspaceId),
+              weight: 0.8,
+            },
+          ],
+          search,
+        );
+      };
+
+      const openTeammateConversation = async (teammate) => {
+        const existing = activeAiConversationByTeammate.get(teammate.id);
+        if (existing !== undefined) {
+          setMeetingId(existing.id);
+          return;
+        }
+        await run(`ai-chat:${teammate.id}`, async () => {
+          const result = await post("/api/collab/meetings", {
+            workspaceId: SYSTEM_DEFAULT_WORKSPACE_ID,
+            title: teammate.name,
+            kind: "ai",
+            teammateInstanceId: teammate.id,
+            teammateName: teammate.name,
+            displayName: accountName,
+          });
+          if (result?.meeting?.id) {
+            rememberEmptyMeeting(result.meeting.id);
+            setMeetings((current) => [
+              result.meeting,
+              ...current.filter((item) => item.id !== result.meeting.id),
+            ]);
+            setMeetingId(result.meeting.id);
+          }
+        });
+      };
+
+      // 默认选中当前筛选下第一场会议；筛选或搜索变化后若当前会议不再可见，
+      // 也自动落到第一条结果，避免中间会话区停留在无选择状态。
+      react.useEffect(() => {
+        if (route !== "meetings") return;
+        if (meetings.length === 0) return;
+        const matchesView = (item) =>
+          !isLegacyDefaultAiConversation(item) &&
+          (item.kind !== "ai" ||
+            activeAiConversationByTeammate.get(item.teammateInstanceId)?.id ===
+              item.id) &&
+          (pinnedMeetingIds.has(item.id) ||
+            (showArchived
+              ? item.status === "archived"
+              : item.status !== "archived"));
+        const matchesType = (item) => matchesCommunicationFilter(item);
+        const matchesSearch = (item) =>
+          normalizeSearchText(search) === "" || meetingSearchScore(item) > 0;
+        const matchesConversation = (item) =>
+          pinnedMeetingIds.has(item.id) ||
+          meetingHasConversation(item) ||
+          isActiveGroupConversation(item) ||
+          (item.status === "active" &&
+            (item.id === meetingId || recentEmptyMeetingIds.has(item.id)));
+        const current = meetings.find((item) => item.id === meetingId);
+        if (current !== undefined && current.messageCount === undefined) return;
+        if (
+          current !== undefined &&
+          matchesView(current) &&
+          matchesType(current) &&
+          matchesConversation(current) &&
+          matchesSearch(current)
+        )
+          return;
+        const candidates = meetings
+          .filter(
+            (item) =>
+              matchesView(item) &&
+              matchesType(item) &&
+              matchesConversation(item) &&
+              matchesSearch(item) &&
+              (pinnedMeetingIds.has(item.id) || item.status !== "closed"),
+          )
+          .sort((left, right) =>
+            normalizeSearchText(search) === ""
+              ? String(meetingActivityTime(right) ?? "").localeCompare(
+                  String(meetingActivityTime(left) ?? ""),
+                )
+              : meetingSearchScore(right) - meetingSearchScore(left) ||
+                String(meetingActivityTime(right) ?? "").localeCompare(
+                  String(meetingActivityTime(left) ?? ""),
+                ),
+          );
+        if (!candidates.some((item) => item.id === meetingId)) {
+          const fallback =
+            normalizedQuery === ""
+              ? (candidates.find((item) => meetingHasConversation(item)) ??
+                candidates[0])
+              : candidates[0];
+          setMeetingId(fallback?.id ?? "");
+        }
+      }, [
+        route,
+        meetings,
+        meetingId,
+        pinnedMeetingIds,
+        recentEmptyMeetingIds,
+        search,
+        showArchived,
+        communicationFilter,
+        workspaces,
+        allWorkspaces,
+        teammates,
+      ]);
+
+      react.useEffect(() => {
+        if (meetingId === "" || !pinnedMeetingIds.has(meetingId)) return;
+        const current = meetings.find((item) => item.id === meetingId);
+        if (current?.status === "archived" && !showArchived) {
+          setShowArchived(true);
+        }
+        if (current?.status === "closed" && !closedOpen) {
+          setClosedOpen(true);
+        }
+      }, [meetings, meetingId, pinnedMeetingIds, showArchived, closedOpen]);
+
+      react.useEffect(() => {
+        if (
+          route !== "meetings" ||
+          !isChatConversationItem(detail?.meeting ?? {}) ||
+          detail?.meeting?.status !== "active"
+        ) {
+          return undefined;
+        }
+        const waitingForReply =
+          chatTypingNames(detail?.participants ?? [], detail?.transcript ?? [])
+            .length > 0;
+        if (!waitingForReply) return undefined;
+        const timer = window.setInterval(
+          () => setRefreshKey((key) => key + 1),
+          2_000,
+        );
+        return () => window.clearInterval(timer);
+      }, [route, meetingId, detail]);
+
+      if (route !== "meetings") return null;
+
+      const normalizedQuery = normalizeSearchText(search);
+      const matchesSearch = (score) => normalizedQuery === "" || score > 0;
+      const sortRowsByRelevance = (left, right) =>
+        right.score - left.score ||
+        String(right.updatedAt ?? "").localeCompare(
+          String(left.updatedAt ?? ""),
+        );
+      const sortRowsByUpdatedAt = (left, right) =>
+        String(right.updatedAt ?? "").localeCompare(
+          String(left.updatedAt ?? ""),
+        );
+      const sortRowsForDisplay = (left, right) =>
+        normalizedQuery === ""
+          ? sortRowsByUpdatedAt(left, right)
+          : sortRowsByRelevance(left, right);
+
+      // 单聊、群聊和会议分别对应独立的会话类型，不再把群聊混入聊天筛选。
+      const conversationTeammateRows =
+        communicationFilter !== "all" && communicationFilter !== "direct"
+          ? []
+          : [...activeAiConversationByTeammate.values()]
+              .map((conversation) => {
+                const teammateId = conversation.teammateInstanceId;
+                const resolvedTeammate = teammateById.get(teammateId);
+                const teammate = resolvedTeammate ?? {
+                  id: teammateId,
+                  name: conversation.title,
+                  ownerName: conversation.ownerName ?? "",
+                  ownerUserId: conversation.ownerUserId ?? "",
+                  source: conversation.teammateSource ?? "personal",
+                  availability: {
+                    available: false,
+                    reason: teammateUnavailableReason(undefined),
+                  },
+                };
+                return {
+                  id: `teammate:${conversation.workspaceId}:${teammate.id}`,
+                  teammate,
+                  conversation,
+                  updatedAt: meetingActivityTime(conversation),
+                  score: teammateSearchScore(teammate),
+                };
+              })
+              .filter((row) => matchesSearch(row.score));
+      const teammateRows = conversationTeammateRows;
+      const rankedTeammateRows =
+        normalizedQuery === ""
+          ? teammateRows
+          : [...teammateRows].sort(sortRowsForDisplay);
+
+      // 已归档的会议单独成组：默认列表只显示未归档的，由「已归档 N」入口切换。
+      const archivedMeetings = meetings.filter(
+        (item) =>
+          !isChatConversationItem(item) &&
+          item.status === "archived" &&
+          (pinnedMeetingIds.has(item.id) || meetingHasConversation(item)) &&
+          matchesCommunicationFilter(item),
+      );
+      const rankedArchivedRows = archivedMeetings
+        .map((item) => ({
+          id: `meeting:${item.id}`,
+          item,
+          updatedAt: meetingActivityTime(item),
+          score: meetingSearchScore(item),
+        }))
+        .filter((row) => matchesSearch(row.score))
+        .sort(sortRowsForDisplay);
+
+      const groupConversations =
+        communicationFilter !== "all" && communicationFilter !== "group"
+          ? []
+          : meetings.filter(
+              (item) =>
+                item.kind !== "ai" &&
+                item.conversationMode === "group" &&
+                item.status !== "archived" &&
+                (pinnedMeetingIds.has(item.id) ||
+                  meetingHasConversation(item) ||
+                  item.status === "active"),
+            );
+      const groupConversationRows = showArchived
+        ? []
+        : groupConversations
+            .map((item) => ({
+              id: `meeting:${item.id}`,
+              item,
+              updatedAt: meetingActivityTime(item),
+              score: meetingSearchScore(item),
+            }))
+            .filter((row) => matchesSearch(row.score))
+            .sort(sortRowsForDisplay);
+      const regularMeetings =
+        communicationFilter !== "all" && communicationFilter !== "meeting"
+          ? []
+          : meetings.filter(
+              (item) =>
+                item.kind !== "ai" &&
+                item.conversationMode !== "group" &&
+                item.status !== "archived" &&
+                (pinnedMeetingIds.has(item.id) ||
+                  meetingHasConversation(item) ||
+                  (item.status === "active" &&
+                    (item.id === meetingId ||
+                      recentEmptyMeetingIds.has(item.id)))),
+            );
+      const openMeetingRows = showArchived
+        ? []
+        : regularMeetings
+            .filter((item) => item.status !== "closed")
+            .map((item) => ({
+              id: `meeting:${item.id}`,
+              item,
+              updatedAt: meetingActivityTime(item),
+              score: meetingSearchScore(item),
+            }))
+            .filter((row) => matchesSearch(row.score));
+      const closedMeetingRows = showArchived
+        ? []
+        : regularMeetings
+            .filter((item) => item.status === "closed")
+            .map((item) => ({
+              id: `meeting:${item.id}`,
+              item,
+              updatedAt: meetingActivityTime(item),
+              score: meetingSearchScore(item),
+            }))
+            .filter((row) => matchesSearch(row.score))
+            .sort(sortRowsForDisplay);
+      const rankedOpenMeetingRows =
+        normalizedQuery === ""
+          ? openMeetingRows
+          : [...openMeetingRows].sort(sortRowsForDisplay);
+      const rankedConversationRows = [
+        ...rankedTeammateRows,
+        ...groupConversationRows,
+        ...rankedOpenMeetingRows,
+      ].sort(sortRowsForDisplay);
+      const visibleResultCount = showArchived
+        ? rankedArchivedRows.length
+        : rankedTeammateRows.length +
+          groupConversationRows.length +
+          rankedOpenMeetingRows.length +
+          closedMeetingRows.length;
+      // 邀请弹窗只用一个控件：人和 AI Teammate 合成同一份候选清单。
+      // 已在会议中的参会方在清单里保持勾选（禁用），提交时只处理新增的那些。
+      const inMeetingAgentIds = new Set(
+        (detail?.participants ?? [])
+          .filter(
+            (participant) =>
+              participant.kind !== "human" && participant.status === "active",
+          )
+          .map(
+            (participant) =>
+              participant.teammateInstanceId ?? participant.refId,
+          ),
+      );
+      const inviteCandidates = [
+        ...invitePeople.map((person) => ({
+          id: person.id,
+          name: person.name,
+          kind: "human",
+          state: person.state,
+        })),
+        ...teammates.map((item) => ({
+          id: item.id,
+          name: item.name,
+          kind: "ai",
+          state: inMeetingAgentIds.has(item.id) ? "active" : undefined,
+        })),
+      ];
+      const participants = detail?.participants ?? [];
+      const transcript = detail?.transcript ?? [];
+      const centerTypingNames = chatTypingNames(participants, transcript);
+      const centerTypingStatus =
+        centerTypingNames.length === 0
+          ? ""
+          : `${centerTypingNames.join("、")} 正在输入`;
+      // 任意新消息（系统 / 人类 / AI）到达后，始终跟随到最新位置。
+      react.useEffect(() => {
+        const node = streamRef.current;
+        if (node === null) return;
+        node.scrollTop = node.scrollHeight;
+      }, [meetingId, transcript.length, centerTab]);
+      const meeting = detail?.meeting;
+      const isAiConversation = meeting?.kind === "ai";
+      const isGroupConversation =
+        meeting?.kind === "meeting" && meeting?.conversationMode === "group";
+      const aiConversationTeammate = isAiConversation
+        ? teammates.find((item) => item.id === meeting?.teammateInstanceId)
+        : undefined;
+      const aiConversationUnavailable =
+        isAiConversation &&
+        (aiConversationTeammate === undefined ||
+          teammateIsUnavailable(aiConversationTeammate));
+      const aiConversationUnavailableReason = aiConversationUnavailable
+        ? teammateUnavailableReason(aiConversationTeammate)
+        : "";
+      const actorId = detail?.actorId ?? "";
+      const joined = participants.some(
+        (participant) =>
+          participant.kind === "human" &&
+          participant.status === "active" &&
+          participant.refId === actorId,
+      );
+      const facilitatorTeammate = teammates.find(
+        (item) => item.systemKey === "meeting-facilitator",
+      );
+      const facilitatorTeammateId =
+        facilitatorTeammate?.id ?? "meeting-facilitator";
+      const isFacilitatorParticipant = (participant) =>
+        participant.systemKey === "meeting-facilitator" ||
+        (participant.teammateInstanceId ?? participant.refId) ===
+          facilitatorTeammateId ||
+        (participant.teammateInstanceId ?? participant.refId) ===
+          "meeting-facilitator";
+      const facilitatorId = minutes?.facilitator?.id;
+      const bucket = { human: [], ai: [], service: [] };
+      // Facilitator 只占一个「服务成员」席位：启用时合成一行，
+      // 同时隐藏历史遗留的同实例 participant 记录，避免重复。
+      const activeFacilitator = minutes?.facilitator ?? undefined;
+      const facilitatorSeat =
+        activeFacilitator === undefined
+          ? undefined
+          : {
+              id: `facilitator:${activeFacilitator.id}`,
+              kind: "facilitator",
+              refId: facilitatorTeammateId,
+              displayName:
+                facilitatorTeammate?.name ?? "会议 Facilitator（AI）",
+              status: "active",
+            };
+      for (const participant of [
+        ...(facilitatorSeat === undefined ? [] : [facilitatorSeat]),
+        ...participants.filter(
+          (participant) =>
+            participant.status === "active" &&
+            !(
+              participant.kind === "ai_teammate" &&
+              isFacilitatorParticipant(participant)
+            ),
+        ),
+      ])
+        bucket[participantGroup(participant, facilitatorId)].push(participant);
+      const canConfirm =
+        meeting !== undefined &&
+        actorId !== "" &&
+        (meeting.ownerUserId ?? meeting.createdBy) === actorId;
+      // 以「最近更新」为准：不再走「待确认 / 确认生效」流程。
+      // （服务端仍会保留 pending_confirm 状态，但不再作为展示门槛。）
+      const pending = undefined;
+      const allVersions = minutes?.versions ?? [];
+      // 展示用版本：最近一版「有内容」的版本。重新生成会先落一条空内容的新版本，
+      // 若直接按最新一版渲染，点一次生成就会把已有纪要清空。
+      const displayVersion = [...allVersions]
+        .reverse()
+        .find((version) => String(version.content ?? "").trim() !== "");
+      const meetingSummary = String(meeting?.summary ?? "").trim();
+      const canEditMinutes = canConfirm && meeting?.status !== "archived";
+      const activeHumans = participants.filter(
+        (participant) =>
+          participant.status === "active" && participant.kind === "human",
+      );
+      const activeAi = participants.filter(
+        (participant) =>
+          participant.status === "active" && participant.kind !== "human",
+      );
+      const projectName =
+        meeting === undefined
+          ? ""
+          : (workspaceNameById.get(meeting.workspaceId) ?? meeting.workspaceId);
+      const compactText = (value, limit = 260) => {
+        const text = String(displayContent(value) ?? "").replace(/\s+/g, " ");
+        return text.length > limit ? `${text.slice(0, limit)}…` : text;
+      };
+      const recentBriefMessages = transcript.slice(-3).map((message) => ({
+        id: message.id,
+        sender:
+          message.senderKind === "system"
+            ? "系统"
+            : message.senderName || message.senderId,
+        content: compactText(message.content, 180),
+      }));
+
+      const banner = error
+        ? h("div", {
+            style: Object.assign({}, PS.banner, PS.error),
+            children: error,
+          })
+        : notice
+          ? h("div", {
+              style: Object.assign({}, PS.banner, PS.notice),
+              children: notice,
+            })
+          : null;
+
+      // 更新纪要：放在「会议纪要 vN」标题行右上角。
+      const minutesTriggerBtn =
+        meeting?.status === "archived" || !minutes?.facilitator
+          ? null
+          : h("button", {
+              type: "button",
+              style: PS.ghostBtn,
+              disabled: busy !== "" || !joined,
+              onClick: () => {
+                // 已有内容时先弹窗告知：重新生成会覆盖现有纪要。
+                if (displayVersion !== undefined) {
+                  setMinutesOverwriteOpen(true);
+                  return;
+                }
+                void run("minutes", () =>
+                  post("/api/collab/meeting/minutes/trigger", { meetingId }),
+                );
+              },
+              children: busy === "minutes" ? "生成中…" : "更新纪要",
+            });
+
+      const minutesTab = h(
+        "div",
+        {
+          key: "center-minutes",
+          // 纪要框撑满侧栏剩余高度：容器不滚动，滚动交给正文区。
+          style: Object.assign({}, PS.sideBody, { overflowY: "hidden" }),
+        },
+        meeting?.status === "archived"
+          ? h("div", {
+              style: PS.meta,
+              children: "会议已归档，纪要进入只读状态。",
+            })
+          : minutes?.facilitator
+            ? null
+            : h("div", {
+                style: PS.meta,
+                children:
+                  "会议 Facilitator 未在会：用「邀请成员」把它拉进会议后即可生成纪要。",
+              }),
+        displayVersion === undefined
+          ? h(
+              "div",
+              { style: Object.assign({}, PS.group, { flex: 1, minHeight: 0 }) },
+              [
+                h(
+                  "div",
+                  { style: { alignItems: "center", display: "flex", gap: 6 } },
+                  [
+                    h("div", {
+                      style: Object.assign({}, PS.groupTitle, { flex: 1 }),
+                      children: meetingSummary === "" ? "会议纪要" : "会议摘要",
+                    }),
+                    minutesTriggerBtn,
+                  ],
+                ),
+                meetingSummary === ""
+                  ? h("div", { style: PS.meta, children: "暂无会议纪要" })
+                  : h(
+                      "div",
+                      {
+                        style: Object.assign({}, PS.pre, {
+                          flex: 1,
+                          maxHeight: "none",
+                          minHeight: 0,
+                        }),
+                      },
+                      renderChatMarkdown(meetingSummary) ??
+                        h("span", null, meetingSummary),
+                    ),
+                meetingSummary === ""
+                  ? null
+                  : h("div", {
+                      style: PS.meta,
+                      children: `更新于：${timeFull(
+                        meeting.updatedAt ?? meeting.createdAt,
+                      )}`,
+                    }),
+              ],
+            )
+          : h(
+              "div",
+              { style: Object.assign({}, PS.group, { flex: 1, minHeight: 0 }) },
+              [
+                h(
+                  "div",
+                  { style: { alignItems: "center", display: "flex", gap: 6 } },
+                  [
+                    h("div", {
+                      style: Object.assign({}, PS.groupTitle, { flex: 1 }),
+                      children: `会议纪要 v${displayVersion.version}`,
+                    }),
+                    h("button", {
+                      type: "button",
+                      key: "minutes-download",
+                      style: Object.assign({}, PS.ghostBtn, {
+                        alignItems: "center",
+                        display: "inline-flex",
+                        gap: 4,
+                      }),
+                      title: "下载 Markdown",
+                      "aria-label": "下载会议纪要 Markdown",
+                      onClick: () =>
+                        downloadMinutesMarkdown(meeting, displayVersion),
+                      children: [
+                        downloadIcon(),
+                        h("span", { children: "下载" }),
+                      ],
+                    }),
+                    ...(canEditMinutes && minutes?.facilitator
+                      ? editingMinutes
+                        ? [
+                            h("button", {
+                              type: "button",
+                              key: "minutes-cancel",
+                              style: PS.ghostBtn,
+                              disabled: busy !== "",
+                              onClick: () => setEditingMinutes(false),
+                              children: "取消",
+                            }),
+                            h("button", {
+                              type: "button",
+                              key: "minutes-save",
+                              style: PS.ghostBtn,
+                              disabled: busy !== "",
+                              onClick: () =>
+                                run("confirm", async () => {
+                                  await post(
+                                    "/api/collab/meeting/minutes/confirm",
+                                    {
+                                      meetingId,
+                                      versionId: displayVersion.id,
+                                      content: minutesDraft,
+                                    },
+                                  );
+                                  setEditingMinutes(false);
+                                }),
+                              children: busy === "confirm" ? "保存中…" : "保存",
+                            }),
+                          ]
+                        : [
+                            h("button", {
+                              type: "button",
+                              key: "minutes-edit",
+                              style: PS.ghostBtn,
+                              disabled: busy !== "",
+                              onClick: () => {
+                                setMinutesDraft(displayVersion.content ?? "");
+                                setEditingMinutes(true);
+                              },
+                              children: "编辑",
+                            }),
+                          ]
+                      : []),
+                    minutesTriggerBtn,
+                  ],
+                ),
+                editingMinutes
+                  ? h("textarea", {
+                      style: Object.assign({}, PS.textarea, {
+                        flex: 1,
+                        minHeight: 0,
+                      }),
+                      value: minutesDraft,
+                      onChange: (event) => setMinutesDraft(event.target.value),
+                    })
+                  : h(
+                      "div",
+                      {
+                        style: Object.assign({}, PS.pre, {
+                          flex: 1,
+                          maxHeight: "none",
+                          minHeight: 0,
+                        }),
+                      },
+                      renderChatMarkdown(displayVersion.content) ??
+                        h("span", null, "（空）"),
+                    ),
+                // 纪要下方：更新时间（人工编辑与重新生成都算一次更新）。
+                h("div", {
+                  style: PS.meta,
+                  children: `更新于：${timeFull(
+                    displayVersion.updatedAt ?? displayVersion.createdAt,
+                  )}`,
+                }),
+              ],
+            ),
+        pending
+          ? h("div", { style: PS.group }, [
+              h("div", {
+                style: PS.groupTitle,
+                children: `待确认 v${pending.version}`,
+              }),
+              canConfirm
+                ? h("div", { style: { display: "grid", gap: 6 } }, [
+                    editingMinutes
+                      ? h("textarea", {
+                          style: Object.assign({}, PS.textarea, {
+                            minHeight: 120,
+                          }),
+                          value: minutesDraft,
+                          onChange: (event) =>
+                            setMinutesDraft(event.target.value),
+                        })
+                      : null,
+                    h("div", { style: { display: "flex", gap: 6 } }, [
+                      h("button", {
+                        type: "button",
+                        style: PS.ghostBtn,
+                        onClick: () => {
+                          setEditingMinutes((value) => !value);
+                          setMinutesDraft(pending.content ?? "");
+                        },
+                        children: editingMinutes ? "取消编辑" : "编辑",
+                      }),
+                      h("button", {
+                        type: "button",
+                        style: PS.primaryBtn,
+                        disabled: busy !== "",
+                        onClick: () =>
+                          run("confirm", () =>
+                            post("/api/collab/meeting/minutes/confirm", {
+                              meetingId,
+                              versionId: pending.id,
+                              ...(editingMinutes
+                                ? { content: minutesDraft }
+                                : {}),
+                            }),
+                          ),
+                        children: "确认生效",
+                      }),
+                    ]),
+                  ])
+                : h("div", { style: PS.meta, children: "等待会议负责人确认" }),
+            ])
+          : null,
+      );
+
+      const stream = h(
+        "div",
+        {
+          key: "center-conversation",
+          ref: streamRef,
+          style: PS.stream,
+        },
+        // 与右侧栏会话保持同一套排版：头像 + 名称/时间 + 气泡，
+        // 自己的消息头像与内容一起靠右，名称显示「我」。
+        ...transcript.map((message) => {
+          if (message.senderKind === "system")
+            return h("div", {
+              key: message.id,
+              style: PS.systemMessage,
+              children: displayContent(message.content),
+            });
+          const mine =
+            message.senderKind === "human" && message.senderId === actorId;
+          const label =
+            message.provenance?.role === "representative"
+              ? `${message.senderName} · AI 参会代表`
+              : message.senderKind === "agent"
+                ? `${message.senderName} · AI`
+                : mine
+                  ? "我"
+                  : message.senderName;
+          return h(
+            "div",
+            {
+              key: message.id,
+              "data-meeting-id": meeting.id,
+              "data-meeting-title": meeting.title,
+              "data-meeting-kind": meeting.kind,
+              "data-meeting-surface": "center",
+              "data-meeting-message-id": message.id,
+              style: {
+                alignItems: "flex-start",
+                display: "flex",
+                flexDirection: mine ? "row-reverse" : "row",
+                gap: 8,
+              },
+            },
+            chatAvatar(message, mine, teammates),
+            h(
+              "div",
+              {
+                style: {
+                  alignItems: mine ? "flex-end" : "flex-start",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 2,
+                  maxWidth: "calc(100% - 34px)",
+                  minWidth: 0,
+                },
+              },
+              h("div", {
+                style: PS.meta,
+                children: `${label} · ${timeShort(message.createdAt)}`,
+              }),
+              h(
+                "div",
+                {
+                  style: Object.assign(
+                    {},
+                    PS.bubble,
+                    mine ? PS.bubbleMine : {},
+                    { maxWidth: "100%" },
+                  ),
+                },
+                h(
+                  "div",
+                  null,
+                  renderChatMarkdown(displayContent(message.content)),
+                ),
+                (message.attachments ?? []).length > 0
+                  ? h(
+                      "div",
+                      {
+                        style: {
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 4,
+                          marginTop: 4,
+                        },
+                      },
+                      ...(message.attachments ?? []).map((attachment) =>
+                        h(
+                          "button",
+                          {
+                            key: attachment.id,
+                            type: "button",
+                            style: PS.ghostBtn,
+                            onClick: () => void openAttachment(attachment),
+                          },
+                          `${attachment.name}（${Math.max(1, Math.round(attachment.size / 1024))}KB）`,
+                        ),
+                      ),
+                    )
+                  : null,
+              ),
+            ),
+          );
+        }),
+        transcript.length === 0
+          ? h("div", {
+              style: PS.empty,
+              children: isAiConversation
+                ? "当前没有对话记录。"
+                : meeting?.status === "active"
+                  ? "会议刚刚开始，当前没有对话记录。"
+                  : "会议尚未产生对话记录。",
+            })
+          : null,
+      );
+
+      const mentionOptions = participants.filter(
+        (participant) =>
+          participant.status === "active" &&
+          !(participant.kind === "human" && participant.refId === actorId) &&
+          (mentionQuery === "" ||
+            (participant.displayName ?? "")
+              .toLowerCase()
+              .includes(mentionQuery.toLowerCase())),
+      );
+      const focusComposerAt = (cursor) => {
+        window.requestAnimationFrame(() => {
+          const field = composerInputRef.current;
+          if (!field) return;
+          field.focus();
+          field.setSelectionRange(cursor, cursor);
+        });
+      };
+      const insertMentionTrigger = () => {
+        const input = composerInputRef.current;
+        const start = input?.selectionStart ?? content.length;
+        const end = input?.selectionEnd ?? start;
+        mentionAnchorRef.current = { start };
+        setContent(`${content.slice(0, start)}@${content.slice(end)}`);
+        setMentionOpen(true);
+        setMentionQuery("");
+        focusComposerAt(start + 1);
+      };
+      const closeMention = () => {
+        setMentionOpen(false);
+        setMentionQuery("");
+        mentionAnchorRef.current = null;
+      };
+      const mentionChanged = (value) => {
+        setContent(value);
+        const range = mentionTokenRange(value);
+        if (range) {
+          mentionAnchorRef.current = { start: range.start };
+          setMentionOpen(true);
+          setMentionQuery(value.slice(range.start + 1, range.end));
+        } else {
+          closeMention();
+        }
+      };
+      const toggleMention = () => {
+        if (mentionOpen) {
+          closeMention();
+          return;
+        }
+        insertMentionTrigger();
+      };
+      const pickMention = (participant) => {
+        const range = mentionTokenRange(
+          content,
+          mentionAnchorRef.current?.start,
+        );
+        const start = range?.start ?? content.length;
+        const end = range?.end ?? content.length;
+        const token = `@${participant.displayName} `;
+        const cursor = start + token.length;
+        setContent(`${content.slice(0, start)}${token}${content.slice(end)}`);
+        setMentionIds((ids) => new Set(ids).add(participant.id));
+        setMentionOpen(false);
+        setMentionQuery("");
+        mentionAnchorRef.current = null;
+        focusComposerAt(cursor);
+      };
+
+      async function openAttachment(attachment) {
+        try {
+          const result = await request(
+            `/api/collab/meeting/file?fileId=${encodeURIComponent(attachment.id)}`,
+          );
+          const file = result.file;
+          const binary = atob(file.data ?? "");
+          const bytes = new Uint8Array(binary.length);
+          for (let index = 0; index < binary.length; index += 1)
+            bytes[index] = binary.charCodeAt(index);
+          const url = URL.createObjectURL(
+            new Blob([bytes], {
+              type: file.mime || attachment.mime || "application/octet-stream",
+            }),
+          );
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = file.name || attachment.name || "file";
+          link.click();
+          URL.revokeObjectURL(url);
+        } catch (cause) {
+          setError(errText(cause));
+        }
+      }
+
+      async function uploadFile(file) {
+        if (file === undefined) return;
+        const data = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () =>
+            resolve(String(reader.result ?? "").split(",")[1] ?? "");
+          reader.onerror = () => reject(new Error("读取文件失败"));
+          reader.readAsDataURL(file);
+        });
+        await run("upload", () =>
+          post("/api/collab/meeting/file", {
+            meetingId,
+            name: file.name,
+            mime: file.type || "application/octet-stream",
+            data,
+          }),
+        );
+      }
+
+      const saveCenterSettings = async () => {
+        if (meeting === undefined) return;
+        const title = centerTitleDraft.trim();
+        if (title === "") return;
+        await run("meeting-settings", async () => {
+          await post("/api/collab/meeting/update", {
+            meetingId,
+            title,
+            agenda: centerAgendaDraft,
+          });
+          setNotice("会议设置已更新");
+        });
+      };
+
+      const removeCenterMember = async (participant) => {
+        await run("member", () =>
+          participant.kind === "facilitator" ||
+          participant.systemKey === "meeting-facilitator" ||
+          participant.refId === facilitatorTeammateId ||
+          participant.refId === "meeting-facilitator"
+            ? post("/api/collab/meeting/facilitator/close", { meetingId })
+            : post("/api/collab/meeting/participant/remove", {
+                meetingId,
+                participantId: participant.id,
+              }),
+        );
+      };
+
+      const centerTabBar =
+        meeting && meeting.kind !== "ai"
+          ? h(
+              "div",
+              {
+                role: "tablist",
+                "aria-label": "会议工作区页签",
+                style: PS.centerTabs,
+              },
+              ...(isGroupConversation
+                ? [
+                    ["conversation", "对话"],
+                    ["settings", "设置"],
+                  ]
+                : [
+                    ["conversation", "对话"],
+                    ["minutes", "纪要"],
+                    ["settings", "设置"],
+                  ]
+              ).map(([key, label]) =>
+                h("button", {
+                  key,
+                  type: "button",
+                  role: "tab",
+                  style: Object.assign(
+                    {},
+                    PS.centerTab,
+                    centerTab === key ? PS.tabActive : {},
+                  ),
+                  "aria-selected": centerTab === key,
+                  onClick: () => setCenterTab(key),
+                  children: label,
+                }),
+              ),
+            )
+          : null;
+
+      const centerMemberRows = [
+        ...bucket.human,
+        ...bucket.service,
+        ...bucket.ai,
+      ];
+
+      const centerSettings = meeting
+        ? h("div", { key: "center-settings", style: PS.centerSettings }, [
+            h(
+              "div",
+              { style: PS.summaryFacts },
+              h("div", { style: PS.summaryFact }, [
+                h("span", { style: PS.summaryLabel, children: "关联项目" }),
+                h("span", {
+                  style: PS.summaryValue,
+                  children: projectName || "未分组",
+                }),
+              ]),
+              h("div", { style: PS.summaryFact }, [
+                h("span", {
+                  style: PS.summaryLabel,
+                  children: isGroupConversation ? "群聊状态" : "会议状态",
+                }),
+                h("span", {
+                  style: PS.summaryValue,
+                  children: meetingStatusLabel(meeting.status),
+                }),
+              ]),
+            ),
+            h("div", { style: PS.group }, [
+              h("div", {
+                style: PS.groupTitle,
+                children: isGroupConversation ? "群聊名称" : "会议名称",
+              }),
+              h("input", {
+                style: PS.input,
+                value: centerTitleDraft,
+                placeholder: isGroupConversation ? "群聊名称" : "会议名称",
+                "aria-label": isGroupConversation
+                  ? "中心群聊名称"
+                  : "中心会议名称",
+                disabled: meeting.status === "archived",
+                onChange: (event) => setCenterTitleDraft(event.target.value),
+              }),
+            ]),
+            h("div", { style: PS.group }, [
+              h("div", {
+                style: PS.groupTitle,
+                children: isGroupConversation ? "群聊说明" : "会议议程",
+              }),
+              h("textarea", {
+                style: Object.assign({}, PS.textarea, { minHeight: 120 }),
+                value: centerAgendaDraft,
+                placeholder: isGroupConversation
+                  ? "暂无群聊说明，可在此补充"
+                  : "暂无议程，可在此补充",
+                disabled: meeting.status === "archived",
+                onChange: (event) => setCenterAgendaDraft(event.target.value),
+              }),
+            ]),
+            ...(isGroupConversation
+              ? []
+              : [
+                  h("div", { style: PS.group }, [
+                    h("div", {
+                      style: PS.groupTitle,
+                      children: "AI 会议 Facilitator",
+                    }),
+                    h(
+                      "label",
+                      {
+                        style: {
+                          alignItems: "center",
+                          background: "var(--dsw-alias-bg-layer-1)",
+                          border: "0.5px solid var(--dsw-alias-border-l3)",
+                          borderRadius: 6,
+                          cursor:
+                            meeting.status === "archived" || busy !== ""
+                              ? "not-allowed"
+                              : "pointer",
+                          display: "flex",
+                          gap: 8,
+                          opacity:
+                            meeting.status === "archived" || busy !== ""
+                              ? 0.55
+                              : 1,
+                          padding: "8px 9px",
+                        },
+                      },
+                      h("input", {
+                        type: "checkbox",
+                        checked: activeFacilitator !== undefined,
+                        disabled: meeting.status === "archived" || busy !== "",
+                        onChange: (event) =>
+                          void run("facilitator", () =>
+                            event.target.checked
+                              ? post("/api/collab/meeting/facilitator/open", {
+                                  meetingId,
+                                })
+                              : post("/api/collab/meeting/facilitator/close", {
+                                  meetingId,
+                                }),
+                          ),
+                      }),
+                      h("span", {
+                        style: { flex: 1, fontSize: 12 },
+                        children: "启用 AI 会议 Facilitator",
+                      }),
+                      h("span", {
+                        style: PS.meta,
+                        children:
+                          activeFacilitator === undefined ? "未启用" : "已启用",
+                      }),
+                    ),
+                  ]),
+                ]),
+            h("div", { style: PS.group }, [
+              h(
+                "div",
+                {
+                  style: {
+                    alignItems: "center",
+                    display: "flex",
+                    gap: 8,
+                  },
+                },
+                h("div", {
+                  style: Object.assign({}, PS.groupTitle, { flex: 1 }),
+                  children: `${isGroupConversation ? "群聊" : "会议"}成员（${centerMemberRows.length}）`,
+                }),
+                joined && meeting.status === "active"
+                  ? h("button", {
+                      type: "button",
+                      style: PS.ghostBtn,
+                      disabled: busy !== "",
+                      onClick: () => setInviteOpen(true),
+                      children: "邀请成员",
+                    })
+                  : null,
+              ),
+              h(
+                "div",
+                { style: PS.centerMembers },
+                ...centerMemberRows.map((participant) => {
+                  const teammate =
+                    participant.kind === "human"
+                      ? undefined
+                      : teammates.find(
+                          (item) =>
+                            item.id ===
+                              (participant.teammateInstanceId ??
+                                participant.refId) ||
+                            item.name === participant.displayName,
+                        );
+                  const ai = participant.kind !== "human";
+                  return h(
+                    "div",
+                    {
+                      key: participant.id,
+                      style: PS.centerMember,
+                    },
+                    ai
+                      ? h(
+                          "span",
+                          {
+                            style: teammateRingStyle(
+                              teammate?.source === "platform",
+                            ),
+                          },
+                          avatarArt(teammate?.avatar),
+                        )
+                      : h(
+                          "span",
+                          { style: initialsAvatarStyle },
+                          initials(participant.displayName),
+                        ),
+                    h("div", { style: PS.centerMemberCopy }, [
+                      h(
+                        "div",
+                        {
+                          style: {
+                            alignItems: "center",
+                            display: "flex",
+                            gap: 6,
+                            minWidth: 0,
+                          },
+                        },
+                        [
+                          h("span", {
+                            style: PS.centerMemberName,
+                            children: participant.displayName,
+                          }),
+                          ai
+                            ? h("span", {
+                                style: PS.tag,
+                                children:
+                                  participant.kind === "facilitator"
+                                    ? "会议服务"
+                                    : "AI",
+                              })
+                            : null,
+                        ],
+                      ),
+                      h("span", {
+                        style: PS.meta,
+                        children:
+                          participant.kind === "human"
+                            ? isGroupConversation
+                              ? "群聊成员"
+                              : "会议成员"
+                            : participant.kind === "facilitator"
+                              ? "会议服务"
+                              : participant.principalName
+                                ? `代表 ${participant.principalName}`
+                                : "AI 伙伴",
+                      }),
+                    ]),
+                    ai
+                      ? h("button", {
+                          type: "button",
+                          style: PS.ghostBtn,
+                          disabled: busy !== "",
+                          onClick: () =>
+                            run(`agent-control:${participant.id}`, () =>
+                              post("/api/collab/meeting/agent-control", {
+                                meetingId,
+                                participantId: participant.id,
+                                action:
+                                  participant.executionState === "stopped"
+                                    ? "resume"
+                                    : "stop",
+                              }),
+                            ),
+                          children:
+                            participant.executionState === "stopped"
+                              ? "恢复"
+                              : "停止",
+                        })
+                      : null,
+                    h("button", {
+                      type: "button",
+                      style: PS.ghostBtn,
+                      disabled: busy !== "",
+                      onClick: () => void removeCenterMember(participant),
+                      children: "移除",
+                    }),
+                  );
+                }),
+              ),
+            ]),
+            h("div", { style: PS.group }, [
+              h("div", {
+                style: PS.groupTitle,
+                children: isGroupConversation ? "群聊操作" : "会议操作",
+              }),
+              h(
+                "div",
+                { style: { display: "flex", flexWrap: "wrap", gap: 8 } },
+                !isGroupConversation && joined && meeting.status === "active"
+                  ? h("button", {
+                      type: "button",
+                      style: PS.ghostBtn,
+                      disabled: busy !== "",
+                      onClick: () => setDelegateOpen(true),
+                      children: "指派 AI 参会",
+                    })
+                  : null,
+                joined && meeting.status === "active"
+                  ? h("button", {
+                      type: "button",
+                      style: PS.ghostBtn,
+                      disabled: busy !== "",
+                      onClick: () => {
+                        setCloseOpen(true);
+                        setCloseSummary("");
+                      },
+                      children: isGroupConversation ? "关闭群聊" : "关闭会议",
+                    })
+                  : null,
+                meeting.status === "closed"
+                  ? h("button", {
+                      type: "button",
+                      style: PS.ghostBtn,
+                      disabled: busy !== "",
+                      onClick: () =>
+                        run("archive", () =>
+                          post("/api/collab/meeting/archive", { meetingId }),
+                        ),
+                      children: isGroupConversation ? "归档群聊" : "归档会议",
+                    })
+                  : null,
+              ),
+            ]),
+            meeting.status === "archived"
+              ? h("div", {
+                  style: PS.meta,
+                  children: isGroupConversation
+                    ? "已归档群聊不可编辑。"
+                    : "已归档会议不可编辑。",
+                })
+              : h(
+                  "div",
+                  { style: { display: "flex", justifyContent: "flex-end" } },
+                  h("button", {
+                    type: "button",
+                    style: PS.primaryBtn,
+                    disabled:
+                      busy !== "" ||
+                      centerTitleDraft.trim() === "" ||
+                      (centerTitleDraft.trim() === meeting.title &&
+                        centerAgendaDraft === (meeting.agenda ?? "")),
+                    onClick: () => void saveCenterSettings(),
+                    children:
+                      busy === "meeting-settings"
+                        ? "保存中…"
+                        : isGroupConversation
+                          ? "保存群聊信息"
+                          : "保存设置",
+                  }),
+                ),
+          ])
+        : null;
+
+      const chat = meeting
+        ? h(
+            "div",
+            {
+              "data-data-agent-text-surface": isAiConversation
+                ? "conversation"
+                : "meeting-detail",
+              style: Object.assign(
+                {},
+                PS.chat,
+                compactLayout ? { width: "100%" } : {},
+              ),
+            },
+            [
+              h(
+                "div",
+                {
+                  role: "group",
+                  "aria-label": "当前对话头部",
+                  style: PS.chatHead,
+                },
+                [
+                  h("div", { style: { flex: 1, minWidth: 0 } }, [
+                    h(
+                      "div",
+                      {
+                        style: {
+                          alignItems: "center",
+                          display: "flex",
+                          gap: 8,
+                          minWidth: 0,
+                        },
+                      },
+                      isGroupConversation
+                        ? groupChatIcon(28)
+                        : isAiConversation
+                          ? h(
+                              "span",
+                              {
+                                style: Object.assign(
+                                  {},
+                                  teammateRingStyle(
+                                    aiConversationTeammate?.source ===
+                                      "platform",
+                                  ),
+                                  { height: 28, padding: 2, width: 28 },
+                                ),
+                                title: meeting.title,
+                                "aria-label": `${meeting.title} 头像`,
+                              },
+                              avatarArt(aiConversationTeammate?.avatar),
+                            )
+                          : null,
+                      h("div", {
+                        style: {
+                          flex: isAiConversation ? "0 1 auto" : 1,
+                          fontSize: 15,
+                          fontWeight: 600,
+                          minWidth: 0,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        },
+                        children: meeting.title,
+                      }),
+                      isAiConversation
+                        ? h("span", {
+                            style: Object.assign({}, panelStyles.aiBadge, {
+                              flexShrink: 0,
+                            }),
+                            children: "AI伙伴",
+                          })
+                        : null,
+                      aiConversationUnavailable
+                        ? h("span", {
+                            style: PS.unavailableTag,
+                            title: aiConversationUnavailableReason,
+                            children: "不可用",
+                          })
+                        : null,
+                      isAiConversation
+                        ? h("span", { style: { flex: 1, minWidth: 0 } })
+                        : null,
+                      !isAiConversation && !isGroupConversation
+                        ? h("span", {
+                            style: meetingStatusTone(meeting.status),
+                            children: meetingStatusLabel(meeting.status),
+                          })
+                        : h("time", {
+                            style: Object.assign({}, PS.threadTime, {
+                              fontSize: 10.5,
+                            }),
+                            dateTime: meetingActivityTime(meeting),
+                            title: `最近更新 ${timeFull(meetingActivityTime(meeting))}`,
+                            "aria-label": `最近更新时间 ${timeShort(meetingActivityTime(meeting))}`,
+                            children:
+                              timeShort(meetingActivityTime(meeting)) || "—",
+                          }),
+                    ),
+                    !isAiConversation && !isGroupConversation
+                      ? h("div", {
+                          style: PS.meta,
+                          "data-meeting-header-meta": "true",
+                          children: isAiConversation
+                            ? meetingTimeLabel(meeting)
+                            : `${meetingTimeLabel(meeting)} · ${projectName || "未分组"} · ${participants.filter((participant) => participant.status === "active").length} 人 · ${bucket.ai.length} 个 AI`,
+                        })
+                      : null,
+                  ]),
+                  h(
+                    "div",
+                    {
+                      style: {
+                        alignItems: "center",
+                        display: "flex",
+                        flexShrink: 0,
+                        gap: 8,
+                      },
+                    },
+                    !joined
+                      ? h("button", {
+                          type: "button",
+                          style: PS.primaryBtn,
+                          disabled: busy !== "",
+                          onClick: () =>
+                            run("join", () =>
+                              post("/api/collab/meeting/join", {
+                                meetingId,
+                                displayName:
+                                  accountName || `用户-${actorId.slice(0, 6)}`,
+                              }),
+                            ),
+                          children: isGroupConversation
+                            ? "加入群聊"
+                            : "加入会议",
+                        })
+                      : null,
+                    isAiConversation && joined && meeting.status === "active"
+                      ? h("button", {
+                          type: "button",
+                          style: PS.ghostBtn,
+                          disabled: busy !== "",
+                          onClick: () => {
+                            setInviteIds(new Set());
+                            setInviteOpen(true);
+                          },
+                          children: "添加参与方",
+                        })
+                      : null,
+                    centerTabBar,
+                  ),
+                ],
+              ),
+              isAiConversation || centerTab === "conversation"
+                ? h(react.Fragment, null, stream)
+                : centerTab === "minutes"
+                  ? minutesTab
+                  : centerSettings,
+              (isAiConversation || centerTab === "conversation") &&
+              meeting.status === "active" &&
+              joined
+                ? h("div", { style: { flexShrink: 0, position: "relative" } }, [
+                    mentionOpen
+                      ? h(
+                          "div",
+                          { style: PS.mentionMenu },
+                          ...(mentionOptions.length > 0
+                            ? mentionOptions.map((participant) =>
+                                h("button", {
+                                  type: "button",
+                                  key: participant.id,
+                                  style: PS.mentionItem,
+                                  onClick: () => pickMention(participant),
+                                  children: [
+                                    participantAvatarNode(
+                                      participant,
+                                      teammates,
+                                    ),
+                                    h(
+                                      "span",
+                                      { style: PS.mentionCopy },
+                                      h("span", {
+                                        style: PS.mentionName,
+                                        children: participant.displayName,
+                                      }),
+                                      h("span", {
+                                        style: PS.mentionMeta,
+                                        children:
+                                          participant.kind === "human"
+                                            ? "会议成员"
+                                            : participant.ownerName
+                                              ? `${participant.ownerName} 的 AI`
+                                              : "AI 成员",
+                                      }),
+                                    ),
+                                  ],
+                                }),
+                              )
+                            : [
+                                h("div", {
+                                  key: "empty",
+                                  style: PS.mentionItem,
+                                  children: "没有匹配成员",
+                                }),
+                              ]),
+                        )
+                      : null,
+                    chatTypingStrip(centerTypingStatus),
+                    h(
+                      "form",
+                      {
+                        style: PS.inputRow,
+                        onSubmit: async (event) => {
+                          event.preventDefault();
+                          const text = content.trim();
+                          if (text === "") return;
+                          setContent("");
+                          setMentionOpen(false);
+                          await run("send", () =>
+                            post("/api/collab/meeting/message", {
+                              meetingId,
+                              content: text,
+                              mentions: [...mentionIds],
+                            }),
+                          );
+                          window.dispatchEvent?.(
+                            new CustomEvent("pluginmax:workbench-v2-refresh"),
+                          );
+                          setMentionIds(new Set());
+                        },
+                      },
+                      // 附件 / @ 收成小图标，放在输入框上方（与右侧栏一致）。
+                      h("div", { style: PS.composerTools }, [
+                        h(
+                          "button",
+                          {
+                            type: "button",
+                            style: PS.composerBtn,
+                            title: "上传文件",
+                            "aria-label": "上传文件",
+                            onClick: () => fileRef.current?.click(),
+                          },
+                          clipIcon(),
+                        ),
+                        h(
+                          "button",
+                          {
+                            type: "button",
+                            style: PS.composerBtn,
+                            title: "提及成员",
+                            "aria-label": "提及成员",
+                            onClick: toggleMention,
+                          },
+                          atIcon(),
+                        ),
+                        h(
+                          "button",
+                          {
+                            type: "button",
+                            style: PS.composerBtn,
+                            title: "整理任务草稿",
+                            "aria-label": "整理任务草稿",
+                            disabled: busy !== "" || transcript.length === 0,
+                            onClick: () => openCenterTaskCapture(),
+                          },
+                          h(
+                            "svg",
+                            {
+                              viewBox: "0 0 24 24",
+                              width: 15,
+                              height: 15,
+                              fill: "none",
+                              stroke: "currentColor",
+                              strokeWidth: 1.8,
+                              strokeLinecap: "round",
+                              strokeLinejoin: "round",
+                              "aria-hidden": true,
+                            },
+                            h("path", { d: "M9 6h11M9 12h11M9 18h11" }),
+                            h("path", {
+                              d: "m3 6 1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2",
+                            }),
+                          ),
+                        ),
+                        h("input", {
+                          ref: fileRef,
+                          type: "file",
+                          style: { display: "none" },
+                          onChange: (event) => {
+                            void uploadFile(event.target.files?.[0]);
+                            event.target.value = "";
+                          },
+                        }),
+                      ]),
+                      h("div", { style: PS.composerRow }, [
+                        h("textarea", {
+                          ref: composerInputRef,
+                          style: Object.assign({}, PS.textarea, {
+                            minHeight: 72,
+                          }),
+                          rows: 3,
+                          value: content,
+                          placeholder: "输入消息，@ 成员…",
+                          onChange: (event) =>
+                            mentionChanged(event.target.value),
+                          onBlur: () => {
+                            if (!mentionOpen) closeMention();
+                          },
+                        }),
+                        h("button", {
+                          type: "submit",
+                          style: Object.assign({}, PS.sendBtn, {
+                            opacity:
+                              busy !== "" || content.trim() === "" ? 0.45 : 1,
+                          }),
+                          title: "发送消息",
+                          "aria-label": "发送消息",
+                          disabled: busy !== "" || content.trim() === "",
+                          children: sendIcon(),
+                        }),
+                      ]),
+                    ),
+                  ])
+                : null,
+            ],
+          )
+        : h(
+            "div",
+            {
+              style: Object.assign({}, PS.chat, {
+                alignItems: "center",
+                justifyContent: "center",
+                ...(compactLayout ? { width: "100%" } : {}),
+              }),
+            },
+            h("div", { style: PS.meta, children: "选择或创建一个对话" }),
+          );
+
+      /** 方案 B：在"只看已加入项目"与"全量（管理员）"之间切换。 */
+      const setShowAllProjects = (next) => {
+        showAllWorkspacesRef.current = next;
+        scopeStore.setAll(next);
+        setWorkspaceFilter("all");
+      };
+
+      const projectScopeFilter = h(
+        "select",
+        {
+          style: Object.assign({}, PS.select, {
+            height: 34,
+            minWidth: 128,
+            padding: "0 10px",
+            width: "min(220px, 24vw)",
+          }),
+          value: workspaceFilter,
+          "aria-label": "项目范围筛选",
+          title: "项目范围筛选",
+          onChange: (event) => {
+            setWorkspaceFilter(event.target.value);
+            setMeetingId("");
+          },
+        },
+        h("option", { value: "all", children: "全部项目" }),
+        ...visibleWorkspaces.map((workspace) =>
+          h("option", {
+            key: workspace.id,
+            value: workspace.id,
+            children: workspaceLabel(workspace),
+          }),
+        ),
+      );
+
+      const meetingListHeader = h("div", { style: PS.listHeader }, [
+        h(
+          "div",
+          {
+            style: {
+              display: "grid",
+              gap: 6,
+              gridTemplateColumns: "auto minmax(0,1fr) 32px",
+            },
+          },
+          h("button", {
+            type: "button",
+            style: Object.assign({}, PS.primaryBtn, {
+              height: 32,
+              padding: "0 11px",
+            }),
+            disabled: visibleWorkspaces.length === 0,
+            onClick: () => {
+              setCreateMode(
+                communicationFilter === "direct" ? "ai" : "meeting",
+              );
+              setCreateTeammateId("");
+              setCreateOpen(true);
+            },
+            children: "新建沟通",
+          }),
+          h(
+            "label",
+            {
+              style: PS.searchShell,
+            },
+            h("span", {
+              style: {
+                color: "var(--dsw-alias-label-secondary)",
+                display: "grid",
+                flexShrink: 0,
+                placeItems: "center",
+              },
+              children: searchIcon(13),
+            }),
+            h("input", {
+              ref: searchInputRef,
+              style: PS.searchField,
+              value: search,
+              placeholder: "搜索聊天、AI伙伴、Owner、会议、项目",
+              "aria-label": "通用搜索",
+              onChange: (event) => setSearch(event.target.value),
+            }),
+          ),
+          h(
+            "button",
+            {
+              type: "button",
+              style: PS.iconBtn,
+              "aria-label": "执行通用搜索",
+              title: "执行通用搜索",
+              onClick: () => searchInputRef.current?.focus(),
+            },
+            searchIcon(14),
+          ),
+        ),
+        h(
+          "div",
+          {
+            role: "group",
+            "aria-label": "对话类型筛选",
+            style: PS.typeTags,
+          },
+          ...[
+            ["all", "全部"],
+            ["direct", "单聊"],
+            ["group", "群聊"],
+            ["meeting", "会议"],
+          ].map(([key, label]) =>
+            h("button", {
+              key,
+              type: "button",
+              style: Object.assign(
+                {},
+                PS.typeTag,
+                communicationFilter === key ? PS.typeTagActive : {},
+              ),
+              "aria-pressed": communicationFilter === key,
+              onClick: () => setCommunicationFilter(key),
+              children: label,
+            }),
+          ),
+        ),
+      ]);
+
+      const meetingFilters = isPlatformAdmin
+        ? h("div", { style: PS.topFilters }, [
+            h(
+              "div",
+              {
+                role: "group",
+                "aria-label": "项目范围",
+                style: PS.filterSegment,
+              },
+              h("button", {
+                type: "button",
+                style: Object.assign(
+                  {},
+                  PS.filterBtn,
+                  showAllWorkspaces ? {} : PS.filterBtnActive,
+                ),
+                "aria-pressed": !showAllWorkspaces,
+                onClick: () => {
+                  if (showAllWorkspaces) setShowAllProjects(false);
+                },
+                children: "仅看已加入",
+              }),
+              h("button", {
+                type: "button",
+                style: Object.assign(
+                  {},
+                  PS.filterBtn,
+                  showAllWorkspaces ? PS.filterBtnActive : {},
+                ),
+                "aria-pressed": showAllWorkspaces,
+                onClick: () => {
+                  if (!showAllWorkspaces) setShowAllProjects(true);
+                },
+                children: "平台全量",
+              }),
+            ),
+          ])
+        : null;
+
+      const teammateRowNode = (row) => {
+        const teammate = row.teammate;
+        const selected = row.conversation?.id === meetingId;
+        const loading = busy === `ai-chat:${teammate.id}`;
+        const owner =
+          teammate.ownerName?.trim() || teammate.ownerUserId?.trim();
+        const unavailable = teammateIsUnavailable(teammate);
+        const unavailableReason = teammateUnavailableReason(teammate);
+        const canOpen = row.conversation !== undefined || !unavailable;
+        const unreadCount = Number(row.conversation?.unreadCount ?? 0);
+        const preview = meetingPreviewText(
+          row.conversation,
+          loading ? "正在打开聊天…" : "暂无消息",
+        );
+        const speaker = meetingLastMessageText(row.conversation)
+          ? meetingLastMessageSpeaker(row.conversation, teammate.name)
+          : "";
+        return h(
+          "button",
+          {
+            type: "button",
+            key: row.id,
+            "aria-label": `打开与 ${teammate.name} 的聊天`,
+            "aria-disabled": !canOpen || undefined,
+            "data-ai-unavailable": unavailable ? "true" : undefined,
+            title: unavailable ? unavailableReason : undefined,
+            disabled: busy !== "" || !canOpen,
+            style: Object.assign(
+              {},
+              PS.item,
+              PS.itemIdle,
+              selected ? PS.itemActive : {},
+              unavailable ? PS.itemUnavailable : {},
+              busy !== "" && !loading ? { opacity: 0.55 } : {},
+            ),
+            onClick: () => {
+              if (row.conversation === undefined) {
+                void openTeammateConversation(teammate);
+                return;
+              }
+              setMeetingId(row.conversation.id);
+            },
+          },
+          h(
+            "div",
+            { style: PS.threadHead },
+            h(
+              "span",
+              {
+                style: Object.assign(
+                  {},
+                  teammateRingStyle(teammate.source === "platform"),
+                  { borderRadius: 6, height: 24, width: 24 },
+                ),
+              },
+              avatarArt(teammate.avatar),
+            ),
+            h(
+              "div",
+              {
+                style: {
+                  alignItems: "center",
+                  display: "flex",
+                  flex: 1,
+                  gap: 5,
+                  minWidth: 0,
+                },
+              },
+              [
+                h("strong", {
+                  style: Object.assign({}, PS.threadTitle, {
+                    flex: "0 1 auto",
+                  }),
+                  children: teammate.name,
+                }),
+                owner
+                  ? h("span", {
+                      style: PS.threadSub,
+                      children: `（${owner}）`,
+                    })
+                  : null,
+                unavailable
+                  ? h("span", {
+                      style: PS.unavailableTag,
+                      title: unavailableReason,
+                      children: "不可用",
+                    })
+                  : null,
+              ],
+            ),
+            h("time", {
+              style: PS.threadTime,
+              dateTime:
+                row.conversation === undefined
+                  ? undefined
+                  : meetingActivityTime(row.conversation),
+              children: row.conversation
+                ? timeShort(meetingActivityTime(row.conversation))
+                : "—",
+            }),
+            unreadCount > 0
+              ? h("span", {
+                  style: PS.unreadBadge,
+                  title: `${unreadCount} 条未读消息`,
+                  "aria-label": `${unreadCount} 条未读消息`,
+                  children: unreadCount > 99 ? "99+" : String(unreadCount),
+                })
+              : null,
+          ),
+          h(
+            "div",
+            { style: PS.threadPreview },
+            h(
+              "span",
+              { style: PS.threadPreviewText },
+              speaker !== ""
+                ? h("span", {
+                    style: PS.threadSpeaker,
+                    children: `${speaker}：`,
+                  })
+                : null,
+              preview,
+            ),
+          ),
+        );
+      };
+
+      const meetingRowNode = (row) => {
+        const item = row.item;
+        const aiConversation = item.kind === "ai";
+        const groupConversation =
+          item.kind !== "ai" && item.conversationMode === "group";
+        const teammate = aiConversation
+          ? teammateById.get(item.teammateInstanceId)
+          : undefined;
+        const unavailable =
+          aiConversation &&
+          (teammate === undefined || teammateIsUnavailable(teammate));
+        const unavailableReason = unavailable
+          ? teammateUnavailableReason(teammate)
+          : "";
+        const unreadCount = Number(item.unreadCount ?? 0);
+        const preview = meetingPreviewText(item);
+        const speaker = meetingLastMessageText(item)
+          ? meetingLastMessageSpeaker(item, teammate?.name)
+          : "";
+        const projectName = workspaceNameById.get(item.workspaceId) ?? "未分组";
+        return h(
+          "div",
+          {
+            key: item.id,
+            "data-data-agent-entity": "meeting",
+            "data-data-agent-id": item.id,
+            "data-data-agent-title": item.title,
+            "data-workspace-id": item.workspaceId,
+            "data-ai-unavailable": unavailable ? "true" : undefined,
+            "aria-label": groupConversation
+              ? `打开群聊 ${item.title}`
+              : `打开会议 ${item.title}`,
+            role: "group",
+            title: unavailable ? unavailableReason : undefined,
+            style: Object.assign(
+              {},
+              PS.item,
+              PS.itemIdle,
+              item.id === meetingId ? PS.itemActive : {},
+              unavailable ? PS.itemUnavailable : {},
+            ),
+            onClick: () => setMeetingId(item.id),
+          },
+          h(
+            "div",
+            { style: PS.threadHead },
+            h(
+              "span",
+              {
+                style: PS.threadAvatar,
+                title: aiConversation
+                  ? "聊天"
+                  : groupConversation
+                    ? "群聊"
+                    : "会议",
+              },
+              aiConversation
+                ? avatarArt(teammate?.avatar)
+                : groupConversation
+                  ? groupChatIcon()
+                  : videoIcon(13),
+            ),
+            h(
+              "div",
+              {
+                style: {
+                  display: "flex",
+                  flex: 1,
+                  flexDirection: "column",
+                  gap: 1,
+                  minWidth: 0,
+                },
+              },
+              [
+                h(
+                  "div",
+                  {
+                    style: {
+                      alignItems: "center",
+                      display: "flex",
+                      gap: 5,
+                      minWidth: 0,
+                    },
+                  },
+                  [
+                    h("strong", {
+                      style: Object.assign({}, PS.threadTitle, {
+                        flex: "0 1 auto",
+                      }),
+                      children: item.title,
+                    }),
+                    aiConversation
+                      ? teammate?.ownerName
+                        ? h("span", {
+                            style: PS.threadSub,
+                            children: `（${teammate.ownerName}）`,
+                          })
+                        : null
+                      : null,
+                    unavailable
+                      ? h("span", {
+                          style: PS.unavailableTag,
+                          title: unavailableReason,
+                          children: "不可用",
+                        })
+                      : null,
+                  ],
+                ),
+                !aiConversation
+                  ? h("span", {
+                      style: Object.assign({}, PS.threadSub, {
+                        maxWidth: "100%",
+                        width: "100%",
+                      }),
+                      title: projectName,
+                      children: projectName,
+                    })
+                  : null,
+              ],
+            ),
+            h("time", {
+              style: PS.threadTime,
+              dateTime: meetingActivityTime(item),
+              children: timeShort(meetingActivityTime(item)) || "—",
+            }),
+            unreadCount > 0
+              ? h("span", {
+                  style: PS.unreadBadge,
+                  title: `${unreadCount} 条未读消息`,
+                  "aria-label": `${unreadCount} 条未读消息`,
+                  children: unreadCount > 99 ? "99+" : String(unreadCount),
+                })
+              : null,
+          ),
+          h(
+            "div",
+            { style: PS.threadPreview },
+            h(
+              "span",
+              { style: PS.threadPreviewText },
+              speaker !== ""
+                ? h("span", {
+                    style: PS.threadSpeaker,
+                    children: `${speaker}：`,
+                  })
+                : null,
+              preview,
+            ),
+          ),
+        );
+      };
+
+      const closedMeetingNodes = () => {
+        if (closedMeetingRows.length === 0) return [];
+        return [
+          h(
+            "button",
+            {
+              type: "button",
+              key: "closed-meetings",
+              "aria-expanded": closedOpen,
+              "aria-label": closedOpen ? "收起已关闭会议" : "展开已关闭会议",
+              style: PS.listSection,
+              onClick: () => setClosedOpen((value) => !value),
+            },
+            h("span", { style: PS.listSectionLabel }, [
+              h("span", { children: "已关闭会议" }),
+              h("span", {
+                style: PS.tag,
+                children: String(closedMeetingRows.length),
+              }),
+            ]),
+            h("span", { children: closedOpen ? "▾" : "▸" }),
+          ),
+          ...(closedOpen
+            ? closedMeetingRows.map((row) => meetingRowNode(row))
+            : []),
+        ];
+      };
+
+      let listItemNodes = [];
+      if (showArchived) {
+        listItemNodes =
+          rankedArchivedRows.length === 0
+            ? [
+                h("div", {
+                  key: "archived-empty",
+                  style: PS.meta,
+                  children:
+                    normalizedQuery === ""
+                      ? "暂无已归档会议"
+                      : "没有匹配的已归档会议",
+                }),
+              ]
+            : rankedArchivedRows.map((row) => meetingRowNode(row));
+      } else {
+        listItemNodes = [
+          ...rankedConversationRows.map((row) =>
+            row.teammate === undefined
+              ? meetingRowNode(row)
+              : teammateRowNode(row),
+          ),
+          ...closedMeetingNodes(),
+        ];
+        if (visibleResultCount === 0) {
+          listItemNodes = [
+            h("div", {
+              key: "list-empty",
+              style: PS.meta,
+              children:
+                normalizedQuery === ""
+                  ? communicationFilter === "direct"
+                    ? "暂无有历史记录的单聊"
+                    : communicationFilter === "group"
+                      ? "暂无群聊"
+                      : communicationFilter === "meeting"
+                        ? "暂无会议"
+                        : "暂无对话"
+                  : "没有匹配的对话",
+            }),
+          ];
+        }
+      }
+
+      return h(
+        "div",
+        {
+          style: Object.assign(
+            {},
+            PS.root,
+            compactLayout ? { gap: 8, padding: 10 } : {},
+          ),
+        },
+        [
+          h("div", { style: PS.top }, [
+            h("h1", { style: PS.title, children: "沟通" }),
+            h("div", { style: PS.topActions }, [
+              meetingFilters,
+              projectScopeFilter,
+              // 已归档入口：放在项目范围筛选右侧；进入归档列表后变成「返回会议列表」。
+              archivedMeetings.length > 0
+                ? h("button", {
+                    type: "button",
+                    style: Object.assign({}, PS.select, {
+                      cursor: "pointer",
+                      flexShrink: 0,
+                      height: 34,
+                      padding: "0 12px",
+                      fontSize: 12.5,
+                      whiteSpace: "nowrap",
+                      ...(showArchived
+                        ? {
+                            background:
+                              "color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 14%,transparent)",
+                            color: "var(--dsw-alias-accent-primary,#4f8ef7)",
+                          }
+                        : {}),
+                    }),
+                    "aria-pressed": showArchived,
+                    title: showArchived ? "返回会议列表" : "查看已归档会议",
+                    onClick: () => {
+                      setShowArchived((value) => !value);
+                      setMeetingId("");
+                    },
+                    children: showArchived
+                      ? "返回会议列表"
+                      : `已归档 ${archivedMeetings.length}`,
+                  })
+                : null,
+              meeting !== undefined && meeting.kind !== "ai" && joined
+                ? h("button", {
+                    type: "button",
+                    style: Object.assign({}, PS.select, {
+                      cursor: "pointer",
+                      flexShrink: 0,
+                      height: 34,
+                      padding: "0 12px",
+                      fontSize: 12.5,
+                      whiteSpace: "nowrap",
+                      ...(meeting.agentRuntimeState === "agentsStopped"
+                        ? {
+                            borderColor:
+                              "color-mix(in srgb,var(--dsw-alias-danger,#e5484d) 45%,transparent)",
+                            color: "var(--dsw-alias-danger, #e5484d)",
+                          }
+                        : {}),
+                    }),
+                    disabled: busy !== "",
+                    title:
+                      meeting.agentRuntimeState === "agentsStopped"
+                        ? "恢复本对话全部 AI"
+                        : "停止本对话全部 AI",
+                    onClick: () =>
+                      run("agent-control", () =>
+                        post("/api/collab/meeting/agent-control", {
+                          meetingId: meeting.id,
+                          action:
+                            meeting.agentRuntimeState === "agentsStopped"
+                              ? "resume"
+                              : "stop",
+                        }),
+                      ),
+                    children:
+                      meeting.agentRuntimeState === "agentsStopped"
+                        ? "恢复 AI"
+                        : "停止全部 AI",
+                  })
+                : null,
+              isPlatformAdmin
+                ? h(
+                    "button",
+                    {
+                      type: "button",
+                      style: PS.sidebarBtn,
+                      title: "对话上下文设置",
+                      "aria-label": "对话上下文设置",
+                      onClick: () => void openContextPolicySettings(),
+                    },
+                    settingsIcon(),
+                  )
+                : null,
+              props.renderActions?.() ?? null,
+            ]),
+          ]),
+          meeting?.agentRuntimeState === "agentsStopped"
+            ? h(
+                "div",
+                { style: Object.assign({}, PS.banner, PS.notice) },
+                "本对话 AI 已全部停止。恢复后只处理新的 @ 消息。",
+              )
+            : null,
+          banner,
+          closeOpen
+            ? h(
+                "div",
+                { style: Object.assign({}, PS.banner, PS.notice) },
+                h("div", {
+                  style: { marginBottom: 6 },
+                  children: "散会摘要（可留空）",
+                }),
+                h("textarea", {
+                  style: PS.textarea,
+                  value: closeSummary,
+                  "aria-label": "散会摘要",
+                  onChange: (event) => setCloseSummary(event.target.value),
+                }),
+                h(
+                  "div",
+                  {
+                    style: {
+                      display: "flex",
+                      gap: 8,
+                      justifyContent: "flex-end",
+                      marginTop: 6,
+                    },
+                  },
+                  h("button", {
+                    type: "button",
+                    style: PS.ghostBtn,
+                    onClick: () => setCloseOpen(false),
+                    children: "取消",
+                  }),
+                  h("button", {
+                    type: "button",
+                    style: PS.primaryBtn,
+                    disabled: busy !== "",
+                    onClick: () => {
+                      void run("close", async () => {
+                        await post("/api/collab/meeting/close", {
+                          meetingId,
+                          summary: closeSummary,
+                        });
+                        setCloseOpen(false);
+                      });
+                    },
+                    children: "确认散会",
+                  }),
+                ),
+              )
+            : null,
+          minutesOverwriteOpen
+            ? h(
+                "div",
+                { style: PS.overlay },
+                h(
+                  "form",
+                  {
+                    style: PS.modal,
+                    onSubmit: (event) => {
+                      event.preventDefault();
+                      setMinutesOverwriteOpen(false);
+                      void run("minutes", () =>
+                        post("/api/collab/meeting/minutes/trigger", {
+                          meetingId,
+                        }),
+                      );
+                    },
+                  },
+                  [
+                    h("div", {
+                      style: PS.title,
+                      children: "重新生成会议纪要？",
+                    }),
+                    h("div", {
+                      style: PS.meta,
+                      children:
+                        "当前会议纪要已有内容，重新生成会覆盖原有内容。",
+                    }),
+                    h(
+                      "div",
+                      {
+                        style: {
+                          display: "flex",
+                          gap: 8,
+                          justifyContent: "flex-end",
+                        },
+                      },
+                      [
+                        h("button", {
+                          type: "button",
+                          style: PS.ghostBtn,
+                          onClick: () => setMinutesOverwriteOpen(false),
+                          children: "取消",
+                        }),
+                        h("button", {
+                          type: "submit",
+                          style: PS.primaryBtn,
+                          disabled: busy !== "",
+                          children: "覆盖生成",
+                        }),
+                      ],
+                    ),
+                  ],
+                ),
+              )
+            : null,
+          h(
+            "div",
+            {
+              style: Object.assign(
+                {},
+                PS.body,
+                compactLayout
+                  ? {
+                      gridTemplateColumns: "minmax(0,1fr)",
+                      gridTemplateRows: "minmax(190px,250px) minmax(0,1fr)",
+                      minHeight: 0,
+                    }
+                  : {
+                      gridTemplateColumns:
+                        centerTaskCaptureOpen && meeting
+                          ? "minmax(240px,300px) minmax(0,1fr) minmax(320px,420px)"
+                          : "minmax(270px,320px) minmax(0,1fr)",
+                    },
+              ),
+            },
+            [
+              h(
+                "div",
+                {
+                  style: Object.assign(
+                    {},
+                    PS.list,
+                    compactLayout
+                      ? {
+                          height: "100%",
+                          flexShrink: 0,
+                          width: "100%",
+                        }
+                      : {},
+                  ),
+                },
+                meetingListHeader,
+                h("div", { style: PS.listItems }, ...listItemNodes),
+              ),
+              chat,
+              centerTaskCaptureOpen &&
+              meeting &&
+              !compactLayout &&
+              typeof props.renderSlot === "function"
+                ? h(
+                    "aside",
+                    {
+                      style: {
+                        minWidth: 0,
+                        position: "relative",
+                      },
+                    },
+                    props.renderSlot(
+                      "pluginmax.communication.context.task-capture",
+                      {
+                        mode: "context",
+                        sourceType: isAiConversation ? "ai-chat" : "meeting",
+                        sourceId: meeting.id,
+                        sourceTitle: meeting.title,
+                        workspaceId: meeting.workspaceId,
+                        messageIds: centerTaskCaptureSeed.messageIds ?? [],
+                        selectionText:
+                          centerTaskCaptureSeed.selectionText ?? "",
+                        messageOptions: transcript.map((message) => ({
+                          id: message.id,
+                          senderName:
+                            message.provenance?.role === "representative"
+                              ? `${message.senderName} · AI 参会代表`
+                              : message.senderKind === "agent"
+                                ? `${message.senderName} · AI`
+                                : message.senderId === actorId
+                                  ? "我"
+                                  : message.senderName,
+                          content: message.content,
+                          createdAt: message.createdAt,
+                        })),
+                        actionItemIds: [],
+                        onClose: () => {
+                          setCenterTaskCaptureOpen(false);
+                          setCenterTaskCaptureSeed({});
+                        },
+                        onSaved: () => {
+                          window.dispatchEvent(
+                            new CustomEvent("pluginmax:task-capture-refresh"),
+                          );
+                        },
+                      },
+                    ),
+                  )
+                : null,
+            ],
+          ),
+          centerTaskCaptureOpen &&
+          meeting &&
+          compactLayout &&
+          typeof props.renderSlot === "function"
+            ? props.renderSlot("pluginmax.communication.context.task-capture", {
+                mode: "context",
+                sourceType: isAiConversation ? "ai-chat" : "meeting",
+                sourceId: meeting.id,
+                sourceTitle: meeting.title,
+                workspaceId: meeting.workspaceId,
+                messageIds: centerTaskCaptureSeed.messageIds ?? [],
+                selectionText: centerTaskCaptureSeed.selectionText ?? "",
+                messageOptions: transcript.map((message) => ({
+                  id: message.id,
+                  senderName:
+                    message.provenance?.role === "representative"
+                      ? `${message.senderName} · AI 参会代表`
+                      : message.senderKind === "agent"
+                        ? `${message.senderName} · AI`
+                        : message.senderId === actorId
+                          ? "我"
+                          : message.senderName,
+                  content: message.content,
+                  createdAt: message.createdAt,
+                })),
+                actionItemIds: [],
+                onClose: () => {
+                  setCenterTaskCaptureOpen(false);
+                  setCenterTaskCaptureSeed({});
+                },
+                onSaved: () => {
+                  window.dispatchEvent(
+                    new CustomEvent("pluginmax:task-capture-refresh"),
+                  );
+                },
+              })
+            : null,
+          briefOpen && meeting
+            ? h(
+                "div",
+                { style: PS.overlay },
+                h("div", { style: PS.modal }, [
+                  h("div", { style: PS.summaryHead }, [
+                    h("div", { style: PS.title, children: "会议简报" }),
+                    h("span", {
+                      style: PS.statusPill,
+                      children: meetingStatusLabel(meeting.status),
+                    }),
+                  ]),
+                  h("div", { style: PS.briefSection }, [
+                    h("div", {
+                      style: PS.briefSectionTitle,
+                      children: "会议信息",
+                    }),
+                    h("div", {
+                      style: PS.meta,
+                      children: `${meeting.title} · ${projectName || "未分组"} · ${activeHumans.length} 位人类 · ${activeAi.length} 位 AI`,
+                    }),
+                  ]),
+                  h("div", { style: PS.briefSection }, [
+                    h("div", {
+                      style: PS.briefSectionTitle,
+                      children: "会议概要",
+                    }),
+                    h("div", {
+                      style: PS.meta,
+                      children:
+                        meeting.agenda?.trim() ||
+                        meeting.summary?.trim() ||
+                        "暂无会议议程或概要",
+                    }),
+                  ]),
+                  h("div", { style: PS.briefSection }, [
+                    h("div", {
+                      style: PS.briefSectionTitle,
+                      children: "最近对话",
+                    }),
+                    recentBriefMessages.length === 0
+                      ? h("div", { style: PS.meta, children: "暂无对话记录" })
+                      : h(
+                          "div",
+                          { style: { display: "grid", gap: 5 } },
+                          ...recentBriefMessages.map((message) =>
+                            h("div", {
+                              key: message.id,
+                              style: PS.meta,
+                              children: `${message.sender}：${message.content}`,
+                            }),
+                          ),
+                        ),
+                  ]),
+                  h("div", { style: PS.briefSection }, [
+                    h("div", {
+                      style: PS.briefSectionTitle,
+                      children: "会议纪要",
+                    }),
+                    h("div", {
+                      style: PS.meta,
+                      children:
+                        displayVersion === undefined
+                          ? "暂无会议纪要"
+                          : `会议纪要 v${displayVersion.version} 已生成，更新于 ${timeFull(
+                              displayVersion.updatedAt ??
+                                displayVersion.createdAt,
+                            )}`,
+                    }),
+                  ]),
+                  h(
+                    "div",
+                    {
+                      style: {
+                        display: "flex",
+                        gap: 8,
+                        justifyContent: "flex-end",
+                      },
+                    },
+                    h("button", {
+                      type: "button",
+                      style: PS.primaryBtn,
+                      onClick: () => setBriefOpen(false),
+                      children: "关闭",
+                    }),
+                  ),
+                ]),
+              )
+            : null,
+          contextPolicyOpen
+            ? h(
+                "div",
+                { style: PS.overlay },
+                h(
+                  "div",
+                  {
+                    role: "dialog",
+                    "aria-label": "对话上下文设置",
+                    style: Object.assign({}, PS.modal, {
+                      maxWidth: 560,
+                    }),
+                  },
+                  [
+                    h("div", {
+                      style: PS.title,
+                      children: "对话上下文设置",
+                    }),
+                    h("div", {
+                      style: PS.meta,
+                      children:
+                        "平台级策略，仅平台管理员可修改。保存后从下一次 AI 触发开始生效。",
+                    }),
+                    contextPolicyBusy && contextPolicyDraft === null
+                      ? h("div", { style: PS.meta, children: "正在加载设置…" })
+                      : null,
+                    contextPolicyError === ""
+                      ? null
+                      : h("div", {
+                          style: {
+                            color: "var(--dsw-alias-danger, #e5484d)",
+                            fontSize: 12,
+                          },
+                          children: contextPolicyError,
+                        }),
+                    contextPolicyDraft
+                      ? h(react.Fragment, null, [
+                          h(
+                            "div",
+                            {
+                              role: "group",
+                              "aria-label": "上下文设置作用域",
+                              style: PS.filterSegment,
+                            },
+                            ...[
+                              ["defaults", "默认"],
+                              ["chat", "聊天"],
+                              ["group", "群聊"],
+                              ["meeting", "会议"],
+                            ].map(([key, label]) =>
+                              h("button", {
+                                key,
+                                type: "button",
+                                style: Object.assign(
+                                  {},
+                                  PS.filterBtn,
+                                  contextPolicyScene === key
+                                    ? PS.filterBtnActive
+                                    : {},
+                                ),
+                                "aria-pressed": contextPolicyScene === key,
+                                onClick: () => setContextPolicyScene(key),
+                                children: label,
+                              }),
+                            ),
+                          ),
+                          contextPolicyScene === "defaults"
+                            ? null
+                            : h(
+                                "label",
+                                {
+                                  style: {
+                                    alignItems: "center",
+                                    display: "flex",
+                                    fontSize: 12,
+                                    gap: 8,
+                                  },
+                                },
+                                h("input", {
+                                  type: "checkbox",
+                                  checked:
+                                    contextPolicyDraft.sceneOverrides[
+                                      contextPolicyScene
+                                    ] === undefined,
+                                  onChange: (event) =>
+                                    toggleContextPolicyInheritance(
+                                      event.target.checked,
+                                    ),
+                                }),
+                                h("span", { children: "继承平台默认值" }),
+                              ),
+                          !(
+                            contextPolicyScene !== "defaults" &&
+                            contextPolicyDraft.sceneOverrides[
+                              contextPolicyScene
+                            ] === undefined
+                          )
+                            ? h(
+                                "div",
+                                { style: { display: "grid", gap: 10 } },
+                                [
+                                  contextPolicyFieldNode(
+                                    "上下文提醒（%）",
+                                    "warningRatio",
+                                    {
+                                      percent: true,
+                                      min: 10,
+                                      max: 99,
+                                    },
+                                  ),
+                                  contextPolicyFieldNode(
+                                    "开始压缩（%）",
+                                    "compactRatio",
+                                    {
+                                      percent: true,
+                                      min: 10,
+                                      max: 99,
+                                    },
+                                  ),
+                                  contextPolicyFieldNode(
+                                    "Session 滚动（%）",
+                                    "rolloverRatio",
+                                    {
+                                      percent: true,
+                                      min: 10,
+                                      max: 100,
+                                    },
+                                  ),
+                                  contextPolicyFieldNode(
+                                    "保留最近消息（条）",
+                                    "preserveRecentMessages",
+                                    { min: 0, max: 100 },
+                                  ),
+                                  contextPolicyFieldNode(
+                                    "触发链最大深度",
+                                    "maxTriggerDepth",
+                                    { min: 1, max: 20 },
+                                  ),
+                                  contextPolicyFieldNode(
+                                    "单场景并发 Agent 上限",
+                                    "maxConcurrentAgentsPerScene",
+                                    { min: 1, max: 20 },
+                                  ),
+                                ],
+                              )
+                            : null,
+                        ])
+                      : null,
+                    h(
+                      "div",
+                      {
+                        style: {
+                          display: "flex",
+                          gap: 8,
+                          justifyContent: "flex-end",
+                          marginTop: 4,
+                        },
+                      },
+                      contextPolicyResetConfirm
+                        ? [
+                            h("span", {
+                              role: "status",
+                              style: {
+                                color: "var(--dsw-alias-danger, #e5484d)",
+                                fontSize: 12,
+                                marginRight: "auto",
+                              },
+                              children: "恢复后会移除所有场景覆盖，是否继续？",
+                            }),
+                            h("button", {
+                              type: "button",
+                              style: PS.ghostBtn,
+                              disabled: contextPolicyBusy,
+                              onClick: () =>
+                                setContextPolicyResetConfirm(false),
+                              children: "暂不恢复",
+                            }),
+                            h("button", {
+                              type: "button",
+                              style: PS.primaryBtn,
+                              disabled: contextPolicyBusy,
+                              onClick: () => void resetContextPolicy(),
+                              children: contextPolicyBusy
+                                ? "恢复中…"
+                                : "确认恢复",
+                            }),
+                          ]
+                        : [
+                            h("button", {
+                              type: "button",
+                              style: PS.ghostBtn,
+                              disabled: contextPolicyBusy,
+                              onClick: () => setContextPolicyResetConfirm(true),
+                              children: "恢复默认",
+                            }),
+                            h("button", {
+                              type: "button",
+                              style: PS.ghostBtn,
+                              disabled: contextPolicyBusy,
+                              onClick: () => setContextPolicyOpen(false),
+                              children: "取消",
+                            }),
+                            h("button", {
+                              type: "button",
+                              style: PS.primaryBtn,
+                              disabled:
+                                contextPolicyBusy ||
+                                contextPolicyDraft === null ||
+                                !contextPolicyDraftValid(contextPolicyDraft),
+                              onClick: () => void saveContextPolicy(),
+                              children: contextPolicyBusy ? "保存中…" : "保存",
+                            }),
+                          ],
+                    ),
+                  ],
+                ),
+              )
+            : null,
+          createOpen
+            ? h(
+                "div",
+                { style: PS.overlay },
+                h(
+                  "form",
+                  {
+                    role: "dialog",
+                    "aria-label": "新建沟通",
+                    style: PS.modal,
+                    onSubmit: async (event) => {
+                      event.preventDefault();
+                      if (createMode === "ai") {
+                        const teammate = myAiTeammates.find(
+                          (item) => item.id === selectedCreateTeammateId,
+                        );
+                        if (teammate === undefined) {
+                          setError("暂无可用的个人 AI 伙伴");
+                          return;
+                        }
+                        const existing = activeAiConversationByTeammate.get(
+                          teammate.id,
+                        );
+                        if (existing !== undefined) {
+                          setCommunicationFilter("direct");
+                          setMeetingId(existing.id);
+                          setCreateOpen(false);
+                          return;
+                        }
+                        await run("create-ai", async () => {
+                          const result = await post("/api/collab/meetings", {
+                            workspaceId: SYSTEM_DEFAULT_WORKSPACE_ID,
+                            title: teammate.name,
+                            kind: "ai",
+                            teammateInstanceId: teammate.id,
+                            teammateName: teammate.name,
+                            displayName: accountName,
+                          });
+                          if (result?.meeting?.id) {
+                            rememberEmptyMeeting(result.meeting.id);
+                            setMeetings((current) => [
+                              result.meeting,
+                              ...current.filter(
+                                (item) => item.id !== result.meeting.id,
+                              ),
+                            ]);
+                            setCommunicationFilter("direct");
+                            setMeetingId(result.meeting.id);
+                            setCreateTeammateId("");
+                            setCreateOpen(false);
+                          }
+                        });
+                        return;
+                      }
+                      if (newTitle.trim() === "") return;
+                      await run("create", async () => {
+                        const result = await post("/api/collab/meetings", {
+                          workspaceId: createWorkspaceId,
+                          title: newTitle.trim(),
+                          agenda: newAgenda,
+                        });
+                        setCreateOpen(false);
+                        setNewTitle("");
+                        setNewAgenda("");
+                        if (result?.meeting?.id) {
+                          rememberEmptyMeeting(result.meeting.id);
+                          setCommunicationFilter("meeting");
+                          setMeetings((current) => [
+                            result.meeting,
+                            ...current.filter(
+                              (item) => item.id !== result.meeting.id,
+                            ),
+                          ]);
+                          setMeetingId(result.meeting.id);
+                        }
+                      });
+                    },
+                  },
+                  [
+                    h("div", { style: PS.title, children: "新建沟通" }),
+                    h(
+                      "div",
+                      {
+                        role: "group",
+                        "aria-label": "新建沟通类型",
+                        style: PS.filterSegment,
+                      },
+                      [
+                        h("button", {
+                          type: "button",
+                          style: Object.assign(
+                            {},
+                            PS.filterBtn,
+                            createMode === "meeting" ? PS.filterBtnActive : {},
+                          ),
+                          "aria-pressed": createMode === "meeting",
+                          onClick: () => setCreateMode("meeting"),
+                          children: "创建会议",
+                        }),
+                        h("button", {
+                          type: "button",
+                          style: Object.assign(
+                            {},
+                            PS.filterBtn,
+                            createMode === "ai" ? PS.filterBtnActive : {},
+                          ),
+                          "aria-pressed": createMode === "ai",
+                          onClick: () => setCreateMode("ai"),
+                          children: "单聊",
+                        }),
+                      ],
+                    ),
+                    ...(createMode === "meeting"
+                      ? [
+                          h("label", { style: PS.field }, [
+                            h("span", { children: "关联项目" }),
+                            h(
+                              "select",
+                              {
+                                style: PS.input,
+                                value: createWorkspaceId,
+                                "aria-label": "新建会议关联项目",
+                                onChange: (event) =>
+                                  setCreateWorkspaceId(event.target.value),
+                              },
+                              ...visibleWorkspaces.map((workspace) =>
+                                h("option", {
+                                  key: workspace.id,
+                                  value: workspace.id,
+                                  children:
+                                    workspace.id === SYSTEM_DEFAULT_WORKSPACE_ID
+                                      ? "默认项目（system，不关联项目）"
+                                      : workspaceLabel(workspace),
+                                }),
+                              ),
+                            ),
+                          ]),
+                          h("label", { style: PS.field }, [
+                            h("span", { children: "会议主题" }),
+                            h("input", {
+                              style: PS.input,
+                              value: newTitle,
+                              "aria-label": "新建会议主题",
+                              onChange: (event) =>
+                                setNewTitle(event.target.value),
+                            }),
+                          ]),
+                          h("label", { style: PS.field }, [
+                            h("span", { children: "议程（可选）" }),
+                            h("textarea", {
+                              style: PS.textarea,
+                              value: newAgenda,
+                              onChange: (event) =>
+                                setNewAgenda(event.target.value),
+                            }),
+                          ]),
+                        ]
+                      : [
+                          myAiTeammates.length === 0
+                            ? h("div", {
+                                style: PS.meta,
+                                children: "暂无可用的个人 AI 伙伴",
+                              })
+                            : h("label", { style: PS.field }, [
+                                h("span", { children: "选择我的 AI 伙伴" }),
+                                h(
+                                  "select",
+                                  {
+                                    style: PS.input,
+                                    value: selectedCreateTeammateId,
+                                    "aria-label": "新建 AI 伙伴聊天",
+                                    onChange: (event) =>
+                                      setCreateTeammateId(event.target.value),
+                                  },
+                                  ...myAiTeammates.map((teammate) =>
+                                    h("option", {
+                                      key: teammate.id,
+                                      value: teammate.id,
+                                      children: teammate.name,
+                                    }),
+                                  ),
+                                ),
+                              ]),
+                        ]),
+                    h(
+                      "div",
+                      {
+                        style: {
+                          display: "flex",
+                          gap: 8,
+                          justifyContent: "flex-end",
+                        },
+                      },
+                      [
+                        h("button", {
+                          type: "button",
+                          style: PS.ghostBtn,
+                          onClick: () => setCreateOpen(false),
+                          children: "取消",
+                        }),
+                        h("button", {
+                          type: "submit",
+                          style: PS.primaryBtn,
+                          disabled:
+                            busy !== "" ||
+                            (createMode === "meeting"
+                              ? newTitle.trim() === ""
+                              : myAiTeammates.length === 0),
+                          children:
+                            createMode === "ai"
+                              ? busy === "create-ai"
+                                ? "创建中…"
+                                : "开始聊天"
+                              : busy === "create"
+                                ? "创建中…"
+                                : "创建会议",
+                        }),
+                      ],
+                    ),
+                  ],
+                ),
+              )
+            : null,
+          inviteOpen
+            ? h(
+                "div",
+                { style: PS.overlay },
+                h(
+                  "form",
+                  {
+                    style: PS.modal,
+                    onSubmit: async (event) => {
+                      event.preventDefault();
+                      const picked = inviteCandidates.filter(
+                        (item) =>
+                          inviteIds.has(item.id) && item.state !== "active",
+                      );
+                      if (picked.length === 0) return;
+                      await run("invite", async () => {
+                        let targetMeetingId = meetingId;
+                        let generatedGroupId = "";
+                        if (meeting?.kind === "ai") {
+                          const result = await post(
+                            "/api/collab/meeting/convert-to-group",
+                            { meetingId },
+                          );
+                          const groupId = result?.meeting?.id;
+                          if (typeof groupId !== "string" || groupId === "") {
+                            throw new Error("群聊创建失败");
+                          }
+                          targetMeetingId = groupId;
+                          generatedGroupId = groupId;
+                          rememberEmptyMeeting(groupId);
+                          setMeetings((current) => [
+                            Object.assign({}, result.meeting, {
+                              messageCount: 0,
+                              unreadCount: 0,
+                              lastActivityAt: result.meeting.updatedAt,
+                              lastMessage: null,
+                            }),
+                            ...current.filter((item) => item.id !== groupId),
+                          ]);
+                          setMeetingId(groupId);
+                          setCommunicationFilter("all");
+                        }
+                        // 一次性提交：人和 AI 在同一份清单里选好后一起发。
+                        const people = picked.filter(
+                          (item) => item.kind === "human",
+                        );
+                        const agents = picked.filter(
+                          (item) => item.kind === "ai",
+                        );
+                        if (people.length > 0) {
+                          await post(
+                            "/api/collab/meeting/participants/invite",
+                            {
+                              meetingId: targetMeetingId,
+                              people: people.map((item) => ({
+                                targetId: item.id,
+                              })),
+                            },
+                          );
+                        }
+                        for (const agent of agents) {
+                          await post("/api/collab/meeting/participant/ai", {
+                            meetingId: targetMeetingId,
+                            teammateInstanceId: agent.id,
+                            displayName: agent.name,
+                            speechMode: dform.speechMode,
+                          });
+                        }
+                        if (generatedGroupId !== "") {
+                          const titled = await post(
+                            "/api/collab/meeting/group-title/generate",
+                            { meetingId: generatedGroupId },
+                          );
+                          const title = titled?.meeting?.title;
+                          if (typeof title === "string" && title !== "") {
+                            setMeetings((current) =>
+                              current.map((item) =>
+                                item.id === generatedGroupId
+                                  ? Object.assign({}, item, {
+                                      title,
+                                      updatedAt:
+                                        titled.meeting.updatedAt ??
+                                        item.updatedAt,
+                                    })
+                                  : item,
+                              ),
+                            );
+                          }
+                        }
+                        setInviteOpen(false);
+                        setInviteIds(new Set());
+                        setNotice("已发送邀请");
+                      });
+                    },
+                  },
+                  [
+                    h("div", {
+                      style: PS.title,
+                      children:
+                        meeting?.kind === "ai"
+                          ? "添加参与方并创建群聊"
+                          : "邀请成员",
+                    }),
+                    h("div", { style: PS.group }, [
+                      h("div", {
+                        style: PS.groupTitle,
+                        children: "选择参会成员（人 / AI）",
+                      }),
+                      inviteCandidates.length === 0
+                        ? h("div", {
+                            style: PS.meta,
+                            children: "暂无可邀请成员",
+                          })
+                        : h(InviteMemberPicker, {
+                            items: inviteCandidates,
+                            selectedIds: inviteIds,
+                            onToggle: (id) =>
+                              setInviteIds((ids) => {
+                                const next = new Set(ids);
+                                if (next.has(id)) next.delete(id);
+                                else next.add(id);
+                                return next;
+                              }),
+                          }),
+                    ]),
+                    h(
+                      "div",
+                      {
+                        style: {
+                          display: "flex",
+                          gap: 8,
+                          justifyContent: "flex-end",
+                        },
+                      },
+                      [
+                        h("button", {
+                          type: "button",
+                          style: PS.ghostBtn,
+                          onClick: () => setInviteOpen(false),
+                          children: "取消",
+                        }),
+                        h("button", {
+                          type: "submit",
+                          style: PS.primaryBtn,
+                          disabled: busy !== "",
+                          children: busy === "invite" ? "发送中…" : "发送邀请",
+                        }),
+                      ],
+                    ),
+                  ],
+                ),
+              )
+            : null,
+          delegateOpen
+            ? h(
+                "div",
+                { style: PS.overlay },
+                h(
+                  "form",
+                  {
+                    style: PS.modal,
+                    onSubmit: async (event) => {
+                      event.preventDefault();
+                      if (dform.teammateInstanceId === "") {
+                        setError("请选择一个 AI伙伴");
+                        return;
+                      }
+                      await run("assign", async () => {
+                        await post("/api/collab/meeting/delegate/assign", {
+                          meetingId,
+                          teammateInstanceId: dform.teammateInstanceId,
+                          speechMode: dform.speechMode,
+                          instruction: {
+                            goal: dform.goal,
+                            stance: dform.stance,
+                            mustSay: splitLines(dform.mustSay),
+                            focusPoints: splitLines(dform.focusPoints),
+                          },
+                        });
+                        setDelegateOpen(false);
+                        setNotice("已指派 AI 参会代表");
+                      });
+                    },
+                  },
+                  [
+                    h("div", { style: PS.title, children: "指派 AI 参会代表" }),
+                    h("label", { style: PS.field }, [
+                      h("span", { children: "选择我的 AI伙伴" }),
+                      h(
+                        "select",
+                        {
+                          style: PS.input,
+                          value: dform.teammateInstanceId,
+                          onChange: (event) =>
+                            setDform((form) =>
+                              Object.assign({}, form, {
+                                teammateInstanceId: event.target.value,
+                              }),
+                            ),
+                        },
+                        h("option", { value: "", children: "请选择" }),
+                        ...teammates.map((item) =>
+                          h("option", {
+                            key: item.id,
+                            value: item.id,
+                            children: `${item.name} · ${item.ownerName ?? ""}`,
+                          }),
+                        ),
+                      ),
+                    ]),
+                    h("label", { style: PS.field }, [
+                      h("span", { children: "发言模式" }),
+                      h(
+                        "select",
+                        {
+                          style: PS.input,
+                          value: dform.speechMode,
+                          onChange: (event) =>
+                            setDform((form) =>
+                              Object.assign({}, form, {
+                                speechMode: event.target.value,
+                              }),
+                            ),
+                        },
+                        ...SPEECH_MODE_OPTIONS.map((option) =>
+                          h("option", {
+                            key: option.id,
+                            value: option.id,
+                            children: option.label,
+                          }),
+                        ),
+                      ),
+                    ]),
+                    h("label", { style: PS.field }, [
+                      h("span", { children: "参会目标" }),
+                      h("textarea", {
+                        style: PS.textarea,
+                        value: dform.goal,
+                        onChange: (event) =>
+                          setDform((form) =>
+                            Object.assign({}, form, {
+                              goal: event.target.value,
+                            }),
+                          ),
+                      }),
+                    ]),
+                    h("label", { style: PS.field }, [
+                      h("span", { children: "核心立场" }),
+                      h("textarea", {
+                        style: PS.textarea,
+                        value: dform.stance,
+                        onChange: (event) =>
+                          setDform((form) =>
+                            Object.assign({}, form, {
+                              stance: event.target.value,
+                            }),
+                          ),
+                      }),
+                    ]),
+                    h("label", { style: PS.field }, [
+                      h("span", { children: "必须表达的要点（每行一条）" }),
+                      h("textarea", {
+                        style: PS.textarea,
+                        value: dform.mustSay,
+                        onChange: (event) =>
+                          setDform((form) =>
+                            Object.assign({}, form, {
+                              mustSay: event.target.value,
+                            }),
+                          ),
+                      }),
+                    ]),
+                    h("label", { style: PS.field }, [
+                      h("span", { children: "把控点（每行一条）" }),
+                      h("textarea", {
+                        style: PS.textarea,
+                        value: dform.focusPoints,
+                        onChange: (event) =>
+                          setDform((form) =>
+                            Object.assign({}, form, {
+                              focusPoints: event.target.value,
+                            }),
+                          ),
+                      }),
+                    ]),
+                    h("div", {
+                      style: PS.meta,
+                      children: "委托正文仅你本人与该 AI伙伴可见。",
+                    }),
+                    h(
+                      "div",
+                      {
+                        style: {
+                          display: "flex",
+                          gap: 8,
+                          justifyContent: "flex-end",
+                        },
+                      },
+                      [
+                        h("button", {
+                          type: "button",
+                          style: PS.ghostBtn,
+                          onClick: () => setDelegateOpen(false),
+                          children: "取消",
+                        }),
+                        h("button", {
+                          type: "submit",
+                          style: PS.primaryBtn,
+                          disabled: busy !== "",
+                          children: busy === "assign" ? "指派中…" : "确认指派",
+                        }),
+                      ],
+                    ),
+                  ],
+                ),
+              )
+            : null,
+        ],
+      );
+    }
+
+    function MeetingsGlobalPage(props) {
+      const route = props.useShellRoute?.((state) => state.route);
+      if (route !== "meetings") return null;
+      return h(MeetingsPage, props);
+    }
+
+    /* ── apply: register slots ── */
+
+    exports.inject = ["slots"];
+    exports.apply = (ctx) => {
+      window.__pluginmaxSidePanel?.registerType?.({
+        type: "communication",
+        defaultTitle: "沟通",
+        newTabTitle: (ordinal) => `新沟通 ${ordinal}`,
+        singleton: false,
+        closable: true,
+        draggable: true,
+      });
+      ctx.slots.inject("pluginmax.global", () =>
+        ctx.slots.register(
+          {
+            name: "pluginmax.global",
+            id: "pluginmax-meetings",
+            order: 34,
+            children: {
+              "pluginmax.communication.context.task-capture": {
+                kind: "single",
+                scope: "root",
+              },
+            },
+          },
+          MeetingsGlobalPage,
+        ),
+      );
+      ctx.slots.inject("shell.overlay", () =>
+        ctx.slots.register(
+          {
+            name: "shell.overlay",
+            id: "pluginmax-meeting-panel",
+            order: 10,
+            children: {
+              "pluginmax.communication.rail.task-capture": {
+                kind: "single",
+                scope: "root",
+              },
+            },
+          },
+          MeetingPanel,
+        ),
+      );
+    };
+
+    return module.exports;
+  },
+});

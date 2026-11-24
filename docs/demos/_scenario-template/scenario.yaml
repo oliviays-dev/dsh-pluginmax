@@ -1,0 +1,100 @@
+schemaVersion: "1.0"
+demoId: "<domain>-<business-flow>-v1"
+title: "<演示标题>"
+subtitle: "<一句话价值>"
+timezone: "Asia/Shanghai"
+targetDurationMinutes: 10
+
+businessContext:
+  industry: "<行业>"
+  products:
+    - "<产品>"
+  supplyChainModel: "<端到端链路>"
+  fulfillmentConstraints:
+    - "<业务约束>"
+  explicitlyExcluded:
+    - "<明确不做的内容>"
+
+demoIsolation:
+  pluginId: "dsh-collab-demo-<scenario-id>"
+  featureFlag: "PLUGINMAX_ENABLE_<SCENARIO>_DEMO"
+  detachable: true
+  productionDependency: false
+  externalSystemsRegistration: "McpCatalogProvider"
+
+dataSource:
+  datasetId: "<existing-dataset>"
+  connector: "<connector>"
+  mode: "demo"
+  permissions: "<permissions>"
+  fixture: "./data/<fixture>.json"
+
+expectedMetrics:
+  recordCount: 0
+  exceptionCount: 0
+  exceptionRate: 0
+  amount: 0
+  businessActionCount: 0
+
+accounts:
+  - userId: "<owner-account>"
+    displayName: "<Owner>"
+    role: "<business-role>"
+    workspaceRole: "owner"
+  - userId: "<member-account>"
+    displayName: "<Member>"
+    role: "<business-role>"
+    workspaceRole: "member"
+
+workspace:
+  title: "<workspace-title>"
+  owner: "<owner-account>"
+  members:
+    - "<member-account>"
+
+aiPartners:
+  dataAgent:
+    id: "data-agent"
+    purpose: "<只读分析>"
+  executionPartner:
+    id: "<execution-ai>"
+    owner: "<member-account>"
+    purpose: "<受控执行>"
+
+tasks:
+  parent:
+    title: "<PARENT-ID> <父任务>"
+    receiver: "<member-account>"
+    priority: "P0"
+    due: "today 18:00"
+    description: "<任务说明>"
+    acceptance:
+      - "<验收标准>"
+  humanChild:
+    title: "<PARENT-ID-A> <人工任务>"
+    receiver: "<human-partner>"
+    priority: "P0"
+    description: "<人工核实内容>"
+  aiChild:
+    title: "<PARENT-ID-B> <AI 任务>"
+    receiver: "<execution-ai>"
+    priority: "P0"
+    description: "<AI 整理与业务动作>"
+  nightPlan:
+    title: "<PARENT-ID-C> <复盘报告>"
+    receiver: "<execution-ai>"
+    priority: "P1"
+    due: "tomorrow 08:30"
+
+outcome:
+  businessActionId: "<ACTION-DEMO-ID>"
+  businessActionResult: "<result>"
+  finalSummary: "<最终闭环文案>"
+
+assets:
+  dataAgentPrompts: "./prompts/data-agent-prompts.md"
+  executionPartnerPrompt: "./prompts/execution-partner-prompt.md"
+  reportDraft: "./prompts/report-draft.md"
+  taskMessageCopy: "./prompts/task-message-copy.md"
+  mockMcpAssets: "./mcp-assets.yaml"
+  workbenchProfile: "./config/workbench-profile.yaml"

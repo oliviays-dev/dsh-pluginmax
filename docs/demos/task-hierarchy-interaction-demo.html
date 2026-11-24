@@ -1,0 +1,2660 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>任务主子任务交互设计稿</title>
+    <style>
+      :root {
+        --bg: #0f1115;
+        --surface: #171a1f;
+        --surface-2: #1d2127;
+        --surface-3: #242931;
+        --line: #2d333c;
+        --line-strong: #3c4552;
+        --text: #f1f4f8;
+        --muted: #9ba6b4;
+        --faint: #6f7b89;
+        --blue: #64a0ff;
+        --blue-soft: rgba(100, 160, 255, 0.13);
+        --green: #46d38b;
+        --green-soft: rgba(70, 211, 139, 0.13);
+        --amber: #e8ad52;
+        --amber-soft: rgba(232, 173, 82, 0.14);
+        --red: #f07878;
+        --red-soft: rgba(240, 120, 120, 0.13);
+        --violet: #ac97ff;
+        --violet-soft: rgba(172, 151, 255, 0.14);
+        --font:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+        --shadow: 0 22px 64px rgba(0, 0, 0, 0.42);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--font);
+      }
+
+      body {
+        min-height: 100vh;
+      }
+
+      button,
+      input,
+      select,
+      textarea {
+        font: inherit;
+      }
+
+      button {
+        color: inherit;
+      }
+
+      button,
+      [role="button"] {
+        cursor: pointer;
+      }
+
+      button:focus-visible,
+      input:focus-visible,
+      select:focus-visible,
+      textarea:focus-visible,
+      [role="button"]:focus-visible {
+        outline: 2px solid var(--blue);
+        outline-offset: 2px;
+      }
+
+      .app {
+        min-height: 100vh;
+      }
+
+      .topbar {
+        height: 58px;
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        padding: 0 22px;
+        border-bottom: 1px solid var(--line);
+        background: #12151a;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        min-width: 174px;
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .brand-mark {
+        width: 28px;
+        height: 28px;
+        display: grid;
+        place-items: center;
+        border-radius: 7px;
+        background: var(--blue-soft);
+        color: var(--blue);
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .topnav {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+        min-width: 0;
+      }
+
+      .topnav button {
+        height: 32px;
+        padding: 0 11px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .topnav button:hover {
+        color: var(--text);
+        background: var(--surface-2);
+      }
+
+      .topnav button.active {
+        color: var(--text);
+        background: var(--surface-3);
+        box-shadow: inset 0 -2px 0 var(--blue);
+      }
+
+      .topbar-spacer {
+        flex: 1;
+      }
+
+      .top-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .avatar {
+        width: 28px;
+        height: 28px;
+        display: inline-grid;
+        place-items: center;
+        flex: none;
+        border: 1px solid var(--line-strong);
+        border-radius: 50%;
+        background: var(--surface-3);
+        color: var(--text);
+        font-size: 10px;
+        font-weight: 700;
+      }
+
+      .avatar.agent {
+        border-color: rgba(172, 151, 255, 0.5);
+        background: var(--violet-soft);
+        color: var(--violet);
+      }
+
+      .page {
+        width: min(100%, 1680px);
+        margin: 0 auto;
+        padding: 22px 24px 28px;
+      }
+
+      .page-head {
+        display: flex;
+        align-items: flex-end;
+        gap: 16px;
+        min-height: 44px;
+        margin-bottom: 16px;
+      }
+
+      .page-title {
+        min-width: 0;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 20px;
+        line-height: 1.25;
+        font-weight: 720;
+      }
+
+      .page-context {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 5px;
+        color: var(--muted);
+        font-size: 11.5px;
+      }
+
+      .project-mark {
+        width: 18px;
+        height: 18px;
+        display: grid;
+        place-items: center;
+        border-radius: 5px;
+        background: var(--green-soft);
+        color: var(--green);
+        font-size: 9px;
+        font-weight: 800;
+      }
+
+      .page-spacer {
+        flex: 1;
+      }
+
+      .toolbar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .search {
+        width: 214px;
+        height: 32px;
+        padding: 0 10px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--surface);
+        color: var(--text);
+        font-size: 12px;
+      }
+
+      .search::placeholder {
+        color: var(--faint);
+      }
+
+      .filter {
+        height: 32px;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 0 9px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--surface);
+        color: var(--muted);
+        font-size: 11.5px;
+      }
+
+      .button {
+        height: 32px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 0 11px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--surface);
+        color: var(--text);
+        font-size: 12px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
+      .button:hover {
+        border-color: var(--line-strong);
+        background: var(--surface-2);
+      }
+
+      .button.primary {
+        border-color: transparent;
+        background: var(--blue);
+        color: #07101e;
+        font-weight: 720;
+      }
+
+      .button.primary:hover {
+        background: #7aafff;
+      }
+
+      .button.ghost {
+        border-color: transparent;
+        background: transparent;
+        color: var(--muted);
+      }
+
+      .button.ghost:hover {
+        color: var(--text);
+        background: var(--surface-2);
+      }
+
+      .button.danger {
+        border-color: rgba(240, 120, 120, 0.4);
+        color: var(--red);
+      }
+
+      .button.small {
+        height: 27px;
+        padding: 0 8px;
+        font-size: 10.5px;
+      }
+
+      .summary-strip {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        min-height: 35px;
+        margin-bottom: 11px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .summary-strip strong {
+        color: var(--text);
+        font-size: 12px;
+      }
+
+      .summary-sep {
+        width: 1px;
+        height: 14px;
+        background: var(--line);
+      }
+
+      .summary-hint {
+        margin-left: auto;
+        color: var(--faint);
+        font-size: 10.5px;
+      }
+
+      .board {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(232px, 1fr));
+        gap: 12px;
+        align-items: stretch;
+        min-height: max(540px, calc(100vh - 205px));
+        overflow-x: auto;
+        overscroll-behavior-inline: contain;
+        padding-bottom: 2px;
+      }
+
+      .column {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #13161b;
+      }
+
+      .column-head {
+        height: 43px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: none;
+        padding: 0 11px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .status-dot {
+        width: 7px;
+        height: 7px;
+        flex: none;
+        border-radius: 50%;
+        background: var(--muted);
+        box-shadow: 0 0 0 3px rgba(155, 166, 180, 0.09);
+      }
+
+      .status-dot.progress {
+        background: var(--blue);
+        box-shadow: 0 0 0 3px var(--blue-soft);
+      }
+
+      .status-dot.review {
+        background: var(--amber);
+        box-shadow: 0 0 0 3px var(--amber-soft);
+      }
+
+      .status-dot.done {
+        background: var(--green);
+        box-shadow: 0 0 0 3px var(--green-soft);
+      }
+
+      .column-head strong {
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .count {
+        min-width: 19px;
+        height: 18px;
+        display: inline-grid;
+        place-items: center;
+        border-radius: 5px;
+        background: var(--surface-3);
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 650;
+      }
+
+      .column-add {
+        width: 25px;
+        height: 25px;
+        display: grid;
+        place-items: center;
+        margin-left: auto;
+        padding: 0;
+        border: 0;
+        border-radius: 5px;
+        background: transparent;
+        color: var(--faint);
+        font-size: 17px;
+      }
+
+      .column-add:hover {
+        background: var(--surface-3);
+        color: var(--text);
+      }
+
+      .cards {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+        padding: 8px;
+      }
+
+      .task-card {
+        min-width: 0;
+        padding: 10px;
+        border: 0.5px solid var(--line);
+        border-radius: 7px;
+        background: var(--surface);
+        transition:
+          border-color 0.15s ease,
+          background 0.15s ease,
+          transform 0.15s ease;
+      }
+
+      .task-card:hover {
+        border-color: var(--line-strong);
+        background: var(--surface-2);
+        transform: translateY(-1px);
+      }
+
+      .task-card.child {
+        background: #161a20;
+      }
+
+      .task-card.running {
+        border-color: rgba(100, 160, 255, 0.42);
+      }
+
+      .card-top {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 20px;
+      }
+
+      .task-id {
+        color: var(--faint);
+        font-size: 9.5px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .card-top-spacer {
+        flex: 1;
+      }
+
+      .hierarchy-badge {
+        display: inline-flex;
+        align-items: center;
+        height: 18px;
+        padding: 0 5px;
+        border-radius: 4px;
+        background: var(--blue-soft);
+        color: var(--blue);
+        font-size: 9px;
+        font-weight: 650;
+        white-space: nowrap;
+      }
+
+      .hierarchy-badge.child {
+        background: var(--surface-3);
+        color: var(--muted);
+      }
+
+      .card-title {
+        margin-top: 5px;
+        color: var(--text);
+        font-size: 12.5px;
+        font-weight: 650;
+        line-height: 1.45;
+        overflow-wrap: anywhere;
+      }
+
+      .parent-ref {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        min-width: 0;
+        margin-top: 5px;
+        color: var(--faint);
+        font-size: 10px;
+      }
+
+      .parent-ref span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .card-meta {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+        margin-top: 9px;
+        color: var(--muted);
+        font-size: 9.5px;
+      }
+
+      .priority {
+        height: 18px;
+        display: inline-flex;
+        align-items: center;
+        padding: 0 5px;
+        border-radius: 4px;
+        background: var(--surface-3);
+        color: var(--muted);
+        font-size: 9px;
+        font-weight: 700;
+      }
+
+      .priority.p0 {
+        background: var(--red-soft);
+        color: var(--red);
+      }
+
+      .priority.p1 {
+        background: var(--amber-soft);
+        color: var(--amber);
+      }
+
+      .owner {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .due {
+        margin-left: auto;
+        flex: none;
+        color: var(--faint);
+      }
+
+      .children-progress {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin-top: 8px;
+      }
+
+      .progress-track {
+        height: 3px;
+        flex: 1;
+        overflow: hidden;
+        border-radius: 2px;
+        background: var(--surface-3);
+      }
+
+      .progress-fill {
+        height: 100%;
+        border-radius: inherit;
+        background: var(--green);
+      }
+
+      .progress-copy {
+        flex: none;
+        color: var(--faint);
+        font-size: 9px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .empty-column {
+        padding: 24px 8px;
+        color: var(--faint);
+        font-size: 11px;
+        text-align: center;
+      }
+
+      .backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 40;
+        background: rgba(4, 6, 9, 0.56);
+        backdrop-filter: blur(2px);
+      }
+
+      .backdrop[hidden] {
+        display: none;
+      }
+
+      .drawer {
+        position: fixed;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 41;
+        width: min(690px, calc(100vw - 24px));
+        display: flex;
+        flex-direction: column;
+        border-left: 1px solid var(--line-strong);
+        background: #111419;
+        box-shadow: var(--shadow);
+        animation: drawer-in 0.2s ease;
+      }
+
+      @keyframes drawer-in {
+        from {
+          transform: translateX(22px);
+          opacity: 0.5;
+        }
+        to {
+          transform: translateX(0);
+          opacity: 1;
+        }
+      }
+
+      .drawer-head {
+        flex: none;
+        padding: 16px 18px 12px;
+        border-bottom: 1px solid var(--line);
+        background: var(--surface);
+      }
+
+      .drawer-topline {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 28px;
+      }
+
+      .breadcrumb {
+        min-width: 0;
+        flex: 1;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        color: var(--faint);
+        font-size: 10.5px;
+        white-space: nowrap;
+      }
+
+      .breadcrumb button {
+        min-width: 0;
+        max-width: 260px;
+        overflow: hidden;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: var(--muted);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .breadcrumb button:hover {
+        color: var(--blue);
+      }
+
+      .breadcrumb-current {
+        min-width: 0;
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: var(--faint);
+      }
+
+      .icon-button {
+        width: 28px;
+        height: 28px;
+        display: grid;
+        place-items: center;
+        flex: none;
+        padding: 0;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--muted);
+        font-size: 19px;
+        line-height: 1;
+      }
+
+      .icon-button:hover {
+        background: var(--surface-3);
+        color: var(--text);
+      }
+
+      .drawer-title {
+        margin: 8px 0 0;
+        font-size: 18px;
+        line-height: 1.35;
+        font-weight: 720;
+        overflow-wrap: anywhere;
+      }
+
+      .drawer-meta {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 7px;
+        margin-top: 8px;
+      }
+
+      .pill {
+        height: 21px;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 0 7px;
+        border-radius: 5px;
+        background: var(--surface-3);
+        color: var(--muted);
+        font-size: 9.5px;
+        font-weight: 650;
+        white-space: nowrap;
+      }
+
+      .pill.progress {
+        background: var(--blue-soft);
+        color: var(--blue);
+      }
+
+      .pill.review {
+        background: var(--amber-soft);
+        color: var(--amber);
+      }
+
+      .pill.done {
+        background: var(--green-soft);
+        color: var(--green);
+      }
+
+      .pill.plan {
+        background: var(--violet-soft);
+        color: var(--violet);
+      }
+
+      .drawer-actions {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 7px;
+        margin-top: 12px;
+      }
+
+      .drawer-tabs {
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        min-height: 41px;
+        padding: 0 18px;
+        border-bottom: 1px solid var(--line);
+        background: #12151a;
+        overflow-x: auto;
+      }
+
+      .tab {
+        height: 40px;
+        flex: none;
+        padding: 0 8px;
+        border: 0;
+        border-bottom: 2px solid transparent;
+        background: transparent;
+        color: var(--muted);
+        font-size: 11px;
+        white-space: nowrap;
+      }
+
+      .tab:hover {
+        color: var(--text);
+        background: var(--surface-2);
+      }
+
+      .tab.active {
+        border-bottom-color: var(--blue);
+        color: var(--text);
+        font-weight: 650;
+      }
+
+      .drawer-body {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: 15px 18px 28px;
+      }
+
+      .children-summary {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-height: 50px;
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--surface);
+      }
+
+      .children-summary-main {
+        min-width: 0;
+        flex: 1;
+      }
+
+      .children-summary-main strong {
+        display: block;
+        font-size: 12px;
+      }
+
+      .children-summary-main span {
+        display: block;
+        margin-top: 2px;
+        color: var(--faint);
+        font-size: 10px;
+      }
+
+      .summary-progress {
+        width: 110px;
+        flex: none;
+      }
+
+      .summary-progress .progress-track {
+        height: 4px;
+      }
+
+      .summary-progress .progress-copy {
+        margin-top: 5px;
+        text-align: right;
+      }
+
+      .section-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 17px 0 8px;
+      }
+
+      .section-head strong {
+        font-size: 12px;
+      }
+
+      .section-head span {
+        color: var(--faint);
+        font-size: 10px;
+      }
+
+      .section-head-spacer {
+        flex: 1;
+      }
+
+      .child-list {
+        border-top: 1px solid var(--line);
+      }
+
+      .child-row {
+        width: 100%;
+        min-width: 0;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: center;
+        padding: 11px 3px;
+        border: 0;
+        border-bottom: 1px solid var(--line);
+        background: transparent;
+        color: var(--text);
+        text-align: left;
+      }
+
+      .child-row:hover {
+        background: rgba(255, 255, 255, 0.018);
+      }
+
+      .child-copy {
+        min-width: 0;
+      }
+
+      .child-title-line {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-width: 0;
+      }
+
+      .child-title-line strong {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 11.5px;
+      }
+
+      .child-subline {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin-top: 4px;
+        color: var(--faint);
+        font-size: 9.5px;
+      }
+
+      .child-side {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .child-side time {
+        color: var(--faint);
+        font-size: 9.5px;
+        white-space: nowrap;
+      }
+
+      .info-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1px;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--line);
+      }
+
+      .info-cell {
+        min-width: 0;
+        padding: 10px 11px;
+        background: var(--surface);
+      }
+
+      .info-cell.wide {
+        grid-column: 1 / -1;
+      }
+
+      .info-cell span {
+        display: block;
+        color: var(--faint);
+        font-size: 9.5px;
+      }
+
+      .info-cell strong,
+      .info-cell a {
+        display: block;
+        margin-top: 4px;
+        color: var(--text);
+        font-size: 11px;
+        font-weight: 600;
+        overflow-wrap: anywhere;
+      }
+
+      .info-cell a {
+        color: var(--blue);
+        text-decoration: none;
+      }
+
+      .info-cell a:hover {
+        text-decoration: underline;
+      }
+
+      .description-block {
+        margin-top: 10px;
+        padding: 11px 12px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--surface);
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.7;
+      }
+
+      .timeline {
+        display: grid;
+        gap: 0;
+        margin-top: 7px;
+      }
+
+      .timeline-row {
+        display: grid;
+        grid-template-columns: 74px minmax(0, 1fr);
+        gap: 12px;
+        padding: 10px 0;
+        border-bottom: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 10.5px;
+      }
+
+      .timeline-row time {
+        color: var(--faint);
+        font-size: 9.5px;
+      }
+
+      .empty-state {
+        padding: 28px 12px;
+        border: 1px dashed var(--line);
+        border-radius: 7px;
+        color: var(--faint);
+        font-size: 11px;
+        text-align: center;
+      }
+
+      .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 60;
+        display: grid;
+        place-items: center;
+        padding: 18px;
+        background: rgba(4, 6, 9, 0.68);
+        backdrop-filter: blur(3px);
+      }
+
+      .modal-backdrop[hidden] {
+        display: none;
+      }
+
+      .modal {
+        width: min(620px, 100%);
+        max-height: min(760px, calc(100vh - 36px));
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        border: 1px solid var(--line-strong);
+        border-radius: 9px;
+        background: #15191f;
+        box-shadow: var(--shadow);
+        animation: modal-in 0.18s ease;
+      }
+
+      @keyframes modal-in {
+        from {
+          transform: translateY(8px) scale(0.985);
+          opacity: 0.6;
+        }
+        to {
+          transform: translateY(0) scale(1);
+          opacity: 1;
+        }
+      }
+
+      .modal-head {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        flex: none;
+        padding: 15px 16px 12px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .modal-heading {
+        min-width: 0;
+        flex: 1;
+      }
+
+      .modal-heading h2 {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 720;
+      }
+
+      .modal-heading p {
+        margin: 4px 0 0;
+        color: var(--faint);
+        font-size: 10.5px;
+      }
+
+      .modal-body {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: 15px 16px;
+      }
+
+      .locked-parent {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        margin-bottom: 13px;
+        padding: 9px 10px;
+        border: 1px solid rgba(100, 160, 255, 0.27);
+        border-radius: 7px;
+        background: var(--blue-soft);
+      }
+
+      .locked-parent-mark {
+        width: 24px;
+        height: 24px;
+        display: grid;
+        place-items: center;
+        flex: none;
+        border-radius: 6px;
+        background: rgba(100, 160, 255, 0.18);
+        color: var(--blue);
+        font-size: 10px;
+        font-weight: 800;
+      }
+
+      .locked-parent-copy {
+        min-width: 0;
+      }
+
+      .locked-parent-copy span {
+        display: block;
+        color: var(--muted);
+        font-size: 9px;
+      }
+
+      .locked-parent-copy strong {
+        display: block;
+        margin-top: 2px;
+        overflow: hidden;
+        color: var(--text);
+        font-size: 10.5px;
+        font-weight: 600;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .field {
+        display: grid;
+        gap: 5px;
+        min-width: 0;
+      }
+
+      .field > span {
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 600;
+      }
+
+      .field input,
+      .field select,
+      .field textarea {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--surface);
+        color: var(--text);
+        font-size: 11.5px;
+      }
+
+      .field input,
+      .field select {
+        height: 34px;
+        padding: 0 9px;
+      }
+
+      .field textarea {
+        min-height: 90px;
+        padding: 9px;
+        line-height: 1.6;
+        resize: vertical;
+      }
+
+      .field input::placeholder,
+      .field textarea::placeholder {
+        color: var(--faint);
+      }
+
+      .form-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 11px;
+        margin-top: 11px;
+      }
+
+      .form-grid .wide {
+        grid-column: 1 / -1;
+      }
+
+      .segmented {
+        display: inline-flex;
+        padding: 3px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--surface);
+      }
+
+      .segmented button {
+        height: 27px;
+        padding: 0 9px;
+        border: 0;
+        border-radius: 5px;
+        background: transparent;
+        color: var(--muted);
+        font-size: 10.5px;
+      }
+
+      .segmented button.active {
+        background: var(--surface-3);
+        color: var(--text);
+        font-weight: 650;
+      }
+
+      .relation-block {
+        margin-bottom: 12px;
+      }
+
+      .relation-block > span {
+        display: block;
+        margin-bottom: 5px;
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 600;
+      }
+
+      .modal-foot {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        flex: none;
+        padding: 12px 16px;
+        border-top: 1px solid var(--line);
+        background: #13161b;
+      }
+
+      .modal-foot .danger-space {
+        margin-right: auto;
+      }
+
+      .candidate-list {
+        display: grid;
+        gap: 4px;
+        margin-top: 12px;
+      }
+
+      .candidate {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        padding: 9px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--surface);
+      }
+
+      .candidate:hover {
+        border-color: var(--line-strong);
+      }
+
+      .candidate input {
+        width: 14px;
+        height: 14px;
+        flex: none;
+        accent-color: var(--blue);
+      }
+
+      .candidate-copy {
+        min-width: 0;
+        flex: 1;
+      }
+
+      .candidate-copy strong {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 11px;
+      }
+
+      .candidate-copy span {
+        display: block;
+        margin-top: 2px;
+        color: var(--faint);
+        font-size: 9.5px;
+      }
+
+      .toast {
+        position: fixed;
+        left: 50%;
+        bottom: 22px;
+        z-index: 80;
+        max-width: min(420px, calc(100vw - 30px));
+        transform: translate(-50%, 12px);
+        padding: 9px 13px;
+        border: 1px solid var(--line-strong);
+        border-radius: 7px;
+        background: #20252d;
+        box-shadow: 0 12px 34px rgba(0, 0, 0, 0.38);
+        color: var(--text);
+        font-size: 11px;
+        opacity: 0;
+        pointer-events: none;
+        transition:
+          opacity 0.18s ease,
+          transform 0.18s ease;
+      }
+
+      .toast.show {
+        opacity: 1;
+        transform: translate(-50%, 0);
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      @media (max-width: 980px) {
+        .board {
+          grid-template-columns: repeat(4, 238px);
+        }
+
+        .search {
+          width: 168px;
+        }
+      }
+
+      @media (max-width: 720px) {
+        .topbar {
+          height: auto;
+          flex-wrap: wrap;
+          gap: 8px;
+          padding: 10px 12px;
+        }
+
+        .brand {
+          min-width: 0;
+        }
+
+        .topnav {
+          order: 3;
+          width: 100%;
+          overflow-x: auto;
+        }
+
+        .page {
+          padding: 14px 12px 20px;
+        }
+
+        .page-head {
+          align-items: stretch;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .toolbar {
+          flex-wrap: wrap;
+        }
+
+        .search {
+          width: 100%;
+        }
+
+        .summary-strip {
+          gap: 11px;
+          overflow-x: auto;
+          white-space: nowrap;
+        }
+
+        .summary-hint {
+          display: none;
+        }
+
+        .board {
+          min-height: calc(100vh - 250px);
+        }
+
+        .drawer {
+          width: 100vw;
+          max-width: none;
+          border-left: 0;
+        }
+
+        .drawer-head,
+        .drawer-body {
+          padding-left: 13px;
+          padding-right: 13px;
+        }
+
+        .drawer-tabs {
+          padding: 0 10px;
+        }
+
+        .breadcrumb button {
+          max-width: 122px;
+        }
+
+        .info-grid,
+        .form-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .form-grid .wide,
+        .info-cell.wide {
+          grid-column: auto;
+        }
+
+        .children-summary {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .summary-progress {
+          width: 100%;
+        }
+
+        .child-row {
+          grid-template-columns: 1fr;
+          gap: 7px;
+        }
+
+        .child-side {
+          justify-content: space-between;
+        }
+
+        .modal {
+          width: calc(100vw - 20px);
+          max-height: calc(100vh - 20px);
+        }
+
+        .modal-backdrop {
+          padding: 10px;
+        }
+
+        .modal-head,
+        .modal-body,
+        .modal-foot {
+          padding-left: 12px;
+          padding-right: 12px;
+        }
+
+        .modal-foot {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 6px;
+        }
+
+        .modal-foot .button {
+          width: 100%;
+          min-width: 0;
+          padding: 0 6px;
+        }
+
+        .modal-foot .danger-space {
+          margin-right: 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark">EN</span>
+          <span>Ensemble</span>
+        </div>
+        <nav class="topnav" aria-label="主导航">
+          <button type="button">工作台</button>
+          <button type="button" class="active">任务</button>
+          <button type="button">项目</button>
+          <button type="button">工作流</button>
+          <button type="button">沟通</button>
+        </nav>
+        <div class="topbar-spacer"></div>
+        <div class="top-actions">
+          <span class="avatar">林</span>
+          <span class="avatar agent">AI</span>
+        </div>
+      </header>
+
+      <main class="page">
+        <div class="page-head">
+          <div class="page-title">
+            <h1>任务管理</h1>
+            <div class="page-context">
+              <span class="project-mark">供</span>
+              <span>供应链协同</span>
+              <span>·</span>
+              <span>项目任务</span>
+            </div>
+          </div>
+          <div class="page-spacer"></div>
+          <div class="toolbar">
+            <input
+              class="search"
+              type="search"
+              placeholder="搜索任务或负责人"
+            />
+            <button type="button" class="filter">责任人：全部</button>
+            <button type="button" class="filter">优先级：全部</button>
+            <button type="button" class="button" id="refreshButton">
+              刷新
+            </button>
+            <button type="button" class="button primary" id="newTaskButton">
+              新建任务
+            </button>
+          </div>
+        </div>
+
+        <div class="summary-strip">
+          <span><strong id="totalCount">0</strong> 个任务</span>
+          <span class="summary-sep"></span>
+          <span><strong id="progressCount">0</strong> 个进行中</span>
+          <span class="summary-sep"></span>
+          <span><strong id="reviewCount">0</strong> 个待验收</span>
+        </div>
+
+        <section class="board" id="board" aria-label="任务看板"></section>
+      </main>
+    </div>
+
+    <div class="backdrop" id="drawerBackdrop" hidden></div>
+    <aside
+      class="drawer"
+      id="drawer"
+      role="dialog"
+      aria-modal="true"
+      aria-label="任务详情"
+      hidden
+    >
+      <div id="drawerContent"></div>
+    </aside>
+
+    <div class="modal-backdrop" id="modalBackdrop" hidden>
+      <section
+        class="modal"
+        id="modal"
+        role="dialog"
+        aria-modal="true"
+      ></section>
+    </div>
+
+    <div class="toast" id="toast" role="status"></div>
+
+    <script>
+      const STATUS = {
+        todo: { label: "待处理", columnLabel: "待处理" },
+        progress: { label: "进行中", columnLabel: "进行中" },
+        review: { label: "待验收", columnLabel: "待验收" },
+        done: { label: "已完成", columnLabel: "已完成" },
+        cancelled: { label: "已取消", columnLabel: "已完成" },
+      };
+
+      const COLUMNS = [
+        { key: "todo", label: "待处理" },
+        { key: "progress", label: "进行中" },
+        { key: "review", label: "待验收" },
+        { key: "done", label: "已完成" },
+      ];
+
+      const state = {
+        tasks: [
+          {
+            id: "TSK-1031",
+            title: "华东区旺季备货复盘",
+            description:
+              "复盘华东区旺季备货覆盖、库存周转和缺货损失，形成下一轮补货输入。",
+            status: "review",
+            parentId: null,
+            owner: "林岚",
+            ownerKind: "human",
+            priority: "P1",
+            due: "11-19",
+            createdAt: "今天 09:20",
+          },
+          {
+            id: "TSK-1032",
+            title: "整理旺季缺货明细",
+            description: "按 SKU、仓库和客户输出旺季缺货明细。",
+            status: "done",
+            parentId: "TSK-1031",
+            owner: "周宁",
+            ownerKind: "human",
+            priority: "P1",
+            due: "11-17",
+            createdAt: "昨天 14:10",
+          },
+          {
+            id: "TSK-1033",
+            title: "确认承运商时效变化",
+            description: "核对主要承运商在旺季的时效变化和赔付口径。",
+            status: "done",
+            parentId: "TSK-1031",
+            owner: "AI小助理",
+            ownerKind: "agent",
+            priority: "P2",
+            due: "11-18",
+            createdAt: "昨天 15:35",
+          },
+          {
+            id: "TSK-1042",
+            title: "华东区关键物料交付异常处置",
+            description:
+              "协调华东区关键物料的跨仓调拨、客户承诺更新和管理报告，周宁负责证据整理，林岚负责最终验收。",
+            status: "progress",
+            parentId: null,
+            owner: "林岚",
+            ownerKind: "human",
+            priority: "P0",
+            due: "11-24",
+            createdAt: "今天 10:05",
+          },
+          {
+            id: "TSK-1043",
+            title: "完成异常订单基线盘点",
+            description: "核对受影响订单、交付日期和客户等级。",
+            status: "done",
+            parentId: "TSK-1042",
+            owner: "周宁",
+            ownerKind: "human",
+            priority: "P1",
+            due: "11-18",
+            createdAt: "今天 10:12",
+          },
+          {
+            id: "TSK-1044",
+            title: "核对华东仓可调拨库存",
+            description: "确认可调拨库存、锁定库存和预计可用时间。",
+            status: "progress",
+            parentId: "TSK-1042",
+            owner: "林岚",
+            ownerKind: "human",
+            priority: "P1",
+            due: "11-20",
+            createdAt: "今天 10:16",
+          },
+          {
+            id: "TSK-1045",
+            title: "更新客户交付承诺",
+            description: "根据最新库存结论更新重点客户交付承诺。",
+            status: "todo",
+            parentId: "TSK-1042",
+            owner: "周宁",
+            ownerKind: "human",
+            priority: "P1",
+            due: "11-22",
+            createdAt: "今天 10:18",
+          },
+          {
+            id: "TSK-1046",
+            title: "评审可替代物料方案",
+            description: "评审替代物料对质量和客户验收的影响。",
+            status: "review",
+            parentId: "TSK-1042",
+            owner: "林岚",
+            ownerKind: "human",
+            priority: "P0",
+            due: "11-21",
+            createdAt: "今天 10:22",
+          },
+          {
+            id: "TSK-1047",
+            title: "汇总处置证据和管理报告",
+            description: "汇总库存、订单、客户沟通和处置证据。",
+            status: "progress",
+            parentId: "TSK-1042",
+            owner: "AI小助理",
+            ownerKind: "agent",
+            priority: "P2",
+            due: "11-23",
+            createdAt: "今天 10:25",
+            plan: true,
+          },
+          {
+            id: "TSK-1051",
+            title: "梳理华北仓补货规则",
+            description: "输出华北仓补货触发、审批和例外处理规则。",
+            status: "todo",
+            parentId: null,
+            owner: "周宁",
+            ownerKind: "human",
+            priority: "P2",
+            due: "11-27",
+            createdAt: "今天 11:02",
+          },
+          {
+            id: "TSK-1052",
+            title: "确认承运商赔付口径",
+            description: "对齐承运商延迟赔付的责任边界和凭证要求。",
+            status: "progress",
+            parentId: null,
+            owner: "林岚",
+            ownerKind: "human",
+            priority: "P2",
+            due: "11-28",
+            createdAt: "今天 11:14",
+          },
+        ],
+        drawerTaskId: null,
+        drawerTab: "basic",
+        modal: null,
+        selectedCandidateIds: new Set(),
+        nextTaskNumber: 1060,
+        toastTimer: null,
+      };
+
+      const elements = {
+        board: document.getElementById("board"),
+        drawer: document.getElementById("drawer"),
+        drawerBackdrop: document.getElementById("drawerBackdrop"),
+        drawerContent: document.getElementById("drawerContent"),
+        modalBackdrop: document.getElementById("modalBackdrop"),
+        modal: document.getElementById("modal"),
+        toast: document.getElementById("toast"),
+        totalCount: document.getElementById("totalCount"),
+        progressCount: document.getElementById("progressCount"),
+        reviewCount: document.getElementById("reviewCount"),
+      };
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      function taskById(taskId) {
+        return state.tasks.find((task) => task.id === taskId);
+      }
+
+      function childrenOf(taskId) {
+        return state.tasks.filter((task) => task.parentId === taskId);
+      }
+
+      function parentOf(task) {
+        return task.parentId === null ? undefined : taskById(task.parentId);
+      }
+
+      function isRoot(task) {
+        return task.parentId === null;
+      }
+
+      function completedChildren(taskId) {
+        return childrenOf(taskId).filter((task) =>
+          ["done", "cancelled"].includes(task.status),
+        ).length;
+      }
+
+      function statusPill(status) {
+        return `<span class="pill ${status}">${STATUS[status]?.label ?? status}</span>`;
+      }
+
+      function priorityClass(priority) {
+        return priority === "P0" ? "p0" : priority === "P1" ? "p1" : "";
+      }
+
+      function avatarInitial(name) {
+        if (name === "AI小助理") return "AI";
+        return name.slice(0, 1);
+      }
+
+      function ownerMarkup(task) {
+        return `<span class="avatar ${task.ownerKind === "agent" ? "agent" : ""}" title="${escapeHtml(task.owner)}">${escapeHtml(avatarInitial(task.owner))}</span>`;
+      }
+
+      function childProgressMarkup(task) {
+        const children = childrenOf(task.id);
+        if (children.length === 0) return "";
+        const done = completedChildren(task.id);
+        const percent = Math.round((done / children.length) * 100);
+        return `
+          <div class="children-progress">
+            <div class="progress-track"><div class="progress-fill" style="width:${percent}%"></div></div>
+            <span class="progress-copy">${done}/${children.length} 已完成</span>
+          </div>
+        `;
+      }
+
+      function renderBoard() {
+        elements.totalCount.textContent = String(state.tasks.length);
+        elements.progressCount.textContent = String(
+          state.tasks.filter((task) => task.status === "progress").length,
+        );
+        elements.reviewCount.textContent = String(
+          state.tasks.filter((task) => task.status === "review").length,
+        );
+
+        elements.board.innerHTML = COLUMNS.map((column) => {
+          const tasks = state.tasks.filter((task) => {
+            if (column.key === "done") {
+              return task.status === "done" || task.status === "cancelled";
+            }
+            return task.status === column.key;
+          });
+
+          return `
+            <section class="column" aria-label="${column.label}">
+              <header class="column-head">
+                <span class="status-dot ${column.key}"></span>
+                <strong>${column.label}</strong>
+                <span class="count">${tasks.length}</span>
+                <button class="column-add" type="button" data-create-status="${column.key}" aria-label="在${column.label}新建任务">+</button>
+              </header>
+              <div class="cards">
+                ${
+                  tasks.length === 0
+                    ? '<div class="empty-column">暂无任务</div>'
+                    : tasks.map(renderTaskCard).join("")
+                }
+              </div>
+            </section>
+          `;
+        }).join("");
+
+        elements.board.querySelectorAll("[data-task-id]").forEach((card) => {
+          card.addEventListener("click", () =>
+            openDrawer(card.getAttribute("data-task-id")),
+          );
+          card.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              openDrawer(card.getAttribute("data-task-id"));
+            }
+          });
+        });
+
+        elements.board
+          .querySelectorAll("[data-create-status]")
+          .forEach((button) => {
+            button.addEventListener("click", (event) => {
+              event.stopPropagation();
+              openCreateModal({
+                mode: "global",
+                initialStatus: button.getAttribute("data-create-status"),
+              });
+            });
+          });
+      }
+
+      function renderTaskCard(task) {
+        return `
+          <article
+            class="task-card${task.status === "progress" ? " running" : ""}"
+            role="button"
+            tabindex="0"
+            data-task-id="${task.id}"
+            aria-label="打开任务 ${task.id} ${escapeHtml(task.title)}"
+          >
+            <div class="card-top">
+              <span class="task-id">${task.id}</span>
+            </div>
+            <div class="card-title">${escapeHtml(task.title)}</div>
+            <div class="card-meta">
+              <span class="priority ${priorityClass(task.priority)}">${task.priority}</span>
+              <span class="owner">${escapeHtml(task.owner)}</span>
+              <span class="due">${escapeHtml(task.due)}</span>
+            </div>
+          </article>
+        `;
+      }
+
+      function drawerTabs() {
+        return [
+          { key: "basic", label: "基础信息" },
+          { key: "execution", label: "AI执行记录" },
+          { key: "documents", label: "产出文档" },
+          { key: "relations", label: "关联任务" },
+          { key: "activity", label: "任务动态" },
+        ];
+      }
+
+      function openDrawer(taskId, tab) {
+        const task = taskById(taskId);
+        if (!task) return;
+        state.drawerTaskId = taskId;
+        state.drawerTab = tab ?? "basic";
+        elements.drawerBackdrop.hidden = false;
+        elements.drawer.hidden = false;
+        renderDrawer();
+      }
+
+      function closeDrawer() {
+        state.drawerTaskId = null;
+        elements.drawer.hidden = true;
+        elements.drawerBackdrop.hidden = true;
+      }
+
+      function renderDrawer() {
+        const task = taskById(state.drawerTaskId);
+        if (!task) return;
+        const tabs = drawerTabs();
+        if (!tabs.some((tab) => tab.key === state.drawerTab)) {
+          state.drawerTab = "basic";
+        }
+
+        elements.drawerContent.innerHTML = `
+          <div class="drawer-head">
+            <div class="drawer-topline">
+              <div class="breadcrumb">
+                <span>任务</span>
+                <span>/</span>
+                <span class="breadcrumb-current">${task.id} ${escapeHtml(task.title)}</span>
+              </div>
+              <button class="icon-button" type="button" id="closeDrawerButton" aria-label="关闭任务详情">×</button>
+            </div>
+            <h2 class="drawer-title">${escapeHtml(task.title)}</h2>
+            <div class="drawer-meta">
+              ${statusPill(task.status)}
+              <span class="pill">${task.id}</span>
+              <span class="pill">${task.priority}</span>
+              <span class="pill">${escapeHtml(task.owner)}</span>
+              <span class="pill">截止 ${escapeHtml(task.due)}</span>
+            </div>
+          </div>
+          <div class="drawer-tabs">
+            ${tabs
+              .map(
+                (tab) => `
+                  <button
+                    class="tab${state.drawerTab === tab.key ? " active" : ""}"
+                    type="button"
+                    data-drawer-tab="${tab.key}"
+                  >${tab.label}</button>
+                `,
+              )
+              .join("")}
+          </div>
+          <div class="drawer-body">
+            ${
+              state.drawerTab === "relations"
+                ? renderRelationsTab(task)
+                : state.drawerTab === "execution"
+                  ? renderExecutionTab()
+                  : state.drawerTab === "documents"
+                    ? renderDocumentsTab()
+                    : state.drawerTab === "basic"
+                      ? renderBasicTab(task)
+                      : renderActivityTab(task)
+            }
+          </div>
+        `;
+
+        document
+          .getElementById("closeDrawerButton")
+          ?.addEventListener("click", closeDrawer);
+
+        elements.drawerContent
+          .querySelectorAll("[data-drawer-tab]")
+          .forEach((button) => {
+            button.addEventListener("click", () => {
+              state.drawerTab = button.getAttribute("data-drawer-tab");
+              renderDrawer();
+            });
+          });
+
+        elements.drawerContent
+          .querySelectorAll("[data-open-relation-task]")
+          .forEach((button) => {
+            button.addEventListener("click", (event) => {
+              event.preventDefault();
+              openDrawer(
+                button.getAttribute("data-open-relation-task"),
+                "relations",
+              );
+            });
+          });
+
+        if (state.drawerTab === "relations") {
+          bindRelationsTabActions(task);
+        }
+      }
+
+      function renderRelationsTab(task) {
+        const parent = parentOf(task);
+        const children = childrenOf(task.id);
+        const done = completedChildren(task.id);
+
+        if (parent) {
+          return `
+            <div class="section-head">
+              <strong>主任务</strong>
+              <span>1 个</span>
+            </div>
+            <div class="child-list">
+              <button class="child-row" type="button" data-open-relation-task="${parent.id}">
+                <span class="child-copy">
+                  <span class="child-title-line">
+                    <strong>${escapeHtml(parent.title)}</strong>
+                    ${task.plan ? '<span class="hierarchy-badge">任务规划</span>' : ""}
+                  </span>
+                  <span class="child-subline">
+                    <span>${parent.id}</span>
+                    <span>·</span>
+                    <span>${escapeHtml(parent.owner)}</span>
+                    <span>·</span>
+                    <span>${parent.priority}</span>
+                  </span>
+                </span>
+                <span class="child-side">
+                  ${statusPill(parent.status)}
+                  <time>${escapeHtml(parent.due)}</time>
+                </span>
+              </button>
+            </div>
+            ${
+              task.plan
+                ? `
+                  <div class="children-summary" style="margin-top:12px">
+                    <div class="children-summary-main">
+                      <strong>任务规划</strong>
+                      <span>${escapeHtml(parent.id)} · 关系只读</span>
+                    </div>
+                    <button class="button small" type="button" id="openPlanButton">查看任务规划</button>
+                  </div>
+                `
+                : `
+                  <div class="drawer-actions">
+                    <button class="button small" type="button" id="changeParentButton">更换主任务</button>
+                    <button class="button small danger" type="button" id="unlinkParentButton">解除关联</button>
+                  </div>
+                `
+            }
+          `;
+        }
+
+        return `
+          <div class="section-head">
+            <strong>主任务</strong>
+          </div>
+          ${
+            children.length > 0
+              ? `
+                <div class="children-summary">
+                  <div class="children-summary-main">
+                    <strong>当前任务作为主任务</strong>
+                    <span>${done}/${children.length} 个子任务已完成</span>
+                  </div>
+                  <div class="summary-progress">
+                    <div class="progress-track">
+                      <div class="progress-fill" style="width:${
+                        children.length === 0
+                          ? 0
+                          : Math.round((done / children.length) * 100)
+                      }%"></div>
+                    </div>
+                    <div class="progress-copy">${
+                      children.length === 0
+                        ? 0
+                        : Math.round((done / children.length) * 100)
+                    }%</div>
+                  </div>
+                </div>
+              `
+              : `
+                <div class="children-summary">
+                  <div class="children-summary-main">
+                    <strong>未关联主任务</strong>
+                    <span>当前任务仍是独立任务</span>
+                  </div>
+                  <button class="button small" type="button" id="linkParentButton">关联主任务</button>
+                </div>
+              `
+          }
+          <div class="section-head">
+            <strong>子任务</strong>
+            <span>${children.length} 个</span>
+          </div>
+          ${
+            children.length === 0
+              ? '<div class="empty-state">暂无子任务</div>'
+              : `
+                <div class="child-list">
+                  ${children
+                    .map(
+                      (child) => `
+                        <button class="child-row" type="button" data-open-relation-task="${child.id}">
+                          <span class="child-copy">
+                            <span class="child-title-line">
+                              <strong>${escapeHtml(child.title)}</strong>
+                              ${child.plan ? '<span class="hierarchy-badge">任务规划</span>' : ""}
+                            </span>
+                            <span class="child-subline">
+                              <span>${child.id}</span>
+                              <span>·</span>
+                              <span>${escapeHtml(child.owner)}</span>
+                              <span>·</span>
+                              <span>${child.priority}</span>
+                            </span>
+                          </span>
+                          <span class="child-side">
+                            ${statusPill(child.status)}
+                            <time>${escapeHtml(child.due)}</time>
+                          </span>
+                        </button>
+                      `,
+                    )
+                    .join("")}
+                </div>
+              `
+          }
+          <div class="drawer-actions">
+            <button class="button primary small" type="button" id="createChildButton">创建子任务</button>
+            <button class="button small" type="button" id="linkChildrenButton">关联已有子任务</button>
+          </div>
+        `;
+      }
+
+      function bindRelationsTabActions(task) {
+        document
+          .getElementById("linkParentButton")
+          ?.addEventListener("click", () => {
+            openLinkModal({ mode: "changeParent", taskId: task.id });
+          });
+        document
+          .getElementById("changeParentButton")
+          ?.addEventListener("click", () => {
+            openLinkModal({ mode: "changeParent", taskId: task.id });
+          });
+        document
+          .getElementById("createChildButton")
+          ?.addEventListener("click", () => {
+            openCreateModal({ mode: "subtask", parentId: task.id });
+          });
+        document
+          .getElementById("linkChildrenButton")
+          ?.addEventListener("click", () => {
+            openLinkModal({ mode: "multi", parentId: task.id });
+          });
+        document
+          .getElementById("unlinkParentButton")
+          ?.addEventListener("click", () => {
+            task.parentId = null;
+            renderBoard();
+            renderDrawer();
+            showToast("已解除主任务关联");
+          });
+        document
+          .getElementById("openPlanButton")
+          ?.addEventListener("click", () => {
+            showToast("将打开现有任务规划面板");
+          });
+      }
+
+      function renderExecutionTab() {
+        return `
+          <div class="children-summary">
+            <div class="children-summary-main">
+              <strong>AI 执行记录</strong>
+              <span>1 轮 · 已完成</span>
+            </div>
+            ${statusPill("done")}
+          </div>
+        `;
+      }
+
+      function renderDocumentsTab() {
+        return '<div class="empty-state">暂无产出文档</div>';
+      }
+
+      function renderBasicTab(task) {
+        return `
+          <div class="info-grid">
+            <div class="info-cell">
+              <span>负责人</span>
+              <strong>${escapeHtml(task.owner)}</strong>
+            </div>
+            <div class="info-cell">
+              <span>归属项目</span>
+              <strong>供应链协同</strong>
+            </div>
+            <div class="info-cell">
+              <span>优先级</span>
+              <strong>${task.priority}</strong>
+            </div>
+            <div class="info-cell">
+              <span>截止时间</span>
+              <strong>${escapeHtml(task.due)}</strong>
+            </div>
+            <div class="info-cell">
+              <span>任务类型</span>
+              <strong>任务</strong>
+            </div>
+            <div class="info-cell">
+              <span>前置任务</span>
+              <strong>无</strong>
+            </div>
+          </div>
+          <div class="description-block">${escapeHtml(task.description)}</div>
+        `;
+      }
+
+      function renderActivityTab(task) {
+        const parent = parentOf(task);
+        const rows = [
+          {
+            at: task.createdAt,
+            text: `林岚创建了任务 ${task.id}`,
+          },
+          ...(parent
+            ? [
+                {
+                  at: "今天 10:26",
+                  text: `任务关联到主任务 ${parent.id} ${parent.title}`,
+                },
+              ]
+            : []),
+          ...(childrenOf(task.id).length > 0
+            ? [
+                {
+                  at: "今天 10:25",
+                  text: `任务规划物化了 ${childrenOf(task.id).length} 个节点任务，并建立了主从关系`,
+                },
+              ]
+            : []),
+          {
+            at: "刚刚",
+            text: "任务详情已打开",
+          },
+        ];
+
+        return `
+          <div class="section-head">
+            <strong>任务动态</strong>
+            <span>${rows.length} 条</span>
+          </div>
+          <div class="timeline">
+            ${rows
+              .map(
+                (row) => `
+                  <div class="timeline-row">
+                    <time>${escapeHtml(row.at)}</time>
+                    <span>${escapeHtml(row.text)}</span>
+                  </div>
+                `,
+              )
+              .join("")}
+          </div>
+        `;
+      }
+
+      function closeModal() {
+        state.modal = null;
+        state.selectedCandidateIds.clear();
+        elements.modalBackdrop.hidden = true;
+        elements.modal.innerHTML = "";
+      }
+
+      function openCreateModal(options) {
+        const parent = options.parentId
+          ? taskById(options.parentId)
+          : undefined;
+        state.modal = {
+          type: "create",
+          mode: parent ? "subtask" : "global",
+          parentId: parent?.id ?? null,
+          initialStatus: options.initialStatus ?? "todo",
+        };
+        renderCreateModal();
+        elements.modalBackdrop.hidden = false;
+      }
+
+      function renderCreateModal() {
+        const modal = state.modal;
+        if (!modal || modal.type !== "create") return;
+        const parent = modal.parentId ? taskById(modal.parentId) : undefined;
+        const title = parent ? "新建子任务" : "快速创建任务";
+
+        elements.modal.innerHTML = `
+          <form id="createTaskForm">
+            <header class="modal-head">
+              <div class="modal-heading">
+                <h2>${title}</h2>
+                <p>${parent ? "项目继承主任务" : "默认创建独立任务"}</p>
+              </div>
+              <button class="icon-button" type="button" id="closeCreateModal" aria-label="关闭">×</button>
+            </header>
+            <div class="modal-body">
+              ${
+                parent
+                  ? `
+                    <div class="locked-parent">
+                      <span class="locked-parent-mark">主</span>
+                      <span class="locked-parent-copy">
+                        <span>主任务</span>
+                        <strong>${parent.id} · ${escapeHtml(parent.title)}</strong>
+                      </span>
+                    </div>
+                  `
+                  : ""
+              }
+              <div class="form-grid">
+                <label class="field wide">
+                  <span>标题</span>
+                  <input id="createTitle" maxlength="120" placeholder="输入任务标题" required />
+                </label>
+                <label class="field wide">
+                  <span>描述</span>
+                  <textarea id="createDescription" placeholder="说明目标、范围和交付结果" required></textarea>
+                </label>
+                <label class="field">
+                  <span>负责人</span>
+                  <select id="createOwner">
+                    <option>周宁</option>
+                    <option>林岚</option>
+                    <option>AI小助理</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>优先级</span>
+                  <select id="createPriority">
+                    <option>P0</option>
+                    <option selected>P1</option>
+                    <option>P2</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>截止时间</span>
+                  <input id="createDue" type="date" value="2026-11-26" />
+                </label>
+                <label class="field">
+                  <span>前置任务</span>
+                  <select id="createDependency">
+                    <option value="">无</option>
+                    ${state.tasks
+                      .filter(
+                        (task) =>
+                          task.id !== parent?.id &&
+                          !["done", "cancelled"].includes(task.status),
+                      )
+                      .slice(0, 5)
+                      .map(
+                        (task) =>
+                          `<option value="${task.id}">${task.id} · ${escapeHtml(task.title)}</option>`,
+                      )
+                      .join("")}
+                  </select>
+                </label>
+                <label class="field wide">
+                  <span>验收标准</span>
+                  <textarea id="createAcceptance" placeholder="按任务描述完成并提交可验收结果"></textarea>
+                </label>
+              </div>
+            </div>
+            <footer class="modal-foot">
+              <button class="button ghost danger-space" type="button" id="cancelCreate">取消</button>
+              <button class="button" type="button" id="continuousCreate">连续创建</button>
+              <button class="button primary" type="submit">${parent ? "创建子任务" : "完成创建"}</button>
+            </footer>
+          </form>
+        `;
+
+        document
+          .getElementById("closeCreateModal")
+          ?.addEventListener("click", closeModal);
+        document
+          .getElementById("cancelCreate")
+          ?.addEventListener("click", closeModal);
+
+        document
+          .getElementById("createTaskForm")
+          ?.addEventListener("submit", (event) => {
+            event.preventDefault();
+            createTaskFromModal(false);
+          });
+
+        document
+          .getElementById("continuousCreate")
+          ?.addEventListener("click", () => createTaskFromModal(true));
+      }
+
+      function createTaskFromModal(continuous) {
+        const modal = state.modal;
+        if (!modal) return;
+        const title = document.getElementById("createTitle").value.trim();
+        const description = document
+          .getElementById("createDescription")
+          .value.trim();
+        const owner = document.getElementById("createOwner").value;
+        const priority = document.getElementById("createPriority").value;
+        const dueInput = document.getElementById("createDue").value;
+        const parentId = modal.parentId;
+        if (!title || !description) {
+          showToast("请补充标题和描述");
+          return;
+        }
+
+        const id = `TSK-${state.nextTaskNumber++}`;
+        const due = dueInput
+          ? `${dueInput.slice(5, 7)}-${dueInput.slice(8, 10)}`
+          : "不限";
+        state.tasks.push({
+          id,
+          title,
+          description,
+          status: modal.initialStatus,
+          parentId,
+          owner,
+          ownerKind: owner === "AI小助理" ? "agent" : "human",
+          priority,
+          due,
+          createdAt: "刚刚",
+        });
+        renderBoard();
+        showToast(parentId ? `已创建子任务 ${id}` : `已创建任务 ${id}`);
+
+        if (state.drawerTaskId && parentId === state.drawerTaskId) {
+          state.drawerTab = "relations";
+          renderDrawer();
+        }
+
+        if (continuous) {
+          renderCreateModal();
+          document.getElementById("createTitle")?.focus();
+          return;
+        }
+        closeModal();
+      }
+
+      function openLinkModal(options) {
+        if (options.mode === "multi") {
+          state.modal = {
+            type: "link",
+            mode: "multi",
+            parentId: options.parentId,
+          };
+          state.selectedCandidateIds.clear();
+          renderLinkModal();
+          elements.modalBackdrop.hidden = false;
+          return;
+        }
+
+        state.modal = {
+          type: "link",
+          mode: "changeParent",
+          taskId: options.taskId,
+        };
+        renderLinkModal();
+        elements.modalBackdrop.hidden = false;
+      }
+
+      function candidateTasksForParent(parentId, currentTaskId) {
+        return state.tasks.filter((task) => {
+          if (task.id === parentId || task.id === currentTaskId) return false;
+          if (task.parentId !== null) return false;
+          if (childrenOf(task.id).length > 0) return false;
+          if (task.plan) return false;
+          if (["done", "cancelled"].includes(task.status)) return false;
+          return true;
+        });
+      }
+
+      function renderLinkModal() {
+        const modal = state.modal;
+        if (!modal || modal.type !== "link") return;
+        const parent = modal.parentId ? taskById(modal.parentId) : undefined;
+        const currentTask =
+          modal.mode === "changeParent" ? taskById(modal.taskId) : undefined;
+        const changingParent = Boolean(currentTask?.parentId);
+        const rootCandidates = state.tasks.filter(
+          (task) =>
+            isRoot(task) &&
+            task.id !== currentTask?.id &&
+            !["done", "cancelled"].includes(task.status),
+        );
+        const taskCandidates =
+          modal.mode === "multi"
+            ? candidateTasksForParent(modal.parentId, undefined)
+            : [];
+
+        elements.modal.innerHTML = `
+          <header class="modal-head">
+            <div class="modal-heading">
+              <h2>${
+                modal.mode === "multi"
+                  ? "关联已有子任务"
+                  : changingParent
+                    ? "更换主任务"
+                    : "关联主任务"
+              }</h2>
+              <p>${
+                parent
+                  ? `关联到 ${parent.id} · ${escapeHtml(parent.title)}`
+                  : changingParent
+                    ? "选择新的主任务"
+                    : "选择要关联的主任务"
+              }</p>
+            </div>
+            <button class="icon-button" type="button" id="closeLinkModal" aria-label="关闭">×</button>
+          </header>
+          <div class="modal-body">
+            <label class="field">
+              <span>搜索任务</span>
+              <input type="search" placeholder="输入任务 ID 或标题" />
+            </label>
+            <div class="candidate-list">
+              ${
+                modal.mode === "multi"
+                  ? taskCandidates.length === 0
+                    ? '<div class="empty-state">暂无可关联任务</div>'
+                    : taskCandidates
+                        .map(
+                          (task) => `
+                            <label class="candidate">
+                              <input type="checkbox" data-candidate-task="${task.id}" />
+                              <span class="candidate-copy">
+                                <strong>${task.id} · ${escapeHtml(task.title)}</strong>
+                                <span>${escapeHtml(task.owner)} · ${task.priority} · 截止 ${escapeHtml(task.due)}</span>
+                              </span>
+                              ${statusPill(task.status)}
+                            </label>
+                          `,
+                        )
+                        .join("")
+                  : rootCandidates
+                      .map(
+                        (task) => `
+                          <label class="candidate">
+                            <input
+                              type="radio"
+                              name="parentCandidate"
+                              value="${task.id}"
+                              ${currentTask?.parentId === task.id ? "checked" : ""}
+                            />
+                            <span class="candidate-copy">
+                              <strong>${task.id} · ${escapeHtml(task.title)}</strong>
+                              <span>${escapeHtml(task.owner)} · ${childrenOf(task.id).length} 个子任务</span>
+                            </span>
+                            ${statusPill(task.status)}
+                          </label>
+                        `,
+                      )
+                      .join("")
+              }
+            </div>
+          </div>
+          <footer class="modal-foot">
+            <span class="danger-space"></span>
+            <button class="button" type="button" id="cancelLink">取消</button>
+            <button class="button primary" type="button" id="confirmLink">
+              ${modal.mode === "multi" ? "关联到主任务" : changingParent ? "保存" : "关联"}
+            </button>
+          </footer>
+        `;
+
+        document
+          .getElementById("closeLinkModal")
+          ?.addEventListener("click", closeModal);
+        document
+          .getElementById("cancelLink")
+          ?.addEventListener("click", closeModal);
+
+        elements.modal
+          .querySelectorAll("[data-candidate-task]")
+          .forEach((checkbox) => {
+            checkbox.addEventListener("change", () => {
+              const taskId = checkbox.getAttribute("data-candidate-task");
+              if (checkbox.checked) {
+                state.selectedCandidateIds.add(taskId);
+              } else {
+                state.selectedCandidateIds.delete(taskId);
+              }
+            });
+          });
+
+        document
+          .getElementById("confirmLink")
+          ?.addEventListener("click", () => {
+            if (modal.mode === "multi") {
+              for (const taskId of state.selectedCandidateIds) {
+                const task = taskById(taskId);
+                if (task) task.parentId = modal.parentId;
+              }
+              const count = state.selectedCandidateIds.size;
+              if (count === 0) {
+                showToast("请选择至少一个任务");
+                return;
+              }
+              closeModal();
+              renderBoard();
+              state.drawerTab = "relations";
+              renderDrawer();
+              showToast(`已关联 ${count} 个任务`);
+              return;
+            }
+
+            const selected = elements.modal.querySelector(
+              'input[name="parentCandidate"]:checked',
+            );
+            if (!selected) {
+              showToast("请选择主任务");
+              return;
+            }
+            const task = taskById(modal.taskId);
+            if (task) task.parentId = selected.value;
+            closeModal();
+            renderBoard();
+            state.drawerTab = "relations";
+            renderDrawer();
+            showToast("主任务已更新");
+          });
+      }
+
+      function showToast(message) {
+        window.clearTimeout(state.toastTimer);
+        elements.toast.textContent = message;
+        elements.toast.classList.add("show");
+        state.toastTimer = window.setTimeout(() => {
+          elements.toast.classList.remove("show");
+        }, 2200);
+      }
+
+      document.getElementById("newTaskButton").addEventListener("click", () => {
+        openCreateModal({ mode: "global", initialStatus: "todo" });
+      });
+
+      document.getElementById("refreshButton").addEventListener("click", () => {
+        showToast("任务列表已刷新");
+      });
+
+      elements.drawerBackdrop.addEventListener("click", closeDrawer);
+      elements.modalBackdrop.addEventListener("click", (event) => {
+        if (event.target === elements.modalBackdrop) closeModal();
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        if (!elements.modalBackdrop.hidden) {
+          closeModal();
+          return;
+        }
+        if (!elements.drawer.hidden) closeDrawer();
+      });
+
+      renderBoard();
+
+      const demoParams = new URLSearchParams(window.location.search);
+      const demoTab = demoParams.get("tab");
+      const demoTask = demoParams.get("task");
+      if (demoTask) {
+        openDrawer(demoTask, demoTab || undefined);
+      }
+      const demoCreate = demoParams.get("create");
+      if (demoCreate === "subtask") {
+        openCreateModal({
+          mode: "subtask",
+          parentId: demoParams.get("parent") || "TSK-1042",
+        });
+      } else if (demoCreate === "global") {
+        openCreateModal({ mode: "global", initialStatus: "todo" });
+      }
+      const demoLink = demoParams.get("link");
+      if (demoLink === "multi") {
+        openLinkModal({
+          mode: "multi",
+          parentId: demoParams.get("parent") || "TSK-1042",
+        });
+      }
+    </script>
+  </body>
+</html>

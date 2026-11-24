@@ -1,0 +1,37 @@
+{
+  "id": "orders-readonly",
+  "version": "orders-manifest-v2",
+  "connectorType": "orders-readonly",
+  "readOnly": true,
+  "transports": ["fixture", "http-json", "mcp"],
+  "fields": [
+    { "id": "order_id", "required": true, "type": "string" },
+    { "id": "ordered_at", "required": true, "type": "datetime" },
+    { "id": "paid_at", "required": false, "type": "datetime" },
+    { "id": "order_status", "required": true, "type": "string" },
+    { "id": "payment_status", "required": true, "type": "string" },
+    { "id": "region", "required": true, "type": "string" },
+    { "id": "category", "required": true, "type": "string" },
+    { "id": "payment_method", "required": true, "type": "string" },
+    { "id": "channel", "required": true, "type": "string" },
+    { "id": "merchant", "required": true, "type": "string" },
+    {
+      "id": "promised_fulfillment_at",
+      "required": true,
+      "type": "datetime"
+    },
+    {
+      "id": "actual_fulfillment_at",
+      "required": false,
+      "type": "datetime"
+    },
+    { "id": "refund_status", "required": true, "type": "string" },
+    { "id": "amount", "required": true, "type": "number" }
+  ],
+  "supports": {
+    "dimensions": true,
+    "semanticMetrics": true,
+    "rawSql": false,
+    "writes": false
+  }
+}
