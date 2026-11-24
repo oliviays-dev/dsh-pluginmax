@@ -143,27 +143,21 @@ describe("task message lifecycle", () => {
         created.id,
       ),
     ).rejects.toMatchObject({ code: "forbidden" });
-    expect(rejected).toEqual([
-      "outsider:当前用户不在任务候选池中",
-    ]);
+    expect(rejected).toEqual(["outsider:当前用户不在任务候选池中"]);
 
     const results = await Promise.allSettled([
-      tasks.claim(
-        { id: "olivia", name: "Olivia", kind: "human" },
-        created.id,
-      ),
+      tasks.claim({ id: "olivia", name: "Olivia", kind: "human" }, created.id),
       tasks.claim({ id: "bob", name: "Bob", kind: "human" }, created.id),
     ]);
 
-    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(
-      1,
-    );
-    expect(results.filter((result) => result.status === "rejected")).toHaveLength(
-      1,
-    );
     expect(
-      results.find((result) => result.status === "rejected")?.reason
-        ?.message,
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
+    expect(
+      results.filter((result) => result.status === "rejected"),
+    ).toHaveLength(1);
+    expect(
+      results.find((result) => result.status === "rejected")?.reason?.message,
     ).toContain("任务已被其他候选人领取");
     expect(claimed).toEqual([created.id]);
     expect(tasks.get(created.id)).toMatchObject({
@@ -288,9 +282,11 @@ describe("effective permission gate", () => {
     );
     const tasks = new TaskService({ tasks: table });
 
-    await expect(tasks.start(actor, "TSK-legacy-scope")).resolves.toMatchObject({
-      status: "progress",
-    });
+    await expect(tasks.start(actor, "TSK-legacy-scope")).resolves.toMatchObject(
+      {
+        status: "progress",
+      },
+    );
   });
 });
 
@@ -703,5 +699,194 @@ describe("project role removal", () => {
     expect(assigned.reassignmentReason).toBeUndefined();
     expect(assigned.receiverType).toBe("human");
     expect(assigned.receiverId).toBe("flow-member");
+  });
+});
+
+describe("task hierarchy", () => {
+  it("creates child tasks with a parent reference", async () => {
+    const tasks = new TaskService({ tasks: memoryTable() });
+    const parent = await tasks.create(actor, {
+      workspaceId: "workspace-1",
+      title: "主任务",
+      priority: "P1",
+      receiverType: "human",
+      receiverId: "admin",
+      receiverName: "Admin",
+      description: "负责最终交付。",
+      acceptance: ["最终结果通过验收"],
+    });
+    const child = await tasks.create(actor, {
+      workspaceId: "workspace-1",
+      parentTaskId: parent.id,
+      title: "子任务",
+      priority: "P2",
+      receiverType: "human",
+      receiverId: "admin",
+      receiverName: "Admin",
+      description: "完成局部工作。",
+      acceptance: ["局部结果完成"],
+    });
+
+    expect(tasks.get(child.id).parentTaskId).toBe(parent.id);
+    await expect(
+      tasks.create(actor, {
+        workspaceId: "workspace-1",
+        parentTaskId: child.id,
+        title: "三级任务",
+        priority: "P2",
+        receiverType: "human",
+        receiverId: "admin",
+        receiverName: "Admin",
+        description: "子任务不能继续关联子任务。",
+        acceptance: ["不应创建"],
+      }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+  });
+
+  it("unlinks an archived child task without changing its status", async () => {
+    const tasks = new TaskService({ tasks: memoryTable() });
+    const parent = await tasks.create(actor, {
+      workspaceId: "workspace-1",
+      title: "主任务",
+      priority: "P1",
+      receiverType: "human",
+      receiverId: "admin",
+      receiverName: "Admin",
+      description: "负责最终交付。",
+      acceptance: ["最终结果通过验收"],
+    });
+    const child = await tasks.create(actor, {
+      workspaceId: "workspace-1",
+      title: "待关联任务",
+      priority: "P2",
+      receiverType: "human",
+      receiverId: "admin",
+      receiverName: "Admin",
+      description: "先独立创建，再关联主任务。",
+      acceptance: ["局部结果完成"],
+    });
+    await tasks.changeStatus(actor, { taskId: child.id, status: "progress" });
+
+    const linked = await tasks.setChildRelation(actor, {
+      action: "link",
+      parentTaskId: parent.id,
+      childTaskId: child.id,
+    });
+    expect(linked).toMatchObject({
+      parentTaskId: parent.id,
+      status: "progress",
+    });
+    const archived = await tasks.archive(actor, child.id);
+    expect(archived.archivedAt).toBeDefined();
+
+    const unlinked = await tasks.setChildRelation(actor, {
+      action: "unlink",
+      parentTaskId: parent.id,
+      childTaskId: child.id,
+    });
+    expect(unlinked.parentTaskId).toBeUndefined();
+    expect(unlinked.status).toBe("progress");
+    expect(unlinked.archivedAt).toBe(archived.archivedAt);
+  });
+});
+
+describe("assignee project membership", () => {
+  const memberDirectory = {
+    humans: [{ id: "admin" }],
+    agents: [{ id: "tm-member", employeeId: "employee-member" }],
+    roles: [{ id: "role-member" }],
+  };
+
+  it("rejects creating a task with a receiver outside the project", async () => {
+    const tasks = new TaskService(
+      { tasks: memoryTable() },
+      { memberDirectory: () => memberDirectory },
+    );
+    await expect(
+      tasks.create(actor, {
+        workspaceId: "workspace-1",
+        title: "跨项目负责人",
+        priority: "P2",
+        receiverType: "agent",
+        receiverId: "tm-other-project",
+        receiverName: "其他项目伙伴",
+        description: "不应创建。",
+        acceptance: ["拒绝跨项目负责人"],
+      }),
+    ).rejects.toMatchObject({
+      code: "invalid_input",
+      message: "任务负责人必须是当前项目成员",
+    });
+  });
+
+  it("accepts project members and rejects cross-project reassignment", async () => {
+    const tasks = new TaskService(
+      { tasks: memoryTable() },
+      { memberDirectory: () => memberDirectory },
+    );
+    const created = await tasks.create(actor, {
+      workspaceId: "workspace-1",
+      title: "项目成员任务",
+      priority: "P2",
+      receiverType: "human",
+      receiverId: "admin",
+      receiverName: "Admin",
+      description: "创建时负责人是项目成员。",
+      acceptance: ["可以创建"],
+    });
+    const assigned = await tasks.assign(actor, {
+      taskId: created.id,
+      receiverType: "agent",
+      receiverId: "employee-member",
+      receiverName: "项目伙伴",
+    });
+    expect(assigned.receiverId).toBe("employee-member");
+    await expect(
+      tasks.assign(actor, {
+        taskId: created.id,
+        receiverType: "human",
+        receiverId: "outsider",
+        receiverName: "外部成员",
+      }),
+    ).rejects.toMatchObject({
+      code: "invalid_input",
+      message: "任务负责人必须是当前项目成员",
+    });
+  });
+});
+
+describe("task queue activity copy", () => {
+  it("uses a concise pause message when pausing execution", async () => {
+    const tasks = new TaskService({ tasks: memoryTable() });
+    const task = await tasks.create(actor, {
+      workspaceId: "workspace-1",
+      title: "暂停执行文案",
+      priority: "P2",
+      receiverType: "human",
+      receiverId: "admin",
+      receiverName: "Admin",
+      description: "验证队列事件文案。",
+      acceptance: ["文案正确"],
+    });
+    await tasks.attachAgentRun(
+      task.id,
+      {
+        id: "run-paused-copy",
+        instanceId: task.id,
+        status: "running",
+      },
+      "测试 Agent",
+    );
+    const paused = await tasks.updateQueueItem(actor, {
+      taskId: task.id,
+      queueState: "paused",
+    });
+    expect(paused.queueState).toBe("paused");
+    expect(paused.events.at(-1)?.message).toBe("Admin 暂停执行");
+    expect(paused.messages.at(-1)).toMatchObject({
+      runId: "run-paused-copy",
+      state: "cancelled",
+      content: "执行已暂停。",
+    });
   });
 });

@@ -3,12 +3,17 @@ import {
   type Approver,
   type DeliverableRequirement,
   type WorkflowEdge,
+  type WorkflowBusinessChain,
+  type WorkflowExternalRef,
   type WorkflowGraph,
   type WorkflowNode,
+  type WorkflowNodeBusinessChain,
+  type WorkflowNodeField,
 } from "./types.js";
 
 export interface ParseResult {
   readonly graph?: WorkflowGraph;
+  readonly businessChain?: WorkflowBusinessChain;
   readonly errors: string[];
   readonly warnings: string[];
 }
@@ -167,6 +172,67 @@ function parseDurationMs(value: string): number | undefined {
     match[2] as "ms" | "s" | "m" | "h"
   ];
   return amount * unitMs;
+}
+
+function parseBusinessChainRef(
+  value: string,
+  errors: string[],
+  nodeId: string,
+): WorkflowExternalRef | undefined {
+  const parts = value.split("|").map((part) => part.trim());
+  if (parts.length < 3 || parts.slice(0, 3).some((part) => part === "")) {
+    errors.push(
+      `node "${nodeId}" external-ref must use system|objectType|objectId|required`,
+    );
+    return undefined;
+  }
+  const required = parts[3]?.toLowerCase() ?? "true";
+  if (required !== "true" && required !== "false") {
+    errors.push(`node "${nodeId}" external-ref required must be true or false`);
+    return undefined;
+  }
+  return {
+    system: parts[0]!,
+    objectType: parts[1]!,
+    objectId: parts[2]!,
+    required: required === "true",
+  };
+}
+
+function parseBusinessChainField(
+  value: string,
+  errors: string[],
+  nodeId: string,
+): WorkflowNodeField | undefined {
+  const [key, label, system, objectId, paths] = value
+    .split("|")
+    .map((part) => part.trim());
+  if (
+    key === undefined ||
+    !ID_PATTERN.test(key) ||
+    label === undefined ||
+    label === "" ||
+    system === undefined ||
+    system === "" ||
+    objectId === undefined ||
+    objectId === "" ||
+    paths === undefined ||
+    paths === ""
+  ) {
+    errors.push(
+      `node "${nodeId}" field must use key|label|system|objectId|path[,path]`,
+    );
+    return undefined;
+  }
+  return {
+    key,
+    label,
+    bindings: paths
+      .split(",")
+      .map((path) => path.trim())
+      .filter(Boolean)
+      .map((path) => ({ system, objectId, path })),
+  };
 }
 
 function parseEdges(
@@ -335,6 +401,50 @@ export function parseWorkflowMarkdown(markdown: string): ParseResult {
   if (versionText === undefined || !Number.isInteger(version) || version <= 0) {
     errors.push("metadata version must be a positive integer");
   }
+  const definitionKind = metadata["kind"]?.trim() ?? "workflow";
+  if (definitionKind !== "workflow" && definitionKind !== "business-chain") {
+    errors.push("metadata kind must be workflow or business-chain");
+  }
+  let businessChain: WorkflowBusinessChain | undefined;
+  if (definitionKind === "business-chain") {
+    const chainKey = metadata["business-chain-key"] ?? key;
+    const chainName = metadata["business-chain-name"] ?? name;
+    const snapshotPolicy =
+      metadata["business-chain-snapshot-policy"] ?? "pin-at-project-create";
+    const allowUnbound =
+      metadata["business-chain-allow-unbound"]?.toLowerCase() === "true";
+    if (chainKey === undefined || !ID_PATTERN.test(chainKey)) {
+      errors.push(
+        "business-chain-key is required and must use kebab-case when kind is business-chain",
+      );
+    }
+    if (
+      snapshotPolicy !== "pin-at-project-create" &&
+      snapshotPolicy !== "latest-active"
+    ) {
+      errors.push(
+        "business-chain-snapshot-policy must be pin-at-project-create or latest-active",
+      );
+    }
+    businessChain = {
+      enabled: true,
+      ...(metadata["business-chain-template-id"] === undefined
+        ? {}
+        : { templateId: metadata["business-chain-template-id"] }),
+      chainKey: chainKey ?? "",
+      displayName: chainName,
+      projectTypeCodes: (metadata["project-type-codes"] ?? "")
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+      stageCodePolicy: "stable",
+      snapshotPolicy:
+        snapshotPolicy === "latest-active"
+          ? "latest-active"
+          : "pin-at-project-create",
+      allowUnboundExternalNodes: allowUnbound,
+    };
+  }
 
   const nodeLines = parsedSections.get("节点")!;
   const groups: Array<{ name: string; lines: string[] }> = [];
@@ -451,12 +561,32 @@ export function parseWorkflowMarkdown(markdown: string): ParseResult {
       );
       continue;
     }
+    const ownerRoleText = fields.get("owner-role")?.[0]?.trim();
+    const ownerRoleCode = fields
+      .get("owner-role-code")?.[0]
+      ?.trim()
+      .toUpperCase();
     const executor =
-      executorText === undefined
-        ? undefined
-        : parseExecutor(executorText, errors);
+      businessChain !== undefined
+        ? ownerRoleCode === undefined || ownerRoleCode === ""
+          ? {
+              kind: "role" as const,
+              id: "role-owner",
+              label: "项目负责人",
+              roleCode: "PROJECT_OWNER",
+            }
+          : {
+              kind: "role" as const,
+              id: ownerRoleCode,
+              label: ownerRoleText || ownerRoleCode,
+              roleCode: ownerRoleCode,
+            }
+        : executorText === undefined
+          ? undefined
+          : parseExecutor(executorText, errors);
     if (executor === undefined) continue;
-    const responsibleText = fields.get("responsible")?.[0];
+    const responsibleText =
+      businessChain === undefined ? fields.get("responsible")?.[0] : undefined;
     const responsible =
       responsibleText === undefined
         ? undefined
@@ -520,6 +650,18 @@ export function parseWorkflowMarkdown(markdown: string): ParseResult {
     const approvers = (fields.get("approver") ?? [])
       .map((value) => parseApprover(value, errors))
       .filter((value): value is Approver => value !== undefined);
+    if (
+      businessChain !== undefined &&
+      type === "approval" &&
+      approvers.length === 0
+    ) {
+      approvers.push({
+        kind: "role",
+        id: "role-owner",
+        name: "项目负责人",
+        roleCode: "PROJECT_OWNER",
+      });
+    }
     const reviewText =
       fields.get("review-required")?.[0] ?? fields.get("review")?.[0];
     const reviewRequired = reviewText?.toLowerCase() !== "false";
@@ -680,7 +822,87 @@ export function parseWorkflowMarkdown(markdown: string): ParseResult {
     if (type === "approval" && approvers.length === 0) {
       errors.push(`approval node requires approver: ${nodeId}`);
     }
+    const stageCode = fields.get("stage-code")?.[0];
+    const sequenceText = fields.get("sequence")?.[0];
+    const summaryMetric =
+      fields.get("summary-metric")?.[0] ?? fields.get("metric")?.[0];
+    const externalRefs = (fields.get("external-ref") ?? [])
+      .map((value) => parseBusinessChainRef(value, errors, nodeId))
+      .filter((value): value is WorkflowExternalRef => value !== undefined);
+    const businessChainFields = (fields.get("field") ?? [])
+      .map((value) => parseBusinessChainField(value, errors, nodeId))
+      .filter((value): value is WorkflowNodeField => value !== undefined);
+    const fieldKeys = new Set<string>();
+    const externalRefKeys = new Set(
+      externalRefs.map((ref) => `${ref.system}:${ref.objectId}`),
+    );
+    for (const field of businessChainFields) {
+      if (fieldKeys.has(field.key)) {
+        errors.push(`duplicate business-chain field key: ${field.key}`);
+      }
+      fieldKeys.add(field.key);
+      for (const binding of field.bindings) {
+        const key = `${binding.system}:${binding.objectId}`;
+        if (!externalRefKeys.has(key)) {
+          externalRefs.push({
+            system: binding.system,
+            objectType: "object",
+            objectId: binding.objectId,
+            required: true,
+          });
+          externalRefKeys.add(key);
+        }
+      }
+    }
+    if (
+      businessChain !== undefined &&
+      (stageCode === undefined ||
+        sequenceText === undefined ||
+        summaryMetric === undefined)
+    ) {
+      errors.push(
+        `business-chain node "${nodeId}" requires stage-code, sequence and summary-metric`,
+      );
+    }
+    if (stageCode !== undefined && !/^[A-Z][A-Z0-9_]*$/.test(stageCode)) {
+      errors.push(
+        `node "${nodeId}" stage-code must use uppercase letters, numbers and underscores`,
+      );
+    }
+    const sequence = sequenceText === undefined ? undefined : Number(sequenceText);
+    if (
+      sequenceText !== undefined &&
+      (!Number.isInteger(sequence) || (sequence ?? 0) <= 0)
+    ) {
+      errors.push(`node "${nodeId}" sequence must be a positive integer`);
+    }
+    if (
+      stageCode !== undefined &&
+      sequence !== undefined &&
+      summaryMetric !== undefined
+    ) {
+      const nodeBusinessChain: WorkflowNodeBusinessChain = {
+        stageCode,
+        sequence,
+        summaryMetric,
+        externalRefs,
+        fields: businessChainFields,
+      };
+      node.businessChain = nodeBusinessChain;
+    }
     nodes.push(node);
+  }
+
+  if (businessChain !== undefined) {
+    const stageCodes = new Set<string>();
+    for (const node of nodes) {
+      const stageCode = node.businessChain?.stageCode;
+      if (stageCode === undefined) continue;
+      if (stageCodes.has(stageCode)) {
+        errors.push(`duplicate business-chain stageCode: ${stageCode}`);
+      }
+      stageCodes.add(stageCode);
+    }
   }
 
   const parsedEdges = parseEdges(parsedSections.get("连接")!, errors);
@@ -749,6 +971,7 @@ export function parseWorkflowMarkdown(markdown: string): ParseResult {
       startNodeIds: roots,
       warnings,
     },
+    ...(businessChain === undefined ? {} : { businessChain }),
     errors,
     warnings,
   };

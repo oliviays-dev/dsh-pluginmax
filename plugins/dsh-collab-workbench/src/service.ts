@@ -2704,6 +2704,10 @@ export class WorkbenchService {
       unreadCount: number;
       summary: string;
       views: { unread: BriefItemRecord[]; all: BriefItemRecord[] };
+      projectCatalog: {
+        workspaceId: string;
+        workspaceName: string;
+      }[];
       projectDigests: {
         unread: BriefProjectDigest[];
         all: BriefProjectDigest[];
@@ -2717,6 +2721,15 @@ export class WorkbenchService {
     }>
   > {
     const now = this.now();
+    const projectCatalog = this.workspaceMap(principal).workspaces
+      .map((workspace) => ({
+        workspaceId: workspace.id,
+        workspaceName: this.workspaceName(workspace),
+      }))
+      .filter((project) => project.workspaceName !== "")
+      .sort((left, right) =>
+        left.workspaceName.localeCompare(right.workspaceName, "zh-Hans-CN"),
+      );
     const display = await this.activeDisplayProfile(principal);
     if (display?.profile.brief !== undefined) {
       const copy = await display.profile.brief({
@@ -2811,6 +2824,7 @@ export class WorkbenchService {
           unreadCount: merged.unreadCount,
           summary: copy.summary,
           views: { unread: merged.unread, all: merged.all },
+          projectCatalog,
           projectDigests: {
             unread: briefProjectDigests(merged.unread),
             all: briefProjectDigests(merged.all),
@@ -2930,6 +2944,7 @@ export class WorkbenchService {
         unreadCount: merged.unreadCount,
         summary: briefSummary({ awayWindow: window, items: merged.unread }),
         views: { unread: merged.unread, all: merged.all },
+        projectCatalog,
         projectDigests: {
           unread: briefProjectDigests(merged.unread),
           all: briefProjectDigests(merged.all),

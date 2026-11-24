@@ -97,6 +97,7 @@ export interface ExecutionRuntimeLike {
   readonly supportedTools?: readonly string[] | undefined;
   readonly supportedModels?: readonly string[] | undefined;
   readonly defaultModel?: string | undefined;
+  readonly reasoningEffort?: string | undefined;
   readonly contextWindowTokens?: number | undefined;
   readonly sandboxMode?: "read-only" | "workspace-write" | undefined;
   readonly networkAccess?: boolean | undefined;
@@ -383,6 +384,7 @@ function capabilityFor(input: {
       supportedTools: input.runtime?.supportedTools ?? [],
       supportedModels: input.runtime?.supportedModels ?? [],
       defaultModel: input.runtime?.defaultModel,
+      reasoningEffort: input.runtime?.reasoningEffort,
       contextWindowTokens: input.runtime?.contextWindowTokens,
       profile: input.profile.id,
     }),
@@ -411,7 +413,7 @@ function capabilityFor(input: {
   const search = supportsTool(
     "web_search",
     protocol === "builtin"
-        ? "supported"
+      ? "supported"
       : searchArgument
         ? "supported"
         : "unknown",
@@ -664,10 +666,10 @@ function buildEnvelope(input: {
   readonly at: string;
 }): ExecutionEnvelope {
   const profileAllowed =
-      input.policy.toolPolicy.allow.length === 0
-        ? input.capability.toolCategories
-        : input.policy.toolPolicy.allow.filter((category) =>
-            input.capability.toolCategories.includes(category),
+    input.policy.toolPolicy.allow.length === 0
+      ? input.capability.toolCategories
+      : input.policy.toolPolicy.allow.filter((category) =>
+          input.capability.toolCategories.includes(category),
         );
   const policyCategoryGrants = [
     ...input.policy.toolPolicy.allow,
@@ -703,6 +705,9 @@ function buildEnvelope(input: {
       : input.profile.defaultModel?.model);
   const reasoningEffort =
     input.policy.runtime.reasoningEffort ??
+    (input.profile.execution === "external"
+      ? input.runtime?.reasoningEffort
+      : undefined) ??
     input.profile.defaultModel?.reasoningEffort;
   return executionEnvelopeSchema.parse({
     schemaVersion: 1,
@@ -856,7 +861,7 @@ function eventSummary(event: SessionEventLike):
         isError:
           toolResultError ||
           (typeof data.error === "object" &&
-          data.error !== null &&
+            data.error !== null &&
             Object.keys(data.error).length > 0),
       },
     };
@@ -1151,14 +1156,14 @@ export class AgentExecutionService {
       gaps,
       suggestedRuntimeIds: [],
       warnings: [
-          ...(capability.gateEnforcement === "observe-only"
-            ? ["该 Runtime 不能在动作执行前阻断高风险工具"]
-            : []),
-          ...(policy.sourcePolicy.allow.includes("public-web") &&
-          capability.capabilities.search === "unknown"
-            ? ["Runtime 未声明搜索能力，将在执行时按可用工具尝试"]
-            : []),
-        ],
+        ...(capability.gateEnforcement === "observe-only"
+          ? ["该 Runtime 不能在动作执行前阻断高风险工具"]
+          : []),
+        ...(policy.sourcePolicy.allow.includes("public-web") &&
+        capability.capabilities.search === "unknown"
+          ? ["Runtime 未声明搜索能力，将在执行时按可用工具尝试"]
+          : []),
+      ],
     };
   }
 

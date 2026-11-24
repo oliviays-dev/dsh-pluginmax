@@ -102,6 +102,21 @@ importers:
         specifier: 4.4.3
         version: 4.4.3
 
+  plugins/dsh-collab-demo-ai-server-120:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: 1.29.0
+        version: 1.29.0(zod@4.4.3)
+      dsh-collab-resource-market:
+        specifier: workspace:*
+        version: link:../dsh-collab-resource-market
+      yaml:
+        specifier: ^2.9.1
+        version: 2.9.1
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+
   plugins/dsh-collab-demo-phone-tablet-order:
     dependencies:
       '@modelcontextprotocol/sdk':
@@ -240,6 +255,15 @@ importers:
       '@pluginmax/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@pluginmax/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+
+  plugins/dsh-collab-task-dispatch:
+    dependencies:
       '@pluginmax/shared':
         specifier: workspace:*
         version: link:../../packages/shared

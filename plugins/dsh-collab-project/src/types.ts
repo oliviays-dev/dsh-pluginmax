@@ -71,6 +71,66 @@ export const roleMappingPresetSchema = z.object({
 });
 export type RoleMappingPreset = z.infer<typeof roleMappingPresetSchema>;
 
+export const businessChainModeSchema = z.enum([
+  "required",
+  "optional",
+  "none",
+]);
+export type BusinessChainMode = z.infer<typeof businessChainModeSchema>;
+
+export const businessChainVersionPolicySchema = z.enum([
+  "pin-at-project-create",
+  "latest-active",
+]);
+export type BusinessChainVersionPolicy = z.infer<
+  typeof businessChainVersionPolicySchema
+>;
+
+/** 业务对象引用只使用稳定系统、类型和对象 ID，不保存展示名称。 */
+export const businessChainExternalRefSchema = z.object({
+  system: z.string().trim().min(1).max(80),
+  objectType: z.string().trim().min(1).max(80),
+  objectId: z.string().trim().min(1).max(200),
+  required: z.boolean().default(true),
+});
+export type BusinessChainExternalRef = z.infer<
+  typeof businessChainExternalRefSchema
+>;
+
+export const businessChainNodeBindingSchema = z.object({
+  nodeId: idSchema,
+  externalRefs: z.array(businessChainExternalRefSchema).max(50).default([]),
+});
+export type BusinessChainNodeBinding = z.infer<
+  typeof businessChainNodeBindingSchema
+>;
+
+/**
+ * 项目创建或显式应用时保存的业务链路快照。
+ * 模版后续更新只影响下一次显式应用，不修改这里。
+ */
+export const projectBusinessChainBindingSchema = z.object({
+  projectTemplateId: idSchema,
+  businessChainTemplateId: idSchema,
+  workflowDefinitionId: idSchema,
+  workflowDefinitionVersion: z.number().int().positive(),
+  workflowInstanceId: idSchema.optional(),
+  chainKey: idSchema.optional(),
+  bindingMode: z.enum([
+    "template-default",
+    "template-allowed",
+    "project-custom",
+    "legacy",
+  ]),
+  sourceTemplateRevision: z.number().int().positive(),
+  nodeBindings: z.array(businessChainNodeBindingSchema).max(100).default([]),
+  boundAt: isoTimeSchema,
+  boundBy: idSchema,
+});
+export type ProjectBusinessChainBinding = z.infer<
+  typeof projectBusinessChainBindingSchema
+>;
+
 export const projectReportScheduleFrequencySchema = z.enum([
   "daily",
   "weekdays",
@@ -117,6 +177,52 @@ export const projectReportScheduleSchema = z.object({
 });
 export type ProjectReportSchedule = z.infer<typeof projectReportScheduleSchema>;
 
+export const projectDemoDataNodeSchema = z.object({
+  status: z
+    .enum(["waiting", "ready", "running", "blocked", "completed", "failed"])
+    .optional(),
+  owner: z.string().trim().max(120).optional(),
+  exception: z.string().trim().max(1_000).optional(),
+  fields: z
+    .record(
+      z.string().trim().min(1).max(120),
+      z.union([z.string().max(500), z.number(), z.boolean(), z.null()]),
+    )
+    .default({}),
+});
+export type ProjectDemoDataNode = z.infer<typeof projectDemoDataNodeSchema>;
+
+export const projectDemoDataChangeEventSchema = z.object({
+  id: z.string().trim().min(1).max(200).optional(),
+  category: z.string().trim().min(1).max(80).default("external"),
+  categoryLabel: z.string().trim().min(1).max(80).optional(),
+  at: z.string().datetime({ offset: true }),
+  description: z.string().trim().min(1).max(1_000),
+  source: z.string().trim().max(200).default("演示数据"),
+  linkedNodeIds: z.array(idSchema).max(100).default([]),
+});
+
+export const projectDemoDataDocumentSchema = z.object({
+  schemaVersion: z
+    .literal("project-demo-data-v1")
+    .default("project-demo-data-v1"),
+  nodes: z.record(z.string(), projectDemoDataNodeSchema).default({}),
+  changeEvents: z.array(projectDemoDataChangeEventSchema).max(200).default([]),
+});
+export type ProjectDemoDataDocument = z.infer<
+  typeof projectDemoDataDocumentSchema
+>;
+
+export const projectDemoDataConfigSchema = z.object({
+  fileName: z.string().trim().min(1).max(240),
+  uploadedAt: isoTimeSchema,
+  uploadedBy: idSchema,
+  data: projectDemoDataDocumentSchema,
+});
+export type ProjectDemoDataConfig = z.infer<
+  typeof projectDemoDataConfigSchema
+>;
+
 /**
  * 项目扩展信息。
  *
@@ -147,6 +253,13 @@ export const projectRecordSchema = z.object({
   rolesRevision: z.number().int().positive().default(1),
   rolesUpdatedAt: isoTimeSchema.optional(),
   rolesUpdatedBy: idSchema.optional(),
+  /** 项目级业务链路快照；缺省表示兼容旧项目，不自动绑定任何工作流。 */
+  businessChainBinding: projectBusinessChainBindingSchema.optional(),
+  /** 项目业务链路配置 revision，用于应用绑定时防止并发覆盖。 */
+  businessChainRevision: z.number().int().positive().default(1),
+  businessChainValidatedAt: isoTimeSchema.optional(),
+  /** 项目概览演示数据；上传后优先覆盖节点字段，便于现场调演示。 */
+  demoDataConfig: projectDemoDataConfigSchema.optional(),
   reportSchedule: projectReportScheduleSchema.default({
     enabled: true,
     frequency: "daily",
@@ -186,10 +299,56 @@ export const projectTemplateRecordSchema = z.object({
   description: z.string().trim().max(500).default(""),
   roleIds: z.array(idSchema).max(50).default([]),
   workflowTemplateIds: z.array(idSchema).max(50).default([]),
+  businessChainMode: businessChainModeSchema.default("none"),
+  allowedBusinessChainTemplateIds: z.array(idSchema).max(50).default([]),
+  defaultBusinessChainTemplateId: idSchema.optional(),
+  versionPolicy: businessChainVersionPolicySchema.default(
+    "pin-at-project-create",
+  ),
+  revision: z.number().int().positive().default(1),
   createdAt: isoTimeSchema,
   updatedAt: isoTimeSchema,
 });
 export type ProjectTemplateRecord = z.infer<typeof projectTemplateRecordSchema>;
+
+export const projectAlertLifecycleSchema = z.enum([
+  "open",
+  "acknowledged",
+  "in_progress",
+  "resolved",
+  "suppressed",
+  "stale",
+]);
+export type ProjectAlertLifecycle = z.infer<
+  typeof projectAlertLifecycleSchema
+>;
+
+/**
+ * 项目域 Alert 投影。conditionKey 是跨来源修订稳定的业务身份，
+ * alertId 在同一个项目内保持稳定，不随标题或事件 ID 变化。
+ */
+export const projectAlertRecordSchema = z.object({
+  alertId: idSchema,
+  workspaceId: idSchema,
+  conditionKey: z.string().trim().min(1).max(500),
+  sourceSystem: z.string().trim().min(1).max(80),
+  sourceObjectId: z.string().trim().max(200).default(""),
+  sourceRevision: z.string().trim().max(120).default(""),
+  nodeId: idSchema.optional(),
+  alertType: z.string().trim().min(1).max(80),
+  severity: z.enum(["P0", "P1", "P2"]),
+  title: z.string().trim().min(1).max(300),
+  description: z.string().trim().max(1_000).default(""),
+  lifecycle: projectAlertLifecycleSchema,
+  assigneePrincipalId: idSchema.optional(),
+  linkedTaskIds: z.array(idSchema).max(200).default([]),
+  firstSeenAt: isoTimeSchema,
+  lastSeenAt: isoTimeSchema,
+  resolvedAt: isoTimeSchema.optional(),
+  suppressedUntil: isoTimeSchema.optional(),
+  followTargetId: z.string().trim().min(1).max(300),
+});
+export type ProjectAlertRecord = z.infer<typeof projectAlertRecordSchema>;
 
 /** 项目日报：按日期保留快照，同一天重复生成即覆盖。 */
 export const projectReportTypeSchema = z.enum(["daily", "weekly", "progress"]);

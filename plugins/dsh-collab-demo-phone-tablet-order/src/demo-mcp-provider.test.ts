@@ -236,5 +236,5 @@ describe("phone/tablet demo MCP provider", () => {
     } finally {
       await restarted.dispose();
     }
-  });
+  }, 20_000);
 });

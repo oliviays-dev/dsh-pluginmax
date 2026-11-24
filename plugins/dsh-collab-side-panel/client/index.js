@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
     if (window.__pluginmaxSidePanel === undefined) {
       const typeRegistry = new Map();
       const fallbackTitles = {
-        communication: "对话",
+        communication: "沟通",
         "data-agent": "数据洞察",
         "task-drafts": "任务草稿",
       };
@@ -38,8 +38,7 @@ window.__ModuleLoader__.load({
         };
       };
       const typeOf = (tab) =>
-        state.tabMeta?.[tab]?.type ??
-        String(tab).split(":")[0];
+        state.tabMeta?.[tab]?.type ?? String(tab).split(":")[0];
       const describe = (tab) => {
         const type = typeOf(tab);
         return {
@@ -108,8 +107,7 @@ window.__ModuleLoader__.load({
         },
         openTab(tab) {
           const meta =
-            state.tabMeta?.[tab] ??
-            defaultTab(String(tab).split(":")[0]);
+            state.tabMeta?.[tab] ?? defaultTab(String(tab).split(":")[0]);
           emit({
             ...state,
             open: true,
@@ -201,9 +199,7 @@ window.__ModuleLoader__.load({
           return state.openTabs.filter((tab) => typeOf(tab) === type);
         },
         activateType(type) {
-          const existing = state.openTabs.find(
-            (tab) => typeOf(tab) === type,
-          );
+          const existing = state.openTabs.find((tab) => typeOf(tab) === type);
           if (existing !== undefined) {
             this.activate(existing);
             return existing;

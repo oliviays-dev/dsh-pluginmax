@@ -3,6 +3,7 @@ import {
   TeammateService,
   TeammateTemplateService,
   canManageInstance,
+  canManageTemplate,
   canManageTeammate,
   migrateTeammateTemplates,
   nextVersion,
@@ -16,12 +17,14 @@ import type {
   TeammateEvent,
   TeammateTemplate,
   ProfileTemplate,
+  TemplateSkillBinding,
 } from "./models.js";
 import {
   calculateInstanceLastUsedAt,
   calculateTeammateActivity,
   calculateTeammateWorkload,
   TeammateWorkloadService,
+  changedTemplateSkillBindings,
   isInstanceOwnedPersona,
   taskIdsExecutedByPersona,
 } from "./index.js";
@@ -97,6 +100,62 @@ const admin = { userId: "admin", name: "Admin", role: "admin" as const };
 const peter = { userId: "peter", name: "Peter", role: "member" as const };
 
 describe("dsh-collab-teammate service", () => {
+  it("lets platform admins manage personal templates they do not own", () => {
+    const personal = {
+      source: "personal" as const,
+      ownerUserId: olivia.userId,
+    };
+    expect(canManageTemplate(personal, admin)).toBe(true);
+    expect(canManageTemplate(personal, olivia)).toBe(true);
+    expect(canManageTemplate(personal, peter)).toBe(false);
+  });
+
+  it("only validates template Skills that were actually changed", () => {
+    const current: TemplateSkillBinding[] = [
+      {
+        skillId: "skill-task-planning-core",
+        versionConstraint: "^1",
+        mode: "required" as const,
+        scenes: ["task-planning"],
+        enabled: true,
+      },
+    ];
+    expect(changedTemplateSkillBindings(current, current)).toEqual([]);
+    expect(
+      changedTemplateSkillBindings(current, [
+        {
+          ...current[0]!,
+          mode: "default",
+        },
+      ]),
+    ).toEqual([
+      {
+        ...current[0]!,
+        mode: "default",
+      },
+    ]);
+    expect(
+      changedTemplateSkillBindings(current, [
+        ...current,
+        {
+          skillId: "skill-new",
+          versionConstraint: "*",
+          mode: "optional",
+          scenes: [],
+          enabled: true,
+        },
+      ]),
+    ).toEqual([
+      {
+        skillId: "skill-new",
+        versionConstraint: "*",
+        mode: "optional",
+        scenes: [],
+        enabled: true,
+      },
+    ]);
+  });
+
   it("calculates the 24h task runtime and deduplicates meetings", () => {
     const now = new Date("2026-10-09T12:00:00.000Z");
     const iso = (hours: number) =>
@@ -1006,7 +1065,7 @@ describe("dsh-collab-teammate service", () => {
       }),
     ).rejects.toMatchObject({
       code: "forbidden",
-      message: "企业强制 Skill 只能配置在平台模版中",
+      message: "企业强制 Skill 只能配置在角色模版中",
     });
 
     const personal = await templates.create(olivia, {
@@ -1038,7 +1097,7 @@ describe("dsh-collab-teammate service", () => {
       }),
     ).rejects.toMatchObject({
       code: "forbidden",
-      message: "企业强制 Skill 只能配置在平台模版中",
+      message: "企业强制 Skill 只能配置在角色模版中",
     });
   });
 
@@ -1121,13 +1180,27 @@ describe("dsh-collab-teammate service", () => {
         state: "paused",
       }),
     ).rejects.toMatchObject({ code: "system_agent_protected" });
+    const updatedProfile = await teammates.updateInstanceProfile(admin, {
+      teammateId: userInstance.id,
+      name: "Data Agent",
+      description: "平台管理员维护的实例资料",
+      instanceSoul: "仅补充当前实例的工作区偏好。",
+    });
+    expect(updatedProfile).toMatchObject({
+      id: userInstance.id,
+      name: "Data Agent",
+      description: "平台管理员维护的实例资料",
+      instanceSoul: "仅补充当前实例的工作区偏好。",
+      systemKey: "data-agent",
+    });
+    expect(templates.get("sys-data-agent")?.soul).toBe(chatFirstSoul);
     await expect(
-      teammates.updateInstanceProfile(admin, {
+      teammates.updateInstanceProfile(olivia, {
         teammateId: userInstance.id,
         name: "Renamed",
         description: "",
       }),
-    ).rejects.toMatchObject({ code: "system_agent_protected" });
+    ).rejects.toMatchObject({ code: "forbidden" });
     await expect(
       teammates.switchTemplate(admin, {
         teammateId: userInstance.id,
@@ -1286,6 +1359,36 @@ describe("dsh-collab-teammate service", () => {
         templateId: first.id,
       }),
     ).rejects.toMatchObject({ code: "forbidden" });
+  });
+
+  it("appends instance SOUL to the shared template definition", async () => {
+    const templates = templateService();
+    const template = await templates.create(admin, {
+      source: "platform",
+      name: "Planning Specialist",
+      role: "Planning",
+      soul: "先校验事实，再输出计划。",
+    });
+    const teammates = service(undefined, templates);
+    const instance = await teammates.create(olivia, {
+      templateId: template.id,
+      name: "SO0101 Planning",
+    });
+    const updated = await teammates.updateInstanceProfile(olivia, {
+      teammateId: instance.id,
+      name: instance.name,
+      description: "SO0101 AI Server 项目实例",
+      instanceSoul: "本实例服务 AI Server 产品线，默认输出四方案比较。",
+    });
+    expect(updated.instanceSoul).toContain("AI Server 产品线");
+    expect(teammates.effectiveDefinitionOf(updated).soul).toBe(
+      [
+        "先校验事实，再输出计划。",
+        "## 项目与实例补充",
+        "本实例服务 AI Server 产品线，默认输出四方案比较。",
+      ].join("\n\n"),
+    );
+    expect(templates.get(template.id)?.soul).toBe("先校验事实，再输出计划。");
   });
 
   it("creates an active instance from a personal template and updates the template on save", async () => {

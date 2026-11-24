@@ -88,6 +88,7 @@ for (const pluginName of pluginNames) {
         "pluginmax.task.detail.extension",
         "pluginmax.task.detail.main",
         "pluginmax.task.detail.side",
+        "pluginmax.task.dispatch-view",
         "pluginmax.task.settings",
       ];
       const replacesRoot = /ctx\.slots\.register\(\s*\{\s*name:\s*"root"/.test(

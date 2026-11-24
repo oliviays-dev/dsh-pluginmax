@@ -37,7 +37,9 @@ const FATAL_EXECUTION_ANOMALY_CODES = new Set<TaskExecutionAnomaly["code"]>([
 function isFatalExecutionAnomaly(
   anomaly: TaskExecutionAnomaly | undefined,
 ): boolean {
-  return anomaly !== undefined && FATAL_EXECUTION_ANOMALY_CODES.has(anomaly.code);
+  return (
+    anomaly !== undefined && FATAL_EXECUTION_ANOMALY_CODES.has(anomaly.code)
+  );
 }
 
 export interface KvTableLike<V> {
@@ -95,6 +97,15 @@ export interface TaskPermissionServiceLike {
         readonly allowed: boolean;
         readonly reasons: readonly string[];
       }>;
+}
+
+export interface TaskAssigneeDirectoryLike {
+  readonly humans: readonly { readonly id: string }[];
+  readonly agents: readonly {
+    readonly id: string;
+    readonly employeeId?: string | undefined;
+  }[];
+  readonly roles: readonly { readonly id: string }[];
 }
 
 export interface TaskAgentRun {
@@ -220,6 +231,7 @@ export interface WorkflowTaskActionHandler {
 
 const createInputSchema = z.object({
   workspaceId: z.string().min(1).max(200),
+  parentTaskId: z.string().min(1).max(160).optional(),
   title: z.string().min(1).max(500),
   type: z.string().min(1).max(80).default("任务"),
   priority: z.enum(["P1", "P2", "P3"]),
@@ -562,6 +574,10 @@ export class TaskService {
       readonly onChange?: (task: TaskRecord) => void;
       readonly principals?: () => TaskPrincipalServiceLike | undefined;
       readonly permissions?: () => TaskPermissionServiceLike | undefined;
+      readonly memberDirectory?: (
+        workspaceId: string,
+        actor: TaskActor,
+      ) => TaskAssigneeDirectoryLike | undefined;
       readonly executionProjection?: (
         taskId: string,
         workspaceId: string,
@@ -615,6 +631,37 @@ export class TaskService {
     return dependencies;
   }
 
+  private normalizeParentTask(
+    candidateId: string | undefined,
+    workspaceId: string,
+    parentTaskId: string | undefined,
+  ): string | undefined {
+    if (parentTaskId === undefined || parentTaskId.trim() === "") {
+      return undefined;
+    }
+    if (parentTaskId === candidateId) {
+      throw new TaskError("invalid_input", "任务不能关联自身");
+    }
+    const stored = this.tables.tasks.get(parentTaskId);
+    if (stored === undefined) {
+      throw new TaskError("not_found", "主任务不存在");
+    }
+    const parent = parseTask(stored);
+    if (parent.workspaceId !== workspaceId) {
+      throw new TaskError("invalid_input", "主任务必须属于同一个项目");
+    }
+    if (parent.archivedAt !== undefined) {
+      throw new TaskError("conflict", "主任务已归档，不能建立关联");
+    }
+    if (parent.status === "done" || parent.status === "cancelled") {
+      throw new TaskError("conflict", "已完成或已取消的任务不能作为主任务");
+    }
+    if (parent.parentTaskId !== undefined) {
+      throw new TaskError("invalid_input", "子任务不能关联子任务");
+    }
+    return parent.id;
+  }
+
   private principalForActor(actor: TaskActor): PrincipalRecordLike | undefined {
     const principals = this.options.principals?.();
     if (principals === undefined) return undefined;
@@ -653,8 +700,7 @@ export class TaskService {
           : run.status === "interrupted"
             ? {
                 code: "run_interrupted" as const,
-                message:
-                  run.error?.trim() || "Agent 执行被中断，需要人工介入",
+                message: run.error?.trim() || "Agent 执行被中断，需要人工介入",
               }
             : undefined;
     if (failedRun !== undefined) {
@@ -681,8 +727,7 @@ export class TaskService {
       ) {
         return {
           code: "missing_acceptance",
-          message:
-            "Agent 本轮没有显式确认任何验收项，需要人工检查交付物后处理",
+          message: "Agent 本轮没有显式确认任何验收项，需要人工检查交付物后处理",
           runId: run.id,
           at,
         };
@@ -738,7 +783,10 @@ export class TaskService {
         event.type === "step.completed" ||
         (event.type === "tool.result" && event.data?.isError !== true),
     );
-    if (terminalFailureIndex >= 0 && terminalFailureIndex > terminalSuccessIndex) {
+    if (
+      terminalFailureIndex >= 0 &&
+      terminalFailureIndex > terminalSuccessIndex
+    ) {
       const executionError = events[terminalFailureIndex];
       return {
         code: "plan_failed",
@@ -780,8 +828,7 @@ export class TaskService {
     ) {
       return {
         code: "missing_acceptance",
-        message:
-          "Agent 本轮没有显式确认任何验收项，需要人工检查交付物后处理",
+        message: "Agent 本轮没有显式确认任何验收项，需要人工检查交付物后处理",
         runId: run.id,
         at,
       };
@@ -913,6 +960,37 @@ export class TaskService {
       receiverId: agentId ?? input.receiverId,
       receiverPrincipalId: principal.id,
     };
+  }
+
+  private assertReceiverInWorkspace(
+    workspaceId: string,
+    actor: TaskActor,
+    receiver: {
+      readonly receiverType: TaskRecord["receiverType"];
+      readonly receiverId?: string | undefined;
+    },
+  ): void {
+    if (
+      receiver.receiverType === "unassigned" ||
+      receiver.receiverId === undefined
+    ) {
+      return;
+    }
+    const directory = this.options.memberDirectory?.(workspaceId, actor);
+    if (directory === undefined) return;
+    const receiverId = receiver.receiverId;
+    const isMember =
+      receiver.receiverType === "human"
+        ? directory.humans.some((item) => item.id === receiverId)
+        : receiver.receiverType === "agent"
+          ? directory.agents.some(
+              (item) =>
+                item.id === receiverId || item.employeeId === receiverId,
+            )
+          : directory.roles.some((item) => item.id === receiverId);
+    if (!isMember) {
+      throw new TaskError("invalid_input", "任务负责人必须是当前项目成员");
+    }
   }
 
   private captureReviewSubmitter(
@@ -1064,14 +1142,11 @@ export class TaskService {
       })
       .parse(input);
     const task = this.requireActive(this.require(parsed.taskId));
-    const existing = task.events.find(
-      (event) => event.id === parsed.eventId,
-    );
+    const existing = task.events.find((event) => event.id === parsed.eventId);
     if (existing !== undefined) {
       if (
         parsed.taskRefs === undefined ||
-        (existing.taskRefs !== undefined &&
-          existing.taskRefs.length > 0)
+        (existing.taskRefs !== undefined && existing.taskRefs.length > 0)
       ) {
         return task;
       }
@@ -1098,9 +1173,7 @@ export class TaskService {
       actorName: actor.name,
       kind: "plan",
       message: parsed.message,
-      ...(parsed.taskRefs === undefined
-        ? {}
-        : { taskRefs: parsed.taskRefs }),
+      ...(parsed.taskRefs === undefined ? {} : { taskRefs: parsed.taskRefs }),
     });
     return this.put({
       ...task,
@@ -1257,14 +1330,10 @@ export class TaskService {
     input: {
       readonly draft: TaskDraftForCreation;
       readonly creationKey: string;
+      readonly parentTaskId?: string | undefined;
       readonly type?: string | undefined;
       readonly status?:
-        | "todo"
-        | "progress"
-        | "abnormal"
-        | "review"
-        | "done"
-        | undefined;
+        "todo" | "progress" | "abnormal" | "review" | "done" | undefined;
       readonly executionPolicy?: unknown;
       readonly autoSubmitReview?: boolean | undefined;
       readonly autoApproveReview?: boolean | undefined;
@@ -1299,6 +1368,9 @@ export class TaskService {
       actor,
       {
         workspaceId: draft.workspaceId,
+        ...(input.parentTaskId === undefined
+          ? {}
+          : { parentTaskId: input.parentTaskId }),
         title: draft.title,
         type: input.type ?? "任务",
         priority: draft.priority,
@@ -1347,6 +1419,7 @@ export class TaskService {
     } = {},
   ): Promise<TaskRecord> {
     const receiver = this.normalizeReceiver(parsed);
+    this.assertReceiverInWorkspace(parsed.workspaceId, actor, receiver);
     const at = this.now();
     const steps = parsed.acceptance.map((label) =>
       taskStepSchema.parse({ id: randomUUID(), label, done: false }),
@@ -1357,11 +1430,17 @@ export class TaskService {
       parsed.workspaceId,
       parsed.dependsOn ?? [],
     );
+    const parentTaskId = this.normalizeParentTask(
+      nextTaskId,
+      parsed.workspaceId,
+      parsed.parentTaskId,
+    );
     const task = taskRecordSchema.parse({
       id: nextTaskId,
       ...(options.creationKey === undefined
         ? {}
         : { creationKey: options.creationKey }),
+      ...(parentTaskId === undefined ? {} : { parentTaskId }),
       workspaceId: parsed.workspaceId,
       title: parsed.title,
       type: parsed.type,
@@ -1408,6 +1487,74 @@ export class TaskService {
       options.eventMessage ?? `${actor.name} 创建任务`,
     );
     return this.put(withEvent);
+  }
+
+  async setChildRelation(
+    actor: TaskActor,
+    input: unknown,
+  ): Promise<TaskRecord> {
+    const parsed = z
+      .object({
+        action: z.enum(["link", "unlink"]),
+        parentTaskId: z.string().min(1).max(160),
+        childTaskId: z.string().min(1).max(160),
+      })
+      .parse(input);
+    const parent = this.requireActive(this.require(parsed.parentTaskId));
+    if (parent.parentTaskId !== undefined) {
+      throw new TaskError("invalid_input", "子任务不能发起任务关联");
+    }
+    if (parent.id === parsed.childTaskId) {
+      throw new TaskError("invalid_input", "任务不能关联自身");
+    }
+    const child =
+      parsed.action === "unlink"
+        ? this.require(parsed.childTaskId)
+        : this.requireActive(this.require(parsed.childTaskId));
+    if (child.workspaceId !== parent.workspaceId) {
+      throw new TaskError("invalid_input", "主任务和子任务必须属于同一个项目");
+    }
+    if (parsed.action === "unlink") {
+      if (child.parentTaskId !== parent.id) {
+        throw new TaskError("conflict", "任务不属于当前主任务");
+      }
+      const { parentTaskId: _previousParentTaskId, ...rest } = child;
+      return this.put(
+        this.event(
+          { ...rest, updatedAt: this.now() },
+          actor,
+          "updated",
+          `${actor.name} 解除了任务「${child.title}」与主任务「${parent.title}」的关联`,
+        ),
+      );
+    }
+    if (child.parentTaskId !== undefined) {
+      throw new TaskError(
+        "conflict",
+        child.parentTaskId === parent.id
+          ? "任务已经是当前主任务的子任务"
+          : "任务已关联其他主任务",
+      );
+    }
+    if (
+      this.list(child.workspaceId).some(
+        (candidate) => candidate.parentTaskId === child.id,
+      )
+    ) {
+      throw new TaskError("invalid_input", "已有子任务的任务不能再作为子任务");
+    }
+    return this.put(
+      this.event(
+        {
+          ...child,
+          parentTaskId: parent.id,
+          updatedAt: this.now(),
+        },
+        actor,
+        "updated",
+        `${actor.name} 将任务「${child.title}」关联到主任务「${parent.title}」`,
+      ),
+    );
   }
 
   async update(actor: TaskActor, input: unknown): Promise<TaskRecord> {
@@ -1505,6 +1652,7 @@ export class TaskService {
     const task = requireContinuable(
       this.requireActive(this.require(parsed.taskId)),
     );
+    this.assertReceiverInWorkspace(task.workspaceId, actor, receiverRef);
     const reopened = task.status === "done";
     if (
       task.workflow?.approvalPolicy !== undefined &&
@@ -2027,9 +2175,9 @@ export class TaskService {
               ? Math.max(86, task.progress)
               : status === "abnormal"
                 ? task.progress
-              : status === "progress"
-                ? Math.max(task.progress, progressForSteps(task.steps))
-                : Math.min(5, task.progress),
+                : status === "progress"
+                  ? Math.max(task.progress, progressForSteps(task.steps))
+                  : Math.min(5, task.progress),
           executionAnomaly:
             status === "abnormal" ? task.executionAnomaly : undefined,
           updatedAt: this.now(),
@@ -2168,8 +2316,7 @@ export class TaskService {
           : run.status === "interrupted"
             ? {
                 code: "run_interrupted" as const,
-                message:
-                  run.error?.trim() || "Agent 执行被中断，需要人工介入",
+                message: run.error?.trim() || "Agent 执行被中断，需要人工介入",
               }
             : undefined;
     return this.put(
@@ -2626,6 +2773,14 @@ export class TaskService {
         : task.steps;
     // 反馈项：Agent 判断信息不足时需要人工补充，直接交回实例 owner 并打标。
     const needsInput = run.status === "waiting_input";
+    const ownerRunSettledToTodo =
+      isActive &&
+      run.status === "succeeded" &&
+      executionAnomaly === undefined &&
+      task.workflow === undefined &&
+      !autoReview &&
+      !workflowReview &&
+      !workflowDirect;
     const receiverOverride =
       needsInput && handoff !== undefined
         ? {
@@ -2651,7 +2806,9 @@ export class TaskService {
           ? true
           : run.status === "queued" || run.status === "running"
             ? false
-            : task.needsInput,
+            : run.status === "succeeded"
+              ? false
+              : task.needsInput,
         messages,
         steps,
         executionAnomaly,
@@ -2660,18 +2817,25 @@ export class TaskService {
           : autoReview || workflowReview
             ? Math.max(86, progressForSteps(steps))
             : task.progress,
-        status:
-          fatalExecutionAnomaly
-            ? "abnormal"
-            : workflowDirect
-              ? "done"
-              : autoReview || workflowReview
-                ? "review"
-                : run.status === "queued" || run.status === "running"
-                  ? "progress"
-                  : task.status === "todo"
-                    ? "progress"
-                    : task.status,
+        status: fatalExecutionAnomaly
+          ? "abnormal"
+          : workflowDirect
+            ? "done"
+            : autoReview || workflowReview
+              ? "review"
+              : run.status === "queued" ||
+                  run.status === "running" ||
+                  run.status === "waiting_input"
+                ? "progress"
+                : ownerRunSettledToTodo
+                  ? "todo"
+                  : run.status === "cancelled" || run.status === "interrupted"
+                    ? task.queueState === "paused"
+                      ? task.status
+                      : "todo"
+                    : task.status === "todo"
+                      ? "progress"
+                      : task.status,
         updatedAt: this.now(),
       },
       actor,
@@ -2684,13 +2848,13 @@ export class TaskService {
             : `${receiverName} 已产出结果，等待人工确认验收证据`
         : run.status === "succeeded"
           ? `${receiverName} 返回了执行反馈`
-        : needsInput
-          ? `${receiverName} 需要补充信息，已转交 ${handoff?.name ?? "负责人"} 处理`
-          : ["failed", "timeout", "cancelled", "interrupted"].includes(
-                run.status,
-              )
-            ? `${receiverName} 执行未完成`
-            : `${receiverName} 开始执行任务`,
+          : needsInput
+            ? `${receiverName} 需要补充信息，已转交 ${handoff?.name ?? "负责人"} 处理`
+            : ["failed", "timeout", "cancelled", "interrupted"].includes(
+                  run.status,
+                )
+              ? `${receiverName} 执行未完成`
+              : `${receiverName} 开始执行任务`,
     );
     if (
       executionAnomaly !== undefined ||
@@ -2959,9 +3123,29 @@ export class TaskService {
       notes.push(input.autoRunEligible ? "允许自动执行" : "不参与自动执行");
     }
     if (input.dependsOn !== undefined) notes.push("更新前置依赖");
+    const pausedOnly =
+      input.queueState === "paused" &&
+      task.queueState !== "paused" &&
+      notes.length === 1;
+    const pauseExecution =
+      input.queueState === "paused" && task.queueState !== "paused";
+    const messages = pauseExecution
+      ? task.messages.map((message) =>
+          message.runId !== undefined &&
+          typeof message.state === "string" &&
+          ["queued", "running", "waiting_input"].includes(message.state)
+            ? {
+                ...message,
+                state: "cancelled" as const,
+                content: "执行已暂停。",
+              }
+            : message,
+        )
+      : task.messages;
     const updated = this.event(
       {
         ...task,
+        messages,
         queueState: input.queueState ?? task.queueState,
         autoRunEligible: input.autoRunEligible ?? task.autoRunEligible,
         dependsOn,
@@ -2969,7 +3153,9 @@ export class TaskService {
       },
       actor,
       "updated",
-      `${actor.name} 调整队列项：${notes.length === 0 ? "无变化" : notes.join("、")}`,
+      pausedOnly
+        ? `${actor.name} 暂停执行`
+        : `${actor.name} 调整队列项：${notes.length === 0 ? "无变化" : notes.join("、")}`,
     );
     return this.put(updated);
   }

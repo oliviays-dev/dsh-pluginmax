@@ -187,11 +187,12 @@ window.__ModuleLoader__.load({
 .pmwb-todo-scope-settings .pmwb-seg{flex:none;}
       .pmwb2-ai-load{display:grid;gap:9px;}
       .pmwb2-ai-load-table{border:1px solid var(--dsw-alias-border-l2);border-radius:7px;overflow:auto;background:var(--dsw-alias-bg-layer-2);scrollbar-width:thin;}
-      .pmwb2-ai-load-head,.pmwb2-ai-load-row{display:grid;grid-template-columns:20px minmax(96px,1.22fr) minmax(0,2fr);align-items:center;gap:6px;padding:7px 8px;}
+      .pmwb2-ai-load-head,.pmwb2-ai-load-row{width:100%;min-width:378px;display:grid;grid-template-columns:20px minmax(110px,1.22fr) minmax(220px,2fr);align-items:center;gap:6px;padding:7px 8px;}
       .pmwb2-ai-load-head{min-height:30px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:1.5;}
       .pmwb2-ai-load-head>span:first-child{text-align:center;}
       .pmwb2-ai-load-head-data{display:grid;gap:4px;min-width:0;}
       .pmwb2-ai-load-head-data span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;}
+      .pmwb2-ai-load-head-cell.token{min-width:52px;text-align:center;}
       .pmwb2-ai-load-head-data span:last-child{justify-self:end;text-align:right;}
       .pmwb2-ai-load-row{position:relative;min-height:42px;border-top:1px solid var(--dsw-alias-border-l2);background:transparent;}
       .pmwb2-ai-load-row:first-child{border-top:0;}
@@ -213,10 +214,12 @@ window.__ModuleLoader__.load({
       .pmwb2-ai-avatar.platform{background:#63b8ff;box-shadow:0 0 0 1px rgba(99,184,255,.45);}
       .pmwb2-ai-avatar-art{display:block;width:100%;height:100%;overflow:hidden;border:1px solid var(--dsw-alias-bg-layer-1);border-radius:50%;object-fit:cover;}
       .pmwb2-ai-load-person-copy{min-width:0;}
-      .pmwb2-ai-load-person strong{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:1.5;}
+      .pmwb2-ai-load-person-name{display:flex;align-items:center;gap:4px;min-width:0;}
+      .pmwb2-ai-load-person strong{display:block;min-width:0;flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:1.5;}
       .pmwb2-ai-load-person small{display:block;min-width:0;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:1.5;}
       .pmwb2-ai-load-data{display:grid;gap:4px;min-width:0;}
       .pmwb2-ai-load-cell{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.5;text-align:right;font-variant-numeric:tabular-nums;}
+      .pmwb2-ai-load-cell.token{min-width:52px;text-align:center;}
       .pmwb2-ai-load-cell.primary{color:var(--dsw-alias-label-primary);font-size:12px;font-weight:650;}
       .pmwb2-ai-load-cell.time{display:grid;justify-items:end;align-content:center;gap:0;justify-self:end;text-align:right;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:1.35;}
       .pmwb2-ai-load-runtime{display:flex;flex-direction:column;align-items:flex-end;gap:0;overflow:hidden;color:var(--dsw-alias-label-primary);font-size:12px;line-height:1.35;text-align:right;font-weight:650;}
@@ -224,10 +227,10 @@ window.__ModuleLoader__.load({
       .pmwb2-ai-load-runtime-trend.up{color:var(--dsw-alias-state-success-primary,#34d47e);}
       .pmwb2-ai-load-runtime-trend.down{color:var(--dsw-alias-state-error-primary,#e5534b);}
       .pmwb2-ai-load-row.inactive .pmwb2-ai-load-runtime-trend{color:var(--dsw-alias-label-tertiary);}
-      .pmwb2-ai-load-warning{flex:none;color:var(--dsw-alias-state-warning-primary,#e2a737);font-size:10px;}
       .pmwb2-ai-load-divider{display:flex;align-items:center;gap:6px;padding:6px 8px;border-top:1px solid var(--dsw-alias-border-l2);border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:1.5;}
       .pmwb2-ai-load-divider::before,.pmwb2-ai-load-divider::after{content:"";height:1px;flex:1;background:var(--dsw-alias-border-l2);}
-      @media(max-width:420px){.pmwb2-ai-load-head,.pmwb2-ai-load-row{grid-template-columns:20px minmax(88px,1fr) minmax(0,2fr);padding-inline:6px;gap:4px;}}
+      .pmwb2-card[data-plugin-id="pluginmax.team-load"]{container-type:inline-size;}
+      @container (max-width:380px){.pmwb2-ai-load-head,.pmwb2-ai-load-row{min-width:340px;grid-template-columns:16px minmax(92px,1fr) minmax(212px,1.8fr);padding-inline:6px;gap:4px;}.pmwb2-ai-load-rank{width:16px;}.pmwb2-ai-load-head{font-size:10px;}.pmwb2-ai-load-cell{font-size:10px;}.pmwb2-ai-load-runtime-trend{font-size:9px;}}
 .pmwb2-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 9px;padding:7px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);}
 .pmwb2-row strong{min-width:0;font-size:var(--pmwb2-text-title);font-weight:650;line-height:var(--pmwb2-title-line);overflow-wrap:anywhere;}
 .pmwb2-row small{color:var(--dsw-alias-label-tertiary);font-size:var(--pmwb2-text-caption);line-height:1.45;}
@@ -2002,12 +2005,17 @@ window.__ModuleLoader__.load({
 
     const PROJECT_NAME_MAX_CHARS = 8;
 
-    function briefProjectNames(items) {
+    function briefProjectNames(projectCatalog, items) {
       return [
         ...new Set(
-          (items ?? [])
-            .map((item) => String(item?.workspaceName ?? "").trim())
-            .filter(Boolean),
+          [
+            ...(projectCatalog ?? []).map((project) =>
+              String(project?.workspaceName ?? "").trim(),
+            ),
+            ...(items ?? []).map((item) =>
+              String(item?.workspaceName ?? "").trim(),
+            ),
+          ].filter(Boolean),
         ),
       ];
     }
@@ -3625,11 +3633,11 @@ window.__ModuleLoader__.load({
       );
       const columnTemplate = visibleColumns
         .map((column) => {
-          if (column.key === "lastActivity") return "minmax(38px,0.72fr)";
-          if (column.key === "runtime") return "minmax(52px,1.15fr)";
+          if (column.key === "lastActivity") return "minmax(46px,0.72fr)";
+          if (column.key === "runtime") return "minmax(58px,1.15fr)";
           if (column.key === "task") return "minmax(44px,0.62fr)";
-          if (column.key === "token") return "minmax(32px,0.55fr)";
-          return "minmax(40px,0.6fr)";
+          if (column.key === "token") return "minmax(52px,0.62fr)";
+          return "minmax(42px,0.6fr)";
         })
         .join(" ");
       const runtimeTrendOf = (item) => {
@@ -3665,11 +3673,6 @@ window.__ModuleLoader__.load({
       };
       const renderRow = (item, index, inactive = false) => {
         const stats = statsOf(item);
-        const itemBlockers = (item.blockers ?? []).filter(
-          (blocker) =>
-            windowKey === "last72h" ||
-            new Date(blocker.updatedAt).getTime() >= cutoff,
-        );
         const runtimeTrend = runtimeTrendOf(item);
         return h(
           "article",
@@ -3705,21 +3708,13 @@ window.__ModuleLoader__.load({
               "div",
               { className: "pmwb2-ai-load-person-copy" },
               h(
-                "strong",
-                { title: item.role || "AI伙伴" },
-                item.name ?? "AI伙伴",
-                itemBlockers.length > 0
-                  ? h(
-                      "span",
-                      {
-                        className: "pmwb2-ai-load-warning",
-                        title: itemBlockers
-                          .map((blocker) => blocker.reason)
-                          .join("；"),
-                      },
-                      " !",
-                    )
-                  : null,
+                "div",
+                { className: "pmwb2-ai-load-person-name" },
+                h(
+                  "strong",
+                  { title: item.role || "AI伙伴" },
+                  item.name ?? "AI伙伴",
+                ),
               ),
               h("small", null, item.role || "AI伙伴"),
             ),
@@ -3736,7 +3731,7 @@ window.__ModuleLoader__.load({
                 return h(
                   "span",
                   {
-                    className: "pmwb2-ai-load-cell time",
+                    className: "pmwb2-ai-load-cell time lastActivity",
                     key: column.key,
                     title: item.lastActivityAt
                       ? formatTime(item.lastActivityAt)
@@ -3756,7 +3751,8 @@ window.__ModuleLoader__.load({
                 return h(
                   "span",
                   {
-                    className: "pmwb2-ai-load-cell pmwb2-ai-load-runtime",
+                    className:
+                      "pmwb2-ai-load-cell pmwb2-ai-load-runtime runtime",
                     key: column.key,
                     title: "运行时长，括号为近 24 小时相对前 24 小时的变化",
                   },
@@ -3781,7 +3777,7 @@ window.__ModuleLoader__.load({
                 {
                   className: `pmwb2-ai-load-cell${
                     column.key === primaryMetric ? " primary" : ""
-                  }`,
+                  } ${column.key}`,
                   key: column.key,
                   title: AI_LOAD_COLUMN_LABELS[column.key],
                 },
@@ -3823,6 +3819,7 @@ window.__ModuleLoader__.load({
                   "span",
                   {
                     key: column.key,
+                    className: `pmwb2-ai-load-head-cell ${column.key}`,
                     title:
                       column.key === primaryMetric
                         ? "当前主排序指标"
@@ -4273,7 +4270,10 @@ window.__ModuleLoader__.load({
         props.pluginId === "pluginmax.following" ||
         props.pluginId === "pluginmax.meeting-insights";
       const briefProjects = isBrief
-        ? briefProjectNames(legacyPayload.data?.views?.all ?? [])
+        ? briefProjectNames(
+            legacyPayload.data?.projectCatalog ?? [],
+            legacyPayload.data?.views?.all ?? [],
+          )
         : [];
       const briefProjectsKey = briefProjects.join("\u0000");
       const effectiveBriefProjects =

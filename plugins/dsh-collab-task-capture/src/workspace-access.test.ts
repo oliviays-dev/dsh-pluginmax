@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canAccessWorkspace } from "./index.js";
+import { canAccessWorkspace, projectSelectionTitle } from "./index.js";
 
 const team = {
   resolveToken: () => undefined,
@@ -11,6 +11,15 @@ const team = {
 };
 
 describe("task capture workspace access", () => {
+  it("turns selected project text into a concise task title", () => {
+    expect(
+      projectSelectionTitle(
+        "- GPU 到货延迟，预计影响 6 台。请采购专员今天确认替代供应方案。",
+      ),
+    ).toBe("GPU 到货延迟，预计影响 6 台");
+    expect(projectSelectionTitle("")).toBe("跟进项目中的选中事项");
+  });
+
   it("allows any authenticated user to use the virtual default project", () => {
     expect(
       canAccessWorkspace(

@@ -30,6 +30,7 @@ import {
   type KvTableLike,
   type TaskActor,
   type TaskAgentRun,
+  type TaskAssigneeDirectoryLike,
   type TaskPermissionServiceLike,
   type TaskPrincipalServiceLike,
 } from "./service.js";
@@ -529,14 +530,10 @@ export function createTaskDocumentQueryService(
       const explicitDocuments = await collectRunFileChangeDocuments({
         root,
         events: (execution?.events ?? []).filter(
-          (event) =>
-            event.runId !== undefined && taskRunIds.has(event.runId),
+          (event) => event.runId !== undefined && taskRunIds.has(event.runId),
         ),
         runActors: new Map(
-          ownerRuns.map((run) => [
-            run.id,
-            taskRunActorName(task, run),
-          ]),
+          ownerRuns.map((run) => [run.id, taskRunActorName(task, run)]),
         ),
       });
       const outputDocuments = await materializeAgentOutputDocuments({
@@ -646,6 +643,7 @@ interface TaskContext {
         input: {
           readonly draft: TaskDraftForCreation;
           readonly creationKey: string;
+          readonly parentTaskId?: string | undefined;
           readonly type?: string | undefined;
           readonly status?: "todo" | "progress" | "review" | "done" | undefined;
           readonly executionPolicy?: unknown;
@@ -1533,10 +1531,7 @@ async function taskDocumentBrief(
               ownerRuns.some((run) => run.id === event.runId),
           ),
           runActors: new Map(
-            ownerRuns.map((run) => [
-              run.id,
-              taskRunActorName(task, run),
-            ]),
+            ownerRuns.map((run) => [run.id, taskRunActorName(task, run)]),
           ),
         }).catch(() => []);
   return mergeDocuments([
@@ -2577,6 +2572,7 @@ export function createTaskRoutes(
       const workspaceId = query(request).get("workspaceId") ?? "";
       const currentActor = requireAccess(request, team, workspaceId);
       await reconcileWorkflowAgentRuns(workspaceId);
+      await reconcileOwnerAgentTaskStates(workspaceId, currentActor);
       let tasks = service
         .list(workspaceId)
         .filter((task) => workflowClaimVisibleTo(task, currentActor));
@@ -2701,6 +2697,51 @@ export function createTaskRoutes(
   };
   const taskHasActiveRun = (task: TaskRecord): boolean =>
     activeAgentRunIds(task).length > 0;
+  const reconcileOwnerAgentTaskStates = async (
+    workspaceId: string,
+    actor: TaskActor,
+  ): Promise<void> => {
+    const agentService = agent?.();
+    for (const task of service.list(workspaceId)) {
+      if (
+        task.receiverType !== "agent" ||
+        task.workflow !== undefined ||
+        task.archivedAt !== undefined ||
+        task.queueState === "paused" ||
+        taskHasActiveRun(task) ||
+        (task.status !== "progress" && task.status !== "abnormal")
+      ) {
+        continue;
+      }
+      const latestRunMessage = [...task.messages]
+        .reverse()
+        .find((message) => message.runId !== undefined);
+      if (latestRunMessage === undefined) continue;
+      const runId = latestRunMessage.runId;
+      if (runId === undefined) continue;
+      const runStatus =
+        agentService?.run?.(runId)?.status ?? latestRunMessage.state;
+      const nextStatus =
+        runStatus === "succeeded"
+          ? "todo"
+          : runStatus === "failed" ||
+              runStatus === "timeout" ||
+              runStatus === "interrupted"
+            ? "abnormal"
+            : runStatus === "cancelled"
+              ? "todo"
+              : undefined;
+      if (nextStatus === undefined || nextStatus === task.status) continue;
+      try {
+        await service.changeStatus(actor, {
+          taskId: task.id,
+          status: nextStatus,
+        });
+      } catch {
+        // 单条历史任务无法收敛时不影响其余任务加载。
+      }
+    }
+  };
   const cancelTaskAgentRuns = async (task: TaskRecord): Promise<string[]> => {
     const runIds = activeAgentRunIds(task);
     if (runIds.length === 0) return [];
@@ -2758,7 +2799,13 @@ export function createTaskRoutes(
     if (!dependenciesSatisfied(task, byId)) {
       return { task, execution: { status: "blocked-dependency" } };
     }
-    return dispatchTask(task, currentActor, trigger, contextOverride, requestedBy);
+    return dispatchTask(
+      task,
+      currentActor,
+      trigger,
+      contextOverride,
+      requestedBy,
+    );
   };
   const dispatchUnlockedDependents = async (
     completedTask: TaskRecord,
@@ -3049,6 +3096,13 @@ export function createTaskRoutes(
     },
     {
       kind: "exact",
+      path: "/api/collab/tasks/relation",
+      handler: mutate(async (_request, currentActor, body) => ({
+        task: await service.setChildRelation(currentActor, body),
+      })),
+    },
+    {
+      kind: "exact",
       path: "/api/collab/tasks/attachments/update",
       handler: mutate(
         async (_request, currentActor, body) => {
@@ -3215,8 +3269,35 @@ export function createTaskRoutes(
         if (!parsed.success) {
           throw new TaskError("invalid_input", "request input is invalid");
         }
+        const before = service.get(parsed.data.taskId);
+        let cancelledRunIds: string[] = [];
+        if (
+          parsed.data.queueState === "paused" &&
+          before.queueState !== "paused" &&
+          taskHasActiveRun(before)
+        ) {
+          if (
+            before.createdBy !== currentActor.id &&
+            currentActor.role !== "admin" &&
+            !canCommandTask({
+              task: before,
+              actor: currentActor,
+              teammates: teammates?.(),
+            }) &&
+            !canReviewTask({
+              task: before,
+              actor: currentActor,
+              team,
+              assignments,
+            })
+          ) {
+            throw new TaskError("forbidden", "当前用户无权暂停该任务执行");
+          }
+          cancelledRunIds = await cancelTaskAgentRuns(before);
+        }
         return {
           task: await service.updateQueueItem(currentActor, parsed.data),
+          cancelledRunIds,
         };
       }),
     },
@@ -3255,6 +3336,41 @@ export function createTaskRoutes(
           undefined,
           undefined,
           "assignment",
+        );
+      }),
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/tasks/dispatch/execute",
+      handler: mutate(async (_request, currentActor, body) => {
+        const parsed = z
+          .object({ taskId: z.string().min(1).max(160) })
+          .parse(body);
+        const task = service.get(parsed.taskId);
+        if (
+          !canCommandTask({
+            task,
+            actor: currentActor,
+            teammates: teammates?.(),
+          })
+        ) {
+          throw new TaskError("forbidden", "当前用户无权派发该任务");
+        }
+        if (task.receiverType !== "agent" || task.receiverId === undefined) {
+          throw new TaskError("conflict", "只有 AI 任务需要主动启动执行");
+        }
+        if (task.status !== "todo") {
+          throw new TaskError("conflict", "只有待处理任务可以确认派发");
+        }
+        if (taskHasActiveRun(task)) {
+          throw new TaskError("conflict", "任务已有运行中的 AI 执行");
+        }
+        return dispatchTaskWhenReady(
+          task,
+          currentActor,
+          undefined,
+          undefined,
+          "manual",
         );
       }),
     },
@@ -3687,6 +3803,22 @@ export async function apply(ctx: TaskContext): Promise<void> {
     {
       principals: () =>
         ctx.get("collabPrincipal") as TaskPrincipalServiceLike | undefined,
+      memberDirectory: (workspaceId, actor) => {
+        const team = ctx.get("collabTeam") as TeamServiceLike | undefined;
+        if (team === undefined) return undefined;
+        return directory(
+          team,
+          workspaceId,
+          ctx.get("collabEmployee") as EmployeeServiceLike | undefined,
+          ctx.get("collabAssignment") as AssignmentServiceLike | undefined,
+          ctx.get("collabTeammateRuntime") as TeammateRuntimeLike | undefined,
+          {
+            userId: actor.id,
+            name: actor.name,
+            role: actor.role ?? "member",
+          },
+        ) as TaskAssigneeDirectoryLike;
+      },
       onChange: (task) => {
         try {
           ctx.emit?.("collab/task-changed", {
@@ -3880,36 +4012,27 @@ export async function apply(ctx: TaskContext): Promise<void> {
     );
     child.provide("collabTaskDocuments", taskDocuments);
     const dispatch = createTaskDispatcher({
-        service,
-        team: child.collabTeam,
-        employees,
-        agent: () =>
-          child.get("collabAgent") as TaskAgentServiceLike | undefined,
-        workspaces,
-        teammates: () =>
-          child.get("collabTeammateRuntime") as TeammateRuntimeLike | undefined,
-        principalRuntime: () =>
-          child.get("collabPrincipalRuntime") as
-            PrincipalRuntimeServiceLike | undefined,
-        context: () =>
-          child.get("collabContext") as TaskContextServiceLike | undefined,
-        permissions: () =>
-          child.get("collabPermission") as
-            TaskPermissionServiceLike | undefined,
-        readiness: () =>
-          child.get("collabTaskDispatchReadiness") as
-            | TaskDispatchReadiness
-            | undefined,
-      });
+      service,
+      team: child.collabTeam,
+      employees,
+      agent: () => child.get("collabAgent") as TaskAgentServiceLike | undefined,
+      workspaces,
+      teammates: () =>
+        child.get("collabTeammateRuntime") as TeammateRuntimeLike | undefined,
+      principalRuntime: () =>
+        child.get("collabPrincipalRuntime") as
+          PrincipalRuntimeServiceLike | undefined,
+      context: () =>
+        child.get("collabContext") as TaskContextServiceLike | undefined,
+      permissions: () =>
+        child.get("collabPermission") as TaskPermissionServiceLike | undefined,
+      readiness: () =>
+        child.get("collabTaskDispatchReadiness") as
+          TaskDispatchReadiness | undefined,
+    });
     const dispatchService: TaskDispatchService = {
       dispatch: (task, actor, context, options) =>
-        dispatch(
-          task,
-          actor,
-          undefined,
-          context,
-          options?.requestedBy,
-        ),
+        dispatch(task, actor, undefined, context, options?.requestedBy),
     };
     child.provide("collabTaskDispatch", dispatchService);
     taskDispatchService = dispatchService;
@@ -3934,8 +4057,7 @@ export async function apply(ctx: TaskContext): Promise<void> {
       taskDocuments,
       () =>
         child.get("collabTaskDispatchReadiness") as
-          | TaskDispatchReadiness
-          | undefined,
+          TaskDispatchReadiness | undefined,
     ).map((route) => child.webServer.register(route) as () => void);
     child.effect(() => () => {
       for (const dispose of disposers) dispose();

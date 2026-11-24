@@ -1,0 +1,473 @@
+{
+  "schemaVersion": "business-decision-case-v1",
+  "caseId": "ai-server-order-decision-20261119",
+  "title": "AI Server 120 台订单 14 天交付决策",
+  "asOf": "2026-11-19T09:00:00+08:00",
+  "deadlineAt": "2026-12-03T23:59:59+08:00",
+  "currencyUnit": "CNY_million",
+  "decisionOwner": {
+    "title": "供应链负责人",
+    "type": "human",
+    "finalDecisionRequired": true
+  },
+  "businessChainBinding": {
+    "chainKey": "ai-server-delivery",
+    "workflowKey": "business-chain-ai-server",
+    "workflowVersion": 19,
+    "nodes": [
+      {
+        "nodeId": "order-intake",
+        "role": "Order Fulfillment",
+        "roleCode": "GSC_ORDER_FULFILLMENT",
+        "systems": [
+          "OMS"
+        ]
+      },
+      {
+        "nodeId": "fulfillment-commitment",
+        "role": "Planning",
+        "roleCode": "GSC_PLANNING",
+        "systems": [
+          "APS-PLANNING",
+          "OMS"
+        ]
+      },
+      {
+        "nodeId": "supply-prep",
+        "role": "Procurement",
+        "roleCode": "GSC_PROCUREMENT",
+        "systems": [
+          "SRM",
+          "WMS"
+        ]
+      },
+      {
+        "nodeId": "assembly",
+        "role": "Manufacturing",
+        "roleCode": "GSC_MANUFACTURING",
+        "systems": [
+          "MES",
+          "QMS"
+        ]
+      },
+      {
+        "nodeId": "finished-goods-shipment",
+        "role": "Logistics",
+        "roleCode": "GSC_LOGISTICS",
+        "systems": [
+          "WMS"
+        ]
+      }
+    ]
+  },
+  "sourceFacts": {
+    "OMS": {
+      "salesOrderId": "SO-AIS-120-20261119",
+      "lineId": "SO-AIS-120-20261119-01",
+      "originalQuantity": 100,
+      "currentQuantity": 120,
+      "minimumOnTimeQuantity": 96,
+      "deliveryWindowDays": 14,
+      "commercialRiskIfBelowMinimum": 15,
+      "baselineProfitAt100": 8,
+      "profitAt120": null,
+      "remainingQuantityLatestDeliveryAt": null,
+      "riskNature": "potential_commercial_risk",
+      "riskProbability": null,
+      "crossCustomerTransfer": {
+        "targetQuantity": 20,
+        "affectedCustomerDelayDaysMin": 3,
+        "affectedCustomerDelayDaysMax": 5,
+        "delayCostIndependentOfDays": true,
+        "coveredDelayDays": "3-5",
+        "affectedCustomerId": null,
+        "affectedCustomerPenalty": 4,
+        "contractualDelayPenaltyPerDay": null,
+        "delayPenaltyCap": null,
+        "expeditingOrCompensationCost": null,
+        "affectedCustomerTier": null,
+        "affectedCustomerFutureValue": null,
+        "estimatedExternalCost": 4,
+        "estimatedExternalCostMin": 4,
+        "estimatedExternalCostMax": 4,
+        "externalCostAssumption": "其他客户延期 3-5 天统一按 400 万元综合违约/逾期成本计算",
+        "partialTransferAllowed": null,
+        "approved": false
+      }
+    },
+    "SRM": {
+      "supplyCommitmentId": "GPU-COMMIT-130",
+      "committedGpuQuantity": 130,
+      "commitmentWindowDays": 14,
+      "supplyReductionRate": 0.3,
+      "supplyReductionWindowDays": 28,
+      "batchEtaConfirmed": false,
+      "expectedOutboundGpuQuantity": 91,
+      "premiumSupply": {
+        "gpuQuantity": 10,
+        "premiumPerGpu": 0.5,
+        "incremental": null,
+        "latestArrivalAt": null,
+        "writtenCommitment": false,
+        "allOrNothing": null
+      },
+      "otherMaterialsIgnored": true
+    },
+    "APS-PLANNING": {
+      "planNodeId": "PLN-AIS120-M03",
+      "businessChainKey": "ai-server-delivery",
+      "requiredOnTimeQuantity": 96,
+      "fullOrderQuantity": 120,
+      "remainingQuantity": 24,
+      "productionCapacityCeilingIn14Days": null,
+      "otherOrderPriorityImpact": null
+    },
+    "MES": {
+      "resourceId": "LINE-AI-02",
+      "qualityResourceId": "BENCH-TEST-03",
+      "wipQuantity": 5,
+      "wipGpuAllocated": true,
+      "wipCanMeet14DaysWithoutAction": false,
+      "wipRecoverableQuantity": 5,
+      "wipAccelerationDays": 4,
+      "lineEfficiencyLossRate": 0.08,
+      "efficiencyLossMode": "incremental_cost",
+      "efficiencyLossBaseCost": 20,
+      "efficiencyLossAmount": 1.6,
+      "efficiencyLossAmountMin": 1.6,
+      "efficiencyLossAmountMax": 1.6,
+      "efficiencyLossFormula": "lineEfficiencyLossRate * efficiencyLossBaseCost",
+      "efficiencyLossAssumption": "加速产能对应基准生产成本 2,000 万元，8% 效率损失为 160 万元",
+      "confirmed14DayCapacity": {
+        "96": null,
+        "106": null,
+        "116": null,
+        "120": null
+      }
+    },
+    "WMS": {
+      "outboundPlanId": "OUT-AIS120-01",
+      "normalE2eDays": 21,
+      "airE2eDays": 14,
+      "airTimeReductionDays": 7,
+      "airAdditionalCost": 2,
+      "airCostScope": "one_consolidated_shipment",
+      "airBookingCutoffAt": null,
+      "airDeliveryHasOneDayBuffer": false,
+      "confirmedShipmentCapacity": {
+        "96": null,
+        "106": null,
+        "116": null,
+        "120": null
+      }
+    },
+    "QMS": {
+      "inspectionCapacityConfirmed": false,
+      "inspectionCapacityByScenario": {
+        "96": null,
+        "106": null,
+        "116": null,
+        "120": null
+      },
+      "wipQualityHold": null,
+      "reworkRisk": null
+    }
+  },
+  "normalization": {
+    "gpuPerAiServer": 1,
+    "otherMaterialsConstraint": false,
+    "applySupplyReductionToCommittedQuantity": true,
+    "assumeReducedSupplyAvailableWithin14Days": true,
+    "wipMaterialIncludedInReducedSupply": false,
+    "costFormulaForCapacityRecovery": "0.08 * efficiencyLossBaseCost",
+    "riskIsCertainLoss": false
+  },
+  "economicModel": {
+    "status": "assumed_complete",
+    "parameters": {
+      "productionEfficiencyLossAmount": 1.6,
+      "externalCustomerImpactAmount": 4,
+      "potentialCommercialRisk": 15
+    },
+    "formulas": {
+      "A": "2 + 1.6 = 3.6",
+      "B": "2 + 5 + 1.6 = 8.6",
+      "C": "2 + 1.6 + 4 = 7.6",
+      "D": "2 + 5 + 1.6 + 4 = 12.6"
+    },
+    "decisionThresholds": [
+      {
+        "comparison": "A_vs_accept_risk",
+        "breakEvenRiskProbability": 0.24
+      },
+      {
+        "comparison": "B_vs_accept_risk",
+        "breakEvenRiskProbability": 0.5733
+      },
+      {
+        "comparison": "C_vs_B_cash_cost",
+        "C": 7.6,
+        "B": 8.6,
+        "CAdvantage": 1,
+        "note": "方案 C 账面少 100 万元并多交付 10 台，但产生其他客户延期和关系风险。"
+      },
+      {
+        "comparison": "D_vs_B_cash_cost",
+        "D": 12.6,
+        "B": 8.6,
+        "DAdditionalCost": 4,
+        "note": "方案 D 多交付 14 台，但以 MES 确认 120 台产能为前提。"
+      }
+    ]
+  },
+  "qualitativeEvaluation": {
+    "supplierRelationship": {
+      "A": "不新增采购承诺，供应商关系影响低",
+      "B": "需要供应商在降供背景下书面增供 10 个 GPU，应通过明确价格和交付责任管理关系",
+      "C": "不直接增加供应商承诺，但会改变其他客户订单资源分配",
+      "D": "同时扩大供应商增供承诺和资源优先级调整，关系复杂度最高"
+    },
+    "customerRelationship": {
+      "A": "不伤害其他客户，目标客户仅获得 96 台保底",
+      "B": "不伤害其他客户，目标客户获得 106 台",
+      "C": "其他客户延期 3-5 天，400 万元金额假设不能覆盖信任、续约和内部协作损失",
+      "D": "目标客户获得 120 台，但其他客户关系影响最大"
+    },
+    "defaultJudgment": "方案 C 的账面成本比方案 B 少 100 万元，但只要其他客户关系损失超过 100 万元，方案 B 的整体业务结果更好。"
+  },
+  "derived": {
+    "effectiveGpuQuantity": 91,
+    "recoverableWipQuantity": 5,
+    "minimumOnTimeQuantity": 96,
+    "baseOnTimeQuantityWithoutWipRecovery": 91,
+    "baseOnTimeQuantityWithWipRecovery": 96,
+    "baseOnTimeShortfallWithoutAction": 5,
+    "fullOrderRemainingQuantity": 24,
+    "premiumGpuCost": 5,
+    "onTimeQuantityWithPremiumSupply": 106,
+    "onTimeQuantityWithTransfer": 116,
+    "theoreticalSupplyWithAllLevers": 126,
+    "theoreticalOnTimeQuantityWithAllLevers": 120,
+    "normalTransportE2eFeasible": false,
+    "airTransportE2eFeasible": true,
+    "airTransportNominalScheduleBufferDays": 0,
+    "estimatedProductionEfficiencyLoss": 1.6,
+    "estimatedExternalCustomerCost": 4,
+    "estimatedCostA": 3.6,
+    "estimatedCostB": 8.6,
+    "estimatedCostC": 7.6,
+    "estimatedCostD": 12.6,
+    "breakEvenRiskProbabilityForBasePlan": 0.24,
+    "breakEvenRiskProbabilityForBufferedPlan": 0.5733
+  },
+  "options": [
+    {
+      "optionId": "O0",
+      "name": "不干预",
+      "actions": [],
+      "onTimeQuantity": 0,
+      "remainingDelayedQuantity": 120,
+      "meetsMinimum": false,
+      "knownIncrementalCost": 0,
+      "costStatus": "complete",
+      "estimatedProductionEfficiencyLoss": 0,
+      "estimatedExternalCustomerCost": 0,
+      "estimatedTotalCost": 0,
+      "externalCustomerImpact": "none",
+      "feasibility": "infeasible",
+      "reason": "正常运输 E2E 21 天，无法满足 14 天窗口。"
+    },
+    {
+      "optionId": "O1",
+      "name": "仅空运",
+      "actions": [
+        "air_freight"
+      ],
+      "onTimeQuantity": 91,
+      "remainingDelayedQuantity": 29,
+      "meetsMinimum": false,
+      "knownIncrementalCost": 2,
+      "costStatus": "complete",
+      "estimatedProductionEfficiencyLoss": 0,
+      "estimatedExternalCustomerCost": 0,
+      "estimatedTotalCost": 2,
+      "externalCustomerImpact": "none",
+      "feasibility": "conditional",
+      "reason": "满足运输时限，但数量仍比 96 台少 5 台。"
+    },
+    {
+      "optionId": "A",
+      "name": "空运 + 生产追回",
+      "actions": [
+        "air_freight",
+        "recover_wip"
+      ],
+      "onTimeQuantity": 96,
+      "remainingDelayedQuantity": 24,
+      "meetsMinimum": true,
+      "knownIncrementalCost": 2,
+      "costStatus": "assumed_complete",
+      "estimatedProductionEfficiencyLoss": 1.6,
+      "estimatedExternalCustomerCost": 0,
+      "estimatedTotalCost": 3.6,
+      "costFormula": "2 + 1.6 = 3.6",
+      "externalCustomerImpact": "none",
+      "relationshipRisk": "low",
+      "feasibility": "conditional",
+      "requires": [
+        "91 个有效 GPU 在窗口内到货",
+        "5 台 WIP 可按期追回",
+        "空运 E2E 不超过 14 天",
+        "QMS 不形成新增瓶颈"
+      ]
+    },
+    {
+      "optionId": "B",
+      "name": "空运 + 生产追回 + 加价采购 10 个 GPU",
+      "actions": [
+        "air_freight",
+        "recover_wip",
+        "buy_premium_gpu"
+      ],
+      "onTimeQuantity": 106,
+      "remainingDelayedQuantity": 14,
+      "meetsMinimum": true,
+      "knownIncrementalCost": 7,
+      "costStatus": "assumed_complete",
+      "estimatedProductionEfficiencyLoss": 1.6,
+      "estimatedExternalCustomerCost": 0,
+      "estimatedTotalCost": 8.6,
+      "costFormula": "2 + 5 + 1.6 = 8.6",
+      "externalCustomerImpact": "none",
+      "relationshipRisk": "medium_low",
+      "qualitativeImpact": "供应商增供关系需要书面承诺管理，但不牺牲其他客户",
+      "feasibility": "conditional",
+      "requires": [
+        "10 个 GPU 为增量供给",
+        "10 个 GPU 在空运发运截止日前到货",
+        "MES 确认 14 天内可生产 106 台",
+        "QMS 确认 106 台检验放行能力"
+      ]
+    },
+    {
+      "optionId": "C",
+      "name": "空运 + 生产追回 + 跨客户调拨 20 个 GPU",
+      "actions": [
+        "air_freight",
+        "recover_wip",
+        "transfer_cross_customer_gpu"
+      ],
+      "onTimeQuantity": 116,
+      "remainingDelayedQuantity": 4,
+      "meetsMinimum": true,
+      "knownIncrementalCost": 2,
+      "costStatus": "assumed_complete",
+      "estimatedProductionEfficiencyLoss": 1.6,
+      "estimatedExternalCustomerCost": 4,
+      "estimatedTotalCost": 7.6,
+      "costFormula": "2 + 1.6 + 4 = 7.6",
+      "externalCustomerImpact": "other_customer_delay_3_to_5_days",
+      "relationshipRisk": "high",
+      "qualitativeImpact": "账面优于方案 B 100 万元，但其他客户延期可能损害信任、续约和内部协作",
+      "feasibility": "conditional",
+      "requires": [
+        "供应链负责人批准跨客户优先级调整",
+        "受影响客户延期成本已量化",
+        "MES 确认 14 天内可生产 116 台",
+        "QMS 确认 116 台检验放行能力"
+      ]
+    },
+    {
+      "optionId": "D",
+      "name": "空运 + 生产追回 + 加价采购 + 跨客户调拨",
+      "actions": [
+        "air_freight",
+        "recover_wip",
+        "buy_premium_gpu",
+        "transfer_cross_customer_gpu"
+      ],
+      "onTimeQuantity": 120,
+      "remainingDelayedQuantity": 0,
+      "meetsMinimum": true,
+      "knownIncrementalCost": 7,
+      "costStatus": "assumed_complete",
+      "estimatedProductionEfficiencyLoss": 1.6,
+      "estimatedExternalCustomerCost": 4,
+      "estimatedTotalCost": 12.6,
+      "costFormula": "2 + 5 + 1.6 + 4 = 12.6",
+      "externalCustomerImpact": "other_customer_delay_3_to_5_days",
+      "relationshipRisk": "high",
+      "qualitativeImpact": "覆盖 120 台，但供应商依赖和其他客户关系影响同时最大",
+      "feasibility": "unconfirmed",
+      "requires": [
+        "MES 明确确认 14 天内可生产 120 台",
+        "QMS 明确确认 120 台检验放行能力",
+        "供应链负责人批准跨客户优先级调整",
+        "受影响客户延期成本已量化"
+      ]
+    }
+  ],
+  "gates": [
+    {
+      "gateId": "OMS-DECISION-BASELINE",
+      "ownerRole": "Order Fulfillment",
+      "system": "OMS",
+      "required": "确认 96 台最低线、14 天窗口、1,500 万风险性质与 120 台利润口径"
+    },
+    {
+      "gateId": "SRM-INCREMENTAL-SUPPLY",
+      "ownerRole": "Procurement",
+      "system": "SRM",
+      "required": "确认 91 个有效 GPU 的 14 天 ETA、10 个加价 GPU 为增量供给且可按期到货"
+    },
+    {
+      "gateId": "MES-CAPACITY-CEILING",
+      "ownerRole": "Manufacturing",
+      "system": "MES",
+      "required": "确认 96、106、116、120 台情景的 14 天产能上限和 8% 效率损失成本基数"
+    },
+    {
+      "gateId": "QMS-RELEASE-CAPACITY",
+      "ownerRole": "Quality",
+      "system": "QMS",
+      "required": "确认对应交付数量的检验与放行能力，排除 WIP 质量 Hold"
+    },
+    {
+      "gateId": "WMS-AIR-BUFFER",
+      "ownerRole": "Logistics",
+      "system": "WMS",
+      "required": "确认空运 E2E、订舱截止日、整单费用和至少 1 天发运缓冲"
+    },
+    {
+      "gateId": "HUMAN-CROSS-CUSTOMER-APPROVAL",
+      "ownerRole": "供应链负责人",
+      "system": "OMS",
+      "required": "跨客户调拨前批准优先级调整，并确认其他客户延期影响"
+    }
+  ],
+  "decision": {
+    "status": "pending_human_approval",
+    "recommendedBaseOptionId": "A",
+    "recommendedDefaultOptionId": "B",
+    "recommendedBufferOptionId": "B",
+    "recommendedExternalOptionIdAfterFailure": "C",
+    "costRankingStatus": "assumed_complete",
+    "qualitativeDecisionInputs": [
+      "方案 C 对其他客户的信任、续约和内部协作影响",
+      "方案 B 对供应商增供承诺和后续议价关系的影响",
+      "方案 D 下全量 120 台交付的额外商业价值"
+    ],
+    "doNotCommit": [
+      "不得在 MES 未确认前对外承诺 120 台 14 天交付",
+      "不得把 130 个预留 GPU 当作无衰减可用量",
+      "不得只凭 400 万元金额假设执行跨客户调拨",
+      "不得把空运 14 天视为有安全缓冲的承诺"
+    ],
+    "commitmentDefault": {
+      "onTimeQuantity": 96,
+      "deadlineAt": "2026-12-03T23:59:59+08:00",
+      "remainingQuantity": 24,
+      "remainingDeliveryDate": null
+    }
+  }
+}

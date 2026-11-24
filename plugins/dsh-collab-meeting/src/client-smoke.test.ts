@@ -773,13 +773,13 @@ describe("meeting client", () => {
     const newButton = findNode(
       tree,
       (node) =>
-        node.type === "button" && node.props?.["aria-label"] === "新建对话",
+        node.type === "button" && node.props?.["aria-label"] === "新建沟通",
     );
     expect(newButton, "侧栏应提供圆形加号新建入口").toBeDefined();
     (newButton?.props?.onClick as (() => void) | undefined)?.();
     tree = await settle(2);
     expect(
-      findNode(tree, (node) => node.props?.["aria-label"] === "新对话会议主题"),
+      findNode(tree, (node) => node.props?.["aria-label"] === "新沟通会议主题"),
     ).toBeDefined();
     expect(
       findNode(
@@ -1083,15 +1083,15 @@ describe("meeting client", () => {
 
     const createButton = findNode(
       tree,
-      (node) => node.type === "button" && node.props?.children === "新建对话",
+      (node) => node.type === "button" && node.props?.children === "新建沟通",
     );
-    expect(createButton, "新建对话 按钮应渲染").toBeDefined();
+    expect(createButton, "新建沟通 按钮应渲染").toBeDefined();
     expect(
       findNode(
         tree,
-        (node) => node.type === "h1" && node.props?.children === "对话",
+        (node) => node.type === "h1" && node.props?.children === "沟通",
       ),
-      "页面模块名应显示为「对话」",
+      "页面模块名应显示为「沟通」",
     ).toBeDefined();
     expect(
       findNode(
@@ -1151,37 +1151,35 @@ describe("meeting client", () => {
       tree,
       (node) =>
         node.props?.role === "group" &&
-        node.props?.["aria-label"] === "新建对话类型",
+        node.props?.["aria-label"] === "新建沟通类型",
     );
-    expect(createTypeGroup, "新建对话应支持会议和 AI 1:1 两种类型").toBeDefined();
+    expect(
+      createTypeGroup,
+      "新建沟通应支持会议和 AI 1:1 两种类型",
+    ).toBeDefined();
     (
       findNode(
         createTypeGroup,
-        (node) =>
-          node.type === "button" && node.props?.children === "聊天",
+        (node) => node.type === "button" && node.props?.children === "单聊",
       )?.props?.onClick as (() => void) | undefined
     )?.();
     tree = await settle(1);
 
     const teammateSelect = findNode(
       tree,
-      (node) =>
-        node.props?.["aria-label"] === "新建 AI 伙伴聊天",
+      (node) => node.props?.["aria-label"] === "新建 AI 伙伴聊天",
     );
     expect(teammateSelect, "AI 1:1 模式应提供伙伴选择").toBeDefined();
     expect(
       findNode(
         tree,
-        (node) =>
-          node.props?.["aria-label"] === "新建 AI 伙伴沟通关联项目",
+        (node) => node.props?.["aria-label"] === "新建 AI 伙伴沟通关联项目",
       ),
       "AI 1:1 不要求用户关联项目",
     ).toBeUndefined();
     const teammateChildren = teammateSelect?.props?.children;
     const teammateOptions = (
-      Array.isArray(teammateChildren)
-        ? teammateChildren
-        : [teammateChildren]
+      Array.isArray(teammateChildren) ? teammateChildren : [teammateChildren]
     ).filter(Boolean) as TreeNode[];
     expect(
       teammateOptions.map((option) => option.props?.children),
@@ -1193,7 +1191,7 @@ describe("meeting client", () => {
       (node) =>
         node.type === "form" &&
         node.props?.role === "dialog" &&
-        node.props?.["aria-label"] === "新建对话",
+        node.props?.["aria-label"] === "新建沟通",
     );
     await (
       createForm?.props?.onSubmit as
@@ -1222,10 +1220,9 @@ describe("meeting client", () => {
     expect(
       findNode(
         tree,
-        (node) =>
-          node.props?.["aria-label"] === "新建 AI 伙伴聊天",
+        (node) => node.props?.["aria-label"] === "新建 AI 伙伴聊天",
       ),
-      "创建成功后应关闭新建对话弹窗",
+      "创建成功后应关闭新建沟通弹窗",
     ).toBeUndefined();
   });
 
@@ -1470,6 +1467,448 @@ describe("meeting client", () => {
           node.type === "button" && node.props?.children === "返回会议列表",
       )?.props?.["aria-pressed"],
     ).toBe(true);
+  });
+
+  it("renders the project name on the line below the conversation title", async () => {
+    const runtime = createReactRuntime();
+    const payload = (body: unknown) => ({
+      ok: true,
+      status: 200,
+      json: async () => body,
+    });
+    const meeting = {
+      id: "m-project-line",
+      workspaceId: "ws-1017",
+      title: "Pluginmax DE",
+      kind: "meeting",
+      conversationMode: "group",
+      status: "active",
+      createdBy: "admin",
+      updatedAt: "2026-03-02T00:00:00.000Z",
+      messageCount: 1,
+      unreadCount: 0,
+      lastActivityAt: "2026-03-02T00:00:00.000Z",
+      lastMessage: {
+        senderKind: "human",
+        senderName: "Admin",
+        content: "test123",
+        createdAt: "2026-03-02T00:00:00.000Z",
+      },
+    };
+    const fetchImpl = async (input: string) => {
+      if (input.startsWith("/api/collab/team/workspaces")) {
+        return payload({
+          workspaces: [
+            {
+              id: "ws-1017",
+              title: "1017-项目测试",
+              path: "/1017",
+              isMember: true,
+            },
+          ],
+        });
+      }
+      if (input.startsWith("/api/collab/auth/me")) {
+        return payload({
+          user: { id: "admin", name: "Admin", role: "member" },
+        });
+      }
+      if (input.startsWith("/api/collab/teammates")) {
+        return payload({ teammates: [] });
+      }
+      if (input.startsWith("/api/collab/meetings?")) {
+        return payload({ meetings: [meeting] });
+      }
+      if (input.startsWith("/api/collab/meeting?")) {
+        return payload({
+          meeting,
+          participants: [
+            {
+              id: "p-admin",
+              meetingId: meeting.id,
+              kind: "human",
+              refId: "admin",
+              displayName: "Admin",
+              status: "active",
+            },
+            {
+              id: "p-ai-1",
+              meetingId: meeting.id,
+              kind: "ai_teammate",
+              refId: "tm-ai-1",
+              teammateInstanceId: "tm-ai-1",
+              displayName: "小红",
+              status: "active",
+            },
+            {
+              id: "p-ai-2",
+              meetingId: meeting.id,
+              kind: "ai_teammate",
+              refId: "tm-ai-2",
+              teammateInstanceId: "tm-ai-2",
+              displayName: "PluginMax DE",
+              status: "active",
+            },
+          ],
+          transcript: [
+            {
+              id: "m-stale-pending",
+              sequence: 1,
+              meetingId: meeting.id,
+              senderKind: "human",
+              senderId: "admin",
+              senderName: "Admin",
+              content: "早前消息",
+              mentions: ["p-ai-1", "p-ai-2"],
+              deliveries: [
+                {
+                  participantId: "p-ai-1",
+                  targetId: "tm-ai-1",
+                  status: "pending",
+                },
+                {
+                  participantId: "p-ai-2",
+                  targetId: "tm-ai-2",
+                  status: "pending",
+                },
+              ],
+              createdAt: "2026-03-02T00:00:00.000Z",
+            },
+            {
+              id: "m-latest-sync",
+              sequence: 2,
+              meetingId: meeting.id,
+              senderKind: "human",
+              senderId: "admin",
+              senderName: "Admin",
+              content: "这条只是同步",
+              mentions: [],
+              deliveries: [],
+              createdAt: "2026-03-02T00:01:00.000Z",
+            },
+          ],
+          actorId: "admin",
+        });
+      }
+      if (input.startsWith("/api/collab/meeting/minutes")) {
+        return payload({ facilitator: null, versions: [], current: null });
+      }
+      if (input.startsWith("/api/collab/meeting/delegates")) {
+        return payload({ delegates: [] });
+      }
+      if (input.startsWith("/api/collab/meeting/tasks")) {
+        return payload({ tasks: [] });
+      }
+      return payload({});
+    };
+
+    const { exports: exported } = loadClientExports({
+      react: runtime.react,
+      fetchImpl,
+    });
+    let Meetings: ((props: Record<string, unknown>) => unknown) | undefined;
+    exported.apply?.({
+      slots: {
+        inject: (_name: string, run: () => void) => run(),
+        register: (spec: SlotSpec, component?: unknown) => {
+          if (spec.id === "pluginmax-meetings") {
+            Meetings = component as (props: Record<string, unknown>) => unknown;
+          }
+          return () => undefined;
+        },
+      },
+    });
+    const root = {
+      type: Meetings,
+      props: {
+        useShellRoute: (select: (state: unknown) => unknown) =>
+          select({ route: "meetings" }),
+      },
+    };
+    let tree: unknown;
+    for (let pass = 0; pass < 6; pass += 1) {
+      tree = renderTree(root, runtime);
+      runtime.runEffects();
+      await tick();
+    }
+
+    const projectLine = findNode(
+      tree,
+      (node) =>
+        node.type === "span" &&
+        node.props?.children === "1017-项目测试" &&
+        (node.props.style as { width?: unknown } | undefined)?.width === "100%",
+    );
+    expect(projectLine, "项目名应独占标题下方一行").toBeDefined();
+    const titleBlock = findNode(
+      tree,
+      (node) =>
+        node.type === "div" &&
+        (node.props?.style as { flexDirection?: unknown } | undefined)
+          ?.flexDirection === "column" &&
+        containsText(node.props?.children, "Pluginmax DE") &&
+        containsText(node.props?.children, "1017-项目测试"),
+    );
+    expect(titleBlock, "标题与项目名应位于同一纵向标题块").toBeDefined();
+    const groupIcons = findAll(
+      tree,
+      (node) =>
+        node.type === "img" &&
+        typeof node.props?.["data-group-chat-icon"] === "string",
+    );
+    expect(
+      groupIcons.length,
+      "群聊列表和标题前都应使用指定图片图标",
+    ).toBeGreaterThanOrEqual(2);
+    expect(
+      groupIcons.every((icon) =>
+        String(icon.props?.src ?? "").startsWith("data:image/png;base64,"),
+      ),
+    ).toBe(true);
+    expect(
+      groupIcons.map((icon) => icon.props?.["data-group-chat-icon"]),
+    ).toEqual(expect.arrayContaining(["header", "list"]));
+    expect(
+      findNode(
+        tree,
+        (node) => node.props?.["data-meeting-header-meta"] === "true",
+      ),
+      "群聊标题下不应显示时间、项目、人数和 AI 数量",
+    ).toBeUndefined();
+    const previewSpeaker = findNode(
+      tree,
+      (node) => node.props?.children === "Admin：",
+    );
+    expect(
+      (previewSpeaker?.props?.style as { fontWeight?: unknown } | undefined)
+        ?.fontWeight,
+      "列表预览的发言人前缀不应加粗",
+    ).toBe(400);
+    const typingStrip = findNode(
+      tree,
+      (node) => node.props?.["data-meeting-typing-strip"] === "true",
+    );
+    expect(
+      typingStrip,
+      "最近一轮没有触发任何成员时，不应继续显示历史残留的正在输入状态",
+    ).toBeUndefined();
+  });
+
+  it("creates a separate group before inviting people from an AI 1:1 chat", async () => {
+    const runtime = createReactRuntime();
+    const requests: Array<{ input: string; body?: unknown }> = [];
+    const payload = (body: unknown) => ({
+      ok: true,
+      status: 200,
+      json: async () => body,
+    });
+    const source = {
+      id: "m-ai-source",
+      workspaceId: "system.default",
+      title: "供应链伙伴",
+      kind: "ai",
+      aiContextMode: "participant-projects-v1",
+      teammateInstanceId: "tm-chat",
+      status: "active",
+      createdBy: "admin",
+      updatedAt: "2026-03-02T00:00:00.000Z",
+      messageCount: 1,
+      unreadCount: 0,
+      lastActivityAt: "2026-03-02T00:00:00.000Z",
+      lastMessage: {
+        senderKind: "human",
+        senderName: "Admin",
+        content: "单聊消息",
+        createdAt: "2026-03-02T00:00:00.000Z",
+      },
+    };
+    const group = {
+      id: "m-group-new",
+      workspaceId: "system.default",
+      title: "供应链伙伴（群聊）",
+      kind: "meeting",
+      conversationMode: "group",
+      sourceConversationId: source.id,
+      status: "active",
+      createdBy: "admin",
+      updatedAt: "2026-03-02T00:01:00.000Z",
+    };
+    const fetchImpl = async (input: string, init?: unknown) => {
+      const requestBody =
+        typeof (init as { body?: unknown } | undefined)?.body === "string"
+          ? (JSON.parse((init as { body: string }).body) as unknown)
+          : undefined;
+      requests.push({ input, body: requestBody });
+      if (input.startsWith("/api/collab/team/workspaces")) {
+        return payload({ workspaces: [] });
+      }
+      if (input.startsWith("/api/collab/auth/me")) {
+        return payload({
+          user: { id: "admin", name: "Admin", role: "member" },
+        });
+      }
+      if (input.startsWith("/api/collab/teammates")) {
+        return payload({ teammates: [] });
+      }
+      if (input.startsWith("/api/collab/meetings?")) {
+        return payload({ meetings: [source] });
+      }
+      if (input.startsWith("/api/collab/meeting/people")) {
+        return payload({
+          people: [{ id: "bob", name: "Bob", state: undefined }],
+        });
+      }
+      if (input === "/api/collab/meeting/convert-to-group") {
+        return payload({ ok: true, meeting: group, participants: [] });
+      }
+      if (input === "/api/collab/meeting/participants/invite") {
+        return payload({
+          ok: true,
+          participants: [
+            {
+              id: "p-bob",
+              meetingId: group.id,
+              kind: "human",
+              refId: "bob",
+              displayName: "Bob",
+              status: "active",
+            },
+          ],
+        });
+      }
+      if (input === "/api/collab/meeting/group-title/generate") {
+        return payload({
+          ok: true,
+          meeting: {
+            ...group,
+            title: "供应链伙伴、Admin、Bob",
+            updatedAt: "2026-03-02T00:02:00.000Z",
+          },
+        });
+      }
+      if (input.startsWith("/api/collab/meeting?")) {
+        const meetingId = new URL(`http://x${input}`).searchParams.get(
+          "meetingId",
+        );
+        return payload({
+          meeting: meetingId === group.id ? group : source,
+          participants: [
+            {
+              id: "p-admin",
+              meetingId,
+              kind: "human",
+              refId: "admin",
+              displayName: "Admin",
+              status: "active",
+            },
+          ],
+          transcript: [],
+          actorId: "admin",
+        });
+      }
+      if (input.startsWith("/api/collab/meeting/minutes")) {
+        return payload({ facilitator: null, versions: [], current: null });
+      }
+      if (input.startsWith("/api/collab/meeting/delegates")) {
+        return payload({ delegates: [] });
+      }
+      if (input.startsWith("/api/collab/meeting/tasks")) {
+        return payload({ tasks: [] });
+      }
+      return payload({});
+    };
+
+    const { exports: exported } = loadClientExports({
+      react: runtime.react,
+      fetchImpl,
+    });
+    let Meetings: ((props: Record<string, unknown>) => unknown) | undefined;
+    exported.apply?.({
+      slots: {
+        inject: (_name: string, run: () => void) => run(),
+        register: (spec: SlotSpec, component?: unknown) => {
+          if (spec.id === "pluginmax-meetings") {
+            Meetings = component as (props: Record<string, unknown>) => unknown;
+          }
+          return () => undefined;
+        },
+      },
+    });
+    const root = {
+      type: Meetings,
+      props: {
+        useShellRoute: (select: (state: unknown) => unknown) =>
+          select({ route: "meetings" }),
+      },
+    };
+    const settle = async (passes = 6) => {
+      let next: unknown;
+      for (let pass = 0; pass < passes; pass += 1) {
+        next = renderTree(root, runtime);
+        runtime.runEffects();
+        await tick();
+      }
+      return next;
+    };
+
+    let tree = await settle();
+    const addParticipant = findNode(
+      tree,
+      (node) => node.type === "button" && node.props?.children === "添加参与方",
+    );
+    expect(addParticipant, "AI 单聊应提供添加参与方入口").toBeDefined();
+    (addParticipant?.props?.onClick as (() => void) | undefined)?.();
+    tree = await settle();
+
+    const bobOption = findNode(
+      tree,
+      (node) => node.type === "button" && node.props?.key === "bob",
+    );
+    expect(bobOption, "邀请弹窗应列出 Bob").toBeDefined();
+    (bobOption?.props?.onClick as (() => void) | undefined)?.();
+    tree = await settle(1);
+
+    const inviteForm = findNode(
+      tree,
+      (node) =>
+        node.type === "form" && typeof node.props?.onSubmit === "function",
+    );
+    await (
+      inviteForm?.props?.onSubmit as
+        ((event: unknown) => Promise<void>) | undefined
+    )?.({ preventDefault: () => undefined });
+    tree = await settle();
+
+    expect(
+      requests.some(
+        (request) =>
+          request.input === "/api/collab/meeting/convert-to-group" &&
+          (request.body as { meetingId?: string } | undefined)?.meetingId ===
+            source.id,
+      ),
+      "应先从原单聊创建新的群聊记录",
+    ).toBe(true);
+    expect(
+      requests.find(
+        (request) =>
+          request.input === "/api/collab/meeting/participants/invite",
+      )?.body,
+    ).toMatchObject({
+      meetingId: group.id,
+      people: [{ targetId: "bob" }],
+    });
+    expect(
+      requests.find(
+        (request) =>
+          request.input === "/api/collab/meeting/group-title/generate",
+      )?.body,
+    ).toMatchObject({ meetingId: group.id });
+    expect(requests).not.toContainEqual(
+      expect.objectContaining({
+        input: "/api/collab/meeting/participants/invite",
+        body: expect.objectContaining({ meetingId: source.id }),
+      }),
+    );
   });
 
   it("invite picker defaults to 5 visible rows with in-box fuzzy search and multi-select", async () => {
@@ -1893,6 +2332,14 @@ describe("meeting client", () => {
         title: "季度评审",
         status: "active",
       },
+      "m-filter-group": {
+        id: "m-filter-group",
+        workspaceId: "ws-atlas",
+        title: "玩法群聊",
+        kind: "meeting",
+        conversationMode: "group",
+        status: "active",
+      },
       "m-closed": {
         id: "m-closed",
         workspaceId: "ws-atlas",
@@ -2021,7 +2468,9 @@ describe("meeting client", () => {
                     displayName: "Admin",
                     status: "active",
                   },
-                  ...(meetingId === "m-exact"
+                  ...(meetingId === "m-exact" ||
+                  meetingId === "m-chat-codex" ||
+                  meetingId === "m-chat-codex-project"
                     ? [
                         {
                           id: "p-codex",
@@ -2036,7 +2485,29 @@ describe("meeting client", () => {
                     : []),
                 ]
               : [],
-          transcript: [],
+          transcript:
+            meetingId === "m-chat-codex" || meetingId === "m-chat-codex-project"
+              ? [
+                  {
+                    id: "m-codex-pending",
+                    sequence: 1,
+                    meetingId,
+                    senderKind: "human",
+                    senderId: "admin",
+                    senderName: "Admin",
+                    content: "请回复",
+                    mentions: ["p-codex"],
+                    deliveries: [
+                      {
+                        participantId: "p-codex",
+                        targetId: "tm-codex",
+                        status: "pending",
+                      },
+                    ],
+                    createdAt: "2026-03-06T00:00:00.000Z",
+                  },
+                ]
+              : [],
           actorId: "admin",
         });
       }
@@ -2096,6 +2567,25 @@ describe("meeting client", () => {
                       senderName: "柯真 01 测试",
                       content: "请补充季度目标",
                       createdAt: "2026-03-02T00:00:00.000Z",
+                    },
+                  },
+                  {
+                    id: "m-filter-group",
+                    workspaceId,
+                    title: "玩法群聊",
+                    kind: "meeting",
+                    conversationMode: "group",
+                    status: "active",
+                    createdBy: "admin",
+                    updatedAt: "2026-03-01T12:00:00.000Z",
+                    messageCount: 1,
+                    unreadCount: 2,
+                    lastActivityAt: "2026-03-01T12:00:00.000Z",
+                    lastMessage: {
+                      senderKind: "human",
+                      senderName: "Admin",
+                      content: "群聊消息",
+                      createdAt: "2026-03-01T12:00:00.000Z",
                     },
                   },
                   {
@@ -2257,10 +2747,7 @@ describe("meeting client", () => {
     expect(containsText(tree, "筛选 / 搜索"), "应移除列表头部文案").toBe(false);
     expect(containsText(tree, "2 场"), "应移除列表数量文案").toBe(false);
     expect(
-      findNode(
-        tree,
-        (node) => node.props?.["aria-label"] === "会议侧边栏",
-      ),
+      findNode(tree, (node) => node.props?.["aria-label"] === "会议侧边栏"),
       "沟通入口应由全局三点按钮统一承载",
     ).toBeUndefined();
     expect(
@@ -2416,11 +2903,8 @@ describe("meeting client", () => {
       "已失效的 AI伙伴会话应标记为不可用",
     ).toBe("true");
     expect(
-      (
-        availableDesignCard?.props?.style as
-          | Record<string, unknown>
-          | undefined
-      )?.filter,
+      (availableDesignCard?.props?.style as Record<string, unknown> | undefined)
+        ?.filter,
       "已失效的 AI伙伴会话应灰度显示",
     ).toBe("grayscale(1)");
     expect(
@@ -2497,6 +2981,23 @@ describe("meeting client", () => {
       ).map((node) => node.props?.["aria-label"] ?? node.props?.children),
       "AI 头像、名称、AI伙伴标签和不可用标签应按此顺序显示",
     ).toEqual(["Codex 助手 头像", "Codex 助手", "AI伙伴", "不可用"]);
+    expect(
+      findNode(
+        aiConversationHeader,
+        (node) => node.props?.["data-meeting-header-meta"] === "true",
+      ),
+      "AI 单聊标题下不应显示启动时间信息",
+    ).toBeUndefined();
+    expect(
+      containsText(
+        findNode(
+          tree,
+          (node) => node.props?.["data-meeting-typing-strip"] === "true",
+        ),
+        "Codex 助手 正在输入",
+      ),
+      "AI 单聊等待回复时应显示正在输入",
+    ).toBe(true);
     const aiPartnerTag = findNode(
       aiConversationHeader,
       (node) => node.props?.children === "AI伙伴",
@@ -2613,7 +3114,11 @@ describe("meeting client", () => {
         node.props?.["aria-label"] === "对话类型筛选",
     );
     expect(typeFilter, "应渲染对话类型筛选标签").toBeDefined();
-    for (const label of ["全部", "聊天", "会议"]) {
+    expect(
+      findNode(tree, (node) => node.props?.["aria-label"] === "2 条未读消息"),
+      "存在未读消息时应显示数量角标",
+    ).toBeDefined();
+    for (const label of ["全部", "单聊", "群聊", "会议"]) {
       expect(
         findNode(
           typeFilter,
@@ -2656,7 +3161,7 @@ describe("meeting client", () => {
           node.props?.["aria-label"] === "打开会议 Atlas 周会",
       ),
     ).toBeDefined();
-    await clickTypeTag("聊天");
+    await clickTypeTag("单聊");
     expect(
       findNode(
         tree,
@@ -2664,7 +3169,7 @@ describe("meeting client", () => {
           node.type === "div" &&
           node.props?.["aria-label"] === "打开会议 Atlas 周会",
       ),
-      "AI伙伴筛选下不应显示会议",
+      "单聊筛选下不应显示会议",
     ).toBeUndefined();
     expect(
       findNode(
@@ -2679,14 +3184,45 @@ describe("meeting client", () => {
           (node.type === "button" || node.type === "div") &&
           String(node.props?.["aria-label"] ?? "").startsWith("打开与"),
       ).map((node) => node.props?.["aria-label"]),
-      "AI伙伴筛选应只包含「全部」中已有历史沟通记录的 AI 会话",
+      "单聊筛选应只包含「全部」中已有历史沟通记录的 AI 会话",
     ).toEqual(historyPartnerLabels);
     expect(
       findNode(
         tree,
         (node) => node.props?.["aria-label"] === "打开与 新建伙伴 的聊天",
       ),
-      "AI伙伴筛选不应补入尚无历史消息的伙伴",
+      "单聊筛选不应补入尚无历史消息的伙伴",
+    ).toBeUndefined();
+    expect(
+      findNode(
+        tree,
+        (node) => node.props?.["aria-label"] === "打开群聊 玩法群聊",
+      ),
+      "单聊筛选下不应显示群聊",
+    ).toBeUndefined();
+    await clickTypeTag("群聊");
+    expect(
+      findNode(
+        tree,
+        (node) => node.props?.["aria-label"] === "打开群聊 玩法群聊",
+      ),
+      "群聊筛选应只显示群聊会话",
+    ).toBeDefined();
+    expect(
+      findNode(
+        tree,
+        (node) => node.props?.["aria-label"] === "打开与 Codex 助手 的聊天",
+      ),
+      "群聊筛选下不应显示单聊",
+    ).toBeUndefined();
+    expect(
+      findNode(
+        tree,
+        (node) =>
+          node.type === "div" &&
+          node.props?.["aria-label"] === "打开会议 Atlas 周会",
+      ),
+      "群聊筛选下不应显示会议",
     ).toBeUndefined();
     await clickTypeTag("全部");
     expect(
@@ -2807,8 +3343,7 @@ describe("meeting client", () => {
     expect(
       findNode(
         tree,
-        (node) =>
-          node.props?.["aria-label"] === "打开与 新建伙伴 的聊天",
+        (node) => node.props?.["aria-label"] === "打开与 新建伙伴 的聊天",
       ),
       "切换筛选后仍不应展示尚无历史消息的 AI伙伴",
     ).toBeUndefined();
@@ -3008,7 +3543,8 @@ describe("meeting client", () => {
       "表格应渲染表头而不是原始分隔线",
     ).toEqual(["项", "值"]);
     expect(
-      findNode(markdownTable, (node) => node.type === "strong")?.props?.children,
+      findNode(markdownTable, (node) => node.type === "strong")?.props
+        ?.children,
       "表格单元格内的加粗应渲染",
     ).toBe("DeepSeek-V4");
     expect(
@@ -3105,14 +3641,15 @@ describe("meeting client", () => {
     expect(source).toContain("style: sharedPanel.expanded");
     expect(source).toContain('width: "100%"');
     expect(source).toContain("borderLeft: 0");
-    expect(source).toContain('window.__pluginmaxSidePanel?.registerType?.({');
+    expect(source).toContain("window.__pluginmaxSidePanel?.registerType?.({");
     expect(source).toContain('type: "communication"');
   });
 
-  it("separates meeting selection from explicit detail navigation", () => {
+  it("opens meetings from the card without a duplicate detail button", () => {
     const source = readFileSync(CLIENT_PATH, "utf8");
     expect(source).toContain('"data-data-agent-entity": "meeting"');
-    expect(source).toContain('"aria-label": `查看会议 ${item.title} 详情`');
+    expect(source).toContain("onClick: () => setMeetingId(item.id)");
+    expect(source).not.toContain('"aria-label": `查看会议 ${item.title} 详情`');
     expect(source).not.toContain('"data-data-agent-select": "meeting"');
   });
 
@@ -3164,7 +3701,7 @@ describe("meeting client", () => {
     expect(source).toContain("reorderTab(sourceTab, targetTab)");
     expect(source).toContain("draggable: true");
     expect(source).toContain("sidePanelTabsStyle.actionWrap");
-    expect(source).toContain("position: \"relative\"");
+    expect(source).toContain('position: "relative"');
     expect(source).toContain("zIndex: 12");
     expect(source).toContain("height: 49");
     expect(source).toContain('padding: "6px 8px 0 6px"');

@@ -144,6 +144,39 @@ export const PROJECT_REPORTING_SKILL_ID = "skill-project-reporting";
 export const TASK_PLANNING_CORE_SKILL_ID = "skill-task-planning-core";
 export const DATA_AGENT_PROTECTED_ERROR = "system_agent_protected";
 
+/**
+ * 只校验本次实际新增或修改的 Skill 绑定。
+ * 模板里已有但当前操作人资源库不可见的平台 Skill，不应阻塞改名或其他字段编辑。
+ */
+export function changedTemplateSkillBindings(
+  current: readonly TemplateSkillBinding[],
+  requested: readonly TemplateSkillBinding[] | undefined,
+): readonly TemplateSkillBinding[] {
+  if (requested === undefined) return [];
+  const currentById = new Map(
+    current.map((binding) => [binding.skillId, binding]),
+  );
+  const sameBinding = (
+    left: TemplateSkillBinding,
+    right: TemplateSkillBinding,
+  ): boolean => {
+    const leftScenes = [...left.scenes].sort();
+    const rightScenes = [...right.scenes].sort();
+    return (
+      left.skillId === right.skillId &&
+      left.versionConstraint === right.versionConstraint &&
+      left.mode === right.mode &&
+      left.enabled === right.enabled &&
+      leftScenes.length === rightScenes.length &&
+      leftScenes.every((scene, index) => scene === rightScenes[index])
+    );
+  };
+  return requested.filter((binding) => {
+    const previous = currentById.get(binding.skillId);
+    return previous === undefined || !sameBinding(previous, binding);
+  });
+}
+
 const PROJECT_MANAGER_SEED = {
   templateId: PROJECT_MANAGER_TEMPLATE_ID,
   systemKey: "project-manager" as const,
@@ -1606,6 +1639,9 @@ const instanceProfileBodySchema = z.object({
   teammateId: z.string().trim().min(1).max(160),
   name: z.string().trim().min(1).max(120),
   description: z.string().max(4_000),
+  instanceSoul: z.string().max(200_000).optional(),
+  execution: z.enum(["builtin", "external"]).optional(),
+  externalRuntimeId: z.string().trim().min(1).max(160).optional(),
 });
 
 const leaveWorkspaceBodySchema = z.object({
@@ -2688,8 +2724,19 @@ export function createTeammateRoutes(
       path: "/api/collab/teammate-templates/update",
       handler: mutate(async (actor, body) => {
         const input = parseOrInvalid(teammateTemplateUpdateBodySchema, body);
-        await assertTemplateSkillsInstalled(actor, input.skillBindings ?? []);
-        const template = await requireTeammateTemplates().update(actor, input);
+        const templates = requireTeammateTemplates();
+        const current = templates.get(input.templateId);
+        if (current === undefined) {
+          throw new TeammateError("not_found", "AI伙伴模版不存在");
+        }
+        await assertTemplateSkillsInstalled(
+          actor,
+          changedTemplateSkillBindings(
+            current.skillBindings,
+            input.skillBindings,
+          ),
+        );
+        const template = await templates.update(actor, input);
         return { template };
       }),
     },

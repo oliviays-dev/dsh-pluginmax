@@ -253,7 +253,7 @@ describe("Data Agent client contract", () => {
     expect(source).toContain('"aria-label": "打开侧边栏"');
     expect(source).toContain("window.__pluginmaxSidePanel?.closeAll()");
     expect(source).toContain("ICONS.panel");
-    expect(source).toContain("margin-right:-12px");
+    expect(source).not.toContain("margin-right:-12px");
     expect(source).not.toContain("--pmda-tab-accent");
     expect(source).toContain("--pmda-tab-width:100px");
     expect(source).toContain("flex:0 0 var(--pmda-tab-width)");
@@ -312,7 +312,8 @@ describe("Data Agent client contract", () => {
   it("uses conversation actions for selected dialog text", () => {
     const source = readFileSync(CLIENT, "utf8");
     expect(source).toContain("pmda-selection-actions");
-    expect(source).toContain("添加到对话");
+    expect(source).toContain("让DataAgent分析");
+    expect(source).not.toContain('selection.kind === "text" ? "添加到对话"');
     expect(source).toContain("创建任务");
     expect(source).not.toContain("整理任务");
     expect(source).toContain("pluginmax:task-create-open");
@@ -329,6 +330,18 @@ describe("Data Agent client contract", () => {
     expect(source).not.toContain("pluginmax:navigate");
     expect(source).toContain("selection.taskCapture");
     expect(source).toContain("[data-data-agent-panel='true']");
+  });
+
+  it("offers task capture and Data Agent actions for selected project text", () => {
+    const source = readFileSync(CLIENT, "utf8");
+    expect(source).toContain("\"[data-data-agent-text-surface='project']\"");
+    expect(source).toContain('sourceType: "project"');
+    expect(source).toContain("sourceId: workspaceIdFor(projectSurface)");
+    expect(source).toContain("const projectSurface = node?.closest?.");
+    expect(source).toContain("const workflowNode = node.closest?.");
+    expect(source).toContain(
+      "\".pmda-selection-actions, .pmda-selection-action, input, textarea, select, [role='button'][data-control], [data-data-agent-exclude]\"",
+    );
   });
 
   it("places a grouped searchable switcher before a subdued new conversation action", () => {

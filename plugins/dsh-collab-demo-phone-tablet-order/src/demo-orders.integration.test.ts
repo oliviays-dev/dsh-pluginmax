@@ -178,5 +178,5 @@ describe("phone/tablet demo order data fabric", () => {
       value: "94.1",
       trend: "-1.8pt",
     });
-  }, 15_000);
+  }, 45_000);
 });

@@ -5,15 +5,19 @@ import {
   createMeetingRoutes,
   FacilitatorMinutesService,
   inject,
+  isUnreadMeetingMessage,
   MEETING_AI_CHAT_NODE_ID,
   MEETING_MINUTES_NODE_ID,
   MEETING_FACILITATOR_TEAMMATE_ID,
   meetingDomainSpec,
   MeetingService,
   MeetingRuntime,
+  participantGroupTitle,
   meetingCaptureTitle,
   migrateMeetingOwnership,
   reapRestartedDispatchParticipants,
+  removeLegacyGroupConversionNotices,
+  splitLegacyInPlaceGroupConversations,
   SYSTEM_DEFAULT_WORKSPACE_ID,
   type Meeting,
   type MeetingContext,
@@ -227,6 +231,45 @@ describe("dsh-collab-meeting", () => {
       status: "active",
       leader: false,
     });
+  });
+
+  it("builds a group title from participant names and count", () => {
+    expect(
+      participantGroupTitle(["张三", "莉丝", "王五", "赵六"], 4),
+    ).toBe("张三、莉丝、王五等4位");
+    expect(participantGroupTitle(["张三", "莉丝"], 2)).toBe("张三、莉丝");
+  });
+
+  it("counts a newer message as unread even when the read sequence is ahead", () => {
+    const message = {
+      senderKind: "agent" as const,
+      senderId: "tm-1",
+      sequence: 13,
+      createdAt: "2026-11-18T04:30:51.000Z",
+    };
+    expect(
+      isUnreadMeetingMessage(message, "admin", {
+        lastReadSeq: 13,
+        updatedAt: "2026-11-18T04:30:21.000Z",
+      }),
+    ).toBe(true);
+    expect(
+      isUnreadMeetingMessage(message, "admin", {
+        lastReadSeq: 13,
+        updatedAt: "2026-11-18T04:31:00.000Z",
+      }),
+    ).toBe(false);
+    expect(
+      isUnreadMeetingMessage(
+        {
+          ...message,
+          senderKind: "human",
+          senderId: "admin",
+        },
+        "admin",
+        undefined,
+      ),
+    ).toBe(false);
   });
 
   it("creates and lists meetings in the system default project without membership", async () => {
@@ -1392,11 +1435,17 @@ describe("dsh-collab-meeting", () => {
     const registeredAdapters: Array<{
       readonly scene?: string;
       readonly chatCarrier?: string;
+      readonly loadFacts?: (input: {
+        readonly objectId: string;
+      }) => Promise<{ readonly historyText?: string }>;
     }> = [];
     const chatContext = {
       registerAdapter: (adapter: {
         readonly scene?: string;
         readonly chatCarrier?: string;
+        readonly loadFacts?: (input: {
+          readonly objectId: string;
+        }) => Promise<{ readonly historyText?: string }>;
       }) => {
         registeredAdapters.push(adapter);
         return () => undefined;
@@ -1446,6 +1495,52 @@ describe("dsh-collab-meeting", () => {
       expect.objectContaining({ scene: "group" }),
       expect.objectContaining({ scene: "meeting" }),
     ]);
+    await current.meetings.put("m-single-context", {
+      id: "m-single-context",
+      workspaceId: "main",
+      title: "单聊上下文",
+      kind: "ai",
+      teammateInstanceId: "tm-context",
+      aiContextMode: "participant-projects-v1",
+      agenda: "",
+      status: "active",
+      createdBy: "alice",
+      ownerUserId: "alice",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    await current.messages.put("c-1", {
+      id: "c-1",
+      sequence: 1,
+      meetingId: "m-single-context",
+      senderKind: "human",
+      senderId: "alice",
+      senderName: "Alice",
+      content: "正常单聊消息",
+      mentions: [],
+      deliveries: [],
+      createdAt: timestamp,
+    });
+    await current.messages.put("c-2", {
+      id: "c-2",
+      sequence: 2,
+      meetingId: "m-single-context",
+      senderKind: "system",
+      senderId: "system",
+      senderName: "系统",
+      content: "聊天已转换为群聊，后续 AI 仅在明确 @ 时回复。",
+      mentions: [],
+      deliveries: [],
+      createdAt: timestamp,
+    });
+    const chatAdapter = registeredAdapters.find(
+      (adapter) => adapter.scene === "chat",
+    );
+    const facts = await chatAdapter!.loadFacts!({
+      objectId: "m-single-context",
+    });
+    expect(facts.historyText).toContain("正常单聊消息");
+    expect(facts.historyText).not.toContain("聊天已转换为群聊");
     expect(routes.map((route) => route.path)).toContain("/api/collab/meetings");
     expect(typeof dispose).toBe("function");
   });
@@ -1523,6 +1618,135 @@ describe("dsh-collab-meeting", () => {
       () => new Date(timestamp),
     );
     expect(second).toEqual({ meetings: 0, participants: 0 });
+  });
+
+  it("moves messages before a legacy in-place conversion back to a 1:1 chat", async () => {
+    const group: Meeting = {
+      id: "m-legacy-group",
+      workspaceId: SYSTEM_DEFAULT_WORKSPACE_ID,
+      title: "旧版群聊",
+      kind: "meeting",
+      conversationMode: "group",
+      teammateInstanceId: "tm-legacy",
+      agenda: "",
+      status: "active",
+      createdBy: "alice",
+      ownerUserId: "alice",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    await current.meetings.put(group.id, group);
+    await current.participants.put(
+      "p-human",
+      participantRow({
+        id: "p-human",
+        meetingId: group.id,
+        refId: "alice",
+        kind: "human",
+        displayName: "Alice",
+        source: "direct",
+      }),
+    );
+    await current.participants.put(
+      "p-ai",
+      participantRow({
+        id: "p-ai",
+        meetingId: group.id,
+        refId: "tm-legacy",
+        teammateInstanceId: "tm-legacy",
+        kind: "ai_teammate",
+        displayName: "旧版伙伴",
+        autoSpeak: "mentions",
+        source: "direct",
+      }),
+    );
+    const message = (
+      id: string,
+      sequence: number,
+      senderKind: MeetingMessage["senderKind"],
+      senderId: string,
+      senderName: string,
+      content: string,
+      deliveries: MeetingMessage["deliveries"] = [],
+    ): MeetingMessage => ({
+      id,
+      sequence,
+      meetingId: group.id,
+      senderKind,
+      senderId,
+      senderName,
+      content,
+      mentions: [],
+      deliveries,
+      createdAt: timestamp,
+    });
+    const messages = [
+      message("m-1", 1, "human", "alice", "Alice", "单聊消息", [
+        { participantId: "p-ai", targetId: "tm-legacy", status: "delivered" },
+      ]),
+      message("m-2", 2, "agent", "tm-legacy", "旧版伙伴", "单聊回复"),
+      message(
+        "m-3",
+        3,
+        "system",
+        "system",
+        "系统",
+        "聊天已转换为群聊，后续 AI 仅在明确 @ 时回复。",
+      ),
+      message("m-4", 4, "human", "alice", "Alice", "群聊消息"),
+    ];
+    for (const item of messages) await current.messages.put(item.id, item);
+
+    const result = await splitLegacyInPlaceGroupConversations(
+      current.meetings,
+      current.participants,
+      current.messages,
+    );
+    expect(result).toEqual({ groups: 1, singles: 1, messages: 2 });
+    const migratedGroup = service.get(group.id);
+    expect(migratedGroup.sourceConversationId).toBeDefined();
+    const single = service.get(migratedGroup.sourceConversationId!);
+    expect(single).toMatchObject({
+      kind: "ai",
+      title: "旧版伙伴",
+      teammateInstanceId: "tm-legacy",
+      derivedGroupId: group.id,
+    });
+    expect(service.transcript(single.id).map((item) => item.id)).toEqual([
+      "m-1",
+      "m-2",
+    ]);
+    expect(service.transcript(group.id).map((item) => item.id)).toEqual([
+      "m-4",
+    ]);
+    const migratedAi = service
+      .participants(single.id)
+      .find((participant) => participant.kind === "ai_teammate")!;
+    expect(migratedAi.autoSpeak).toBe("all");
+    expect(
+      service.transcript(single.id).find((item) => item.id === "m-1")
+        ?.deliveries[0]?.participantId,
+    ).toBe(migratedAi.id);
+
+    const second = await splitLegacyInPlaceGroupConversations(
+      current.meetings,
+      current.participants,
+      current.messages,
+    );
+    expect(second).toEqual({ groups: 0, singles: 0, messages: 0 });
+    await current.messages.put(
+      "m-stale-notice",
+      message(
+        "m-stale-notice",
+        10,
+        "system",
+        "system",
+        "系统",
+        "聊天已转换为群聊，后续 AI 仅在明确 @ 时回复。",
+      ),
+    );
+    expect(await removeLegacyGroupConversionNotices(current.messages)).toBe(1);
+    expect(current.messages.get("m-stale-notice")).toBeUndefined();
   });
 
   it("joins an AI representative that attends for its principal", async () => {
@@ -1759,22 +1983,27 @@ describe("dsh-collab-meeting", () => {
       kind: "ai",
       teammateInstanceId: "tm-stop-first",
     });
-    const first = await service.addAiTeammate(actor, {
+    await service.addAiTeammate(actor, {
       meetingId: meeting.id,
       teammateInstanceId: "tm-stop-first",
       displayName: "首个伙伴",
       speechMode: "active",
       announce: false,
     });
-    await service.convertAiConversationToGroup(actor, {
+    const group = await service.convertAiConversationToGroup(actor, {
       meetingId: meeting.id,
       title: "停止运行中的群聊",
     });
-    await service.join(actor, meeting.id, "Admin");
+    const groupFirst = service
+      .participants(group.id)
+      .find(
+        (participant) => participant.teammateInstanceId === "tm-stop-first",
+      )!;
+    await service.join(actor, group.id, "Admin");
     const second = await service.spawnAgentForUser(
       actor,
       {
-        meetingId: meeting.id,
+        meetingId: group.id,
         personaId: "builder",
         displayName: "第二个伙伴",
         autoSpeak: "mentions",
@@ -1785,22 +2014,22 @@ describe("dsh-collab-meeting", () => {
     );
     const message = await service.post(
       actor,
-      meeting.id,
+      group.id,
       "@首个伙伴 @第二个伙伴 请并行处理",
-      { mentions: [first.id, second.id] },
+      { mentions: [groupFirst.id, second.id] },
     );
     const runs = [
       {
         id: "run-first",
         status: "running",
         source: "chat",
-        instanceId: meeting.id,
+        instanceId: group.id,
         nodeId: MEETING_AI_CHAT_NODE_ID,
         payload: {
           context: {
             messageId: message.id,
-            participantId: first.id,
-            meetingId: meeting.id,
+            participantId: groupFirst.id,
+            meetingId: group.id,
           },
         },
       },
@@ -1808,13 +2037,13 @@ describe("dsh-collab-meeting", () => {
         id: "run-second",
         status: "running",
         source: "chat",
-        instanceId: meeting.id,
+        instanceId: group.id,
         nodeId: MEETING_AI_CHAT_NODE_ID,
         payload: {
           context: {
             messageId: message.id,
             participantId: second.id,
-            meetingId: meeting.id,
+            meetingId: group.id,
           },
         },
       },
@@ -1831,8 +2060,7 @@ describe("dsh-collab-meeting", () => {
             nodeId?: string;
           }) =>
             runs.filter(
-              (run) =>
-                run.instanceId === instanceId && run.nodeId === nodeId,
+              (run) => run.instanceId === instanceId && run.nodeId === nodeId,
             ),
           run: (runId: string) => runs.find((run) => run.id === runId),
           cancel: async (runId: string) => {
@@ -1848,8 +2076,8 @@ describe("dsh-collab-meeting", () => {
         token: "admin-token",
         origin: "http://127.0.0.1:33117",
         body: {
-          meetingId: meeting.id,
-          participantId: first.id,
+          meetingId: group.id,
+          participantId: groupFirst.id,
           action: "stop",
         },
       }),
@@ -1858,7 +2086,7 @@ describe("dsh-collab-meeting", () => {
     expect(response.status).toBe(200);
     expect(cancelled).toEqual(["run-first"]);
     const noticeCount = service
-      .transcript(meeting.id)
+      .transcript(group.id)
       .filter((item) => item.content.includes("定向停止")).length;
     const repeated = await call(
       findRoute(routes, "/api/collab/meeting/agent-control"),
@@ -1866,8 +2094,8 @@ describe("dsh-collab-meeting", () => {
         token: "admin-token",
         origin: "http://127.0.0.1:33117",
         body: {
-          meetingId: meeting.id,
-          participantId: first.id,
+          meetingId: group.id,
+          participantId: groupFirst.id,
           action: "stop",
         },
       }),
@@ -1876,16 +2104,16 @@ describe("dsh-collab-meeting", () => {
     expect(cancelled).toEqual(["run-first"]);
     expect(
       service
-        .transcript(meeting.id)
+        .transcript(group.id)
         .filter((item) => item.content.includes("定向停止")).length,
     ).toBe(noticeCount);
     expect(
-      service.transcript(meeting.id).find((item) => item.id === message.id)
+      service.transcript(group.id).find((item) => item.id === message.id)
         ?.deliveries,
     ).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          participantId: first.id,
+          participantId: groupFirst.id,
           status: "failed",
           error: "已按停止指令取消",
         }),
@@ -1897,8 +2125,12 @@ describe("dsh-collab-meeting", () => {
     );
   });
 
-  it("converts an AI conversation to a group in place and lowers auto-speak", async () => {
-    const actor = { kind: "user", id: "alice", workspaceRole: "member" } as const;
+  it("creates an independent group from a 1:1 conversation without copying messages", async () => {
+    const actor = {
+      kind: "user",
+      id: "alice",
+      workspaceRole: "member",
+    } as const;
     const meeting = await service.create(actor, {
       workspaceId: SYSTEM_DEFAULT_WORKSPACE_ID,
       title: "供应链伙伴",
@@ -1915,40 +2147,89 @@ describe("dsh-collab-meeting", () => {
     });
     const before = await service.post(actor, meeting.id, "开始聊天");
     expect(before.deliveries).toHaveLength(1);
+    const sourceTranscript = service.transcript(meeting.id);
 
     const converted = await service.convertAiConversationToGroup(actor, {
       meetingId: meeting.id,
       title: "供应链协作群",
     });
-    const second = await service.spawnAgentForUser(actor, {
+    const repeated = await service.convertAiConversationToGroup(actor, {
       meetingId: meeting.id,
-      personaId: "builder",
-      displayName: "执行者",
-      autoSpeak: "mentions",
-      initialGreeting: false,
-      ownerName: "Alice",
-    }, personas());
+    });
+    const groupAi = service
+      .participants(converted.id)
+      .find((item) => item.kind !== "human")!;
+    const second = await service.spawnAgentForUser(
+      actor,
+      {
+        meetingId: converted.id,
+        personaId: "builder",
+        displayName: "执行者",
+        autoSpeak: "mentions",
+        initialGreeting: false,
+        ownerName: "Alice",
+      },
+      personas(),
+    );
+    await service.inviteParticipant(actor, converted.id, {
+      targetId: "bob",
+      displayName: "Bob",
+    });
+    const titled = await service.generateGroupTitleFromParticipants(
+      actor,
+      converted.id,
+    );
     expect(converted).toMatchObject({
-      id: meeting.id,
       kind: "meeting",
       title: "供应链协作群",
+      conversationMode: "group",
+      sourceConversationId: meeting.id,
     });
+    expect(converted.id).not.toBe(meeting.id);
+    expect(repeated.id).toBe(converted.id);
+    expect(titled.title).toBe("Alice、供应链伙伴、执行者等4位");
+    expect(
+      service
+        .list(SYSTEM_DEFAULT_WORKSPACE_ID)
+        .filter((item) => item.id === meeting.id || item.id === converted.id),
+    ).toHaveLength(2);
+    expect(service.get(meeting.id)).toMatchObject({
+      kind: "ai",
+      derivedGroupId: converted.id,
+    });
+    expect(service.transcript(meeting.id)).toEqual(sourceTranscript);
+    const sourceFollowup = await service.post(actor, meeting.id, "单聊继续");
+    expect(sourceFollowup.deliveries).toHaveLength(1);
+    expect(
+      service
+        .transcript(converted.id)
+        .filter((message) => message.senderKind !== "system"),
+    ).toEqual([]);
     expect(
       service.participants(meeting.id).find((item) => item.id === ai.id)
         ?.autoSpeak,
+    ).toBe("all");
+    expect(
+      service.participants(converted.id).find((item) => item.id === groupAi.id)
+        ?.autoSpeak,
     ).toBe("mentions");
-    const ordinary = await service.post(actor, meeting.id, "普通群消息");
+    const ordinary = await service.post(actor, converted.id, "普通群消息");
     expect(ordinary.deliveries).toEqual([]);
-    const mentioned = await service.post(actor, meeting.id, "@供应链伙伴 请回复", {
-      mentions: [ai.id],
-    });
+    const mentioned = await service.post(
+      actor,
+      converted.id,
+      "@供应链伙伴 请回复",
+      {
+        mentions: [groupAi.id],
+      },
+    );
     expect(mentioned.deliveries).toHaveLength(1);
     let triggered: readonly MeetingParticipant[] = [];
     service.onAgentMention = (_message, targets) => {
       triggered = targets;
     };
     const agentReply = await service.postWorkerReply(
-      ai.id,
+      groupAi.id,
       "@执行者 请补充接口风险。",
     );
     expect(agentReply.mentions).toEqual([second.id]);
@@ -1969,21 +2250,26 @@ describe("dsh-collab-meeting", () => {
       teammateInstanceId: "tm-depth-source",
     });
     await service.join(actor, meeting.id, "Alice");
-    const first = await service.addAiTeammate(actor, {
+    await service.addAiTeammate(actor, {
       meetingId: meeting.id,
       teammateInstanceId: "tm-depth-source",
       displayName: "供应链伙伴",
       speechMode: "active",
       announce: false,
     });
-    await service.convertAiConversationToGroup(actor, {
+    const group = await service.convertAiConversationToGroup(actor, {
       meetingId: meeting.id,
       title: "深度限制群聊",
     });
+    const groupFirst = service
+      .participants(group.id)
+      .find(
+        (participant) => participant.teammateInstanceId === "tm-depth-source",
+      )!;
     const second = await service.spawnAgentForUser(
       actor,
       {
-        meetingId: meeting.id,
+        meetingId: group.id,
         personaId: "builder",
         displayName: "执行者",
         autoSpeak: "mentions",
@@ -1993,8 +2279,8 @@ describe("dsh-collab-meeting", () => {
       personas(),
     );
     service.agentTriggerDepthLimit = () => 1;
-    await service.post(actor, meeting.id, "@供应链伙伴 请回复", {
-      mentions: [first.id],
+    await service.post(actor, group.id, "@供应链伙伴 请回复", {
+      mentions: [groupFirst.id],
     });
     let triggered: readonly MeetingParticipant[] = [];
     service.onAgentMention = (_message, targets) => {
@@ -2002,7 +2288,7 @@ describe("dsh-collab-meeting", () => {
     };
 
     const reply = await service.postWorkerReply(
-      first.id,
+      groupFirst.id,
       "@执行者 请补充接口风险。",
     );
 
@@ -2016,9 +2302,9 @@ describe("dsh-collab-meeting", () => {
       },
     ]);
     expect(triggered).toEqual([]);
-    expect(
-      service.transcript(meeting.id).at(-1)?.content,
-    ).toContain("为避免重复接力，已结束本次连锁回复");
+    expect(service.transcript(group.id).at(-1)?.content).toContain(
+      "为避免重复接力，已结束本次连锁回复",
+    );
   });
 
   it("records worker failures without retiring the durable participant", async () => {

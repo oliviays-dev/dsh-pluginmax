@@ -67,9 +67,9 @@ window.__ModuleLoader__.load({
         const guard = window.__pluginmaxWorkbenchV2Guard;
         if (typeof guard === "function") {
           try {
-            if ((await guard(route)) === false) return;
+            if ((await guard(route)) === false) return false;
           } catch {
-            return;
+            return false;
           }
         }
       }
@@ -77,6 +77,7 @@ window.__ModuleLoader__.load({
       window.dispatchEvent(
         new CustomEvent("pluginmax:route-select", { detail: { route } }),
       );
+      return true;
     }
 
     window.addEventListener("pluginmax:navigate", (event) => {
@@ -268,6 +269,16 @@ window.__ModuleLoader__.load({
         border-top:1px solid var(--dsw-alias-border-l3);
         padding-top:14px;}
       .pmx-workspaces > *{min-width:0;max-width:100%;}
+      /* 项目与会话列表沿用主导航的字号层级；时间作为次级信息再降一级。 */
+      .pmx-workspaces > div > div:first-child{
+        font-size:12.5px;line-height:18px;}
+      .pmx-workspaces [role="treeitem"][aria-expanded] > span > span{
+        font-size:12.5px;line-height:18px;}
+      .pmx-workspaces [role="treeitem"]:not([aria-expanded]) > span:first-child,
+      .pmx-workspaces [role="treeitem"]:not([aria-expanded]) > span:nth-child(2){
+        font-size:12.5px;line-height:18px;}
+      .pmx-workspaces [role="treeitem"]:not([aria-expanded]) > span:nth-last-child(2):not(:first-child){
+        font-size:11.5px;line-height:18px;}
       .pmx-sidebar-foot{display:flex;align-items:center;gap:6px;flex:none;margin-top:12px;
         padding-top:12px;border-top:1px solid var(--dsw-alias-border-l3);}
       .pmx-account-wrap{position:relative;flex:1;min-width:0;}
@@ -626,6 +637,20 @@ window.__ModuleLoader__.load({
           ),
         ],
       }),
+      runtime: jsxRuntime.jsxs("svg", {
+        viewBox: "0 0 24 24",
+        fill: "none",
+        stroke: "currentColor",
+        strokeWidth: 2,
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        children: [
+          jsxRuntime.jsx("path", {
+            d: "M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3",
+          }),
+          jsxRuntime.jsx("path", { d: "M1 14h6M9 8h6M17 16h6" }),
+        ],
+      }),
       layout: jsxRuntime.jsxs("svg", {
         viewBox: "0 0 24 24",
         fill: "none",
@@ -660,8 +685,9 @@ window.__ModuleLoader__.load({
       { key: "projects", label: "项目", icon: icons.project },
       { key: "task", label: "任务", icon: icons.task },
       { key: "workflow", label: "工作流", icon: icons.workflow },
-      { key: "meetings", label: "对话", icon: icons.meeting },
+      { key: "meetings", label: "沟通", icon: icons.meeting },
       { key: "teammates", label: "AI伙伴", icon: icons.teammate },
+      { key: "runtime-settings", label: "运行时", icon: icons.runtime },
       { key: "resource-market", label: "资源市场", icon: icons.store },
     ];
 
@@ -1467,7 +1493,14 @@ window.__ModuleLoader__.load({
                     title: item.label,
                     className: shell.route === item.key ? "active" : undefined,
                     "data-nav-key": item.key,
-                    onClick: () => void selectRoute(item.key),
+                    onClick: () => {
+                      void selectRoute(item.key).then((accepted) => {
+                        if (accepted !== true || item.key !== "task") return;
+                        window.dispatchEvent(
+                          new CustomEvent("pluginmax:task-landing"),
+                        );
+                      });
+                    },
                     children: [
                       item.icon,
                       jsxRuntime.jsx("span", { children: item.label }),

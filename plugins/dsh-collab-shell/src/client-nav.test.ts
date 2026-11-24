@@ -47,8 +47,9 @@ describe("shell client navigation", () => {
       { key: "projects", label: "项目" },
       { key: "task", label: "任务" },
       { key: "workflow", label: "工作流" },
-      { key: "meetings", label: "对话" },
+      { key: "meetings", label: "沟通" },
       { key: "teammates", label: "AI伙伴" },
+      { key: "runtime-settings", label: "运行时" },
       { key: "resource-market", label: "资源市场" },
     ]);
   });
@@ -60,6 +61,13 @@ describe("shell client navigation", () => {
     expect(source).toContain('key: "workbench-new"');
     expect(source).not.toContain('key: "workbench", label: "工作台"');
     expect(source).not.toContain("pmx-workbench-switch");
+  });
+
+  it("returns the task nav item to its board landing state", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain("void selectRoute(item.key).then((accepted) => {");
+    expect(source).toContain('if (accepted !== true || item.key !== "task")');
+    expect(source).toContain('new CustomEvent("pluginmax:task-landing")');
   });
 
   it("localizes disabled-account login failures in both auth entry points", () => {
@@ -100,6 +108,18 @@ describe("shell client navigation", () => {
     expect(source).toContain(
       "grid-template-columns:72px minmax(0,1fr) 0 0 !important",
     );
+  });
+
+  it("keeps workspace list copy on the sidebar navigation type scale", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain(
+      '.pmx-workspaces [role="treeitem"][aria-expanded] > span > span{',
+    );
+    expect(source).toContain("font-size:12.5px;line-height:18px;}");
+    expect(source).toContain(
+      '.pmx-workspaces [role="treeitem"]:not([aria-expanded]) > span:nth-last-child(2):not(:first-child){',
+    );
+    expect(source).toContain("font-size:11.5px;line-height:18px;}");
   });
 
   it("registers the root frame synchronously to avoid boot-order races", () => {

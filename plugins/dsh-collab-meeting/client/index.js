@@ -32,6 +32,121 @@ window.__ModuleLoader__.load({
       maxConcurrentAgentsPerScene: 3,
     };
     const CONTEXT_POLICY_SCENES = ["chat", "group", "meeting"];
+    const CHAT_TYPING_STYLE_ID = "pluginmax-chat-typing-style";
+
+    const ensureChatTypingStyles = () => {
+      if (
+        typeof document === "undefined" ||
+        document.getElementById?.(CHAT_TYPING_STYLE_ID) !== null
+      ) {
+        return;
+      }
+      const style = document.createElement("style");
+      style.id = CHAT_TYPING_STYLE_ID;
+      style.textContent = `
+        .pmchat-typing-strip{display:flex;align-items:center;gap:8px;min-height:24px;padding:2px 8px;color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1.4;overflow:hidden;}
+        .pmchat-typing-strip>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+        .pmchat-typing-dots{display:inline-flex;align-items:center;gap:3px;height:12px;flex:none;}
+        .pmchat-typing-dots i{width:4px;height:4px;border-radius:50%;background:var(--dsw-alias-accent-primary,#4f8ef7);animation:pmchat-typing-dot 1.1s ease-in-out infinite;}
+        .pmchat-typing-dots i:nth-child(2){animation-delay:.15s;}
+        .pmchat-typing-dots i:nth-child(3){animation-delay:.3s;}
+        @keyframes pmchat-typing-dot{0%,60%,100%{opacity:.25;transform:translateY(0);}30%{opacity:1;transform:translateY(-2px);}}
+      `;
+      document.head?.appendChild(style);
+    };
+
+    const chatTypingNames = (participants, transcript) => {
+      const active = new Map(
+        participants
+          .filter(
+            (participant) =>
+              participant.status === "active" &&
+              (participant.executionState ?? "active") === "active" &&
+              participant.kind !== "human",
+          )
+          .map((participant) => [
+            participant.id,
+            {
+              displayName: participant.displayName,
+              targetId: participant.refId,
+            },
+          ]),
+      );
+      const hasPendingDelivery = (message) =>
+        (message.deliveries ?? []).some(
+          (delivery) =>
+            delivery.status === "pending" && active.has(delivery.participantId),
+        );
+      // 只认最近一次人工消息或 AI 接力消息。历史消息中的 pending 不能
+      // 永久把成员挂在“正在输入”，否则新消息没有触发任何人时仍会误显示。
+      let turnIndex = -1;
+      for (let index = transcript.length - 1; index >= 0; index -= 1) {
+        const message = transcript[index];
+        if (
+          message.senderKind === "human" ||
+          (message.senderKind === "agent" && hasPendingDelivery(message))
+        ) {
+          turnIndex = index;
+          break;
+        }
+      }
+      if (turnIndex < 0) return [];
+      const repliedTargetIds = new Set(
+        transcript
+          .slice(turnIndex + 1)
+          .filter((message) => message.senderKind === "agent")
+          .map((message) => message.senderId),
+      );
+      const pending = new Set();
+      for (const delivery of transcript[turnIndex].deliveries ?? []) {
+        const participant = active.get(delivery.participantId);
+        if (
+          delivery.status === "pending" &&
+          participant !== undefined &&
+          !repliedTargetIds.has(participant.targetId)
+        ) {
+          pending.add(delivery.participantId);
+        }
+      }
+      return [...pending].map(
+        (participantId) => active.get(participantId).displayName,
+      );
+    };
+
+    const chatTypingStrip = (statusText) =>
+      statusText === ""
+        ? null
+        : h(
+            "div",
+            {
+              className: "pmchat-typing-strip",
+              role: "status",
+              "aria-live": "polite",
+              "data-meeting-typing-strip": "true",
+            },
+            h("span", null, statusText),
+            h(
+              "span",
+              { className: "pmchat-typing-dots", "aria-hidden": "true" },
+              h("i"),
+              h("i"),
+              h("i"),
+            ),
+          );
+
+    const isUnreadConversationMessage = (message, actorId, read) => {
+      if (message.senderKind === "human" && message.senderId === actorId) {
+        return false;
+      }
+      const lastReadSeq = Number(read?.lastReadSeq ?? 0);
+      const lastReadAt = String(read?.updatedAt ?? "");
+      return (
+        Number(message.sequence ?? 0) > lastReadSeq ||
+        (lastReadAt !== "" && String(message.createdAt ?? "") > lastReadAt)
+      );
+    };
+
+    ensureChatTypingStyles();
 
     /* ── module-level store (open/close shared by toggle + panel) ── */
 
@@ -53,12 +168,11 @@ window.__ModuleLoader__.load({
               ? "数据洞察"
               : type === "task-drafts"
                 ? "任务草稿"
-                : "对话",
+                : "沟通",
           sessionId: "",
         });
         const typeOf = (tab) =>
-          state.tabMeta?.[tab]?.type ??
-          String(tab).split(":")[0];
+          state.tabMeta?.[tab]?.type ?? String(tab).split(":")[0];
         const describe = (tab) => {
           const type = typeOf(tab);
           return {
@@ -88,8 +202,7 @@ window.__ModuleLoader__.load({
           },
           openTab(tab) {
             const meta =
-              state.tabMeta?.[tab] ??
-              defaultTab(String(tab).split(":")[0]);
+              state.tabMeta?.[tab] ?? defaultTab(String(tab).split(":")[0]);
             emit({
               ...state,
               open: true,
@@ -136,7 +249,7 @@ window.__ModuleLoader__.load({
               ...defaultTab(type),
               title:
                 type === "communication"
-                  ? `新对话 ${ordinal}`
+                  ? `新沟通 ${ordinal}`
                   : type === "data-agent"
                     ? `新数据洞察 ${ordinal}`
                     : "任务草稿",
@@ -178,9 +291,7 @@ window.__ModuleLoader__.load({
             return state.openTabs.filter((tab) => typeOf(tab) === type);
           },
           activateType(type) {
-            const existing = state.openTabs.find(
-              (tab) => typeOf(tab) === type,
-            );
+            const existing = state.openTabs.find((tab) => typeOf(tab) === type);
             if (existing !== undefined) {
               this.activate(existing);
               return existing;
@@ -266,7 +377,9 @@ window.__ModuleLoader__.load({
       },
       close() {
         const snapshot = sidePanel?.getSnapshot?.();
-        if (sidePanel?.describeTab(snapshot?.activeTab)?.type === "communication")
+        if (
+          sidePanel?.describeTab(snapshot?.activeTab)?.type === "communication"
+        )
           sidePanel.closeTab(snapshot.activeTab);
         this.emit();
       },
@@ -292,7 +405,7 @@ window.__ModuleLoader__.load({
         const snapshot = sidePanel?.getSnapshot?.();
         return Boolean(
           snapshot?.open === true &&
-            sidePanel.describeTab(snapshot.activeTab).type === "communication",
+          sidePanel.describeTab(snapshot.activeTab).type === "communication",
         );
       },
       getContainerSnapshot() {
@@ -554,9 +667,7 @@ window.__ModuleLoader__.load({
           size,
         );
       const moveTabFocus = (event, index) => {
-        if (
-          !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)
-        ) {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
           return;
         }
         event.preventDefault();
@@ -571,12 +682,10 @@ window.__ModuleLoader__.load({
         const nextTab = tabs[nextIndex];
         window.__pluginmaxSidePanel?.openTab(nextTab);
         window.requestAnimationFrame(() => {
-          const target = [...document.querySelectorAll("[data-tab]")]
-            .find(
-              (node) =>
-                node.dataset.tab === nextTab &&
-                node.getClientRects().length > 0,
-            );
+          const target = [...document.querySelectorAll("[data-tab]")].find(
+            (node) =>
+              node.dataset.tab === nextTab && node.getClientRects().length > 0,
+          );
           target?.querySelector('button[role="tab"]')?.focus();
         });
       };
@@ -605,106 +714,106 @@ window.__ModuleLoader__.load({
               },
             },
             ...tabs.map((tab, tabIndex) => {
-            const active = snapshot.activeTab === tab;
-            const descriptor = sidePanel.describeTab(tab);
-            const type = descriptor.type;
-            const label = descriptor.title;
-            return h(
-              "div",
-              {
-                key: tab,
-                "data-tab": tab,
-                "data-tab-type": type,
-                ref: active ? activeTabRef : undefined,
-                draggable: true,
-                onDragStart: (event) => {
-                  event.dataTransfer.effectAllowed = "move";
-                  event.dataTransfer.setData("text/plain", tab);
-                  setDraggingTab(tab);
-                },
-                onDragOver: (event) => {
-                  event.preventDefault();
-                  event.dataTransfer.dropEffect = "move";
-                },
-                onDrop: (event) => {
-                  event.preventDefault();
-                  const source =
-                    event.dataTransfer.getData("text/plain") || draggingTab;
-                  window.__pluginmaxSidePanel?.reorderTab?.(source, tab);
-                  setDraggingTab("");
-                },
-                onDragEnd: () => setDraggingTab(""),
-                style: Object.assign(
-                  {},
-                  sidePanelTabsStyle.tab,
-                  active
-                    ? {
-                        color: "var(--dsw-alias-label-primary)",
-                        borderRadius: "6px 6px 0 0",
-                        background: "var(--dsw-alias-bg-layer-3)",
-                        fontWeight: 600,
-                        opacity: draggingTab === tab ? 0.55 : 1,
-                      }
-                    : draggingTab === tab
-                      ? { opacity: 0.55 }
-                      : {},
-                ),
-              },
-              h(
-                "button",
+              const active = snapshot.activeTab === tab;
+              const descriptor = sidePanel.describeTab(tab);
+              const type = descriptor.type;
+              const label = descriptor.title;
+              return h(
+                "div",
                 {
-                  type: "button",
-                  role: "tab",
-                  "aria-selected": active,
-                  style: sidePanelTabsStyle.tabButton,
+                  key: tab,
+                  "data-tab": tab,
                   "data-tab-type": type,
-                  onClick: () => window.__pluginmaxSidePanel?.openTab(tab),
-                  onKeyDown: (event) => moveTabFocus(event, tabIndex),
+                  ref: active ? activeTabRef : undefined,
+                  draggable: true,
+                  onDragStart: (event) => {
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("text/plain", tab);
+                    setDraggingTab(tab);
+                  },
+                  onDragOver: (event) => {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                  },
+                  onDrop: (event) => {
+                    event.preventDefault();
+                    const source =
+                      event.dataTransfer.getData("text/plain") || draggingTab;
+                    window.__pluginmaxSidePanel?.reorderTab?.(source, tab);
+                    setDraggingTab("");
+                  },
+                  onDragEnd: () => setDraggingTab(""),
+                  style: Object.assign(
+                    {},
+                    sidePanelTabsStyle.tab,
+                    active
+                      ? {
+                          color: "var(--dsw-alias-label-primary)",
+                          borderRadius: "6px 6px 0 0",
+                          background: "var(--dsw-alias-bg-layer-3)",
+                          fontWeight: 600,
+                          opacity: draggingTab === tab ? 0.55 : 1,
+                        }
+                      : draggingTab === tab
+                        ? { opacity: 0.55 }
+                        : {},
+                  ),
                 },
-                sidePanelTabIcon(type),
                 h(
-                  "span",
+                  "button",
                   {
-                    style: {
-                      minWidth: 0,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    },
+                    type: "button",
+                    role: "tab",
+                    "aria-selected": active,
+                    style: sidePanelTabsStyle.tabButton,
+                    "data-tab-type": type,
+                    onClick: () => window.__pluginmaxSidePanel?.openTab(tab),
+                    onKeyDown: (event) => moveTabFocus(event, tabIndex),
                   },
-                  label,
+                  sidePanelTabIcon(type),
+                  h(
+                    "span",
+                    {
+                      style: {
+                        minWidth: 0,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      },
+                    },
+                    label,
+                  ),
                 ),
-              ),
-              h(
-                "button",
-                {
-                  type: "button",
-                  style: sidePanelTabsStyle.close,
-                  title: `关闭${label}`,
-                  "aria-label": `关闭${label}`,
-                  onClick: () => {
-                    sidePanel.closeTab(tab);
-                  },
-                },
-                svgIcon(["M18 6 6 18", "M6 6l12 12"], 10),
-              ),
-              active
-                ? h("span", {
-                    "data-tab-indicator": "true",
-                    "aria-hidden": true,
-                    style: {
-                      position: "absolute",
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      height: 2,
-                      borderRadius: "2px 2px 0 0",
-                      background: "var(--dsw-alias-label-primary)",
-                      pointerEvents: "none",
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    style: sidePanelTabsStyle.close,
+                    title: `关闭${label}`,
+                    "aria-label": `关闭${label}`,
+                    onClick: () => {
+                      sidePanel.closeTab(tab);
                     },
-                  })
-                : null,
-            );
+                  },
+                  svgIcon(["M18 6 6 18", "M6 6l12 12"], 10),
+                ),
+                active
+                  ? h("span", {
+                      "data-tab-indicator": "true",
+                      "aria-hidden": true,
+                      style: {
+                        position: "absolute",
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        height: 2,
+                        borderRadius: "2px 2px 0 0",
+                        background: "var(--dsw-alias-label-primary)",
+                        pointerEvents: "none",
+                      },
+                    })
+                  : null,
+              );
             }),
           ),
           h(
@@ -732,61 +841,61 @@ window.__ModuleLoader__.load({
               ),
               newTabOpen
                 ? h(
-                  "div",
-                  {
-                    role: "menu",
-                    style: {
-                      position: "absolute",
-                      right: 0,
-                      top: 30,
-                      zIndex: 30,
-                      minWidth: 150,
-                      padding: 5,
-                      border: "1px solid var(--dsw-alias-border-l2)",
-                      borderRadius: 7,
-                      background: "var(--dsw-alias-bg-layer-1)",
-                      boxShadow: "0 10px 28px rgba(0,0,0,.2)",
-                    },
-                  },
-                  ...[
-                    ["communication", "对话"],
-                    ["data-agent", "数据洞察"],
-                    ["task-drafts", "任务草稿"],
-                  ].map(([type, label]) =>
-                    h(
-                      "button",
-                      {
-                        key: type,
-                        type: "button",
-                        className: "pmda-tab-new-item",
-                        role: "menuitem",
-                        "data-new-tab-type": type,
-                        style: {
-                          width: "100%",
-                          padding: "8px 9px",
-                          border: 0,
-                          borderRadius: 5,
-                          background: "transparent",
-                          color: "var(--dsw-alias-label-primary)",
-                          textAlign: "left",
-                          font: "inherit",
-                          fontSize: 11,
-                          lineHeight: 1.4,
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 7,
-                          cursor: "pointer",
-                        },
-                        onClick: () => {
-                          window.__pluginmaxSidePanel?.openNewTab(type);
-                          setNewTabOpen(false);
-                        },
+                    "div",
+                    {
+                      role: "menu",
+                      style: {
+                        position: "absolute",
+                        right: 0,
+                        top: 30,
+                        zIndex: 30,
+                        minWidth: 150,
+                        padding: 5,
+                        border: "1px solid var(--dsw-alias-border-l2)",
+                        borderRadius: 7,
+                        background: "var(--dsw-alias-bg-layer-1)",
+                        boxShadow: "0 10px 28px rgba(0,0,0,.2)",
                       },
-                      sidePanelTabIcon(type, 12),
-                      h("span", null, label),
+                    },
+                    ...[
+                      ["communication", "对话"],
+                      ["data-agent", "数据洞察"],
+                      ["task-drafts", "任务草稿"],
+                    ].map(([type, label]) =>
+                      h(
+                        "button",
+                        {
+                          key: type,
+                          type: "button",
+                          className: "pmda-tab-new-item",
+                          role: "menuitem",
+                          "data-new-tab-type": type,
+                          style: {
+                            width: "100%",
+                            padding: "8px 9px",
+                            border: 0,
+                            borderRadius: 5,
+                            background: "transparent",
+                            color: "var(--dsw-alias-label-primary)",
+                            textAlign: "left",
+                            font: "inherit",
+                            fontSize: 11,
+                            lineHeight: 1.4,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 7,
+                            cursor: "pointer",
+                          },
+                          onClick: () => {
+                            window.__pluginmaxSidePanel?.openNewTab(type);
+                            setNewTabOpen(false);
+                          },
+                        },
+                        sidePanelTabIcon(type, 12),
+                        h("span", null, label),
+                      ),
                     ),
-                  ),
-                )
+                  )
                 : null,
             ),
             h(
@@ -795,27 +904,15 @@ window.__ModuleLoader__.load({
                 type: "button",
                 style: sidePanelTabsStyle.utility,
                 title: snapshot.expanded ? "还原侧边栏" : "展开侧边栏",
-                "aria-label": snapshot.expanded
-                  ? "还原侧边栏"
-                  : "展开侧边栏",
+                "aria-label": snapshot.expanded ? "还原侧边栏" : "展开侧边栏",
                 onClick: () => {
                   window.__pluginmaxSidePanel?.toggleExpanded();
                 },
               },
               svgIcon(
                 snapshot.expanded
-                  ? [
-                      "M3 8h5V3",
-                      "M21 8h-5V3",
-                      "M3 16h5v5",
-                      "M21 16h-5v5",
-                    ]
-                  : [
-                      "M8 3H3v5",
-                      "M16 3h5v5",
-                      "M8 21H3v-5",
-                      "M16 21h5v-5",
-                    ],
+                  ? ["M3 8h5V3", "M21 8h-5V3", "M3 16h5v5", "M21 16h-5v5"]
+                  : ["M8 3H3v5", "M16 3h5v5", "M8 21H3v-5", "M16 21h5v-5"],
                 13,
               ),
             ),
@@ -1030,9 +1127,7 @@ window.__ModuleLoader__.load({
           seq += 1;
           continue;
         }
-        const tableHeader = line.includes("|")
-          ? splitTableRow(line)
-          : [];
+        const tableHeader = line.includes("|") ? splitTableRow(line) : [];
         const tableDivider =
           lineIndex + 1 < lines.length && lines[lineIndex + 1].includes("|")
             ? splitTableRow(lines[lineIndex + 1])
@@ -1286,6 +1381,17 @@ window.__ModuleLoader__.load({
         h("path", { d: "M8 12h8" }),
       );
 
+    const addMemberIcon = () =>
+      svgIcon(
+        [
+          "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2",
+          "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8",
+          "M19 8v6",
+          "M22 11h-6",
+        ],
+        14,
+      );
+
     const clipIcon = () =>
       svgIcon(
         [
@@ -1348,15 +1454,25 @@ window.__ModuleLoader__.load({
         ],
         15,
       );
-    const groupChatIcon = () =>
-      svgIcon(
-        [
-          "M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z",
-          "M8 9h8",
-          "M8 13h5",
-        ],
-        13,
-      );
+    const GROUP_CHAT_ICON =
+      "data:image/png;base64,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";
+
+    const groupChatIcon = (size) =>
+      h("img", {
+        src: GROUP_CHAT_ICON,
+        alt: "",
+        "aria-hidden": true,
+        "data-group-chat-icon": size === undefined ? "list" : "header",
+        style: {
+          borderRadius: 6,
+          display: "block",
+          flexShrink: 0,
+          height: size ?? "100%",
+          objectFit: "cover",
+          objectPosition: "center",
+          width: size ?? "100%",
+        },
+      });
 
     const downloadIcon = () =>
       svgIcon(["M12 3v12", "m7 10 5 5 5-5", "M5 21h14"], 12);
@@ -2357,8 +2473,7 @@ window.__ModuleLoader__.load({
         if (currentMeeting === undefined) return;
         const currentTranscript = detail?.transcript ?? [];
         openTaskDraft({
-          sourceType:
-            currentMeeting.kind === "ai" ? "ai-chat" : "meeting",
+          sourceType: currentMeeting.kind === "ai" ? "ai-chat" : "meeting",
           sourceId: currentMeeting.id,
           sourceTitle: currentMeeting.title,
           workspaceId: currentMeeting.workspaceId,
@@ -2471,8 +2586,9 @@ window.__ModuleLoader__.load({
                 ),
               );
             setMeetings(merged);
-            const withHistory = merged.filter((item) =>
-              meetingHasConversation(item),
+            const withHistory = merged.filter(
+              (item) =>
+                meetingHasConversation(item) || isActiveGroupConversation(item),
             );
             const remembered =
               window.localStorage.getItem(PANEL_LAST_MEETING_KEY) ?? "";
@@ -2554,8 +2670,9 @@ window.__ModuleLoader__.load({
 
       react.useEffect(() => {
         if (activeCommunicationTab === "") return;
-        const descriptor =
-          window.__pluginmaxSidePanel?.describeTab?.(activeCommunicationTab);
+        const descriptor = window.__pluginmaxSidePanel?.describeTab?.(
+          activeCommunicationTab,
+        );
         const sessionId = descriptor?.sessionId ?? "";
         setMeetingId(sessionId);
         setPanelView(sessionId === "" ? "list" : "detail");
@@ -2684,12 +2801,9 @@ window.__ModuleLoader__.load({
         ) {
           return undefined;
         }
-        const lastMessage = (detail?.transcript ?? []).at(-1);
         const waitingForReply =
-          lastMessage?.senderKind === "human" &&
-          (lastMessage.deliveries ?? []).some(
-            (delivery) => delivery.status === "pending",
-          );
+          chatTypingNames(detail?.participants ?? [], detail?.transcript ?? [])
+            .length > 0;
         if (!waitingForReply) return undefined;
         const timer = window.setInterval(
           () => setRefreshKey((key) => key + 1),
@@ -2702,6 +2816,8 @@ window.__ModuleLoader__.load({
 
       const meeting = detail?.meeting;
       const isAiConversation = meeting?.kind === "ai";
+      const isGroupConversation =
+        meeting?.kind === "meeting" && meeting?.conversationMode === "group";
       const activePanelTab = isAiConversation ? "conversation" : panelTab;
       const transcript = detail?.transcript ?? [];
       const actorId = detail?.actorId ?? "";
@@ -2712,6 +2828,11 @@ window.__ModuleLoader__.load({
           participant.refId === actorId,
       );
       const participants = detail?.participants ?? [];
+      const panelTypingNames = chatTypingNames(participants, transcript);
+      const panelTypingStatus =
+        panelTypingNames.length === 0
+          ? ""
+          : `${panelTypingNames.join("、")} 正在输入`;
       const aiConversationTeammate = isAiConversation
         ? teammates.find((item) => item.id === meeting?.teammateInstanceId)
         : undefined;
@@ -2878,7 +2999,10 @@ window.__ModuleLoader__.load({
         );
       };
       const matchedRows = meetings
-        .filter((item) => meetingHasConversation(item))
+        .filter(
+          (item) =>
+            meetingHasConversation(item) || isActiveGroupConversation(item),
+        )
         .map((item) => ({
           item,
           score: normalizeSearchText(query) === "" ? 0 : panelSearchScore(item),
@@ -2899,10 +3023,7 @@ window.__ModuleLoader__.load({
           panelOtherRows.push(item);
           continue;
         }
-        if (
-          item.status !== "active" ||
-          item.teammateInstanceId === undefined
-        ) {
+        if (item.status !== "active" || item.teammateInstanceId === undefined) {
           continue;
         }
         const current = panelAiByTeammate.get(item.teammateInstanceId);
@@ -3015,10 +3136,38 @@ window.__ModuleLoader__.load({
         const instances = inviteSelected
           .filter((key) => key.startsWith("ai:"))
           .map((key) => key.slice("ai:".length));
+        if (humans.length === 0 && instances.length === 0) return;
         await run(async () => {
+          let targetMeetingId = meetingId;
+          if (isAiConversation) {
+            const result = await post("/api/collab/meeting/convert-to-group", {
+              meetingId,
+            });
+            const groupId = result?.meeting?.id;
+            if (typeof groupId !== "string" || groupId === "") {
+              throw new Error("群聊创建失败");
+            }
+            targetMeetingId = groupId;
+            setMeetings((current) => [
+              Object.assign({}, result.meeting, {
+                messageCount: 0,
+                unreadCount: 0,
+                lastActivityAt: result.meeting.updatedAt,
+                lastMessage: null,
+              }),
+              ...current.filter((item) => item.id !== groupId),
+            ]);
+            setMeetingId(groupId);
+            if (activeCommunicationTab !== "") {
+              window.__pluginmaxSidePanel?.updateTab?.(activeCommunicationTab, {
+                sessionId: groupId,
+                title: result.meeting.title,
+              });
+            }
+          }
           if (humans.length > 0) {
             await post("/api/collab/meeting/participants/invite", {
-              meetingId,
+              meetingId: targetMeetingId,
               people: humans.map((id) => ({ targetId: id })),
             });
           }
@@ -3031,18 +3180,43 @@ window.__ModuleLoader__.load({
               // 邀请平台 Facilitator 实例 = 启用会议 AI Facilitator（同一状态）。
               if (facilitator === undefined) {
                 await post("/api/collab/meeting/facilitator/open", {
-                  meetingId,
+                  meetingId: targetMeetingId,
                 });
               }
               continue;
             }
             const teammate = teammates.find((item) => item.id === instanceId);
             await post("/api/collab/meeting/participant/ai", {
-              meetingId,
+              meetingId: targetMeetingId,
               teammateInstanceId: instanceId,
               displayName: teammate?.name ?? instanceId,
               speechMode: "mention",
             });
+          }
+          if (isAiConversation) {
+            const titled = await post(
+              "/api/collab/meeting/group-title/generate",
+              { meetingId: targetMeetingId },
+            );
+            const title = titled?.meeting?.title;
+            if (typeof title === "string" && title !== "") {
+              setMeetings((current) =>
+                current.map((item) =>
+                  item.id === targetMeetingId
+                    ? Object.assign({}, item, {
+                        title,
+                        updatedAt: titled.meeting.updatedAt ?? item.updatedAt,
+                      })
+                    : item,
+                ),
+              );
+              if (activeCommunicationTab !== "") {
+                window.__pluginmaxSidePanel?.updateTab?.(
+                  activeCommunicationTab,
+                  { sessionId: targetMeetingId, title },
+                );
+              }
+            }
           }
           setInviteSelected([]);
           setInviteOpen(false);
@@ -3085,13 +3259,10 @@ window.__ModuleLoader__.load({
             ]);
             setMeetingId(created.id);
             if (activeCommunicationTab !== "") {
-              window.__pluginmaxSidePanel?.updateTab?.(
-                activeCommunicationTab,
-                {
-                  sessionId: created.id,
-                  title: created.title,
-                },
-              );
+              window.__pluginmaxSidePanel?.updateTab?.(activeCommunicationTab, {
+                sessionId: created.id,
+                title: created.title,
+              });
             }
             setPanelView("detail");
             setNewMeetingTitle("");
@@ -3135,13 +3306,10 @@ window.__ModuleLoader__.load({
             ]);
             setMeetingId(created.id);
             if (activeCommunicationTab !== "") {
-              window.__pluginmaxSidePanel?.updateTab?.(
-                activeCommunicationTab,
-                {
-                  sessionId: created.id,
-                  title: created.title,
-                },
-              );
+              window.__pluginmaxSidePanel?.updateTab?.(activeCommunicationTab, {
+                sessionId: created.id,
+                title: created.title,
+              });
             }
             setPanelView("detail");
           }
@@ -3183,7 +3351,7 @@ window.__ModuleLoader__.load({
                   title: meeting.title,
                   "aria-label": `${meeting.title} 头像`,
                 },
-                videoIcon(),
+                isGroupConversation ? groupChatIcon(30) : videoIcon(),
               );
       const communicationRowNode = (item) => {
         const aiConversation = item.kind === "ai";
@@ -3338,9 +3506,7 @@ window.__ModuleLoader__.load({
                         ),
                         "aria-label": `与 ${teammate.name} 开始聊天`,
                         "aria-disabled": unavailable || undefined,
-                        "data-ai-unavailable": unavailable
-                          ? "true"
-                          : undefined,
+                        "data-ai-unavailable": unavailable ? "true" : undefined,
                         title: unavailable ? unavailableReason : undefined,
                         disabled: busy !== "" || unavailable,
                         onClick: () => void createAiConversation(teammate),
@@ -3396,7 +3562,7 @@ window.__ModuleLoader__.load({
                 style: panelStyles.search,
                 value: newMeetingTitle,
                 placeholder: "输入会议主题",
-                "aria-label": "新对话会议主题",
+                "aria-label": "新沟通会议主题",
                 onChange: (event) => setNewMeetingTitle(event.target.value),
               }),
             ]),
@@ -3407,7 +3573,7 @@ window.__ModuleLoader__.load({
                 {
                   style: panelStyles.search,
                   value: newWorkspaceId,
-                  "aria-label": "新对话关联项目",
+                  "aria-label": "新沟通关联项目",
                   onChange: (event) => setNewWorkspaceId(event.target.value),
                 },
                 ...workspaceOptions.map((workspace) =>
@@ -3442,13 +3608,15 @@ window.__ModuleLoader__.load({
         panelView === "list"
           ? "对话"
           : panelView === "new"
-            ? "新建对话"
-            : (meeting?.title ?? "对话");
+            ? "新建沟通"
+            : (meeting?.title ?? "沟通");
       const headerMeta =
         panelView === "detail" && meeting
-          ? isAiConversation
-            ? `${aiConversationTeammate?.ownerName ? `${aiConversationTeammate.ownerName} 的 AI` : "AI 伙伴"} · ${meetingTimeLabel(meeting)}`
-            : `${meetingTimeLabel(meeting)} · ${meetingStatusLabel(meeting.status)} · ${participants.filter((participant) => participant.status === "active").length} 人 · ${panelAiCount} 个 AI`
+          ? isGroupConversation
+            ? null
+            : isAiConversation
+              ? `${aiConversationTeammate?.ownerName ? `${aiConversationTeammate.ownerName} 的 AI` : "AI 伙伴"} · ${meetingTimeLabel(meeting)}`
+              : `${meetingTimeLabel(meeting)} · ${meetingStatusLabel(meeting.status)} · ${participants.filter((participant) => participant.status === "active").length} 人 · ${panelAiCount} 个 AI`
           : null;
 
       return h(
@@ -3531,13 +3699,34 @@ window.__ModuleLoader__.load({
                     })
                   : null,
               ]),
+              panelView === "detail" &&
+              isAiConversation &&
+              meeting.status === "active" &&
+              joined
+                ? h(
+                    "button",
+                    {
+                      type: "button",
+                      style: panelStyles.iconBtn,
+                      title: "添加参与方",
+                      "aria-label": "添加参与方",
+                      disabled: busy !== "",
+                      onClick: () => {
+                        setInviteQuery("");
+                        setInviteSelected([]);
+                        setInviteOpen(true);
+                      },
+                    },
+                    addMemberIcon(),
+                  )
+                : null,
               h(
                 "button",
                 {
                   type: "button",
                   style: panelStyles.iconBtn,
-                  title: "新建对话",
-                  "aria-label": "新建对话",
+                  title: "新建沟通",
+                  "aria-label": "新建沟通",
                   onClick: () => {
                     setPanelView("new");
                     setNewMeetingTitle("");
@@ -3623,874 +3812,888 @@ window.__ModuleLoader__.load({
                       "data-data-agent-text-surface": "communication-detail",
                     },
                     [
-                    meeting && !isAiConversation
-                      ? h(
-                          "div",
-                          {
-                            role: "tablist",
-                            "aria-label": "会议侧栏页签",
-                            style: panelStyles.tabs,
-                          },
-                          ...[
-                            ["conversation", "对话"],
-                            ["minutes", "纪要"],
-                            ["settings", "设置"],
-                          ].map(([key, label]) =>
-                            h("button", {
-                              key,
-                              type: "button",
-                              role: "tab",
-                              style: Object.assign(
-                                {},
-                                panelStyles.tab,
-                                activePanelTab === key
-                                  ? panelStyles.tabActive
-                                  : {},
-                              ),
-                              "aria-selected": activePanelTab === key,
-                              onClick: () => setPanelTab(key),
-                              children: label,
-                            }),
-                          ),
-                        )
-                      : null,
-                    activePanelTab === "settings" && meeting
-                      ? h("div", { style: panelStyles.settings }, [
-                          // 会议名称默认就是可编辑态，不需要先点一下才能改。
-                          h("div", { style: panelStyles.block }, [
-                            h("div", {
-                              style: panelStyles.groupTitle,
-                              children: "会议名称",
-                            }),
-                            h(
-                              "div",
-                              {
-                                style: {
-                                  alignItems: "center",
-                                  display: "flex",
-                                  gap: 8,
-                                },
-                              },
-                              h("input", {
-                                style: Object.assign({}, panelStyles.search, {
-                                  flex: 1,
-                                }),
-                                value: titleDraft,
-                                placeholder: "会议名称",
-                                "aria-label": "会议名称",
-                                onChange: (event) =>
-                                  setTitleDraft(event.target.value),
-                                onKeyDown: (event) => {
-                                  if (event.key === "Enter") {
-                                    event.preventDefault();
-                                    void saveTitle();
-                                  }
-                                },
-                              }),
+                      meeting && !isAiConversation
+                        ? h(
+                            "div",
+                            {
+                              role: "tablist",
+                              "aria-label": "会议侧栏页签",
+                              style: panelStyles.tabs,
+                            },
+                            ...[
+                              ["conversation", "对话"],
+                              ["minutes", "纪要"],
+                              ["settings", "设置"],
+                            ].map(([key, label]) =>
                               h("button", {
+                                key,
                                 type: "button",
+                                role: "tab",
                                 style: Object.assign(
                                   {},
-                                  panelStyles.btnPrimary,
-                                  busy !== "" ||
-                                    titleDraft.trim() === "" ||
-                                    titleDraft.trim() === meeting.title
-                                    ? { cursor: "default", opacity: 0.5 }
+                                  panelStyles.tab,
+                                  activePanelTab === key
+                                    ? panelStyles.tabActive
                                     : {},
                                 ),
-                                disabled:
-                                  busy !== "" ||
-                                  titleDraft.trim() === "" ||
-                                  titleDraft.trim() === meeting.title,
-                                onClick: () => void saveTitle(),
-                                children: "保存",
+                                "aria-selected": activePanelTab === key,
+                                onClick: () => setPanelTab(key),
+                                children: label,
                               }),
                             ),
-                          ]),
-                          h("div", { style: panelStyles.divider }),
-                          h("div", { style: panelStyles.block }, [
-                            h("div", {
-                              style: panelStyles.groupTitle,
-                              children: "AI 会议 Facilitator",
-                            }),
-                            h(
-                              "label",
-                              {
-                                style: {
-                                  alignItems: "center",
-                                  background: "var(--dsw-alias-bg-layer-1)",
-                                  border:
-                                    "0.5px solid var(--dsw-alias-border-l3)",
-                                  borderRadius: 6,
-                                  cursor:
-                                    meeting.status === "archived" || busy !== ""
-                                      ? "not-allowed"
-                                      : "pointer",
-                                  display: "flex",
-                                  gap: 8,
-                                  opacity:
-                                    meeting.status === "archived" || busy !== ""
-                                      ? 0.55
-                                      : 1,
-                                  padding: "8px 9px",
-                                },
-                              },
-                              h("input", {
-                                type: "checkbox",
-                                checked: facilitator !== undefined,
-                                disabled:
-                                  meeting.status === "archived" || busy !== "",
-                                onChange: (event) =>
-                                  void run(() =>
-                                    event.target.checked
-                                      ? post(
-                                          "/api/collab/meeting/facilitator/open",
-                                          {
-                                            meetingId,
-                                          },
-                                        )
-                                      : post(
-                                          "/api/collab/meeting/facilitator/close",
-                                          {
-                                            meetingId,
-                                          },
-                                        ),
-                                  ),
-                              }),
-                              h("span", {
-                                style: {
-                                  flex: 1,
-                                  fontSize: 12,
-                                  fontWeight: 500,
-                                },
-                                children: "启用 AI 会议 Facilitator",
-                              }),
-                              h("span", {
-                                style: panelStyles.meta,
-                                children: facilitator ? "已启用" : "未启用",
-                              }),
-                            ),
-                          ]),
-                          h("div", { style: panelStyles.divider }),
-                          h("div", { style: panelStyles.block }, [
-                            h(
-                              "div",
-                              {
-                                style: {
-                                  alignItems: "center",
-                                  display: "flex",
-                                  gap: 8,
-                                },
-                              },
-                              h("span", {
+                          )
+                        : null,
+                      activePanelTab === "settings" && meeting
+                        ? h("div", { style: panelStyles.settings }, [
+                            // 会议名称默认就是可编辑态，不需要先点一下才能改。
+                            h("div", { style: panelStyles.block }, [
+                              h("div", {
                                 style: panelStyles.groupTitle,
-                                children: "会议成员",
+                                children: "会议名称",
                               }),
-                              h("span", { style: { flex: 1 } }),
-                              h("button", {
-                                type: "button",
-                                style: Object.assign(
-                                  {},
-                                  panelStyles.btnPrimary,
-                                  busy !== ""
-                                    ? { cursor: "not-allowed", opacity: 0.55 }
-                                    : {},
-                                ),
-                                disabled: busy !== "",
-                                onClick: () => {
-                                  setInviteQuery("");
-                                  setInviteSelected([]);
-                                  setInviteOpen(true);
-                                },
-                                children: "邀请成员",
-                              }),
-                            ),
-                            ...memberRows.map((row) => {
-                              const teammate =
-                                row.kind === "ai"
-                                  ? teammates.find(
-                                      (item) =>
-                                        item.id === row.teammateId ||
-                                        item.name === row.label,
-                                    )
-                                  : undefined;
-                              return h(
-                                "div",
-                                { key: row.id, style: panelStyles.checkRow },
-                                row.kind === "ai"
-                                  ? h(
-                                      "span",
-                                      {
-                                        style: teammateRingStyle(
-                                          teammate?.source === "platform",
-                                        ),
-                                      },
-                                      avatarArt(teammate?.avatar),
-                                    )
-                                  : h(
-                                      "span",
-                                      { style: initialsAvatarStyle },
-                                      initials(row.label),
-                                    ),
-                                h("span", {
-                                  style: panelStyles.name,
-                                  children: row.label,
-                                }),
-                                row.tag
-                                  ? h("span", {
-                                      style: panelStyles.chip,
-                                      children: row.tag,
-                                    })
-                                  : null,
-                                row.active
-                                  ? h("button", {
-                                      type: "button",
-                                      style: panelStyles.btn,
-                                      disabled: busy !== "",
-                                      onClick: () =>
-                                        void removePanelMember(row),
-                                      children: "移除",
-                                    })
-                                  : h("span", {
-                                      style: panelStyles.meta,
-                                      children: "已离会",
-                                    }),
-                              );
-                            }),
-                          ]),
-                        ])
-                      : !meeting
-                        ? h("div", {
-                            style: panelStyles.meta,
-                            children: "请选择会议",
-                          })
-                        : activePanelTab === "minutes"
-                          ? h("div", { style: panelStyles.panelSection }, [
-                              h(
-                                "div",
-                                { style: panelStyles.summarySectionHead },
-                                [
-                                  h("div", {
-                                    style: { fontSize: 13, fontWeight: 600 },
-                                    children: "会议纪要",
-                                  }),
-                                  h(
-                                    "div",
-                                    { style: { display: "flex", gap: 6 } },
-                                    panelMinutesVersion === undefined
-                                      ? null
-                                      : h("button", {
-                                          type: "button",
-                                          style: panelStyles.btn,
-                                          title: "下载 Markdown",
-                                          "aria-label": "下载会议纪要 Markdown",
-                                          onClick: () =>
-                                            downloadMinutesMarkdown(
-                                              meeting,
-                                              panelMinutesVersion,
-                                            ),
-                                          children: [
-                                            downloadIcon(),
-                                            h("span", { children: "下载" }),
-                                          ],
-                                        }),
-                                    meeting.status !== "archived" &&
-                                      facilitator !== undefined
-                                      ? h("button", {
-                                          type: "button",
-                                          style: panelStyles.btn,
-                                          disabled: busy !== "" || !joined,
-                                          onClick: () => {
-                                            if (
-                                              panelMinutesVersion !== undefined
-                                            ) {
-                                              setMinutesOverwriteOpen(true);
-                                              return;
-                                            }
-                                            void run("minutes", () =>
-                                              post(
-                                                "/api/collab/meeting/minutes/trigger",
-                                                { meetingId },
-                                              ),
-                                            );
-                                          },
-                                          children:
-                                            busy === "minutes"
-                                              ? "生成中…"
-                                              : "更新纪要",
-                                        })
-                                      : null,
-                                  ),
-                                ],
-                              ),
-                              panelMinutesVersion === undefined
-                                ? h("div", {
-                                    style: panelStyles.meta,
-                                    children: "暂无会议纪要",
-                                  })
-                                : h(
-                                    "div",
-                                    { style: panelStyles.minutesBody },
-                                    renderChatMarkdown(
-                                      panelMinutesVersion.content,
-                                    ),
-                                  ),
-                              panelMinutesVersion === undefined
-                                ? null
-                                : h("div", {
-                                    style: panelStyles.meta,
-                                    children: `更新于：${timeFull(
-                                      panelMinutesVersion.updatedAt ??
-                                        panelMinutesVersion.createdAt,
-                                    )}`,
-                                  }),
-                            ])
-                          : h("div", { style: panelStyles.chat }, [
                               h(
                                 "div",
                                 {
-                                  ref: messagesRef,
-                                  style: panelStyles.stream,
+                                  style: {
+                                    alignItems: "center",
+                                    display: "flex",
+                                    gap: 8,
+                                  },
                                 },
-                                ...transcript.map((message) => {
-                                  if (message.senderKind === "system")
-                                    return h("div", {
-                                      key: message.id,
-                                      style: panelStyles.systemMessage,
-                                      children: displayContent(message.content),
-                                    });
-                                  const mine =
-                                    message.senderKind === "human" &&
-                                    message.senderId === actorId;
-                                  const label =
-                                    message.provenance?.role ===
-                                    "representative"
-                                      ? `${message.senderName} · AI 参会代表`
-                                      : message.senderKind === "agent"
-                                        ? `${message.senderName} · AI`
-                                        : mine
-                                          ? "我"
-                                          : message.senderName;
-                                  return h(
-                                    "div",
-                                    {
-                                      key: message.id,
-                                      "data-meeting-id": meeting.id,
-                                      "data-meeting-title": meeting.title,
-                                      "data-meeting-kind": meeting.kind,
-                                      "data-meeting-surface": "rail",
-                                      "data-meeting-message-id": message.id,
-                                      style: {
-                                        alignItems: "flex-start",
-                                        display: "flex",
-                                        flexDirection: mine
-                                          ? "row-reverse"
-                                          : "row",
-                                        gap: 8,
-                                      },
-                                    },
-                                    chatAvatar(message, mine, teammates),
-                                    h(
-                                      "div",
-                                      {
-                                        style: {
-                                          alignItems: mine
-                                            ? "flex-end"
-                                            : "flex-start",
-                                          display: "flex",
-                                          flexDirection: "column",
-                                          gap: 2,
-                                          maxWidth: "calc(100% - 34px)",
-                                          minWidth: 0,
-                                        },
-                                      },
-                                      h("div", {
-                                        style: panelStyles.meta,
-                                        children: `${label} · ${timeShort(message.createdAt)}`,
-                                      }),
-                                      h(
-                                        "div",
-                                        {
-                                          style: Object.assign(
-                                            {},
-                                            panelStyles.bubble,
-                                            mine ? panelStyles.bubbleMine : {},
-                                          ),
-                                        },
-                                        h(
-                                          "div",
-                                          null,
-                                          renderChatMarkdown(
-                                            displayContent(message.content),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  );
+                                h("input", {
+                                  style: Object.assign({}, panelStyles.search, {
+                                    flex: 1,
+                                  }),
+                                  value: titleDraft,
+                                  placeholder: "会议名称",
+                                  "aria-label": "会议名称",
+                                  onChange: (event) =>
+                                    setTitleDraft(event.target.value),
+                                  onKeyDown: (event) => {
+                                    if (event.key === "Enter") {
+                                      event.preventDefault();
+                                      void saveTitle();
+                                    }
+                                  },
                                 }),
-                                transcript.length === 0
-                                  ? h("div", {
-                                      style: panelStyles.meta,
-                                      children: "暂无消息",
-                                    })
-                                  : null,
+                                h("button", {
+                                  type: "button",
+                                  style: Object.assign(
+                                    {},
+                                    panelStyles.btnPrimary,
+                                    busy !== "" ||
+                                      titleDraft.trim() === "" ||
+                                      titleDraft.trim() === meeting.title
+                                      ? { cursor: "default", opacity: 0.5 }
+                                      : {},
+                                  ),
+                                  disabled:
+                                    busy !== "" ||
+                                    titleDraft.trim() === "" ||
+                                    titleDraft.trim() === meeting.title,
+                                  onClick: () => void saveTitle(),
+                                  children: "保存",
+                                }),
                               ),
-                              meeting.status === "active"
-                                ? joined
-                                  ? h(
-                                      "form",
-                                      {
-                                        style: {
-                                          background:
-                                            "var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-layer-1))",
-                                          border:
-                                            "0.5px solid var(--dsw-alias-border-l3)",
-                                          borderRadius: 6,
-                                          flexShrink: 0,
-                                          margin: "0 8px 8px",
-                                          padding: 8,
-                                          position: "relative",
-                                        },
-                                        onSubmit: async (event) => {
-                                          event.preventDefault();
-                                          const text = content.trim();
-                                          if (text === "") return;
-                                          setContent("");
-                                          closePanelMention();
-                                          await run(() =>
-                                            post(
-                                              "/api/collab/meeting/message",
-                                              {
-                                                meetingId,
-                                                content: text,
-                                                mentions: mentionIds,
-                                              },
-                                            ),
-                                          );
-                                          window.dispatchEvent?.(
-                                            new CustomEvent(
-                                              "pluginmax:workbench-v2-refresh",
-                                            ),
-                                          );
-                                          setMentionIds([]);
-                                        },
-                                      },
-                                      h(
-                                        "div",
-                                        { style: panelStyles.composer },
-                                        h(
-                                          "button",
-                                          {
-                                            type: "button",
-                                            style: panelStyles.composerBtn,
-                                            title: "上传文件",
-                                            "aria-label": "上传文件",
-                                            onClick: () =>
-                                              fileRef.current?.click(),
-                                          },
-                                          clipIcon(),
-                                        ),
-                                        h(
-                                          "button",
-                                          {
-                                            type: "button",
-                                            style: panelStyles.composerBtn,
-                                            title: "提及成员",
-                                            "aria-label": "提及成员",
-                                            onClick: togglePanelMention,
-                                          },
-                                          atIcon(),
-                                        ),
-                                        h(
-                                          "button",
-                                          {
-                                            type: "button",
-                                            style: panelStyles.composerBtn,
-                                            title: "整理任务草稿",
-                                            "aria-label": "整理任务草稿",
-                                            disabled:
-                                              busy !== "" ||
-                                              transcript.length === 0,
-                                            onClick: () => openTaskCapture(),
-                                          },
-                                          h(
-                                            "svg",
+                            ]),
+                            h("div", { style: panelStyles.divider }),
+                            h("div", { style: panelStyles.block }, [
+                              h("div", {
+                                style: panelStyles.groupTitle,
+                                children: "AI 会议 Facilitator",
+                              }),
+                              h(
+                                "label",
+                                {
+                                  style: {
+                                    alignItems: "center",
+                                    background: "var(--dsw-alias-bg-layer-1)",
+                                    border:
+                                      "0.5px solid var(--dsw-alias-border-l3)",
+                                    borderRadius: 6,
+                                    cursor:
+                                      meeting.status === "archived" ||
+                                      busy !== ""
+                                        ? "not-allowed"
+                                        : "pointer",
+                                    display: "flex",
+                                    gap: 8,
+                                    opacity:
+                                      meeting.status === "archived" ||
+                                      busy !== ""
+                                        ? 0.55
+                                        : 1,
+                                    padding: "8px 9px",
+                                  },
+                                },
+                                h("input", {
+                                  type: "checkbox",
+                                  checked: facilitator !== undefined,
+                                  disabled:
+                                    meeting.status === "archived" ||
+                                    busy !== "",
+                                  onChange: (event) =>
+                                    void run(() =>
+                                      event.target.checked
+                                        ? post(
+                                            "/api/collab/meeting/facilitator/open",
                                             {
-                                              viewBox: "0 0 24 24",
-                                              width: 15,
-                                              height: 15,
-                                              fill: "none",
-                                              stroke: "currentColor",
-                                              strokeWidth: 1.8,
-                                              strokeLinecap: "round",
-                                              strokeLinejoin: "round",
-                                              "aria-hidden": true,
+                                              meetingId,
                                             },
-                                            h("path", {
-                                              d: "M9 6h11M9 12h11M9 18h11",
-                                            }),
-                                            h("path", {
-                                              d: "m3 6 1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2",
-                                            }),
+                                          )
+                                        : post(
+                                            "/api/collab/meeting/facilitator/close",
+                                            {
+                                              meetingId,
+                                            },
                                           ),
-                                        ),
-                                        h("input", {
-                                          ref: fileRef,
-                                          type: "file",
-                                          style: { display: "none" },
-                                          onChange: (event) => {
-                                            const file =
-                                              event.target.files?.[0];
-                                            if (file !== undefined)
-                                              void uploadFile(file);
-                                            event.target.value = "";
-                                          },
-                                        }),
-                                        mentionOpen
-                                          ? panelMentionOptions.length > 0
-                                            ? h(
-                                                "div",
-                                                {
-                                                  style:
-                                                    panelStyles.mentionMenu,
-                                                },
-                                                ...panelMentionOptions.map(
-                                                  (participant) =>
-                                                    h(
-                                                      "button",
-                                                      {
-                                                        type: "button",
-                                                        key: participant.id,
-                                                        style:
-                                                          panelStyles.mentionItem,
-                                                        onClick: () =>
-                                                          pickPanelMention(
-                                                            participant,
-                                                          ),
-                                                      },
-                                                      participantAvatarNode(
-                                                        participant,
-                                                        teammates,
-                                                      ),
-                                                      h(
-                                                        "span",
-                                                        {
-                                                          style:
-                                                            panelStyles.mentionCopy,
-                                                        },
-                                                        h("span", {
-                                                          style:
-                                                            panelStyles.mentionName,
-                                                          children:
-                                                            participant.displayName,
-                                                        }),
-                                                        h("span", {
-                                                          style:
-                                                            panelStyles.mentionMeta,
-                                                          children:
-                                                            participant.kind ===
-                                                            "human"
-                                                              ? "会议成员"
-                                                              : participant.ownerName
-                                                                ? `${participant.ownerName} 的 AI`
-                                                                : "AI 成员",
-                                                        }),
-                                                      ),
-                                                    ),
-                                                ),
-                                              )
-                                            : h(
-                                                "div",
-                                                {
-                                                  style:
-                                                    panelStyles.mentionMenu,
-                                                },
-                                                h("div", {
-                                                  style:
-                                                    panelStyles.mentionItem,
-                                                  children: "没有匹配成员",
-                                                }),
-                                              )
-                                          : null,
-                                      ),
-                                      h(
-                                        "div",
+                                    ),
+                                }),
+                                h("span", {
+                                  style: {
+                                    flex: 1,
+                                    fontSize: 12,
+                                    fontWeight: 500,
+                                  },
+                                  children: "启用 AI 会议 Facilitator",
+                                }),
+                                h("span", {
+                                  style: panelStyles.meta,
+                                  children: facilitator ? "已启用" : "未启用",
+                                }),
+                              ),
+                            ]),
+                            h("div", { style: panelStyles.divider }),
+                            h("div", { style: panelStyles.block }, [
+                              h(
+                                "div",
+                                {
+                                  style: {
+                                    alignItems: "center",
+                                    display: "flex",
+                                    gap: 8,
+                                  },
+                                },
+                                h("span", {
+                                  style: panelStyles.groupTitle,
+                                  children: "会议成员",
+                                }),
+                                h("span", { style: { flex: 1 } }),
+                                h("button", {
+                                  type: "button",
+                                  style: Object.assign(
+                                    {},
+                                    panelStyles.btnPrimary,
+                                    busy !== ""
+                                      ? { cursor: "not-allowed", opacity: 0.55 }
+                                      : {},
+                                  ),
+                                  disabled: busy !== "",
+                                  onClick: () => {
+                                    setInviteQuery("");
+                                    setInviteSelected([]);
+                                    setInviteOpen(true);
+                                  },
+                                  children: "邀请成员",
+                                }),
+                              ),
+                              ...memberRows.map((row) => {
+                                const teammate =
+                                  row.kind === "ai"
+                                    ? teammates.find(
+                                        (item) =>
+                                          item.id === row.teammateId ||
+                                          item.name === row.label,
+                                      )
+                                    : undefined;
+                                return h(
+                                  "div",
+                                  { key: row.id, style: panelStyles.checkRow },
+                                  row.kind === "ai"
+                                    ? h(
+                                        "span",
                                         {
-                                          style: {
-                                            alignItems: "flex-end",
-                                            display: "flex",
-                                            gap: 6,
-                                            marginTop: 6,
-                                          },
+                                          style: teammateRingStyle(
+                                            teammate?.source === "platform",
+                                          ),
                                         },
-                                        h("textarea", {
-                                          ref: composerInputRef,
-                                          style: Object.assign(
-                                            {},
-                                            panelStyles.textarea,
-                                            {
-                                              background: "transparent",
-                                              border: "none",
-                                              minHeight: 64,
-                                              padding: 2,
-                                            },
-                                          ),
-                                          value: content,
-                                          placeholder: "输入消息，@ 成员…",
-                                          onChange: (event) =>
-                                            panelMentionChanged(
-                                              event.target.value,
-                                            ),
-                                        }),
-                                        h("button", {
-                                          type: "submit",
-                                          style: Object.assign(
-                                            {},
-                                            panelStyles.sendBtn,
-                                            {
-                                              opacity:
-                                                busy !== "" ||
-                                                content.trim() === ""
-                                                  ? 0.45
-                                                  : 1,
-                                            },
-                                          ),
-                                          title: "发送消息",
-                                          "aria-label": "发送消息",
-                                          disabled:
-                                            busy !== "" ||
-                                            content.trim() === "",
-                                          children: sendIcon(),
-                                        }),
+                                        avatarArt(teammate?.avatar),
+                                      )
+                                    : h(
+                                        "span",
+                                        { style: initialsAvatarStyle },
+                                        initials(row.label),
                                       ),
-                                    )
-                                  : h(
-                                      "div",
-                                      { style: { padding: 10 } },
-                                      h("button", {
+                                  h("span", {
+                                    style: panelStyles.name,
+                                    children: row.label,
+                                  }),
+                                  row.tag
+                                    ? h("span", {
+                                        style: panelStyles.chip,
+                                        children: row.tag,
+                                      })
+                                    : null,
+                                  row.active
+                                    ? h("button", {
                                         type: "button",
                                         style: panelStyles.btn,
                                         disabled: busy !== "",
                                         onClick: () =>
-                                          run(() =>
-                                            post("/api/collab/meeting/join", {
-                                              meetingId,
-                                              displayName:
-                                                accountName ||
-                                                `用户-${actorId.slice(0, 6)}`,
-                                            }),
-                                          ),
-                                        children: "加入会议",
+                                          void removePanelMember(row),
+                                        children: "移除",
+                                      })
+                                    : h("span", {
+                                        style: panelStyles.meta,
+                                        children: "已离会",
                                       }),
-                                    )
-                                : null,
+                                );
+                              }),
                             ]),
-                    taskCaptureOpen &&
-                    meeting &&
-                    typeof props.renderSlot === "function"
-                      ? props.renderSlot(
-                          "pluginmax.communication.rail.task-capture",
-                          {
-                            mode: "rail",
-                            sourceType: isAiConversation
-                              ? "ai-chat"
-                              : "meeting",
-                            sourceId: meeting.id,
-                            sourceTitle: meeting.title,
-                            workspaceId: meeting.workspaceId,
-                            messageIds: taskCaptureSeed.messageIds ?? [],
-                            selectionText:
-                              taskCaptureSeed.selectionText ?? "",
-                            messageOptions: transcript.map((message) => ({
-                              id: message.id,
-                              senderName:
-                                message.provenance?.role === "representative"
-                                  ? `${message.senderName} · AI 参会代表`
-                                  : message.senderKind === "agent"
-                                    ? `${message.senderName} · AI`
-                                    : message.senderId === actorId
-                                      ? "我"
-                                      : message.senderName,
-                              content: message.content,
-                              createdAt: message.createdAt,
-                            })),
-                            actionItemIds: [],
-                            onClose: () => {
-                              setTaskCaptureOpen(false);
-                              setTaskCaptureSeed({});
-                            },
-                            onSaved: () => {
-                              window.dispatchEvent(
-                                new CustomEvent(
-                                  "pluginmax:task-capture-refresh",
-                                ),
-                              );
-                            },
-                          },
-                        )
-                      : null,
-                    minutesOverwriteOpen && meeting
-                      ? h(
-                          "div",
-                          { style: panelStyles.dialogOverlay },
-                          h("div", { style: panelStyles.dialog }, [
-                            h("div", {
-                              style: panelStyles.dialogTitle,
-                              children: "重新生成会议纪要？",
-                            }),
-                            h("div", {
+                          ])
+                        : !meeting
+                          ? h("div", {
                               style: panelStyles.meta,
-                              children:
-                                "当前会议纪要已有内容，重新生成会覆盖原有内容。",
-                            }),
-                            h("div", { style: panelStyles.dialogActions }, [
-                              h("button", {
-                                type: "button",
-                                style: panelStyles.btn,
-                                onClick: () => setMinutesOverwriteOpen(false),
-                                children: "取消",
-                              }),
-                              h("button", {
-                                type: "button",
-                                style: panelStyles.btnPrimary,
-                                disabled: busy !== "",
-                                onClick: () => {
-                                  setMinutesOverwriteOpen(false);
-                                  void run("minutes", () =>
-                                    post(
-                                      "/api/collab/meeting/minutes/trigger",
-                                      {
-                                        meetingId,
-                                      },
-                                    ),
-                                  );
-                                },
-                                children: "覆盖生成",
-                              }),
-                            ]),
-                          ]),
-                        )
-                      : null,
-                    inviteOpen && meeting
-                      ? h(
-                          "div",
-                          { style: panelStyles.dialogOverlay },
-                          h("div", { style: panelStyles.dialog }, [
-                            h("div", {
-                              style: panelStyles.dialogTitle,
-                              children: "邀请成员",
-                            }),
-                            h("input", {
-                              style: Object.assign({}, panelStyles.search, {
-                                flex: "none",
-                              }),
-                              value: inviteQuery,
-                              placeholder: "搜索成员或 AI伙伴",
-                              "aria-label": "搜索邀请对象",
-                              onChange: (event) =>
-                                setInviteQuery(event.target.value),
-                            }),
-                            h(
-                              "div",
-                              {
-                                style: {
-                                  display: "flex",
-                                  flexDirection: "column",
-                                  gap: 2,
-                                  maxHeight: 260,
-                                  overflowY: "auto",
-                                },
-                              },
-                              ...(inviteCandidates.length === 0
-                                ? [
+                              children: "请选择会议",
+                            })
+                          : activePanelTab === "minutes"
+                            ? h("div", { style: panelStyles.panelSection }, [
+                                h(
+                                  "div",
+                                  { style: panelStyles.summarySectionHead },
+                                  [
                                     h("div", {
-                                      style: panelStyles.meta,
-                                      children: "无匹配成员",
+                                      style: { fontSize: 13, fontWeight: 600 },
+                                      children: "会议纪要",
                                     }),
-                                  ]
-                                : inviteCandidates.map((candidate) =>
                                     h(
-                                      "label",
-                                      {
-                                        key: candidate.key,
-                                        style: Object.assign(
-                                          {},
-                                          panelStyles.checkRow,
-                                          candidate.inMeeting
-                                            ? { opacity: 0.7 }
-                                            : {},
-                                        ),
-                                      },
-                                      h("input", {
-                                        type: "checkbox",
-                                        // 已在会议中的成员直接勾选 + 禁用，不再写「（已在会议中）」。
-                                        checked:
-                                          candidate.inMeeting ||
-                                          inviteSelected.includes(
-                                            candidate.key,
-                                          ),
-                                        disabled: candidate.inMeeting,
-                                        onChange: (event) =>
-                                          setInviteSelected((current) =>
-                                            event.target.checked
-                                              ? [...current, candidate.key]
-                                              : current.filter(
-                                                  (key) =>
-                                                    key !== candidate.key,
-                                                ),
-                                          ),
-                                      }),
-                                      // 头像样式参考任务管理页；AI 成员直接用 AI 图标表达身份。
-                                      candidate.kind === "ai"
-                                        ? h(
-                                            "span",
-                                            {
-                                              style: teammateRingStyle(
-                                                candidate.source === "platform",
+                                      "div",
+                                      { style: { display: "flex", gap: 6 } },
+                                      panelMinutesVersion === undefined
+                                        ? null
+                                        : h("button", {
+                                            type: "button",
+                                            style: panelStyles.btn,
+                                            title: "下载 Markdown",
+                                            "aria-label":
+                                              "下载会议纪要 Markdown",
+                                            onClick: () =>
+                                              downloadMinutesMarkdown(
+                                                meeting,
+                                                panelMinutesVersion,
                                               ),
+                                            children: [
+                                              downloadIcon(),
+                                              h("span", { children: "下载" }),
+                                            ],
+                                          }),
+                                      meeting.status !== "archived" &&
+                                        facilitator !== undefined
+                                        ? h("button", {
+                                            type: "button",
+                                            style: panelStyles.btn,
+                                            disabled: busy !== "" || !joined,
+                                            onClick: () => {
+                                              if (
+                                                panelMinutesVersion !==
+                                                undefined
+                                              ) {
+                                                setMinutesOverwriteOpen(true);
+                                                return;
+                                              }
+                                              void run("minutes", () =>
+                                                post(
+                                                  "/api/collab/meeting/minutes/trigger",
+                                                  { meetingId },
+                                                ),
+                                              );
                                             },
-                                            avatarArt(candidate.avatar),
-                                          )
-                                        : h(
-                                            "span",
-                                            { style: initialsAvatarStyle },
-                                            initials(candidate.name),
-                                          ),
-                                      h("span", {
-                                        style: panelStyles.name,
-                                        children: candidate.name,
-                                      }),
+                                            children:
+                                              busy === "minutes"
+                                                ? "生成中…"
+                                                : "更新纪要",
+                                          })
+                                        : null,
                                     ),
-                                  )),
-                            ),
-                            h(
-                              "div",
-                              { style: panelStyles.dialogActions },
-                              h("button", {
-                                type: "button",
-                                style: panelStyles.btn,
-                                onClick: () => setInviteOpen(false),
-                                children: "取消",
-                              }),
-                              h("button", {
-                                type: "button",
-                                style: Object.assign(
-                                  {},
-                                  panelStyles.btnPrimary,
-                                  busy !== "" || inviteSelected.length === 0
-                                    ? { cursor: "default", opacity: 0.5 }
-                                    : {},
+                                  ],
                                 ),
-                                disabled:
-                                  busy !== "" || inviteSelected.length === 0,
-                                onClick: () => void confirmInvite(),
-                                children: busy !== "" ? "处理中…" : "确认",
+                                panelMinutesVersion === undefined
+                                  ? h("div", {
+                                      style: panelStyles.meta,
+                                      children: "暂无会议纪要",
+                                    })
+                                  : h(
+                                      "div",
+                                      { style: panelStyles.minutesBody },
+                                      renderChatMarkdown(
+                                        panelMinutesVersion.content,
+                                      ),
+                                    ),
+                                panelMinutesVersion === undefined
+                                  ? null
+                                  : h("div", {
+                                      style: panelStyles.meta,
+                                      children: `更新于：${timeFull(
+                                        panelMinutesVersion.updatedAt ??
+                                          panelMinutesVersion.createdAt,
+                                      )}`,
+                                    }),
+                              ])
+                            : h("div", { style: panelStyles.chat }, [
+                                h(
+                                  "div",
+                                  {
+                                    ref: messagesRef,
+                                    style: panelStyles.stream,
+                                  },
+                                  ...transcript.map((message) => {
+                                    if (message.senderKind === "system")
+                                      return h("div", {
+                                        key: message.id,
+                                        style: panelStyles.systemMessage,
+                                        children: displayContent(
+                                          message.content,
+                                        ),
+                                      });
+                                    const mine =
+                                      message.senderKind === "human" &&
+                                      message.senderId === actorId;
+                                    const label =
+                                      message.provenance?.role ===
+                                      "representative"
+                                        ? `${message.senderName} · AI 参会代表`
+                                        : message.senderKind === "agent"
+                                          ? `${message.senderName} · AI`
+                                          : mine
+                                            ? "我"
+                                            : message.senderName;
+                                    return h(
+                                      "div",
+                                      {
+                                        key: message.id,
+                                        "data-meeting-id": meeting.id,
+                                        "data-meeting-title": meeting.title,
+                                        "data-meeting-kind": meeting.kind,
+                                        "data-meeting-surface": "rail",
+                                        "data-meeting-message-id": message.id,
+                                        style: {
+                                          alignItems: "flex-start",
+                                          display: "flex",
+                                          flexDirection: mine
+                                            ? "row-reverse"
+                                            : "row",
+                                          gap: 8,
+                                        },
+                                      },
+                                      chatAvatar(message, mine, teammates),
+                                      h(
+                                        "div",
+                                        {
+                                          style: {
+                                            alignItems: mine
+                                              ? "flex-end"
+                                              : "flex-start",
+                                            display: "flex",
+                                            flexDirection: "column",
+                                            gap: 2,
+                                            maxWidth: "calc(100% - 34px)",
+                                            minWidth: 0,
+                                          },
+                                        },
+                                        h("div", {
+                                          style: panelStyles.meta,
+                                          children: `${label} · ${timeShort(message.createdAt)}`,
+                                        }),
+                                        h(
+                                          "div",
+                                          {
+                                            style: Object.assign(
+                                              {},
+                                              panelStyles.bubble,
+                                              mine
+                                                ? panelStyles.bubbleMine
+                                                : {},
+                                            ),
+                                          },
+                                          h(
+                                            "div",
+                                            null,
+                                            renderChatMarkdown(
+                                              displayContent(message.content),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  }),
+                                  transcript.length === 0
+                                    ? h("div", {
+                                        style: panelStyles.meta,
+                                        children: "暂无消息",
+                                      })
+                                    : null,
+                                ),
+                                meeting.status === "active"
+                                  ? joined
+                                    ? h(
+                                        "form",
+                                        {
+                                          style: {
+                                            background:
+                                              "var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-layer-1))",
+                                            border:
+                                              "0.5px solid var(--dsw-alias-border-l3)",
+                                            borderRadius: 6,
+                                            flexShrink: 0,
+                                            margin: "0 8px 8px",
+                                            padding: 8,
+                                            position: "relative",
+                                          },
+                                          onSubmit: async (event) => {
+                                            event.preventDefault();
+                                            const text = content.trim();
+                                            if (text === "") return;
+                                            setContent("");
+                                            closePanelMention();
+                                            await run(() =>
+                                              post(
+                                                "/api/collab/meeting/message",
+                                                {
+                                                  meetingId,
+                                                  content: text,
+                                                  mentions: mentionIds,
+                                                },
+                                              ),
+                                            );
+                                            window.dispatchEvent?.(
+                                              new CustomEvent(
+                                                "pluginmax:workbench-v2-refresh",
+                                              ),
+                                            );
+                                            setMentionIds([]);
+                                          },
+                                        },
+                                        chatTypingStrip(panelTypingStatus),
+                                        h(
+                                          "div",
+                                          { style: panelStyles.composer },
+                                          h(
+                                            "button",
+                                            {
+                                              type: "button",
+                                              style: panelStyles.composerBtn,
+                                              title: "上传文件",
+                                              "aria-label": "上传文件",
+                                              onClick: () =>
+                                                fileRef.current?.click(),
+                                            },
+                                            clipIcon(),
+                                          ),
+                                          h(
+                                            "button",
+                                            {
+                                              type: "button",
+                                              style: panelStyles.composerBtn,
+                                              title: "提及成员",
+                                              "aria-label": "提及成员",
+                                              onClick: togglePanelMention,
+                                            },
+                                            atIcon(),
+                                          ),
+                                          h(
+                                            "button",
+                                            {
+                                              type: "button",
+                                              style: panelStyles.composerBtn,
+                                              title: "整理任务草稿",
+                                              "aria-label": "整理任务草稿",
+                                              disabled:
+                                                busy !== "" ||
+                                                transcript.length === 0,
+                                              onClick: () => openTaskCapture(),
+                                            },
+                                            h(
+                                              "svg",
+                                              {
+                                                viewBox: "0 0 24 24",
+                                                width: 15,
+                                                height: 15,
+                                                fill: "none",
+                                                stroke: "currentColor",
+                                                strokeWidth: 1.8,
+                                                strokeLinecap: "round",
+                                                strokeLinejoin: "round",
+                                                "aria-hidden": true,
+                                              },
+                                              h("path", {
+                                                d: "M9 6h11M9 12h11M9 18h11",
+                                              }),
+                                              h("path", {
+                                                d: "m3 6 1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2",
+                                              }),
+                                            ),
+                                          ),
+                                          h("input", {
+                                            ref: fileRef,
+                                            type: "file",
+                                            style: { display: "none" },
+                                            onChange: (event) => {
+                                              const file =
+                                                event.target.files?.[0];
+                                              if (file !== undefined)
+                                                void uploadFile(file);
+                                              event.target.value = "";
+                                            },
+                                          }),
+                                          mentionOpen
+                                            ? panelMentionOptions.length > 0
+                                              ? h(
+                                                  "div",
+                                                  {
+                                                    style:
+                                                      panelStyles.mentionMenu,
+                                                  },
+                                                  ...panelMentionOptions.map(
+                                                    (participant) =>
+                                                      h(
+                                                        "button",
+                                                        {
+                                                          type: "button",
+                                                          key: participant.id,
+                                                          style:
+                                                            panelStyles.mentionItem,
+                                                          onClick: () =>
+                                                            pickPanelMention(
+                                                              participant,
+                                                            ),
+                                                        },
+                                                        participantAvatarNode(
+                                                          participant,
+                                                          teammates,
+                                                        ),
+                                                        h(
+                                                          "span",
+                                                          {
+                                                            style:
+                                                              panelStyles.mentionCopy,
+                                                          },
+                                                          h("span", {
+                                                            style:
+                                                              panelStyles.mentionName,
+                                                            children:
+                                                              participant.displayName,
+                                                          }),
+                                                          h("span", {
+                                                            style:
+                                                              panelStyles.mentionMeta,
+                                                            children:
+                                                              participant.kind ===
+                                                              "human"
+                                                                ? "会议成员"
+                                                                : participant.ownerName
+                                                                  ? `${participant.ownerName} 的 AI`
+                                                                  : "AI 成员",
+                                                          }),
+                                                        ),
+                                                      ),
+                                                  ),
+                                                )
+                                              : h(
+                                                  "div",
+                                                  {
+                                                    style:
+                                                      panelStyles.mentionMenu,
+                                                  },
+                                                  h("div", {
+                                                    style:
+                                                      panelStyles.mentionItem,
+                                                    children: "没有匹配成员",
+                                                  }),
+                                                )
+                                            : null,
+                                        ),
+                                        h(
+                                          "div",
+                                          {
+                                            style: {
+                                              alignItems: "flex-end",
+                                              display: "flex",
+                                              gap: 6,
+                                              marginTop: 6,
+                                            },
+                                          },
+                                          h("textarea", {
+                                            ref: composerInputRef,
+                                            style: Object.assign(
+                                              {},
+                                              panelStyles.textarea,
+                                              {
+                                                background: "transparent",
+                                                border: "none",
+                                                minHeight: 64,
+                                                padding: 2,
+                                              },
+                                            ),
+                                            value: content,
+                                            placeholder: "输入消息，@ 成员…",
+                                            onChange: (event) =>
+                                              panelMentionChanged(
+                                                event.target.value,
+                                              ),
+                                          }),
+                                          h("button", {
+                                            type: "submit",
+                                            style: Object.assign(
+                                              {},
+                                              panelStyles.sendBtn,
+                                              {
+                                                opacity:
+                                                  busy !== "" ||
+                                                  content.trim() === ""
+                                                    ? 0.45
+                                                    : 1,
+                                              },
+                                            ),
+                                            title: "发送消息",
+                                            "aria-label": "发送消息",
+                                            disabled:
+                                              busy !== "" ||
+                                              content.trim() === "",
+                                            children: sendIcon(),
+                                          }),
+                                        ),
+                                      )
+                                    : h(
+                                        "div",
+                                        { style: { padding: 10 } },
+                                        h("button", {
+                                          type: "button",
+                                          style: panelStyles.btn,
+                                          disabled: busy !== "",
+                                          onClick: () =>
+                                            run(() =>
+                                              post("/api/collab/meeting/join", {
+                                                meetingId,
+                                                displayName:
+                                                  accountName ||
+                                                  `用户-${actorId.slice(0, 6)}`,
+                                              }),
+                                            ),
+                                          children: "加入会议",
+                                        }),
+                                      )
+                                  : null,
+                              ]),
+                      taskCaptureOpen &&
+                      meeting &&
+                      typeof props.renderSlot === "function"
+                        ? props.renderSlot(
+                            "pluginmax.communication.rail.task-capture",
+                            {
+                              mode: "rail",
+                              sourceType: isAiConversation
+                                ? "ai-chat"
+                                : "meeting",
+                              sourceId: meeting.id,
+                              sourceTitle: meeting.title,
+                              workspaceId: meeting.workspaceId,
+                              messageIds: taskCaptureSeed.messageIds ?? [],
+                              selectionText:
+                                taskCaptureSeed.selectionText ?? "",
+                              messageOptions: transcript.map((message) => ({
+                                id: message.id,
+                                senderName:
+                                  message.provenance?.role === "representative"
+                                    ? `${message.senderName} · AI 参会代表`
+                                    : message.senderKind === "agent"
+                                      ? `${message.senderName} · AI`
+                                      : message.senderId === actorId
+                                        ? "我"
+                                        : message.senderName,
+                                content: message.content,
+                                createdAt: message.createdAt,
+                              })),
+                              actionItemIds: [],
+                              onClose: () => {
+                                setTaskCaptureOpen(false);
+                                setTaskCaptureSeed({});
+                              },
+                              onSaved: () => {
+                                window.dispatchEvent(
+                                  new CustomEvent(
+                                    "pluginmax:task-capture-refresh",
+                                  ),
+                                );
+                              },
+                            },
+                          )
+                        : null,
+                      minutesOverwriteOpen && meeting
+                        ? h(
+                            "div",
+                            { style: panelStyles.dialogOverlay },
+                            h("div", { style: panelStyles.dialog }, [
+                              h("div", {
+                                style: panelStyles.dialogTitle,
+                                children: "重新生成会议纪要？",
                               }),
-                            ),
-                          ]),
-                        )
-                      : null,
-                  ]),
+                              h("div", {
+                                style: panelStyles.meta,
+                                children:
+                                  "当前会议纪要已有内容，重新生成会覆盖原有内容。",
+                              }),
+                              h("div", { style: panelStyles.dialogActions }, [
+                                h("button", {
+                                  type: "button",
+                                  style: panelStyles.btn,
+                                  onClick: () => setMinutesOverwriteOpen(false),
+                                  children: "取消",
+                                }),
+                                h("button", {
+                                  type: "button",
+                                  style: panelStyles.btnPrimary,
+                                  disabled: busy !== "",
+                                  onClick: () => {
+                                    setMinutesOverwriteOpen(false);
+                                    void run("minutes", () =>
+                                      post(
+                                        "/api/collab/meeting/minutes/trigger",
+                                        {
+                                          meetingId,
+                                        },
+                                      ),
+                                    );
+                                  },
+                                  children: "覆盖生成",
+                                }),
+                              ]),
+                            ]),
+                          )
+                        : null,
+                      inviteOpen && meeting
+                        ? h(
+                            "div",
+                            { style: panelStyles.dialogOverlay },
+                            h("div", { style: panelStyles.dialog }, [
+                              h("div", {
+                                style: panelStyles.dialogTitle,
+                                children: isAiConversation
+                                  ? "添加参与方并创建群聊"
+                                  : "邀请成员",
+                              }),
+                              h("input", {
+                                style: Object.assign({}, panelStyles.search, {
+                                  flex: "none",
+                                }),
+                                value: inviteQuery,
+                                placeholder: "搜索成员或 AI伙伴",
+                                "aria-label": "搜索邀请对象",
+                                onChange: (event) =>
+                                  setInviteQuery(event.target.value),
+                              }),
+                              h(
+                                "div",
+                                {
+                                  style: {
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    gap: 2,
+                                    maxHeight: 260,
+                                    overflowY: "auto",
+                                  },
+                                },
+                                ...(inviteCandidates.length === 0
+                                  ? [
+                                      h("div", {
+                                        style: panelStyles.meta,
+                                        children: "无匹配成员",
+                                      }),
+                                    ]
+                                  : inviteCandidates.map((candidate) =>
+                                      h(
+                                        "label",
+                                        {
+                                          key: candidate.key,
+                                          style: Object.assign(
+                                            {},
+                                            panelStyles.checkRow,
+                                            candidate.inMeeting
+                                              ? { opacity: 0.7 }
+                                              : {},
+                                          ),
+                                        },
+                                        h("input", {
+                                          type: "checkbox",
+                                          // 已在会议中的成员直接勾选 + 禁用，不再写「（已在会议中）」。
+                                          checked:
+                                            candidate.inMeeting ||
+                                            inviteSelected.includes(
+                                              candidate.key,
+                                            ),
+                                          disabled: candidate.inMeeting,
+                                          onChange: (event) =>
+                                            setInviteSelected((current) =>
+                                              event.target.checked
+                                                ? [...current, candidate.key]
+                                                : current.filter(
+                                                    (key) =>
+                                                      key !== candidate.key,
+                                                  ),
+                                            ),
+                                        }),
+                                        // 头像样式参考任务管理页；AI 成员直接用 AI 图标表达身份。
+                                        candidate.kind === "ai"
+                                          ? h(
+                                              "span",
+                                              {
+                                                style: teammateRingStyle(
+                                                  candidate.source ===
+                                                    "platform",
+                                                ),
+                                              },
+                                              avatarArt(candidate.avatar),
+                                            )
+                                          : h(
+                                              "span",
+                                              { style: initialsAvatarStyle },
+                                              initials(candidate.name),
+                                            ),
+                                        h("span", {
+                                          style: panelStyles.name,
+                                          children: candidate.name,
+                                        }),
+                                      ),
+                                    )),
+                              ),
+                              h(
+                                "div",
+                                { style: panelStyles.dialogActions },
+                                h("button", {
+                                  type: "button",
+                                  style: panelStyles.btn,
+                                  onClick: () => setInviteOpen(false),
+                                  children: "取消",
+                                }),
+                                h("button", {
+                                  type: "button",
+                                  style: Object.assign(
+                                    {},
+                                    panelStyles.btnPrimary,
+                                    busy !== "" || inviteSelected.length === 0
+                                      ? { cursor: "default", opacity: 0.5 }
+                                      : {},
+                                  ),
+                                  disabled:
+                                    busy !== "" || inviteSelected.length === 0,
+                                  onClick: () => void confirmInvite(),
+                                  children: busy !== "" ? "处理中…" : "确认",
+                                }),
+                              ),
+                            ]),
+                          )
+                        : null,
+                    ],
+                  ),
           ],
         ),
       );
@@ -4879,7 +5082,7 @@ window.__ModuleLoader__.load({
       },
       threadSpeaker: {
         color: "var(--dsw-alias-label-primary)",
-        fontWeight: 600,
+        fontWeight: 400,
       },
       threadTime: {
         color: "var(--dsw-alias-label-tertiary)",
@@ -5606,8 +5809,7 @@ window.__ModuleLoader__.load({
                       );
                     }),
               ),
-                    ],
-                  )
+            ])
           : null,
       ]);
     }
@@ -5762,6 +5964,10 @@ window.__ModuleLoader__.load({
     };
     const meetingHasConversation = (meeting) =>
       Number(meeting?.messageCount ?? 0) > 0 && !isSyntheticMeeting(meeting);
+    const isActiveGroupConversation = (meeting) =>
+      meeting?.kind !== "ai" &&
+      meeting?.conversationMode === "group" &&
+      meeting?.status === "active";
     const meetingActivityTime = (meeting) =>
       meeting?.lastActivityAt ??
       meeting?.lastMessage?.createdAt ??
@@ -5913,8 +6119,9 @@ window.__ModuleLoader__.load({
       const [centerTab, setCenterTab] = react.useState("conversation");
       const [centerTaskCaptureOpen, setCenterTaskCaptureOpen] =
         react.useState(false);
-      const [centerTaskCaptureSeed, setCenterTaskCaptureSeed] =
-        react.useState({});
+      const [centerTaskCaptureSeed, setCenterTaskCaptureSeed] = react.useState(
+        {},
+      );
       const [content, setContent] = react.useState("");
       const fileRef = react.useRef(null);
       const composerInputRef = react.useRef(null);
@@ -5926,8 +6133,7 @@ window.__ModuleLoader__.load({
         if (currentMeeting === undefined) return;
         const currentTranscript = detail?.transcript ?? [];
         openTaskDraft({
-          sourceType:
-            currentMeeting.kind === "ai" ? "ai-chat" : "meeting",
+          sourceType: currentMeeting.kind === "ai" ? "ai-chat" : "meeting",
           sourceId: currentMeeting.id,
           sourceTitle: currentMeeting.title,
           workspaceId: currentMeeting.workspaceId,
@@ -5973,9 +6179,8 @@ window.__ModuleLoader__.load({
       const [createTeammateId, setCreateTeammateId] = react.useState("");
       const [contextPolicyOpen, setContextPolicyOpen] = react.useState(false);
       const [contextPolicyDraft, setContextPolicyDraft] = react.useState(null);
-      const [contextPolicyScene, setContextPolicyScene] = react.useState(
-        "defaults",
-      );
+      const [contextPolicyScene, setContextPolicyScene] =
+        react.useState("defaults");
       const [contextPolicyBusy, setContextPolicyBusy] = react.useState(false);
       const [contextPolicyError, setContextPolicyError] = react.useState("");
       const [contextPolicyResetConfirm, setContextPolicyResetConfirm] =
@@ -6056,9 +6261,7 @@ window.__ModuleLoader__.load({
               tab: detail.tab === "minutes" ? "minutes" : "",
             };
             setMeetingId(detail.meetingId);
-            setCenterTab(
-              detail.tab === "minutes" ? "minutes" : "conversation",
-            );
+            setCenterTab(detail.tab === "minutes" ? "minutes" : "conversation");
           }
         };
         window.addEventListener("pluginmax:collab-navigate", onNavigate);
@@ -6240,20 +6443,10 @@ window.__ModuleLoader__.load({
                     (message) => message.senderKind !== "system",
                   );
                   const lastMessage = conversation.at?.(-1);
-                  const lastReadSeq = Number(
-                    result.read?.lastReadSeq ??
-                      result.read?.lastReadSequence ??
-                      0,
-                  );
                   return Object.assign({}, item, {
                     messageCount: conversation.length,
-                    unreadCount: conversation.filter(
-                      (message) =>
-                        Number(message.sequence ?? 0) > lastReadSeq &&
-                        !(
-                          message.senderKind === "human" &&
-                          message.senderId === actor
-                        ),
+                    unreadCount: conversation.filter((message) =>
+                      isUnreadConversationMessage(message, actor, result.read),
                     ).length,
                     lastMessage:
                       lastMessage === undefined
@@ -6514,10 +6707,7 @@ window.__ModuleLoader__.load({
             sceneOverrides: {
               ...current.sceneOverrides,
               [contextPolicyScene]: {
-                ...contextPolicyValuesForScene(
-                  current,
-                  contextPolicyScene,
-                ),
+                ...contextPolicyValuesForScene(current, contextPolicyScene),
                 [key]: next,
               },
             },
@@ -6667,6 +6857,15 @@ window.__ModuleLoader__.load({
         item.aiContextMode !== "participant-projects-v1";
       const isChatConversationItem = (item) =>
         item.kind === "ai" || item.conversationMode === "group";
+      const communicationKind = (item) =>
+        item.kind === "ai"
+          ? "direct"
+          : item.conversationMode === "group"
+            ? "group"
+            : "meeting";
+      const matchesCommunicationFilter = (item) =>
+        communicationFilter === "all" ||
+        communicationKind(item) === communicationFilter;
       // AI伙伴 1:1 以伙伴实例为唯一维度，项目只用于运行时取数。
       const activeAiConversationByTeammate = new Map();
       for (const item of meetings) {
@@ -6687,10 +6886,7 @@ window.__ModuleLoader__.load({
           item.teammateInstanceId,
         );
         if (preferAiConversation(current, item)) {
-          activeAiConversationByTeammate.set(
-            item.teammateInstanceId,
-            item,
-          );
+          activeAiConversationByTeammate.set(item.teammateInstanceId, item);
         }
       }
       const meetingSearchScore = (item) =>
@@ -6713,8 +6909,9 @@ window.__ModuleLoader__.load({
           search,
         );
       const teammateSearchScore = (teammate) => {
-        const activeConversation =
-          activeAiConversationByTeammate.get(teammate.id);
+        const activeConversation = activeAiConversationByTeammate.get(
+          teammate.id,
+        );
         return relevanceScore(
           [
             { text: teammate.name, weight: 1.3 },
@@ -6772,16 +6969,13 @@ window.__ModuleLoader__.load({
             (showArchived
               ? item.status === "archived"
               : item.status !== "archived"));
-        const matchesType = (item) =>
-          communicationFilter === "all" ||
-          (communicationFilter === "ai"
-            ? isChatConversationItem(item)
-            : !isChatConversationItem(item));
+        const matchesType = (item) => matchesCommunicationFilter(item);
         const matchesSearch = (item) =>
           normalizeSearchText(search) === "" || meetingSearchScore(item) > 0;
         const matchesConversation = (item) =>
           pinnedMeetingIds.has(item.id) ||
           meetingHasConversation(item) ||
+          isActiveGroupConversation(item) ||
           (item.status === "active" &&
             (item.id === meetingId || recentEmptyMeetingIds.has(item.id)));
         const current = meetings.find((item) => item.id === meetingId);
@@ -6841,19 +7035,10 @@ window.__ModuleLoader__.load({
         if (current?.status === "archived" && !showArchived) {
           setShowArchived(true);
         }
-        if (
-          current?.status === "closed" &&
-          !closedOpen
-        ) {
+        if (current?.status === "closed" && !closedOpen) {
           setClosedOpen(true);
         }
-      }, [
-        meetings,
-        meetingId,
-        pinnedMeetingIds,
-        showArchived,
-        closedOpen,
-      ]);
+      }, [meetings, meetingId, pinnedMeetingIds, showArchived, closedOpen]);
 
       react.useEffect(() => {
         if (
@@ -6863,12 +7048,9 @@ window.__ModuleLoader__.load({
         ) {
           return undefined;
         }
-        const lastMessage = (detail?.transcript ?? []).at(-1);
         const waitingForReply =
-          lastMessage?.senderKind === "human" &&
-          (lastMessage.deliveries ?? []).some(
-            (delivery) => delivery.status === "pending",
-          );
+          chatTypingNames(detail?.participants ?? [], detail?.transcript ?? [])
+            .length > 0;
         if (!waitingForReply) return undefined;
         const timer = window.setInterval(
           () => setRefreshKey((key) => key + 1),
@@ -6895,10 +7077,9 @@ window.__ModuleLoader__.load({
           ? sortRowsByUpdatedAt(left, right)
           : sortRowsByRelevance(left, right);
 
-      // 「全部」与「聊天」都只列当前数据范围内实际存在的对话记录。
-      // 「AI伙伴」是「全部」的 AI 子集，不再补入尚无历史消息的伙伴。
+      // 单聊、群聊和会议分别对应独立的会话类型，不再把群聊混入聊天筛选。
       const conversationTeammateRows =
-        communicationFilter === "meeting"
+        communicationFilter !== "all" && communicationFilter !== "direct"
           ? []
           : [...activeAiConversationByTeammate.values()]
               .map((conversation) => {
@@ -6936,10 +7117,7 @@ window.__ModuleLoader__.load({
           !isChatConversationItem(item) &&
           item.status === "archived" &&
           (pinnedMeetingIds.has(item.id) || meetingHasConversation(item)) &&
-          (communicationFilter === "all" ||
-            (communicationFilter === "ai"
-              ? isChatConversationItem(item)
-              : !isChatConversationItem(item))),
+          matchesCommunicationFilter(item),
       );
       const rankedArchivedRows = archivedMeetings
         .map((item) => ({
@@ -6952,7 +7130,7 @@ window.__ModuleLoader__.load({
         .sort(sortRowsForDisplay);
 
       const groupConversations =
-        communicationFilter === "meeting"
+        communicationFilter !== "all" && communicationFilter !== "group"
           ? []
           : meetings.filter(
               (item) =>
@@ -6961,9 +7139,7 @@ window.__ModuleLoader__.load({
                 item.status !== "archived" &&
                 (pinnedMeetingIds.has(item.id) ||
                   meetingHasConversation(item) ||
-                  (item.status === "active" &&
-                    (item.id === meetingId ||
-                      recentEmptyMeetingIds.has(item.id)))),
+                  item.status === "active"),
             );
       const groupConversationRows = showArchived
         ? []
@@ -6977,7 +7153,7 @@ window.__ModuleLoader__.load({
             .filter((row) => matchesSearch(row.score))
             .sort(sortRowsForDisplay);
       const regularMeetings =
-        communicationFilter === "ai"
+        communicationFilter !== "all" && communicationFilter !== "meeting"
           ? []
           : meetings.filter(
               (item) =>
@@ -7057,6 +7233,11 @@ window.__ModuleLoader__.load({
       ];
       const participants = detail?.participants ?? [];
       const transcript = detail?.transcript ?? [];
+      const centerTypingNames = chatTypingNames(participants, transcript);
+      const centerTypingStatus =
+        centerTypingNames.length === 0
+          ? ""
+          : `${centerTypingNames.join("、")} 正在输入`;
       // 任意新消息（系统 / 人类 / AI）到达后，始终跟随到最新位置。
       react.useEffect(() => {
         const node = streamRef.current;
@@ -7796,8 +7977,7 @@ window.__ModuleLoader__.load({
                       h("input", {
                         type: "checkbox",
                         checked: activeFacilitator !== undefined,
-                        disabled:
-                          meeting.status === "archived" || busy !== "",
+                        disabled: meeting.status === "archived" || busy !== "",
                         onChange: (event) =>
                           void run("facilitator", () =>
                             event.target.checked
@@ -7816,9 +7996,7 @@ window.__ModuleLoader__.load({
                       h("span", {
                         style: PS.meta,
                         children:
-                          activeFacilitator === undefined
-                            ? "未启用"
-                            : "已启用",
+                          activeFacilitator === undefined ? "未启用" : "已启用",
                       }),
                     ),
                   ]),
@@ -7965,9 +8143,7 @@ window.__ModuleLoader__.load({
               h(
                 "div",
                 { style: { display: "flex", flexWrap: "wrap", gap: 8 } },
-                !isGroupConversation &&
-                joined &&
-                meeting.status === "active"
+                !isGroupConversation && joined && meeting.status === "active"
                   ? h("button", {
                       type: "button",
                       style: PS.ghostBtn,
@@ -8065,23 +8241,26 @@ window.__ModuleLoader__.load({
                           minWidth: 0,
                         },
                       },
-                      isAiConversation
-                        ? h(
-                            "span",
-                            {
-                              style: Object.assign(
-                                {},
-                                teammateRingStyle(
-                                  aiConversationTeammate?.source === "platform",
+                      isGroupConversation
+                        ? groupChatIcon(28)
+                        : isAiConversation
+                          ? h(
+                              "span",
+                              {
+                                style: Object.assign(
+                                  {},
+                                  teammateRingStyle(
+                                    aiConversationTeammate?.source ===
+                                      "platform",
+                                  ),
+                                  { height: 28, padding: 2, width: 28 },
                                 ),
-                                { height: 28, padding: 2, width: 28 },
-                              ),
-                              title: meeting.title,
-                              "aria-label": `${meeting.title} 头像`,
-                            },
-                            avatarArt(aiConversationTeammate?.avatar),
-                          )
-                        : null,
+                                title: meeting.title,
+                                "aria-label": `${meeting.title} 头像`,
+                              },
+                              avatarArt(aiConversationTeammate?.avatar),
+                            )
+                          : null,
                       h("div", {
                         style: {
                           flex: isAiConversation ? "0 1 auto" : 1,
@@ -8128,12 +8307,15 @@ window.__ModuleLoader__.load({
                               timeShort(meetingActivityTime(meeting)) || "—",
                           }),
                     ),
-                    h("div", {
-                      style: PS.meta,
-                      children: isAiConversation
-                        ? meetingTimeLabel(meeting)
-                        : `${meetingTimeLabel(meeting)} · ${projectName || "未分组"} · ${participants.filter((participant) => participant.status === "active").length} 人 · ${bucket.ai.length} 个 AI`,
-                    }),
+                    !isAiConversation && !isGroupConversation
+                      ? h("div", {
+                          style: PS.meta,
+                          "data-meeting-header-meta": "true",
+                          children: isAiConversation
+                            ? meetingTimeLabel(meeting)
+                            : `${meetingTimeLabel(meeting)} · ${projectName || "未分组"} · ${participants.filter((participant) => participant.status === "active").length} 人 · ${bucket.ai.length} 个 AI`,
+                        })
+                      : null,
                   ]),
                   h(
                     "div",
@@ -8163,9 +8345,7 @@ window.__ModuleLoader__.load({
                             : "加入会议",
                         })
                       : null,
-                    isAiConversation &&
-                    joined &&
-                    meeting.status === "active"
+                    isAiConversation && joined && meeting.status === "active"
                       ? h("button", {
                           type: "button",
                           style: PS.ghostBtn,
@@ -8235,6 +8415,7 @@ window.__ModuleLoader__.load({
                               ]),
                         )
                       : null,
+                    chatTypingStrip(centerTypingStatus),
                     h(
                       "form",
                       {
@@ -8290,7 +8471,7 @@ window.__ModuleLoader__.load({
                             title: "整理任务草稿",
                             "aria-label": "整理任务草稿",
                             disabled: busy !== "" || transcript.length === 0,
-                          onClick: () => openCenterTaskCapture(),
+                            onClick: () => openCenterTaskCapture(),
                           },
                           h(
                             "svg",
@@ -8417,11 +8598,13 @@ window.__ModuleLoader__.load({
             }),
             disabled: visibleWorkspaces.length === 0,
             onClick: () => {
-              setCreateMode(communicationFilter === "ai" ? "ai" : "meeting");
+              setCreateMode(
+                communicationFilter === "direct" ? "ai" : "meeting",
+              );
               setCreateTeammateId("");
               setCreateOpen(true);
             },
-            children: "新建对话",
+            children: "新建沟通",
           }),
           h(
             "label",
@@ -8467,7 +8650,8 @@ window.__ModuleLoader__.load({
           },
           ...[
             ["all", "全部"],
-            ["ai", "聊天"],
+            ["direct", "单聊"],
+            ["group", "群聊"],
             ["meeting", "会议"],
           ].map(([key, label]) =>
             h("button", {
@@ -8671,6 +8855,7 @@ window.__ModuleLoader__.load({
         const speaker = meetingLastMessageText(item)
           ? meetingLastMessageSpeaker(item, teammate?.name)
           : "";
+        const projectName = workspaceNameById.get(item.workspaceId) ?? "未分组";
         return h(
           "div",
           {
@@ -8717,37 +8902,56 @@ window.__ModuleLoader__.load({
               "div",
               {
                 style: {
-                  alignItems: "center",
                   display: "flex",
                   flex: 1,
-                  gap: 5,
+                  flexDirection: "column",
+                  gap: 1,
                   minWidth: 0,
                 },
               },
               [
-                h("strong", {
-                  style: Object.assign({}, PS.threadTitle, {
-                    flex: "0 1 auto",
-                  }),
-                  children: item.title,
-                }),
-                aiConversation
-                  ? teammate?.ownerName
-                    ? h("span", {
-                        style: PS.threadSub,
-                        children: `（${teammate.ownerName}）`,
-                      })
-                    : null
-                  : h("span", {
-                      style: PS.threadSub,
-                      children:
-                        workspaceNameById.get(item.workspaceId) ?? "未分组",
+                h(
+                  "div",
+                  {
+                    style: {
+                      alignItems: "center",
+                      display: "flex",
+                      gap: 5,
+                      minWidth: 0,
+                    },
+                  },
+                  [
+                    h("strong", {
+                      style: Object.assign({}, PS.threadTitle, {
+                        flex: "0 1 auto",
+                      }),
+                      children: item.title,
                     }),
-                unavailable
+                    aiConversation
+                      ? teammate?.ownerName
+                        ? h("span", {
+                            style: PS.threadSub,
+                            children: `（${teammate.ownerName}）`,
+                          })
+                        : null
+                      : null,
+                    unavailable
+                      ? h("span", {
+                          style: PS.unavailableTag,
+                          title: unavailableReason,
+                          children: "不可用",
+                        })
+                      : null,
+                  ],
+                ),
+                !aiConversation
                   ? h("span", {
-                      style: PS.unavailableTag,
-                      title: unavailableReason,
-                      children: "不可用",
+                      style: Object.assign({}, PS.threadSub, {
+                        maxWidth: "100%",
+                        width: "100%",
+                      }),
+                      title: projectName,
+                      children: projectName,
                     })
                   : null,
               ],
@@ -8765,31 +8969,6 @@ window.__ModuleLoader__.load({
                   children: unreadCount > 99 ? "99+" : String(unreadCount),
                 })
               : null,
-            h(
-              "button",
-              {
-                type: "button",
-                title: `查看会议 ${item.title} 详情`,
-                "aria-label": `查看会议 ${item.title} 详情`,
-                style: {
-                  flex: "none",
-                  padding: "2px 6px",
-                  border: "0.5px solid var(--dsw-alias-border-l3)",
-                  borderRadius: 4,
-                  background:
-                    "var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base))",
-                  color: "var(--dsw-alias-label-secondary)",
-                  font: "inherit",
-                  fontSize: 10,
-                  cursor: "pointer",
-                },
-                onClick: (event) => {
-                  event.stopPropagation();
-                  setMeetingId(item.id);
-                },
-              },
-              "详情",
-            ),
           ),
           h(
             "div",
@@ -8868,9 +9047,13 @@ window.__ModuleLoader__.load({
               style: PS.meta,
               children:
                 normalizedQuery === ""
-                  ? communicationFilter === "ai"
-                    ? "暂无有历史记录的聊天"
-                    : "暂无对话"
+                  ? communicationFilter === "direct"
+                    ? "暂无有历史记录的单聊"
+                    : communicationFilter === "group"
+                      ? "暂无群聊"
+                      : communicationFilter === "meeting"
+                        ? "暂无会议"
+                        : "暂无对话"
                   : "没有匹配的对话",
             }),
           ];
@@ -8888,7 +9071,7 @@ window.__ModuleLoader__.load({
         },
         [
           h("div", { style: PS.top }, [
-            h("h1", { style: PS.title, children: "对话" }),
+            h("h1", { style: PS.title, children: "沟通" }),
             h("div", { style: PS.topActions }, [
               meetingFilters,
               projectScopeFilter,
@@ -8946,16 +9129,14 @@ window.__ModuleLoader__.load({
                         ? "恢复本对话全部 AI"
                         : "停止本对话全部 AI",
                     onClick: () =>
-                      run(
-                        "agent-control",
-                        () =>
-                          post("/api/collab/meeting/agent-control", {
-                            meetingId: meeting.id,
-                            action:
-                              meeting.agentRuntimeState === "agentsStopped"
-                                ? "resume"
-                                : "stop",
-                          }),
+                      run("agent-control", () =>
+                        post("/api/collab/meeting/agent-control", {
+                          meetingId: meeting.id,
+                          action:
+                            meeting.agentRuntimeState === "agentsStopped"
+                              ? "resume"
+                              : "stop",
+                        }),
                       ),
                     children:
                       meeting.agentRuntimeState === "agentsStopped"
@@ -9406,50 +9587,54 @@ window.__ModuleLoader__.load({
                               contextPolicyScene
                             ] === undefined
                           )
-                            ? h("div", { style: { display: "grid", gap: 10 } }, [
-                                contextPolicyFieldNode(
-                                  "上下文提醒（%）",
-                                  "warningRatio",
-                                  {
-                                    percent: true,
-                                    min: 10,
-                                    max: 99,
-                                  },
-                                ),
-                                contextPolicyFieldNode(
-                                  "开始压缩（%）",
-                                  "compactRatio",
-                                  {
-                                    percent: true,
-                                    min: 10,
-                                    max: 99,
-                                  },
-                                ),
-                                contextPolicyFieldNode(
-                                  "Session 滚动（%）",
-                                  "rolloverRatio",
-                                  {
-                                    percent: true,
-                                    min: 10,
-                                    max: 100,
-                                  },
-                                ),
-                                contextPolicyFieldNode(
-                                  "保留最近消息（条）",
-                                  "preserveRecentMessages",
-                                  { min: 0, max: 100 },
-                                ),
-                                contextPolicyFieldNode(
-                                  "触发链最大深度",
-                                  "maxTriggerDepth",
-                                  { min: 1, max: 20 },
-                                ),
-                                contextPolicyFieldNode(
-                                  "单场景并发 Agent 上限",
-                                  "maxConcurrentAgentsPerScene",
-                                  { min: 1, max: 20 },
-                                ),
-                              ])
+                            ? h(
+                                "div",
+                                { style: { display: "grid", gap: 10 } },
+                                [
+                                  contextPolicyFieldNode(
+                                    "上下文提醒（%）",
+                                    "warningRatio",
+                                    {
+                                      percent: true,
+                                      min: 10,
+                                      max: 99,
+                                    },
+                                  ),
+                                  contextPolicyFieldNode(
+                                    "开始压缩（%）",
+                                    "compactRatio",
+                                    {
+                                      percent: true,
+                                      min: 10,
+                                      max: 99,
+                                    },
+                                  ),
+                                  contextPolicyFieldNode(
+                                    "Session 滚动（%）",
+                                    "rolloverRatio",
+                                    {
+                                      percent: true,
+                                      min: 10,
+                                      max: 100,
+                                    },
+                                  ),
+                                  contextPolicyFieldNode(
+                                    "保留最近消息（条）",
+                                    "preserveRecentMessages",
+                                    { min: 0, max: 100 },
+                                  ),
+                                  contextPolicyFieldNode(
+                                    "触发链最大深度",
+                                    "maxTriggerDepth",
+                                    { min: 1, max: 20 },
+                                  ),
+                                  contextPolicyFieldNode(
+                                    "单场景并发 Agent 上限",
+                                    "maxConcurrentAgentsPerScene",
+                                    { min: 1, max: 20 },
+                                  ),
+                                ],
+                              )
                             : null,
                         ])
                       : null,
@@ -9478,7 +9663,8 @@ window.__ModuleLoader__.load({
                               type: "button",
                               style: PS.ghostBtn,
                               disabled: contextPolicyBusy,
-                              onClick: () => setContextPolicyResetConfirm(false),
+                              onClick: () =>
+                                setContextPolicyResetConfirm(false),
                               children: "暂不恢复",
                             }),
                             h("button", {
@@ -9496,8 +9682,7 @@ window.__ModuleLoader__.load({
                               type: "button",
                               style: PS.ghostBtn,
                               disabled: contextPolicyBusy,
-                              onClick: () =>
-                                setContextPolicyResetConfirm(true),
+                              onClick: () => setContextPolicyResetConfirm(true),
                               children: "恢复默认",
                             }),
                             h("button", {
@@ -9531,7 +9716,7 @@ window.__ModuleLoader__.load({
                   "form",
                   {
                     role: "dialog",
-                    "aria-label": "新建对话",
+                    "aria-label": "新建沟通",
                     style: PS.modal,
                     onSubmit: async (event) => {
                       event.preventDefault();
@@ -9543,10 +9728,11 @@ window.__ModuleLoader__.load({
                           setError("暂无可用的个人 AI 伙伴");
                           return;
                         }
-                        const existing =
-                          activeAiConversationByTeammate.get(teammate.id);
+                        const existing = activeAiConversationByTeammate.get(
+                          teammate.id,
+                        );
                         if (existing !== undefined) {
-                          setCommunicationFilter("ai");
+                          setCommunicationFilter("direct");
                           setMeetingId(existing.id);
                           setCreateOpen(false);
                           return;
@@ -9568,7 +9754,7 @@ window.__ModuleLoader__.load({
                                 (item) => item.id !== result.meeting.id,
                               ),
                             ]);
-                            setCommunicationFilter("ai");
+                            setCommunicationFilter("direct");
                             setMeetingId(result.meeting.id);
                             setCreateTeammateId("");
                             setCreateOpen(false);
@@ -9601,12 +9787,12 @@ window.__ModuleLoader__.load({
                     },
                   },
                   [
-                    h("div", { style: PS.title, children: "新建对话" }),
+                    h("div", { style: PS.title, children: "新建沟通" }),
                     h(
                       "div",
                       {
                         role: "group",
-                        "aria-label": "新建对话类型",
+                        "aria-label": "新建沟通类型",
                         style: PS.filterSegment,
                       },
                       [
@@ -9615,9 +9801,7 @@ window.__ModuleLoader__.load({
                           style: Object.assign(
                             {},
                             PS.filterBtn,
-                            createMode === "meeting"
-                              ? PS.filterBtnActive
-                              : {},
+                            createMode === "meeting" ? PS.filterBtnActive : {},
                           ),
                           "aria-pressed": createMode === "meeting",
                           onClick: () => setCreateMode("meeting"),
@@ -9632,7 +9816,7 @@ window.__ModuleLoader__.load({
                           ),
                           "aria-pressed": createMode === "ai",
                           onClick: () => setCreateMode("ai"),
-                          children: "聊天",
+                          children: "单聊",
                         }),
                       ],
                     ),
@@ -9654,8 +9838,7 @@ window.__ModuleLoader__.load({
                                   key: workspace.id,
                                   value: workspace.id,
                                   children:
-                                    workspace.id ===
-                                    SYSTEM_DEFAULT_WORKSPACE_ID
+                                    workspace.id === SYSTEM_DEFAULT_WORKSPACE_ID
                                       ? "默认项目（system，不关联项目）"
                                       : workspaceLabel(workspace),
                                 }),
@@ -9695,8 +9878,7 @@ window.__ModuleLoader__.load({
                                   {
                                     style: PS.input,
                                     value: selectedCreateTeammateId,
-                                    "aria-label":
-                                      "新建 AI 伙伴聊天",
+                                    "aria-label": "新建 AI 伙伴聊天",
                                     onChange: (event) =>
                                       setCreateTeammateId(event.target.value),
                                   },
@@ -9759,19 +9941,39 @@ window.__ModuleLoader__.load({
                     style: PS.modal,
                     onSubmit: async (event) => {
                       event.preventDefault();
+                      const picked = inviteCandidates.filter(
+                        (item) =>
+                          inviteIds.has(item.id) && item.state !== "active",
+                      );
+                      if (picked.length === 0) return;
                       await run("invite", async () => {
+                        let targetMeetingId = meetingId;
+                        let generatedGroupId = "";
                         if (meeting?.kind === "ai") {
-                          await post("/api/collab/meeting/convert-to-group", {
-                            meetingId,
-                            title: meeting.title,
-                          });
+                          const result = await post(
+                            "/api/collab/meeting/convert-to-group",
+                            { meetingId },
+                          );
+                          const groupId = result?.meeting?.id;
+                          if (typeof groupId !== "string" || groupId === "") {
+                            throw new Error("群聊创建失败");
+                          }
+                          targetMeetingId = groupId;
+                          generatedGroupId = groupId;
+                          rememberEmptyMeeting(groupId);
+                          setMeetings((current) => [
+                            Object.assign({}, result.meeting, {
+                              messageCount: 0,
+                              unreadCount: 0,
+                              lastActivityAt: result.meeting.updatedAt,
+                              lastMessage: null,
+                            }),
+                            ...current.filter((item) => item.id !== groupId),
+                          ]);
+                          setMeetingId(groupId);
                           setCommunicationFilter("all");
                         }
                         // 一次性提交：人和 AI 在同一份清单里选好后一起发。
-                        const picked = inviteCandidates.filter(
-                          (item) =>
-                            inviteIds.has(item.id) && item.state !== "active",
-                        );
                         const people = picked.filter(
                           (item) => item.kind === "human",
                         );
@@ -9782,7 +9984,7 @@ window.__ModuleLoader__.load({
                           await post(
                             "/api/collab/meeting/participants/invite",
                             {
-                              meetingId,
+                              meetingId: targetMeetingId,
                               people: people.map((item) => ({
                                 targetId: item.id,
                               })),
@@ -9791,11 +9993,32 @@ window.__ModuleLoader__.load({
                         }
                         for (const agent of agents) {
                           await post("/api/collab/meeting/participant/ai", {
-                            meetingId,
+                            meetingId: targetMeetingId,
                             teammateInstanceId: agent.id,
                             displayName: agent.name,
                             speechMode: dform.speechMode,
                           });
+                        }
+                        if (generatedGroupId !== "") {
+                          const titled = await post(
+                            "/api/collab/meeting/group-title/generate",
+                            { meetingId: generatedGroupId },
+                          );
+                          const title = titled?.meeting?.title;
+                          if (typeof title === "string" && title !== "") {
+                            setMeetings((current) =>
+                              current.map((item) =>
+                                item.id === generatedGroupId
+                                  ? Object.assign({}, item, {
+                                      title,
+                                      updatedAt:
+                                        titled.meeting.updatedAt ??
+                                        item.updatedAt,
+                                    })
+                                  : item,
+                              ),
+                            );
+                          }
                         }
                         setInviteOpen(false);
                         setInviteIds(new Set());
@@ -9808,7 +10031,7 @@ window.__ModuleLoader__.load({
                       style: PS.title,
                       children:
                         meeting?.kind === "ai"
-                          ? "添加参与方并转为群聊"
+                          ? "添加参与方并创建群聊"
                           : "邀请成员",
                     }),
                     h("div", { style: PS.group }, [
@@ -10041,8 +10264,8 @@ window.__ModuleLoader__.load({
     exports.apply = (ctx) => {
       window.__pluginmaxSidePanel?.registerType?.({
         type: "communication",
-        defaultTitle: "对话",
-        newTabTitle: (ordinal) => `新对话 ${ordinal}`,
+        defaultTitle: "沟通",
+        newTabTitle: (ordinal) => `新沟通 ${ordinal}`,
         singleton: false,
         closable: true,
         draggable: true,

@@ -211,10 +211,10 @@ describe("task capture client", () => {
     expect(source).toContain(
       'setEditorError("截止日期请使用 yyyy-mm-dd 格式")',
     );
-    expect(source).toContain('["人员", "human"]');
-    expect(source).toContain('["AI伙伴", "agent"]');
+    expect(source).toContain("receiverOptions.map((item) => item.group),");
+    expect(source).toContain("receiverOptionLabel(item)");
     expect(source).toContain('"optgroup"');
-    expect(source).toContain("{ label, key: kind }");
+    expect(source).toContain("{ label, key: label }");
     expect(source).toContain('type: "text"');
     expect(source).toContain("value: editorDraft.due");
     expect(source).toContain('placeholder: "yyyy-mm-dd"');

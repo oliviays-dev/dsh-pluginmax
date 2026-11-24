@@ -348,7 +348,7 @@ function resolveRun(
   if (runId !== undefined) return agent.run(runId);
   const sessionId = exec?.agent?.session?.id;
   if (sessionId === undefined) return undefined;
-  return agent
+  const summary = agent
     .runs()
     .find(
       (run) =>
@@ -357,6 +357,10 @@ function resolveRun(
         run.status !== "failed" &&
         run.status !== "cancelled",
     );
+  if (summary === undefined) return undefined;
+  // `runs()` is a cross-plugin projection and may omit execution fields such
+  // as workspaceId. Re-read the full Run before task tools consume it.
+  return agent.run(summary.id) ?? summary;
 }
 
 function userActor(run: AgentRunLike, team: TeamServiceLike): TaskCaptureActor {

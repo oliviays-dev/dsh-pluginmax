@@ -142,6 +142,9 @@ export interface UpdateInstanceProfileInput {
   readonly teammateId: string;
   readonly name: string;
   readonly description: string;
+  readonly instanceSoul?: string | undefined;
+  readonly execution?: "builtin" | "external" | undefined;
+  readonly externalRuntimeId?: string | undefined;
 }
 
 export interface CreateTeammateTemplateInput {
@@ -272,9 +275,7 @@ export function canManageTemplate(
   template: Pick<TeammateTemplate, "source" | "ownerUserId">,
   actor: TeammateActor,
 ): boolean {
-  return template.source === "platform"
-    ? actor.role === "admin"
-    : template.ownerUserId === actor.userId;
+  return actor.role === "admin" || template.ownerUserId === actor.userId;
 }
 
 export class TeammateTemplateService {
@@ -382,10 +383,7 @@ export class TeammateTemplateService {
         current.systemKey !== undefined &&
         current.systemKey !== input.systemKey
       ) {
-        throw new TeammateError(
-          "conflict",
-          "系统 Agent 模版身份不一致，拒绝自动迁移",
-        );
+        throw new TeammateError("conflict", "通用模版身份不一致，拒绝自动迁移");
       }
       const hasLegacyMcpGrant = current.tools.includes("mcp");
       const missingNativeClarification =
@@ -466,7 +464,7 @@ export class TeammateTemplateService {
       throw new TeammateError(
         "forbidden",
         input.source === "platform"
-          ? "平台管理员可以维护平台模版"
+          ? "平台管理员可以维护角色模版"
           : "活跃用户可以维护个人模版",
       );
     }
@@ -487,7 +485,7 @@ export class TeammateTemplateService {
     ) {
       throw new TeammateError(
         "forbidden",
-        "企业强制 Skill 只能配置在平台模版中",
+        "企业强制 Skill 只能配置在角色模版中",
       );
     }
     const timestamp = this.timestamp();
@@ -574,7 +572,7 @@ export class TeammateTemplateService {
       if (isProtectedSystemTemplate(current) && actor.role !== "admin") {
         throw new TeammateError(
           "system_agent_protected",
-          "系统 Agent 定义仅允许平台管理员维护",
+          "通用模版定义仅允许平台管理员维护",
         );
       }
       if (!canManageTemplate(current, actor)) {
@@ -598,7 +596,7 @@ export class TeammateTemplateService {
       ) {
         throw new TeammateError(
           "forbidden",
-          "企业强制 Skill 只能配置在平台模版中",
+          "企业强制 Skill 只能配置在角色模版中",
         );
       }
       const next = teammateTemplateSchema.parse({
@@ -632,7 +630,7 @@ export class TeammateTemplateService {
       if (isProtectedSystemTemplate(current)) {
         throw new TeammateError(
           "system_agent_protected",
-          "系统 Agent 定义受保护，不能停用或归档",
+          "通用模版定义受保护，不能停用或归档",
         );
       }
       if (!canManageTemplate(current, actor)) {
@@ -749,7 +747,7 @@ export class TeammateService {
     if (isProtectedSystemTeammate(teammate)) {
       throw new TeammateError(
         "system_agent_protected",
-        "系统 Agent 定义仅由平台版本维护，不能在工作区修改",
+        "通用模版定义仅由平台版本维护，不能在工作区修改",
       );
     }
     const template = this.templateOf(teammate);
@@ -762,7 +760,7 @@ export class TeammateService {
     throw new TeammateError(
       "forbidden",
       template?.source === "platform" || teammate.source === "platform"
-        ? "平台模版只有平台管理员可以维护"
+        ? "角色模版只有平台管理员可以维护"
         : "个人模版只有归属人可以维护",
     );
   }
@@ -794,7 +792,7 @@ export class TeammateService {
     if (conflict !== undefined) {
       throw new TeammateError(
         "conflict",
-        `同一 Agent 模版下已存在未归档 AI伙伴「${conflict.name}」，不能重名`,
+        `同一角色模版下已存在未归档 AI伙伴「${conflict.name}」，不能重名`,
       );
     }
   }
@@ -920,6 +918,17 @@ export class TeammateService {
   effectiveDefinitionOf(teammate: Teammate): TeammateEffectiveDefinition {
     const template = this.templateOf(teammate);
     const instanceDescription = teammate.description.trim();
+    const templateSoul = (template?.soul ?? teammate.soul).trim();
+    const instanceSoul = (teammate.instanceSoul ?? "").trim();
+    const instanceSection =
+      instanceSoul === ""
+        ? ""
+        : instanceSoul.startsWith("#")
+          ? instanceSoul
+          : `## 项目与实例补充\n\n${instanceSoul}`;
+    const soul = [templateSoul, instanceSection]
+      .filter((section) => section !== "")
+      .join("\n\n");
     return {
       name: teammate.name,
       description:
@@ -928,7 +937,7 @@ export class TeammateService {
           : teammate.description,
       avatar: teammate.avatar,
       role: template?.role ?? teammate.role,
-      soul: template?.soul ?? teammate.soul,
+      soul,
       scenarios: template?.scenarios ?? teammate.scenarios,
       goals: template?.goals ?? teammate.goals,
       tools: template?.tools ?? [],
@@ -1055,7 +1064,7 @@ export class TeammateService {
   ): Promise<Teammate> {
     return this.enqueue(async () => {
       if (actor.role === "guest") {
-        throw new TeammateError("forbidden", "访客不能使用平台系统 Agent");
+        throw new TeammateError("forbidden", "访客不能使用内置 AI伙伴");
       }
       const existing = this.values(this.options.tables.teammates).find(
         (teammate) =>
@@ -1065,10 +1074,10 @@ export class TeammateService {
       if (existing !== undefined) return existing;
       const template = this.templates?.findSystem(systemKey);
       if (template === undefined) {
-        throw new TeammateError("not_found", "平台系统 Agent 模版不存在");
+        throw new TeammateError("not_found", "通用模版不存在");
       }
       if (template.state !== "active") {
-        throw new TeammateError("conflict", "平台系统 Agent 模版当前不可用");
+        throw new TeammateError("conflict", "通用模版当前不可用");
       }
       const timestamp = this.timestamp();
       const teammate = teammateSchema.parse({
@@ -1134,7 +1143,7 @@ export class TeammateService {
   ): Promise<Teammate> {
     return this.enqueue(async () => {
       if (input.actor.role === "guest") {
-        throw new TeammateError("forbidden", "访客不能初始化工作区系统 Agent");
+        throw new TeammateError("forbidden", "访客不能初始化工作区内置 AI伙伴");
       }
       const template = this.templates?.findSystem(input.systemKey);
       if (template === undefined || template.state !== "active") {
@@ -1418,7 +1427,7 @@ export class TeammateService {
         ) {
           throw new TeammateError(
             "conflict",
-            "系统 Agent 固定身份不一致，拒绝自动迁移",
+            "通用模版固定身份不一致，拒绝自动迁移",
           );
         }
         const templateId = existing.templateId ?? input.templateId;
@@ -1621,7 +1630,7 @@ export class TeammateService {
       if (isProtectedSystemTeammate(current)) {
         throw new TeammateError(
           "system_agent_protected",
-          "系统 Agent 不允许切换模版",
+          "内置 AI伙伴不允许切换模版",
         );
       }
       if (!canManageInstance(current, actor)) {
@@ -1652,7 +1661,7 @@ export class TeammateService {
       if (isProtectedSystemTeammate(current)) {
         throw new TeammateError(
           "system_agent_protected",
-          "系统 Agent 身份与定义受保护，不能通过普通编辑入口修改",
+          "内置 AI伙伴身份与定义受保护，不能通过普通编辑入口修改",
         );
       }
       const wasDraft = current.state === "draft";
@@ -1754,12 +1763,6 @@ export class TeammateService {
   ): Promise<Teammate> {
     return this.enqueue(async () => {
       const current = this.requireTeammate(input.teammateId);
-      if (isProtectedSystemTeammate(current)) {
-        throw new TeammateError(
-          "system_agent_protected",
-          "系统 Agent 身份受保护，不能通过实例资料入口修改",
-        );
-      }
       // 实例归创建人所有：来自平台模版的实例同样由 owner 维护资料。
       if (!canManageInstance(current, actor)) {
         throw new TeammateError(
@@ -1772,13 +1775,39 @@ export class TeammateService {
         throw new TeammateError("invalid_input", "AI伙伴名称不能为空");
       }
       const description = input.description.trim();
-      if (name === current.name && description === current.description) {
+      const instanceSoul =
+        input.instanceSoul === undefined
+          ? current.instanceSoul
+          : input.instanceSoul.trim();
+      const execution = input.execution ?? current.execution ?? "builtin";
+      const externalRuntimeId =
+        execution === "external"
+          ? (input.externalRuntimeId ?? current.externalRuntimeId)
+          : undefined;
+      if (execution === "external" && externalRuntimeId === undefined) {
+        throw new TeammateError(
+          "invalid_input",
+          "切换为外部 Agent 时请选择运行时",
+        );
+      }
+      if (
+        name === current.name &&
+        description === current.description &&
+        instanceSoul === current.instanceSoul &&
+        execution === (current.execution ?? "builtin") &&
+        externalRuntimeId === current.externalRuntimeId
+      ) {
         return current;
       }
       const teammate = teammateSchema.parse({
         ...current,
         name,
         description,
+        ...(instanceSoul === undefined ? {} : { instanceSoul }),
+        execution,
+        ...(externalRuntimeId === undefined
+          ? { externalRuntimeId: undefined }
+          : { externalRuntimeId }),
         updatedAt: this.timestamp(),
       });
       if (current.templateId === undefined) {
@@ -1789,9 +1818,17 @@ export class TeammateService {
         teammate,
         actor,
         "updated",
-        name === current.name
-          ? "更新了 AI伙伴描述"
-          : `将 AI伙伴名称改为「${name}」`,
+        execution !== (current.execution ?? "builtin")
+          ? execution === "external"
+            ? "已将 AI伙伴切换为外部 Agent 执行"
+            : "已将 AI伙伴切换为内置执行"
+          : name === current.name &&
+              description === current.description &&
+              instanceSoul !== current.instanceSoul
+            ? "更新了 AI伙伴实例 SOUL"
+            : name === current.name
+              ? "更新了 AI伙伴描述"
+              : `将 AI伙伴名称改为「${name}」`,
       );
       return teammate;
     });
@@ -1841,7 +1878,7 @@ export class TeammateService {
       if (isProtectedSystemTeammate(current)) {
         throw new TeammateError(
           "system_agent_protected",
-          "系统 Agent 受保护，不能归档或卸载",
+          "内置 AI伙伴受保护，不能归档或卸载",
         );
       }
       if (!canManageInstance(current, actor)) {
@@ -1871,7 +1908,7 @@ export class TeammateService {
       if (isProtectedSystemTeammate(current)) {
         throw new TeammateError(
           "system_agent_protected",
-          "系统 Agent 受保护，不能变更生命周期状态",
+          "内置 AI伙伴受保护，不能变更生命周期状态",
         );
       }
       if (!canManageInstance(current, actor)) {
@@ -2005,13 +2042,13 @@ export class TeammateService {
       if (!isProtectedSystemTeammate(current)) {
         throw new TeammateError(
           "invalid_input",
-          "该 AI伙伴不是受保护系统 Agent",
+          "该 AI伙伴不是受保护的内置 AI伙伴",
         );
       }
       if (actor.role !== "admin" && actor.role !== "owner") {
         throw new TeammateError(
           "forbidden",
-          "只有平台管理员或工作区负责人可以配置系统 Agent 运行时",
+          "只有平台管理员或工作区负责人可以配置内置 AI伙伴运行时",
         );
       }
       const next = teammateSchema.parse({
@@ -2028,7 +2065,7 @@ export class TeammateService {
         next,
         actor,
         "updated",
-        `配置了系统 Agent 的${input.execution === "external" ? "外部" : "平台"}运行时`,
+        `配置了内置 AI伙伴的${input.execution === "external" ? "外部" : "平台"}运行时`,
       );
       return next;
     });
@@ -2134,7 +2171,7 @@ export class TeammateService {
         teammate,
         { userId: "system", name: "系统", role: "admin" },
         "created",
-        `从员工平台身份 ${input.employeeId} 同步为平台归属 AI伙伴`,
+        `从员工平台身份 ${input.employeeId} 同步为角色模版 AI伙伴`,
       );
       return teammate;
     });
@@ -2344,7 +2381,7 @@ export async function migrateTeammateTemplates(
         actorUserId: actor.userId,
         actorName: actor.name,
         kind: "updated",
-        message: "系统补齐了该 AI伙伴的 Agent 模版引用",
+        message: "系统补齐了该 AI伙伴的角色模版引用",
       });
       await options.events.put(event.id, event);
     }

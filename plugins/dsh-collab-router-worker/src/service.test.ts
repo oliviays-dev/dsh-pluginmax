@@ -40,6 +40,7 @@ function setup(
     rootReceiverType?: "human" | "agent";
     rootReceiverId?: string;
     rootCreatedBy?: string;
+    rootParentTaskId?: string;
   } = {},
 ) {
   const plans = new Table<PlanRecord>();
@@ -66,6 +67,7 @@ function setup(
     actorName: string;
     type?: string;
     status?: string;
+    parentTaskId?: string;
     autoSubmitReview?: boolean;
     autoApproveReview?: boolean;
     executionPolicy?: unknown;
@@ -77,6 +79,9 @@ function setup(
         actorName: creationActor.name,
         ...(input.type === undefined ? {} : { type: input.type }),
         ...(input.status === undefined ? {} : { status: input.status }),
+        ...(input.parentTaskId === undefined
+          ? {}
+          : { parentTaskId: input.parentTaskId }),
         ...(input.autoSubmitReview === undefined
           ? {}
           : { autoSubmitReview: input.autoSubmitReview }),
@@ -110,6 +115,9 @@ function setup(
           workspaceId: "workspace-1",
           title: "Root task",
           priority: "P2",
+          ...(options.rootParentTaskId === undefined
+            ? {}
+            : { parentTaskId: options.rootParentTaskId }),
           receiverType: options.rootReceiverType ?? "human",
           receiverId:
             options.rootReceiverType === "agent"
@@ -234,7 +242,7 @@ describe("Router / Worker plan service", () => {
     ).rejects.toThrow("循环依赖");
   });
 
-  it("keeps a pending plan in the root task review queue until execution starts", async () => {
+  it("keeps the root task status unchanged while plan confirmation is pending", async () => {
     const { service, taskStatuses, statusChanges, taskActivities } = setup();
     const result = await service.saveCreate(actor, {
       workspaceId: "workspace-1",
@@ -245,30 +253,21 @@ describe("Router / Worker plan service", () => {
     });
 
     expect(result.plan.status).toBe("draft");
-    expect(taskStatuses.get("root-1")).toBe("review");
-    expect(statusChanges).toEqual([{ taskId: "root-1", status: "review" }]);
+    expect(taskStatuses.has("root-1")).toBe(false);
+    expect(statusChanges).toEqual([]);
     expect(
       taskActivities.some((item) => item.message.includes("创建任务规划 v1")),
     ).toBe(true);
-
-    taskStatuses.set("root-1", "todo");
-    statusChanges.length = 0;
-    await service.ensurePendingReview(result.plan.id, actor);
-    expect(taskStatuses.get("root-1")).toBe("review");
-    expect(statusChanges).toEqual([{ taskId: "root-1", status: "review" }]);
 
     const approved = await service.approve(actor, {
       planId: result.plan.id,
       expectedRevision: result.plan.revision,
     });
-    expect(taskStatuses.get("root-1")).toBe("review");
+    expect(statusChanges).toEqual([]);
 
     await service.materialize(actor, approved.id);
     expect(taskStatuses.get("root-1")).toBe("progress");
-    expect(statusChanges).toEqual([
-      { taskId: "root-1", status: "review" },
-      { taskId: "root-1", status: "progress" },
-    ]);
+    expect(statusChanges).toEqual([{ taskId: "root-1", status: "progress" }]);
     expect(
       taskActivities.some((item) => item.message.includes("确认任务规划 v1")),
     ).toBe(true);
@@ -324,7 +323,7 @@ describe("Router / Worker plan service", () => {
     });
   });
 
-  it("returns a replanned root task to review for plan confirmation", async () => {
+  it("does not move a replanned root task into review", async () => {
     const { service, taskStatuses, statusChanges, taskActivities } = setup();
     const result = await service.saveCreate(actor, {
       workspaceId: "workspace-1",
@@ -344,8 +343,8 @@ describe("Router / Worker plan service", () => {
     });
 
     expect(replanned.plan.status).toBe("proposed");
-    expect(taskStatuses.get("root-1")).toBe("review");
-    expect(statusChanges).toEqual([{ taskId: "root-1", status: "review" }]);
+    expect(taskStatuses.get("root-1")).toBe("progress");
+    expect(statusChanges).toEqual([]);
     expect(
       taskActivities.some((item) => item.message.includes("更新任务规划至 v2")),
     ).toBe(true);
@@ -410,6 +409,41 @@ describe("Router / Worker plan service", () => {
 
     expect(first.createdTaskIds).toEqual(["task-1"]);
     expect(second.createdTaskIds).toEqual(["task-1"]);
+    expect(created.size).toBe(1);
+    expect(bindings.records.size).toBe(1);
+  });
+
+  it("keeps a saved plan as a draft until confirm dispatch", async () => {
+    const { service, bindings, created } = setup();
+    const initial = await service.saveCreate(actor, {
+      workspaceId: "workspace-1",
+      rootTaskId: "root-1",
+      graph,
+    });
+    const saved = await service.saveVersion(actor, {
+      planId: initial.plan.id,
+      expectedRevision: initial.plan.revision,
+      graph: {
+        ...graph,
+        nodes: graph.nodes.map((node) => ({
+          ...node,
+          title: "Saved draft node",
+        })),
+      },
+      reason: "保存规划",
+    });
+    expect(saved.plan.status).toBe("proposed");
+    expect(saved.version.graph.nodes[0]?.title).toBe("Saved draft node");
+    expect(created.size).toBe(0);
+    expect(bindings.records.size).toBe(0);
+
+    const approved = await service.approve(actor, {
+      planId: saved.plan.id,
+      expectedRevision: saved.plan.revision,
+    });
+    expect(created.size).toBe(0);
+    const dispatched = await service.materialize(actor, approved.id);
+    expect(dispatched.createdTaskIds).toEqual(["task-1"]);
     expect(created.size).toBe(1);
     expect(bindings.records.size).toBe(1);
   });
@@ -503,12 +537,30 @@ describe("Router / Worker plan service", () => {
     await service.materialize(actor, approved.id);
     expect(creationInputs[0]).toMatchObject({
       actorId: actor.id,
+      parentTaskId: "root-1",
       type: "缺陷",
       status: "progress",
       autoSubmitReview: false,
       autoApproveReview: true,
       executionPolicy,
     });
+  });
+
+  it("does not create a second hierarchy level from an existing subtask plan", async () => {
+    const { service, creationInputs } = setup({
+      rootParentTaskId: "root-parent",
+    });
+    const result = await service.saveCreate(actor, {
+      workspaceId: "workspace-1",
+      rootTaskId: "root-1",
+      graph,
+    });
+    const approved = await service.approve(actor, {
+      planId: result.plan.id,
+      expectedRevision: result.plan.revision,
+    });
+    await service.materialize(actor, approved.id);
+    expect(creationInputs[0]?.parentTaskId).toBeUndefined();
   });
 
   it("lets the master task owner create a plan for another user's task", async () => {
@@ -742,10 +794,7 @@ describe("Router / Worker plan service", () => {
     const finalizing = await service.reconcile(approved.id);
 
     expect(finalizing.status).toBe("finalizing");
-    expect(statusChanges).toEqual([
-      { taskId: "root-1", status: "review" },
-      { taskId: "root-1", status: "progress" },
-    ]);
+    expect(statusChanges).toEqual([{ taskId: "root-1", status: "progress" }]);
     const completed = await service.saveFinalDraft(actor, {
       planId: approved.id,
       routerAgentId: "router-agent",
@@ -769,10 +818,7 @@ describe("Router / Worker plan service", () => {
     expect(completed.finalDraft.summary).not.toContain("rw-plan-");
     expect(taskMessages.at(-1)?.taskId).toBe("root-1");
     expect(taskMessages.at(-1)?.content).toContain("交付草稿");
-    expect(statusChanges).toEqual([
-      { taskId: "root-1", status: "review" },
-      { taskId: "root-1", status: "progress" },
-    ]);
+    expect(statusChanges).toEqual([{ taskId: "root-1", status: "progress" }]);
   });
 
   it("submits an agent-owned root task to review after the final draft", async () => {

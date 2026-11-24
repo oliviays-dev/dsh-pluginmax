@@ -580,105 +580,94 @@ interface RouterWorkerContext {
         readonly collabTaskCreation: TaskCreationLike;
         readonly collabTaskDispatch: TaskDispatchLike;
         readonly collabAgent: {
-        dispatch(input: RouterAgentDispatchInput): Promise<{
-          readonly id: string;
-          readonly status: string;
-          readonly sessionId?: string | undefined;
-        }>;
-        preflightForProfile?(input: {
-          readonly workspaceId: string;
-          readonly taskId: string;
-          readonly profileId: string;
-          readonly principalId: string;
-          readonly teammateId?: string | undefined;
-          readonly ticketId?: string | undefined;
-        }):
-          | {
-              readonly gaps: readonly {
-                readonly necessity: "required" | "recommended";
-                readonly message: string;
-              }[];
-            }
-          | undefined;
-        profile(
-          workspaceId: string,
-          profileId: string,
-        ):
-          | {
-              readonly id: string;
-              readonly name: string;
-              readonly description: string;
-              readonly ownerUserId: string;
-              readonly execution?: "builtin" | "external" | undefined;
-              readonly status: "active" | "disabled";
-            }
-          | undefined;
-        createRuntimeProfile(
-          actor: {
-            readonly kind: "user";
+          dispatch(input: RouterAgentDispatchInput): Promise<{
             readonly id: string;
-            readonly name?: string | undefined;
-            readonly globalRole?:
-              | "admin"
-              | "owner"
-              | "member"
-              | "guest"
-              | undefined;
-            readonly workspaceRole?:
-              | "owner"
-              | "member"
-              | "guest"
-              | undefined;
-            readonly workspaceId?: string | undefined;
-          },
-          input: {
+            readonly status: string;
+            readonly sessionId?: string | undefined;
+          }>;
+          preflightForProfile?(input: {
             readonly workspaceId: string;
-            readonly id?: string | undefined;
-            readonly name: string;
-            readonly description?: string | undefined;
-            readonly personaId?: string | undefined;
-            readonly execution?: "builtin" | "external" | undefined;
-            readonly externalRuntimeId?: string | undefined;
-            readonly runtimeKind?:
-              | "task-worker"
-              | "continuable-session"
-              | "connector"
-              | undefined;
-            readonly defaultModel?:
-              | {
-                  readonly provider: string;
-                  readonly model: string;
-                  readonly reasoningEffort?: string | undefined;
-                }
-              | undefined;
-            readonly allowedTools?: readonly string[] | undefined;
-            readonly visibility?: "workspace" | "platform" | undefined;
-          },
-        ): Promise<{
-          readonly id: string;
-          readonly name: string;
-          readonly description: string;
-          readonly ownerUserId: string;
-          readonly execution?: "builtin" | "external" | undefined;
-          readonly status: "active" | "disabled";
-        }>;
-        run(runId: string):
-          | {
+            readonly taskId: string;
+            readonly profileId: string;
+            readonly principalId: string;
+            readonly teammateId?: string | undefined;
+            readonly ticketId?: string | undefined;
+          }):
+            | {
+                readonly gaps: readonly {
+                  readonly necessity: "required" | "recommended";
+                  readonly message: string;
+                }[];
+              }
+            | undefined;
+          profile(
+            workspaceId: string,
+            profileId: string,
+          ):
+            | {
+                readonly id: string;
+                readonly name: string;
+                readonly description: string;
+                readonly ownerUserId: string;
+                readonly execution?: "builtin" | "external" | undefined;
+                readonly status: "active" | "disabled";
+              }
+            | undefined;
+          createRuntimeProfile(
+            actor: {
+              readonly kind: "user";
               readonly id: string;
-              readonly instanceId: string;
-              readonly status: string;
-              readonly sessionId?: string | undefined;
-              readonly createdBy: string;
-            }
-          | undefined;
-        runs(): readonly {
-          readonly id: string;
-          readonly instanceId: string;
-          readonly sessionId?: string | undefined;
-          readonly createdBy: string;
-          readonly status: string;
-        }[];
-      };
+              readonly name?: string | undefined;
+              readonly globalRole?:
+                "admin" | "owner" | "member" | "guest" | undefined;
+              readonly workspaceRole?: "owner" | "member" | "guest" | undefined;
+              readonly workspaceId?: string | undefined;
+            },
+            input: {
+              readonly workspaceId: string;
+              readonly id?: string | undefined;
+              readonly name: string;
+              readonly description?: string | undefined;
+              readonly personaId?: string | undefined;
+              readonly execution?: "builtin" | "external" | undefined;
+              readonly externalRuntimeId?: string | undefined;
+              readonly runtimeKind?:
+                "task-worker" | "continuable-session" | "connector" | undefined;
+              readonly defaultModel?:
+                | {
+                    readonly provider: string;
+                    readonly model: string;
+                    readonly reasoningEffort?: string | undefined;
+                  }
+                | undefined;
+              readonly allowedTools?: readonly string[] | undefined;
+              readonly visibility?: "workspace" | "platform" | undefined;
+            },
+          ): Promise<{
+            readonly id: string;
+            readonly name: string;
+            readonly description: string;
+            readonly ownerUserId: string;
+            readonly execution?: "builtin" | "external" | undefined;
+            readonly status: "active" | "disabled";
+          }>;
+          run(runId: string):
+            | {
+                readonly id: string;
+                readonly instanceId: string;
+                readonly status: string;
+                readonly sessionId?: string | undefined;
+                readonly createdBy: string;
+              }
+            | undefined;
+          runs(): readonly {
+            readonly id: string;
+            readonly instanceId: string;
+            readonly sessionId?: string | undefined;
+            readonly createdBy: string;
+            readonly status: string;
+          }[];
+        };
       },
     ) => void,
   ): { dispose(): void } | void;
@@ -826,10 +815,9 @@ function planGraphFromWorkflow(definition: {
               : { receiverName: node.executor.label }),
           }),
       priority: "P2",
-      acceptance:
-        node.deliverables?.map((item) => item.title).filter(Boolean) ?? [
-          `完成：${node.name}`,
-        ],
+      acceptance: node.deliverables
+        ?.map((item) => item.title)
+        .filter(Boolean) ?? [`完成：${node.name}`],
       dependencies: definition.graph.edges
         .filter((edge) => edge.to === node.id)
         .map((edge) => edge.from),
@@ -862,9 +850,7 @@ export async function apply(ctx: RouterWorkerContext): Promise<void> {
   });
   ctx.provide("collabPlanning", planning);
   let stopReconciler: (() => void) | undefined;
-  let pauseWorkspacePlans:
-    | ((workspaceId: string) => Promise<void>)
-    | undefined;
+  let pauseWorkspacePlans: ((workspaceId: string) => Promise<void>) | undefined;
   ctx.effect(() => () => void domain.close());
   ctx.effect(() => () => void planningDomain.close());
   ctx.effect(() => () => stopReconciler?.());
@@ -1025,38 +1011,38 @@ export async function apply(ctx: RouterWorkerContext): Promise<void> {
         domain.table("router_cycles"),
         domain.table("router_agents"),
         {
-        team: child.collabTeam,
-        tasks: () => child.collabTasks,
-        agent: () => child.collabAgent,
-        teammates: () =>
-          child.get("collabTeammateRuntime") as ReturnType<
-            RouterCycleDeps["teammates"]
-          >,
-        teammateService: () =>
-          child.get("collabTeammates") as ReturnType<
-            RouterCycleDeps["teammateService"]
-          >,
-        teammateTemplates: () =>
-          child.get("collabTeammateTemplates") as ReturnType<
-            RouterCycleDeps["teammateTemplates"]
-          >,
-        principalRuntime: () =>
-          child.get("collabPrincipalRuntime") as ReturnType<
-            RouterCycleDeps["principalRuntime"]
-          >,
-        workspaces: () =>
-          child.get("workspaceRegistry") as
-            | {
-                get(
-                  workspaceId: string,
-                ): { readonly path?: string | undefined } | undefined;
-              }
-            | undefined,
-        enabled: (workspaceId) =>
-          settingsFor(workspaceId, settings.get(workspaceId)).enabled,
-        defaultRouterAgentId: (workspaceId) =>
-          settingsFor(workspaceId, settings.get(workspaceId))
-            .defaultRouterAgentId,
+          team: child.collabTeam,
+          tasks: () => child.collabTasks,
+          agent: () => child.collabAgent,
+          teammates: () =>
+            child.get("collabTeammateRuntime") as ReturnType<
+              RouterCycleDeps["teammates"]
+            >,
+          teammateService: () =>
+            child.get("collabTeammates") as ReturnType<
+              RouterCycleDeps["teammateService"]
+            >,
+          teammateTemplates: () =>
+            child.get("collabTeammateTemplates") as ReturnType<
+              RouterCycleDeps["teammateTemplates"]
+            >,
+          principalRuntime: () =>
+            child.get("collabPrincipalRuntime") as ReturnType<
+              RouterCycleDeps["principalRuntime"]
+            >,
+          workspaces: () =>
+            child.get("workspaceRegistry") as
+              | {
+                  get(
+                    workspaceId: string,
+                  ): { readonly path?: string | undefined } | undefined;
+                }
+              | undefined,
+          enabled: (workspaceId) =>
+            settingsFor(workspaceId, settings.get(workspaceId)).enabled,
+          defaultRouterAgentId: (workspaceId) =>
+            settingsFor(workspaceId, settings.get(workspaceId))
+              .defaultRouterAgentId,
         },
       );
       const ensureFinalization = async (plan: PlanRecord) => {
@@ -1088,27 +1074,19 @@ export async function apply(ctx: RouterWorkerContext): Promise<void> {
           }
         }
       };
-      const reconciler = new PlanReconciler(
-        plans,
-        15_000,
-        ensureFinalization,
-      );
+      const reconciler = new PlanReconciler(plans, 15_000, ensureFinalization);
       stopReconciler = () => reconciler.stop();
       pauseWorkspacePlans = (workspaceId) => plans.pauseWorkspace(workspaceId);
 
-      const actorForUser = (
-        userId: string,
-        workspaceId: string,
-      ): PlanActor => {
+      const actorForUser = (userId: string, workspaceId: string): PlanActor => {
         const user = child.collabTeam
           .users()
           .find((candidate) => candidate.id === userId);
         const member = child.collabTeam
           .members(workspaceId)
           .find((candidate) => candidate.userId === userId);
-        const globalRole = (
-          user as { readonly role?: string } | undefined
-        )?.role;
+        const globalRole = (user as { readonly role?: string } | undefined)
+          ?.role;
         return {
           id: userId,
           name: user?.name ?? userId,
@@ -1192,8 +1170,7 @@ export async function apply(ctx: RouterWorkerContext): Promise<void> {
             child.collabTeam
               .users()
               .find(
-                (user) =>
-                  (user as { readonly role?: string }).role === "admin",
+                (user) => (user as { readonly role?: string }).role === "admin",
               )?.id;
           const actorUserId = task.createdBy ?? fallbackUserId;
           if (actorUserId === undefined) return;
@@ -1273,9 +1250,7 @@ export async function apply(ctx: RouterWorkerContext): Promise<void> {
           team: child.collabTeam,
           tasks: child.collabTasks,
           scope: "runtime",
-        }).map(
-          (route) => child.webServer.register(route) as () => void,
-        );
+        }).map((route) => child.webServer.register(route) as () => void);
       };
       child.effect(() => () => disposePlanningRuntime());
       for (const route of createPlanningRoutes({
@@ -1323,10 +1298,7 @@ export async function apply(ctx: RouterWorkerContext): Promise<void> {
             );
           }
           const cycle = cycles.findBySessionId(sessionId);
-          if (
-            cycle === undefined ||
-            !["plan", "replan"].includes(cycle.kind)
-          ) {
+          if (cycle === undefined || !["plan", "replan"].includes(cycle.kind)) {
             throw new RouterWorkerError(
               "forbidden",
               "当前会话不是已登记的 Router 规划 Cycle",
@@ -1334,10 +1306,7 @@ export async function apply(ctx: RouterWorkerContext): Promise<void> {
           }
           let stage = "resolve-actor";
           try {
-            const planActor = actorForUser(
-              cycle.createdBy,
-              cycle.workspaceId,
-            );
+            const planActor = actorForUser(cycle.createdBy, cycle.workspaceId);
             stage = "find-existing-plan";
             const existing = plans.findByRoot(
               cycle.workspaceId,
@@ -1505,8 +1474,7 @@ export async function apply(ctx: RouterWorkerContext): Promise<void> {
           if (existing !== undefined) {
             throw new RouterWorkerError("conflict", "该任务已有执行计划");
           }
-          const routerAgentId =
-            run.plannerTeammateId ?? run.plannerAgentId;
+          const routerAgentId = run.plannerTeammateId ?? run.plannerAgentId;
           if (routerAgentId === undefined) {
             throw new RouterWorkerError(
               "conflict",
@@ -1562,9 +1530,7 @@ export async function apply(ctx: RouterWorkerContext): Promise<void> {
           render: (_args, value) => [{ type: "text", text: value }],
         },
         execute: async (args, exec) => {
-          const parsed = z
-            .object({ report: z.unknown() })
-            .parse(args);
+          const parsed = z.object({ report: z.unknown() }).parse(args);
           const sessionId = exec.agent?.session?.id;
           if (sessionId === undefined) {
             throw new RouterWorkerError(
@@ -1580,7 +1546,10 @@ export async function apply(ctx: RouterWorkerContext): Promise<void> {
             );
           }
           if (run.planId === undefined) {
-            throw new RouterWorkerError("conflict", "Planning Run 缺少 Plan Draft");
+            throw new RouterWorkerError(
+              "conflict",
+              "Planning Run 缺少 Plan Draft",
+            );
           }
           const criticInput = planningPlanCriticInputSchema.parse({
             ...(typeof parsed.report === "object" &&
@@ -1594,17 +1563,15 @@ export async function apply(ctx: RouterWorkerContext): Promise<void> {
               : { planVersionId: run.planVersionId }),
           });
           const detail = plans.detail(run.planId);
-          const report = await planning.saveCriticReport(
-            run.id,
-            criticInput,
-          );
+          const report = await planning.saveCriticReport(run.id, criticInput);
           const settings = planning.settings(run.workspaceId);
           const validatorErrors = plans
             .validate(run.planId)
             .filter((issue) => issue.level === "error")
             .map((issue) => issue.message);
           const quality = evaluatePlanningQuality({
-            rootAcceptance: child.collabTasks.get(run.rootTaskId).acceptance ?? [],
+            rootAcceptance:
+              child.collabTasks.get(run.rootTaskId).acceptance ?? [],
             graph: detail.version.graph,
             validatorErrors,
             critic: report,
@@ -1632,8 +1599,7 @@ export async function apply(ctx: RouterWorkerContext): Promise<void> {
           });
           if (quality.decision === "auto-approve") {
             const rootTask = child.collabTasks.get(run.rootTaskId);
-            const actorId =
-              rootTask.createdBy ?? run.plannerPrincipalId;
+            const actorId = rootTask.createdBy ?? run.plannerPrincipalId;
             if (actorId === undefined) {
               throw new RouterWorkerError(
                 "conflict",
@@ -1752,10 +1718,7 @@ export async function apply(ctx: RouterWorkerContext): Promise<void> {
               request,
               workspaceId,
             );
-            const current = settingsFor(
-              workspaceId,
-              settings.get(workspaceId),
-            );
+            const current = settingsFor(workspaceId, settings.get(workspaceId));
             const agents = await cycles.candidateRouterAgents(
               actor,
               workspaceId,
@@ -1848,12 +1811,11 @@ export async function apply(ctx: RouterWorkerContext): Promise<void> {
             );
             const task = child.collabTasks.get(body.rootTaskId);
             if (task.workspaceId !== body.workspaceId) {
-              throw new RouterWorkerError(
-                "forbidden",
-                "主任务不属于当前项目",
-              );
+              throw new RouterWorkerError("forbidden", "主任务不属于当前项目");
             }
-            if (plans.findByRoot(body.workspaceId, body.rootTaskId) !== undefined) {
+            if (
+              plans.findByRoot(body.workspaceId, body.rootTaskId) !== undefined
+            ) {
               throw new RouterWorkerError("conflict", "该任务已有执行计划");
             }
             return cycles.start({
@@ -1943,10 +1905,7 @@ export async function apply(ctx: RouterWorkerContext): Promise<void> {
                 }
               | undefined;
             if (workflow === undefined) {
-              throw new RouterWorkerError(
-                "conflict",
-                "Workflow 服务不可用",
-              );
+              throw new RouterWorkerError("conflict", "Workflow 服务不可用");
             }
             const definition = workflow.definition(body.definitionId);
             if (definition === undefined) {
@@ -2138,11 +2097,6 @@ export async function apply(ctx: RouterWorkerContext): Promise<void> {
                 bindings: [],
               };
             }
-            // Heal draft plans created before pending-review tracking existed.
-            await plans.ensurePendingReview(
-              plan.id,
-              actorForUser(plan.createdBy, plan.workspaceId),
-            );
             await plans.syncDispatchActivity(
               plan.id,
               actorForUser(plan.createdBy, plan.workspaceId),
@@ -2178,10 +2132,6 @@ export async function apply(ctx: RouterWorkerContext): Promise<void> {
               child.collabTeam,
               request,
               detail.plan.workspaceId,
-            );
-            await plans.ensurePendingReview(
-              detail.plan.id,
-              actorForUser(detail.plan.createdBy, detail.plan.workspaceId),
             );
             await plans.syncDispatchActivity(
               detail.plan.id,

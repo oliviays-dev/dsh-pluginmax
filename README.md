@@ -51,6 +51,15 @@ Phase X introduced `dsh-collab-agent`, which provides:
 
 The Task Worker does not create a sidebar home session, join meetings, inherit full host permissions, or complete workflow nodes by itself.
 
+The task dispatch view adds:
+
+- an admin-only `资源队列` view inside the task page, gated by the dispatch plugin being loaded
+- deterministic candidate recommendations based on project binding, Skill evidence, execution availability and queue depth
+- assignee lanes grouped by project human members and business AI partners, with active assigned tasks shown in execution order
+- default `AI伙伴` filtering with `全部 / AI伙伴 / 人类员工` alternatives
+- in-memory dispatch plans, batch validation, selectable adjustment suggestions and queue-only assignment
+- no changes to the existing task board defaults or automatic Agent dispatch path
+
 The employee platform milestone through E7 adds `dsh-collab-employee` and connects it to workflow execution:
 
 - durable `collab_employee` records with `human` and `digital` employee kinds

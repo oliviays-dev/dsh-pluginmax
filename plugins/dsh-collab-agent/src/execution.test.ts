@@ -285,6 +285,45 @@ describe("AgentExecutionService", () => {
     });
   });
 
+  it("uses the runtime reasoning default when the task has no override", () => {
+    const execution = service();
+    const declaredRuntime: ExecutionRuntimeLike = {
+      ...runtime,
+      id: "reasoning-runtime",
+      name: "Reasoning Runtime",
+      args: [],
+      supportedModels: ["gpt-5.2"],
+      defaultModel: "gpt-5.2",
+      reasoningEffort: "medium",
+    };
+    const policy = legacyTaskExecutionPolicy();
+    delete policy.runtime.reasoningEffort;
+    const runtimeProfile: ExecutionProfileLike = {
+      ...profile,
+      execution: "external",
+      externalRuntimeId: declaredRuntime.id,
+      defaultModel: {
+        provider: "codex",
+        model: "gpt-5.2",
+        reasoningEffort: "low",
+      },
+    };
+
+    const preflight = execution.preflight({
+      taskId: "task-reasoning-runtime",
+      workspaceId: "workspace-1",
+      principalId: "principal-agent",
+      policy,
+      profile: runtimeProfile,
+      runtime: declaredRuntime,
+    });
+
+    expect(preflight.envelopePreview.launch).toMatchObject({
+      model: "gpt-5.2",
+      reasoningEffort: "medium",
+    });
+  });
+
   it("warns instead of blocking when search capability is unknown", () => {
     const execution = service();
     const policy = legacyTaskExecutionPolicy();

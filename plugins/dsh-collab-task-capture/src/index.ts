@@ -19,6 +19,7 @@ import {
   undoTaskDraftBatchInputSchema,
   updateTaskDraftInputSchema,
   type TaskCaptureActor,
+  type TaskCaptureSourceAdapter,
 } from "@pluginmax/contracts";
 import { z } from "zod";
 import { taskCaptureDomainSpec, type KvTableLike } from "./models.js";
@@ -185,6 +186,93 @@ function workspaceAccess(
     throw new TaskCaptureError("invalid_input", "workspaceId is required");
   }
   return browserActor(request, team, workspaceId);
+}
+
+export function projectSelectionTitle(text: string): string {
+  const firstLine =
+    text
+      .split(/\n+/)
+      .map((line) =>
+        line
+          .replace(/^[\s#>*_`~-]+/, "")
+          .replace(/\s+/g, " ")
+          .trim(),
+      )
+      .find((line) => line !== "") ?? "跟进项目中的选中事项";
+  const sentence = firstLine.split(/[。！？!?；;]/)[0]?.trim() || firstLine;
+  return (sentence.length > 64 ? `${sentence.slice(0, 63)}…` : sentence).trim();
+}
+
+function projectSelectionTaskCaptureAdapter(
+  team: TeamServiceLike,
+): TaskCaptureSourceAdapter {
+  return {
+    sourceType: "project",
+    version: "1",
+    async resolve({ actor, sourceRef, selection }) {
+      const workspaceId = sourceRef.sourceId.trim();
+      if (workspaceId === "") {
+        throw new TaskCaptureError(
+          "invalid_input",
+          "project selection workspace is required",
+        );
+      }
+      if (
+        !canAccessWorkspace(
+          team,
+          { userId: actor.id, role: actor.role },
+          workspaceId,
+        )
+      ) {
+        throw new TaskCaptureError(
+          "forbidden",
+          "workspace membership is required",
+        );
+      }
+      const text = selection.text?.trim() ?? "";
+      if (text === "") {
+        throw new TaskCaptureError(
+          "invalid_input",
+          "project selection text is required",
+        );
+      }
+      const now = new Date().toISOString();
+      const sourceTitle = sourceRef.sourceTitle?.trim() || "项目";
+      return {
+        source: {
+          sourceType: "project",
+          sourceId: workspaceId,
+          sourceTitle,
+          workspaceId,
+          projectId: workspaceId,
+          visibility: "workspace",
+          sourceVersion: now,
+          deepLink: `pluginmax://project/${encodeURIComponent(workspaceId)}`,
+          excerpt: text.slice(0, 8_000),
+          messageIds: [],
+          actionItemIds: [],
+          reportSectionIds: [],
+          participantIds: [],
+        },
+        candidates: [
+          {
+            sourceItemKey: `project-selection:${workspaceId}:${text.length}`,
+            title: projectSelectionTitle(text),
+            description: text,
+            projectId: workspaceId,
+            priorityHint: "P2",
+            acceptanceHints: [],
+            collaboratorHints: [],
+            evidenceRefs: [
+              `project-selection:${workspaceId}:${text.slice(0, 160)}`,
+            ],
+            confidence: "medium",
+            sourceExcerpt: text.slice(0, 2_000),
+          },
+        ],
+      };
+    },
+  };
 }
 
 function createRoutes(
@@ -494,6 +582,9 @@ export async function apply(ctx: TaskCaptureContext): Promise<void> {
       try {
         const domain = await child.storageDomain.open(taskCaptureDomainSpec);
         const sources = new TaskCaptureSourceRegistry();
+        const disposeProjectSource = sources.register(
+          projectSelectionTaskCaptureAdapter(team),
+        );
         const service = new TaskCaptureService(
           {
             captureSessions: domain.table("capture_sessions") as never,
@@ -532,6 +623,7 @@ export async function apply(ctx: TaskCaptureContext): Promise<void> {
           (route) => ctx.webServer.register(route) as () => void,
         );
         ctx.effect(() => () => {
+          disposeProjectSource();
           for (const dispose of disposers) dispose();
           void domain.close();
         });

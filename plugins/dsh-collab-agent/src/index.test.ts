@@ -6,6 +6,7 @@ import {
   AgentRegistryService,
   AgentTaskRuntime,
   ExternalAgentRuntimeService,
+  migrateObsoleteWorkbuddyModelAliases,
   createAgentRoutes,
   deliveryReportIssues,
   type AgentActor,
@@ -529,6 +530,29 @@ describe("external agent runtime", () => {
     });
   });
 
+  it("migrates the removed CodeBuddy hy4-preview model alias to hy4std", async () => {
+    const table = new FakeTable<ExternalAgentRuntime>();
+    const service = new ExternalAgentRuntimeService(table, { now });
+    const runtime = await service.create(owner, {
+      workspaceId: "main",
+      name: "CodeBuddy",
+      provider: "workbuddy",
+      protocol: "plain-text",
+      command: "codebuddy",
+      args: ["--model", "hy4-preview", "--max-turns", "8"],
+      supportedModels: ["hy4-preview", "glm-5.3"],
+      defaultModel: "hy4-preview",
+    });
+
+    expect(await migrateObsoleteWorkbuddyModelAliases(table, now)).toBe(1);
+    expect(table.get(runtime.id)).toMatchObject({
+      args: ["--model", "hy4std", "--max-turns", "8"],
+      supportedModels: ["hy4std", "glm-5.3"],
+      defaultModel: "hy4std",
+    });
+    expect(await migrateObsoleteWorkbuddyModelAliases(table, now)).toBe(0);
+  });
+
   it("stores runtime tool capabilities and a coherent model pool", async () => {
     const table = new FakeTable<ExternalAgentRuntime>();
     const service = new ExternalAgentRuntimeService(table, { now });
@@ -542,6 +566,7 @@ describe("external agent runtime", () => {
       supportedTools: ["web_search", "web_fetch", "read_file"],
       supportedModels: ["deepseek-v4-pro", "glm-5.3"],
       defaultModel: "deepseek-v4-pro",
+      reasoningEffort: "high",
       contextWindowTokens: 128_000,
     });
     expect(runtime).toMatchObject({
@@ -549,6 +574,7 @@ describe("external agent runtime", () => {
       customArgs: ["--include-directory", "docs"],
       supportedModels: ["deepseek-v4-pro", "glm-5.3"],
       defaultModel: "deepseek-v4-pro",
+      reasoningEffort: "high",
       contextWindowTokens: 128_000,
     });
     const updated = await service.update(owner, {
@@ -557,6 +583,7 @@ describe("external agent runtime", () => {
       supportedTools: ["web_fetch", "write_file"],
       supportedModels: ["glm-5.3"],
       defaultModel: "glm-5.3",
+      reasoningEffort: "medium",
       contextWindowTokens: 200_000,
     });
     expect(updated).toMatchObject({
@@ -564,6 +591,7 @@ describe("external agent runtime", () => {
       customArgs: ["--verbose"],
       supportedModels: ["glm-5.3"],
       defaultModel: "glm-5.3",
+      reasoningEffort: "medium",
       contextWindowTokens: 200_000,
     });
     await expect(
@@ -786,6 +814,13 @@ describe("external agent runtime", () => {
     await expect(
       service.archive(member, { runtimeId: runtime.id }),
     ).rejects.toThrow("Owner/Admin");
+    await expect(
+      service.archive(owner, { runtimeId: runtime.id }),
+    ).rejects.toThrow("请先停用");
+    await service.update(owner, {
+      runtimeId: runtime.id,
+      status: "disabled",
+    });
     const archived = await service.archive(owner, { runtimeId: runtime.id });
     expect(archived.status).toBe("archived");
     // 归档项默认不出现在常规列表，归档视图显式请求后才可见。

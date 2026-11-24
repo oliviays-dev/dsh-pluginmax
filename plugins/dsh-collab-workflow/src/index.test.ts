@@ -7,6 +7,7 @@ import {
   extractAgentDeliverableText,
   inject,
   parseDefinitionFixture,
+  validateRuntimeGraph,
   workflowDomainSpec,
   WorkflowService,
   type TeamServiceLike,
@@ -705,9 +706,7 @@ describe("workflow parser", () => {
       },
       dispatchMode: "assigned",
     });
-    const approval = result.graph?.nodes.find(
-      (node) => node.id === "approval",
-    );
+    const approval = result.graph?.nodes.find((node) => node.id === "approval");
     expect(approval).toMatchObject({
       executor: {
         kind: "user",
@@ -723,6 +722,172 @@ describe("workflow parser", () => {
         },
       ],
     });
+  });
+
+  it("parses business-chain metadata and stable node external references", () => {
+    const source = [
+      "# 工作流：AI Server 交付链路",
+      "",
+      "## 元信息",
+      "",
+      "- key: business-chain-ai-server",
+      "- version: 3",
+      "- kind: business-chain",
+      "- business-chain-key: ai-server-delivery",
+      "- business-chain-name: AI Server 交付链路",
+      "- business-chain-template-id: chain-ai-server",
+      "- project-type-codes: supply-delivery, manufacturing",
+      "- business-chain-snapshot-policy: pin-at-project-create",
+      "",
+      "## 节点",
+      "",
+      "### 订单接入",
+      "",
+      "- id: order-intake",
+      "- type: task",
+      "- executor: user:flow-owner",
+      "- owner-role: Order Fulfillment",
+      "- owner-role-code: GSC_ORDER_FULFILLMENT",
+      "- stage-code: ORDER_INTAKE",
+      "- sequence: 1",
+      "- summary-metric: order-quantity",
+      "- external-ref: OMS|sales-order-line|SO-2026-1018-01|true",
+      "- external-ref: APS-PLANNING|plan-node|PLN-SO0101-M01|true",
+      "- field: planned|原计划|APS-PLANNING|PLN-SO0101-M01|baseline.quantity,baseline.finishDate",
+      "",
+      "### 供应备货",
+      "",
+      "- id: supply-prep",
+      "- type: task",
+      "- executor: user:flow-owner",
+      "- owner-role: Procurement",
+      "- owner-role-code: GSC_PROCUREMENT",
+      "- stage-code: SUPPLY_PREP",
+      "- sequence: 2",
+      "- summary-metric: kit-readiness",
+      "- external-ref: WMS|project-kit|INV-SO0101-KIT|true",
+      "",
+      "## 连接",
+      "",
+      "- order-intake -> supply-prep",
+    ].join("\n");
+    const parsed = parseDefinitionFixture(source);
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.businessChain).toMatchObject({
+      enabled: true,
+      templateId: "chain-ai-server",
+      chainKey: "ai-server-delivery",
+      displayName: "AI Server 交付链路",
+      stageCodePolicy: "stable",
+      snapshotPolicy: "pin-at-project-create",
+    });
+    expect(parsed.graph?.nodes[0]?.businessChain).toMatchObject({
+      stageCode: "ORDER_INTAKE",
+      sequence: 1,
+      summaryMetric: "order-quantity",
+      externalRefs: [
+        {
+          system: "OMS",
+          objectType: "sales-order-line",
+          objectId: "SO-2026-1018-01",
+          required: true,
+        },
+        {
+          system: "APS-PLANNING",
+          objectType: "plan-node",
+          objectId: "PLN-SO0101-M01",
+          required: true,
+        },
+      ],
+    });
+    expect(parsed.graph?.nodes[0]?.executor).toMatchObject({
+      kind: "role",
+      id: "GSC_ORDER_FULFILLMENT",
+      label: "Order Fulfillment",
+      roleCode: "GSC_ORDER_FULFILLMENT",
+    });
+    expect(parsed.graph?.nodes[0]?.businessChain?.fields).toEqual([
+      {
+        key: "planned",
+        label: "原计划",
+        bindings: [
+          {
+            system: "APS-PLANNING",
+            objectId: "PLN-SO0101-M01",
+            path: "baseline.quantity",
+          },
+          {
+            system: "APS-PLANNING",
+            objectId: "PLN-SO0101-M01",
+            path: "baseline.finishDate",
+          },
+        ],
+      },
+    ]);
+    expect(
+      validateRuntimeGraph(parsed.graph!, []).filter(
+        (issue) => issue.level === "error",
+      ),
+    ).toEqual([]);
+
+    const duplicateStage = parseDefinitionFixture(
+      source.replace("- stage-code: SUPPLY_PREP", "- stage-code: ORDER_INTAKE"),
+    );
+    expect(duplicateStage.errors).toContain(
+      "duplicate business-chain stageCode: ORDER_INTAKE",
+    );
+    const undeclaredFieldObject = parseDefinitionFixture(
+      source.replace(
+        "planned|原计划|APS-PLANNING|PLN-SO0101-M01",
+        "planned|原计划|WMS|WH-NOT-DECLARED",
+      ),
+    );
+    expect(undeclaredFieldObject.errors).toEqual([]);
+    expect(
+      undeclaredFieldObject.graph?.nodes[0]?.businessChain?.externalRefs,
+    ).toContainEqual({
+      system: "WMS",
+      objectType: "object",
+      objectId: "WH-NOT-DECLARED",
+      required: true,
+    });
+    const withoutActors = parseDefinitionFixture(
+      source.replace(/^- executor: .+\n/gm, ""),
+    );
+    expect(withoutActors.errors).toEqual([]);
+    expect(
+      withoutActors.graph?.nodes.every(
+        (node) =>
+          node.executor.kind === "role" && node.executor.roleCode !== undefined,
+      ),
+    ).toBe(true);
+    const withUnknownActor = parseDefinitionFixture(
+      source.replace(
+        "- executor: user:flow-owner",
+        "- executor: user:not-a-platform-account",
+      ),
+    );
+    expect(withUnknownActor.errors).toEqual([]);
+    expect(withUnknownActor.graph?.nodes[0]?.executor).toMatchObject({
+      kind: "role",
+      id: "GSC_ORDER_FULFILLMENT",
+      roleCode: "GSC_ORDER_FULFILLMENT",
+    });
+    const graphWithInferredRefs = {
+      ...parsed.graph!,
+      nodes: parsed.graph!.nodes.map((node) => ({
+        ...node,
+        businessChain:
+          node.businessChain === undefined
+            ? undefined
+            : { ...node.businessChain, externalRefs: [] },
+      })),
+    };
+    expect(
+      validateRuntimeGraph(graphWithInferredRefs, []).filter(
+        (issue) => issue.level === "error",
+      ),
+    ).toEqual([]);
   });
 
   it("derives dispatch mode defaults and rejects AI claim nodes", () => {
@@ -864,6 +1029,7 @@ describe("workflow service", () => {
     const definition = await importedFixture(service, "product-delivery.md");
     const legacy = { ...definition } as Record<string, unknown>;
     delete legacy.scope;
+    delete legacy.workspaceIds;
     await current.definitions.put(
       definition.id,
       legacy as unknown as WorkflowDefinition,
@@ -871,6 +1037,7 @@ describe("workflow service", () => {
 
     expect(await service.migrateLegacyDefinitions()).toBe(1);
     expect(current.definitions.get(definition.id)?.scope).toBe("platform");
+    expect(current.definitions.get(definition.id)?.workspaceIds).toEqual([]);
     expect(await service.migrateLegacyDefinitions()).toBe(0);
     expect(service.definition(definition.id)?.scope).toBe("platform");
     expect(
@@ -898,13 +1065,10 @@ describe("workflow service", () => {
       sourceMd,
       scope: "platform",
     });
-
     expect(service.definition(projectDefinition.id)?.scope).toBe("project");
     expect(service.definition(platformDefinition.id)?.scope).toBe("platform");
     expect(
-      service
-        .visibleDefinitions("main")
-        .map((definition) => definition.id),
+      service.visibleDefinitions("main").map((definition) => definition.id),
     ).toEqual(
       expect.arrayContaining([projectDefinition.id, platformDefinition.id]),
     );
@@ -928,6 +1092,64 @@ describe("workflow service", () => {
     ).rejects.toMatchObject({ code: "not_found" });
   });
 
+  it("limits selected templates to the owning and chosen projects", async () => {
+    const sourceMd = await readFile(
+      new URL(
+        "../../../docs/fixtures/workflow/product-delivery.md",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const selectedDefinition = await service.importDefinition(platformAdmin, {
+      workspaceId: "main",
+      sourceMd,
+      scope: "selected",
+      workspaceIds: ["partner-project", "main", "partner-project"],
+    });
+
+    expect(selectedDefinition.scope).toBe("selected");
+    expect(selectedDefinition.workspaceIds).toEqual([
+      "main",
+      "partner-project",
+    ]);
+    expect(
+      service
+        .visibleDefinitions("main")
+        .some((definition) => definition.id === selectedDefinition.id),
+    ).toBe(true);
+    expect(
+      service
+        .visibleDefinitions("partner-project")
+        .some((definition) => definition.id === selectedDefinition.id),
+    ).toBe(true);
+    expect(
+      service
+        .visibleDefinitions("another-project")
+        .some((definition) => definition.id === selectedDefinition.id),
+    ).toBe(false);
+    expect(
+      service.definitionVisibleTo(selectedDefinition, "partner-project"),
+    ).toBe(true);
+    expect(
+      service.definitionVisibleTo(selectedDefinition, "another-project"),
+    ).toBe(false);
+    expect(() =>
+      service.importDefinition(owner, {
+        workspaceId: "main",
+        sourceMd,
+        scope: "selected",
+        workspaceIds: ["partner-project"],
+      }),
+    ).toThrow(expect.objectContaining({ code: "forbidden" }));
+    await expect(
+      service.setDefinitionStatus(owner, {
+        workspaceId: "main",
+        definitionId: selectedDefinition.id,
+        status: "disabled",
+      }),
+    ).rejects.toMatchObject({ code: "forbidden" });
+  });
+
   it("requires the correct scope authority to change definition status", async () => {
     const sourceMd = await readFile(
       new URL(
@@ -946,7 +1168,6 @@ describe("workflow service", () => {
       sourceMd,
       scope: "platform",
     });
-
     await expect(
       service.setDefinitionStatus(owner, {
         workspaceId: "another-project",
@@ -1003,6 +1224,36 @@ describe("workflow service", () => {
       scope: "project",
     });
     expect(project.scope).toBe("project");
+    expect(
+      service
+        .visibleDefinitions("another-project")
+        .some((item) => item.id === definition.id),
+    ).toBe(false);
+
+    const selected = await service.setDefinitionScope(platformAdmin, {
+      definitionId: definition.id,
+      scope: "selected",
+      workspaceIds: ["another-project"],
+    });
+    expect(selected.scope).toBe("selected");
+    expect(selected.workspaceIds).toEqual(["main", "another-project"]);
+    expect(
+      service
+        .visibleDefinitions("another-project")
+        .some((item) => item.id === definition.id),
+    ).toBe(true);
+    expect(
+      service
+        .visibleDefinitions("third-project")
+        .some((item) => item.id === definition.id),
+    ).toBe(false);
+
+    const narrowed = await service.setDefinitionScope(platformAdmin, {
+      definitionId: definition.id,
+      scope: "selected",
+      workspaceIds: [],
+    });
+    expect(narrowed.workspaceIds).toEqual(["main"]);
     expect(
       service
         .visibleDefinitions("another-project")
@@ -1135,6 +1386,24 @@ describe("workflow service", () => {
     ).toBe(false);
   });
 
+  it("treats identical same-version imports as idempotent", async () => {
+    const first = await importedFixture(service, "product-delivery.md");
+    const repeated = await service.importDefinition(owner, {
+      workspaceId: "main",
+      sourceMd: first.sourceMd,
+    });
+    expect(repeated.id).toBe(first.id);
+    expect(
+      service
+        .definitions("main")
+        .filter(
+          (definition) =>
+            definition.key === first.key &&
+            definition.version === first.version,
+        ),
+    ).toHaveLength(1);
+  });
+
   it("imports, archives previous versions, and starts an instance", async () => {
     const first = await importedFixture(service, "product-delivery.md");
     const changed = (
@@ -1262,6 +1531,25 @@ describe("workflow service", () => {
     expect(instance.workspaceId).toBe("project-b");
     expect(instance.definitionKey).toBe(definition.key);
     expect(instance.nodes["requirement-confirmation"]?.status).toBe("ready");
+  });
+
+  it("discards an obsolete workflow instance and its events", async () => {
+    const definition = await importedFixture(service, "product-delivery.md");
+    const obsolete = await service.startInstance(owner, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "旧实例",
+    });
+    const latest = await service.startInstance(owner, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "新实例",
+    });
+    expect(service.events(obsolete.id).length).toBeGreaterThan(0);
+    await expect(service.discardInstance(obsolete.id)).resolves.toBe(true);
+    expect(service.instance(obsolete.id)).toBeUndefined();
+    expect(service.events(obsolete.id)).toEqual([]);
+    expect(service.instance(latest.id)?.title).toBe("新实例");
   });
 
   it("runs parallel nodes through a join and approval", async () => {
@@ -3658,6 +3946,48 @@ describe("workflow project role nodes", () => {
     { assigneeKind: "agent", assigneeId: "tm-tester", status: "assigned" },
   ];
 
+  it("does not project tasks for business-chain instances", async () => {
+    const { service, tasks } = roleHarness(roleMembers);
+    const definition = await service.importDefinition(owner, {
+      workspaceId: "main",
+      sourceMd: [
+        "# 工作流：业务链路预览",
+        "",
+        "## 元信息",
+        "",
+        "- key: business-chain-preview",
+        "- version: 1",
+        "- kind: business-chain",
+        "- business-chain-key: preview-chain",
+        "- business-chain-name: 业务链路预览",
+        "",
+        "## 节点",
+        "",
+        "### 设计",
+        "",
+        "- id: design",
+        "- type: task",
+        "- owner-role: 评审组",
+        "- owner-role-code: REVIEWER",
+        "- stage-code: DESIGN",
+        "- sequence: 1",
+        "- summary-metric: design-output",
+        "",
+        "## 连接",
+      ].join("\n"),
+    });
+    const instance = await service.startInstance(member, {
+      workspaceId: "main",
+      definitionId: definition.id,
+      title: "业务链路实例",
+    });
+    expect(instance.definitionKey).toBe("business-chain-preview");
+    expect(tasks.records.size).toBe(0);
+    expect(service.events(instance.id).map((event) => event.kind)).toContain(
+      "instance.started",
+    );
+  });
+
   it("projects a role node to the role and lets any member act", async () => {
     const { service, tasks } = roleHarness(roleMembers);
     const definition = await service.importDefinition(owner, {
@@ -3859,12 +4189,14 @@ describe("workflow project role nodes", () => {
       },
     });
 
-    expect(Object.values(instance.nodes.review?.approvals ?? {})).toMatchObject([
-      {
-        approver: { kind: "user", id: "flow-owner", name: "Owner" },
-        status: "pending",
-      },
-    ]);
+    expect(Object.values(instance.nodes.review?.approvals ?? {})).toMatchObject(
+      [
+        {
+          approver: { kind: "user", id: "flow-owner", name: "Owner" },
+          status: "pending",
+        },
+      ],
+    );
     expect(instance.nodes.design?.receiverOverride).toMatchObject({
       type: "agent",
       id: "tm-tester",
@@ -3895,9 +4227,9 @@ describe("workflow project role nodes", () => {
       employeeId: "tm-tester",
       profileId: "tm-tester",
     });
-    expect(
-      service.events(instance.id).map((event) => event.kind),
-    ).toContain("node.auto_dispatched");
+    expect(service.events(instance.id).map((event) => event.kind)).toContain(
+      "node.auto_dispatched",
+    );
 
     // 未在模板里的节点不允许指定执行人。
     await expect(
@@ -4045,9 +4377,7 @@ describe("workflow project role nodes", () => {
     const { service } = roleHarness(roleMembers, undefined, {
       reviewer: {
         roleId: "reviewer",
-        assignees: [
-          { kind: "user", id: "flow-member", name: "Flow Member" },
-        ],
+        assignees: [{ kind: "user", id: "flow-member", name: "Flow Member" }],
       },
     });
     const definition = await service.importDefinition(owner, {
@@ -4063,9 +4393,7 @@ describe("workflow project role nodes", () => {
       preflight.nodes.find((node) => node.nodeId === "design"),
     ).toMatchObject({
       dispatchMode: "claim",
-      candidatePool: [
-        { kind: "user", id: "flow-member", name: "Flow Member" },
-      ],
+      candidatePool: [{ kind: "user", id: "flow-member", name: "Flow Member" }],
     });
   });
 
@@ -4076,10 +4404,7 @@ describe("workflow project role nodes", () => {
     const audits: Array<Record<string, unknown>> = [];
     const portableTeam: TeamServiceLike = {
       ...baseTeam,
-      users: () => [
-        ...baseTeam.users(),
-        { id: "outsider", name: "Outsider" },
-      ],
+      users: () => [...baseTeam.users(), { id: "outsider", name: "Outsider" }],
     };
     const service = new WorkflowService(current, {
       now: () => new Date(timestamp),
@@ -4262,13 +4587,7 @@ describe("workflow project role nodes", () => {
   });
 
   it("asks only for runtime repair when an AI member has no runtime profile", async () => {
-    const { service } = roleHarness(
-      roleMembers,
-      undefined,
-      {},
-      false,
-      false,
-    );
+    const { service } = roleHarness(roleMembers, undefined, {}, false, false);
     const definition = await service.importDefinition(owner, {
       workspaceId: "main",
       sourceMd: roleFixture("role-ai-runtime-missing-2"),
@@ -4303,10 +4622,7 @@ describe("workflow project role nodes", () => {
     const baseTeam = team();
     const portableTeam: TeamServiceLike = {
       ...baseTeam,
-      users: () => [
-        ...baseTeam.users(),
-        { id: "outsider", name: "Outsider" },
-      ],
+      users: () => [...baseTeam.users(), { id: "outsider", name: "Outsider" }],
     };
     const service = new WorkflowService(current, {
       now: () => new Date(timestamp),
@@ -4484,19 +4800,28 @@ describe("workflow routes", () => {
       sourceMd,
       scope: "platform",
     });
+    const selectedDefinition = await service.importDefinition(platformAdmin, {
+      workspaceId: "main",
+      sourceMd,
+      scope: "selected",
+      workspaceIds: ["other"],
+    });
 
     const response = await call(
       route("/api/collab/workflow/definitions"),
-      fakeRequest(
-        "GET",
-        "/api/collab/workflow/definitions?workspaceId=main",
-        { token: "owner", origin: "http://127.0.0.1:33117" },
-      ),
+      fakeRequest("GET", "/api/collab/workflow/definitions?workspaceId=main", {
+        token: "owner",
+        origin: "http://127.0.0.1:33117",
+      }),
     );
     expect(response.status).toBe(200);
     const payload = response.json() as { definitions: WorkflowDefinition[] };
     expect(payload.definitions.map((item) => item.id)).toEqual(
-      expect.arrayContaining([projectDefinition.id, platformDefinition.id]),
+      expect.arrayContaining([
+        projectDefinition.id,
+        platformDefinition.id,
+        selectedDefinition.id,
+      ]),
     );
     expect(payload.definitions.map((item) => item.id)).not.toContain(
       otherProjectDefinition.id,
@@ -4516,6 +4841,22 @@ describe("workflow routes", () => {
     };
     expect(projectOnly.definitions.map((item) => item.id)).toEqual([
       projectDefinition.id,
+    ]);
+
+    const selectedOnlyResponse = await call(
+      route("/api/collab/workflow/definitions"),
+      fakeRequest(
+        "GET",
+        "/api/collab/workflow/definitions?workspaceId=main&scope=selected",
+        { token: "owner", origin: "http://127.0.0.1:33117" },
+      ),
+    );
+    expect(selectedOnlyResponse.status).toBe(200);
+    const selectedOnly = selectedOnlyResponse.json() as {
+      definitions: WorkflowDefinition[];
+    };
+    expect(selectedOnly.definitions.map((item) => item.id)).toEqual([
+      selectedDefinition.id,
     ]);
   });
 

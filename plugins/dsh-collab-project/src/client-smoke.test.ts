@@ -1,8 +1,13 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { parseWorkflowMarkdown } from "../../dsh-collab-workflow/src/parser.ts";
 
 const CLIENT_PATH = resolve(import.meta.dirname, "../client/index.js");
+const BUSINESS_CHAIN_CONFIG_ROOT = resolve(
+  import.meta.dirname,
+  "../../../configs/business-chains",
+);
 
 interface SlotSpec {
   readonly id: string;
@@ -48,7 +53,25 @@ interface ClientExports {
       }[],
       roleIds: readonly string[],
     ): string;
+    groupMembersByProjectRole(
+      roles: readonly { id: string; name: string }[],
+      members: readonly {
+        id: string;
+        kind: string;
+        roleIds?: readonly string[];
+      }[],
+    ): readonly {
+      role: { id: string; name: string };
+      members: readonly { id: string; kind: string }[];
+    }[];
     workspaceRoleLabel(role?: string): string;
+    resolveMemberPoolStuck(input: {
+      current: boolean;
+      sentinelTop: number;
+      containerTop: number;
+      poolBottom: number;
+      atScrollEnd?: boolean;
+    }): boolean;
     filterMemberDirectoryLocally(
       directory: {
         humans: readonly Record<string, unknown>[];
@@ -62,7 +85,11 @@ interface ClientExports {
       agents: readonly Record<string, unknown>[];
     };
     isProjectOwner(
-      member: { id: string; kind: "human" | "agent" },
+      member: {
+        id: string;
+        kind: "human" | "agent";
+        workspaceRole?: string;
+      },
       ownerId?: string,
     ): boolean;
     compactWorkspacePath(path?: string, segmentCount?: number): string;
@@ -97,6 +124,157 @@ interface ClientExports {
         createdAt: string;
       }[],
     ): readonly { id: string; priority: string; createdAt: string }[];
+    preferredProgressWorkflow(
+      workflows: readonly {
+        id: string;
+        status: string;
+        updatedAt: string;
+      }[],
+    ): { id: string; status: string; updatedAt: string } | undefined;
+    clampProgressZoom(value: number): number;
+    nextProgressZoom(value: number, direction: number): number;
+    progressNodeStatusLabel(status: string): string;
+    progressNodeTone(status: string): string | undefined;
+    progressNodeIsAnomaly(node: {
+      status?: string;
+      exceptionText?: string;
+      isAnomaly?: boolean;
+      alertCount?: number;
+    }): boolean;
+    progressTaskAnomaly(task: {
+      status?: string;
+      executionAnomaly?: { message: string };
+      receiverState?: string;
+      queueState?: string;
+    }): boolean;
+    normalizeBusinessChainBindings(
+      value: readonly Record<string, any>[],
+    ): readonly {
+      nodeId: string;
+      externalRefs: readonly {
+        system: string;
+        objectType: string;
+        objectId: string;
+        required: boolean;
+      }[];
+    }[];
+    businessChainConfigToMarkdown(content: string): string;
+    buildProgressChangeEvents(
+      events: readonly {
+        id?: string;
+        at: string;
+        kind: string;
+        actorName?: string;
+        message?: string;
+        data?: Record<string, unknown>;
+      }[],
+    ): readonly {
+      id: string;
+      category: string;
+      categoryLabel: string;
+      at: string;
+      time: string;
+      description: string;
+      source: string;
+    }[];
+    formatProgressChangeEvent(event: {
+      time: string;
+      categoryLabel: string;
+      description: string;
+      source: string;
+    }): string;
+    buildProgressOverview(input: {
+      workflowDetail: Record<string, any>;
+      tasks: readonly Record<string, any>[];
+      memberNames?: Record<string, string>;
+    }): {
+      instance: Record<string, any> | null;
+      nodes: readonly {
+        id: string;
+        code: string;
+        name: string;
+        status: string;
+        statusLabel: string;
+        owner: string;
+        plannedLabel: string;
+        revisedLabel: string;
+        actualLabel: string;
+        alertCount: number;
+        taskCount: number;
+        exceptionText: string;
+        isAnomaly: boolean;
+        taskIds: readonly string[];
+        fields: readonly {
+          key: string;
+          label: string;
+          value: string;
+        }[];
+      }[];
+      alerts: readonly {
+        id: string;
+        nodeId: string;
+        title: string;
+        type: string;
+        taskIds: readonly string[];
+      }[];
+      changeEvents: readonly {
+        id: string;
+        category: string;
+        time: string;
+        source: string;
+      }[];
+      tasksByNode: Record<string, readonly Record<string, any>[]>;
+    };
+    applyProgressDemoData(
+      overview: Record<string, any>,
+      config: Record<string, any>,
+    ): {
+      nodes: readonly (Record<string, any> & {
+        id: string;
+        status: string;
+        exceptionText: string;
+        isAnomaly: boolean;
+      })[];
+      changeEvents: readonly Record<string, any>[];
+    };
+    applyProjectRoleMembers(
+      overview: Record<string, any>,
+      roles: readonly Record<string, any>[],
+      members: readonly Record<string, any>[],
+    ): Record<string, any>;
+    missingBusinessChainRoleMembers(
+      nodes: readonly Record<string, any>[],
+      roles: readonly Record<string, any>[],
+    ): readonly Record<string, any>[];
+    progressRevisedText(plannedLabel?: string, revisedLabel?: string): string;
+    resolveProgressSelection(
+      overview: Record<string, any>,
+      nodeId: string,
+      alertId?: string,
+    ): {
+      node: Record<string, any> | null;
+      alerts: readonly Record<string, any>[];
+      tasks: readonly Record<string, any>[];
+      highlightedTaskIds: readonly string[];
+      selectedAlert?: Record<string, any> | null;
+    };
+    projectReportProgress(
+      reports: readonly {
+        reportType?: string;
+        date: string;
+        generatedAt: string;
+        createdAt?: string;
+        generationMode?: string;
+        skillId?: string;
+        skillVersion?: string;
+        content: string;
+      }[],
+    ): {
+      latest: Record<string, any> | null;
+      progress: readonly string[];
+      attention: readonly string[];
+    };
+    formatProjectUpdatedAt(value?: string, reportDate?: string): string;
     outputMatches(
       item: {
         name: string;
@@ -305,11 +483,129 @@ describe("project management client", () => {
     ).toBe("查看、审批");
   });
 
+  it("groups project members by role while retaining empty roles", () => {
+    const { exports: client } = loadClientExports();
+    const groups = client.__test?.groupMembersByProjectRole(
+      [
+        { id: "role-pm", name: "项目经理" },
+        { id: "role-dev", name: "开发" },
+        { id: "role-qa", name: "测试" },
+      ],
+      [
+        {
+          id: "tm-project-ws-1",
+          kind: "agent",
+          roleIds: ["role-pm", "role-dev"],
+        },
+        { id: "peter", kind: "human", roleIds: ["role-dev"] },
+        { id: "unassigned", kind: "human", roleIds: [] },
+      ],
+    );
+    expect(groups?.map((group) => group.role.id)).toEqual([
+      "role-pm",
+      "role-dev",
+      "role-qa",
+    ]);
+    expect(groups?.[0]?.members.map((member) => member.id)).toEqual([
+      "tm-project-ws-1",
+    ]);
+    expect(groups?.[1]?.members.map((member) => member.id)).toEqual([
+      "tm-project-ws-1",
+      "peter",
+    ]);
+    expect(groups?.[2]?.members).toEqual([]);
+  });
+
+  it("keeps project members in the original row table with management actions", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    const start = source.indexOf("const renderMembersTab = () => {");
+    const end = source.indexOf("const renderProjectRoleEditor", start);
+    const membersSource = source.slice(start, end);
+    expect(membersSource).toContain('h("h3", null, "成员权限")');
+    expect(membersSource).toContain('className: "pmproj-table"');
+    expect(membersSource).toContain('className: "pmproj-row"');
+    expect(membersSource).toContain('"项目角色"');
+    expect(membersSource).toContain('"平台角色"');
+    expect(membersSource).toContain('"授权范围"');
+    expect(membersSource).toContain('"变更"');
+    expect(membersSource).toContain('"移除"');
+    expect(membersSource).toContain('"管理"');
+    expect(membersSource).toContain('"角色指派"');
+    expect(membersSource).toContain("renderMembersRoleAssignmentTab()");
+    expect(membersSource).not.toContain("pmproj-member-card-grid");
+    expect(membersSource).not.toContain("pmproj-role-view");
+  });
+
+  it("lets users collapse and expand the all-members pool", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain("memberPoolCollapsed");
+    expect(source).toContain("pmproj-member-pool-toggle");
+    expect(source).toContain("收起全部成员");
+    expect(source).toContain("展开全部成员");
+    expect(source).toContain('"aria-controls": "pmproj-all-members-grid"');
+  });
+
   it("labels workspace membership roles independently from platform roles", () => {
     const { exports: client } = loadClientExports();
     expect(client.__test?.workspaceRoleLabel("owner")).toBe("负责人");
     expect(client.__test?.workspaceRoleLabel("guest")).toBe("访客");
     expect(client.__test?.workspaceRoleLabel(undefined)).toBe("不适用");
+  });
+
+  it("uses hysteresis to keep the sticky member pool from flickering", () => {
+    const { exports: client } = loadClientExports();
+    const resolve = client.__test?.resolveMemberPoolStuck;
+    expect(resolve).toBeTypeOf("function");
+
+    expect(
+      resolve?.({
+        current: false,
+        sentinelTop: 0.4,
+        containerTop: 0,
+        poolBottom: 137,
+      }),
+    ).toBe(true);
+    expect(
+      resolve?.({
+        current: true,
+        sentinelTop: 1,
+        containerTop: 0,
+        poolBottom: 105,
+      }),
+    ).toBe(true);
+    expect(
+      resolve?.({
+        current: true,
+        sentinelTop: 23.9,
+        containerTop: 0,
+        poolBottom: 105,
+      }),
+    ).toBe(true);
+    expect(
+      resolve?.({
+        current: true,
+        sentinelTop: 24.1,
+        containerTop: 0,
+        poolBottom: 105,
+      }),
+    ).toBe(false);
+    expect(
+      resolve?.({
+        current: false,
+        sentinelTop: 16,
+        containerTop: 0,
+        poolBottom: 137,
+      }),
+    ).toBe(false);
+    expect(
+      resolve?.({
+        current: true,
+        sentinelTop: 52,
+        containerTop: 0,
+        poolBottom: 278,
+        atScrollEnd: true,
+      }),
+    ).toBe(true);
   });
 
   it("falls back to the loaded directory when member search is unavailable", () => {
@@ -391,7 +687,7 @@ describe("project management client", () => {
     ).toEqual(["teammate-3"]);
   });
 
-  it("marks only the project owner from the actual owner id", () => {
+  it("marks the project owner from the owner id or workspace owner role", () => {
     const { exports: client } = loadClientExports();
     const isProjectOwner = client.__test?.isProjectOwner;
     const source = readFileSync(CLIENT_PATH, "utf8");
@@ -410,9 +706,22 @@ describe("project management client", () => {
         "platform-admin",
       ),
     ).toBe(false);
-    expect(isProjectOwner?.({ id: "platform-admin", kind: "human" }, "")).toBe(
-      false,
-    );
+    expect(
+      isProjectOwner?.(
+        {
+          id: "workspace-owner",
+          kind: "human",
+          workspaceRole: "owner",
+        },
+        "",
+      ),
+    ).toBe(true);
+    expect(
+      isProjectOwner?.(
+        { id: "regular-member", kind: "human", workspaceRole: "member" },
+        "",
+      ),
+    ).toBe(false);
     expect(source).toContain("isProjectOwner(member, selectedProject.ownerId)");
     expect(source).toContain('className: "pmproj-owner-tag"');
   });
@@ -427,8 +736,14 @@ describe("project management client", () => {
     expect(membersTab).not.toContain("Human Principal");
     expect(membersTab).not.toContain("AI Principal");
     expect(membersTab).not.toContain("member.kindLabel");
-    expect(membersTab).toContain("`AI · Owner ${member.ownerName}`");
-    expect(membersTab).toContain("`Human · 加入 ${new Date(");
+    expect(membersTab).not.toContain("工作区角色属于项目成员关系");
+    expect(membersTab).not.toContain("工作区角色：");
+    expect(membersTab).toContain("h(MemberSubtitle, { member })");
+    expect(source).toContain("` · Owner ${member.ownerName}`");
+    expect(source).toContain("`Human · 加入 ${new Date(");
+    expect(source).toContain(
+      ".pmproj-member-kind.agent{color:var(--dsw-alias-agent-primary",
+    );
   });
 
   it("compacts long workspace paths while preserving copyable input", () => {
@@ -474,15 +789,45 @@ describe("project management client", () => {
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
     expect(source.slice(start, end)).not.toContain("pmproj-list-mark");
+    expect(source.slice(start, end)).toContain("项目列表");
+    expect(source).toContain(
+      ".pmproj-layout{display:grid;grid-template-columns:minmax(248px,292px) minmax(0,1fr);gap:12px;align-items:stretch;min-height:calc(100vh - 170px)",
+    );
+    expect(source).toContain(
+      ".pmproj-directory{display:flex;flex-direction:column;gap:0;min-width:0;height:auto;min-height:0;align-self:stretch",
+    );
+    expect(source).toContain(
+      ".pmproj-list{flex:1;min-height:0;display:grid;align-content:start;gap:4px",
+    );
+    expect(source).toContain("scrollbar-gutter:stable");
+    expect(source).toContain(
+      "font-size:12.5px;font-weight:650;line-height:1.4",
+    );
   });
 
   it("uses the demo interaction feedback for search, rows and actions", () => {
     const source = readFileSync(CLIENT_PATH, "utf8");
     expect(source).toContain(".pmproj-search:focus-within");
     expect(source).toContain(".pmproj-list-item.active");
+    expect(source).toContain(
+      ".pmproj-chip{border:0.5px solid var(--dsw-alias-border-l3);border-radius:4px;padding:1px 6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)",
+    );
+    expect(source).not.toContain('member.kind === "agent" ? "agent" : ""');
     expect(source).toContain("var(--dsw-alias-accent-primary");
     expect(source).toContain(".pmproj-row:hover");
     expect(source).toContain(".pmproj-btn.secondary:not(:disabled):hover");
+  });
+
+  it("opens the shared task creation modal from the project task list", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    const start = source.indexOf("const renderTasksTab");
+    const end = source.indexOf("const renderWorkflowsTab", start);
+    const tasksTab = source.slice(start, end);
+    expect(tasksTab).toContain('"新建任务"');
+    expect(tasksTab).toContain('"pluginmax:task-create-open"');
+    expect(tasksTab).toContain("preserveCurrentView: true");
+    expect(tasksTab).toContain("receiverId: viewer?.id");
+    expect(source).toContain('"pluginmax:tasks-created"');
   });
 
   it("uses compact project details and role-setting hierarchy", () => {
@@ -500,12 +845,27 @@ describe("project management client", () => {
     expect(source).toContain("pmproj-follow-star");
     expect(source).toContain("pmproj-btn subtle");
     expect(source).toContain("pmproj-settings-basics");
+    expect(roleEditor).toContain('"pmproj-head-actions pmproj-role-actions"');
+    expect(source).toContain(
+      ".pmproj-role-actions .pmproj-btn.small{height:30px;min-height:30px;",
+    );
     expect(source).toContain(
       ".pmproj-detail{min-width:0;display:flex;flex-direction:column;gap:8px;}",
     );
     expect(titleIndex).toBeGreaterThan(-1);
     expect(countIndex).toBeGreaterThan(titleIndex);
     expect(templateButtonIndex).toBeGreaterThan(countIndex);
+  });
+
+  it("saves the current project roles and business chain as a named template", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain("/api/collab/projects/templates/from-project");
+    expect(source).toContain("保存为项目模版");
+    expect(source).toContain("模版名称");
+    expect(source).toContain("项目类型");
+    expect(source).toContain("renderProjectTemplateSaveModal()");
+    expect(source).toContain("pmproj-template-summary");
+    expect(source).toContain("成员、任务与运行实例不会写入模版");
   });
 
   it("filters project audit events by category and searchable detail", () => {
@@ -548,6 +908,1012 @@ describe("project management client", () => {
       { id: "c", priority: "P1", createdAt: "2026-10-03T00:00:00.000Z" },
     ]);
     expect(sorted?.map((task) => task.id)).toEqual(["c", "a", "b"]);
+  });
+
+  it("maps planned, revised, actual and anomaly workflow facts", () => {
+    const { exports: client } = loadClientExports();
+    const overview = client.__test?.buildProgressOverview({
+      workflowDetail: {
+        instance: {
+          id: "wf-1",
+          workspaceId: "ws-1",
+          title: "AI Server 交付",
+          updatedAt: "2026-11-18T02:00:00.000Z",
+          nodes: {
+            design: {
+              status: "completed",
+              completedAt: "2026-11-12T16:40:00.000Z",
+              progress: {
+                planned: { quantity: 180, date: "2026-10-31" },
+                revised: { quantity: 186, date: "2026-11-12" },
+                actual: { quantity: 186, date: "2026-11-12" },
+              },
+            },
+            supply: {
+              status: "blocked",
+              assignedTo: "xu",
+              enteredAt: "2026-11-17T09:20:00.000Z",
+              taskIds: ["TSK-1"],
+              progress: {
+                planned: { quantity: 200, date: "2026-11-25" },
+                revised: { quantity: 180, date: "2026-11-30" },
+                actual: { quantity: 152 },
+              },
+            },
+          },
+          assignmentBindings: {
+            design: {
+              primaryAssignee: { name: "林然" },
+              source: { label: "产品" },
+            },
+          },
+        },
+        definition: {
+          graph: {
+            nodes: [
+              {
+                id: "design",
+                name: "需求与方案",
+                executor: { kind: "user", id: "lin" },
+                businessChain: {
+                  fields: [
+                    {
+                      key: "planned",
+                      label: "原计划",
+                      bindings: [
+                        {
+                          system: "APS",
+                          objectId: "P1",
+                          path: "planned.quantity",
+                        },
+                        { system: "APS", objectId: "P1", path: "planned.date" },
+                      ],
+                    },
+                    {
+                      key: "revised",
+                      label: "变更后",
+                      bindings: [
+                        {
+                          system: "APS",
+                          objectId: "P1",
+                          path: "revised.quantity",
+                        },
+                        { system: "APS", objectId: "P1", path: "revised.date" },
+                      ],
+                    },
+                    {
+                      key: "actual",
+                      label: "实际完成",
+                      bindings: [
+                        {
+                          system: "APS",
+                          objectId: "P1",
+                          path: "actual.quantity",
+                        },
+                        { system: "APS", objectId: "P1", path: "actual.date" },
+                      ],
+                    },
+                  ],
+                },
+              },
+              {
+                id: "supply",
+                name: "供应备货",
+                executor: { kind: "user", id: "xu" },
+                businessChain: {
+                  fields: [
+                    {
+                      key: "planned",
+                      label: "原计划",
+                      bindings: [
+                        {
+                          system: "APS",
+                          objectId: "P2",
+                          path: "planned.quantity",
+                        },
+                        { system: "APS", objectId: "P2", path: "planned.date" },
+                      ],
+                    },
+                    {
+                      key: "revised",
+                      label: "变更后",
+                      bindings: [
+                        {
+                          system: "APS",
+                          objectId: "P2",
+                          path: "revised.quantity",
+                        },
+                        { system: "APS", objectId: "P2", path: "revised.date" },
+                      ],
+                    },
+                    {
+                      key: "actual",
+                      label: "实际完成",
+                      bindings: [
+                        {
+                          system: "APS",
+                          objectId: "P2",
+                          path: "actual.quantity",
+                        },
+                      ],
+                    },
+                  ],
+                },
+              },
+            ],
+            edges: [{ from: "design", to: "supply" }],
+          },
+        },
+        events: [
+          {
+            id: "event-1",
+            nodeId: "supply",
+            kind: "agent.ticket_denied",
+            message: "Action Ticket 越权被拒",
+            at: "2026-11-18T01:00:00.000Z",
+          },
+        ],
+      },
+      tasks: [
+        {
+          id: "TSK-1",
+          title: "重排供应计划",
+          status: "progress",
+          priority: "P1",
+          receiverType: "human",
+          receiverName: "许澄",
+          updatedAt: "2026-11-18T01:10:00.000Z",
+          executionAnomaly: {
+            code: "GPU_GAP",
+            message: "GPU 缺口 6 个",
+            at: "2026-11-18T01:10:00.000Z",
+          },
+          workflow: {
+            instanceId: "wf-1",
+            nodeId: "supply",
+            nodeName: "供应备货",
+          },
+        },
+      ],
+      memberNames: {
+        lin: "林然",
+        xu: "许澄",
+      },
+    });
+    expect(overview?.nodes).toHaveLength(2);
+    expect(overview?.nodes[0]).toMatchObject({
+      code: "1",
+      name: "需求与方案",
+      owner: "林然",
+      statusLabel: "已完成",
+      plannedLabel: "180 · 2026-10-31",
+      revisedLabel: "186 · 2026-11-12",
+      actualLabel: "186 · 2026-11-12",
+      fields: [
+        { key: "planned", label: "原计划", value: "180 · 2026-10-31" },
+        { key: "revised", label: "变更后", value: "186 · 2026-11-12" },
+        { key: "actual", label: "实际完成", value: "186 · 2026-11-12" },
+      ],
+      isAnomaly: false,
+    });
+    expect(overview?.nodes[1]).toMatchObject({
+      code: "2",
+      name: "供应备货",
+      owner: "许澄",
+      statusLabel: "阻塞",
+      plannedLabel: "200 · 2026-11-25",
+      revisedLabel: "180 · 2026-11-30",
+      actualLabel: "152 · 未完成",
+      fields: [
+        { key: "planned", label: "原计划", value: "200 · 2026-11-25" },
+        { key: "revised", label: "变更后", value: "180 · 2026-11-30" },
+        { key: "actual", label: "实际完成", value: "152" },
+      ],
+      alertCount: 2,
+      taskCount: 1,
+      isAnomaly: true,
+    });
+    expect(overview?.nodes[1]?.exceptionText).toContain(
+      "供应备货 · 执行权限被拒",
+    );
+    expect(overview?.nodes[1]?.exceptionText).toContain("重排供应计划");
+  });
+
+  it("does not invent custom node fields when the business chain declares none", () => {
+    const { exports: client } = loadClientExports();
+    const overview = client.__test?.buildProgressOverview({
+      workflowDetail: {
+        instance: {
+          id: "wf-1",
+          workspaceId: "ws-1",
+          title: "最小流程",
+          updatedAt: "2026-11-18T02:00:00.000Z",
+          nodes: {
+            review: {
+              status: "running",
+              enteredAt: "2026-11-18T01:00:00.000Z",
+            },
+          },
+        },
+        definition: {
+          graph: {
+            nodes: [
+              {
+                id: "review",
+                name: "评审",
+                executor: { kind: "role", id: "role-review" },
+              },
+            ],
+            edges: [],
+          },
+        },
+        events: [],
+      },
+      tasks: [],
+    });
+    expect(overview?.nodes[0]).toMatchObject({
+      owner: "role-review",
+      plannedLabel: "数量未记录 · 日期未记录",
+      revisedLabel: "数量未记录 · 日期未记录",
+      actualLabel: "未完成",
+      fields: [],
+      exceptionText: "无",
+    });
+  });
+
+  it("shows a weak placeholder when the revised plan did not change", () => {
+    const { exports: client } = loadClientExports();
+    const revisedText = client.__test?.progressRevisedText;
+    expect(
+      revisedText?.("数量未记录 · 日期未记录", "数量未记录 · 日期未记录"),
+    ).toBe("--");
+    expect(revisedText?.("186 · 2026-11-12", "186 · 2026-11-12")).toBe("--");
+    expect(revisedText?.("186 · 2026-11-12", "180 · 2026-11-30")).toBe(
+      "180 · 2026-11-30",
+    );
+  });
+
+  it("links an alert to its tasks and highlights only the selected alert tasks", () => {
+    const { exports: client } = loadClientExports();
+    const overview = client.__test?.buildProgressOverview({
+      workflowDetail: {
+        instance: {
+          id: "wf-1",
+          workspaceId: "ws-1",
+          title: "联调流程",
+          updatedAt: "2026-11-18T02:00:00.000Z",
+          nodes: {
+            verify: {
+              status: "blocked",
+              enteredAt: "2026-11-18T01:00:00.000Z",
+              taskIds: ["TSK-1", "TSK-2"],
+            },
+          },
+          assignmentBindings: {},
+        },
+        definition: {
+          graph: {
+            nodes: [{ id: "verify", name: "联调验证" }],
+            edges: [],
+          },
+        },
+        events: [
+          {
+            id: "event-1",
+            nodeId: "verify",
+            kind: "agent.failed",
+            message: "支付网关超时",
+            at: "2026-11-18T01:30:00.000Z",
+          },
+        ],
+      },
+      tasks: [
+        {
+          id: "TSK-1",
+          title: "追踪支付网关",
+          status: "progress",
+          priority: "P1",
+          receiverType: "human",
+          updatedAt: "2026-11-18T01:30:00.000Z",
+          workflow: { instanceId: "wf-1", nodeId: "verify" },
+        },
+        {
+          id: "TSK-2",
+          title: "补充回归用例",
+          status: "todo",
+          priority: "P2",
+          receiverType: "human",
+          updatedAt: "2026-11-18T01:30:00.000Z",
+          workflow: { instanceId: "wf-1", nodeId: "verify" },
+        },
+      ],
+    });
+    const alert = overview?.alerts[0];
+    expect(alert?.taskIds).toEqual(["TSK-1", "TSK-2"]);
+    const selection = client.__test?.resolveProgressSelection(
+      overview!,
+      "verify",
+      alert?.id,
+    );
+    expect(selection?.node?.id).toBe("verify");
+    expect(selection?.alerts).toHaveLength(1);
+    expect(selection?.tasks.map((task) => task.id)).toEqual(["TSK-1", "TSK-2"]);
+    expect(selection?.highlightedTaskIds).toEqual(["TSK-1", "TSK-2"]);
+  });
+
+  it("allows clearing the selected progress node", () => {
+    const { exports: client } = loadClientExports();
+    expect(
+      client.__test?.resolveProgressSelection(
+        { nodes: [{ id: "node-1" }], alerts: [], tasksByNode: {} },
+        "",
+        "",
+      ),
+    ).toEqual({
+      node: null,
+      alerts: [],
+      tasks: [],
+      highlightedTaskIds: [],
+    });
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain('current === nodeId ? "" : nodeId');
+  });
+
+  it("keeps change and external-impact events chronological with sources", () => {
+    const { exports: client } = loadClientExports();
+    const events = client.__test?.buildProgressChangeEvents([
+      {
+        id: "external",
+        kind: "external.impact",
+        at: "2026-11-17T09:20:00.000Z",
+        actorName: "OMS同步更新",
+        message: "华东仓库存回传延迟 2 天",
+      },
+      {
+        id: "order",
+        kind: "order.changed",
+        at: "2026-10-28T09:00:00.000Z",
+        actorName: "订单履约·张三",
+        message: "客户追加 20 台 AI Server",
+      },
+      {
+        id: "supply",
+        kind: "supply.changed",
+        at: "2026-11-03T14:30:00.000Z",
+        actorName: "供应链计划·许澄",
+        message: "GPU 供应量减少 20 个",
+      },
+      {
+        id: "ignored",
+        kind: "node.completed",
+        at: "2026-11-04T09:00:00.000Z",
+        message: "节点完成",
+      },
+    ]);
+    expect(events?.map((event) => event.id)).toEqual([
+      "order",
+      "supply",
+      "external",
+    ]);
+    expect(events?.[0]?.categoryLabel).toBe("订单变更");
+    expect(
+      events === undefined
+        ? ""
+        : client.__test?.formatProgressChangeEvent(events[0]!),
+    ).toBe(
+      "2026-10-28 09:00 【订单变更】客户追加 20 台 AI Server（来自：订单履约·张三）",
+    );
+    expect(events?.[2]?.source).toBe("OMS同步更新");
+  });
+
+  it("reuses the latest daily report for key progress and attention", () => {
+    const { exports: client } = loadClientExports();
+    const result = client.__test?.projectReportProgress([
+      {
+        reportType: "daily",
+        date: "2026-11-17",
+        generatedAt: "2026-11-17T08:00:00.000Z",
+        createdAt: "2026-11-17T08:00:00.000Z",
+        generationMode: "agent",
+        content:
+          "## 关键结果\n- 接口完成第 2 轮联调\n- 首批测试机到仓\n## 风险与异常\n- GPU 缺口 6 个\n",
+      },
+      {
+        reportType: "daily",
+        date: "2026-11-18",
+        generatedAt: "2026-11-18T08:00:00.000Z",
+        createdAt: "2026-11-18T08:00:00.000Z",
+        generationMode: "agent",
+        content:
+          "## 关键结果\n- 替代供应方案已确认\n## 风险与异常\n- 库存回传超 SLA\n",
+      },
+      {
+        reportType: "weekly",
+        date: "2026-11-19",
+        generatedAt: "2026-11-19T08:00:00.000Z",
+        createdAt: "2026-11-19T08:00:00.000Z",
+        generationMode: "deterministic_fallback",
+        content: "## 关键结果\n- 周报结果",
+      },
+    ]);
+    expect(result?.latest?.date).toBe("2026-11-18");
+    expect(result?.progress).toEqual(["替代供应方案已确认"]);
+    expect(result?.attention).toEqual(["库存回传超 SLA"]);
+  });
+
+  it("does not turn non-result report explanations into key progress", () => {
+    const { exports: client } = loadClientExports();
+    const result = client.__test?.projectReportProgress([
+      {
+        reportType: "daily",
+        date: "2026-11-18",
+        generatedAt: "2026-11-18T08:00:00.000Z",
+        createdAt: "2026-11-18T08:00:00.000Z",
+        generationMode: "agent",
+        content:
+          "## 关键结果\n- 报告日未捕获到已确认完成的任务结果。\n- 事实包中状态分布均为空，无可引用的结果明细。\n## 风险与异常\n- 数据缺口：任务与工作流记录均为 0 条。\n",
+      },
+    ]);
+    expect(result?.progress).toEqual([]);
+    expect(result?.attention).toEqual([]);
+  });
+
+  it("reads completed work from the latest progress report", () => {
+    const { exports: client } = loadClientExports();
+    const result = client.__test?.projectReportProgress([
+      {
+        reportType: "daily",
+        date: "2026-11-19",
+        generatedAt: "2026-11-19T01:21:24.633Z",
+        createdAt: "2026-11-19T01:21:24.633Z",
+        generationMode: "agent",
+        skillVersion: "1.0.0",
+        content: "## 关键结果\n- 日报结果",
+      },
+      {
+        reportType: "progress",
+        date: "2026-11-19",
+        generatedAt: "2026-11-19T04:40:28.856Z",
+        createdAt: "2026-11-19T04:40:28.856Z",
+        generationMode: "agent",
+        skillVersion: "1.0.0",
+        content:
+          "## 已完成\n- 进度汇报中的已完成结果\n## 正在推进\n- 正在推进的客户追加任务\n## 风险与依赖\n- 需要关注的风险\n",
+      },
+    ]);
+    expect(result?.latest?.reportType).toBe("progress");
+    expect(result?.progress).toEqual([
+      "进度汇报中的已完成结果",
+      "正在推进的客户追加任务",
+    ]);
+    expect(result?.attention).toEqual(["需要关注的风险"]);
+  });
+
+  it("formats the key-progress update time as yyyy-mm-dd hh:mm", () => {
+    const { exports: client } = loadClientExports();
+    expect(
+      client.__test?.formatProjectUpdatedAt("2026-11-18T02:05:00.000Z"),
+    ).toBe("2026-11-18 10:05");
+    expect(
+      client.__test?.formatProjectUpdatedAt("11-18 15:10", "2026-11-18"),
+    ).toBe("2026-11-18 15:10");
+    expect(client.__test?.formatProjectUpdatedAt("")).toBe("暂无");
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain("pmproj-key-progress-updated");
+    expect(source).toContain("progressFacts.latest?.date");
+    expect(source).toContain("serverOverview?.keyProgress?.latestReportAt");
+    expect(source).not.toContain("来源：项目汇报 Skill v");
+    expect(source).toContain("@keyframes pmproj-progress-spin");
+    expect(source).toContain('"aria-busy": busy === "report"');
+  });
+
+  it("applies uploaded local demo data over the progress overview", () => {
+    const { exports: client } = loadClientExports();
+    const overview = {
+      nodes: [
+        {
+          id: "supply-prep",
+          status: "waiting",
+          statusLabel: "未开始",
+          tone: "notice",
+          owner: "原负责人",
+          fields: [{ key: "actual", label: "到料", value: "未记录" }],
+          exceptionText: "无",
+          isAnomaly: false,
+        },
+      ],
+      changeEvents: [],
+    };
+    const result = client.__test?.applyProgressDemoData(overview, {
+      fileName: "demo.json",
+      data: {
+        nodes: {
+          "supply-prep": {
+            status: "blocked",
+            owner: "采购负责人",
+            exception: "GPU 到货延迟",
+            fields: { actual: "184 套" },
+          },
+        },
+        changeEvents: [
+          {
+            id: "demo-1",
+            category: "supply",
+            at: "2026-11-18T09:30:00+08:00",
+            description: "关键物料延迟",
+            source: "演示数据",
+            linkedNodeIds: ["supply-prep"],
+          },
+        ],
+      },
+    });
+    expect(result?.nodes[0]).toMatchObject({
+      status: "blocked",
+      statusLabel: "阻塞",
+      owner: "采购负责人",
+      exceptionText: "GPU 到货延迟",
+      isAnomaly: true,
+      fields: [{ key: "actual", value: "184 套" }],
+    });
+    expect(result?.changeEvents).toEqual([
+      expect.objectContaining({
+        id: "demo-1",
+        categoryLabel: "供给变更",
+        description: "关键物料延迟",
+      }),
+    ]);
+  });
+
+  it("shows current project role members on progress nodes", () => {
+    const { exports: client } = loadClientExports();
+    const result = client.__test?.applyProjectRoleMembers(
+      {
+        nodes: [
+          {
+            id: "supply-prep",
+            owner: "Procurement",
+          },
+          {
+            id: "integration-test",
+            owner: "Quality",
+          },
+        ],
+        definition: {
+          graph: {
+            nodes: [
+              {
+                id: "supply-prep",
+                executor: { roleCode: "GSC_PROCUREMENT" },
+              },
+              {
+                id: "integration-test",
+                executor: { roleCode: "GSC_QUALITY" },
+              },
+            ],
+          },
+        },
+      },
+      [
+        { id: "role-procurement", code: "GSC_PROCUREMENT" },
+        { id: "role-quality", code: "GSC_QUALITY" },
+      ],
+      [
+        {
+          id: "tm-procurement",
+          name: "采购专员 AI 伙伴",
+          roleIds: ["role-procurement"],
+        },
+        {
+          id: "admin",
+          name: "平台Admin",
+          roleIds: ["role-quality"],
+        },
+      ],
+    );
+    expect(result?.nodes).toEqual([
+      expect.objectContaining({
+        id: "supply-prep",
+        owner: "采购专员 AI 伙伴",
+      }),
+      expect.objectContaining({
+        id: "integration-test",
+        owner: "平台Admin",
+      }),
+    ]);
+  });
+
+  it("binds zoom and workflow defaults within the supported range", () => {
+    const { exports: client } = loadClientExports();
+    expect(client.__test?.clampProgressZoom(0.2)).toBe(0.8);
+    expect(client.__test?.clampProgressZoom(2)).toBe(1.4);
+    expect(client.__test?.nextProgressZoom(1, 1)).toBe(1.1);
+    expect(client.__test?.nextProgressZoom(0.8, -1)).toBe(0.8);
+    expect(
+      client.__test?.preferredProgressWorkflow([
+        {
+          id: "completed",
+          status: "completed",
+          updatedAt: "2026-11-18T02:00:00.000Z",
+        },
+        {
+          id: "blocked",
+          status: "blocked",
+          updatedAt: "2026-11-17T02:00:00.000Z",
+        },
+      ])?.id,
+    ).toBe("blocked");
+  });
+
+  it("keeps project overview before reports and lands there by default", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain('react.useState("progress")');
+    const progressTab = source.indexOf('label: "项目概览"');
+    const reportsTab = source.indexOf('label: "项目日报"');
+    expect(progressTab).toBeGreaterThan(-1);
+    expect(reportsTab).toBeGreaterThan(progressTab);
+    expect(source).toContain("pmproj-directory-count");
+    expect(source).toContain("折叠项目列表");
+    expect(source).toContain("展开项目列表");
+    expect(source).toContain("pmproj-layout.collapsed");
+    expect(source).toContain(
+      ".pmproj-directory.collapsed .pmproj-directory-label",
+    );
+    expect(source).toContain(
+      ".pmproj-directory.collapsed .pmproj-directory-count{min-width:30px;height:30px",
+    );
+    expect(source).toContain(".pmproj-directory-toggle{width:32px;height:32px");
+    expect(source).toContain(
+      ".pmproj-directory.collapsed .pmproj-directory-toggle{order:-1",
+    );
+    expect(source).toContain("全屏展示节点图");
+    expect(source).toContain("退出全屏节点图");
+    expect(source).toContain('event.key === "Escape"');
+    expect(source).toContain("is-fullscreen");
+    expect(source).toContain("data-alert-id");
+    expect(source).toContain("data-task-id");
+    expect(source).toContain("pmproj-flow-node-heading");
+    const nodeHeading = source.indexOf('className: "pmproj-flow-node-heading"');
+    const nodeTitle = source.indexOf(
+      'className: "pmproj-flow-node-title"',
+      nodeHeading,
+    );
+    expect(nodeHeading).toBeGreaterThan(-1);
+    expect(nodeTitle).toBeGreaterThan(nodeHeading);
+    const detailStart = source.indexOf("const renderDetail");
+    const detailEnd = source.indexOf("const renderTemplateList", detailStart);
+    const detailSource = source.slice(detailStart, detailEnd);
+    expect(detailSource.indexOf("renderFacts()")).toBeLessThan(
+      detailSource.indexOf("renderWorkspaceInfo()"),
+    );
+  });
+
+  it("adds the business-chain settings tab and template policy controls", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    const basics = source.indexOf('"基础信息"');
+    const roles = source.indexOf('requestEditTab("roles")');
+    const business = source.indexOf('requestEditTab("business-chain")');
+    const other = source.indexOf('requestEditTab("other")');
+    const businessEditor = source.indexOf("const renderBusinessChainEditor");
+    const businessEditorEnd = source.indexOf(
+      "const renderOutputsTab",
+      businessEditor,
+    );
+    const projectBusinessChainEditor = source.slice(
+      businessEditor,
+      businessEditorEnd,
+    );
+    expect(basics).toBeGreaterThan(-1);
+    expect(roles).toBeGreaterThan(basics);
+    expect(business).toBeGreaterThan(roles);
+    expect(other).toBeGreaterThan(business);
+    expect(businessEditor).toBeGreaterThan(-1);
+    expect(businessEditorEnd).toBeGreaterThan(businessEditor);
+    expect(source).toContain("业务链路配置");
+    expect(source).toContain("/api/collab/projects/business-chain?");
+    expect(source).toContain("/api/collab/projects/business-chain/validate");
+    expect(source).toContain("/api/collab/projects/business-chain/bind");
+    expect(source).toContain("/api/collab/projects/business-chain/custom");
+    expect(source).toContain("/api/collab/projects/business-chain/instance");
+    expect(source).toContain("/api/collab/projects/progress-overview?");
+    expect(source).toContain("上传配置");
+    expect(projectBusinessChainEditor).toContain('"上传"');
+    expect(projectBusinessChainEditor).not.toContain("上传项目链路配置");
+    expect(source).toContain("业务链路图预览");
+    expect(source).toContain("已有业务链路配置");
+    expect(source).toContain("pmproj-business-chain-config-row");
+    expect(source).toContain("pmproj-business-chain-policy-grid");
+    expect(source).toContain("data-business-chain-preview-node");
+    expect(source).toContain("businessChainConfigToMarkdown");
+    expect(source).toContain('"业务链路"');
+    expect(projectBusinessChainEditor).not.toContain('"当前业务链路"');
+    expect(projectBusinessChainEditor).not.toContain('"来源项目模版"');
+    expect(projectBusinessChainEditor).not.toContain('"节点与数据源"');
+    expect(projectBusinessChainEditor).not.toContain('"添加来源"');
+    expect(projectBusinessChainEditor).not.toContain('"字段配置"');
+    expect(projectBusinessChainEditor).not.toContain('"来源绑定"');
+    expect(projectBusinessChainEditor).not.toContain('"应用业务链路"');
+    expect(projectBusinessChainEditor).not.toContain('"启动业务链路实例"');
+    expect(projectBusinessChainEditor).toContain(
+      'className: "pmproj-business-chain-toolbar"',
+    );
+    expect(projectBusinessChainEditor).toContain(
+      '"pmproj-btn pmproj-business-chain-upload pmproj-business-chain-toolbar-action"',
+    );
+    expect(projectBusinessChainEditor).toContain(
+      "businessChainUploadedFileName",
+    );
+    expect(projectBusinessChainEditor).not.toContain("已绑定");
+    expect(projectBusinessChainEditor).toContain('"业务链路图预览"');
+    expect(projectBusinessChainEditor).toContain('"数据源健康"');
+    expect(projectBusinessChainEditor).toContain(
+      'className: "pmproj-business-chain-source-row"',
+    );
+    expect(projectBusinessChainEditor).toContain('"链接探测"');
+    expect(projectBusinessChainEditor).toContain(
+      "businessChainValidationExpanded",
+    );
+    expect(projectBusinessChainEditor).toContain(
+      '"aria-expanded": businessChainValidationExpanded',
+    );
+    expect(projectBusinessChainEditor).not.toContain("链接探测完成");
+    expect(projectBusinessChainEditor).toContain('"校验"');
+    expect(projectBusinessChainEditor).not.toContain('"校验绑定"');
+    const editFooter = source.slice(
+      source.indexOf("const renderEditFooter"),
+      source.indexOf("const renderEditModal"),
+    );
+    expect(editFooter).toContain('"取消"');
+    expect(editFooter).toContain('"启用"');
+    expect(projectBusinessChainEditor).not.toContain(
+      "已运行实例继续使用启动时的定义快照。",
+    );
+    expect(projectBusinessChainEditor).not.toContain(
+      "项目自定义业务链路已应用",
+    );
+    expect(source).toContain(
+      ".pmproj-node-links .pmproj-progress-task strong{",
+    );
+    expect(source).toContain(".pmproj-source-health strong{");
+    expect(source).toContain(".pmproj-settings-sticky{");
+    expect(source).not.toMatch(/\.pmproj-settings-sticky\{[^}]*border-bottom/);
+    expect(source).toContain(
+      ".pmproj-modal.wide{position:relative;width:min(960px,100%);height:min(760px,86vh);display:flex;flex-direction:column;overflow:hidden;}",
+    );
+    expect(source).toContain(
+      ".pmproj-settings-body-scroll{flex:1;min-height:0;overflow:auto;",
+    );
+    expect(source).toContain('className: "pmproj-settings-body-scroll"');
+    expect(source).toContain(".pmproj-settings-footer{");
+    expect(source).toContain("renderEditFooter(),");
+    expect(source).toContain("onFooterChange: setOtherSettingsFooter");
+    expect(source).not.toContain("保存基础信息");
+    expect(source).toContain(".pmproj-notice.pmproj-notice-error{");
+    expect(source).toContain(
+      ".pmproj-business-chain-toolbar-action{width:64px;height:28px;",
+    );
+    expect(source).toContain("放弃未应用修改");
+    expect(source).toContain('"其它设置"');
+    expect(source).toContain("pluginmax.project.settings.other");
+    expect(source).toContain('"当前没有可配置的其它项目设置。"');
+  });
+
+  it("normalizes business-chain node bindings without inventing references", () => {
+    const { exports: client } = loadClientExports();
+    expect(
+      client.__test?.normalizeBusinessChainBindings([
+        {
+          nodeId: "supply",
+          externalRefs: [
+            {
+              system: "WMS",
+              objectType: "project-kit",
+              objectId: "INV-1",
+              required: false,
+            },
+          ],
+        },
+        { nodeId: "order", externalRefs: [] },
+      ]),
+    ).toEqual([
+      { nodeId: "order", externalRefs: [] },
+      {
+        nodeId: "supply",
+        externalRefs: [
+          {
+            system: "WMS",
+            objectType: "project-kit",
+            objectId: "INV-1",
+            required: false,
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("imports a JSON business-chain configuration into workflow markdown", () => {
+    const { exports: client } = loadClientExports();
+    const source = client.__test?.businessChainConfigToMarkdown(
+      JSON.stringify({
+        businessChain: {
+          templateId: "chain-upload",
+          chainKey: "uploaded-chain",
+          displayName: "上传链路",
+          projectTypeCodes: ["研发类"],
+          allowUnboundExternalNodes: true,
+        },
+        workflow: {
+          key: "business-chain-uploaded",
+          version: 2,
+          name: "上传链路",
+          nodes: [
+            {
+              id: "design",
+              name: "方案设计",
+              type: "task",
+              executor: { kind: "user", id: "admin" },
+              stageCode: "DESIGN",
+              sequence: 1,
+              summaryMetric: "design-status",
+              externalRefs: [
+                {
+                  system: "CI-CD",
+                  objectType: "pipeline",
+                  objectId: "pipeline-01",
+                  required: true,
+                },
+              ],
+              fields: [
+                {
+                  key: "version",
+                  label: "目标版本",
+                  bindings: [
+                    {
+                      system: "CI-CD",
+                      objectId: "pipeline-01",
+                      path: "targetVersion",
+                    },
+                  ],
+                },
+              ],
+            },
+            {
+              id: "release",
+              name: "发布",
+              type: "task",
+              executor: "role:role-owner",
+              stageCode: "RELEASE",
+              sequence: 2,
+              summaryMetric: "release-status",
+              externalRefs: [],
+              fields: [],
+            },
+          ],
+          edges: [{ from: "design", to: "release" }],
+        },
+      }),
+    );
+    expect(source).toContain("- kind: business-chain");
+    expect(source).toContain("- business-chain-template-id: chain-upload");
+    expect(source).toContain(
+      "- field: version|目标版本|CI-CD|pipeline-01|targetVersion",
+    );
+    expect(source).toContain("- design -> release");
+    expect(source).toContain("### 方案设计");
+  });
+
+  it("keeps the bundled business-chain test configurations importable", () => {
+    const { exports: client } = loadClientExports();
+    const configs = [
+      "supply-chain-ai-server-demo.json",
+      "software-delivery-standard.json",
+      "software-hotfix.json",
+      "software-delivery-bugfix-loop.json",
+    ];
+    for (const fileName of configs) {
+      const content = readFileSync(
+        resolve(BUSINESS_CHAIN_CONFIG_ROOT, fileName),
+        "utf8",
+      );
+      const sourceMd = fileName.endsWith(".json")
+        ? client.__test?.businessChainConfigToMarkdown(content)
+        : content;
+      expect(sourceMd, fileName).toBeTypeOf("string");
+      const parsed = parseWorkflowMarkdown(sourceMd!);
+      expect(parsed.errors, fileName).toEqual([]);
+      expect(parsed.warnings, fileName).toEqual([]);
+    }
+
+    const supplyDemo = readFileSync(
+      resolve(BUSINESS_CHAIN_CONFIG_ROOT, "supply-chain-ai-server-demo.json"),
+      "utf8",
+    );
+    const supplyMd =
+      client.__test?.businessChainConfigToMarkdown(supplyDemo) ?? "";
+    const supplyParsed = parseWorkflowMarkdown(supplyMd);
+    expect(supplyMd).toContain("- owner-role-code: GSC_ORDER_FULFILLMENT");
+    expect(supplyParsed.businessChain).toMatchObject({
+      templateId: "chain-ai-server",
+      chainKey: "ai-server-delivery",
+      displayName: "AI Server 履约交付链路",
+    });
+    expect(supplyParsed.graph?.nodes.map((node) => node.id)).toEqual([
+      "order-intake",
+      "fulfillment-commitment",
+      "supply-prep",
+      "assembly",
+      "finished-goods-shipment",
+    ]);
+    expect(supplyParsed.graph?.nodes.map((node) => node.name)).toEqual([
+      "确认订单",
+      "履约复期",
+      "原材料采购",
+      "生产制造",
+      "成品发货",
+    ]);
+    expect(
+      supplyParsed.graph?.nodes.map((node) => node.executor.roleCode),
+    ).toEqual([
+      "GSC_ORDER_FULFILLMENT",
+      "GSC_PLANNING",
+      "GSC_PROCUREMENT",
+      "GSC_MANUFACTURING",
+      "GSC_LOGISTICS",
+    ]);
+    expect(
+      supplyParsed.graph?.nodes.find((node) => node.id === "order-intake")
+        ?.businessChain?.fields,
+    ).toEqual([
+      expect.objectContaining({ key: "orderDate", label: "下单日期" }),
+      expect.objectContaining({ key: "ordered", label: "订单数量" }),
+      expect.objectContaining({ key: "planned", label: "交期要求" }),
+    ]);
+    expect(
+      supplyParsed.graph?.nodes.find((node) => node.id === "assembly")
+        ?.businessChain?.fields,
+    ).toEqual([
+      expect.objectContaining({ key: "kitProduction", label: "投产" }),
+      expect.objectContaining({ key: "workInProgress", label: "在制品" }),
+      expect.objectContaining({ key: "actualOutput", label: "产出" }),
+    ]);
+    expect(
+      supplyParsed.graph?.nodes.find(
+        (node) => node.id === "finished-goods-shipment",
+      )?.businessChain?.fields,
+    ).toEqual([
+      expect.objectContaining({ key: "batch1Planned", label: "批次1 计划" }),
+      expect.objectContaining({ key: "batch1Actual", label: "批次1 实际" }),
+      expect.objectContaining({ key: "batch2Planned", label: "批次2 计划" }),
+      expect.objectContaining({ key: "batch2Actual", label: "批次2 实际" }),
+    ]);
+    expect(
+      supplyParsed.graph?.edges.map(({ from, to }) => ({ from, to })),
+    ).toEqual([
+      { from: "order-intake", to: "fulfillment-commitment" },
+      { from: "fulfillment-commitment", to: "supply-prep" },
+      { from: "supply-prep", to: "assembly" },
+      { from: "assembly", to: "finished-goods-shipment" },
+    ]);
+
+    const bugfixDemo = readFileSync(
+      resolve(BUSINESS_CHAIN_CONFIG_ROOT, "software-delivery-bugfix-loop.json"),
+      "utf8",
+    );
+    expect(client.__test?.businessChainConfigToMarkdown(bugfixDemo)).toContain(
+      "break: attempts >= 2",
+    );
+  });
+
+  it("does not embed the wireframe demo facts in the production component", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    for (const demoFact of [
+      "GPU 供应量减少 20 个",
+      "客户临时取消 14 台 AI Server",
+      "供应商备货计划由 200 台调整为 180 台",
+      "A-214",
+      "TSK-1042",
+    ]) {
+      expect(source).not.toContain(demoFact);
+    }
   });
 
   it("filters and groups project outputs by search, type and date", () => {
@@ -645,22 +2011,25 @@ describe("project management client", () => {
     expect(source).toContain("进度汇报");
     expect(source).toContain("reportType");
     expect(source).toContain('triggerSource: "button"');
-    expect(source).toContain("PM Agent 生成");
+    expect(source).toContain("PM Agent · Skill v");
     expect(source).toContain("模板回退");
     expect(source).toContain('latest.generationMode === "agent"');
   });
 
-  it("lands on project reports and keeps report controls in task order", () => {
+  it("lands on project overview and keeps report controls in task order", () => {
     const source = readFileSync(CLIENT_PATH, "utf8");
-    const initialTab = source.indexOf('react.useState("reports")');
+    const initialTab = source.indexOf('react.useState("progress")');
+    const progressTab = source.indexOf('label: "项目概览"');
     const reportsTab = source.indexOf('{ key: "reports", label: "项目日报"');
-    const membersTab = source.indexOf('label: "成员权限"');
+    const membersTab = source.indexOf('label: "成员·角色"');
     const title = source.indexOf('h("h3", null, "项目日报")');
     const typeSelect = source.indexOf('"aria-label": "项目汇报类型"');
     const searchButton = source.indexOf('"搜索",');
     const updateButton = source.indexOf('"更新日报",');
     const setupButton = source.indexOf('"项目日报生成设置"');
     expect(initialTab).toBeGreaterThan(-1);
+    expect(progressTab).toBeGreaterThan(-1);
+    expect(reportsTab).toBeGreaterThan(progressTab);
     expect(reportsTab).toBeGreaterThan(-1);
     expect(reportsTab).toBeLessThan(membersTab);
     expect(title).toBeGreaterThan(-1);
@@ -670,6 +2039,104 @@ describe("project management client", () => {
     expect(setupButton).toBeGreaterThan(updateButton);
     expect(source).toContain("pmproj-report-setup");
     expect(source).toContain("margin-left:auto");
+  });
+
+  it("shows anomaly node count on overview without progress summary copy", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    const progressTab = source.indexOf('label: "项目概览"');
+    const reportsTab = source.indexOf('{ key: "reports", label: "项目日报"');
+    const progressTabBlock = source.slice(progressTab, reportsTab);
+    expect(progressTabBlock).toContain("count: progressAnomalyCount");
+    expect(source).toContain("const progressAnomalyCount = (");
+    expect(source).toContain("progressNodeIsAnomaly,");
+    expect(source).toContain(").length;");
+    expect(source).not.toContain(
+      "`${progressFacts.progress.length} 项进展 · ${progressFacts.attention.length} 项关注`",
+    );
+    expect(source).not.toContain("进展刷新时间");
+  });
+
+  it("derives anomaly counts from the same visible node state", () => {
+    const { exports: client } = loadClientExports();
+    const isAnomaly = client.__test?.progressNodeIsAnomaly;
+    expect(isAnomaly?.({ status: "blocked", exceptionText: "无" })).toBe(true);
+    expect(
+      isAnomaly?.({
+        status: "running",
+        exceptionText: "GPU 到货延迟，预计影响 6 台",
+      }),
+      "普通说明文案本身不能被当作异常",
+    ).toBe(false);
+    expect(
+      isAnomaly?.({
+        status: "running",
+        exceptionText: "GPU 到货延迟，预计影响 6 台",
+        alertCount: 1,
+      }),
+    ).toBe(true);
+    expect(
+      isAnomaly?.({
+        status: "running",
+        exceptionText: "无",
+        isAnomaly: true,
+        alertCount: 0,
+      }),
+      "已清除异常文案的节点不能被旧的 isAnomaly 标记继续计数",
+    ).toBe(false);
+  });
+
+  it("clears a stale anomaly flag when demo data presents a normal node", () => {
+    const { exports: client } = loadClientExports();
+    const overview = client.__test?.applyProgressDemoData(
+      {
+        nodes: [
+          {
+            id: "supply",
+            status: "blocked",
+            tone: "warn",
+            exceptionText: "GPU 到货延迟，预计影响 6 台",
+            isAnomaly: true,
+            fields: [],
+          },
+          {
+            id: "assembly",
+            status: "running",
+            tone: "progress",
+            exceptionText: "GPU 到货延迟，预计影响 6 台",
+            isAnomaly: true,
+            fields: [],
+          },
+        ],
+        changeEvents: [],
+      },
+      {
+        data: {
+          nodes: {
+            assembly: {
+              status: "running",
+              exception: "无",
+            },
+          },
+        },
+      },
+    );
+    const anomalous = (overview?.nodes ?? []).filter(
+      (node) => client.__test?.progressNodeIsAnomaly(node) === true,
+    );
+    expect(anomalous.map((node) => node.id)).toEqual(["supply"]);
+  });
+
+  it("exposes project detail text to task capture and Data Agent selection", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain('"data-data-agent-text-surface": "project"');
+    expect(source).toContain(
+      '"data-workspace-id": selectedProject?.workspaceId',
+    );
+    expect(source).toContain(
+      "const anomalousNodes = overview.nodes.filter(progressNodeIsAnomaly);",
+    );
+    expect(source).toContain("progressNodeIsAnomaly,");
+    expect(source).toContain(").length;");
   });
 
   it("keeps report settings discoverable for members as read-only", () => {
@@ -891,15 +2358,62 @@ describe("project management client", () => {
       taskId: "TSK-1",
       workspaceId: "ws-1",
     });
-    expect(windowStub.__route).toBe("task");
+    expect(windowStub.__events).toEqual([
+      {
+        type: "pluginmax:navigate",
+        detail: { route: "task" },
+      },
+    ]);
+    windowStub.__events.length = 0;
     client.__test?.openWorkflow("wf-1", "ws-1");
     expect(windowStub.__route).toBe("workflow");
     expect(windowStub.__events).toEqual([
       {
         type: "pluginmax:collab-navigate",
-        detail: { plugin: "workflow", instanceId: "wf-1", workspaceId: "ws-1" },
+        detail: {
+          plugin: "workflow",
+          instanceId: "wf-1",
+          workspaceId: "ws-1",
+          nodeId: undefined,
+        },
       },
     ]);
+  });
+
+  it("collapses empty change events and hides a zero anomaly count", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    const progressStart = source.indexOf("const renderProgressTab");
+    const progressEnd = source.indexOf("const renderDetail", progressStart);
+    const progressSource = source.slice(progressStart, progressEnd);
+    expect(progressStart).toBeGreaterThan(-1);
+    expect(progressEnd).toBeGreaterThan(progressStart);
+    expect(progressSource).toContain("progressChangeEventsExpanded");
+    expect(progressSource).toContain('"aria-expanded": changeEventsExpanded');
+    expect(progressSource).toContain("anomalousNodes.length === 0");
+    expect(progressSource).toContain('"关键变更与外部影响"');
+    expect(progressSource).toContain('"上传演示数据配置"');
+    expect(progressSource).not.toContain("业务链路已加载");
+    expect(progressSource).not.toContain("部分来源暂不可用");
+    expect(progressSource).not.toContain("进展刷新时间");
+    expect(progressSource).toContain('generateReport("progress")');
+    expect(progressSource).not.toContain('"刷新"');
+    expect(progressSource).not.toContain(
+      'h(Pill, { tone: "notice" }, "演示数据")',
+    );
+  });
+
+  it("does not let derived-data refresh block report generation", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    const start = source.indexOf("const generateReport = async");
+    const end = source.indexOf("const openReportSchedule", start);
+    const reportSource = source.slice(start, end);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(reportSource).toContain("timeoutMs: 120_000");
+    expect(reportSource).not.toContain("await refreshProgressData();");
+    expect(
+      reportSource.indexOf('"/api/collab/projects/reports/generate"'),
+    ).toBeLessThan(reportSource.indexOf("void refreshProgressData();"));
   });
 
   it("registers the projects page on the pluginmax.global slot", () => {
@@ -918,7 +2432,53 @@ describe("project management client", () => {
       get: () => undefined,
     });
     expect(specs).toEqual([
-      { name: "pluginmax.global", id: "pluginmax-project", order: 32 },
+      {
+        name: "pluginmax.global",
+        id: "pluginmax-project",
+        order: 32,
+        children: {
+          "pluginmax.project.settings.other": {
+            kind: "single",
+            scope: "root",
+          },
+        },
+      },
     ]);
   });
+});
+
+it("allows business-chain roles without assigned project members", () => {
+  const { exports: client } = loadClientExports();
+  expect(
+    client.__test?.missingBusinessChainRoleMembers(
+      [
+        {
+          nodeId: "quality",
+          name: "成品检验",
+          executor: {
+            label: "Quality",
+            roleCode: "GSC_QUALITY",
+          },
+        },
+        {
+          nodeId: "planning",
+          name: "履约复期",
+          executor: {
+            label: "Planning",
+            roleCode: "GSC_PLANNING",
+          },
+        },
+      ],
+      [
+        { code: "GSC_QUALITY", memberCount: 0 },
+        { code: "GSC_PLANNING", memberCount: 2 },
+      ],
+    ),
+  ).toEqual([
+    {
+      nodeName: "成品检验",
+      roleName: "Quality",
+      roleCode: "GSC_QUALITY",
+    },
+  ]);
 });

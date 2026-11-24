@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
+import { resolve } from "node:path";
 import {
   bearerToken,
   readJsonBody,
@@ -8,6 +9,21 @@ import {
 } from "@pluginmax/shared";
 import { z } from "zod";
 import {
+  allowedBusinessChainDefinitions,
+  businessChainTemplateId,
+  defaultBusinessChainDefinition,
+  validateBusinessChainSelection,
+  type BusinessChainDefinitionLike,
+} from "./business-chain.js";
+import {
+  hydrateOverviewAlerts,
+  ProjectProgressOverviewService,
+} from "./progress-overview.js";
+import {
+  MockScenarioSourceRegistry,
+  type ProgressSourceRegistryLike,
+} from "./progress-sources.js";
+import {
   ProjectError,
   ProjectService,
   projectDomainSpec,
@@ -15,6 +31,7 @@ import {
 } from "./service.js";
 import {
   projectHealthSchema,
+  projectDemoDataDocumentSchema,
   projectMemberKindSchema,
   projectReportScheduleSchema,
   projectReportTypeSchema,
@@ -24,6 +41,10 @@ import {
   roleMappingAssigneeSchema,
   rolePermissionSchema,
   type ProjectAuditRecord,
+  type BusinessChainExternalRef,
+  type BusinessChainNodeBinding,
+  type ProjectDemoDataConfig,
+  type ProjectAlertRecord,
   type ProjectRecord,
   type ProjectRoleDefinition,
   type ProjectReportRecord,
@@ -39,8 +60,49 @@ export const name = "dsh-collab-project";
 export const inject = ["storageDomain", "webServer"];
 
 export { ProjectError, ProjectService, projectDomainSpec };
+export {
+  allowedBusinessChainDefinitions,
+  businessChainTemplateId,
+  defaultBusinessChainDefinition,
+  validateBusinessChainSelection,
+} from "./business-chain.js";
 export type {
+  BusinessChainDefinitionLike,
+  BusinessChainValidationIssue,
+  BusinessChainValidationResult,
+} from "./business-chain.js";
+export {
+  hydrateOverviewAlerts,
+  ProjectProgressOverviewService,
+} from "./progress-overview.js";
+export type {
+  ProjectAlertCandidate,
+  ProjectAlertView,
+  ProjectProgressOverview,
+  ProgressOverviewBuildResult,
+  ProgressOverviewInput,
+} from "./progress-overview.js";
+export {
+  extractMockSnapshot,
+  MockScenarioSourceRegistry,
+  mockSourceHealthLabel,
+} from "./progress-sources.js";
+export type {
+  ProgressSourceRegistryLike,
+  ProgressSourceResult,
+  ProgressSourceStatus,
+} from "./progress-sources.js";
+export type {
+  BusinessChainExternalRef,
+  BusinessChainMode,
+  BusinessChainNodeBinding,
+  BusinessChainVersionPolicy,
+  ProjectAlertLifecycle,
+  ProjectAlertRecord,
   ProjectAuditRecord,
+  ProjectBusinessChainBinding,
+  ProjectDemoDataConfig,
+  ProjectDemoDataDocument,
   ProjectRecord,
   ProjectRoleDefinition,
   ProjectReportRecord,
@@ -428,6 +490,20 @@ interface WorkflowInstanceLike {
   readonly status: string;
   readonly createdAt?: string | undefined;
   readonly updatedAt: string;
+  readonly assignmentBindings?: Readonly<
+    Record<
+      string,
+      {
+        readonly primaryAssignee?: {
+          readonly name?: string | undefined;
+          readonly id?: string | undefined;
+        };
+        readonly source?: {
+          readonly label?: string | undefined;
+        };
+      }
+    >
+  >;
   readonly nodes?:
     | Readonly<
         Record<
@@ -435,7 +511,11 @@ interface WorkflowInstanceLike {
           {
             readonly status: string;
             readonly attempts?: number | undefined;
+            readonly assignedTo?: string | undefined;
             readonly enteredAt?: string | undefined;
+            readonly completedAt?: string | undefined;
+            readonly taskIds?: readonly string[] | undefined;
+            readonly note?: string | undefined;
             readonly approvals?: Readonly<
               Record<
                 string,
@@ -488,6 +568,23 @@ interface WorkflowNodeLike {
     readonly id: string;
     readonly name: string;
   }[];
+  readonly businessChain?: {
+    readonly sequence?: number | undefined;
+    readonly stageCode?: string | undefined;
+    readonly summaryMetric?: string | undefined;
+    readonly externalRefs?: readonly BusinessChainExternalRef[] | undefined;
+    readonly fields?:
+      | readonly {
+          readonly key: string;
+          readonly label: string;
+          readonly bindings: readonly {
+            readonly system: string;
+            readonly objectId: string;
+            readonly path: string;
+          }[];
+        }[]
+      | undefined;
+  };
 }
 
 interface WorkflowDefinitionLike {
@@ -498,12 +595,40 @@ interface WorkflowDefinitionLike {
   readonly description: string;
   readonly status: string;
   readonly workspaceId: string;
-  readonly graph?: { readonly nodes: readonly WorkflowNodeLike[] };
+  readonly kind?: string | undefined;
+  readonly businessChain?: {
+    readonly enabled?: boolean | undefined;
+    readonly templateId?: string | undefined;
+    readonly chainKey?: string | undefined;
+    readonly displayName?: string | undefined;
+    readonly projectTypeCodes?: readonly string[] | undefined;
+    readonly allowUnboundExternalNodes?: boolean | undefined;
+  };
+  readonly graph?: {
+    readonly nodes: readonly WorkflowNodeLike[];
+    readonly edges?: readonly {
+      readonly from: string;
+      readonly to: string;
+    }[];
+  };
+}
+
+interface WorkflowEventLike {
+  readonly id: string;
+  readonly nodeId?: string | undefined;
+  readonly kind: string;
+  readonly message: string;
+  readonly at: string;
+  readonly actorName?: string | undefined;
+  readonly data?: Record<string, unknown>;
 }
 
 interface WorkflowServiceLike {
   instances(workspaceId: string): readonly WorkflowInstanceLike[];
   instance?(instanceId: string): WorkflowInstanceLike | undefined;
+  discardInstance?(instanceId: string): Promise<boolean>;
+  definition?(definitionId: string): WorkflowDefinitionLike | undefined;
+  events?(instanceId: string): readonly WorkflowEventLike[];
   submissions?(instanceId: string): readonly WorkflowSubmissionLike[];
   sharedDefinitions?(): readonly WorkflowDefinitionLike[];
 }
@@ -592,6 +717,7 @@ export interface ProjectDependencies {
   readonly principals?: () => PrincipalServiceLike | undefined;
   readonly skillCatalog?: () => ProjectSkillCatalogLike | undefined;
   readonly agent?: () => ProjectAgentServiceLike | undefined;
+  readonly progressSources?: () => ProgressSourceRegistryLike | undefined;
   readonly now?: () => Date;
 }
 
@@ -653,8 +779,18 @@ interface ProjectSkillCatalogLike {
     principal: { readonly userId: string },
     skillIds: readonly string[],
     options?: { readonly requireInstallation?: boolean },
-  ): Promise<readonly { readonly id: string; readonly version: string }[]>;
+  ): Promise<
+    readonly {
+      readonly id: string;
+      readonly name?: string | undefined;
+      readonly version: string;
+      readonly instructions?: string | undefined;
+    }[]
+  >;
 }
+
+const PROJECT_REPORTING_SKILL_ID = "skill-project-reporting";
+const DEFAULT_PROJECT_REPORTING_SKILL_VERSION = "1.0.0";
 
 interface ProjectToolExecLike {
   readonly signal?: AbortSignal | undefined;
@@ -712,6 +848,7 @@ interface ProjectDomainLike {
   table(name: "roles"): KvTableLike<ProjectRoleRecord>;
   table(name: "reports"): KvTableLike<ProjectReportRecord>;
   table(name: "audit"): KvTableLike<ProjectAuditRecord>;
+  table(name: "alerts"): KvTableLike<ProjectAlertRecord>;
   close(): Promise<void>;
 }
 
@@ -1804,6 +1941,17 @@ function templateProjectRoles(
     }));
 }
 
+/** 项目角色快照进入角色库时使用独立编码，避免覆盖或串联已有素材。 */
+function nextCopiedRoleCode(base: string, used: Set<string>): string {
+  const normalized = (base.trim().toUpperCase() || "ROLE").slice(0, 80);
+  for (let index = 1; index < 1_000; index += 1) {
+    const suffix = index === 1 ? "_COPY" : `_COPY_${index}`;
+    const candidate = `${normalized.slice(0, 80 - suffix.length)}${suffix}`;
+    if (!used.has(candidate)) return candidate;
+  }
+  throw new ProjectError("conflict", "无法为项目角色生成唯一模版编码");
+}
+
 /**
  * 把项目自己的角色定义同步成 roles 插件的席位。
  * 项目清空角色时只保留系统 Facilitator 席位（roles 插件本身也会补齐它），
@@ -2433,64 +2581,75 @@ export function buildProjectReportContent(input: ReportInput): string {
     assessment.attentionFindings.length === 0
       ? []
       : assessment.attentionFindings.slice(0, 5).map((finding) => finding.text);
-  const headings =
-    reportType === "weekly"
-      ? {
-          conclusion: "本周结论",
-          snapshot: "目标与里程碑进展",
-          results: "关键结果",
-          risks: "阻塞、依赖与需决策事项",
-          next: "下周计划",
-        }
-      : reportType === "progress"
-        ? {
-            conclusion: "当前状态",
-            snapshot: "与计划的差异",
-            results: "已完成",
-            risks: "风险与依赖",
-            next: "需要支持或决策",
-          }
-        : {
-            conclusion: "一句话结论",
-            snapshot: "指标快照",
-            results: "关键结果",
-            risks: "风险与异常",
-            next: "待确认与下一步",
-          };
-  return [
-    `## ${headings.conclusion}`,
-    "",
-    `${input.workspace.title} 截至 ${dateOf(input.today)} 处于「${input.project.status}」状态，综合健康度判定为「${assessment.rag}」。`,
-    "",
-    ...assessment.ragBasis.map((reason) => `- 判定依据：${reason}`),
-    ...(assessment.ragBasis.length === 0
-      ? ["- 判定依据：未命中进度、任务或工作流风险规则。"]
-      : []),
-    "",
-    `## ${headings.snapshot}`,
-    "",
-    scheduleLine,
-    taskLine,
-    workflowLine,
-    ...assessment.coverageNotes.map((note) => `- 数据缺口：${note}`),
-    "",
-    `## ${headings.results}`,
-    "",
-    ...assessment.keyResults,
-    "",
-    `## ${headings.risks}`,
-    "",
+  const coverageLines = assessment.coverageNotes.map(
+    (note) => `- 数据缺口：${note}`,
+  );
+  const exceptionLines = [
     ...riskLines,
     ...attentionLines,
     ...(assessment.riskFindings.length === 0 &&
     assessment.attentionFindings.length === 0
       ? ["- 当前未命中风险、异常、逾期或等待规则。"]
       : []),
+  ];
+  const section = (heading: string, lines: readonly string[]): string[] => [
+    `## ${heading}`,
     "",
-    `## ${headings.next}`,
+    ...lines,
     "",
-    ...assessment.nextActions,
-  ].join("\n");
+  ];
+  const conclusion = [
+    `${input.workspace.title} 截至 ${dateOf(input.today)} 处于「${input.project.status}」状态，综合健康度判定为「${assessment.rag}」。`,
+    "",
+    ...assessment.ragBasis.map((reason) => `- 判定依据：${reason}`),
+    ...(assessment.ragBasis.length === 0
+      ? ["- 判定依据：未命中进度、任务或工作流风险规则。"]
+      : []),
+  ];
+  const sections =
+    reportType === "weekly"
+      ? [
+          section("本周结论", conclusion),
+          section("目标与里程碑进展", [
+            scheduleLine,
+            taskLine,
+            workflowLine,
+            ...coverageLines,
+          ]),
+          section("关键结果", assessment.keyResults),
+          section("指标与风险趋势", [
+            scheduleLine,
+            taskLine,
+            workflowLine,
+            ...riskLines,
+          ]),
+          section("阻塞、依赖与需决策事项", exceptionLines),
+          section("下周计划", assessment.nextActions),
+        ]
+      : reportType === "progress"
+        ? [
+            section("当前状态", conclusion),
+            section("与计划的差异", [scheduleLine, ...coverageLines]),
+            section("已完成", assessment.keyResults),
+            section("风险与依赖", exceptionLines),
+            section("需要支持或决策", assessment.nextActions),
+          ]
+        : [
+            section("一句话结论", conclusion),
+            section("项目健康度与计划偏差", [
+              scheduleLine,
+              taskLine,
+              workflowLine,
+              ...coverageLines,
+            ]),
+            section("关键结果", assessment.keyResults),
+            section("业务数据异常", [
+              "- 本报告日未接入订单、时效、支付等业务运营数据，业务数据异常未覆盖。",
+            ]),
+            section("推进异常", exceptionLines),
+            section("待确认与下一步", assessment.nextActions),
+          ];
+  return sections.flat().join("\n").trim();
 }
 
 const memberSaveSchema = z.object({
@@ -2519,6 +2678,56 @@ const templateSaveSchema = z.object({
     .array(z.string().trim().min(1).max(160))
     .max(50)
     .optional(),
+  businessChainMode: z.enum(["required", "optional", "none"]).optional(),
+  allowedBusinessChainTemplateIds: z
+    .array(z.string().trim().min(1).max(160))
+    .max(50)
+    .optional(),
+  defaultBusinessChainTemplateId: z.string().trim().max(160).optional(),
+  versionPolicy: z.enum(["pin-at-project-create", "latest-active"]).optional(),
+});
+
+const templateFromProjectSchema = z.object({
+  workspaceId: z.string().trim().min(1).max(160),
+  name: z.string().trim().min(1).max(80),
+  type: z.string().trim().min(1).max(40),
+  description: z.string().trim().max(500).optional(),
+});
+
+const businessChainRefInputSchema = z.object({
+  system: z.string().trim().min(1).max(80),
+  objectType: z.string().trim().min(1).max(80),
+  objectId: z.string().trim().min(1).max(200),
+  required: z.boolean().default(true),
+});
+
+const businessChainNodeBindingInputSchema = z.object({
+  nodeId: z.string().trim().min(1).max(160),
+  externalRefs: z.array(businessChainRefInputSchema).max(50),
+});
+
+const businessChainValidateSchema = z.object({
+  workspaceId: z.string().trim().min(1).max(160),
+  definitionId: z.string().trim().min(1).max(160),
+  nodeBindings: z
+    .array(businessChainNodeBindingInputSchema)
+    .max(100)
+    .default([]),
+});
+
+const businessChainBindSchema = businessChainValidateSchema.extend({
+  revision: z.number().int().positive(),
+  validationDigest: z.string().trim().min(1).max(120),
+});
+
+const businessChainCustomBindSchema = businessChainValidateSchema.extend({
+  revision: z.number().int().positive(),
+});
+
+const demoDataUploadSchema = z.object({
+  workspaceId: z.string().trim().min(1).max(160),
+  fileName: z.string().trim().min(1).max(240),
+  data: projectDemoDataDocumentSchema,
 });
 
 const roleSaveSchema = z.object({
@@ -2582,15 +2791,112 @@ export function createProjectRoutes(
   const { team, workspaces } = dependencies;
 
   function today(): string {
-    return nowIso(now).slice(0, 10);
+    return projectReportScheduleClock(now(), "Asia/Shanghai").date;
   }
 
   function tasksOf(workspaceId: string): TaskLike[] {
-    return [...(dependencies.tasks()?.list(workspaceId) ?? [])];
+    const visibleWorkflowIds = new Set(
+      workflowsOf(workspaceId).map((instance) => instance.id),
+    );
+    return [...(dependencies.tasks()?.list(workspaceId) ?? [])].filter(
+      (task) =>
+        task.workflow?.instanceId === undefined ||
+        visibleWorkflowIds.has(task.workflow.instanceId),
+    );
   }
 
   function workflowsOf(workspaceId: string): WorkflowInstanceLike[] {
-    return [...(dependencies.workflows()?.instances(workspaceId) ?? [])];
+    const workflowService = dependencies.workflows();
+    return [...(workflowService?.instances(workspaceId) ?? [])].filter(
+      (instance) =>
+        workflowService?.definition?.(instance.definitionId ?? "")?.kind !==
+        "business-chain",
+    );
+  }
+
+  function workflowDefinitions(): BusinessChainDefinitionLike[] {
+    return [
+      ...(dependencies.workflows()?.sharedDefinitions?.() ?? []),
+    ] as BusinessChainDefinitionLike[];
+  }
+
+  function businessChainSourceStatuses(
+    definition: BusinessChainDefinitionLike | undefined,
+    projectCode: string,
+    workspaceId: string,
+  ): Promise<Record<string, "fresh" | "stale" | "error" | "missing">> {
+    const registry = dependencies.progressSources?.();
+    const refs = (definition?.graph?.nodes ?? []).flatMap(
+      (node) => node.businessChain?.externalRefs ?? [],
+    );
+    if (registry === undefined) return Promise.resolve({});
+    return registry
+      .read({
+        workspaceId,
+        projectCode,
+        refs,
+        timeoutMs: 1_500,
+      })
+      .then((results) =>
+        Object.fromEntries(
+          results.map((result) => [result.system, result.status]),
+        ),
+      )
+      .catch(() =>
+        Object.fromEntries(
+          [...new Set(refs.map((ref) => ref.system))].map((system) => [
+            system,
+            "error" as const,
+          ]),
+        ),
+      );
+  }
+
+  function nodeBindingsOfDefinition(
+    definition: BusinessChainDefinitionLike,
+  ): BusinessChainNodeBinding[] {
+    return (definition.graph?.nodes ?? []).map((node) => ({
+      nodeId: node.id,
+      externalRefs: [...(node.businessChain?.externalRefs ?? [])],
+    }));
+  }
+
+  function bindingForDefinition(input: {
+    readonly project: ProjectRecord;
+    readonly template?: ProjectTemplateRecord | undefined;
+    readonly definition: BusinessChainDefinitionLike;
+    readonly actorId: string;
+    readonly bindingMode:
+      "template-default" | "template-allowed" | "project-custom";
+    readonly nodeBindings?: readonly BusinessChainNodeBinding[] | undefined;
+  }): Omit<NonNullable<ProjectRecord["businessChainBinding"]>, "boundAt"> {
+    return {
+      projectTemplateId:
+        input.bindingMode === "project-custom"
+          ? "project-custom"
+          : (input.template?.id ??
+            input.project.templateId ??
+            "project-custom"),
+      businessChainTemplateId: businessChainTemplateId(input.definition),
+      workflowDefinitionId: input.definition.id,
+      workflowDefinitionVersion: input.definition.version,
+      ...(input.project.businessChainBinding?.workflowDefinitionId !==
+        input.definition.id ||
+      input.project.businessChainBinding?.workflowInstanceId === undefined
+        ? {}
+        : {
+            workflowInstanceId:
+              input.project.businessChainBinding.workflowInstanceId,
+          }),
+      chainKey:
+        input.definition.businessChain?.chainKey ?? input.definition.key,
+      bindingMode: input.bindingMode,
+      sourceTemplateRevision: input.template?.revision ?? 1,
+      nodeBindings: [
+        ...(input.nodeBindings ?? nodeBindingsOfDefinition(input.definition)),
+      ],
+      boundBy: input.actorId,
+    };
   }
 
   function actorName(userId: string): string {
@@ -2894,13 +3200,26 @@ export function createProjectRoutes(
    * 读取项目记录，缺失时自动建档并分配 `PRJ` + 6 位数字编号，
    * 保证项目清单里不再出现「未编号」。
    */
-  function ensureProjectRecord(
+  async function ensureProjectRecord(
     workspace: WorkspaceLike,
   ): Promise<ProjectRecord> {
-    return service.ensureProject({
+    const owner = ownerOfWorkspace(team, workspace.id);
+    const project = await service.ensureProject({
       workspaceId: workspace.id,
-      ...ownerOfWorkspace(team, workspace.id),
+      ...owner,
     });
+    if (
+      project.ownerId === undefined &&
+      project.ownerName.trim() === "" &&
+      owner.ownerId !== undefined &&
+      owner.ownerName !== ""
+    ) {
+      return service.upsertProject({
+        workspaceId: workspace.id,
+        ...owner,
+      });
+    }
+    return project;
   }
 
   function activeAgentIds(workspaceId: string): string[] {
@@ -2947,7 +3266,7 @@ export function createProjectRoutes(
     if (roles.length === 0) {
       throw new ProjectError("invalid_input", "项目模版没有可用的项目角色");
     }
-    const project = await service.replaceProjectRoles({
+    let project = await service.replaceProjectRoles({
       workspaceId,
       roles,
       templateId: template.id,
@@ -2963,6 +3282,42 @@ export function createProjectRoutes(
       project,
       now,
     );
+    const definitions = workflowDefinitions();
+    let businessChainDetail: Record<string, string> | undefined;
+    if (template.businessChainMode !== "none") {
+      const definition = defaultBusinessChainDefinition(
+        definitions,
+        template,
+        workspaceId,
+      );
+      if (
+        template.businessChainMode === "required" &&
+        definition === undefined
+      ) {
+        throw new ProjectError(
+          "invalid_input",
+          "项目模版要求绑定业务链路，但默认业务链路不存在或未启用",
+        );
+      }
+      if (definition !== undefined) {
+        project = await service.saveBusinessChainBinding({
+          workspaceId,
+          expectedRevision: project.businessChainRevision,
+          binding: bindingForDefinition({
+            project,
+            template,
+            definition,
+            actorId: current.userId,
+            bindingMode: "template-default",
+          }),
+        });
+        businessChainDetail = {
+          业务链路: definition.name,
+          定义版本: `v${definition.version}`,
+          绑定方式: "由项目模版提供",
+        };
+      }
+    }
     await appendProjectAudit(current, workspaceId, {
       category: "template",
       action: "template.apply",
@@ -2973,6 +3328,7 @@ export function createProjectRoutes(
         模版编码: template.code,
         生效角色数: String(roles.length),
         角色清单: roles.map((role) => role.name).join("、"),
+        ...businessChainDetail,
       },
     });
     return project;
@@ -3282,6 +3638,28 @@ export function createProjectRoutes(
       if (workspaces.create === undefined) {
         throw new ProjectError("invalid_input", "工作区服务不可用");
       }
+      if (body.templateId !== undefined) {
+        const template = service.template(body.templateId);
+        if (template === undefined) {
+          throw new ProjectError("not_found", "项目模版不存在");
+        }
+        if (template.businessChainMode === "required") {
+          const definition = workflowDefinitions().find(
+            (candidate) =>
+              candidate.kind === "business-chain" &&
+              candidate.status === "active" &&
+              candidate.scope === "platform" &&
+              businessChainTemplateId(candidate) ===
+                template.defaultBusinessChainTemplateId,
+          );
+          if (definition === undefined) {
+            throw new ProjectError(
+              "invalid_input",
+              "项目模版要求绑定业务链路，但默认业务链路不存在或未启用",
+            );
+          }
+        }
+      }
       let created: WorkspaceLike;
       try {
         created = await workspaces.create(body.path, body.name);
@@ -3382,6 +3760,7 @@ export function createProjectRoutes(
       assertSameOrigin(request);
       principal(request, team);
       const definitions = dependencies.workflows()?.sharedDefinitions?.() ?? [];
+      const businessChainDefinitions = workflowDefinitions();
       sendJson(response, 200, {
         ok: true,
         templates: service.templates(),
@@ -3393,7 +3772,34 @@ export function createProjectRoutes(
           name: definition.name,
           description: definition.description,
           status: definition.status,
+          kind: definition.kind ?? "workflow",
+          businessChain: definition.businessChain,
         })),
+        businessChainTemplates: businessChainDefinitions
+          .filter((definition) => definition.kind === "business-chain")
+          .map((definition) => ({
+            id: businessChainTemplateId(definition),
+            definitionId: definition.id,
+            key: definition.key,
+            name: definition.businessChain?.displayName ?? definition.name,
+            version: definition.version,
+            status: definition.status,
+            workspaceId: definition.workspaceId,
+            chainKey: definition.businessChain?.chainKey,
+            projectTypeCodes: definition.businessChain?.projectTypeCodes ?? [],
+            stageCount: definition.graph?.nodes.length ?? 0,
+            nodes: (definition.graph?.nodes ?? [])
+              .map((node) => ({
+                nodeId: node.id,
+                name: node.name,
+                sequence: node.businessChain?.sequence ?? 0,
+                stageCode: node.businessChain?.stageCode ?? "",
+                executor: node.executor,
+                externalRefs: [...(node.businessChain?.externalRefs ?? [])],
+                fields: [...(node.businessChain?.fields ?? [])],
+              }))
+              .sort((left, right) => left.sequence - right.sequence),
+          })),
       });
     } catch (cause) {
       routeError(response, cause);
@@ -3408,14 +3814,211 @@ export function createProjectRoutes(
       assertSameOrigin(request);
       requirePlatformAdmin(request, team);
       const body = await readBodyAs(request, templateSaveSchema);
+      const existing = service.template(body.id);
+      const mode =
+        body.businessChainMode ?? existing?.businessChainMode ?? "none";
+      const allowedIds =
+        body.allowedBusinessChainTemplateIds ??
+        existing?.allowedBusinessChainTemplateIds ??
+        [];
+      if (mode !== "none" && allowedIds.length > 0) {
+        const available = new Map(
+          workflowDefinitions()
+            .filter(
+              (definition) =>
+                definition.kind === "business-chain" &&
+                definition.status === "active",
+            )
+            .map((definition) => [
+              businessChainTemplateId(definition),
+              definition,
+            ]),
+        );
+        const unknown = allowedIds.filter((id) => !available.has(id));
+        if (unknown.length > 0) {
+          throw new ProjectError(
+            "invalid_input",
+            `业务链路模板不存在或未启用：${unknown.join("、")}`,
+          );
+        }
+      }
       const template = await service.saveTemplate({
         ...body,
         ...(body.roleIds === undefined ? {} : { roleIds: body.roleIds }),
         ...(body.workflowTemplateIds === undefined
           ? {}
           : { workflowTemplateIds: body.workflowTemplateIds }),
+        ...(body.businessChainMode === undefined
+          ? {}
+          : { businessChainMode: body.businessChainMode }),
+        ...(body.allowedBusinessChainTemplateIds === undefined
+          ? {}
+          : {
+              allowedBusinessChainTemplateIds:
+                body.allowedBusinessChainTemplateIds,
+            }),
+        ...(body.defaultBusinessChainTemplateId === undefined
+          ? {}
+          : {
+              defaultBusinessChainTemplateId:
+                body.defaultBusinessChainTemplateId,
+            }),
+        ...(body.versionPolicy === undefined
+          ? {}
+          : { versionPolicy: body.versionPolicy }),
       });
       sendJson(response, 200, { ok: true, template });
+    } catch (cause) {
+      routeError(response, cause);
+    }
+  };
+
+  /**
+   * 把当前项目已生效的角色定义和业务链路另存为项目模版。
+   * 角色先复制到角色库，模版只引用新的副本，因此后续项目调整不会影响快照。
+   */
+  const templateFromProject = async (
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> => {
+    try {
+      assertSameOrigin(request);
+      const body = await readBodyAs(request, templateFromProjectSchema);
+      const current = requireProjectManager(request, team, body.workspaceId);
+      if (current.role !== "admin") {
+        throw new ProjectError("forbidden", "platform admin is required");
+      }
+      const workspace = workspaces.get(body.workspaceId);
+      if (workspace === undefined) {
+        throw new ProjectError("not_found", "项目不存在");
+      }
+      const assignments = dependencies.assignments();
+      let project = await ensureProjectRecord(workspace);
+      project = await ensureProjectRoleCopy(service, assignments, project);
+      const roles = project.projectRoles.filter(
+        (role) =>
+          role.id !== "role-pm" &&
+          role.code.trim().toUpperCase() !== "PROJECT_MANAGER",
+      );
+      if (roles.length === 0) {
+        throw new ProjectError(
+          "invalid_input",
+          "当前项目没有可保存的自定义项目角色",
+        );
+      }
+
+      const binding = project.businessChainBinding;
+      const businessChain =
+        binding === undefined
+          ? undefined
+          : workflowDefinitions().find(
+              (definition) =>
+                definition.id === binding.workflowDefinitionId &&
+                definition.status === "active" &&
+                businessChainTemplateId(definition) ===
+                  binding.businessChainTemplateId,
+            );
+      if (binding !== undefined && businessChain === undefined) {
+        throw new ProjectError(
+          "invalid_input",
+          "当前项目绑定的业务链路已停用或不存在，无法保存为项目模版",
+        );
+      }
+
+      const usedRoleCodes = new Set(
+        service.roles().map((role) => role.code.trim().toUpperCase()),
+      );
+      const createdRoles: ProjectRoleRecord[] = [];
+      let savedTemplate: ProjectTemplateRecord | undefined;
+      try {
+        for (const role of roles) {
+          const code = nextCopiedRoleCode(role.code, usedRoleCodes);
+          usedRoleCodes.add(code);
+          createdRoles.push(
+            await service.saveRole({
+              id: `role-snapshot-${randomUUID()}`,
+              name: role.name,
+              code,
+              category: role.category,
+              description: role.description,
+              permissions: role.permissions,
+            }),
+          );
+        }
+
+        const usedTemplateCodes = new Set(
+          service
+            .templates()
+            .map((template) => template.code.trim().toUpperCase()),
+        );
+        let templateCode = "";
+        do {
+          templateCode = `TPL-${nowIso(now)
+            .slice(0, 10)
+            .replaceAll("-", "")}-${randomUUID()
+            .replaceAll("-", "")
+            .slice(0, 8)
+            .toUpperCase()}`;
+        } while (usedTemplateCodes.has(templateCode));
+        const sourceTemplate =
+          project.templateId === undefined
+            ? undefined
+            : service.template(project.templateId);
+        savedTemplate = await service.saveTemplate({
+          id: `tpl-from-project-${randomUUID()}`,
+          name: body.name,
+          code: templateCode,
+          type: body.type,
+          status: "启用",
+          description:
+            body.description === undefined || body.description === ""
+              ? `从项目「${workspace.title}」保存`
+              : body.description,
+          roleIds: createdRoles.map((role) => role.id),
+          workflowTemplateIds: [],
+          businessChainMode: businessChain === undefined ? "none" : "required",
+          allowedBusinessChainTemplateIds:
+            businessChain === undefined
+              ? []
+              : [businessChainTemplateId(businessChain)],
+          defaultBusinessChainTemplateId:
+            businessChain === undefined
+              ? undefined
+              : businessChainTemplateId(businessChain),
+          versionPolicy:
+            sourceTemplate?.versionPolicy ?? "pin-at-project-create",
+        });
+      } catch (cause) {
+        if (savedTemplate === undefined) {
+          for (const role of createdRoles) {
+            await service.removeRole(role.id).catch(() => undefined);
+          }
+        }
+        throw cause;
+      }
+
+      await appendProjectAudit(current, body.workspaceId, {
+        category: "template",
+        action: "template.create_from_project",
+        targetId: savedTemplate.id,
+        targetName: savedTemplate.name,
+        summary: `从项目「${workspace.title}」保存项目模版「${savedTemplate.name}」`,
+        detail: {
+          模版编码: savedTemplate.code,
+          项目类型: savedTemplate.type,
+          角色数: String(createdRoles.length),
+          角色清单: createdRoles.map((role) => role.name).join("、"),
+          业务链路:
+            businessChain?.businessChain?.displayName ??
+            businessChain?.name ??
+            "不包含",
+        },
+      });
+      sendJson(response, 201, {
+        ok: true,
+        template: savedTemplate,
+        roles: createdRoles,
+      });
     } catch (cause) {
       routeError(response, cause);
     }
@@ -4866,15 +5469,6 @@ export function createProjectRoutes(
           : body.reportType === "progress"
             ? "进度汇报"
             : "项目日报";
-      const reportSkill = (
-        await dependencies
-          .skillCatalog?.()
-          ?.resolveSkills(
-            { userId: current.userId },
-            ["skill-project-reporting"],
-            { requireInstallation: false },
-          )
-      )?.[0];
       const generatedReport = await generateProjectReportContent({
         dependencies,
         workspace,
@@ -4895,14 +5489,14 @@ export function createProjectRoutes(
           ? {}
           : { periodStart: body.periodStart }),
         ...(body.periodEnd === undefined ? {} : { periodEnd: body.periodEnd }),
-        generatedAt: `${date.slice(5)} ${timestamp.slice(11, 16)}`,
+        generatedAt: timestamp,
         generatedBy: projectManager?.name ?? "项目 AI",
         ...(projectManager === undefined
           ? {}
           : { generatedByTeammateId: projectManager.id }),
         runId,
-        skillId: "skill-project-reporting",
-        skillVersion: reportSkill?.version ?? "1.0.0",
+        skillId: generatedReport.skillId,
+        skillVersion: generatedReport.skillVersion,
         triggerSource: body.triggerSource,
         generationMode: generatedReport.generationMode,
         ...(generatedReport.generationError === undefined
@@ -4972,6 +5566,843 @@ export function createProjectRoutes(
     }
   };
 
+  const businessChainConfig = async (
+    workspaceId: string,
+    project: ProjectRecord,
+    template: ProjectTemplateRecord | undefined,
+    options: { readonly includeSourceHealth: boolean },
+  ): Promise<Record<string, unknown>> => {
+    const definitions = workflowDefinitions();
+    const allowed = allowedBusinessChainDefinitions(
+      definitions,
+      template,
+      workspaceId,
+    );
+    const binding = project.businessChainBinding;
+    const definition =
+      (binding === undefined
+        ? undefined
+        : definitions.find(
+            (item) => item.id === binding.workflowDefinitionId,
+          )) ??
+      (binding === undefined
+        ? undefined
+        : (dependencies
+            .workflows()
+            ?.definition?.(binding.workflowDefinitionId) as
+            BusinessChainDefinitionLike | undefined));
+    const instance =
+      binding?.workflowInstanceId === undefined
+        ? undefined
+        : (dependencies
+            .workflows()
+            ?.instances(workspaceId)
+            .find((item) => item.id === binding.workflowInstanceId) ??
+          dependencies.workflows()?.instance?.(binding.workflowInstanceId));
+    const sourceStatuses =
+      options.includeSourceHealth && definition !== undefined
+        ? await businessChainSourceStatuses(
+            definition,
+            project.code,
+            workspaceId,
+          )
+        : {};
+    const sourceState =
+      binding === undefined
+        ? "unbound"
+        : definition === undefined
+          ? "missing"
+          : definition.status !== "active"
+            ? "disabled"
+            : binding.bindingMode === "project-custom"
+              ? "fresh"
+              : template !== undefined &&
+                  template.revision > binding.sourceTemplateRevision
+                ? "stale"
+                : "fresh";
+    const nodes =
+      definition?.graph?.nodes
+        .map((node) => {
+          const current = instance?.nodes?.[node.id];
+          const refs =
+            binding?.nodeBindings.find((item) => item.nodeId === node.id)
+              ?.externalRefs ??
+            node.businessChain?.externalRefs ??
+            [];
+          return {
+            nodeId: node.id,
+            name: node.name,
+            sequence: node.businessChain?.sequence ?? 0,
+            stageCode: node.businessChain?.stageCode ?? "",
+            fields: node.businessChain?.fields ?? [],
+            executor: node.executor,
+            workflowStatus: current?.status ?? "waiting",
+            externalRefs: refs,
+            bindingStatus:
+              refs.length === 0
+                ? "unbound"
+                : refs.some(
+                      (ref) =>
+                        sourceStatuses[ref.system] === "error" ||
+                        sourceStatuses[ref.system] === "missing",
+                    )
+                  ? "error"
+                  : refs.some((ref) => sourceStatuses[ref.system] === "stale")
+                    ? "stale"
+                    : "bound",
+          };
+        })
+        .sort((left, right) => left.sequence - right.sequence) ?? [];
+    return {
+      configured: binding !== undefined,
+      mode: template?.businessChainMode ?? "none",
+      versionPolicy: template?.versionPolicy ?? "pin-at-project-create",
+      revision: project.businessChainRevision,
+      ...(project.businessChainValidatedAt === undefined
+        ? {}
+        : { lastValidatedAt: project.businessChainValidatedAt }),
+      sourceState,
+      template:
+        template === undefined
+          ? null
+          : {
+              id: template.id,
+              name: template.name,
+              type: template.type,
+              revision: template.revision,
+              allowedBusinessChainTemplateIds:
+                template.allowedBusinessChainTemplateIds,
+              defaultBusinessChainTemplateId:
+                template.defaultBusinessChainTemplateId,
+            },
+      current:
+        binding === undefined
+          ? null
+          : {
+              ...binding,
+              name:
+                definition?.businessChain?.displayName ??
+                definition?.name ??
+                binding.workflowDefinitionId,
+              definitionStatus: definition?.status ?? "missing",
+              instanceStatus: instance?.status,
+              instanceTitle: instance?.title,
+            },
+      candidates: allowed.map((candidate) => ({
+        id: businessChainTemplateId(candidate),
+        definitionId: candidate.id,
+        name: candidate.businessChain?.displayName ?? candidate.name,
+        version: candidate.version,
+        status: candidate.status,
+        chainKey: candidate.businessChain?.chainKey,
+        stageCount: candidate.graph?.nodes.length ?? 0,
+        sourceSystems: [
+          ...new Set(
+            (candidate.graph?.nodes ?? []).flatMap((node) =>
+              (node.businessChain?.externalRefs ?? []).map((ref) => ref.system),
+            ),
+          ),
+        ],
+        nodes: (candidate.graph?.nodes ?? [])
+          .map((node) => ({
+            nodeId: node.id,
+            name: node.name,
+            sequence: node.businessChain?.sequence ?? 0,
+            stageCode: node.businessChain?.stageCode ?? "",
+            externalRefs: [...(node.businessChain?.externalRefs ?? [])],
+            fields: [...(node.businessChain?.fields ?? [])],
+            executor: node.executor,
+          }))
+          .sort((left, right) => left.sequence - right.sequence),
+        updatedAt: candidate.updatedAt,
+      })),
+      nodes,
+      sources: Object.entries(sourceStatuses).map(([system, status]) => ({
+        system,
+        status,
+      })),
+    };
+  };
+
+  const businessChainRead = async (
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> => {
+    try {
+      assertSameOrigin(request);
+      const workspaceId = query(request).get("workspaceId") ?? "";
+      requireProjectManager(request, team, workspaceId);
+      const workspace = workspaces.get(workspaceId);
+      if (workspace === undefined) {
+        throw new ProjectError("not_found", "项目不存在");
+      }
+      const project = await ensureProjectRecord(workspace);
+      const template =
+        project.templateId === undefined
+          ? undefined
+          : service.template(project.templateId);
+      sendJson(response, 200, {
+        ok: true,
+        businessChain: await businessChainConfig(
+          workspaceId,
+          project,
+          template,
+          { includeSourceHealth: true },
+        ),
+      });
+    } catch (cause) {
+      routeError(response, cause);
+    }
+  };
+
+  const businessChainCandidates = async (
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> => {
+    try {
+      assertSameOrigin(request);
+      const workspaceId = query(request).get("workspaceId") ?? "";
+      requireProjectManager(request, team, workspaceId);
+      const workspace = workspaces.get(workspaceId);
+      if (workspace === undefined) {
+        throw new ProjectError("not_found", "项目不存在");
+      }
+      const project = await ensureProjectRecord(workspace);
+      const template =
+        project.templateId === undefined
+          ? undefined
+          : service.template(project.templateId);
+      const allowed = allowedBusinessChainDefinitions(
+        workflowDefinitions(),
+        template,
+        workspaceId,
+      );
+      sendJson(response, 200, {
+        ok: true,
+        candidates: allowed.map((definition) => ({
+          id: businessChainTemplateId(definition),
+          definitionId: definition.id,
+          name: definition.businessChain?.displayName ?? definition.name,
+          version: definition.version,
+          status: definition.status,
+          stageCount: definition.graph?.nodes.length ?? 0,
+        })),
+      });
+    } catch (cause) {
+      routeError(response, cause);
+    }
+  };
+
+  const businessChainValidate = async (
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> => {
+    try {
+      assertSameOrigin(request);
+      const body = await readBodyAs(request, businessChainValidateSchema);
+      requireProjectManager(request, team, body.workspaceId);
+      const workspace = workspaces.get(body.workspaceId);
+      if (workspace === undefined) {
+        throw new ProjectError("not_found", "项目不存在");
+      }
+      const project = await ensureProjectRecord(workspace);
+      const template =
+        project.templateId === undefined
+          ? undefined
+          : service.template(project.templateId);
+      const definitions = workflowDefinitions();
+      const definition = definitions.find(
+        (candidate) => candidate.id === body.definitionId,
+      );
+      const sourceStatuses = await businessChainSourceStatuses(
+        definition,
+        project.code,
+        body.workspaceId,
+      );
+      const validation = validateBusinessChainSelection({
+        workspaceId: body.workspaceId,
+        template,
+        definitions,
+        definitionId: body.definitionId,
+        projectCustom:
+          project.businessChainBinding?.bindingMode === "project-custom",
+        nodeBindings: body.nodeBindings,
+        sourceStatuses,
+      });
+      sendJson(response, 200, {
+        ok: true,
+        ...validation,
+        revision: project.businessChainRevision,
+      });
+    } catch (cause) {
+      routeError(response, cause);
+    }
+  };
+
+  const businessChainBind = async (
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> => {
+    try {
+      assertSameOrigin(request);
+      const body = await readBodyAs(request, businessChainBindSchema);
+      const current = requireProjectManager(request, team, body.workspaceId);
+      const workspace = workspaces.get(body.workspaceId);
+      if (workspace === undefined) {
+        throw new ProjectError("not_found", "项目不存在");
+      }
+      const project = await ensureProjectRecord(workspace);
+      const projectCustom =
+        project.businessChainBinding?.bindingMode === "project-custom";
+      const definitions = workflowDefinitions();
+      const definition = definitions.find(
+        (candidate) => candidate.id === body.definitionId,
+      );
+      if (definition === undefined) {
+        throw new ProjectError("not_found", "业务链路定义不存在");
+      }
+      const template =
+        project.templateId === undefined
+          ? undefined
+          : service.template(project.templateId);
+      const nowText = nowIso(now);
+      const effectiveTemplate = projectCustom
+        ? ({
+            id: project.templateId ?? "project-custom",
+            name: "项目自定义业务链路",
+            code: "PROJECT-CUSTOM",
+            type: "项目自定义",
+            status: "启用",
+            description: "",
+            roleIds: [],
+            workflowTemplateIds: [],
+            businessChainMode: "optional",
+            allowedBusinessChainTemplateIds: [
+              businessChainTemplateId(definition),
+            ],
+            defaultBusinessChainTemplateId: businessChainTemplateId(definition),
+            versionPolicy: "pin-at-project-create",
+            revision: 1,
+            createdAt: nowText,
+            updatedAt: nowText,
+          } satisfies ProjectTemplateRecord)
+        : template;
+      if (effectiveTemplate === undefined) {
+        throw new ProjectError("invalid_input", "项目还没有来源模版");
+      }
+      const sourceStatuses = await businessChainSourceStatuses(
+        definition,
+        project.code,
+        body.workspaceId,
+      );
+      const validation = validateBusinessChainSelection({
+        workspaceId: body.workspaceId,
+        template: effectiveTemplate,
+        definitions,
+        definitionId: body.definitionId,
+        projectCustom,
+        nodeBindings: body.nodeBindings,
+        sourceStatuses,
+      });
+      if (validation.blocking.length > 0) {
+        throw new ProjectError(
+          "invalid_input",
+          validation.blocking.map((issue) => issue.message).join("；"),
+          { blocking: validation.blocking },
+        );
+      }
+      if (validation.digest !== body.validationDigest) {
+        throw new ProjectError(
+          "revision_conflict",
+          "绑定校验结果已变化，请重新校验后再应用",
+        );
+      }
+      const updated = await service.saveBusinessChainBinding({
+        workspaceId: body.workspaceId,
+        expectedRevision: body.revision,
+        binding: bindingForDefinition({
+          project,
+          template: effectiveTemplate,
+          definition,
+          actorId: current.userId,
+          bindingMode: projectCustom
+            ? "project-custom"
+            : effectiveTemplate.defaultBusinessChainTemplateId ===
+                businessChainTemplateId(definition)
+              ? "template-default"
+              : "template-allowed",
+          nodeBindings: body.nodeBindings,
+        }),
+      });
+      await appendProjectAudit(current, body.workspaceId, {
+        category: "template",
+        action: "business-chain.bind",
+        targetId: definition.id,
+        targetName: definition.businessChain?.displayName ?? definition.name,
+        summary: `应用业务链路「${definition.businessChain?.displayName ?? definition.name}」`,
+        detail: {
+          定义版本: `v${definition.version}`,
+          来源模版: projectCustom ? "项目自定义" : effectiveTemplate.name,
+          模版版本: projectCustom
+            ? "项目级"
+            : String(effectiveTemplate.revision),
+          运行实例:
+            updated.businessChainBinding?.workflowInstanceId ?? "尚未启动",
+        },
+      });
+      sendJson(response, 200, {
+        ok: true,
+        project: updated,
+        businessChain: await businessChainConfig(
+          body.workspaceId,
+          updated,
+          effectiveTemplate,
+          { includeSourceHealth: true },
+        ),
+      });
+    } catch (cause) {
+      routeError(response, cause);
+    }
+  };
+
+  const businessChainInstanceAttach = async (
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> => {
+    try {
+      assertSameOrigin(request);
+      const body = await readBodyAs(
+        request,
+        z.object({
+          workspaceId: z.string().trim().min(1).max(160),
+          instanceId: z.string().trim().min(1).max(160),
+          revision: z.number().int().positive(),
+        }),
+      );
+      const current = requireProjectManager(request, team, body.workspaceId);
+      const workspace = workspaces.get(body.workspaceId);
+      if (workspace === undefined) {
+        throw new ProjectError("not_found", "项目不存在");
+      }
+      const project = await ensureProjectRecord(workspace);
+      const binding = project.businessChainBinding;
+      if (binding === undefined) {
+        throw new ProjectError("invalid_input", "请先应用业务链路");
+      }
+      const instance =
+        dependencies.workflows()?.instance?.(body.instanceId) ??
+        dependencies
+          .workflows()
+          ?.instances(body.workspaceId)
+          .find((candidate) => candidate.id === body.instanceId);
+      if (
+        instance === undefined ||
+        instance.definitionId !== binding.workflowDefinitionId ||
+        instance.definitionVersion !== binding.workflowDefinitionVersion
+      ) {
+        throw new ProjectError(
+          "invalid_input",
+          "工作流实例不存在或与当前业务链路快照不匹配",
+        );
+      }
+      const template =
+        project.templateId === undefined
+          ? undefined
+          : service.template(project.templateId);
+      const nowText = nowIso(now);
+      const effectiveTemplate =
+        binding.bindingMode === "project-custom"
+          ? ({
+              id: project.templateId ?? "project-custom",
+              name: "项目自定义业务链路",
+              code: "PROJECT-CUSTOM",
+              type: "项目自定义",
+              status: "启用",
+              description: "",
+              roleIds: [],
+              workflowTemplateIds: [],
+              businessChainMode: "optional",
+              allowedBusinessChainTemplateIds: [
+                binding.businessChainTemplateId,
+              ],
+              defaultBusinessChainTemplateId: binding.businessChainTemplateId,
+              versionPolicy: "pin-at-project-create",
+              revision: 1,
+              createdAt: nowText,
+              updatedAt: nowText,
+            } satisfies ProjectTemplateRecord)
+          : template;
+      if (effectiveTemplate === undefined) {
+        throw new ProjectError("invalid_input", "项目来源模版不存在");
+      }
+      const updated = await service.saveBusinessChainBinding({
+        workspaceId: body.workspaceId,
+        expectedRevision: body.revision,
+        binding: {
+          ...binding,
+          workflowInstanceId: instance.id,
+          boundBy: current.userId,
+        },
+      });
+      const workflows = dependencies.workflows();
+      for (const candidate of workflows?.instances(body.workspaceId) ?? []) {
+        if (
+          candidate.id !== instance.id &&
+          candidate.definitionKey === instance.definitionKey
+        ) {
+          await workflows?.discardInstance?.(candidate.id);
+        }
+      }
+      sendJson(response, 200, {
+        ok: true,
+        project: updated,
+        businessChain: await businessChainConfig(
+          body.workspaceId,
+          updated,
+          effectiveTemplate,
+          { includeSourceHealth: true },
+        ),
+      });
+    } catch (cause) {
+      routeError(response, cause);
+    }
+  };
+
+  const businessChainCustomBind = async (
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> => {
+    try {
+      assertSameOrigin(request);
+      const body = await readBodyAs(request, businessChainCustomBindSchema);
+      const current = requireProjectManager(request, team, body.workspaceId);
+      const workspace = workspaces.get(body.workspaceId);
+      if (workspace === undefined) {
+        throw new ProjectError("not_found", "项目不存在");
+      }
+      const project = await ensureProjectRecord(workspace);
+      const definition = workflowDefinitions().find(
+        (candidate) => candidate.id === body.definitionId,
+      );
+      if (definition === undefined) {
+        throw new ProjectError("not_found", "业务链路定义不存在");
+      }
+      const nowText = nowIso(now);
+      const syntheticTemplate: ProjectTemplateRecord = {
+        id: project.templateId ?? "project-custom",
+        name: "项目自定义业务链路",
+        code: "PROJECT-CUSTOM",
+        type: "项目自定义",
+        status: "启用",
+        description: "",
+        roleIds: [],
+        workflowTemplateIds: [],
+        businessChainMode: "optional",
+        allowedBusinessChainTemplateIds: [businessChainTemplateId(definition)],
+        defaultBusinessChainTemplateId: businessChainTemplateId(definition),
+        versionPolicy: "pin-at-project-create",
+        revision: 1,
+        createdAt: nowText,
+        updatedAt: nowText,
+      };
+      const sourceStatuses = await businessChainSourceStatuses(
+        definition,
+        project.code,
+        body.workspaceId,
+      );
+      const validation = validateBusinessChainSelection({
+        workspaceId: body.workspaceId,
+        template: syntheticTemplate,
+        definitions: workflowDefinitions(),
+        definitionId: body.definitionId,
+        nodeBindings: body.nodeBindings,
+        sourceStatuses,
+      });
+      if (validation.blocking.length > 0) {
+        throw new ProjectError(
+          "invalid_input",
+          validation.blocking.map((issue) => issue.message).join("；"),
+          { blocking: validation.blocking },
+        );
+      }
+      const updated = await service.saveBusinessChainBinding({
+        workspaceId: body.workspaceId,
+        expectedRevision: body.revision,
+        binding: bindingForDefinition({
+          project,
+          definition,
+          actorId: current.userId,
+          bindingMode: "project-custom",
+          nodeBindings: body.nodeBindings,
+        }),
+      });
+      const template =
+        project.templateId === undefined
+          ? undefined
+          : service.template(project.templateId);
+      await appendProjectAudit(current, body.workspaceId, {
+        category: "template",
+        action: "business-chain.custom.bind",
+        targetId: definition.id,
+        targetName: definition.businessChain?.displayName ?? definition.name,
+        summary: `应用项目自定义业务链路「${
+          definition.businessChain?.displayName ?? definition.name
+        }」`,
+        detail: {
+          定义版本: `v${definition.version}`,
+          来源: "项目级配置文件",
+        },
+      });
+      sendJson(response, 200, {
+        ok: true,
+        project: updated,
+        businessChain: await businessChainConfig(
+          body.workspaceId,
+          updated,
+          template,
+          { includeSourceHealth: true },
+        ),
+      });
+    } catch (cause) {
+      routeError(response, cause);
+    }
+  };
+
+  const uploadProjectDemoData = async (
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> => {
+    try {
+      assertSameOrigin(request);
+      const body = await readBodyAs(request, demoDataUploadSchema);
+      const current = requireProjectManager(request, team, body.workspaceId);
+      const workspace = workspaces.get(body.workspaceId);
+      if (workspace === undefined) {
+        throw new ProjectError("not_found", "项目不存在");
+      }
+      const project = await ensureProjectRecord(workspace);
+      const binding = project.businessChainBinding;
+      if (binding === undefined) {
+        throw new ProjectError(
+          "invalid_input",
+          "请先绑定业务链路，再上传演示数据配置",
+        );
+      }
+      const definition = dependencies
+        .workflows()
+        ?.definition?.(binding.workflowDefinitionId) as
+        BusinessChainDefinitionLike | undefined;
+      const nodes = new Map(
+        (definition?.graph?.nodes ?? []).map((node) => [node.id, node]),
+      );
+      if (nodes.size === 0) {
+        throw new ProjectError("invalid_input", "当前业务链路定义不可用");
+      }
+      for (const [nodeId, demoNode] of Object.entries(body.data.nodes)) {
+        const node = nodes.get(nodeId);
+        if (node === undefined) {
+          throw new ProjectError(
+            "invalid_input",
+            `演示数据包含未知节点：${nodeId}`,
+          );
+        }
+        const fieldKeys = new Set(
+          (node.businessChain?.fields ?? []).map((field) => field.key),
+        );
+        for (const fieldKey of Object.keys(demoNode.fields)) {
+          if (!fieldKeys.has(fieldKey)) {
+            throw new ProjectError(
+              "invalid_input",
+              `节点「${node.name}」没有字段：${fieldKey}`,
+            );
+          }
+        }
+      }
+      for (const event of body.data.changeEvents) {
+        for (const nodeId of event.linkedNodeIds) {
+          if (!nodes.has(nodeId)) {
+            throw new ProjectError(
+              "invalid_input",
+              `变更记录引用未知节点：${nodeId}`,
+            );
+          }
+        }
+      }
+      const uploadedAt = nowIso(now);
+      const demoDataConfig: ProjectDemoDataConfig = {
+        fileName: body.fileName,
+        uploadedAt,
+        uploadedBy: current.userId,
+        data: body.data,
+      };
+      const saved = await service.upsertProject({
+        workspaceId: body.workspaceId,
+        demoDataConfig,
+      });
+      await appendProjectAudit(current, body.workspaceId, {
+        category: "project",
+        action: "project.demo-data.upload",
+        targetId: body.fileName,
+        targetName: body.fileName,
+        summary: `上传项目概览演示数据「${body.fileName}」`,
+      });
+      sendJson(response, 200, {
+        ok: true,
+        demoData: {
+          fileName: demoDataConfig.fileName,
+          uploadedAt: demoDataConfig.uploadedAt,
+          uploadedBy: demoDataConfig.uploadedBy,
+        },
+        project: saved,
+      });
+    } catch (cause) {
+      routeError(response, cause);
+    }
+  };
+
+  const progressOverview = async (
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> => {
+    try {
+      assertSameOrigin(request);
+      const workspaceId = query(request).get("workspaceId") ?? "";
+      requireWorkspaceAccess(request, team, workspaceId);
+      const workspace = workspaces.get(workspaceId);
+      if (workspace === undefined) {
+        throw new ProjectError("not_found", "项目不存在");
+      }
+      const project = await ensureProjectRecord(workspace);
+      const template =
+        project.templateId === undefined
+          ? undefined
+          : service.template(project.templateId);
+      const workflows = dependencies.workflows();
+      const binding = project.businessChainBinding;
+      const definition =
+        binding === undefined
+          ? undefined
+          : (workflows?.definition?.(binding.workflowDefinitionId) as
+              | {
+                  id: string;
+                  key: string;
+                  version: number;
+                  name: string;
+                  status: string;
+                  workspaceId: string;
+                  kind?: string;
+                  businessChain?: Record<string, unknown>;
+                  graph?: {
+                    nodes: readonly {
+                      id: string;
+                      name: string;
+                      type?: string;
+                      executor?: Record<string, unknown>;
+                      responsible?: Record<string, unknown>;
+                      businessChain?: Record<string, unknown>;
+                    }[];
+                    edges?: readonly { from: string; to: string }[];
+                  };
+                }
+              | undefined);
+      const instance =
+        binding?.workflowInstanceId === undefined
+          ? undefined
+          : (workflows?.instance?.(binding.workflowInstanceId) ??
+            workflows
+              ?.instances(workspaceId)
+              .find((item) => item.id === binding.workflowInstanceId));
+      const registry = dependencies.progressSources?.();
+      if (registry === undefined) {
+        throw new ProjectError("invalid_input", "项目概览数据源服务未配置");
+      }
+      const memberNames = Object.fromEntries(
+        team.users().map((user) => [user.id, user.name] as const),
+      );
+      const builder = new ProjectProgressOverviewService({
+        sources: registry,
+        ...(dependencies.now === undefined ? {} : { now: dependencies.now }),
+      });
+      const detailed = await builder.buildDetailed({
+        project,
+        template,
+        definition: definition as never,
+        instance: instance as never,
+        tasks: tasksOf(workspaceId),
+        reports: service.reports(workspaceId),
+        events:
+          binding?.workflowInstanceId === undefined
+            ? []
+            : (workflows?.events?.(binding.workflowInstanceId) ?? []),
+        memberNames,
+      });
+      const alerts =
+        binding === undefined
+          ? []
+          : await service.upsertProjectAlerts(
+              workspaceId,
+              detailed.alertCandidates,
+              {
+                observedAt: detailed.overview.generatedAt,
+                staleConditionKeys: detailed.staleConditionKeys,
+                sourceStatuses: detailed.sourceStatuses,
+              },
+            );
+      const overview = hydrateOverviewAlerts(detailed.overview, alerts);
+      sendJson(response, 200, { ok: true, overview });
+    } catch (cause) {
+      routeError(response, cause);
+    }
+  };
+
+  const alertTransition = async (
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> => {
+    try {
+      assertSameOrigin(request);
+      const body = await readBodyAs(
+        request,
+        z.object({
+          workspaceId: z.string().trim().min(1).max(160),
+          alertId: z.string().trim().min(1).max(300),
+          action: z.enum([
+            "acknowledge",
+            "start",
+            "resolve",
+            "suppress",
+            "reopen",
+          ]),
+          suppressedUntil: z.string().datetime({ precision: 3 }).optional(),
+        }),
+      );
+      const current = requireWorkspaceAccess(request, team, body.workspaceId);
+      const actorPrincipalId = dependencies
+        .principals?.()
+        ?.resolveSubject("auth-user", current.userId)?.id;
+      const alert = await service.transitionProjectAlert({
+        workspaceId: body.workspaceId,
+        alertId: body.alertId,
+        action: body.action,
+        ...(actorPrincipalId === undefined ? {} : { actorPrincipalId }),
+        ...(body.suppressedUntil === undefined
+          ? {}
+          : { suppressedUntil: body.suppressedUntil }),
+      });
+      await appendProjectAudit(current, body.workspaceId, {
+        category: "project",
+        action: `alert.${body.action}`,
+        targetId: alert.alertId,
+        targetName: alert.title,
+        summary: `更新 Alert「${alert.title}」`,
+        detail: { 生命周期: alert.lifecycle },
+      });
+      sendJson(response, 200, { ok: true, alert });
+    } catch (cause) {
+      routeError(response, cause);
+    }
+  };
+
   return [
     { kind: "exact", path: "/api/collab/projects", handler: list },
     { kind: "exact", path: "/api/collab/projects/detail", handler: detail },
@@ -4997,6 +6428,11 @@ export function createProjectRoutes(
       kind: "exact",
       path: "/api/collab/projects/templates/save",
       handler: templateSave,
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/projects/templates/from-project",
+      handler: templateFromProject,
     },
     {
       kind: "exact",
@@ -5083,6 +6519,51 @@ export function createProjectRoutes(
       kind: "exact",
       path: "/api/collab/projects/history",
       handler: history,
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/projects/business-chain",
+      handler: businessChainRead,
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/projects/business-chain/candidates",
+      handler: businessChainCandidates,
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/projects/business-chain/validate",
+      handler: businessChainValidate,
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/projects/business-chain/bind",
+      handler: businessChainBind,
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/projects/business-chain/custom",
+      handler: businessChainCustomBind,
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/projects/business-chain/instance",
+      handler: businessChainInstanceAttach,
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/projects/demo-data/upload",
+      handler: uploadProjectDemoData,
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/projects/progress-overview",
+      handler: progressOverview,
+    },
+    {
+      kind: "exact",
+      path: "/api/collab/projects/alerts/transition",
+      handler: alertTransition,
     },
   ];
 }
@@ -5277,8 +6758,52 @@ export async function ensureProjectManagerInstance(input: {
 interface ProjectReportGenerationResult {
   readonly content: string;
   readonly generationMode: "agent" | "deterministic_fallback";
+  readonly skillId: string;
+  readonly skillVersion: string;
   readonly agentRunId?: string;
   readonly generationError?: string;
+}
+
+interface ProjectReportSkillSnapshot {
+  readonly id: string;
+  readonly name?: string | undefined;
+  readonly version: string;
+  readonly instructions?: string | undefined;
+  readonly resolved: boolean;
+}
+
+async function resolveProjectReportSkill(
+  dependencies: ProjectDependencies,
+  userId: string,
+): Promise<ProjectReportSkillSnapshot> {
+  const fallback = {
+    id: PROJECT_REPORTING_SKILL_ID,
+    version: DEFAULT_PROJECT_REPORTING_SKILL_VERSION,
+    resolved: false,
+  } as const;
+  try {
+    const skill = (
+      await dependencies
+        .skillCatalog?.()
+        ?.resolveSkills({ userId }, [PROJECT_REPORTING_SKILL_ID], {
+          requireInstallation: false,
+        })
+    )?.[0];
+    if (skill === undefined) return fallback;
+    const instructions = skill.instructions?.trim();
+    return {
+      id: skill.id,
+      version: skill.version,
+      resolved: true,
+      ...(skill.name === undefined ? {} : { name: skill.name }),
+      ...(instructions === undefined || instructions === ""
+        ? {}
+        : { instructions }),
+    };
+  } catch {
+    // Reporting remains available if the resource market is temporarily unavailable.
+    return fallback;
+  }
 }
 
 function reportHeadingsFor(reportType: ProjectReportType): readonly string[] {
@@ -5287,12 +6812,20 @@ function reportHeadingsFor(reportType: ProjectReportType): readonly string[] {
         "本周结论",
         "目标与里程碑进展",
         "关键结果",
+        "指标与风险趋势",
         "阻塞、依赖与需决策事项",
         "下周计划",
       ]
     : reportType === "progress"
       ? ["当前状态", "与计划的差异", "已完成", "风险与依赖", "需要支持或决策"]
-      : ["一句话结论", "指标快照", "关键结果", "风险与异常", "待确认与下一步"];
+      : [
+          "一句话结论",
+          "项目健康度与计划偏差",
+          "关键结果",
+          "业务数据异常",
+          "推进异常",
+          "待确认与下一步",
+        ];
 }
 
 function normalizeProjectAgentReport(content: string): string {
@@ -5368,6 +6901,24 @@ async function waitForProjectAgentRun(
   return agent.run?.(runId);
 }
 
+async function withProjectReportTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 /**
  * 确定性事实包约束的 PM Agent 生成。数字必须来自事实包，标题必须满足
  * 汇报结构；任一校验失败均回退到确定性模板并记录原因。
@@ -5383,6 +6934,10 @@ export async function generateProjectReportContent(input: {
   readonly date: string;
   readonly reportType: ProjectReportType;
 }): Promise<ProjectReportGenerationResult> {
+  const reportSkill = await resolveProjectReportSkill(
+    input.dependencies,
+    input.current.userId,
+  );
   const baseline = buildProjectReportContent({
     project: input.project,
     workspace: input.workspace,
@@ -5391,6 +6946,15 @@ export async function generateProjectReportContent(input: {
     today: input.date,
     reportType: input.reportType,
   });
+  if (!reportSkill.resolved) {
+    return {
+      content: baseline,
+      generationMode: "deterministic_fallback",
+      skillId: reportSkill.id,
+      skillVersion: reportSkill.version,
+      generationError: "资源市场项目汇报 Skill 未加载，已使用内置结构生成",
+    };
+  }
   const assessment = assessProjectReport({
     project: input.project,
     workspace: input.workspace,
@@ -5410,6 +6974,8 @@ export async function generateProjectReportContent(input: {
     return {
       content: baseline,
       generationMode: "deterministic_fallback",
+      skillId: reportSkill.id,
+      skillVersion: reportSkill.version,
       generationError: "项目经理 Agent 运行服务不可用",
     };
   }
@@ -5530,6 +7096,16 @@ export async function generateProjectReportContent(input: {
       deterministicBaseline: baseline,
     };
     const serializedFactPack = JSON.stringify(factPack);
+    const skillSection =
+      reportSkill.instructions === undefined
+        ? []
+        : [
+            "",
+            "## 场景 Skill 指令",
+            reportSkill.instructions,
+            "",
+            "Skill 指令与平台契约冲突时，以平台契约、事实包和校验规则为准。",
+          ];
     const instruction = [
       `请为项目「${input.workspace.title}」生成 ${input.date} ${reportLabel}。`,
       "",
@@ -5541,48 +7117,53 @@ export async function generateProjectReportContent(input: {
         .join("、")}。`,
       "- 先给结论，再给证据；结果优先于动作；风险和下一步必须具体。",
       "- 不得调用 project_report_generate，也不能自行写入文件。",
+      ...skillSection,
       "",
       "## 项目事实包",
       serializedFactPack,
     ].join("\n");
-    const dispatched = await agent.dispatch({
-      workspaceId: input.workspace.id,
-      workspacePath: input.workspace.path,
-      profileId: ensured.profileId,
-      source: "chat",
-      instanceId: `project-report-${input.workspace.id}`,
-      nodeId: "project-report",
-      dispatchKey: `project-report:${input.workspace.id}:${input.date}:${input.reportType}`,
-      trigger: "manual-dispatch",
-      attempt: 1,
-      runSeq: 1,
-      maxAttempts: 1,
-      timeoutMs: 90_000,
-      ...(ensured.personaId === undefined
-        ? {}
-        : { personaId: ensured.personaId }),
-      ...(ensured.principalId === undefined
-        ? {}
-        : {
-            principalId: ensured.principalId,
-            principalType: "principal-runtime" as const,
-          }),
-      payload: {
-        instanceTitle: `${input.date} ${reportLabel}`,
-        nodeName: "项目汇报生成",
-        nodeDescription: instruction.slice(0, 2_000),
-        profileName: projectManager.name,
-        deliverables: [],
-        context: {
-          instruction,
-          reportType: input.reportType,
-          reportDate: input.date,
-          projectId: input.workspace.id,
-          transcript: "",
+    const dispatched = await withProjectReportTimeout(
+      agent.dispatch({
+        workspaceId: input.workspace.id,
+        workspacePath: input.workspace.path,
+        profileId: ensured.profileId,
+        source: "chat",
+        instanceId: `project-report-${input.workspace.id}`,
+        nodeId: "project-report",
+        dispatchKey: `project-report:${input.workspace.id}:${input.date}:${input.reportType}`,
+        trigger: "manual-dispatch",
+        attempt: 1,
+        runSeq: 1,
+        maxAttempts: 1,
+        timeoutMs: 90_000,
+        ...(ensured.personaId === undefined
+          ? {}
+          : { personaId: ensured.personaId }),
+        ...(ensured.principalId === undefined
+          ? {}
+          : {
+              principalId: ensured.principalId,
+              principalType: "principal-runtime" as const,
+            }),
+        payload: {
+          instanceTitle: `${input.date} ${reportLabel}`,
+          nodeName: "项目汇报生成",
+          nodeDescription: instruction.slice(0, 2_000),
+          profileName: projectManager.name,
+          deliverables: [],
+          context: {
+            instruction,
+            reportType: input.reportType,
+            reportDate: input.date,
+            projectId: input.workspace.id,
+            transcript: "",
+          },
         },
-      },
-      createdBy: input.current.userId,
-    });
+        createdBy: input.current.userId,
+      }),
+      20_000,
+      "项目经理 Agent 派发超时",
+    );
     const completed = await waitForProjectAgentRun(
       agent,
       dispatched.id,
@@ -5592,6 +7173,8 @@ export async function generateProjectReportContent(input: {
       return {
         content: baseline,
         generationMode: "deterministic_fallback",
+        skillId: reportSkill.id,
+        skillVersion: reportSkill.version,
         ...(dispatched.id === "" ? {} : { agentRunId: dispatched.id }),
         generationError:
           completed?.error ??
@@ -5607,6 +7190,8 @@ export async function generateProjectReportContent(input: {
       return {
         content: baseline,
         generationMode: "deterministic_fallback",
+        skillId: reportSkill.id,
+        skillVersion: reportSkill.version,
         agentRunId: dispatched.id,
         generationError: validation.error,
       };
@@ -5614,12 +7199,16 @@ export async function generateProjectReportContent(input: {
     return {
       content: validation.content,
       generationMode: "agent",
+      skillId: reportSkill.id,
+      skillVersion: reportSkill.version,
       agentRunId: dispatched.id,
     };
   } catch (cause) {
     return {
       content: baseline,
       generationMode: "deterministic_fallback",
+      skillId: reportSkill.id,
+      skillVersion: reportSkill.version,
       generationError: cause instanceof Error ? cause.message : String(cause),
     };
   }
@@ -5666,7 +7255,7 @@ export async function runScheduledProjectReports(
       const workflows = [
         ...(dependencies.workflows()?.instances(project.workspaceId) ?? []),
       ];
-      const generatedAt = `${clock.date.slice(5)} ${clock.time}`;
+      const generatedAt = nowIso(now);
       const generatedReport = await generateProjectReportContent({
         dependencies,
         workspace,
@@ -5689,8 +7278,8 @@ export async function runScheduledProjectReports(
           ? {}
           : { generatedByTeammateId: projectManager.id }),
         runId,
-        skillId: "skill-project-reporting",
-        skillVersion: "1.0.0",
+        skillId: generatedReport.skillId,
+        skillVersion: generatedReport.skillVersion,
         triggerSource: "schedule",
         generationMode: generatedReport.generationMode,
         ...(generatedReport.generationError === undefined
@@ -5802,6 +7391,12 @@ function projectDependenciesFor(
     skillCatalog: () =>
       ctx.get("collabResourceMarket") as ProjectSkillCatalogLike | undefined,
     agent: () => ctx.get("collabAgent") as ProjectAgentServiceLike | undefined,
+    progressSources: () =>
+      new MockScenarioSourceRegistry({
+        docsRoot:
+          process.env.DSH_PROJECT_PROGRESS_DOCS ??
+          resolve(process.cwd(), "docs/project-progress-overview"),
+      }),
   };
 }
 
@@ -5813,6 +7408,7 @@ export async function apply(ctx: ProjectContext): Promise<void> {
     roles: domain.table("roles"),
     reports: domain.table("reports"),
     audit: domain.table("audit"),
+    alerts: domain.table("alerts"),
   });
   await service.seedDefaults();
   ctx.provide("collabProjects", service);
@@ -5926,7 +7522,9 @@ export async function apply(ctx: ProjectContext): Promise<void> {
                 );
               }
               const timestamp = new Date().toISOString();
-              const date = args.date ?? timestamp.slice(0, 10);
+              const date =
+                args.date ??
+                projectReportScheduleClock(new Date(), "Asia/Shanghai").date;
               const project = await service.ensureProject({
                 workspaceId: workspace.id,
                 ...ownerOfWorkspace(child.collabTeam, workspace.id),
@@ -5940,16 +7538,10 @@ export async function apply(ctx: ProjectContext): Promise<void> {
                   child.get("collabWorkflow") as WorkflowServiceLike | undefined
                 )?.instances(workspace.id) ?? [];
               const runId = `report-run-${randomUUID()}`;
-              const reportSkill = (
-                await (
-                  child.get("collabResourceMarket") as
-                    ProjectSkillCatalogLike | undefined
-                )?.resolveSkills(
-                  { userId: run.createdBy },
-                  ["skill-project-reporting"],
-                  { requireInstallation: false },
-                )
-              )?.[0];
+              const reportSkill = await resolveProjectReportSkill(
+                reportDependencies,
+                run.createdBy,
+              );
               const report = await service.saveReport({
                 workspaceId: workspace.id,
                 date,
@@ -5960,12 +7552,12 @@ export async function apply(ctx: ProjectContext): Promise<void> {
                 ...(args.periodEnd === undefined
                   ? {}
                   : { periodEnd: args.periodEnd }),
-                generatedAt: `${date.slice(5)} ${timestamp.slice(11, 16)}`,
+                generatedAt: timestamp,
                 generatedBy: projectManager.name,
                 generatedByTeammateId: projectManager.id,
                 runId,
-                skillId: "skill-project-reporting",
-                skillVersion: reportSkill?.version ?? "1.0.0",
+                skillId: reportSkill.id,
+                skillVersion: reportSkill.version,
                 triggerSource: run.source === "task" ? "task" : "chat",
                 generationMode: "deterministic_fallback",
                 generationError: "项目经理工具调用路径当前使用确定性模板生成",

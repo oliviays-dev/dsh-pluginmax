@@ -1,12 +1,16 @@
 import { z } from "zod";
 import {
   projectAuditRecordSchema,
+  projectAlertRecordSchema,
+  projectBusinessChainBindingSchema,
   projectRecordSchema,
   projectReportRecordSchema,
   projectRoleRecordSchema,
   projectTemplateRecordSchema,
   type ProjectAuditCategory,
   type ProjectAuditRecord,
+  type ProjectAlertRecord,
+  type ProjectBusinessChainBinding,
   type ProjectRecord,
   type ProjectRoleDefinition,
   type ProjectReportRecord,
@@ -36,6 +40,7 @@ export interface ProjectTables {
   readonly roles: KvTableLike<ProjectRoleRecord>;
   readonly reports: KvTableLike<ProjectReportRecord>;
   readonly audit: KvTableLike<ProjectAuditRecord>;
+  readonly alerts: KvTableLike<ProjectAlertRecord>;
 }
 
 export class ProjectError extends Error {
@@ -67,6 +72,19 @@ function parseOrInvalid<V>(schema: SchemaLike<V>, value: unknown): V {
 
 function tableValues<V>(table: KvTableLike<V>): V[] {
   return Array.from(table.entries(), ([, value]) => value);
+}
+
+function stableId(value: string): string {
+  let hash = 2166136261;
+  for (const character of value) {
+    hash ^= character.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function alertKey(alert: ProjectAlertRecord): string {
+  return `${alert.workspaceId}::${alert.alertId}`;
 }
 
 /**
@@ -272,6 +290,10 @@ export interface ProjectUpsertInput {
   readonly rolesRevision?: number | undefined;
   readonly rolesUpdatedAt?: string | undefined;
   readonly rolesUpdatedBy?: string | undefined;
+  readonly businessChainBinding?: ProjectBusinessChainBinding | undefined;
+  readonly businessChainRevision?: number | undefined;
+  readonly businessChainValidatedAt?: string | undefined;
+  readonly demoDataConfig?: ProjectRecord["demoDataConfig"] | undefined;
   readonly reportSchedule?: ProjectRecord["reportSchedule"] | undefined;
 }
 
@@ -368,6 +390,14 @@ export class ProjectService {
       rolesRevision: input.rolesRevision ?? existing?.rolesRevision ?? 1,
       rolesUpdatedAt: input.rolesUpdatedAt ?? existing?.rolesUpdatedAt,
       rolesUpdatedBy: input.rolesUpdatedBy ?? existing?.rolesUpdatedBy,
+      businessChainBinding:
+        input.businessChainBinding ?? existing?.businessChainBinding,
+      businessChainRevision:
+        input.businessChainRevision ?? existing?.businessChainRevision ?? 1,
+      businessChainValidatedAt:
+        input.businessChainValidatedAt ??
+        existing?.businessChainValidatedAt,
+      demoDataConfig: input.demoDataConfig ?? existing?.demoDataConfig,
       reportSchedule:
         input.reportSchedule ??
         existing?.reportSchedule ??
@@ -569,14 +599,20 @@ export class ProjectService {
 
   // --------------------------------------------------------------- templates
 
+  private normalizeTemplate(value: ProjectTemplateRecord): ProjectTemplateRecord {
+    const parsed = projectTemplateRecordSchema.safeParse(value);
+    return parsed.success ? parsed.data : value;
+  }
+
   templates(): ProjectTemplateRecord[] {
-    return tableValues(this.tables.templates).sort((left, right) =>
-      left.id.localeCompare(right.id),
-    );
+    return tableValues(this.tables.templates)
+      .map((template) => this.normalizeTemplate(template))
+      .sort((left, right) => left.id.localeCompare(right.id));
   }
 
   template(id: string): ProjectTemplateRecord | undefined {
-    return this.tables.templates.get(id);
+    const value = this.tables.templates.get(id);
+    return value === undefined ? undefined : this.normalizeTemplate(value);
   }
 
   async saveTemplate(input: {
@@ -588,6 +624,16 @@ export class ProjectService {
     readonly description?: string | undefined;
     readonly roleIds?: readonly string[] | undefined;
     readonly workflowTemplateIds?: readonly string[] | undefined;
+    readonly businessChainMode?:
+      | ProjectTemplateRecord["businessChainMode"]
+      | undefined;
+    readonly allowedBusinessChainTemplateIds?:
+      | readonly string[]
+      | undefined;
+    readonly defaultBusinessChainTemplateId?: string | undefined;
+    readonly versionPolicy?:
+      | ProjectTemplateRecord["versionPolicy"]
+      | undefined;
   }): Promise<ProjectTemplateRecord> {
     const existing = this.template(input.id);
     const duplicate = this.templates().find(
@@ -602,6 +648,48 @@ export class ProjectService {
         throw new ProjectError("invalid_input", `项目角色不存在：${roleId}`);
       }
     }
+    const businessChainMode =
+      input.businessChainMode ?? existing?.businessChainMode ?? "none";
+    const allowedBusinessChainTemplateIds = [
+      ...new Set(
+        input.allowedBusinessChainTemplateIds ??
+          existing?.allowedBusinessChainTemplateIds ??
+          [],
+      ),
+    ];
+    const defaultBusinessChainTemplateId =
+      input.defaultBusinessChainTemplateId === undefined
+        ? existing?.defaultBusinessChainTemplateId
+        : input.defaultBusinessChainTemplateId.trim() === ""
+          ? undefined
+          : input.defaultBusinessChainTemplateId;
+    if (businessChainMode === "none") {
+      if (
+        allowedBusinessChainTemplateIds.length > 0 ||
+        defaultBusinessChainTemplateId !== undefined
+      ) {
+        throw new ProjectError(
+          "invalid_input",
+          "不使用业务链路时不能配置默认或候选业务链路",
+        );
+      }
+    } else if (businessChainMode === "required") {
+      if (defaultBusinessChainTemplateId === undefined) {
+        throw new ProjectError(
+          "invalid_input",
+          "必须绑定业务链路时必须指定默认业务链路",
+        );
+      }
+    }
+    if (
+      defaultBusinessChainTemplateId !== undefined &&
+      !allowedBusinessChainTemplateIds.includes(defaultBusinessChainTemplateId)
+    ) {
+      throw new ProjectError(
+        "invalid_input",
+        "默认业务链路必须包含在候选业务链路内",
+      );
+    }
     const timestamp = this.nowIso();
     const record = parseOrInvalid(projectTemplateRecordSchema, {
       id: input.id,
@@ -614,6 +702,12 @@ export class ProjectService {
       workflowTemplateIds: [
         ...(input.workflowTemplateIds ?? existing?.workflowTemplateIds ?? []),
       ],
+      businessChainMode,
+      allowedBusinessChainTemplateIds,
+      defaultBusinessChainTemplateId,
+      versionPolicy:
+        input.versionPolicy ?? existing?.versionPolicy ?? "pin-at-project-create",
+      revision: existing === undefined ? 1 : existing.revision + 1,
       createdAt: existing?.createdAt ?? timestamp,
       updatedAt: timestamp,
     });
@@ -626,6 +720,63 @@ export class ProjectService {
       throw new ProjectError("not_found", "项目模版不存在");
     }
     await this.tables.templates.delete(id);
+  }
+
+  /**
+   * 保存项目业务链路快照。调用方必须先用当前工作流定义完成授权和绑定校验；
+   * 这里再次检查项目来源模版的允许范围和 revision，但不读取工作流存储。
+   */
+  async saveBusinessChainBinding(input: {
+    readonly workspaceId: string;
+    readonly expectedRevision: number;
+    readonly binding: Omit<ProjectBusinessChainBinding, "boundAt">;
+  }): Promise<ProjectRecord> {
+    const project = this.project(input.workspaceId);
+    if (project === undefined) {
+      throw new ProjectError("not_found", "项目不存在");
+    }
+    if (input.expectedRevision !== project.businessChainRevision) {
+      throw new ProjectError(
+        "revision_conflict",
+        "业务链路已被其他人更新，请重新加载后再应用",
+        { currentRevision: project.businessChainRevision },
+      );
+    }
+    if (input.binding.bindingMode !== "project-custom") {
+      const template = this.template(input.binding.projectTemplateId);
+      if (template === undefined) {
+        throw new ProjectError("not_found", "项目来源模版不存在");
+      }
+      if (project.templateId !== template.id) {
+        throw new ProjectError(
+          "conflict",
+          "业务链路来源与项目当前模版不一致，请刷新后重试",
+        );
+      }
+      if (template.businessChainMode === "none") {
+        throw new ProjectError("invalid_input", "当前项目模版不使用业务链路");
+      }
+      if (
+        !template.allowedBusinessChainTemplateIds.includes(
+          input.binding.businessChainTemplateId,
+        )
+      ) {
+        throw new ProjectError(
+          "forbidden",
+          "所选业务链路不在项目模版允许范围内",
+        );
+      }
+    }
+    const binding = parseOrInvalid(projectBusinessChainBindingSchema, {
+      ...input.binding,
+      boundAt: this.nowIso(),
+    });
+    return this.upsertProject({
+      workspaceId: input.workspaceId,
+      businessChainBinding: binding,
+      businessChainRevision: project.businessChainRevision + 1,
+      businessChainValidatedAt: binding.boundAt,
+    });
   }
 
   // ----------------------------------------------------------------- reports
@@ -766,6 +917,178 @@ export class ProjectService {
       .slice(0, limit);
   }
 
+  // ------------------------------------------------------------------ alerts
+
+  alerts(workspaceId: string): ProjectAlertRecord[] {
+    return tableValues(this.tables.alerts)
+      .filter((alert) => alert.workspaceId === workspaceId)
+      .sort(
+        (left, right) =>
+          right.lastSeenAt.localeCompare(left.lastSeenAt) ||
+          left.alertId.localeCompare(right.alertId),
+      );
+  }
+
+  async transitionProjectAlert(input: {
+    readonly workspaceId: string;
+    readonly alertId: string;
+    readonly action:
+      | "acknowledge"
+      | "start"
+      | "resolve"
+      | "suppress"
+      | "reopen";
+    readonly actorPrincipalId?: string | undefined;
+    readonly suppressedUntil?: string | undefined;
+  }): Promise<ProjectAlertRecord> {
+    const alert = this.alerts(input.workspaceId).find(
+      (candidate) => candidate.alertId === input.alertId,
+    );
+    if (alert === undefined) {
+      throw new ProjectError("not_found", "Alert 不存在");
+    }
+    const timestamp = this.nowIso();
+    const lifecycle =
+      input.action === "acknowledge"
+        ? "acknowledged"
+        : input.action === "start"
+          ? "in_progress"
+          : input.action === "resolve"
+            ? "resolved"
+            : input.action === "suppress"
+              ? "suppressed"
+              : "open";
+    const record = parseOrInvalid(projectAlertRecordSchema, {
+      ...alert,
+      lifecycle,
+      lastSeenAt: timestamp,
+      ...(input.action === "resolve" ? { resolvedAt: timestamp } : {}),
+      ...(input.action === "resolve"
+        ? {}
+        : { resolvedAt: alert.resolvedAt }),
+      ...(input.actorPrincipalId === undefined ||
+      input.action === "resolve"
+        ? {}
+        : { assigneePrincipalId: input.actorPrincipalId }),
+      ...(input.action === "suppress"
+        ? {
+            suppressedUntil:
+              input.suppressedUntil ??
+              new Date(this.options.now().getTime() + 24 * 60 * 60 * 1_000)
+                .toISOString(),
+          }
+        : {}),
+    });
+    await this.tables.alerts.put(alertKey(record), record);
+    return record;
+  }
+
+  /** 同一 conditionKey 只保留一个投影；重新命中时复用 alertId。 */
+  async upsertProjectAlerts(
+    workspaceId: string,
+    candidates: readonly Omit<
+      ProjectAlertRecord,
+      | "alertId"
+      | "workspaceId"
+      | "firstSeenAt"
+      | "lastSeenAt"
+      | "followTargetId"
+    >[],
+    options: {
+      readonly observedAt: string;
+      readonly staleConditionKeys?: ReadonlySet<string>;
+      readonly sourceStatuses?: Readonly<
+        Record<string, "fresh" | "stale" | "error" | "missing">
+      >;
+    },
+  ): Promise<ProjectAlertRecord[]> {
+    const existing = this.alerts(workspaceId);
+    const latestByCondition = new Map<string, ProjectAlertRecord>();
+    for (const alert of existing) {
+      if (!latestByCondition.has(alert.conditionKey)) {
+        latestByCondition.set(alert.conditionKey, alert);
+      }
+    }
+    const activeByCondition = new Map(
+      existing
+        .filter((alert) => alert.lifecycle !== "resolved")
+        .map((alert) => [alert.conditionKey, alert]),
+    );
+    const candidateKeys = new Set(
+      candidates.map((candidate) => candidate.conditionKey),
+    );
+    const seenKeys = new Set<string>();
+    for (const candidate of candidates) {
+      if (seenKeys.has(candidate.conditionKey)) continue;
+      seenKeys.add(candidate.conditionKey);
+      const current = latestByCondition.get(candidate.conditionKey);
+      const alertId =
+        current?.alertId ??
+        `project-alert:${stableId(`${workspaceId}:${candidate.conditionKey}`)}`;
+      const lifecycle = options.staleConditionKeys?.has(candidate.conditionKey)
+        ? "stale"
+        : current === undefined ||
+            current.lifecycle === "resolved" ||
+            current.lifecycle === "stale"
+          ? "open"
+          : current.lifecycle === "suppressed" &&
+              current.suppressedUntil !== undefined &&
+              current.suppressedUntil > options.observedAt
+            ? "suppressed"
+            : current.lifecycle;
+      const record = parseOrInvalid(projectAlertRecordSchema, {
+        ...candidate,
+        alertId,
+        workspaceId,
+        lifecycle,
+        firstSeenAt: current?.firstSeenAt ?? options.observedAt,
+        lastSeenAt: options.observedAt,
+        followTargetId: current?.followTargetId ?? alertId,
+        ...(current?.resolvedAt === undefined
+          ? {}
+          : { resolvedAt: current.resolvedAt }),
+        ...(current?.assigneePrincipalId === undefined
+          ? {}
+          : { assigneePrincipalId: current.assigneePrincipalId }),
+      });
+      await this.tables.alerts.put(alertKey(record), record);
+    }
+    for (const alert of activeByCondition.values()) {
+      if (candidateKeys.has(alert.conditionKey)) continue;
+      const sourceStatus =
+        options.sourceStatuses?.[alert.sourceSystem];
+      if (options.staleConditionKeys?.has(alert.conditionKey) === true) {
+        if (alert.lifecycle !== "stale") {
+          const stale = parseOrInvalid(projectAlertRecordSchema, {
+            ...alert,
+            lifecycle: "stale",
+            lastSeenAt: options.observedAt,
+          });
+          await this.tables.alerts.put(alertKey(stale), stale);
+        }
+        continue;
+      }
+      if (sourceStatus === "stale" || sourceStatus === "error") {
+        const stale = parseOrInvalid(projectAlertRecordSchema, {
+          ...alert,
+          lifecycle: "stale",
+          lastSeenAt: options.observedAt,
+        });
+        await this.tables.alerts.put(alertKey(stale), stale);
+        continue;
+      }
+      if (alert.lifecycle === "suppressed") continue;
+      const resolved = parseOrInvalid(projectAlertRecordSchema, {
+        ...alert,
+        lifecycle: "resolved",
+        lastSeenAt: options.observedAt,
+        resolvedAt: options.observedAt,
+      });
+      await this.tables.alerts.put(alertKey(resolved), resolved);
+    }
+    return this.alerts(workspaceId);
+  }
+
   // ------------------------------------------------------------------ seeds
 
   /** 写入缺失的内置角色与项目模版；已有用户配置不做覆盖。 */
@@ -834,6 +1157,9 @@ export const projectDomainSpec = {
     },
     audit: {
       valueSchema: projectAuditRecordSchema as unknown as z.ZodType<unknown>,
+    },
+    alerts: {
+      valueSchema: projectAlertRecordSchema as unknown as z.ZodType<unknown>,
     },
   },
 } as const;

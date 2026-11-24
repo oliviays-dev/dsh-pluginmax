@@ -110,6 +110,8 @@ export const teammateSchema = z.object({
   ownerName: z.string().trim().min(1).max(120),
   description: z.string().trim().max(4_000).default(""),
   soul: z.string().max(200_000).default(""),
+  /** 仅属于当前实例的项目/产品线补充人格，与模版 SOUL 运行时拼接。 */
+  instanceSoul: z.string().max(200_000).optional(),
   scenarios: z.array(ruleSchema).max(50).default([]),
   goals: z.array(ruleSchema).max(50).default([]),
   skillExtensions: z.array(instanceSkillExtensionSchema).max(30).default([]),

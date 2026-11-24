@@ -60,34 +60,34 @@ describe("workflow client state setters", () => {
     );
   });
 
-  it("keeps project and platform template scopes separate in the client", () => {
+  it("keeps project, selected, and platform template scopes separate in the client", () => {
     const source = readFileSync(CLIENT_PATH, "utf8");
 
     expect(source).toContain("function workflowDefinitionScope(");
+    expect(source).toContain("function workflowDefinitionWorkspaceIds(");
+    expect(source).toContain("function WorkflowScopePicker(");
     expect(source).toContain("function workflowNodeAssignmentLabel(");
     expect(source).toContain('"候选池捞单"');
     expect(source).toContain('"建议绑定"');
     expect(source).toContain("function WorkflowStartMapping(");
     expect(source).toContain("function workflowRoleKey(");
     expect(source).toContain('"单节点覆盖"');
-    expect(source).toContain(
-      "workflowRoleKey(candidate) !== roleKey",
-    );
-    expect(source).toContain(
-      '"/api/collab/workflow/instances/preflight"',
-    );
+    expect(source).toContain("workflowRoleKey(candidate) !== roleKey");
+    expect(source).toContain('"/api/collab/workflow/instances/preflight"');
     expect(source).toContain('"/api/collab/projects/members/save"');
+    expect(source).toContain('"/api/collab/projects/role-mappings/save"');
     expect(source).toContain(
-      '"/api/collab/projects/role-mappings/save"',
+      "workflowDefinitionVisibleTo(item, startWorkspace.id)",
     );
-    expect(source).toContain("workflowDefinitionVisibleTo(item, startWorkspace.id)");
     expect(source).toContain(
       "`project:${definition.workspaceId}:${definition.key}:${definition.version}`",
     );
     expect(source).toContain("模板作用域");
     expect(source).toContain("/api/collab/workflow/definitions/scope");
-    expect(source).toContain('"转为项目模板"');
-    expect(source).toContain("scope,\n                activate,");
+    expect(source).toContain("指定项目 · 仅选中的项目可见");
+    expect(source).toContain("已选 ${normalizedIds.length} 个项目");
+    expect(source).toContain('children: "调整范围"');
+    expect(source).toContain("workspaceIds:");
   });
 
   it("clears account-scoped workflow detail when the login token changes", () => {
@@ -120,12 +120,17 @@ describe("workflow client state setters", () => {
   it("only expands workflow details from an explicit detail button", () => {
     const source = readFileSync(CLIENT_PATH, "utf8");
     const start = source.indexOf("...filtered.map((instance, index) => {");
-    const end = source.indexOf("jsxRuntime.jsxs(\"div\", {\n                                className: \"pmwf-detail open\"", start);
+    const end = source.indexOf(
+      'jsxRuntime.jsxs("div", {\n                                className: "pmwf-detail open"',
+      start,
+    );
     const row = source.slice(start, end);
 
     expect(row).toContain('className: "pmwf-summary"');
     expect(row).not.toContain('"data-data-agent-select": "workflow"');
-    expect(row).toContain('className:\n                                          "pmwf-btn secondary small pmwf-detail-open"');
+    expect(row).toContain(
+      'className:\n                                          "pmwf-btn secondary small pmwf-detail-open"',
+    );
     expect(row).toContain('"aria-label": `查看${instance.title}详情`');
   });
 

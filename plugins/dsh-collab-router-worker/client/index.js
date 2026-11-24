@@ -20,11 +20,6 @@ window.__ModuleLoader__.load({
     function planningEnabledKey(workspaceId) {
       return `pluginmax.router-worker.planning.enabled.${workspaceId}`;
     }
-    function locallyPlanningEnabled(workspaceId) {
-      return (
-        window.localStorage.getItem(planningEnabledKey(workspaceId)) === "true"
-      );
-    }
     function publishPlan(taskId, value) {
       planCache.set(taskId, value);
       for (const listener of planListeners) listener();
@@ -41,19 +36,35 @@ window.__ModuleLoader__.load({
       }, [taskId]);
       return value;
     }
-    function defaultAddNodeDraft() {
+    function localDateInputValue(date) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    }
+
+    function defaultPlanNodeDueDate() {
+      const next = new Date();
+      next.setDate(next.getDate() + 1);
+      return localDateInputValue(next);
+    }
+
+    function defaultAddNodeDraft(currentUser) {
+      const currentUserId =
+        typeof currentUser?.id === "string" ? currentUser.id : "";
       return {
         active: false,
         title: "",
-        description: "完成新增任务节点并提交可验收结果。",
+        description: "",
         taskType: "任务",
         initialStatus: "todo",
-        receiverType: "human",
-        receiverId: "",
-        receiverName: "",
+        receiverType: currentUserId === "" ? "unassigned" : "human",
+        receiverId: currentUserId,
+        receiverName:
+          currentUserId === "" ? "" : (currentUser?.name ?? currentUserId),
         priority: "P2",
-        due: "",
-        acceptance: "提交任务结果",
+        due: defaultPlanNodeDueDate(),
+        acceptance: "",
         autoSubmitReview: true,
         autoApproveReview: false,
         allowPublicWeb: false,
@@ -99,6 +110,16 @@ window.__ModuleLoader__.load({
       .pmrw-enabled-dot{position:absolute;right:3px;top:3px;width:5px;height:5px;border-radius:50%;background:var(--dsw-alias-state-success-primary,#34c78d);}
       .pmrw-task-actions{display:inline-flex;align-items:center;gap:5px;}
       .pmrw-plan-entry{height:30px;display:inline-flex;align-items:center;gap:6px;padding:0 9px;border:1px solid color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 30%,var(--dsw-alias-border-l3));border-radius:6px;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 8%,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-primary);font:inherit;font-size:11px;cursor:pointer;white-space:nowrap;}
+      .pmrw-project-settings-inline{display:grid;gap:0;min-width:0;background:transparent;}
+      .pmrw-inline-settings-head{display:grid;gap:6px;padding:2px 0 14px;}
+      .pmrw-settings-title-row{display:flex;align-items:center;justify-content:space-between;gap:12px;}
+      .pmrw-inline-settings-head h3{margin:0;font-size:15px;}
+      .pmrw-inline-settings-head p{margin:0;color:var(--dsw-alias-label-secondary);font-size:10.5px;line-height:1.55;}
+      .pmrw-project-settings-body{padding:0!important;}
+      .pmrw-project-settings-inline>.pmrw-modal-foot{margin-top:14px;padding:14px 0 0;}
+      .pmrw-project-settings-inline>.pmrw-settings-card{width:100%;justify-self:stretch;}
+      .pmrw-scope-line{display:flex;align-items:center;gap:7px;}
+      .pmrw-scope-badge{display:inline-flex;align-items:center;height:18px;padding:0 6px;border:1px solid color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 28%,var(--dsw-alias-border-l2));border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 8%,transparent);color:var(--dsw-alias-accent-primary,#4f8ef7);font-size:8.5px;white-space:nowrap;}
       .pmrw-modal-backdrop{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:20px;background:rgba(0,0,0,.42);}
       .pmrw-unsaved-backdrop{position:fixed;inset:0;z-index:1200;display:grid;place-items:center;padding:20px;background:rgba(0,0,0,.48);}
       .pmrw-unsaved-dialog{width:min(420px,100%);display:grid;gap:14px;padding:18px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-primary);box-shadow:0 18px 60px rgba(0,0,0,.32);}
@@ -119,15 +140,38 @@ window.__ModuleLoader__.load({
       .pmrw-icon-button:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
       .pmrw-modal-body{display:grid;gap:12px;padding:16px 18px;}
       .pmrw-field{display:grid;gap:5px;color:var(--dsw-alias-label-secondary);font-size:10.5px;}
-      .pmrw-field select{height:32px;padding:0 8px;border:1px solid var(--dsw-alias-border-l3);border-radius:5px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);}
+      .pmrw-project-row{display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto 32px;column-gap:12px;row-gap:5px;align-items:center;}
+      .pmrw-project-label{grid-column:2;grid-row:1;color:var(--dsw-alias-label-secondary);font-size:10.5px;}
+      .pmrw-project-row>.pmrw-master-switch-wrap{grid-column:1;grid-row:2;}
+      .pmrw-project-row>.pmrw-select{grid-column:2;grid-row:2;width:100%;}
+      .pmrw-select,.pmrw-field select{height:32px;min-width:0;appearance:none;-webkit-appearance:none;padding:0 30px 0 9px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background-color:var(--dsw-alias-bg-base);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-position:right 9px center;background-repeat:no-repeat;background-size:12px 12px;color:var(--dsw-alias-label-primary);font:inherit;font-size:11.5px;text-overflow:ellipsis;}
       .pmrw-settings-card{display:flex;align-items:flex-start;gap:12px;padding:12px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-2);}
       .pmrw-settings-card>div{min-width:0;flex:1;}
       .pmrw-settings-card strong{font-size:12px;}
       .pmrw-settings-card p{margin:4px 0 0;color:var(--dsw-alias-label-secondary);font-size:10.5px;line-height:1.5;}
-      .pmrw-planning-toggle{display:flex;align-items:flex-start;gap:8px;cursor:pointer;}
+      .pmrw-planning-toggle{min-width:0;flex:1;display:flex;align-items:flex-start;gap:8px;cursor:pointer;}
       .pmrw-planning-toggle input{margin:2px 0 0;}
       .pmrw-planning-toggle>span{min-width:0;display:grid;gap:2px;}
       .pmrw-planning-toggle em{color:var(--dsw-alias-label-tertiary);font-size:10px;font-style:normal;line-height:1.45;}
+      .pmrw-master-switch-wrap{flex:none;display:flex;align-items:center;gap:8px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:1.2;}
+      .pmrw-master-switch-wrap>span.enabled{color:var(--dsw-alias-state-success-primary,#34c78d);}
+      .pmrw-switch{position:relative;flex:none;display:inline-flex!important;width:36px;height:20px;cursor:pointer;}
+      .pmrw-switch-small{width:30px;height:17px;}
+      .pmrw-switch input{position:absolute;inset:0;z-index:1;width:100%;height:100%;margin:0;opacity:0;cursor:pointer;}
+      .pmrw-switch-track{position:absolute;inset:0;border:1px solid var(--dsw-alias-border-l3);border-radius:999px;background:var(--dsw-alias-bg-layer-3);transition:background .18s ease,border-color .18s ease;}
+      .pmrw-switch-track::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--dsw-alias-label-secondary);transition:transform .18s ease,background .18s ease;}
+      .pmrw-switch-small .pmrw-switch-track::after{width:11px;height:11px;}
+      .pmrw-switch input:checked+.pmrw-switch-track{border-color:var(--dsw-alias-accent-primary,#4f8ef7);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 68%,transparent);}
+      .pmrw-switch input:checked+.pmrw-switch-track::after{transform:translateX(16px);background:#fff;}
+      .pmrw-switch-small input:checked+.pmrw-switch-track::after{transform:translateX(13px);}
+      .pmrw-switch input:disabled+.pmrw-switch-track{opacity:.45;cursor:not-allowed;}
+      .pmrw-sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important;}
+      .pmrw-planning-off-hint{padding:10px 12px;border:1px dashed var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:1.5;}
+      .pmrw-planning-mode{width:92px;flex:none;align-self:center;margin-left:auto;}
+      .pmrw-agent-policy-card{display:grid!important;gap:10px!important;}
+      .pmrw-planning-card{grid-template-columns:minmax(0,1fr) auto;align-items:start;}
+      .pmrw-planning-card>.pmrw-planning-toggle{grid-column:1;min-width:0;}
+      .pmrw-planning-card>.pmrw-planning-mode{grid-column:2;align-self:start;margin-top:0;}
       .pmrw-planning-progress{display:flex;align-items:center;gap:8px;padding:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:11px;}
       .pmrw-spinner{width:14px;height:14px;flex:none;border:2px solid var(--dsw-alias-border-l3);border-top-color:var(--dsw-alias-accent-primary,#4f8ef7);border-radius:50%;animation:pmrw-spin .8s linear infinite;}
       @keyframes pmrw-spin{to{transform:rotate(360deg);}}
@@ -247,7 +291,7 @@ window.__ModuleLoader__.load({
       .pmrw-plan-table{min-height:0;flex:1;overflow:auto;padding:8px 14px 14px;}
       .pmrw-plan-table-head,.pmrw-plan-table-row{display:grid;grid-template-columns:minmax(300px,1.75fr) minmax(150px,.62fr) minmax(230px,1fr);gap:12px;align-items:start;min-width:720px;}
       .pmrw-plan-table-head{position:sticky;top:-8px;z-index:2;padding:7px 11px 8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-tertiary);font-size:8.5px;}
-      .pmrw-plan-table-row{width:100%;padding:9px 11px;border:1px solid transparent;border-bottom-color:var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);font:inherit;text-align:left;cursor:pointer;}
+      .pmrw-plan-table-row{position:relative;width:100%;padding:9px 11px;border:1px solid transparent;border-bottom-color:var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);font:inherit;text-align:left;cursor:pointer;}
       .pmrw-plan-table-row:hover{background:var(--dsw-alias-bg-layer-2);}
       .pmrw-plan-table-row.selected{border-color:var(--dsw-alias-accent-primary,#4f8ef7);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 7%,var(--dsw-alias-bg-layer-2));}
       .pmrw-plan-table-task{min-width:0;display:flex;align-items:flex-start;gap:7px;}
@@ -255,6 +299,7 @@ window.__ModuleLoader__.load({
       .pmrw-plan-table-title-row{display:flex;align-items:center;gap:6px;min-width:0;}
       .pmrw-plan-table-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-primary);font-size:11px;font-weight:650;line-height:1.5;}
       .pmrw-list-priority{flex:none;padding:0 4px;border-radius:3px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-tertiary);font-size:8px;line-height:1.55;}
+      .pmrw-plan-draft-badge{position:absolute;top:7px;right:8px;padding:1px 5px;border-radius:4px;background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d29922) 13%,transparent);color:var(--dsw-alias-state-warning-primary,#d29922);font-size:8px;font-weight:650;line-height:1.5;white-space:nowrap;}
       .pmrw-plan-table-subtitle{display:-webkit-box;margin-top:2px;color:var(--dsw-alias-label-tertiary);font-size:8.5px;line-height:1.45;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
       .pmrw-plan-table-cell{min-width:0;min-height:26px;display:flex;align-items:center;gap:5px;color:var(--dsw-alias-label-secondary);font-size:9px;line-height:1.45;}
       .pmrw-plan-owner{display:flex;align-items:center;gap:6px;min-width:0;}
@@ -276,6 +321,22 @@ window.__ModuleLoader__.load({
       .pmrw-plan-dep-dot.amber{background:var(--dsw-alias-state-warning-primary,#e2a737);}
       .pmrw-plan-dep-dot.coral{background:var(--dsw-alias-state-error-primary,#e5534b);}
       .pmrw-plan-dep-empty{color:var(--dsw-alias-label-tertiary);font-size:8.5px;}
+      .pmrw-plan-table.compact{display:grid;gap:6px;overflow:visible;padding:0;}
+      .pmrw-plan-table.compact .pmrw-plan-table-head{display:none;}
+      .pmrw-plan-table.compact .pmrw-plan-table-row{min-width:0;display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px 10px;padding:9px 48px 9px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-2);}
+      .pmrw-plan-table.compact .pmrw-plan-table-row:hover{background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));}
+      .pmrw-plan-table.compact .pmrw-plan-table-row.selected{border-color:var(--dsw-alias-accent-primary,#4f8ef7);background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 7%,var(--dsw-alias-bg-layer-2));}
+      .pmrw-plan-table.compact .pmrw-plan-table-task{flex:1 0 100%;width:100%;}
+      .pmrw-plan-table.compact .pmrw-plan-table-title-row{flex-wrap:wrap;}
+      .pmrw-plan-table.compact .pmrw-plan-table-title{white-space:normal;overflow:visible;overflow-wrap:anywhere;}
+      .pmrw-plan-table.compact .pmrw-plan-table-subtitle{-webkit-line-clamp:3;}
+      .pmrw-plan-table.compact .pmrw-plan-table-cell{min-width:0;min-height:0;flex-wrap:wrap;}
+      .pmrw-plan-table.compact .pmrw-plan-table-owner{flex:0 1 auto;max-width:100%;}
+      .pmrw-plan-table.compact .pmrw-plan-owner{min-width:0;max-width:100%;}
+      .pmrw-plan-table.compact .pmrw-plan-owner-name{white-space:normal;overflow:visible;overflow-wrap:anywhere;}
+      .pmrw-plan-table.compact .pmrw-plan-table-dependencies{flex:1 1 160px;}
+      .pmrw-plan-table.compact .pmrw-plan-deps{display:flex;flex-wrap:wrap;gap:4px;min-width:0;width:100%;}
+      .pmrw-plan-table.compact .pmrw-plan-dep-chip{min-width:0;max-width:100%;}
       .pmrw-plan-policy{margin:0 14px 12px;padding:8px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:9.5px;line-height:1.5;}
       .pmrw-task-plan-side{height:100%;min-height:0;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base));}
       .pmrw-task-plan-side-embedded{min-width:0;overflow:hidden;}
@@ -304,10 +365,25 @@ window.__ModuleLoader__.load({
       .pmrw-worker-types{grid-column:1/-1;display:flex;gap:10px;flex-wrap:wrap;color:var(--dsw-alias-label-secondary);font-size:9px;}
       .pmrw-worker-types label{display:flex;align-items:center;gap:4px;}
       .pmrw-worker-types input{height:auto;}
-      .pmrw-node-form{display:grid;gap:9px;}
-      .pmrw-node-form>label{display:grid;gap:4px;color:var(--dsw-alias-label-tertiary);font-size:9px;}
-      .pmrw-node-form input,.pmrw-node-form textarea,.pmrw-node-form select,.pmrw-dependency-editor input{min-width:0;padding:6px 7px;border:1px solid var(--dsw-alias-border-l3);border-radius:5px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:10px;}
-      .pmrw-node-form textarea{min-height:62px;resize:vertical;}
+      .pmrw-node-form{display:grid;gap:12px;}
+      .pmrw-node-section{display:grid;gap:10px;padding:12px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-2);}
+      .pmrw-node-section-head{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:18px;}
+      .pmrw-node-section-head strong,.pmrw-node-subhead{color:var(--dsw-alias-label-primary);font-size:11px;font-weight:650;}
+      .pmrw-node-section-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px 10px;}
+      .pmrw-node-field{min-width:0;display:grid;gap:5px;color:var(--dsw-alias-label-secondary);font-size:10px;line-height:1.4;}
+      .pmrw-node-field.wide{grid-column:1/-1;}
+      .pmrw-node-form input,.pmrw-node-form textarea,.pmrw-node-form select,.pmrw-dependency-editor input{width:100%;min-width:0;height:32px;padding:0 9px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:11px;}
+      .pmrw-node-form select{appearance:none;-webkit-appearance:none;padding-right:30px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-position:right 9px center;background-repeat:no-repeat;background-size:12px 12px;}
+      .pmrw-node-form textarea{height:auto;min-height:86px;padding:8px 9px;line-height:1.55;resize:vertical;}
+      .pmrw-node-check-list{display:grid;gap:7px;}
+      .pmrw-node-form .pmrw-plan-policy{display:grid;gap:8px;margin:0;padding:0;border:0;background:transparent;}
+      .pmrw-node-form .pmrw-setting-check{width:100%;display:flex!important;align-items:flex-start!important;justify-content:flex-start!important;gap:8px!important;color:var(--dsw-alias-label-secondary)!important;font-size:10.5px!important;line-height:1.5;text-align:left!important;}
+      .pmrw-node-form .pmrw-setting-check input{flex:0 0 14px!important;width:14px!important;height:14px!important;min-height:14px!important;margin:2px 0 0!important;padding:0!important;border:0!important;border-radius:2px;background:transparent;accent-color:var(--dsw-alias-brand-primary);}
+      .pmrw-node-form .pmrw-setting-check span{min-width:0;flex:1;text-align:left;overflow-wrap:anywhere;}
+      .pmrw-node-form .pmtask-execution-overrides{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px 10px;padding:10px 0 0;border:0;border-top:1px solid var(--dsw-alias-border-l2);border-radius:0;background:transparent;}
+      .pmrw-node-form .pmtask-field{display:grid;gap:5px;color:var(--dsw-alias-label-secondary);font-size:10px;}
+      .pmrw-node-form .pmtask-select{height:32px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background-color:var(--dsw-alias-bg-base);font-size:11px;}
+      .pmrw-node-form .pmtask-execution-runtime{min-height:32px;padding:0 9px;border:0.5px solid var(--dsw-alias-border-l3);border-radius:6px;background:var(--dsw-alias-bg-base);}
       .pmrw-add-status{margin:10px 14px 0;padding:8px 10px;border:1px solid color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 26%,var(--dsw-alias-border-l2));border-radius:6px;background:color-mix(in srgb,var(--dsw-alias-accent-primary,#4f8ef7) 5%,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-secondary);font-size:10px;line-height:1.55;}
       .pmrw-add-draft-actions{display:flex;justify-content:flex-end;gap:7px;margin-top:4px;}
       .pmrw-dependency-editor{display:grid;gap:6px;color:var(--dsw-alias-label-tertiary);font-size:9px;}
@@ -335,6 +411,13 @@ window.__ModuleLoader__.load({
       .pmrw-plan-record.error{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 35%,var(--dsw-alias-border-l2));background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 6%,var(--dsw-alias-bg-layer-2));}
       .pmrw-plan-record.error strong{color:var(--dsw-alias-state-error-primary,#e5534b);}
       .pmrw-plan-record-meta{display:flex;flex-wrap:wrap;gap:4px 10px;color:var(--dsw-alias-label-tertiary);font-size:8.5px;}
+      .pmrw-task-plan-breakdown{display:grid;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--dsw-alias-border-l2);}
+      .pmrw-task-plan-breakdown-head{display:flex;align-items:center;gap:7px;}
+      .pmrw-task-plan-breakdown-head h3{margin:0;font-size:12px;}
+      .pmrw-task-plan-breakdown-head span{color:var(--dsw-alias-label-tertiary);font-size:9.5px;}
+      .pmrw-task-plan-breakdown-empty{padding:10px;border:1px dashed var(--dsw-alias-border-l2);border-radius:7px;color:var(--dsw-alias-label-tertiary);font-size:10px;text-align:center;}
+      .pmrw-task-plan-breakdown-error{display:grid;gap:6px;padding:9px 10px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5534b) 30%,transparent);border-radius:7px;color:var(--dsw-alias-state-error-primary,#e5534b);font-size:10px;}
+      .pmrw-task-plan-breakdown-error button{justify-self:start;padding:3px 7px;border:1px solid currentColor;border-radius:5px;background:transparent;color:inherit;font:inherit;cursor:pointer;}
     `;
 
     function token() {
@@ -356,6 +439,15 @@ window.__ModuleLoader__.load({
         throw new Error(body.error ?? `HTTP ${response.status}`);
       }
       return body;
+    }
+
+    function isRevisionConflict(cause) {
+      return (
+        cause instanceof Error &&
+        /revision (?:conflict|changed)|settings revision conflict/i.test(
+          cause.message,
+        )
+      );
     }
 
     function SettingsIcon() {
@@ -432,25 +524,51 @@ window.__ModuleLoader__.load({
       const workspaceIds = Array.isArray(props.workspaceIds)
         ? props.workspaceIds.filter(Boolean)
         : [];
+      const workspaceOptions = Array.isArray(props.workspaceOptions)
+        ? props.workspaceOptions.filter(
+            (option) =>
+              option !== null &&
+              typeof option === "object" &&
+              typeof option.id === "string" &&
+              option.id !== "",
+          )
+        : [];
+      const workspaceName = (id) => {
+        const option = workspaceOptions.find((item) => item.id === id);
+        const name = typeof option?.name === "string" ? option.name.trim() : "";
+        return name === "" ? id : name;
+      };
       const initialWorkspace = props.workspaceId || workspaceIds[0] || "";
       const [open, setOpen] = react.useState(false);
       const [workspaceId, setWorkspaceId] = react.useState(initialWorkspace);
       const [settings, setSettings] = react.useState(null);
+      const [featureEnabled, setFeatureEnabled] = react.useState(false);
       const [planningSettings, setPlanningSettings] = react.useState(null);
       const [planningEnabled, setPlanningEnabled] = react.useState(false);
       const [planningMode, setPlanningMode] = react.useState("standard");
+      const [agentAutoPlan, setAgentAutoPlan] = react.useState(true);
+      const [requirePlanBeforeExecution, setRequirePlanBeforeExecution] =
+        react.useState(true);
       const [routerAgents, setRouterAgents] = react.useState([]);
       const [defaultRouterId, setDefaultRouterId] = react.useState("");
       const [busy, setBusy] = react.useState(false);
       const [error, setError] = react.useState("");
+      const saveRef = react.useRef(null);
+      const projectEntry = props.entryVariant === "project";
+      const readOnly = props.readOnly === true;
 
       react.useEffect(() => {
+        if (projectEntry) {
+          setWorkspaceId(initialWorkspace);
+          if (initialWorkspace !== "") void load(initialWorkspace);
+          return;
+        }
         if (!open) return;
         setWorkspaceId(initialWorkspace);
         setSettings(stateByWorkspace.get(initialWorkspace) ?? null);
         setPlanningSettings(null);
         setPlanningEnabled(false);
-      }, [open, initialWorkspace]);
+      }, [open, initialWorkspace, projectEntry]);
 
       const load = async (targetWorkspaceId) => {
         if (!targetWorkspaceId) return;
@@ -470,9 +588,16 @@ window.__ModuleLoader__.load({
           ]);
           stateByWorkspace.set(targetWorkspaceId, settingsBody.settings);
           setSettings(settingsBody.settings);
+          setFeatureEnabled(settingsBody.settings.enabled === true);
           const planning = planningBody.result?.settings ?? null;
           setPlanningSettings(planning);
           setPlanningEnabled(planning?.enabled === true);
+          setAgentAutoPlan(
+            planning?.agentOwnerPolicy?.autoPlanOnAssignment ?? true,
+          );
+          setRequirePlanBeforeExecution(
+            planning?.agentOwnerPolicy?.requirePlanBeforeExecution ?? true,
+          );
           setPlanningMode(
             planning?.humanOwner?.defaultMode ??
               planning?.agentOwnerPolicy?.mode ??
@@ -512,41 +637,71 @@ window.__ModuleLoader__.load({
         setBusy(true);
         setError("");
         try {
-          const result = await request(
-            "/api/collab/router-worker/settings/update",
-            {
+          const updateRouterSettings = async (revision) =>
+            request("/api/collab/router-worker/settings/update", {
               method: "POST",
               body: JSON.stringify({
                 workspaceId,
                 enabled: nextEnabled,
                 defaultRouterAgentId: defaultRouterId || null,
-                ...(settings === null
-                  ? {}
-                  : { expectedRevision: settings.revision }),
+                ...(typeof revision === "number"
+                  ? { expectedRevision: revision }
+                  : {}),
               }),
-            },
-          );
+            });
+          let result;
+          try {
+            result = await updateRouterSettings(settings?.revision);
+          } catch (cause) {
+            if (!isRevisionConflict(cause)) throw cause;
+            const refreshed = await request(
+              `/api/collab/router-worker/settings?workspaceId=${encodeURIComponent(workspaceId)}`,
+            );
+            stateByWorkspace.set(workspaceId, refreshed.settings);
+            setSettings(refreshed.settings);
+            result = await updateRouterSettings(refreshed.settings.revision);
+          }
           stateByWorkspace.set(workspaceId, result.settings);
+          setFeatureEnabled(result.settings.enabled === true);
           window.localStorage.setItem(
             enabledKey(workspaceId),
             String(result.settings.enabled === true),
           );
           setSettings(result.settings);
-          const planningResult = await request(
-            "/api/collab/router-worker/planning/settings/update",
-            {
+          const updatePlanningSettings = async (revision) =>
+            request("/api/collab/router-worker/planning/settings/update", {
               method: "POST",
               body: JSON.stringify({
                 workspaceId,
                 enabled: nextEnabled && planningEnabled,
+                agentOwnerPolicy: {
+                  mode: planningMode,
+                  autoPlanOnAssignment: agentAutoPlan,
+                  autoPlanOnSpecChange: agentAutoPlan,
+                  requirePlanBeforeExecution,
+                },
                 humanOwner: { defaultMode: planningMode },
-                agentOwnerPolicy: { mode: planningMode },
-                ...(planningSettings === null
-                  ? {}
-                  : { expectedRevision: planningSettings.revision }),
+                ...(typeof revision === "number"
+                  ? { expectedRevision: revision }
+                  : {}),
               }),
-            },
-          );
+            });
+          let planningResult;
+          try {
+            planningResult = await updatePlanningSettings(
+              planningSettings?.revision,
+            );
+          } catch (cause) {
+            if (!isRevisionConflict(cause)) throw cause;
+            const refreshed = await request(
+              `/api/collab/router-worker/planning/settings?workspaceId=${encodeURIComponent(workspaceId)}`,
+            );
+            const currentSettings = refreshed.result?.settings ?? null;
+            setPlanningSettings(currentSettings);
+            planningResult = await updatePlanningSettings(
+              currentSettings?.revision,
+            );
+          }
           const nextPlanningSettings =
             planningResult.result?.settings ?? planningSettings;
           setPlanningSettings(nextPlanningSettings);
@@ -568,41 +723,298 @@ window.__ModuleLoader__.load({
           setBusy(false);
         }
       };
+      saveRef.current = save;
 
       const enabled = settings?.enabled === true;
-      const willEnable = settings?.enabled !== true;
       const localEnabled = enabled || locallyEnabled(workspaceId);
+      const settingsLoading = busy && settings === null;
+      const renderMasterSwitch = () =>
+        h(
+          "div",
+          { className: "pmrw-master-switch-wrap" },
+          h(
+            "span",
+            { className: featureEnabled ? "enabled" : "" },
+            featureEnabled ? "已启用" : "未启用",
+          ),
+          h(
+            "label",
+            { className: "pmrw-switch" },
+            h("input", {
+              type: "checkbox",
+              checked: featureEnabled,
+              disabled: busy || readOnly,
+              onChange: (event) => {
+                const checked = event.target.checked;
+                setFeatureEnabled(checked);
+                if (checked) setPlanningEnabled(true);
+              },
+            }),
+            h("span", {
+              className: "pmrw-switch-track",
+              "aria-hidden": "true",
+            }),
+            h("span", { className: "pmrw-sr-only" }, "启用任务规划"),
+          ),
+        );
+      const renderSettingsSections = () =>
+        h(
+          react.Fragment,
+          null,
+          workspaceIds.length > 1
+            ? h(
+                "label",
+                { className: "pmrw-field" },
+                "项目",
+                h(
+                  "select",
+                  {
+                    className: "pmrw-select",
+                    value: workspaceId,
+                    onChange: (event) => {
+                      const next = event.target.value;
+                      setWorkspaceId(next);
+                      setSettings(stateByWorkspace.get(next) ?? null);
+                      setPlanningSettings(null);
+                      setPlanningEnabled(false);
+                      void load(next);
+                    },
+                  },
+                  ...workspaceIds.map((id) =>
+                    h("option", { key: id, value: id }, workspaceName(id)),
+                  ),
+                ),
+              )
+            : null,
+          featureEnabled
+            ? h(
+                react.Fragment,
+                null,
+                h(
+                  "div",
+                  {
+                    className:
+                      "pmrw-settings-card pmrw-agent-policy-card pmrw-planning-card",
+                  },
+                  h(
+                    "label",
+                    { className: "pmrw-planning-toggle" },
+                    h(
+                      "span",
+                      { className: "pmrw-switch pmrw-switch-small" },
+                      h("input", {
+                        type: "checkbox",
+                        checked: planningEnabled,
+                        disabled: busy || readOnly || !featureEnabled,
+                        onChange: (event) =>
+                          setPlanningEnabled(event.target.checked),
+                      }),
+                      h("span", {
+                        className: "pmrw-switch-track",
+                        "aria-hidden": "true",
+                      }),
+                    ),
+                    h(
+                      "span",
+                      null,
+                      h("strong", null, "启用 AI 自动解析"),
+                      h("em", null, "AI 根据任务目标生成可编辑的计划草案。"),
+                    ),
+                  ),
+                  planningEnabled
+                    ? h(
+                        "select",
+                        {
+                          className: "pmrw-select pmrw-planning-mode",
+                          value: planningMode,
+                          disabled: busy || readOnly || !featureEnabled,
+                          onChange: (event) =>
+                            setPlanningMode(event.target.value),
+                        },
+                        h("option", { value: "quick" }, "快速"),
+                        h("option", { value: "standard" }, "标准"),
+                        h("option", { value: "deep" }, "深度"),
+                      )
+                    : null,
+                ),
+                featureEnabled && planningEnabled
+                  ? h(
+                      "label",
+                      { className: "pmrw-field" },
+                      "默认 Router Agent",
+                      routerAgents.length === 0
+                        ? h(
+                            "span",
+                            { className: "pmrw-router-empty-hint" },
+                            "暂无可用 Router Agent；启用任务规划后会自动创建。",
+                          )
+                        : h(
+                            "select",
+                            {
+                              value: defaultRouterId,
+                              disabled: busy || readOnly,
+                              onChange: (event) =>
+                                setDefaultRouterId(event.target.value),
+                            },
+                            ...routerAgents.map((agent) =>
+                              h(
+                                "option",
+                                { key: agent.id, value: agent.id },
+                                `${agent.name} · Router 类型${agent.isDefault ? " · 当前默认" : ""}`,
+                              ),
+                            ),
+                          ),
+                    )
+                  : null,
+                featureEnabled && planningEnabled
+                  ? h(
+                      "div",
+                      {
+                        className: "pmrw-settings-card pmrw-agent-policy-card",
+                      },
+                      h(
+                        "label",
+                        { className: "pmrw-planning-toggle" },
+                        h("input", {
+                          type: "checkbox",
+                          checked: agentAutoPlan,
+                          disabled: busy || readOnly,
+                          onChange: (event) =>
+                            setAgentAutoPlan(event.target.checked),
+                        }),
+                        h(
+                          "span",
+                          null,
+                          h("strong", null, "Agent 自动规划"),
+                          h(
+                            "em",
+                            null,
+                            "Agent 负责人被指派或规格变化时生成计划。",
+                          ),
+                        ),
+                      ),
+                      h(
+                        "label",
+                        { className: "pmrw-planning-toggle" },
+                        h("input", {
+                          type: "checkbox",
+                          checked: requirePlanBeforeExecution,
+                          disabled: busy || readOnly,
+                          onChange: (event) =>
+                            setRequirePlanBeforeExecution(event.target.checked),
+                        }),
+                        h(
+                          "span",
+                          null,
+                          h("strong", null, "执行前计划门禁"),
+                          h("em", null, "Agent 需有已确认计划后才能开始执行。"),
+                        ),
+                      ),
+                    )
+                  : null,
+              )
+            : h(
+                "div",
+                { className: "pmrw-planning-off-hint" },
+                "启用任务规划后，可配置 AI 自动解析和 Agent 执行策略。",
+              ),
+          error ? h("p", { className: "pmrw-error" }, error) : null,
+        );
+      const renderSettingsSaveButton = () =>
+        h(
+          "button",
+          {
+            className: projectEntry ? "pmproj-btn" : "pmrw-button primary",
+            type: "button",
+            disabled:
+              busy ||
+              readOnly ||
+              !workspaceId ||
+              (featureEnabled && planningEnabled && !defaultRouterId),
+            onClick: () => void saveRef.current?.(featureEnabled),
+          },
+          settingsLoading
+            ? "加载中..."
+            : busy
+              ? "保存中..."
+              : readOnly
+                ? "只读"
+                : projectEntry
+                  ? "保存"
+                  : "保存设置",
+        );
+      react.useEffect(() => {
+        if (!projectEntry || typeof props.onFooterChange !== "function") return;
+        props.onFooterChange(renderSettingsSaveButton());
+        return () => props.onFooterChange(null);
+      }, [
+        projectEntry,
+        props.onFooterChange,
+        busy,
+        readOnly,
+        workspaceId,
+        featureEnabled,
+        planningEnabled,
+        defaultRouterId,
+        settingsLoading,
+      ]);
       return h(
         react.Fragment,
         null,
         h("style", null, styles),
-        h(
-          "span",
-          { className: "pmrw-task-actions" },
-          localEnabled && typeof props.onOpenPlan === "function"
-            ? h(
+        projectEntry
+          ? h(
+              "section",
+              { className: "pmrw-project-settings-inline" },
+              h(
+                "header",
+                { className: "pmrw-inline-settings-head" },
+                h(
+                  "div",
+                  { className: "pmrw-settings-title-row" },
+                  h(
+                    "div",
+                    { className: "pmrw-scope-line" },
+                    h("h3", null, "任务规划"),
+                  ),
+                  renderMasterSwitch(),
+                ),
+              ),
+              h(
+                "div",
+                { className: "pmrw-modal-body pmrw-project-settings-body" },
+                renderSettingsSections(),
+              ),
+            )
+          : h(
+              "span",
+              { className: "pmrw-task-actions" },
+              localEnabled && typeof props.onOpenPlan === "function"
+                ? h(
+                    "button",
+                    {
+                      className: "pmrw-plan-entry",
+                      type: "button",
+                      onClick: props.onOpenPlan,
+                    },
+                    "任务规划",
+                  )
+                : null,
+              h(
                 "button",
                 {
-                  className: "pmrw-plan-entry",
+                  className: "pmrw-settings-trigger",
                   type: "button",
-                  onClick: props.onOpenPlan,
+                  title: "扩展设置",
+                  "aria-label": "扩展设置",
+                  onClick: openSettings,
                 },
-                "任务规划",
-              )
-            : null,
-          h(
-            "button",
-            {
-              className: "pmrw-settings-trigger",
-              type: "button",
-              title: "扩展设置",
-              "aria-label": "扩展设置",
-              onClick: openSettings,
-            },
-            h(SettingsIcon),
-            localEnabled ? h("span", { className: "pmrw-enabled-dot" }) : null,
-          ),
-        ),
+                h(SettingsIcon),
+                localEnabled
+                  ? h("span", { className: "pmrw-enabled-dot" })
+                  : null,
+              ),
+            ),
         open
           ? h(
               "div",
@@ -624,7 +1036,16 @@ window.__ModuleLoader__.load({
                 h(
                   "header",
                   { className: "pmrw-modal-head" },
-                  h("div", null, h("h2", null, "扩展设置")),
+                  h(
+                    "div",
+                    null,
+                    h(
+                      "div",
+                      { className: "pmrw-scope-line" },
+                      h("h2", null, "任务规划设置"),
+                      h("span", { className: "pmrw-scope-badge" }, "项目级"),
+                    ),
+                  ),
                   h(
                     "button",
                     {
@@ -639,61 +1060,57 @@ window.__ModuleLoader__.load({
                 h(
                   "div",
                   { className: "pmrw-modal-body" },
-                  workspaceIds.length > 1
-                    ? h(
-                        "label",
-                        { className: "pmrw-field" },
-                        "Workspace",
-                        h(
-                          "select",
-                          {
-                            value: workspaceId,
-                            onChange: (event) => {
-                              const next = event.target.value;
-                              setWorkspaceId(next);
-                              setSettings(stateByWorkspace.get(next) ?? null);
-                              setPlanningSettings(null);
-                              setPlanningEnabled(false);
-                              void load(next);
-                            },
-                          },
-                          ...workspaceIds.map((id) =>
-                            h("option", { key: id, value: id }, id),
-                          ),
-                        ),
-                      )
-                    : null,
                   h(
                     "div",
-                    { className: "pmrw-settings-card" },
-                    h(
-                      "div",
-                      null,
-                      h("strong", null, "Router / Worker 任务规划"),
-                      h(
-                        "p",
-                        null,
-                        "在现有任务详情中增加执行计划、人工与 AI Worker 协作。关闭后保留数据并停止新派发。",
-                      ),
-                    ),
-                    h(
-                      "span",
-                      {
-                        className: `pmrw-state ${enabled ? "enabled" : ""}`,
-                      },
-                      enabled ? "已启用" : "未启用",
-                    ),
+                    { className: "pmrw-project-row" },
+                    renderMasterSwitch(),
+                    workspaceIds.length > 1
+                      ? [
+                          h(
+                            "span",
+                            {
+                              key: "project-label",
+                              className: "pmrw-project-label",
+                            },
+                            "项目",
+                          ),
+                          h(
+                            "select",
+                            {
+                              key: "project-select",
+                              className: "pmrw-select",
+                              "aria-label": "项目",
+                              value: workspaceId,
+                              onChange: (event) => {
+                                const next = event.target.value;
+                                setWorkspaceId(next);
+                                setSettings(stateByWorkspace.get(next) ?? null);
+                                setPlanningSettings(null);
+                                setPlanningEnabled(false);
+                                void load(next);
+                              },
+                            },
+                            ...workspaceIds.map((id) =>
+                              h(
+                                "option",
+                                { key: id, value: id },
+                                workspaceName(id),
+                              ),
+                            ),
+                          ),
+                        ]
+                      : null,
                   ),
                   h(
                     "div",
-                    { className: "pmrw-settings-card" },
+                    { className: "pmrw-settings-card pmrw-agent-policy-card" },
                     h(
                       "label",
                       { className: "pmrw-planning-toggle" },
                       h("input", {
                         type: "checkbox",
                         checked: planningEnabled,
-                        disabled: busy,
+                        disabled: busy || readOnly,
                         onChange: (event) =>
                           setPlanningEnabled(event.target.checked),
                       }),
@@ -708,19 +1125,6 @@ window.__ModuleLoader__.load({
                         ),
                       ),
                     ),
-                    planningEnabled
-                      ? h(
-                          "select",
-                          {
-                            value: planningMode,
-                            onChange: (event) =>
-                              setPlanningMode(event.target.value),
-                          },
-                          h("option", { value: "quick" }, "快速"),
-                          h("option", { value: "standard" }, "标准"),
-                          h("option", { value: "deep" }, "深度"),
-                        )
-                      : null,
                   ),
                   h(
                     "label",
@@ -736,6 +1140,7 @@ window.__ModuleLoader__.load({
                           "select",
                           {
                             value: defaultRouterId,
+                            disabled: busy || readOnly,
                             onChange: (event) =>
                               setDefaultRouterId(event.target.value),
                           },
@@ -747,6 +1152,52 @@ window.__ModuleLoader__.load({
                             ),
                           ),
                         ),
+                  ),
+                  h(
+                    "div",
+                    { className: "pmrw-settings-card" },
+                    h(
+                      "label",
+                      { className: "pmrw-planning-toggle" },
+                      h("input", {
+                        type: "checkbox",
+                        checked: agentAutoPlan,
+                        disabled: busy || readOnly,
+                        onChange: (event) =>
+                          setAgentAutoPlan(event.target.checked),
+                      }),
+                      h(
+                        "span",
+                        null,
+                        h("strong", null, "Agent 自动规划"),
+                        h(
+                          "em",
+                          null,
+                          "Agent 负责人被指派或任务规格变化时，自动生成待确认计划。",
+                        ),
+                      ),
+                    ),
+                    h(
+                      "label",
+                      { className: "pmrw-planning-toggle" },
+                      h("input", {
+                        type: "checkbox",
+                        checked: requirePlanBeforeExecution,
+                        disabled: busy || readOnly,
+                        onChange: (event) =>
+                          setRequirePlanBeforeExecution(event.target.checked),
+                      }),
+                      h(
+                        "span",
+                        null,
+                        h("strong", null, "执行前计划门禁"),
+                        h(
+                          "em",
+                          null,
+                          "Agent 负责人必须先确认执行计划，才能开始执行。",
+                        ),
+                      ),
+                    ),
                   ),
                   h(
                     "p",
@@ -765,18 +1216,26 @@ window.__ModuleLoader__.load({
                       type: "button",
                       onClick: () => setOpen(false),
                     },
-                    "取消",
+                    readOnly ? "关闭" : "取消",
                   ),
-                  enabled
+                  enabled && !readOnly
                     ? h(
                         "button",
                         {
                           className: "pmrw-button secondary",
                           type: "button",
-                          disabled: busy || !workspaceId || !defaultRouterId,
+                          disabled:
+                            busy ||
+                            readOnly ||
+                            !workspaceId ||
+                            !defaultRouterId,
                           onClick: () => void save(true),
                         },
-                        busy ? "保存中..." : "保存 Router 设置",
+                        settingsLoading
+                          ? "加载中..."
+                          : busy
+                            ? "保存中..."
+                            : "保存 Router 设置",
                       )
                     : null,
                   h(
@@ -786,11 +1245,20 @@ window.__ModuleLoader__.load({
                       type: "button",
                       disabled:
                         busy ||
+                        readOnly ||
                         !workspaceId ||
-                        (willEnable && !defaultRouterId),
+                        (!enabled && !defaultRouterId),
                       onClick: () => void save(enabled ? false : true),
                     },
-                    busy ? "处理中..." : enabled ? "关闭扩展" : "启用扩展",
+                    settingsLoading
+                      ? "加载中..."
+                      : busy
+                        ? "处理中..."
+                        : readOnly
+                          ? "只读"
+                          : enabled
+                            ? "关闭扩展"
+                            : "启用扩展",
                   ),
                 ),
               ),
@@ -799,46 +1267,19 @@ window.__ModuleLoader__.load({
       );
     }
 
+    function ProjectOtherSettings(props) {
+      return h(ExtensionSettings, {
+        ...props,
+        entryVariant: "project",
+      });
+    }
+
     async function fetchPlan(taskId, workspaceId) {
       const body = await request(
         `/api/collab/router-worker/plans/root?workspaceId=${encodeURIComponent(workspaceId)}&rootTaskId=${encodeURIComponent(taskId)}`,
       );
       publishPlan(taskId, body.result);
       return body.result;
-    }
-
-    async function waitForRouterPlan(
-      taskId,
-      workspaceId,
-      cycleId,
-      shouldContinue,
-    ) {
-      const timeoutMs = 10 * 60_000;
-      const intervalMs = 750;
-      const startedAt = Date.now();
-      let latest = null;
-      while (Date.now() - startedAt < timeoutMs) {
-        if (shouldContinue !== undefined && !shouldContinue()) return latest;
-        latest = await fetchPlan(taskId, workspaceId);
-        if (latest?.plan?.source === "router") return latest;
-        const cycle = (
-          await request(
-            `/api/collab/router-worker/plans/router/status?cycleId=${encodeURIComponent(cycleId)}`,
-          )
-        ).result;
-        if (cycle?.runStatus === "waiting_input") {
-          throw new Error(
-            "Router 正在等待补充信息，当前自动解析页面不支持交互提问。请点击重新解析。",
-          );
-        }
-        if (cycle?.status === "failed") {
-          throw new Error(cycle.error ?? "Router Cycle 执行失败");
-        }
-        await new Promise((resolve) => setTimeout(resolve, intervalMs));
-      }
-      throw new Error(
-        "Router 仍在解析，已超过当前页面等待时间。请稍后重新打开计划查看结果。",
-      );
     }
 
     async function waitForRouterRegeneration(
@@ -1087,10 +1528,10 @@ window.__ModuleLoader__.load({
 
     function planSideStageCopy(planStatus, ownerName) {
       if (planStatus === "draft" || planStatus === "proposed") {
-        return "计划尚未确认，确认并派发后才会创建子任务和执行记录。";
+        return "计划尚未确认，确认派发后才会创建子任务和执行记录。";
       }
       if (planStatus === "approved") {
-        return "第二步“确认并派发”尚未完成，请重试；成功后会创建全部子任务。";
+        return "计划已保存，等待“确认派发”；成功后会创建全部子任务。";
       }
       if (planStatus === "paused" || planStatus === "resume_required") {
         return "计划当前暂停；显式恢复前不会继续创建或推进子任务。";
@@ -1183,6 +1624,120 @@ window.__ModuleLoader__.load({
       };
     }
 
+    function TaskPlanBreakdown(props) {
+      const [result, setResult] = react.useState(null);
+      const [loading, setLoading] = react.useState(true);
+      const [error, setError] = react.useState("");
+      const [openingNodeId, setOpeningNodeId] = react.useState("");
+      const load = react.useCallback(async () => {
+        if (props.rootTaskId === "" || props.workspaceId === "") {
+          setResult(null);
+          setLoading(false);
+          return;
+        }
+        setLoading(true);
+        setError("");
+        try {
+          const body = await request(
+            `/api/collab/router-worker/plans/root?workspaceId=${encodeURIComponent(props.workspaceId)}&rootTaskId=${encodeURIComponent(props.rootTaskId)}`,
+          );
+          setResult(body.result ?? null);
+        } catch (cause) {
+          setError(cause instanceof Error ? cause.message : String(cause));
+        } finally {
+          setLoading(false);
+        }
+      }, [props.rootTaskId, props.workspaceId]);
+      react.useEffect(() => {
+        void load();
+      }, [load]);
+
+      const nodes = result?.version?.graph?.nodes ?? [];
+      const nodeStateByNode = new Map(
+        (result?.nodeStates ?? []).map((state) => [state.nodeId, state]),
+      );
+      const bindingByNode = new Map(
+        (result?.bindings ?? []).map((binding) => [binding.nodeId, binding]),
+      );
+      const draftNodeIds = new Set(
+        ["draft", "proposed"].includes(result?.plan?.status)
+          ? nodes
+              .filter(
+                (node) =>
+                  nodeStateByNode.get(node.id)?.taskId === undefined &&
+                  bindingByNode.get(node.id)?.taskId === undefined,
+              )
+              .map((node) => node.id)
+          : [],
+      );
+      const openNode = async (node) => {
+        if (openingNodeId !== "") return;
+        const state = nodeStateByNode.get(node.id);
+        const binding = bindingByNode.get(node.id);
+        const taskId = state?.taskId ?? binding?.taskId;
+        if (taskId === undefined) {
+          setError("当前任务仍是规划草稿，确认派发后才会生成任务详情");
+          return;
+        }
+        setOpeningNodeId(node.id);
+        setError("");
+        try {
+          await props.onOpenTask?.(taskId, props.workspaceId);
+        } catch (cause) {
+          setError(cause instanceof Error ? cause.message : String(cause));
+        } finally {
+          setOpeningNodeId("");
+        }
+      };
+
+      return h(
+        "section",
+        {
+          className: "pmrw-task-plan-breakdown",
+          "aria-label": "任务规划明细",
+        },
+        h("style", null, styles),
+        h(
+          "div",
+          { className: "pmrw-task-plan-breakdown-head" },
+          h("h3", null, "任务规划"),
+          h("span", null, loading ? "加载中" : `${nodes.length} 个明细项`),
+        ),
+        error === ""
+          ? null
+          : h(
+              "div",
+              { className: "pmrw-task-plan-breakdown-error", role: "alert" },
+              h("span", null, error),
+              h(
+                "button",
+                { type: "button", onClick: () => void load() },
+                "重试",
+              ),
+            ),
+        loading
+          ? h(
+              "div",
+              { className: "pmrw-task-plan-breakdown-empty" },
+              "正在读取任务规划…",
+            )
+          : nodes.length === 0
+            ? h(
+                "div",
+                { className: "pmrw-task-plan-breakdown-empty" },
+                "暂无任务规划明细",
+              )
+            : h(PlanNodeTable, {
+                nodes,
+                states: nodeStateByNode,
+                selectedNodeId: openingNodeId,
+                compact: true,
+                draftNodeIds,
+                onSelectNode: (node) => void openNode(node),
+              }),
+      );
+    }
+
     function formatPlanTime(value) {
       if (typeof value !== "string" || value === "") return "";
       const date = new Date(value);
@@ -1197,21 +1752,7 @@ window.__ModuleLoader__.load({
 
     function PlanEntry(props) {
       const [recoveredEnabled, setRecoveredEnabled] = react.useState(false);
-      const [planningOpen, setPlanningOpen] = react.useState(false);
-      const [planningMode, setPlanningMode] = react.useState("standard");
-      const [planningBusy, setPlanningBusy] = react.useState(false);
-      const [planningStatus, setPlanningStatus] = react.useState("");
-      const [planningError, setPlanningError] = react.useState("");
-      const planningDialogRef = react.useRef(null);
       const plan = usePlan(props.taskId);
-      react.useEffect(() => {
-        const dialog = planningDialogRef.current;
-        if (planningOpen && dialog !== null && !dialog.open) {
-          dialog.showModal();
-        } else if (!planningOpen && dialog?.open === true) {
-          dialog.close();
-        }
-      }, [planningOpen]);
       const localFlag = window.localStorage.getItem(
         enabledKey(props.workspaceId),
       );
@@ -1252,9 +1793,7 @@ window.__ModuleLoader__.load({
           .catch(() => undefined);
         return undefined;
       }, [enabled, props.taskId, props.workspaceId, shouldLoadPlan]);
-      const planningEnabled =
-        enabled && locallyPlanningEnabled(props.workspaceId);
-      if (!enabled && !planningEnabled) return null;
+      if (!enabled) return null;
       const confirmation = planConfirmationMeta(plan?.plan?.status);
       const pendingConfirmation = confirmation.pending;
       const planHint =
@@ -1263,217 +1802,175 @@ window.__ModuleLoader__.load({
           : pendingConfirmation
             ? "任务规划待确认，打开任务规划图"
             : "打开任务规划";
-      const startPlanning = async () => {
-        setPlanningBusy(true);
-        setPlanningError("");
-        setPlanningStatus("正在创建 Planning Run");
-        try {
-          const started = await request(
-            "/api/collab/router-worker/planning/start",
-            {
-              method: "POST",
-              body: JSON.stringify({
-                workspaceId: props.workspaceId,
-                rootTaskId: props.taskId,
-                expectedTaskRevision: props.task?.updatedAt ?? "",
-                mode: planningMode,
-              }),
-            },
-          );
-          let run = started.result?.run;
-          if (!run?.id) throw new Error("Planning Run 创建失败");
-          for (let attempt = 0; attempt < 80; attempt += 1) {
-            if (run.status === "failed") {
-              throw new Error(run.error ?? "任务规划失败");
-            }
-            if (run.status === "cancelled") {
-              throw new Error(run.cancelReason ?? "任务规划已取消");
-            }
-            if (
-              ["review_required", "succeeded"].includes(run.status) &&
-              run.planId
-            ) {
-              await fetchPlan(props.taskId, props.workspaceId);
-              setPlanningOpen(false);
-              setPlanningStatus("");
-              props.onOpenPlan();
-              return;
-            }
-            setPlanningStatus(
-              run.status === "understanding"
-                ? "正在理解需求与整理事实"
-                : run.status === "drafting"
-                  ? "正在生成并校验计划"
-                  : run.status === "critiquing"
-                    ? "正在独立评审计划"
-                    : run.status === "validating"
-                      ? "正在执行质量与风险校验"
-                  : run.status === "preparing"
-                    ? "正在准备上下文与 Skill"
-                    : `规划状态：${run.status}`,
-            );
-            await new Promise((resolve) => window.setTimeout(resolve, 1500));
-            const status = await request(
-              `/api/collab/router-worker/planning/status?runId=${encodeURIComponent(run.id)}`,
-            );
-            run = status.result?.run ?? run;
-          }
-          throw new Error("任务规划等待超时，可稍后打开任务规划查看结果");
-        } catch (cause) {
-          setPlanningError(
-            cause instanceof Error ? cause.message : "任务规划启动失败",
-          );
-        } finally {
-          setPlanningBusy(false);
-        }
-      };
       return h(
-        react.Fragment,
-        null,
-        enabled && typeof props.onOpenPlan === "function"
-          ? h(
-              "button",
-              {
-                className: `pmtask-detail-action neutral pmrw-detail-plan-entry${pendingConfirmation ? " pending" : ""}`,
-                style: { position: "relative" },
-                type: "button",
-                title: planHint,
-                "aria-label": planHint,
-                "aria-pressed": props.planOpen === true,
-                onClick: props.onOpenPlan,
+        "button",
+        {
+          className: `pmtask-detail-action neutral pmrw-detail-plan-entry${pendingConfirmation ? " pending" : ""}`,
+          style: { position: "relative" },
+          type: "button",
+          title: planHint,
+          "aria-label": planHint,
+          "aria-pressed": props.planOpen === true,
+          onClick: props.onOpenPlan,
+        },
+        "任务规划",
+        pendingConfirmation
+          ? h("span", {
+              className: "pmrw-plan-unread-dot",
+              "aria-hidden": "true",
+              style: {
+                position: "absolute",
+                top: "-3px",
+                right: "-3px",
+                width: "7px",
+                height: "7px",
+                borderRadius: "50%",
+                background: "var(--dsw-alias-state-error-primary,#e5534b)",
+                boxShadow: "0 0 0 1px var(--dsw-alias-bg-layer-1)",
+                pointerEvents: "none",
               },
-              "任务规划",
-              pendingConfirmation
-                ? h("span", {
-                    className: "pmrw-plan-unread-dot",
-                    "aria-hidden": "true",
-                    style: {
-                      position: "absolute",
-                      top: "-3px",
-                      right: "-3px",
-                      width: "7px",
-                      height: "7px",
-                      borderRadius: "50%",
-                      background: "var(--dsw-alias-state-error-primary,#e5534b)",
-                      boxShadow: "0 0 0 1px var(--dsw-alias-bg-layer-1)",
-                      pointerEvents: "none",
-                    },
-                  })
-                : null,
-            )
+            })
           : null,
-        planningEnabled
-          ? h(
-              "button",
-              {
-                className: "pmtask-detail-action neutral pmrw-detail-plan-entry",
-                type: "button",
-                onClick: () => {
-                  setPlanningError("");
-                  setPlanningStatus("");
-                  setPlanningOpen(true);
-                },
-              },
-              "AI 规划",
-            )
-          : null,
-        planningOpen
-          ? h(
-              "dialog",
-              {
-                ref: planningDialogRef,
-                className: "pmrw-planning-dialog",
-                "aria-label": "AI 任务规划",
-                onCancel: (event) => {
+      );
+    }
+
+    function PlanNodeTable(props) {
+      const nodesById = new Map(
+        (props.nodes ?? []).map((node) => [node.id, node]),
+      );
+      const states = props.states ?? new Map();
+      const draftNodeIds = props.draftNodeIds ?? new Set();
+      return h(
+        "div",
+        {
+          className: `pmrw-plan-table${props.compact === true ? " compact" : ""}`,
+          "aria-label": "任务规划任务清单",
+        },
+        h(
+          "div",
+          { className: "pmrw-plan-table-head" },
+          h("span", null, "任务"),
+          h("span", null, "负责人"),
+          h("span", null, "前置任务"),
+        ),
+        ...(props.nodes ?? []).map((node) => {
+          const state = states.get(node.id);
+          const status = state?.status ?? "waiting";
+          const statusMeta = planNodeStatusMeta(status);
+          const draft = draftNodeIds.has(node.id);
+          const receiver = node.receiverName || node.receiverId || "待指派";
+          const dependencies = (node.dependencies ?? [])
+            .map((dependencyId) => ({
+              node: nodesById.get(dependencyId),
+              status: states.get(dependencyId)?.status ?? "waiting",
+            }))
+            .filter((item) => item.node !== undefined);
+          return h(
+            "div",
+            {
+              className: `pmrw-plan-table-row${props.selectedNodeId === node.id ? " selected" : ""}`,
+              key: node.id,
+              role: "button",
+              tabIndex: 0,
+              "data-status": status,
+              title: `状态：${statusMeta.label}`,
+              onClick: () => props.onSelectNode?.(node),
+              onKeyDown: (event) => {
+                if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
-                  if (!planningBusy) setPlanningOpen(false);
-                },
-                onClose: () => setPlanningOpen(false),
-                onMouseDown: (event) => {
-                  if (event.target === event.currentTarget && !planningBusy) {
-                    setPlanningOpen(false);
-                  }
-                },
+                  props.onSelectNode?.(node);
+                }
               },
+            },
+            h(
+              "div",
+              { className: "pmrw-plan-table-task" },
               h(
-                "header",
-                { className: "pmrw-modal-head" },
-                h("div", null, h("h2", null, "AI 任务规划")),
-                h(
-                  "button",
-                  {
-                    className: "pmrw-icon-button",
-                    type: "button",
-                    disabled: planningBusy,
-                    onClick: () => setPlanningOpen(false),
-                    "aria-label": "关闭",
-                  },
-                  "×",
-                ),
+                "span",
+                {
+                  className: `pmrw-plan-status-pill ${statusMeta.tone}`,
+                },
+                statusMeta.label,
               ),
               h(
                 "div",
-                { className: "pmrw-modal-body" },
+                { className: "pmrw-plan-table-copy" },
                 h(
-                  "p",
-                  { className: "pmrw-plan-persistence-note" },
-                  "先理解需求与事实，再生成可编辑的 Plan Draft。生成后仍需人工编辑、审核和派发。",
-                ),
-                h(
-                  "label",
-                  { className: "pmrw-field" },
-                  "规划模式",
+                  "div",
+                  { className: "pmrw-plan-table-title-row" },
                   h(
-                    "select",
-                    {
-                      value: planningMode,
-                      disabled: planningBusy,
-                      onChange: (event) =>
-                        setPlanningMode(event.target.value),
-                    },
-                    h("option", { value: "quick" }, "快速"),
-                    h("option", { value: "standard" }, "标准"),
-                    h("option", { value: "deep" }, "深度"),
+                    "strong",
+                    { className: "pmrw-plan-table-title" },
+                    node.title,
                   ),
+                  h("span", { className: "pmrw-list-priority" }, node.priority),
                 ),
-                planningStatus
-                  ? h(
-                      "div",
-                      { className: "pmrw-planning-progress" },
-                      h("span", { className: "pmrw-spinner" }),
-                      planningStatus,
-                    )
-                  : null,
-                planningError
-                  ? h("p", { className: "pmrw-error" }, planningError)
-                  : null,
+                h(
+                  "span",
+                  { className: "pmrw-plan-table-subtitle" },
+                  `${node.receiverType === "agent" ? "AI 执行" : "人工处理"} · ${node.acceptance[0] || "任务结果"}`,
+                ),
               ),
+            ),
+            h(
+              "div",
+              { className: "pmrw-plan-table-cell pmrw-plan-table-owner" },
               h(
-                "footer",
-                { className: "pmrw-modal-foot" },
+                "span",
+                { className: "pmrw-plan-owner" },
                 h(
-                  "button",
+                  "span",
                   {
-                    className: "pmrw-button secondary",
-                    type: "button",
-                    disabled: planningBusy,
-                    onClick: () => setPlanningOpen(false),
+                    className: `pmrw-plan-owner-avatar${node.receiverType === "agent" ? " agent" : ""}`,
                   },
-                  "取消",
+                  receiver.trim().slice(0, 1),
                 ),
-                h(
-                  "button",
-                  {
-                    className: "pmrw-button primary",
-                    type: "button",
-                    disabled: planningBusy,
-                    onClick: () => void startPlanning(),
-                  },
-                  planningBusy ? "规划中..." : "开始规划",
-                ),
+                h("span", { className: "pmrw-plan-owner-name" }, receiver),
+                node.receiverType === "agent"
+                  ? h("i", { className: "pmrw-executor-ai-tag" }, "AI")
+                  : null,
               ),
-            )
-          : null,
+            ),
+            h(
+              "div",
+              {
+                className: "pmrw-plan-table-cell pmrw-plan-table-dependencies",
+              },
+              h(
+                "div",
+                { className: "pmrw-plan-deps" },
+                ...(dependencies.length > 0
+                  ? dependencies.map((item) =>
+                      h(
+                        "span",
+                        {
+                          className: "pmrw-plan-dep-chip",
+                          key: item.node.id,
+                          title: item.node.title,
+                        },
+                        h("span", {
+                          className: `pmrw-plan-dep-dot ${planNodeStatusMeta(item.status).tone}`,
+                        }),
+                        h("span", null, item.node.title),
+                      ),
+                    )
+                  : [
+                      h(
+                        "span",
+                        {
+                          className: "pmrw-plan-dep-empty",
+                          key: "empty",
+                        },
+                        "无前置任务",
+                      ),
+                    ]),
+              ),
+            ),
+            draft
+              ? h("span", { className: "pmrw-plan-draft-badge" }, "草稿")
+              : null,
+          );
+        }),
       );
     }
 
@@ -1492,10 +1989,12 @@ window.__ModuleLoader__.load({
       const [routerAgentsLoading, setRouterAgentsLoading] =
         react.useState(false);
       const [selectedRouterId, setSelectedRouterId] = react.useState("");
+      const [planningSettings, setPlanningSettings] = react.useState(null);
+      const [autoPlanningMode, setAutoPlanningMode] =
+        react.useState("standard");
       const [startMode, setStartMode] = react.useState("");
       const [routerProgress, setRouterProgress] = react.useState(0);
-      const [routerElapsedSeconds, setRouterElapsedSeconds] =
-        react.useState(0);
+      const [routerElapsedSeconds, setRouterElapsedSeconds] = react.useState(0);
       const [regenerateOpen, setRegenerateOpen] = react.useState(false);
       const [regenerateMode, setRegenerateMode] = react.useState("router");
       const [regenerateRouterId, setRegenerateRouterId] = react.useState("");
@@ -1563,8 +2062,11 @@ window.__ModuleLoader__.load({
           request(
             `/api/collab/router-worker/router-agents?workspaceId=${encodeURIComponent(props.workspaceId)}`,
           ),
+          request(
+            `/api/collab/router-worker/planning/settings?workspaceId=${encodeURIComponent(props.workspaceId)}`,
+          ),
         ])
-          .then(([, routerBody]) => {
+          .then(([, routerBody, planningBody]) => {
             const agents = Array.isArray(routerBody.result?.agents)
               ? routerBody.result.agents
               : [];
@@ -1575,6 +2077,17 @@ window.__ModuleLoader__.load({
               agents[0]?.id ??
               "";
             setSelectedRouterId(defaultId);
+            const planning = planningBody.result?.settings ?? null;
+            setPlanningSettings(planning);
+            setAutoPlanningMode(
+              planning?.humanOwner?.defaultMode ??
+                planning?.agentOwnerPolicy?.mode ??
+                "standard",
+            );
+            window.localStorage.setItem(
+              planningEnabledKey(props.workspaceId),
+              String(planning?.enabled === true),
+            );
           })
           .catch((cause) =>
             setError(cause instanceof Error ? cause.message : "加载计划失败"),
@@ -1598,7 +2111,6 @@ window.__ModuleLoader__.load({
       const states = new Map(
         (result?.nodeStates ?? []).map((state) => [state.nodeId, state]),
       );
-      const nodesById = new Map(nodes.map((node) => [node.id, node]));
       const orderedListNodes = nodes
         .map((node, index) => ({
           node,
@@ -1710,6 +2222,26 @@ window.__ModuleLoader__.load({
       react.useEffect(() => {
         if (result?.plan?.settings) setSettingsDraft(result.plan.settings);
       }, [result?.plan?.updatedAt]);
+      const savePlanOnly = async () => {
+        if (result === null) return;
+        setBusy("save-plan");
+        setError("");
+        try {
+          await savePlanGraph(
+            props,
+            result,
+            result.version.graph,
+            result.plan.settings,
+            "保存规划",
+          );
+        } catch (cause) {
+          setError(
+            cause instanceof Error ? cause.message : "保存规划失败，请重试",
+          );
+        } finally {
+          setBusy("");
+        }
+      };
       const approveAndDispatch = async () => {
         if (result === null) return;
         setBusy("publish");
@@ -1736,7 +2268,7 @@ window.__ModuleLoader__.load({
           setError(
             cause instanceof Error
               ? cause.message
-              : "确认并派发未完成，请修复问题后重试",
+              : "确认派发未完成，请修复问题后重试",
           );
         } finally {
           setBusy("");
@@ -1790,41 +2322,96 @@ window.__ModuleLoader__.load({
           setBusy("");
         }
       };
-      const startRouter = async (routerAgentId) => {
-        if (!routerAgentId) {
-          setError("请先在工作区扩展设置中指定 Router Agent");
-          return;
+      const enableAiPlanning = async () => {
+        const currentPlanningSettings =
+          planningSettings?.workspaceId === props.workspaceId
+            ? planningSettings
+            : null;
+        if (currentPlanningSettings?.enabled === true) {
+          return currentPlanningSettings;
         }
+        const updatePlanningSettings = async (revision) =>
+          request("/api/collab/router-worker/planning/settings/update", {
+            method: "POST",
+            body: JSON.stringify({
+              workspaceId: props.workspaceId,
+              enabled: true,
+              ...(typeof revision === "number"
+                ? { expectedRevision: revision }
+                : {}),
+            }),
+          });
+        let result;
+        try {
+          result = await updatePlanningSettings(
+            currentPlanningSettings?.revision,
+          );
+        } catch (cause) {
+          if (!isRevisionConflict(cause)) throw cause;
+          const refreshed = await request(
+            `/api/collab/router-worker/planning/settings?workspaceId=${encodeURIComponent(props.workspaceId)}`,
+          );
+          const refreshedSettings = refreshed.result?.settings ?? null;
+          setPlanningSettings(refreshedSettings);
+          result = await updatePlanningSettings(refreshedSettings?.revision);
+        }
+        const nextPlanningSettings = result.result?.settings ?? null;
+        setPlanningSettings(nextPlanningSettings);
+        window.localStorage.setItem(
+          planningEnabledKey(props.workspaceId),
+          String(nextPlanningSettings?.enabled === true),
+        );
+        return nextPlanningSettings;
+      };
+      const startAutoPlanning = async () => {
         setBusy("router");
         setError("");
         try {
+          const currentPlanningSettings = await enableAiPlanning();
+          const plannerAgentId =
+            currentPlanningSettings?.defaultPlannerAgentId ?? "";
           const started = await request(
-            "/api/collab/router-worker/plans/router/start",
+            "/api/collab/router-worker/planning/start",
             {
               method: "POST",
               body: JSON.stringify({
                 workspaceId: props.workspaceId,
                 rootTaskId: props.taskId,
-                routerAgentId,
+                expectedTaskRevision: props.taskUpdatedAt ?? "",
+                mode: autoPlanningMode,
+                ...(plannerAgentId === "" ? {} : { plannerAgentId }),
               }),
             },
           );
-          const planned = await waitForRouterPlan(
-            props.taskId,
-            props.workspaceId,
-            started.result.id,
-            () =>
-              mountedRef.current &&
-              props.open &&
-              locallyEnabled(props.workspaceId),
-          );
-          if (mountedRef.current && planned?.plan?.source !== "router") {
-            setError("Router 解析已中断，请重新解析");
+          let run = started.result?.run;
+          if (!run?.id) throw new Error("Planning Run 创建失败");
+          for (let attempt = 0; attempt < 80; attempt += 1) {
+            if (run.status === "failed") {
+              throw new Error(run.error ?? "任务规划失败");
+            }
+            if (run.status === "cancelled") {
+              throw new Error(run.cancelReason ?? "任务规划已取消");
+            }
+            if (
+              ["review_required", "succeeded"].includes(run.status) &&
+              run.planId
+            ) {
+              await fetchPlan(props.taskId, props.workspaceId);
+              if (mountedRef.current) setStartMode("");
+              return;
+            }
+            if (!mountedRef.current) return;
+            await new Promise((resolve) => window.setTimeout(resolve, 1500));
+            const status = await request(
+              `/api/collab/router-worker/planning/status?runId=${encodeURIComponent(run.id)}`,
+            );
+            run = status.result?.run ?? run;
           }
+          throw new Error("任务规划等待超时，可稍后重新打开任务规划查看结果");
         } catch (cause) {
           if (mountedRef.current) {
             setError(
-              cause instanceof Error ? cause.message : "Router 启动失败",
+              cause instanceof Error ? cause.message : "AI 任务规划启动失败",
             );
           }
         } finally {
@@ -1832,13 +2419,19 @@ window.__ModuleLoader__.load({
         }
       };
       const beginAutoParse = () => {
-        const routerAgentId =
-          selectedRouterId ||
-          routerAgents.find((agent) => agent.isDefault)?.id ||
-          routerAgents[0]?.id ||
-          "";
+        setError("");
         setStartMode("auto");
-        void startRouter(routerAgentId);
+      };
+      const beginManualCreate = () => {
+        setBusy("create");
+        setError("");
+        void createDefaultPlan(props)
+          .catch((cause) =>
+            setError(cause instanceof Error ? cause.message : "创建计划失败"),
+          )
+          .finally(() => {
+            if (mountedRef.current) setBusy("");
+          });
       };
       const updateGraphPosition = (nodeId, position) => {
         const next = {
@@ -2008,12 +2601,35 @@ window.__ModuleLoader__.load({
         setBusy("templates");
         setError("");
         try {
-          const body = await request(
-            `/api/collab/workflow/definitions?workspaceId=${encodeURIComponent(props.workspaceId)}`,
+          const [projectBody, workflowBody] = await Promise.all([
+            request(
+              `/api/collab/projects/detail?workspaceId=${encodeURIComponent(props.workspaceId)}`,
+            ),
+            request(
+              `/api/collab/workflow/definitions?workspaceId=${encodeURIComponent(props.workspaceId)}`,
+            ),
+          ]);
+          const project = projectBody.project ?? null;
+          const projectTemplate =
+            project?.templateId === undefined
+              ? undefined
+              : (projectBody.templates ?? []).find(
+                  (template) => template.id === project.templateId,
+                );
+          const allowedTemplateIds =
+            projectTemplate === undefined
+              ? undefined
+              : new Set(projectTemplate.workflowTemplateIds ?? []);
+          const available = (workflowBody.definitions ?? []).filter(
+            (definition) =>
+              definition.status === "active" &&
+              definition.kind !== "business-chain" &&
+              (allowedTemplateIds === undefined ||
+                allowedTemplateIds.has(definition.id)),
           );
-          setTemplates(body.definitions ?? []);
-          setTemplateId(body.definitions?.[0]?.id ?? "");
-          setRegenerateTemplateId(body.definitions?.[0]?.id ?? "");
+          setTemplates(available);
+          setTemplateId(available[0]?.id ?? "");
+          setRegenerateTemplateId(available[0]?.id ?? "");
         } catch (cause) {
           setError(cause instanceof Error ? cause.message : "加载模板失败");
         } finally {
@@ -2306,7 +2922,10 @@ window.__ModuleLoader__.load({
                     updateAddNodeDraft(
                       props.taskId,
                       next
-                        ? { ...defaultAddNodeDraft(), active: true }
+                        ? {
+                            ...defaultAddNodeDraft(props.currentUser),
+                            active: true,
+                          }
                         : defaultAddNodeDraft(),
                     );
                     props.onSelectNode(next ? "__add-task__" : "");
@@ -2373,6 +2992,18 @@ window.__ModuleLoader__.load({
                 "计划设置",
               )
             : null,
+          canManagePlan && ["draft", "proposed"].includes(result?.plan?.status)
+            ? h(
+                "button",
+                {
+                  className: "pmrw-button secondary",
+                  type: "button",
+                  disabled: busy !== "",
+                  onClick: () => void savePlanOnly(),
+                },
+                busy === "save-plan" ? "保存中..." : "保存规划",
+              )
+            : null,
           canManagePlan &&
             ["draft", "proposed", "approved"].includes(result?.plan?.status)
             ? h(
@@ -2383,7 +3014,7 @@ window.__ModuleLoader__.load({
                   disabled: busy !== "",
                   onClick: () => void approveAndDispatch(),
                 },
-                busy === "publish" ? "确认并派发中..." : "确认并派发",
+                busy === "publish" ? "确认派发中..." : "确认派发",
               )
             : null,
           canManagePlan &&
@@ -2642,14 +3273,10 @@ window.__ModuleLoader__.load({
               ? h(
                   "div",
                   { className: "pmrw-plan-empty pmrw-plan-start" },
-                  startMode === "auto"
-                    ? null
-                    : h("strong", null, "尚未生成执行计划"),
                   startMode === ""
                     ? h(
                         react.Fragment,
                         null,
-                        h("p", null, "选择执行计划的创建方式。"),
                         h(
                           "div",
                           { className: "pmrw-start-options" },
@@ -2658,13 +3285,14 @@ window.__ModuleLoader__.load({
                             {
                               className: "pmrw-start-option",
                               type: "button",
+                              disabled: busy !== "",
                               onClick: beginAutoParse,
                             },
                             h("strong", null, "自动解析执行计划"),
                             h(
                               "span",
                               null,
-                              "由 Router Agent 解析目标并生成任务规划",
+                              "由 AI 解析目标并生成可编辑的任务规划",
                             ),
                           ),
                           h(
@@ -2672,9 +3300,16 @@ window.__ModuleLoader__.load({
                             {
                               className: "pmrw-start-option",
                               type: "button",
-                              onClick: () => setStartMode("manual"),
+                              disabled: busy !== "",
+                              onClick: beginManualCreate,
                             },
-                            h("strong", null, "人工创建执行计划"),
+                            h(
+                              "strong",
+                              null,
+                              busy === "create"
+                                ? "正在创建..."
+                                : "人工创建执行计划",
+                            ),
                             h("span", null, "从当前任务手动搭建可编辑计划"),
                           ),
                           h(
@@ -2682,6 +3317,7 @@ window.__ModuleLoader__.load({
                             {
                               className: "pmrw-start-option",
                               type: "button",
+                              disabled: busy !== "",
                               onClick: () => {
                                 setStartMode("template");
                                 if (templates.length === 0) {
@@ -2705,9 +3341,7 @@ window.__ModuleLoader__.load({
                             null,
                             startMode === "auto"
                               ? "自动解析执行计划"
-                              : startMode === "manual"
-                                ? "人工创建执行计划"
-                                : "按预置工作流执行",
+                              : "按预置工作流执行",
                           ),
                           h(
                             "button",
@@ -2755,7 +3389,7 @@ window.__ModuleLoader__.load({
                                     h(
                                       "small",
                                       null,
-                                      `${routerProgress}% · 已等待 ${routerElapsedSeconds} 秒 · ${routerAgents.find((agent) => agent.id === selectedRouterId)?.name ?? "Router Agent"} 正在读取主任务并生成可编辑草稿（通常需要 20–60 秒）`,
+                                      `${routerProgress}% · 已等待 ${routerElapsedSeconds} 秒 · 当前工作区任务规划伙伴正在读取主任务并生成可编辑草稿（通常需要 20–60 秒）`,
                                     ),
                                   )
                                 : h(
@@ -2764,255 +3398,109 @@ window.__ModuleLoader__.load({
                                     h(
                                       "p",
                                       null,
-                                      routerAgents.length === 0
-                                        ? "尚未配置可用的 Router Agent，请先在任务看板右上角的扩展设置中指定。"
-                                        : "自动解析未能启动，请重试或返回选择其他创建方式。",
+                                      "选择规划模式后开始解析；任务规划伙伴由当前工作区自动选择。",
                                     ),
-                                    routerAgents.length > 0
-                                      ? h(
-                                          "button",
-                                          {
-                                            className: "pmrw-button primary",
-                                            type: "button",
-                                            onClick: beginAutoParse,
-                                          },
-                                          "重新解析",
-                                        )
-                                      : null,
-                                  ),
-                            )
-                          : startMode === "manual"
-                            ? h(
-                                react.Fragment,
-                                null,
-                                h(
-                                  "p",
-                                  null,
-                                  "从当前任务生成一个可编辑的基础执行计划，不调用 Router Agent。",
-                                ),
-                                h(
-                                  "button",
-                                  {
-                                    className: "pmrw-button primary",
-                                    type: "button",
-                                    disabled: busy !== "",
-                                    onClick: () => {
-                                      setBusy("create");
-                                      setError("");
-                                      void createDefaultPlan(props)
-                                        .catch((cause) =>
-                                          setError(
-                                            cause instanceof Error
-                                              ? cause.message
-                                              : "创建计划失败",
-                                          ),
-                                        )
-                                        .finally(() => setBusy(""));
-                                    },
-                                  },
-                                  busy === "create"
-                                    ? "创建中..."
-                                    : "创建人工执行计划",
-                                ),
-                              )
-                            : h(
-                                react.Fragment,
-                                null,
-                                h(
-                                  "p",
-                                  null,
-                                  "选择一个预置工作流模板，按模板生成执行计划。",
-                                ),
-                                templates.length === 0
-                                  ? h(
-                                      "button",
-                                      {
-                                        className: "pmrw-button secondary",
-                                        type: "button",
-                                        disabled: busy !== "",
-                                        onClick: () => void loadTemplates(),
-                                      },
-                                      busy === "templates"
-                                        ? "加载中..."
-                                        : "加载预置工作流",
-                                    )
-                                  : h(
-                                      react.Fragment,
-                                      null,
+                                    h(
+                                      "label",
+                                      { className: "pmrw-field" },
+                                      "规划模式",
                                       h(
                                         "select",
                                         {
-                                          value: templateId,
+                                          className: "pmrw-select",
+                                          value: autoPlanningMode,
                                           onChange: (event) =>
-                                            setTemplateId(event.target.value),
+                                            setAutoPlanningMode(
+                                              event.target.value,
+                                            ),
                                         },
-                                        ...templates.map((template) =>
-                                          h(
-                                            "option",
-                                            {
-                                              key: template.id,
-                                              value: template.id,
-                                            },
-                                            template.name,
-                                          ),
+                                        h("option", { value: "quick" }, "快速"),
+                                        h(
+                                          "option",
+                                          { value: "standard" },
+                                          "标准",
                                         ),
-                                      ),
-                                      h(
-                                        "button",
-                                        {
-                                          className: "pmrw-button primary",
-                                          type: "button",
-                                          disabled: busy !== "",
-                                          onClick: () =>
-                                            void createFromTemplate(),
-                                        },
-                                        busy === "template"
-                                          ? "创建中..."
-                                          : "按预置工作流执行",
+                                        h("option", { value: "deep" }, "深度"),
                                       ),
                                     ),
+                                    h(
+                                      "button",
+                                      {
+                                        className: "pmrw-button primary",
+                                        type: "button",
+                                        disabled: busy !== "",
+                                        onClick: () => void startAutoPlanning(),
+                                      },
+                                      "开始自动解析",
+                                    ),
+                                  ),
+                            )
+                          : h(
+                              react.Fragment,
+                              null,
+                              h(
+                                "p",
+                                null,
+                                "选择一个预置工作流模板，按模板生成执行计划。",
                               ),
+                              templates.length === 0
+                                ? h(
+                                    "button",
+                                    {
+                                      className: "pmrw-button secondary",
+                                      type: "button",
+                                      disabled: busy !== "",
+                                      onClick: () => void loadTemplates(),
+                                    },
+                                    busy === "templates"
+                                      ? "加载中..."
+                                      : "加载预置工作流",
+                                  )
+                                : h(
+                                    react.Fragment,
+                                    null,
+                                    h(
+                                      "select",
+                                      {
+                                        value: templateId,
+                                        onChange: (event) =>
+                                          setTemplateId(event.target.value),
+                                      },
+                                      ...templates.map((template) =>
+                                        h(
+                                          "option",
+                                          {
+                                            key: template.id,
+                                            value: template.id,
+                                          },
+                                          template.name,
+                                        ),
+                                      ),
+                                    ),
+                                    h(
+                                      "button",
+                                      {
+                                        className: "pmrw-button primary",
+                                        type: "button",
+                                        disabled: busy !== "",
+                                        onClick: () =>
+                                          void createFromTemplate(),
+                                      },
+                                      busy === "template"
+                                        ? "创建中..."
+                                        : "按预置工作流执行",
+                                    ),
+                                  ),
+                            ),
                       ),
                 )
               : view === "list"
-                ? h(
-                    "div",
-                    { className: "pmrw-plan-table" },
-                    h(
-                      "div",
-                      { className: "pmrw-plan-table-head" },
-                      h("span", null, "任务"),
-                      h("span", null, "负责人"),
-                      h("span", null, "前置任务"),
-                    ),
-                    ...orderedListNodes.map((node) => {
-                      const state = states.get(node.id);
-                      const status = state?.status ?? "waiting";
-                      const statusMeta = planNodeStatusMeta(status);
-                      const receiver =
-                        node.receiverName || node.receiverId || "待指派";
-                      const dependencies = node.dependencies
-                        .map((dependencyId) => ({
-                          node: nodesById.get(dependencyId),
-                          status: states.get(dependencyId)?.status ?? "waiting",
-                        }))
-                        .filter((item) => item.node !== undefined);
-                      return h(
-                        "div",
-                        {
-                          className: `pmrw-plan-table-row${props.nodeId === node.id ? " selected" : ""}`,
-                          key: node.id,
-                          role: "button",
-                          tabIndex: 0,
-                          "data-status": status,
-                          title: `状态：${statusMeta.label}`,
-                          onClick: () => props.onSelectNode(node.id),
-                          onKeyDown: (event) => {
-                            if (event.key === "Enter" || event.key === " ") {
-                              event.preventDefault();
-                              props.onSelectNode(node.id);
-                            }
-                          },
-                        },
-                        h(
-                          "div",
-                          { className: "pmrw-plan-table-task" },
-                          h(
-                            "span",
-                            {
-                              className: `pmrw-plan-status-pill ${statusMeta.tone}`,
-                            },
-                            statusMeta.label,
-                          ),
-                          h(
-                            "div",
-                            { className: "pmrw-plan-table-copy" },
-                            h(
-                              "div",
-                              { className: "pmrw-plan-table-title-row" },
-                              h(
-                                "strong",
-                                {
-                                  className: "pmrw-plan-table-title",
-                                },
-                                node.title,
-                              ),
-                              h(
-                                "span",
-                                { className: "pmrw-list-priority" },
-                                node.priority,
-                              ),
-                            ),
-                            h(
-                              "span",
-                              { className: "pmrw-plan-table-subtitle" },
-                              `${node.receiverType === "agent" ? "AI 执行" : "人工处理"} · ${node.acceptance[0] || "任务结果"}`,
-                            ),
-                          ),
-                        ),
-                        h(
-                          "div",
-                          { className: "pmrw-plan-table-cell" },
-                          h(
-                            "span",
-                            { className: "pmrw-plan-owner" },
-                            h(
-                              "span",
-                              {
-                                className: `pmrw-plan-owner-avatar${node.receiverType === "agent" ? " agent" : ""}`,
-                              },
-                              receiver.trim().slice(0, 1),
-                            ),
-                            h(
-                              "span",
-                              { className: "pmrw-plan-owner-name" },
-                              receiver,
-                            ),
-                            node.receiverType === "agent"
-                              ? h(
-                                  "i",
-                                  { className: "pmrw-executor-ai-tag" },
-                                  "AI",
-                                )
-                              : null,
-                          ),
-                        ),
-                        h(
-                          "div",
-                          { className: "pmrw-plan-table-cell" },
-                          h(
-                            "div",
-                            { className: "pmrw-plan-deps" },
-                            ...(dependencies.length > 0
-                              ? dependencies.map((item) =>
-                                  h(
-                                    "span",
-                                    {
-                                      className: "pmrw-plan-dep-chip",
-                                      key: item.node.id,
-                                      title: item.node.title,
-                                    },
-                                    h("span", {
-                                      className: `pmrw-plan-dep-dot ${planNodeStatusMeta(item.status).tone}`,
-                                    }),
-                                    h("span", null, item.node.title),
-                                  ),
-                                )
-                              : [
-                                  h(
-                                    "span",
-                                    {
-                                      className: "pmrw-plan-dep-empty",
-                                      key: "empty",
-                                    },
-                                    "无前置任务",
-                                  ),
-                                ]),
-                          ),
-                        ),
-                      );
-                    }),
-                  )
+                ? h(PlanNodeTable, {
+                    nodes: orderedListNodes,
+                    states,
+                    selectedNodeId: props.nodeId,
+                    onSelectNode: (node) => props.onSelectNode(node.id),
+                  })
                 : !settingsOpen &&
                   h(
                     "div",
@@ -3985,7 +4473,13 @@ window.__ModuleLoader__.load({
         if (result === null) return;
         if (addDraft.title.trim() === "") {
           updateAddNodeDraft(props.taskId, {
-            error: "请填写任务标题",
+            error: "请输入任务标题",
+          });
+          return;
+        }
+        if (addDraft.description.trim() === "") {
+          updateAddNodeDraft(props.taskId, {
+            error: "请输入任务描述",
           });
           return;
         }
@@ -4000,8 +4494,7 @@ window.__ModuleLoader__.load({
         const node = {
           id: `node-${Date.now().toString(36)}`,
           title: addDraft.title.trim(),
-          description:
-            addDraft.description.trim() || "完成新增任务节点并提交结果。",
+          description: addDraft.description.trim(),
           taskType: addDraft.taskType,
           initialStatus: addDraft.initialStatus,
           type: "task",
@@ -4014,7 +4507,7 @@ window.__ModuleLoader__.load({
             : { receiverName: addDraft.receiverName.trim() }),
           priority: addDraft.priority,
           ...(addDraft.due.trim() === "" ? {} : { due: addDraft.due.trim() }),
-          acceptance: acceptance.length === 0 ? ["提交任务结果"] : acceptance,
+          acceptance: acceptance.length > 0 ? acceptance : ["按描述完成并自查"],
           dependencies: [],
           reviewMode: "human",
           autoSubmitReview: addDraft.autoSubmitReview,
@@ -4155,9 +4648,7 @@ window.__ModuleLoader__.load({
           h(
             "header",
             { className: "pmrw-plan-side-head" },
-            h("span", null, "添加任务"),
             h("h2", null, "新建子任务"),
-            h("code", null, "填写任务信息后加入当前执行计划"),
           ),
           h(
             "div",
@@ -4166,271 +4657,308 @@ window.__ModuleLoader__.load({
               "div",
               { className: "pmrw-node-form" },
               h(
-                "label",
-                null,
-                "任务标题",
-                h("input", {
-                  value: addDraft.title,
-                  placeholder: "例如：补充供应商访谈",
-                  onChange: (event) =>
-                    updateAddNodeDraft(props.taskId, {
-                      title: event.target.value,
-                      error: "",
-                    }),
-                }),
-              ),
-              h(
-                "label",
-                null,
-                "任务描述",
-                h("textarea", {
-                  value: addDraft.description,
-                  onChange: (event) =>
-                    updateAddNodeDraft(props.taskId, {
-                      description: event.target.value,
-                    }),
-                }),
-              ),
-              h(
-                "div",
-                { className: "pmrw-plan-settings" },
+                "section",
+                { className: "pmrw-node-section" },
                 h(
-                  "label",
-                  null,
-                  "类型",
-                  h(
-                    "select",
-                    {
-                      value: addDraft.taskType,
-                      onChange: (event) =>
-                        updateAddNodeDraft(props.taskId, {
-                          taskType: event.target.value,
-                        }),
-                    },
-                    h("option", { value: "任务" }, "任务"),
-                    h("option", { value: "缺陷" }, "缺陷"),
-                    h("option", { value: "评审" }, "评审"),
-                  ),
+                  "div",
+                  { className: "pmrw-node-section-head" },
+                  h("strong", null, "基本信息"),
                 ),
                 h(
                   "label",
-                  null,
-                  "优先级",
-                  h(
-                    "select",
-                    {
-                      value: addDraft.priority,
-                      onChange: (event) =>
-                        updateAddNodeDraft(props.taskId, {
-                          priority: event.target.value,
-                        }),
-                    },
-                    h("option", { value: "P1" }, "P0"),
-                    h("option", { value: "P2" }, "P1"),
-                    h("option", { value: "P3" }, "P2"),
-                  ),
-                ),
-                h(
-                  "label",
-                  null,
-                  "初始状态",
-                  h(
-                    "select",
-                    {
-                      value: addDraft.initialStatus,
-                      onChange: (event) =>
-                        updateAddNodeDraft(props.taskId, {
-                          initialStatus: event.target.value,
-                        }),
-                    },
-                    h("option", { value: "todo" }, "待处理"),
-                    h("option", { value: "progress" }, "进行中"),
-                    h("option", { value: "review" }, "待验收"),
-                    h("option", { value: "done" }, "已完成"),
-                  ),
-                ),
-                h(
-                  "label",
-                  null,
-                  "责任人",
-                  h(
-                    "select",
-                    {
-                      value:
-                        addDraft.receiverType === "unassigned"
-                          ? "unassigned:"
-                          : `${addDraft.receiverType}:${addDraft.receiverId}`,
-                      onChange: (event) =>
-                        chooseAddReceiver(event.target.value),
-                    },
-                    h("option", { value: "unassigned:" }, "待指派"),
-                    directory.humans.length
-                      ? h(
-                          "optgroup",
-                          { label: "人员" },
-                          ...directory.humans.map((item) =>
-                            h(
-                              "option",
-                              { value: `human:${item.id}`, key: item.id },
-                              item.name,
-                            ),
-                          ),
-                        )
-                      : null,
-                    directory.agents.length
-                      ? h(
-                          "optgroup",
-                          { label: "AI 伙伴" },
-                          ...directory.agents.map((item) =>
-                            h(
-                              "option",
-                              { value: `agent:${item.id}`, key: item.id },
-                              item.name,
-                            ),
-                          ),
-                        )
-                      : null,
-                    directory.roles.length
-                      ? h(
-                          "optgroup",
-                          { label: "角色" },
-                          ...directory.roles.map((item) =>
-                            h(
-                              "option",
-                              { value: `role:${item.id}`, key: item.id },
-                              item.name,
-                            ),
-                          ),
-                        )
-                      : null,
-                  ),
-                ),
-                h(
-                  "label",
-                  null,
-                  "到期时间",
+                  { className: "pmrw-node-field wide" },
+                  "任务标题",
                   h("input", {
-                    type: "date",
-                    value: addDraft.due,
+                    value: addDraft.title,
+                    placeholder: "例如：补充供应商访谈",
                     onChange: (event) =>
                       updateAddNodeDraft(props.taskId, {
-                        due: event.target.value,
+                        title: event.target.value,
+                        error: "",
+                      }),
+                  }),
+                ),
+                h(
+                  "label",
+                  { className: "pmrw-node-field wide" },
+                  "任务描述",
+                  h("textarea", {
+                    value: addDraft.description,
+                    placeholder: "说明任务目标、范围和预期交付",
+                    onChange: (event) =>
+                      updateAddNodeDraft(props.taskId, {
+                        description: event.target.value,
                       }),
                   }),
                 ),
               ),
               h(
-                "div",
-                { className: "pmrw-plan-policy-inline" },
-                `归属项目：${props.workspaceId}（沿用当前计划，不可变更）`,
-              ),
-              addDraft.receiverType === "agent"
-                ? h(
-                    "div",
-                    { className: "pmrw-plan-policy" },
-                    h("strong", null, "Review 设置"),
+                "section",
+                { className: "pmrw-node-section" },
+                h(
+                  "div",
+                  { className: "pmrw-node-section-head" },
+                  h("strong", null, "任务设置"),
+                ),
+                h(
+                  "div",
+                  { className: "pmrw-node-section-grid" },
+                  h(
+                    "label",
+                    { className: "pmrw-node-field" },
+                    "类型",
                     h(
-                      "label",
-                      { className: "pmrw-setting-check" },
-                      h("input", {
-                        type: "checkbox",
-                        checked: addDraft.autoSubmitReview,
+                      "select",
+                      {
+                        value: addDraft.taskType,
                         onChange: (event) =>
                           updateAddNodeDraft(props.taskId, {
-                            autoSubmitReview: event.target.checked,
+                            taskType: event.target.value,
                           }),
-                      }),
-                      h("span", null, "完成后自动提交 Review"),
+                      },
+                      h("option", { value: "任务" }, "任务"),
+                      h("option", { value: "缺陷" }, "缺陷"),
+                      h("option", { value: "评审" }, "评审"),
                     ),
+                  ),
+                  h(
+                    "label",
+                    { className: "pmrw-node-field" },
+                    "优先级",
                     h(
-                      "label",
-                      { className: "pmrw-setting-check" },
-                      h("input", {
-                        type: "checkbox",
-                        checked: addDraft.autoApproveReview,
+                      "select",
+                      {
+                        value: addDraft.priority,
                         onChange: (event) =>
                           updateAddNodeDraft(props.taskId, {
-                            autoApproveReview: event.target.checked,
+                            priority: event.target.value,
                           }),
-                      }),
-                      h("span", null, "Review 自动通过"),
+                      },
+                      h("option", { value: "P1" }, "P0"),
+                      h("option", { value: "P2" }, "P1"),
+                      h("option", { value: "P3" }, "P2"),
                     ),
-                  )
-                : null,
-              addDraft.receiverType === "agent" &&
-                typeof fieldKit?.ExecutionRuntimeFields === "function"
-                ? h(fieldKit.ExecutionRuntimeFields, {
-                    runtimeLabel: addRuntimeLabel,
-                    runtimeUnavailable: addExternalRuntimeUnavailable,
-                    model: addDraft.model,
-                    modelOptions: addModelOptions,
-                    defaultModelLabel: addSelectedRuntime?.defaultModel,
-                    modelPlaceholder: "沿用平台默认模型",
-                    reasoningEffort: addDraft.reasoningEffort,
-                    defaultReasoningLabel: "沿用 Runtime 默认值",
-                    onModelChange: (value) =>
-                      updateAddNodeDraft(props.taskId, { model: value }),
-                    onReasoningChange: (value) =>
-                      updateAddNodeDraft(props.taskId, {
-                        reasoningEffort: value,
-                      }),
-                  })
-                : null,
-              h(
-                "div",
-                { className: "pmrw-plan-policy" },
-                h("strong", null, "执行策略"),
-                h(
-                  "label",
-                  { className: "pmrw-setting-check" },
-                  h("input", {
-                    type: "checkbox",
-                    checked: addDraft.allowPublicWeb,
-                    onChange: (event) =>
-                      updateAddNodeDraft(props.taskId, {
-                        allowPublicWeb: event.target.checked,
-                      }),
-                  }),
-                  h("span", null, "允许公开网页与监管文件"),
-                ),
-                h(
-                  "label",
-                  { className: "pmrw-setting-check" },
-                  h("input", {
-                    type: "checkbox",
-                    checked: addDraft.requireToolApproval,
-                    onChange: (event) =>
-                      updateAddNodeDraft(props.taskId, {
-                        requireToolApproval: event.target.checked,
-                      }),
-                  }),
-                  h("span", null, "写文件、执行命令和外部发布前需要人工确认"),
-                ),
-                h(
-                  "label",
-                  { className: "pmrw-setting-check" },
-                  h("input", {
-                    type: "checkbox",
-                    checked: addDraft.requireToolEvents,
-                    onChange: (event) =>
-                      updateAddNodeDraft(props.taskId, {
-                        requireToolEvents: event.target.checked,
-                      }),
-                  }),
-                  h("span", null, "要求记录实际工具调用事件"),
+                  ),
+                  h(
+                    "label",
+                    { className: "pmrw-node-field" },
+                    "初始状态",
+                    h(
+                      "select",
+                      {
+                        value: addDraft.initialStatus,
+                        onChange: (event) =>
+                          updateAddNodeDraft(props.taskId, {
+                            initialStatus: event.target.value,
+                          }),
+                      },
+                      h("option", { value: "todo" }, "待处理"),
+                      h("option", { value: "progress" }, "进行中"),
+                      h("option", { value: "review" }, "待验收"),
+                      h("option", { value: "done" }, "已完成"),
+                    ),
+                  ),
+                  h(
+                    "label",
+                    { className: "pmrw-node-field" },
+                    "责任人",
+                    h(
+                      "select",
+                      {
+                        value:
+                          addDraft.receiverType === "unassigned"
+                            ? "unassigned:"
+                            : `${addDraft.receiverType}:${addDraft.receiverId}`,
+                        onChange: (event) =>
+                          chooseAddReceiver(event.target.value),
+                      },
+                      h("option", { value: "unassigned:" }, "待指派"),
+                      directory.humans.length
+                        ? h(
+                            "optgroup",
+                            { label: "人员" },
+                            ...directory.humans.map((item) =>
+                              h(
+                                "option",
+                                { value: `human:${item.id}`, key: item.id },
+                                item.name,
+                              ),
+                            ),
+                          )
+                        : null,
+                      directory.agents.length
+                        ? h(
+                            "optgroup",
+                            { label: "AI 伙伴" },
+                            ...directory.agents.map((item) =>
+                              h(
+                                "option",
+                                { value: `agent:${item.id}`, key: item.id },
+                                item.name,
+                              ),
+                            ),
+                          )
+                        : null,
+                      directory.roles.length
+                        ? h(
+                            "optgroup",
+                            { label: "角色" },
+                            ...directory.roles.map((item) =>
+                              h(
+                                "option",
+                                { value: `role:${item.id}`, key: item.id },
+                                item.name,
+                              ),
+                            ),
+                          )
+                        : null,
+                    ),
+                  ),
+                  h(
+                    "label",
+                    { className: "pmrw-node-field" },
+                    "到期时间",
+                    h("input", {
+                      type: "date",
+                      value: addDraft.due,
+                      onChange: (event) =>
+                        updateAddNodeDraft(props.taskId, {
+                          due: event.target.value,
+                        }),
+                    }),
+                  ),
                 ),
               ),
               h(
-                "label",
-                null,
-                "验收标准（每行一条）",
-                h("textarea", {
-                  value: addDraft.acceptance,
-                  onChange: (event) =>
-                    updateAddNodeDraft(props.taskId, {
-                      acceptance: event.target.value,
+                "section",
+                { className: "pmrw-node-section" },
+                h(
+                  "div",
+                  { className: "pmrw-node-section-head" },
+                  h("strong", null, "执行设置"),
+                ),
+                addDraft.receiverType === "agent"
+                  ? h(
+                      "div",
+                      { className: "pmrw-plan-policy" },
+                      h(
+                        "strong",
+                        { className: "pmrw-node-subhead" },
+                        "Review 设置",
+                      ),
+                      h(
+                        "label",
+                        { className: "pmrw-setting-check" },
+                        h("input", {
+                          type: "checkbox",
+                          checked: addDraft.autoSubmitReview,
+                          onChange: (event) =>
+                            updateAddNodeDraft(props.taskId, {
+                              autoSubmitReview: event.target.checked,
+                            }),
+                        }),
+                        h("span", null, "完成后自动提交 Review"),
+                      ),
+                      h(
+                        "label",
+                        { className: "pmrw-setting-check" },
+                        h("input", {
+                          type: "checkbox",
+                          checked: addDraft.autoApproveReview,
+                          onChange: (event) =>
+                            updateAddNodeDraft(props.taskId, {
+                              autoApproveReview: event.target.checked,
+                            }),
+                        }),
+                        h("span", null, "Review 自动通过"),
+                      ),
+                    )
+                  : null,
+                addDraft.receiverType === "agent" &&
+                  typeof fieldKit?.ExecutionRuntimeFields === "function"
+                  ? h(fieldKit.ExecutionRuntimeFields, {
+                      runtimeLabel: addRuntimeLabel,
+                      runtimeUnavailable: addExternalRuntimeUnavailable,
+                      model: addDraft.model,
+                      modelOptions: addModelOptions,
+                      defaultModelLabel: addSelectedRuntime?.defaultModel,
+                      modelPlaceholder: "沿用平台默认模型",
+                      reasoningEffort: addDraft.reasoningEffort,
+                      defaultReasoningLabel: "沿用 Runtime 默认值",
+                      onModelChange: (value) =>
+                        updateAddNodeDraft(props.taskId, { model: value }),
+                      onReasoningChange: (value) =>
+                        updateAddNodeDraft(props.taskId, {
+                          reasoningEffort: value,
+                        }),
+                    })
+                  : null,
+                h(
+                  "div",
+                  { className: "pmrw-plan-policy" },
+                  h("strong", { className: "pmrw-node-subhead" }, "执行策略"),
+                  h(
+                    "label",
+                    { className: "pmrw-setting-check" },
+                    h("input", {
+                      type: "checkbox",
+                      checked: addDraft.allowPublicWeb,
+                      onChange: (event) =>
+                        updateAddNodeDraft(props.taskId, {
+                          allowPublicWeb: event.target.checked,
+                        }),
                     }),
-                }),
+                    h("span", null, "允许公开网页与监管文件"),
+                  ),
+                  h(
+                    "label",
+                    { className: "pmrw-setting-check" },
+                    h("input", {
+                      type: "checkbox",
+                      checked: addDraft.requireToolApproval,
+                      onChange: (event) =>
+                        updateAddNodeDraft(props.taskId, {
+                          requireToolApproval: event.target.checked,
+                        }),
+                    }),
+                    h("span", null, "写文件、执行命令和外部发布前需要人工确认"),
+                  ),
+                  h(
+                    "label",
+                    { className: "pmrw-setting-check" },
+                    h("input", {
+                      type: "checkbox",
+                      checked: addDraft.requireToolEvents,
+                      onChange: (event) =>
+                        updateAddNodeDraft(props.taskId, {
+                          requireToolEvents: event.target.checked,
+                        }),
+                    }),
+                    h("span", null, "要求记录实际工具调用事件"),
+                  ),
+                ),
+              ),
+              h(
+                "section",
+                { className: "pmrw-node-section" },
+                h(
+                  "div",
+                  { className: "pmrw-node-section-head" },
+                  h("strong", null, "验收标准（选填）"),
+                ),
+                h(
+                  "label",
+                  { className: "pmrw-node-field wide" },
+                  "每行一条，可留空",
+                  h("textarea", {
+                    value: addDraft.acceptance,
+                    placeholder: "每行填写一条验收标准；留空时按描述完成并自查",
+                    onChange: (event) =>
+                      updateAddNodeDraft(props.taskId, {
+                        acceptance: event.target.value,
+                      }),
+                  }),
+                ),
               ),
               addDraft.error
                 ? h("p", { className: "pmrw-error" }, addDraft.error)
@@ -4795,11 +5323,6 @@ window.__ModuleLoader__.load({
                       }),
                     ),
                   ),
-                  h(
-                    "div",
-                    { className: "pmrw-plan-policy-inline" },
-                    `归属项目：${props.workspaceId}（沿用当前计划，不可变更）`,
-                  ),
                   receiverType === "agent"
                     ? h(
                         "div",
@@ -5149,7 +5672,7 @@ window.__ModuleLoader__.load({
                             : node.receiverType === "unassigned"
                               ? planSideNotice(
                                   "节点尚未指派负责人",
-                                  "请先在「基础信息」中设置负责人，再确认并派发计划。",
+                                  "请先在「基础信息」中设置负责人，再确认派发计划。",
                                   "records-unassigned",
                                 )
                               : node.receiverType === "human"
@@ -5379,6 +5902,16 @@ window.__ModuleLoader__.load({
           ExtensionSettings,
         ),
       );
+      ctx.slots.inject("pluginmax.project.settings.other", () =>
+        ctx.slots.register(
+          {
+            name: "pluginmax.project.settings.other",
+            id: "pluginmax-router-worker-project-settings",
+            order: 20,
+          },
+          ProjectOtherSettings,
+        ),
+      );
       ctx.slots.inject("pluginmax.task.detail.actions", () =>
         ctx.slots.register(
           {
@@ -5401,6 +5934,16 @@ window.__ModuleLoader__.load({
                 : null,
           },
           PlanCenter,
+        ),
+      );
+      ctx.slots.inject("pluginmax.task.detail.relations", () =>
+        ctx.slots.register(
+          {
+            name: "pluginmax.task.detail.relations",
+            id: "pluginmax-router-worker-task-plan-breakdown",
+            order: 20,
+          },
+          TaskPlanBreakdown,
         ),
       );
       ctx.slots.inject("pluginmax.task.detail.side", () =>

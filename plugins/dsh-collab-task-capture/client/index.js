@@ -8,6 +8,7 @@ window.__ModuleLoader__.load({
     const h = react.createElement;
 
     const TOKEN_KEY = "pluginmax.collab.token";
+    const EMPTY_DIRECTORY = { humans: [], agents: [], roles: [] };
 
     const styles = `
       .pmtc-overlay{position:fixed;inset:42px 0 0 auto;z-index:70;display:flex;flex-direction:column;width:min(560px,100vw);background:var(--dsw-alias-bg-layer-1,#fff);border-left:1px solid var(--dsw-alias-border-l2);box-shadow:-18px 0 42px rgba(0,0,0,.14);color:var(--dsw-alias-label-primary);font-size:13px;line-height:1.45;}
@@ -820,20 +821,7 @@ window.__ModuleLoader__.load({
 
       const candidates = projection?.candidates ?? [];
       const allCandidates = [...candidates, ...manualCandidates];
-      const receiverOptions = [
-        ...directory.humans.map((item) => ({
-          ...item,
-          kind: "human",
-        })),
-        ...directory.agents.map((item) => ({
-          ...item,
-          kind: "agent",
-        })),
-        ...directory.roles.map((item) => ({
-          ...item,
-          kind: "role",
-        })),
-      ];
+      const receiverOptions = directoryOptions(directory);
       const candidateEdit = (candidate) =>
         edits[candidate.id] ?? {
           title: candidate.title,
@@ -1779,18 +1767,18 @@ window.__ModuleLoader__.load({
                               : "未指派",
                           ),
                           ...[
-                            ["人员", "human"],
-                            ["AI伙伴", "agent"],
-                            ["角色", "role"],
-                          ].map(([label, kind]) => {
+                            ...new Set(
+                              receiverOptions.map((item) => item.group),
+                            ),
+                          ].map((label) => {
                             const options = receiverOptions.filter(
-                              (item) => item.kind === kind,
+                              (item) => item.group === label,
                             );
                             return options.length === 0
                               ? null
                               : h(
                                   "optgroup",
-                                  { label, key: kind },
+                                  { label, key: label },
                                   ...options.map((item) =>
                                     h(
                                       "option",
@@ -1798,7 +1786,7 @@ window.__ModuleLoader__.load({
                                         key: `${item.kind}:${item.id}`,
                                         value: `${item.kind}:${item.id}`,
                                       },
-                                      item.name,
+                                      receiverOptionLabel(item),
                                     ),
                                   ),
                                 );
@@ -3710,26 +3698,95 @@ window.__ModuleLoader__.load({
     }
 
     function directoryOptions(directory) {
+      const roleNamesFor = (item) => {
+        const ids = new Set(
+          [item?.id, item?.employeeId, item?.authUserId].filter(Boolean),
+        );
+        return [
+          ...new Set(
+            (directory?.roles ?? [])
+              .filter(
+                (role) =>
+                  (role.assignedUserIds ?? []).some((id) => ids.has(id)) ||
+                  (role.members ?? []).some((member) => ids.has(member.id)),
+              )
+              .map((role) => role.name)
+              .filter(Boolean),
+          ),
+        ];
+      };
+      const annotate = (item, kind, group) => ({
+        ...item,
+        key: `${kind}:${item.id}`,
+        kind,
+        group,
+        projectRoleNames: kind === "role" ? [] : roleNamesFor(item),
+      });
+      const systemAgentKind = (item) => {
+        const token = [
+          item.templateId,
+          item.systemKey,
+          item.personaId,
+          item.id,
+          item.name,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        if (token.includes("tm-project-") || token.includes("项目经理")) {
+          return "project-manager";
+        }
+        if (token.includes("facilitator") || token.includes("会议主持")) {
+          return "meeting-facilitator";
+        }
+        if (
+          token.includes("data-agent") ||
+          token.includes("data agent") ||
+          token.includes("数据 agent")
+        ) {
+          return "data-agent";
+        }
+        return "";
+      };
+      const agents = (directory?.agents ?? []).map((item) =>
+        annotate(item, "agent", "AI伙伴"),
+      );
+      const compareByProjectRole = (left, right) =>
+        String(left.projectRoleNames?.[0] ?? "\uffff").localeCompare(
+          String(right.projectRoleNames?.[0] ?? "\uffff"),
+          "zh-CN",
+        ) ||
+        String(left.name ?? "").localeCompare(
+          String(right.name ?? ""),
+          "zh-CN",
+        );
       return [
-        ...(directory?.humans ?? []).map((item) => ({
-          ...item,
-          key: `human:${item.id}`,
-          kind: "human",
-          group: "人员",
-        })),
-        ...(directory?.agents ?? []).map((item) => ({
-          ...item,
-          key: `agent:${item.id}`,
-          kind: "agent",
-          group: "AI伙伴",
-        })),
-        ...(directory?.roles ?? []).map((item) => ({
-          ...item,
-          key: `role:${item.id}`,
-          kind: "role",
-          group: "角色",
-        })),
+        ...(directory?.humans ?? [])
+          .map((item) => annotate(item, "human", "人员"))
+          .sort(compareByProjectRole),
+        ...agents
+          .filter((item) => systemAgentKind(item) === "")
+          .sort(compareByProjectRole),
+        ...(directory?.roles ?? [])
+          .map((item) => annotate(item, "role", "角色"))
+          .sort((left, right) =>
+            String(left.name ?? "").localeCompare(
+              String(right.name ?? ""),
+              "zh-CN",
+            ),
+          ),
+        ...agents
+          .filter((item) => systemAgentKind(item) !== "")
+          .sort(compareByProjectRole)
+          .map((item) => ({ ...item, group: "系统 AI伙伴" })),
       ];
+    }
+
+    function receiverOptionLabel(item) {
+      const roles = item?.projectRoleNames ?? [];
+      return roles.length === 0
+        ? (item?.name ?? "")
+        : `${item.name} · ${roles.join("、")}`;
     }
 
     function receiverDisplayForDraft(draft, options) {
@@ -3750,7 +3807,11 @@ window.__ModuleLoader__.load({
           unavailable: true,
         };
       }
-      return { label: option.name, missing: false, unavailable: false };
+      return {
+        label: receiverOptionLabel(option),
+        missing: false,
+        unavailable: false,
+      };
     }
 
     function defaultFilledForDraft(draft) {
@@ -3935,7 +3996,13 @@ window.__ModuleLoader__.load({
     }
 
     function DraftEditorDrawer(props) {
-      const { entry, projects, directory, tasksByWorkspace } = props;
+      const {
+        entry,
+        projects,
+        directory,
+        directoryByWorkspace,
+        tasksByWorkspace,
+      } = props;
       const isNew = entry === null;
       const initialProject =
         entry === null
@@ -3956,7 +4023,10 @@ window.__ModuleLoader__.load({
       });
       const [saving, setSaving] = react.useState(false);
       const [error, setError] = react.useState("");
-      const options = directoryOptions(directory);
+      const activeDirectory =
+        directoryByWorkspace?.[form.projectId] ??
+        (directoryByWorkspace === undefined ? directory : EMPTY_DIRECTORY);
+      const options = directoryOptions(activeDirectory);
       const workspaceId = entry?.batch.workspaceId ?? initialProject;
       const taskOptions = (tasksByWorkspace[workspaceId] ?? []).map((task) => ({
         key: task.id,
@@ -4157,8 +4227,28 @@ window.__ModuleLoader__.load({
                   {
                     className: "pmtd-select",
                     value: form.projectId,
-                    onChange: (event) =>
-                      update({ projectId: event.target.value }),
+                    onChange: (event) => {
+                      const projectId = event.target.value;
+                      const nextOptions = directoryOptions(
+                        directoryByWorkspace?.[projectId] ??
+                          (directoryByWorkspace === undefined
+                            ? directory
+                            : EMPTY_DIRECTORY),
+                      );
+                      const receiverKey = nextOptions.some(
+                        (item) => item.key === form.receiverKey,
+                      )
+                        ? form.receiverKey
+                        : "";
+                      update({
+                        projectId,
+                        receiverKey,
+                        collaboratorKeys: form.collaboratorKeys.filter((key) =>
+                          nextOptions.some((item) => item.key === key),
+                        ),
+                        dependsOn: [],
+                      });
+                    },
                   },
                   h("option", { value: "" }, "未归属项目"),
                   ...projectOptions.map((project) =>
@@ -4183,24 +4273,26 @@ window.__ModuleLoader__.load({
                       update({ receiverKey: event.target.value }),
                   },
                   h("option", { value: "" }, "待指派"),
-                  ...["人员", "AI伙伴", "角色"].map((group) => {
-                    const items = options.filter(
-                      (item) => item.group === group,
-                    );
-                    return items.length === 0
-                      ? null
-                      : h(
-                          "optgroup",
-                          { label: group, key: group },
-                          ...items.map((item) =>
-                            h(
-                              "option",
-                              { key: item.key, value: item.key },
-                              item.name,
+                  ...[...new Set(options.map((item) => item.group))].map(
+                    (group) => {
+                      const items = options.filter(
+                        (item) => item.group === group,
+                      );
+                      return items.length === 0
+                        ? null
+                        : h(
+                            "optgroup",
+                            { label: group, key: group },
+                            ...items.map((item) =>
+                              h(
+                                "option",
+                                { key: item.key, value: item.key },
+                                receiverOptionLabel(item),
+                              ),
                             ),
-                          ),
-                        );
-                  }),
+                          );
+                    },
+                  ),
                   !isNew &&
                     form.receiverKey !== "" &&
                     !options.some((item) => item.key === form.receiverKey)
@@ -4930,6 +5022,7 @@ window.__ModuleLoader__.load({
 
     function TaskDraftInboxPage(props) {
       const projects = Array.isArray(props.projects) ? props.projects : [];
+      const directoryByWorkspace = props.directoryByWorkspace ?? {};
       const projectIds = projects.map((project) => project.id).filter(Boolean);
       const [items, setItems] = react.useState([]);
       const [loading, setLoading] = react.useState(true);
@@ -5836,6 +5929,7 @@ window.__ModuleLoader__.load({
                   : selectedProject,
               projects,
               directory: props.directory,
+              directoryByWorkspace: props.directoryByWorkspace,
               tasksByWorkspace,
               onClose: () => setEditorEntry(undefined),
               onSaved: async () => {
@@ -5849,7 +5943,8 @@ window.__ModuleLoader__.load({
           ? h(CreateTasksDrawer, {
               entries: readySelectedEntries,
               projects,
-              directory: props.directory,
+              directory:
+                directoryByWorkspace[selectedProject] ?? props.directory,
               externalRuntimes: props.externalRuntimes,
               allowDuplicateIds: Object.keys(allowedDuplicates).filter(
                 (id) => allowedDuplicates[id] === true,

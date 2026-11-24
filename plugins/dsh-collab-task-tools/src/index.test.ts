@@ -73,7 +73,13 @@ function harness() {
       if (key === "collabAgent") {
         return {
           run: (id: string) => (id === run.id ? run : undefined),
-          runs: () => [run],
+          runs: () => [
+            {
+              id: run.id,
+              sessionId: run.sessionId,
+              status: run.status,
+            },
+          ],
         };
       }
       if (key === "collabTasks") {

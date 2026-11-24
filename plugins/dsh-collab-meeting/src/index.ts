@@ -40,6 +40,7 @@ import {
 import {
   type KvTableLike,
   MeetingError,
+  createKeyedMutex,
   displayNameSchema,
   idSchema,
   isoTimeSchema,
@@ -64,6 +65,17 @@ export const inject = [
 
 export const SYSTEM_DEFAULT_WORKSPACE_ID = "system.default";
 export const SYSTEM_DEFAULT_PROJECT_TITLE = "默认项目";
+const LEGACY_GROUP_CONVERSION_NOTICE =
+  "聊天已转换为群聊，后续 AI 仅在明确 @ 时回复。";
+
+function isLegacyGroupConversionNotice(
+  message: Pick<MeetingMessage, "senderKind" | "content">,
+): boolean {
+  return (
+    message.senderKind === "system" &&
+    message.content === LEGACY_GROUP_CONVERSION_NOTICE
+  );
+}
 
 const titleSchema = z.string().trim().min(1).max(160);
 const textSchema = z.string().trim().max(20_000);
@@ -85,6 +97,10 @@ const meetingSchema = z.object({
   title: titleSchema,
   kind: z.enum(["meeting", "ai"]).default("meeting"),
   conversationMode: z.enum(["group"]).optional(),
+  /** The 1:1 conversation this group was created from, if any. */
+  sourceConversationId: idSchema.optional(),
+  /** The group created from this 1:1 conversation, if any. */
+  derivedGroupId: idSchema.optional(),
   teammateInstanceId: idSchema.optional(),
   /** New 1:1 chats resolve projects from the AI partner's own participation. */
   aiContextMode: z.literal("participant-projects-v1").optional(),
@@ -223,6 +239,40 @@ export type MeetingMessage = z.infer<typeof messageSchema>;
 export type MeetingDelivery = z.infer<typeof deliverySchema>;
 export type MeetingActor = z.infer<typeof actorSchema>;
 export type MeetingTranscriptItem = MeetingMessage;
+
+export function participantGroupTitle(
+  displayNames: readonly string[],
+  participantCount = displayNames.length,
+): string {
+  const names = [
+    ...new Set(
+      displayNames
+        .map((name) => name.trim())
+        .filter((name) => name !== ""),
+    ),
+  ];
+  if (names.length === 0) return "";
+  if (participantCount <= 3) return names.slice(0, participantCount).join("、");
+  return `${names.slice(0, 3).join("、")}等${participantCount}位`;
+}
+
+export function isUnreadMeetingMessage(
+  message: Pick<
+    MeetingMessage,
+    "senderKind" | "senderId" | "sequence" | "createdAt"
+  >,
+  actorId: string,
+  read: Pick<MeetingRead, "lastReadSeq" | "updatedAt"> | undefined,
+): boolean {
+  if (message.senderKind === "human" && message.senderId === actorId) {
+    return false;
+  }
+  if (read === undefined) return true;
+  return (
+    message.sequence > read.lastReadSeq ||
+    message.createdAt > read.updatedAt
+  );
+}
 
 function parseMeeting(value: Meeting): Meeting {
   return parseOrInvalid(meetingSchema, value);
@@ -372,6 +422,150 @@ export async function migrateMeetingOwnership(
     migratedParticipants += 1;
   }
   return { meetings: migratedMeetings, participants: migratedParticipants };
+}
+
+/**
+ * Repairs conversations converted by the legacy in-place implementation.
+ * Messages up to and including the old conversion notice are moved back to a
+ * dedicated 1:1 meeting, while the group keeps only post-conversion messages.
+ */
+export async function splitLegacyInPlaceGroupConversations(
+  meetings: KvTableLike<Meeting>,
+  participants: KvTableLike<MeetingParticipant>,
+  messages: KvTableLike<MeetingMessage>,
+): Promise<{ groups: number; singles: number; messages: number }> {
+  let migratedGroups = 0;
+  let migratedSingles = 0;
+  let migratedMessages = 0;
+  for (const value of tableValues(meetings)) {
+    const group = parseMeeting(value);
+    if (
+      group.kind !== "meeting" ||
+      group.conversationMode !== "group" ||
+      group.sourceConversationId !== undefined
+    ) {
+      continue;
+    }
+    const transcript = tableValues(messages)
+      .map(parseMessage)
+      .filter((message) => message.meetingId === group.id)
+      .sort((left, right) => left.sequence - right.sequence);
+    const conversionNotice = transcript.find(
+      isLegacyGroupConversionNotice,
+    );
+    if (conversionNotice === undefined) continue;
+    const roster = tableValues(participants)
+      .map(parseParticipant)
+      .filter(
+        (participant) =>
+          participant.meetingId === group.id &&
+          (participant.joinedAt === undefined ||
+            participant.joinedAt <= conversionNotice.createdAt),
+      );
+    const aiParticipant =
+      roster.find(
+        (participant) =>
+          participant.kind !== "human" &&
+          participant.teammateInstanceId === group.teammateInstanceId,
+      ) ?? roster.find((participant) => participant.kind !== "human");
+    if (aiParticipant === undefined) continue;
+
+    const single = parseMeeting({
+      id: randomUUID(),
+      workspaceId: group.workspaceId,
+      title: aiParticipant.displayName,
+      kind: "ai",
+      ...(group.teammateInstanceId === undefined
+        ? {}
+        : { teammateInstanceId: group.teammateInstanceId }),
+      aiContextMode: "participant-projects-v1",
+      derivedGroupId: group.id,
+      agenda: "",
+      status: "active",
+      createdBy: group.createdBy,
+      ownerUserId: group.ownerUserId ?? group.createdBy,
+      ...(group.ownerName === undefined ? {} : { ownerName: group.ownerName }),
+      createdAt: group.createdAt,
+      updatedAt: conversionNotice.createdAt,
+    });
+    await meetings.put(single.id, single);
+    const participantIdMap = new Map<string, string>();
+    for (const participant of roster) {
+      const participantId = randomUUID();
+      participantIdMap.set(participant.id, participantId);
+      await participants.put(
+        participantId,
+        parseParticipant({
+          ...participant,
+          id: participantId,
+          meetingId: single.id,
+          ...(participant.kind === "human"
+            ? {}
+            : { autoSpeak: "all" as const, initialGreeting: false }),
+          leader: false,
+          status: "active",
+          source: "direct",
+          leftAt: undefined,
+        }),
+      );
+    }
+
+    const moved = transcript.filter(
+      (message) => message.sequence < conversionNotice.sequence,
+    );
+    for (const message of moved) {
+      await messages.put(
+        message.id,
+        parseMessage({
+          ...message,
+          meetingId: single.id,
+          deliveries: message.deliveries.map((delivery) => ({
+            ...delivery,
+            participantId:
+              participantIdMap.get(delivery.participantId) ??
+              delivery.participantId,
+          })),
+        }),
+      );
+    }
+    const remaining = transcript.filter(
+      (message) => message.sequence > conversionNotice.sequence,
+    );
+    for (const [index, message] of remaining.entries()) {
+      await messages.put(
+        message.id,
+        parseMessage({ ...message, sequence: index + 1 }),
+      );
+    }
+    await messages.delete(conversionNotice.id);
+    await meetings.put(
+      group.id,
+      parseMeeting({ ...group, sourceConversationId: single.id }),
+    );
+    migratedGroups += 1;
+    migratedSingles += 1;
+    migratedMessages += moved.length;
+  }
+  return {
+    groups: migratedGroups,
+    singles: migratedSingles,
+    messages: migratedMessages,
+  };
+}
+
+/** Removes conversion notices left behind by the legacy in-place upgrade. */
+export async function removeLegacyGroupConversionNotices(
+  messages: KvTableLike<MeetingMessage>,
+): Promise<number> {
+  let removed = 0;
+  for (const value of tableValues(messages)) {
+    const message = parseMessage(value);
+    if (isLegacyGroupConversionNotice(message)) {
+      await messages.delete(message.id);
+      removed += 1;
+    }
+  }
+  return removed;
 }
 
 function managerActor(actor: MeetingActor): boolean {
@@ -1658,6 +1852,7 @@ export class MeetingService {
    */
   private facilitatorReader:
     ((meetingId: string) => readonly MeetingFacilitatorActivity[]) | undefined;
+  private readonly groupCreationLock = createKeyedMutex();
   /**
    * 对话内容变化（发言、worker 回复、散会）时触发一次。
    * 仅由写入路径调用，读取 / 轮询路径绝不触发；实现方负责异步与去重。
@@ -1835,10 +2030,14 @@ export class MeetingService {
     },
   ): Promise<Meeting> {
     const parsedActor = parseOrInvalid(actorSchema, actor);
-    const meeting = this.get(input.meetingId);
-    if (meeting.kind !== "ai") {
-      throw new MeetingError("conflict", "conversation is already a group");
-    }
+    const parsed = parseOrInvalid(
+      z.object({
+        meetingId: z.string().min(1).max(160),
+        title: titleSchema.optional(),
+      }),
+      input,
+    );
+    const meeting = this.get(parsed.meetingId);
     if (
       parsedActor.kind !== "user" ||
       (parsedActor.id !== meeting.createdBy &&
@@ -1850,33 +2049,155 @@ export class MeetingService {
         "only the conversation owner can convert it to a group",
       );
     }
-    const teammateParticipant = this.participants(meeting.id).find(
-      (participant) =>
-        participant.status === "active" &&
-        participant.kind !== "human" &&
-        participant.teammateInstanceId === meeting.teammateInstanceId,
-    );
-    if (teammateParticipant !== undefined) {
-      await this.tables.participants.put(teammateParticipant.id, {
-        ...teammateParticipant,
-        autoSpeak: "mentions",
-        updatedAt: nowIso(this.options.now),
+    return this.groupCreationLock(meeting.id, async () => {
+      // Re-read under the lock so concurrent invitations cannot create two
+      // groups from the same 1:1 conversation.
+      const source = this.get(meeting.id);
+      if (source.derivedGroupId !== undefined) {
+        const existing = this.tables.meetings.get(source.derivedGroupId);
+        if (existing !== undefined) {
+          const group = parseMeeting(existing);
+          if (group.conversationMode === "group" && group.status === "active") {
+            return group;
+          }
+        }
+      }
+      if (source.kind !== "ai") {
+        throw new MeetingError("conflict", "conversation is already a group");
+      }
+      const timestamp = nowIso(this.options.now);
+      const suffix = "（群聊）";
+      const requestedTitle = parsed.title?.trim();
+      // Keep the original and the derived group distinguishable in the list.
+      const title =
+        requestedTitle === undefined || requestedTitle === source.title
+          ? `${source.title.slice(0, 160 - suffix.length)}${suffix}`
+          : requestedTitle;
+      const group = parseMeeting({
+        id: randomUUID(),
+        workspaceId: source.workspaceId,
+        title,
+        kind: "meeting",
+        conversationMode: "group",
+        ...(source.teammateInstanceId === undefined
+          ? {}
+          : { teammateInstanceId: source.teammateInstanceId }),
+        ...(source.aiContextMode === undefined
+          ? {}
+          : { aiContextMode: source.aiContextMode }),
+        sourceConversationId: source.id,
+        agenda: "",
+        status: "active",
+        createdBy: source.createdBy,
+        ownerUserId: source.ownerUserId ?? source.createdBy,
+        ...(source.ownerName === undefined
+          ? {}
+          : { ownerName: source.ownerName }),
+        createdAt: timestamp,
+        updatedAt: timestamp,
       });
+      await this.tables.meetings.put(group.id, group);
+      for (const participant of this.participants(source.id)) {
+        if (participant.status !== "active") continue;
+        const cloned = parseParticipant({
+          ...participant,
+          id: randomUUID(),
+          meetingId: group.id,
+          ...(participant.kind === "human"
+            ? {}
+            : { autoSpeak: "mentions" as const, initialGreeting: false }),
+          leader: false,
+          status: "active",
+          executionState: "active",
+          executionStoppedBy: undefined,
+          executionStoppedAt: undefined,
+          source: "direct",
+          joinedAt: timestamp,
+          leftAt: undefined,
+          updatedAt: timestamp,
+        });
+        await this.tables.participants.put(cloned.id, cloned);
+      }
+      // The source remains an independent 1:1 conversation. Only its link to
+      // the generated group changes; transcript and participant state stay put.
+      await this.tables.meetings.put(
+        source.id,
+        parseMeeting({ ...source, derivedGroupId: group.id }),
+      );
+      await this.appendSystemMessage(
+        group.id,
+        "群聊已创建，之前的单聊消息不会同步到这里。",
+      );
+      return group;
+    });
+  }
+
+  /**
+   * Derives a group title from the current active roster. The creator stays
+   * first, the remaining names follow participant insertion order, and the
+   * suffix always reports the actual participant count.
+   */
+  async generateGroupTitleFromParticipants(
+    actor: MeetingActor,
+    meetingId: string,
+  ): Promise<Meeting> {
+    const parsedActor = parseOrInvalid(actorSchema, actor);
+    const meeting = this.get(meetingId);
+    if (
+      meeting.kind !== "meeting" ||
+      meeting.conversationMode !== "group"
+    ) {
+      throw new MeetingError(
+        "conflict",
+        "automatic title generation requires a group conversation",
+      );
+    }
+    const active = tableValues(this.tables.participants)
+      .map(parseParticipant)
+      .filter(
+        (participant) =>
+          participant.meetingId === meeting.id &&
+          participant.status === "active",
+      );
+    const caller = active.find(
+      (participant) =>
+        participant.kind === actorKind(parsedActor) &&
+        participant.refId === parsedActor.id,
+    );
+    if (
+      parsedActor.kind !== "user" ||
+      (caller === undefined &&
+        parsedActor.id !== meeting.createdBy &&
+        parsedActor.id !== meeting.ownerUserId &&
+        !managerActor(parsedActor))
+    ) {
+      throw new MeetingError(
+        "forbidden",
+        "an active participant, conversation owner, or admin is required",
+      );
+    }
+    const creator = active.find(
+      (participant) =>
+        participant.kind === "human" &&
+        participant.refId === meeting.createdBy,
+    );
+    const ordered =
+      creator === undefined
+        ? active
+        : [creator, ...active.filter((participant) => participant.id !== creator.id)];
+    const title = participantGroupTitle(
+      ordered.map((participant) => participant.displayName),
+      active.length,
+    );
+    if (title === "") {
+      throw new MeetingError("conflict", "group has no active participants");
     }
     const next = parseMeeting({
       ...meeting,
-      kind: "meeting",
-      conversationMode: "group",
-      ...(input.title === undefined || input.title.trim() === ""
-        ? {}
-        : { title: input.title.trim() }),
+      title: title.slice(0, 160),
       updatedAt: nowIso(this.options.now),
     });
     await this.tables.meetings.put(next.id, next);
-    await this.appendSystemMessage(
-      next.id,
-      "聊天已转换为群聊，后续 AI 仅在明确 @ 时回复。",
-    );
     return next;
   }
 
@@ -4012,7 +4333,11 @@ export function createMeetingRoutes(
       ?.get(dispatchWorkspaceId)?.path;
     const transcript = meetings
       .transcript(input.meeting.id)
-      .filter((message) => message.id !== input.message.id)
+      .filter(
+        (message) =>
+          message.id !== input.message.id &&
+          !isLegacyGroupConversionNotice(message),
+      )
       .slice(-TRANSCRIPT_WINDOW)
       .map((message) => `${message.senderName}: ${message.content}`)
       .join("\n");
@@ -4319,18 +4644,14 @@ export function createMeetingRoutes(
               (message) => message.senderKind !== "system",
             );
             const lastMessage = conversation.at(-1);
-            const lastReadSeq =
-              dependencies.reads?.()?.lastReadSeq(meeting.id, actor.id) ?? 0;
+            const read = dependencies
+              .reads?.()
+              ?.read(meeting.id, actor.id);
             return {
               ...meeting,
               messageCount: conversation.length,
               unreadCount: conversation.filter(
-                (message) =>
-                  message.sequence > lastReadSeq &&
-                  !(
-                    message.senderKind === "human" &&
-                    message.senderId === actor.id
-                  ),
+                (message) => isUnreadMeetingMessage(message, actor.id, read),
               ).length,
               lastMessage:
                 lastMessage === undefined
@@ -4523,6 +4844,13 @@ export function createMeetingRoutes(
           participants,
           transcript: meetings.transcript(meeting.id),
           actorId: actor.id,
+          read:
+            dependencies.reads?.()?.read(meeting.id, actor.id) ?? {
+              meetingId: meeting.id,
+              userId: actor.id,
+              lastReadSeq: 0,
+              updatedAt: meeting.createdAt,
+            },
           canRemove:
             (actor.kind === "user" && caller !== undefined) ||
             managerActor(actor),
@@ -4720,6 +5048,26 @@ export function createMeetingRoutes(
           meeting: converted,
           participants: meetings.participants(converted.id),
         });
+      },
+    },
+    {
+      method: "POST",
+      path: "/api/collab/meeting/group-title/generate",
+      handler: async (request: IncomingMessage, response: ServerResponse) => {
+        const body = parseOrInvalid(
+          z.object({
+            meetingId: z.string().min(1).max(160),
+          }),
+          await readBody(request),
+        );
+        const meeting = meetings.get(body.meetingId);
+        const actor = meetingActor(meeting, request);
+        activeHumanCaller(meeting, actor);
+        const updated = await meetings.generateGroupTitleFromParticipants(
+          actor,
+          meeting.id,
+        );
+        sendJson(response, 200, { ok: true, meeting: updated });
       },
     },
     {
@@ -6655,6 +7003,12 @@ export async function apply(ctx: MeetingContext): Promise<void | (() => void)> {
     domain.table("participants"),
     () => new Date(),
   );
+  await splitLegacyInPlaceGroupConversations(
+    domain.table("meetings"),
+    domain.table("participants"),
+    domain.table("messages"),
+  );
+  await removeLegacyGroupConversionNotices(domain.table("messages"));
   const meetings = new MeetingService({
     meetings: domain.table("meetings"),
     participants: domain.table("participants"),
@@ -6934,6 +7288,9 @@ export async function apply(ctx: MeetingContext): Promise<void | (() => void)> {
         const transcript = meetings
           .transcript(meeting.id)
           .filter(
+            (message) => !isLegacyGroupConversionNotice(message),
+          )
+          .filter(
             (message) =>
               message.sequence > (input.lastContextSeq ?? 0) &&
               (input.contextBoundarySeq === undefined ||
@@ -6988,6 +7345,9 @@ export async function apply(ctx: MeetingContext): Promise<void | (() => void)> {
         const meeting = meetings.get(input.objectId);
         const transcript = meetings
           .transcript(meeting.id)
+          .filter(
+            (message) => !isLegacyGroupConversionNotice(message),
+          )
           .filter(
             (message) =>
               message.sequence > (input.lastContextSeq ?? 0) &&

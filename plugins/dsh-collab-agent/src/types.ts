@@ -207,6 +207,11 @@ export const externalAgentRuntimeSchema = z
       .optional(),
     /** Runtime 未收到任务级模型覆盖时使用的默认模型。 */
     defaultModel: z.string().trim().min(1).max(160).optional(),
+    /**
+     * Runtime 级默认思考强度。任务执行策略仍可覆盖；存量 Runtime
+     * 不写该字段时继续沿用 CLI / Agent Profile 的既有默认行为。
+     */
+    reasoningEffort: reasoningEffortSchema.optional(),
     /** 上下文装配可用输入预算；不包含模型输出预留。 */
     contextWindowTokens: z.number().int().min(1_000).max(10_000_000).optional(),
     /** Codex CLI 文件系统沙箱；其他 Runner 由自身权限模型负责。 */

@@ -1,0 +1,230 @@
+schemaVersion: "1.0"
+pluginId: "dsh-collab-demo-ai-server-120"
+providerId: "ai-server-120-mock-mcp-provider"
+fixtureRevision: "AI-SERVER-120-MOCK-R1"
+assets:
+  - id: "mcp-mock-oms-ai-server-120"
+    name: "M-订单系统"
+    description: "AI Server 120 台订单案例的只读 OMS，返回订单、最低交付线、商业风险和跨客户影响。"
+    category: "履约"
+    icon: "database"
+    permissions:
+      - "orders.read"
+      - "commercial_risk.read"
+      - "customer_impact.read"
+    document: "documents/01-oms-mock-mcp.md"
+    system: "OMS"
+    tools:
+      - name: "oms.getOrderSnapshot"
+        description: "返回订单数量、交付窗口和订单状态。"
+        fields:
+          - salesOrderId
+          - lineId
+          - customerId
+          - customerName
+          - productCode
+          - productName
+          - orderDate
+          - originalQuantity
+          - currentQuantity
+          - minimumOnTimeQuantity
+          - deliveryWindowDays
+          - deadlineAt
+          - remainingQuantityAfterMinimum
+          - orderStatus
+      - name: "oms.getOrderRevisions"
+        description: "返回订单追加和变更历史。"
+        fields:
+          - salesOrderId
+          - revisions
+      - name: "oms.getCommercialRisk"
+        description: "返回最低交付线、商业风险和利润口径。"
+        fields:
+          - minimumOnTimeQuantity
+          - commercialRiskIfBelowMinimum
+          - riskCurrencyUnit
+          - riskNature
+          - riskProbability
+          - baselineProfitAt100
+          - profitAt120
+      - name: "oms.getCrossCustomerImpact"
+        description: "返回跨客户调拨的数量、延期和外部影响。"
+        fields:
+          - salesOrderId
+          - crossCustomerTransfer
+
+  - id: "mcp-mock-srm-ai-server-120"
+    name: "M-GPU 供应系统"
+    description: "AI Server 120 台订单案例的只读 SRM，返回 GPU 降供、加价增供和供应商关系。"
+    category: "供应商"
+    icon: "box"
+    permissions:
+      - "supplier.read"
+      - "supply.read"
+      - "quote.read"
+    document: "documents/02-srm-mock-mcp.md"
+    system: "SRM"
+    tools:
+      - name: "srm.getGpuSupplyCommitment"
+        description: "返回 GPU 预留、降供和 14 天有效供应。"
+        fields:
+          - supplierId
+          - supplierName
+          - materialCode
+          - gpuPerAiServer
+          - supplyCommitment
+      - name: "srm.getSupplyRisk"
+        description: "返回供应商关系与降供风险。"
+        fields:
+          - supplierId
+          - supplierName
+          - supplierRelationship
+      - name: "srm.getPremiumSupplyOption"
+        description: "返回加价 10 个 GPU 的增量供应条件。"
+        fields:
+          - materialCode
+          - premiumSupply
+      - name: "srm.getCrossCustomerSupplyOption"
+        description: "返回跨客户可调拨 GPU 和关系条件。"
+        fields:
+          - materialCode
+          - crossCustomerSupply
+
+  - id: "mcp-mock-aps-planning-ai-server-120"
+    name: "M-计划系统"
+    description: "AI Server 120 台订单案例的只读 APS，返回供需平衡、四方案成本和承诺条件。"
+    category: "计划"
+    icon: "calendar"
+    permissions:
+      - "planning.read"
+      - "scenario.read"
+      - "commitment.read"
+    document: "documents/03-aps-planning-mock-mcp.md"
+    system: "APS-PLANNING"
+    tools:
+      - name: "planning.getDemandSupplySnapshot"
+        description: "返回需求、数量桥和时间约束。"
+        fields:
+          - demand
+          - quantityBridge
+          - timeConstraints
+      - name: "planning.simulateFulfillmentOptions"
+        description: "返回 A/B/C/D 方案、成本和风险阈值。"
+        fields:
+          - costAssumptions
+          - options
+          - riskThresholds
+          - planningJudgment
+      - name: "planning.getCommitmentPlan"
+        description: "返回有条件承诺和待人工审批状态。"
+        fields:
+          - commitment
+
+  - id: "mcp-mock-mes-ai-server-120"
+    name: "M-制造执行系统"
+    description: "AI Server 120 台订单案例的只读 MES，返回 WIP、产能和生产效率损失。"
+    category: "生产"
+    icon: "factory"
+    permissions:
+      - "manufacturing.read"
+      - "capacity.read"
+      - "wip.read"
+    document: "documents/04-mes-mock-mcp.md"
+    system: "MES"
+    tools:
+      - name: "mes.getWorkOrderSnapshot"
+        description: "返回 WIP 和工单可追回状态。"
+        fields:
+          - plant
+          - resourceId
+          - resourceName
+          - workOrderId
+          - kitReadyQuantity
+          - completedQuantity
+          - pendingInspectionQuantity
+          - wipSnapshot
+      - name: "mes.simulateCapacityRecovery"
+        description: "返回 96/106/116/120 台制造可行性。"
+        fields:
+          - capacityByScenario
+          - manufacturingJudgment
+      - name: "mes.getEfficiencyImpact"
+        description: "返回 8% 效率损失和 160 万元生产成本影响。"
+        fields:
+          - efficiencyImpact
+      - name: "mes.getCapacityByScenario"
+        description: "返回各数量情景的产能条件。"
+        fields:
+          - resourceId
+          - capacityByScenario
+          - relationshipAndGovernance
+
+  - id: "mcp-mock-wms-ai-server-120"
+    name: "M-物流与发运系统"
+    description: "AI Server 120 台订单案例的只读 WMS，返回 E2E、空运费用、舱位和时间缓冲。"
+    category: "仓配"
+    icon: "warehouse"
+    permissions:
+      - "shipment.read"
+      - "freight.read"
+      - "capacity.read"
+    document: "documents/05-wms-logistics-mock-mcp.md"
+    system: "WMS"
+    tools:
+      - name: "wms.getOutboundReadiness"
+        description: "返回发运计划、截止时间和单据门禁。"
+        fields:
+          - outboundPlanId
+          - deadlineAt
+          - shipmentStatus
+          - plannedShipDate
+          - batches
+          - qualityAndDocumentGate
+      - name: "wms.getTransportOptions"
+        description: "比较普通运输和空运。"
+        fields:
+          - transportOptions
+          - logisticsJudgment
+      - name: "wms.getAirFreightQuote"
+        description: "返回空运费用、分段日期和缓冲。"
+        fields:
+          - transportOptions
+          - airFreight
+      - name: "wms.getShipmentCapacity"
+        description: "返回 96/106/116/120 台发运能力。"
+        fields:
+          - shipmentCapacityByScenario
+          - qualityAndDocumentGate
+
+  - id: "mcp-mock-qms-ai-server-120"
+    name: "M-质量系统"
+    description: "AI Server 120 台订单案例的只读 QMS，返回检验能力、WIP 质量和放行计划。"
+    category: "质量"
+    icon: "shield"
+    permissions:
+      - "quality.read"
+      - "inspection.read"
+      - "release.read"
+    document: "documents/06-qms-mock-mcp.md"
+    system: "QMS"
+    tools:
+      - name: "qms.getInspectionCapacity"
+        description: "返回检验资源和每日能力。"
+        fields:
+          - qualityResourceId
+          - inspectionCapacityPerDay
+          - inspectionStartAt
+          - lastInspectionAt
+      - name: "qms.getWipQualityStatus"
+        description: "返回 5 台 WIP 的质量 Hold 和返工状态。"
+        fields:
+          - qualityStatus
+          - qualifiedQuantity
+          - unqualifiedQuantity
+          - wipQualityStatus
+      - name: "qms.getScenarioReleasePlan"
+        description: "返回 96/106/116/120 台质量放行计划。"
+        fields:
+          - scenarioReleasePlan
+          - costBoundary
+          - qualityJudgment

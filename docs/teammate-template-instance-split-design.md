@@ -78,13 +78,15 @@
 | `templateId` | 必填，指向模版 |
 | `ownerUserId / ownerName` | owner = 创建人；`ownerName` 仅在读时解析，不再写入「平台」 |
 | `name / description / avatar` | 实例级覆盖，缺省时取模版值 |
+| `instanceSoul` | 当前实例追加的项目、产品线或个人工作偏好；运行时追加在模版 `soul` 之后 |
 | `state` | `active` / `paused` / `inactive` / `archived`（实例自己的生命周期） |
 | `employeeId / personaId / execution / externalRuntimeId` | 执行绑定（`personaId` 保留为对外兼容 id） |
 | `createdBy / createdAt / updatedAt` | 审计 |
 
 ### 3.2 解析与覆盖规则
 
-- 有效定义：`实例覆盖值 ?? 模版值`（`name`、`description`、`avatar` 三级覆盖；`role/soul/scenarios/goals` 只读模版）。
+- 基础定义：`实例覆盖值 ?? 模版值`（`name`、`description`、`avatar` 三级覆盖；`role/soul/scenarios/goals` 来自模版）。
+- 生效 SOUL：模版 `soul` 在前，实例 `instanceSoul` 作为项目补充在后；实例补充不得覆盖平台红线。
 - 模版更新：只写模版；**不覆盖**实例已有覆盖；实例端提供「恢复为模版值」。
 - 模版停用/归档：不自动改实例状态，但实例在「生效」前置校验中会因模版不可用而拒绝派发（返回明确文案）。
 - 命名唯一性：模版名在 `同一 source 空间` 内唯一；实例名不做强制唯一（实例以 id 区分，展示可带 owner 后缀）。
@@ -178,6 +180,7 @@ ownerOf(ref)      -> { userId, name } | undefined
 | GET | `/api/collab/teammates` | 实例列表新增 `templateId/templateName/templateSource`，`ownerName` 改为创建人显示名 |
 | POST | `/api/collab/teammates/create` | 入参改为 `{ templateId, name?, ownerUserId? }`（兼容旧 `source+name`：自动找/建对应模版） |
 | POST | `/api/collab/teammates/update` | 拆成「模版更新」与「实例覆盖更新」两条语义（旧入参按字段路由） |
+| POST | `/api/collab/teammates/profile` | 更新实例资料和 `instanceSoul`，不改共享模版 |
 | POST | `/api/collab/teammates/switch-template` | 切换实例引用的模版；只更新 `templateId`，不复制定义字段 |
 | GET/POST | `/api/collab/teammate-templates[/create\|update\|state]` | 新增：模版列表 / 详情 / 新建 / 编辑 / 状态流转 |
 | GET/POST | `/api/collab/profile-templates*` | 删除管理接口；历史 Profile 资产只在启动迁移时转入 `source=platform` 的 AI Teammate 模版 |

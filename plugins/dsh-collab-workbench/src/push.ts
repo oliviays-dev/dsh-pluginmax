@@ -18,6 +18,12 @@ export interface BriefModuleData {
   unreadCount: number;
   summary: string;
   views: { unread: BriefItemRecord[]; all: BriefItemRecord[] };
+  projectCatalog?:
+    | {
+        workspaceId: string;
+        workspaceName: string;
+      }[]
+    | undefined;
 }
 
 export type BriefPayload = WorkbenchModule<BriefModuleData>;

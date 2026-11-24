@@ -140,7 +140,8 @@ scope: project | platform
 `WorkflowDefinition` 新增：
 
 ```ts
-scope: "project" | "platform"
+scope: "project" | "selected" | "platform"
+workspaceIds: string[] // 仅 selected 使用
 ```
 
 保留：
@@ -152,6 +153,7 @@ workspaceId
 语义调整为：
 
 - 项目模板：`workspaceId` 是可见范围，只有该项目可读取和启动。
+- 指定项目模板：所属项目和 `workspaceIds` 中的项目可读取和启动；所属项目自动包含。
 - 平台模板：`workspaceId` 仅表示发布来源，不限制使用项目。
 
 建议新增：
@@ -166,14 +168,14 @@ publishedAt?: string
 
 ### 6.2 可见性
 
-| 操作 | 项目模板 | 平台模板 |
-| --- | --- | --- |
-| 当前项目读取 | 是 | 是 |
-| 其他项目读取 | 否 | 是 |
-| 当前项目编辑 | 项目负责人/管理员 | 发布负责人/平台管理员 |
-| 其他项目编辑 | 否 | 否 |
-| 其他项目复制 | 可选 | 允许复制为项目模板 |
-| 其他项目直接启动 | 否 | 是，但必须先完成实例映射 |
+| 操作 | 项目模板 | 指定项目模板 | 平台模板 |
+| --- | --- | --- | --- |
+| 当前项目读取 | 是 | 是 | 是 |
+| 指定项目读取 | 否 | 是 | 是 |
+| 未指定项目读取 | 否 | 否 | 是 |
+| 当前项目编辑 | 项目负责人/管理员 | 平台管理员 | 发布负责人/平台管理员 |
+| 指定项目编辑 | 否 | 平台管理员 | 否 |
+| 指定项目直接启动 | 否 | 是，但必须先完成实例映射 | 是，但必须先完成实例映射 |
 
 ### 6.3 模板版本
 
@@ -554,6 +556,7 @@ GET /api/collab/workflow/definitions?workspaceId=...&scope=...
 
 ```text
 scope=project
+scope=selected
 scope=platform
 ```
 
@@ -659,7 +662,7 @@ node.auto_dispatched
 
 ### 16.1 第一阶段
 
-- Definition 增加 project / platform scope。
+- Definition 增加 project / selected / platform scope。
 - 平台模板角色槽位化。
 - 实例 preflight 和映射页面。
 - `assigned` / `claim` 两种模式。
@@ -685,6 +688,7 @@ node.auto_dispatched
 ### 17.1 模板作用域
 
 - 项目模板只在所属项目可见。
+- 指定项目模板只在所属项目和 `workspaceIds` 中的项目可见。
 - 平台模板在所有项目可见。
 - 平台管理员可以发布平台模板。
 - 普通项目成员不能修改平台模板。

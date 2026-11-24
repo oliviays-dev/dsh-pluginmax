@@ -293,10 +293,7 @@ export interface AgentRunView {
   readonly employeeId?: string | undefined;
   readonly principalId?: string | undefined;
   readonly principalType?:
-    | "transitional-agent"
-    | "digital-employee"
-    | "principal-runtime"
-    | undefined;
+    "transitional-agent" | "digital-employee" | "principal-runtime" | undefined;
   readonly ticketId?: string | undefined;
   readonly contextPackId?: string | undefined;
   readonly sessionBindingId?: string | undefined;
@@ -367,12 +364,7 @@ export interface WorkflowTaskRef {
   readonly receiverId?: string | undefined;
   readonly receiverName?: string | undefined;
   readonly status:
-    | "todo"
-    | "progress"
-    | "abnormal"
-    | "review"
-    | "done"
-    | "cancelled";
+    "todo" | "progress" | "abnormal" | "review" | "done" | "cancelled";
   readonly nodeAttempt?: number | undefined;
   readonly reviewRequired?: boolean | undefined;
   readonly autoApproveReview?: boolean | undefined;
@@ -616,9 +608,7 @@ interface WorkflowContextServiceLike {
       readonly version: string;
       readonly instructions: string;
       readonly allowedWriteback: readonly (
-        | "agent-private-memory"
-        | "run-evidence"
-        | "memory-candidate"
+        "agent-private-memory" | "run-evidence" | "memory-candidate"
       )[];
     }>;
   }): () => void;
@@ -948,13 +938,36 @@ function values<V>(table: KvTableLike<V>): V[] {
 function definitionScope(
   definition: Pick<WorkflowDefinition, "scope"> | { scope?: unknown },
 ): WorkflowScope {
-  return definition.scope === "project" ? "project" : "platform";
+  return definition.scope === "project" ||
+    definition.scope === "selected" ||
+    definition.scope === "platform"
+    ? definition.scope
+    : "platform";
+}
+
+function selectedWorkspaceIds(
+  definition: Pick<
+    WorkflowDefinition,
+    "scope" | "workspaceId" | "workspaceIds"
+  >,
+): string[] {
+  if (definitionScope(definition) !== "selected") return [];
+  return [
+    definition.workspaceId,
+    ...definition.workspaceIds.filter(
+      (workspaceId) => workspaceId !== definition.workspaceId,
+    ),
+  ];
 }
 
 function normalizeDefinition(
   definition: WorkflowDefinition,
 ): WorkflowDefinition {
-  return { ...definition, scope: definitionScope(definition) };
+  return {
+    ...definition,
+    scope: definitionScope(definition),
+    workspaceIds: selectedWorkspaceIds(definition),
+  };
 }
 
 function normalizeInstance(instance: WorkflowInstance): WorkflowInstance {
@@ -1158,6 +1171,8 @@ export function validateRuntimeGraph(
   if (graph.startNodeIds.length === 0) {
     issues.push({ level: "error", message: "workflow has no start node" });
   }
+  const businessChainStageCodes = new Set<string>();
+  const businessChainSequences = new Set<number>();
   for (const node of graph.nodes) {
     const dispatchMode = dispatchModeForNode(node);
     if (dispatchMode === "claim" && node.executor.kind !== "role") {
@@ -1171,6 +1186,53 @@ export function validateRuntimeGraph(
         level: "error",
         message: `审批节点「${node.name}」不能使用 claim 派发模式`,
       });
+    }
+    if (node.businessChain !== undefined) {
+      if (businessChainStageCodes.has(node.businessChain.stageCode)) {
+        issues.push({
+          level: "error",
+          message: `duplicate business-chain stageCode: ${node.businessChain.stageCode}`,
+        });
+      }
+      if (businessChainSequences.has(node.businessChain.sequence)) {
+        issues.push({
+          level: "error",
+          message: `duplicate business-chain sequence: ${node.businessChain.sequence}`,
+        });
+      }
+      businessChainStageCodes.add(node.businessChain.stageCode);
+      businessChainSequences.add(node.businessChain.sequence);
+      const fieldKeys = new Set<string>();
+      const refKeys = new Set(
+        node.businessChain.externalRefs.map(
+          (ref) => `${ref.system}:${ref.objectId}`,
+        ),
+      );
+      for (const field of node.businessChain.fields ?? []) {
+        if (fieldKeys.has(field.key)) {
+          issues.push({
+            level: "error",
+            message: `duplicate business-chain field key: ${field.key}`,
+          });
+        }
+        fieldKeys.add(field.key);
+        for (const binding of field.bindings) {
+          // 字段绑定本身就是稳定的取数契约；节点无需重复声明 externalRefs。
+          refKeys.add(`${binding.system}:${binding.objectId}`);
+        }
+      }
+      for (const ref of node.businessChain.externalRefs) {
+        if (
+          ref.objectId.includes(" ") ||
+          ref.objectId === node.name ||
+          ref.objectId === node.id
+        ) {
+          issues.push({
+            level: "error",
+            message: `节点「${node.name}」的 externalRefs 必须使用稳定对象 ID`,
+          });
+        }
+      }
     }
     if (node.type !== "subworkflow" || node.subworkflowKey === undefined)
       continue;
@@ -1292,12 +1354,9 @@ export interface StartWorkflowInput {
     | undefined;
   /** 实例创建时节点执行绑定；未提供的节点由 preflight 推导或阻塞。 */
   readonly assignmentBindings?:
-    | Record<string, InstanceAssignmentInput>
-    | undefined;
+    Record<string, InstanceAssignmentInput> | undefined;
   /** 审批人与执行人独立映射，不能复用执行绑定自动代签。 */
-  readonly approvalBindings?:
-    | Record<string, InstanceApprovalInput>
-    | undefined;
+  readonly approvalBindings?: Record<string, InstanceApprovalInput> | undefined;
 }
 
 export interface WorkflowPreflightRisk {
@@ -1388,8 +1447,7 @@ export class WorkflowService {
       /** Principal 引用解析：principal:<id> 在解析模板前降为兼容主体。 */
       readonly principals?: () => WorkflowPrincipalServiceLike | undefined;
       readonly principalRuntime?: () =>
-        | WorkflowPrincipalRuntimeLike
-        | undefined;
+        WorkflowPrincipalRuntimeLike | undefined;
       readonly permission?: () => WorkflowPermissionServiceLike | undefined;
       readonly context?: () => WorkflowContextServiceLike | undefined;
       /** AI Teammate 运行时：Agent 节点派发前按需开通运行身份。 */
@@ -1469,6 +1527,7 @@ export class WorkflowService {
       | undefined,
   ): {
     graph?: WorkflowGraph;
+    businessChain?: WorkflowDefinition["businessChain"];
     issues: ValidationIssue[];
   } {
     const parsed = parseWorkflowMarkdown(
@@ -1481,7 +1540,14 @@ export class WorkflowService {
         message,
       })),
     ];
-    if (parsed.graph === undefined) return { issues };
+    if (parsed.graph === undefined) {
+      return {
+        ...(parsed.businessChain === undefined
+          ? {}
+          : { businessChain: parsed.businessChain }),
+        issues,
+      };
+    }
     issues.push(
       ...validateRuntimeGraph(parsed.graph, values(this.tables.definitions)),
     );
@@ -1503,7 +1569,13 @@ export class WorkflowService {
       issues.push(...this.agentReferenceIssues(parsed.graph, workspaceId));
       issues.push(...this.roleReferenceIssues(parsed.graph, workspaceId));
     }
-    return { graph: parsed.graph, issues: dedupeIssues(issues) };
+    return {
+      graph: parsed.graph,
+      ...(parsed.businessChain === undefined
+        ? {}
+        : { businessChain: parsed.businessChain }),
+      issues: dedupeIssues(issues),
+    };
   }
 
   /**
@@ -1741,8 +1813,7 @@ export class WorkflowService {
       team.members(workspaceId).map((member) => member.userId),
     );
     return graph.nodes.flatMap((node) =>
-      node.responsible?.kind === "user" &&
-      !memberIds.has(node.responsible.id)
+      node.responsible?.kind === "user" && !memberIds.has(node.responsible.id)
         ? [
             {
               level: "error" as const,
@@ -1770,12 +1841,26 @@ export class WorkflowService {
     return this.enqueue(async () => {
       let migrated = 0;
       for (const [id, definition] of this.tables.definitions.entries()) {
-        if (definition.scope === "project" || definition.scope === "platform") {
+        const hasScope =
+          definition.scope === "project" ||
+          definition.scope === "selected" ||
+          definition.scope === "platform";
+        const hasWorkspaceIds = Array.isArray(definition.workspaceIds);
+        if (hasScope && hasWorkspaceIds) {
           continue;
         }
+        const scope = definitionScope(definition);
         const next = workflowDefinitionSchema.parse({
           ...definition,
-          scope: "platform",
+          scope,
+          workspaceIds:
+            scope === "selected"
+              ? selectedWorkspaceIds({
+                  scope,
+                  workspaceId: definition.workspaceId,
+                  workspaceIds: definition.workspaceIds ?? [],
+                })
+              : [],
         });
         await this.tables.definitions.put(id, next);
         migrated += 1;
@@ -1802,8 +1887,7 @@ export class WorkflowService {
     return this.sharedDefinitions().filter(
       (definition) =>
         (scope === undefined || definitionScope(definition) === scope) &&
-        (definitionScope(definition) === "platform" ||
-          definition.workspaceId === workspaceId),
+        this.definitionVisibleTo(definition, workspaceId),
     );
   }
 
@@ -1818,9 +1902,12 @@ export class WorkflowService {
     definition: WorkflowDefinition,
     workspaceId: string,
   ): boolean {
+    const scope = definitionScope(definition);
+    if (scope === "platform") return true;
+    if (definition.workspaceId === workspaceId) return true;
     return (
-      definitionScope(definition) === "platform" ||
-      definition.workspaceId === workspaceId
+      scope === "selected" &&
+      selectedWorkspaceIds(definition).includes(workspaceId)
     );
   }
 
@@ -1836,24 +1923,58 @@ export class WorkflowService {
     );
   }
 
+  private normalizeDefinitionWorkspaceIds(
+    workspaceId: string,
+    scope: WorkflowScope,
+    workspaceIds: readonly string[] | undefined,
+  ): string[] {
+    if (scope !== "selected") return [];
+    const normalized = [
+      workspaceId,
+      ...(workspaceIds ?? []).filter(
+        (candidate, index, all) =>
+          candidate !== workspaceId && all.indexOf(candidate) === index,
+      ),
+    ];
+    const registry = this.options.workspaces?.();
+    if (registry !== undefined) {
+      const missing = normalized.filter(
+        (candidate) => registry.get(candidate) === undefined,
+      );
+      if (missing.length > 0) {
+        throw new WorkflowError(
+          "invalid_input",
+          `workspace not found: ${missing.join(", ")}`,
+        );
+      }
+    }
+    return normalized;
+  }
+
   importDefinition(
     actor: WorkflowActor,
     input: {
       workspaceId: string;
       sourceMd: string;
       scope?: WorkflowScope | undefined;
+      workspaceIds?: readonly string[] | undefined;
       activate?: boolean;
     },
   ): Promise<WorkflowDefinition> {
     const scope = input.scope ?? "project";
+    const workspaceIds = this.normalizeDefinitionWorkspaceIds(
+      input.workspaceId,
+      scope,
+      input.workspaceIds,
+    );
     if (
       (scope === "project" && !isManager(actor)) ||
-      (scope === "platform" &&
+      ((scope === "selected" || scope === "platform") &&
         (actor.kind !== "user" || actor.globalRole !== "admin"))
     ) {
       throw new WorkflowError(
         "forbidden",
-        scope === "platform"
+        scope === "selected" || scope === "platform"
           ? "platform admin is required"
           : "workspace owner or admin is required",
       );
@@ -1877,13 +1998,53 @@ export class WorkflowService {
         workspaceId: input.workspaceId,
         key: graph.key,
       });
-      if (existing.some((definition) => definition.version === graph.version)) {
+      const activate = input.activate ?? true;
+      const sameVersion = existing.find(
+        (definition) => definition.version === graph.version,
+      );
+      if (
+        sameVersion !== undefined &&
+        sameVersion.sourceMd === input.sourceMd
+      ) {
+        const workspaceIdsChanged =
+          scope === "selected" &&
+          selectedWorkspaceIds(sameVersion).join("\u0000") !==
+            workspaceIds.join("\u0000");
+        if (workspaceIdsChanged) {
+          const updated = workflowDefinitionSchema.parse({
+            ...sameVersion,
+            workspaceIds,
+            updatedAt: timestamp,
+          });
+          await this.tables.definitions.put(updated.id, updated);
+          return normalizeDefinition(updated);
+        }
+        if (activate === false || sameVersion.status === "active") {
+          return normalizeDefinition(sameVersion);
+        }
+        for (const definition of existing.filter(
+          (item) => item.status === "active" && item.id !== sameVersion.id,
+        )) {
+          await this.tables.definitions.put(definition.id, {
+            ...definition,
+            status: "archived",
+            updatedAt: timestamp,
+          });
+        }
+        const activated: WorkflowDefinition = {
+          ...sameVersion,
+          status: "active",
+          updatedAt: timestamp,
+        };
+        await this.tables.definitions.put(activated.id, activated);
+        return normalizeDefinition(activated);
+      }
+      if (sameVersion !== undefined) {
         throw new WorkflowError(
           "conflict",
           `definition version already exists: ${graph.key} v${graph.version}`,
         );
       }
-      const activate = input.activate ?? true;
       if (activate) {
         for (const definition of existing.filter(
           (item) => item.status === "active",
@@ -1899,8 +2060,13 @@ export class WorkflowService {
         id: randomUUID(),
         scope,
         workspaceId: input.workspaceId,
+        workspaceIds,
         key: graph.key,
         version: graph.version,
+        kind: check.businessChain === undefined ? "workflow" : "business-chain",
+        ...(check.businessChain === undefined
+          ? {}
+          : { businessChain: check.businessChain }),
         name: graph.name,
         description: graph.description,
         sourceMd: input.sourceMd,
@@ -2017,6 +2183,23 @@ export class WorkflowService {
 
   submission(submissionId: string): WorkflowSubmission | undefined {
     return this.tables.submissions.get(submissionId);
+  }
+
+  discardInstance(instanceId: string): Promise<boolean> {
+    return this.enqueue(async () => {
+      if (this.tables.instances.get(instanceId) === undefined) return false;
+      for (const [id, event] of [...this.tables.events.entries()]) {
+        if (event.instanceId === instanceId) {
+          await this.tables.events.delete(id);
+        }
+      }
+      for (const [id, submission] of [...this.tables.submissions.entries()]) {
+        if (submission.instanceId === instanceId) {
+          await this.tables.submissions.delete(id);
+        }
+      }
+      return this.tables.instances.delete(instanceId);
+    });
   }
 
   private async appendEvent(
@@ -2329,16 +2512,15 @@ export class WorkflowService {
         readonly permissions: readonly string[];
       }
     | undefined {
-    let projectRoles:
-      | readonly {
-          readonly id: string;
-          readonly code: string;
-          readonly name: string;
-          readonly permissions: readonly string[];
-        }[]
-      = [];
+    let projectRoles: readonly {
+      readonly id: string;
+      readonly code: string;
+      readonly name: string;
+      readonly permissions: readonly string[];
+    }[] = [];
     try {
-      projectRoles = this.options.projects?.()?.project(workspaceId)?.projectRoles ?? [];
+      projectRoles =
+        this.options.projects?.()?.project(workspaceId)?.projectRoles ?? [];
     } catch {
       projectRoles = [];
     }
@@ -2475,10 +2657,7 @@ export class WorkflowService {
     const projectMember =
       projectAgents.has(target.id) ||
       (teammate?.id !== undefined && projectAgents.has(teammate.id));
-    if (
-      options.requireProjectMembership !== false &&
-      !projectMember
-    ) {
+    if (options.requireProjectMembership !== false && !projectMember) {
       risks.push({
         level: "blocking",
         code: "assignee_not_project_member",
@@ -2492,9 +2671,7 @@ export class WorkflowService {
     const employeeTarget = employees?.workflowTarget(employeeId, workspaceId);
     if (teammate === undefined && employeeTarget === undefined) {
       if (options.allowLegacyAgentProfile === true) {
-        const profile = this.options
-          .agent?.()
-          ?.profile(workspaceId, target.id);
+        const profile = this.options.agent?.()?.profile(workspaceId, target.id);
         return profile === undefined ||
           profile.status !== "active" ||
           profile.runtimeKind !== "task-worker"
@@ -2605,7 +2782,11 @@ export class WorkflowService {
       const profileId =
         employeeTarget?.profile.legacyAgentProfileId ??
         (runtime?.status === "active" ? runtime.agentProfileId : undefined);
-      if (runtime === undefined || runtime.status !== "active" || profileId === undefined) {
+      if (
+        runtime === undefined ||
+        runtime.status !== "active" ||
+        profileId === undefined
+      ) {
         risks.push({
           level: "blocking",
           code: "ai_runtime_not_ready",
@@ -2750,12 +2931,9 @@ export class WorkflowService {
         binding.primaryAssignee !== undefined
       ) {
         return {
-          type:
-            binding.primaryAssignee.kind === "user" ? "human" : "agent",
+          type: binding.primaryAssignee.kind === "user" ? "human" : "agent",
           id: binding.primaryAssignee.id,
-          name:
-            binding.primaryAssignee.name ??
-            binding.primaryAssignee.id,
+          name: binding.primaryAssignee.name ?? binding.primaryAssignee.id,
         } as const;
       }
       if (binding.dispatchMode === "claim" && binding.source.kind === "role") {
@@ -2892,9 +3070,7 @@ export class WorkflowService {
           : "";
       const resolvedApproverIds = [
         ...new Set(
-          Object.values(state.approvals).map(
-            (item) => item.approver.id,
-          ),
+          Object.values(state.approvals).map((item) => item.approver.id),
         ),
       ];
       const assignmentBinding = instance.assignmentBindings[node.id];
@@ -2988,9 +3164,7 @@ export class WorkflowService {
       if (node.type === "approval" && task !== undefined) {
         const approverIds = [
           ...new Set(
-            Object.values(state.approvals).map(
-              (item) => item.approver.id,
-            ),
+            Object.values(state.approvals).map((item) => item.approver.id),
           ),
         ];
         const currentApproverIds = task.workflow?.approverIds ?? [];
@@ -3066,8 +3240,7 @@ export class WorkflowService {
       readonly receiverId?: string | undefined;
       readonly receiverName?: string | undefined;
       readonly workflow?:
-        | { readonly instanceId: string; readonly nodeId: string }
-        | undefined;
+        { readonly instanceId: string; readonly nodeId: string } | undefined;
     },
     actor: WorkflowActor,
   ): Promise<void> {
@@ -3206,9 +3379,7 @@ export class WorkflowService {
             readonly instanceId: string;
             readonly nodeId: string;
             readonly dispatchMode?: "assigned" | "claim" | undefined;
-            readonly candidatePool?:
-              | readonly AssignmentTarget[]
-              | undefined;
+            readonly candidatePool?: readonly AssignmentTarget[] | undefined;
           }
         | undefined;
     },
@@ -3225,8 +3396,7 @@ export class WorkflowService {
         actor.kind !== "user" ||
         binding?.dispatchMode !== "claim" ||
         binding.candidatePool?.some(
-          (candidate) =>
-            candidate.kind === "user" && candidate.id === actor.id,
+          (candidate) => candidate.kind === "user" && candidate.id === actor.id,
         ) !== true
       ) {
         throw new WorkflowError("forbidden", "当前用户不在任务候选池中");
@@ -3299,8 +3469,7 @@ export class WorkflowService {
     task: {
       readonly id: string;
       readonly workflow?:
-        | { readonly instanceId: string; readonly nodeId: string }
-        | undefined;
+        { readonly instanceId: string; readonly nodeId: string } | undefined;
     },
     actor: WorkflowActor,
   ): Promise<void> {
@@ -3356,8 +3525,7 @@ export class WorkflowService {
     task: {
       readonly id: string;
       readonly workflow?:
-        | { readonly instanceId: string; readonly nodeId: string }
-        | undefined;
+        { readonly instanceId: string; readonly nodeId: string } | undefined;
     },
     actor: WorkflowActor,
     decision: "approved" | "rejected",
@@ -3393,8 +3561,7 @@ export class WorkflowService {
     task: {
       readonly id: string;
       readonly workflow?:
-        | { readonly instanceId: string; readonly nodeId: string }
-        | undefined;
+        { readonly instanceId: string; readonly nodeId: string } | undefined;
     },
     actor: WorkflowActor,
   ): Promise<void> {
@@ -3428,8 +3595,7 @@ export class WorkflowService {
   async handleTaskReconcile(task: {
     readonly id: string;
     readonly workflow?:
-      | { readonly instanceId: string; readonly nodeId: string }
-      | undefined;
+      { readonly instanceId: string; readonly nodeId: string } | undefined;
   }): Promise<
     "approved" | "rejected" | "cancelled" | "superseded" | undefined
   > {
@@ -3513,8 +3679,7 @@ export class WorkflowService {
   async refreshTaskReceiverDisplay(task: {
     readonly id: string;
     readonly workflow?:
-      | { readonly instanceId: string; readonly nodeId: string }
-      | undefined;
+      { readonly instanceId: string; readonly nodeId: string } | undefined;
   }): Promise<void> {
     if (task.workflow === undefined) return;
     const instance = this.instance(task.workflow.instanceId);
@@ -3603,8 +3768,7 @@ export class WorkflowService {
     readonly id: string;
     readonly nodeAttempt?: number | undefined;
     readonly workflow?:
-      | { readonly instanceId: string; readonly nodeId: string }
-      | undefined;
+      { readonly instanceId: string; readonly nodeId: string } | undefined;
   }): Promise<
     "approved" | "rejected" | "cancelled" | "superseded" | undefined
   > {
@@ -3618,8 +3782,7 @@ export class WorkflowService {
 
   taskEventProjections(task: {
     readonly workflow?:
-      | { readonly instanceId: string; readonly nodeId: string }
-      | undefined;
+      { readonly instanceId: string; readonly nodeId: string } | undefined;
   }): WorkflowEvent[] {
     if (task.workflow === undefined) return [];
     return this.events(task.workflow.instanceId)
@@ -3818,16 +3981,14 @@ export class WorkflowService {
             candidatePool = (
               assignmentInput?.candidatePool ??
               rolePresetAssignees ??
-              members
-                .filter((member) => member.kind === "user")
-                .map((member) => ({
-                  kind: "user" as const,
-                  id: member.id,
-                  name: this.assignmentTargetName(
-                    { kind: "user", id: member.id },
-                    workspaceId,
-                  ),
-                }))
+              members.map((member) => ({
+                kind: member.kind,
+                id: member.id,
+                name: this.assignmentTargetName(
+                  { kind: member.kind, id: member.id },
+                  workspaceId,
+                ),
+              }))
             ).map((target) => ({
               ...target,
               name: this.assignmentTargetName(target, workspaceId),
@@ -3837,8 +3998,7 @@ export class WorkflowService {
       }
       if (dispatchMode === "assigned") {
         primaryAssignee =
-          assignmentInput?.primaryAssignee ??
-          rolePresetAssignees?.[0];
+          assignmentInput?.primaryAssignee ?? rolePresetAssignees?.[0];
         if (primaryAssignee === undefined) {
           if (node.executor.kind === "user") {
             primaryAssignee = {
@@ -3894,8 +4054,7 @@ export class WorkflowService {
             });
           }
           const directLegacyAgent =
-            assignmentInput === undefined &&
-            node.executor.kind === "agent";
+            assignmentInput === undefined && node.executor.kind === "agent";
           if (directLegacyAgent) {
             const agent = this.options.agent?.();
             if (agent === undefined) {
@@ -3941,7 +4100,8 @@ export class WorkflowService {
         }
       } else {
         candidatePool = (
-          candidatePool ?? assignmentInput?.candidatePool ??
+          candidatePool ??
+          assignmentInput?.candidatePool ??
           []
         ).map((target) => ({
           ...target,
@@ -3957,16 +4117,6 @@ export class WorkflowService {
           });
         }
         for (const target of candidatePool) {
-          if (target.kind !== "user") {
-            risks.push({
-              level: "blocking",
-              code: "candidate_ai_not_supported",
-              nodeId: node.id,
-              message: `节点「${node.name}」的候选池暂不支持 AI伙伴`,
-              actions: ["remap"],
-            });
-            continue;
-          }
           const targetRisk = await this.assignmentTargetRisks(
             workspaceId,
             node.id,
@@ -4014,9 +4164,7 @@ export class WorkflowService {
       approvalActors = [];
       if (selected !== undefined) {
         if (
-          node.approvers.some(
-            (approver) => approver.portability === "required",
-          )
+          node.approvers.some((approver) => approver.portability === "required")
         ) {
           risks.push({
             level: "blocking",
@@ -4047,11 +4195,7 @@ export class WorkflowService {
             name: named.name ?? named.id,
           });
           risks.push(
-            ...(await this.assignmentTargetRisks(
-              workspaceId,
-              node.id,
-              named,
-            )),
+            ...(await this.assignmentTargetRisks(workspaceId, node.id, named)),
           );
         }
       } else {
@@ -4100,15 +4244,13 @@ export class WorkflowService {
             continue;
           }
           const target: AssignmentTarget = {
-            kind:
-              approver.kind === "employee" ? "agent" : approver.kind,
+            kind: approver.kind === "employee" ? "agent" : approver.kind,
             id: approver.id,
             name:
               approver.name ||
               this.assignmentTargetName(
                 {
-                  kind:
-                    approver.kind === "employee" ? "agent" : approver.kind,
+                  kind: approver.kind === "employee" ? "agent" : approver.kind,
                   id: approver.id,
                 },
                 workspaceId,
@@ -4182,11 +4324,9 @@ export class WorkflowService {
       readonly definitionId?: string | undefined;
       readonly definitionVersion?: number | undefined;
       readonly assignmentBindings?:
-        | Record<string, InstanceAssignmentInput>
-        | undefined;
+        Record<string, InstanceAssignmentInput> | undefined;
       readonly approvalBindings?:
-        | Record<string, InstanceApprovalInput>
-        | undefined;
+        Record<string, InstanceApprovalInput> | undefined;
     },
   ): Promise<ResolvedWorkflowPreflight> {
     const definition = this.definitionForPreflight(
@@ -4255,9 +4395,7 @@ export class WorkflowService {
       assignmentBindings,
       approvalBindings,
       approvalActors,
-      roleIdByReference: new Map(
-        resolved.flatMap((item) => item.roleMappings),
-      ),
+      roleIdByReference: new Map(resolved.flatMap((item) => item.roleMappings)),
     };
   }
 
@@ -4268,11 +4406,9 @@ export class WorkflowService {
       readonly definitionId?: string | undefined;
       readonly definitionVersion?: number | undefined;
       readonly assignmentBindings?:
-        | Record<string, InstanceAssignmentInput>
-        | undefined;
+        Record<string, InstanceAssignmentInput> | undefined;
       readonly approvalBindings?:
-        | Record<string, InstanceApprovalInput>
-        | undefined;
+        Record<string, InstanceApprovalInput> | undefined;
     },
   ): Promise<WorkflowPreflightResult> {
     this.requireWorkflowStarter(actor);
@@ -4303,16 +4439,14 @@ export class WorkflowService {
       nodes[nodeId] = {
         ...state,
         receiverOverride: {
-          type:
-            binding.primaryAssignee.kind === "user" ? "human" : "agent",
+          type: binding.primaryAssignee.kind === "user" ? "human" : "agent",
           id: binding.primaryAssignee.id,
           ...(binding.primaryAssignee.name === undefined
             ? {}
             : { name: binding.primaryAssignee.name }),
           at: binding.resolvedAt,
         },
-        assignedTo:
-          binding.primaryAssignee.name ?? binding.primaryAssignee.id,
+        assignedTo: binding.primaryAssignee.name ?? binding.primaryAssignee.id,
       };
     }
     for (const [nodeId, actors] of Object.entries(resolved.approvalActors)) {
@@ -4501,6 +4635,9 @@ export class WorkflowService {
         }
       }
       const started = await this.putInstance(instance);
+      if (definition.kind === "business-chain") {
+        return started;
+      }
       const tasksCreated = await this.syncNodeTasks(started);
       const dispatched = await this.autoDispatchAgentNodes(actor, tasksCreated);
       const synced = await this.syncNodeTasks(dispatched);
@@ -4634,10 +4771,7 @@ export class WorkflowService {
       createdAt: timestamp,
       updatedAt: timestamp,
     };
-    const child = this.applyResolvedBindings(
-      childBase,
-      resolvedPreflight,
-    );
+    const child = this.applyResolvedBindings(childBase, resolvedPreflight);
     for (const nodeId of definition.graph.startNodeIds) {
       child.nodes[nodeId] = {
         ...child.nodes[nodeId]!,
@@ -5160,8 +5294,7 @@ export class WorkflowService {
       throw new WorkflowError("conflict", "节点当前不处于可执行状态");
     const employees = this.options.employee?.();
     let employeeTarget:
-      | ReturnType<EmployeeServiceLike["workflowTarget"]>
-      | undefined;
+      ReturnType<EmployeeServiceLike["workflowTarget"]> | undefined;
     let runtimePrincipalId: string | undefined;
     let provisionFailure: string | undefined;
     let profileId: string;
@@ -5446,8 +5579,7 @@ export class WorkflowService {
       });
       if (!decision.allowed) {
         const message =
-          decision.reasons.join("；") ||
-          "项目权限与节点负责人权限交集不足";
+          decision.reasons.join("；") || "项目权限与节点负责人权限交集不足";
         if (!isAuto) throw new WorkflowError("forbidden", message);
         const blocked = await this.putInstance({
           ...instance,
@@ -7356,15 +7488,14 @@ export class WorkflowService {
       }
       const scope = definitionScope(definition);
       if (
-        (scope === "platform" &&
+        ((scope === "selected" || scope === "platform") &&
           (actor.kind !== "user" || actor.globalRole !== "admin")) ||
         (scope === "project" &&
-          (definition.workspaceId !== input.workspaceId ||
-            !isManager(actor)))
+          (definition.workspaceId !== input.workspaceId || !isManager(actor)))
       ) {
         throw new WorkflowError(
           "forbidden",
-          scope === "platform"
+          scope === "selected" || scope === "platform"
             ? "platform admin is required"
             : "workspace owner or admin is required for the owning project",
         );
@@ -7373,8 +7504,7 @@ export class WorkflowService {
       if (input.status === "active") {
         for (const item of this.definitionVersionPeers(definition).filter(
           (candidate) =>
-            candidate.status === "active" &&
-            candidate.id !== definition.id,
+            candidate.status === "active" && candidate.id !== definition.id,
         )) {
           await this.tables.definitions.put(item.id, {
             ...item,
@@ -7418,6 +7548,7 @@ export class WorkflowService {
     input: {
       definitionId: string;
       scope: WorkflowScope;
+      workspaceIds?: readonly string[] | undefined;
     },
   ): Promise<WorkflowDefinition> {
     if (actor.kind !== "user" || actor.globalRole !== "admin") {
@@ -7428,20 +7559,36 @@ export class WorkflowService {
       if (definition === undefined) {
         throw new WorkflowError("not_found", "workflow definition not found");
       }
-      if (definitionScope(definition) === input.scope) return definition;
-      const peers = this.definitionVersionPeers({
-        scope: input.scope,
-        workspaceId: definition.workspaceId,
-        key: definition.key,
-      }).filter((candidate) => candidate.id !== definition.id);
-      if (peers.some((candidate) => candidate.version === definition.version)) {
+      const previousScope = definitionScope(definition);
+      const workspaceIds = this.normalizeDefinitionWorkspaceIds(
+        definition.workspaceId,
+        input.scope,
+        input.workspaceIds,
+      );
+      const scopeChanged = previousScope !== input.scope;
+      const workspaceIdsChanged =
+        input.scope === "selected" &&
+        selectedWorkspaceIds(definition).join("\u0000") !==
+          workspaceIds.join("\u0000");
+      if (!scopeChanged && !workspaceIdsChanged) return definition;
+      const peers = scopeChanged
+        ? this.definitionVersionPeers({
+            scope: input.scope,
+            workspaceId: definition.workspaceId,
+            key: definition.key,
+          }).filter((candidate) => candidate.id !== definition.id)
+        : [];
+      if (
+        scopeChanged &&
+        peers.some((candidate) => candidate.version === definition.version)
+      ) {
         throw new WorkflowError(
           "conflict",
           `target scope already has ${definition.key} v${definition.version}`,
         );
       }
       const timestamp = iso(this.now());
-      if (definition.status === "active") {
+      if (scopeChanged && definition.status === "active") {
         for (const peer of peers.filter(
           (candidate) => candidate.status === "active",
         )) {
@@ -7455,6 +7602,7 @@ export class WorkflowService {
       const next = workflowDefinitionSchema.parse({
         ...definition,
         scope: input.scope,
+        workspaceIds,
         updatedAt: timestamp,
       });
       await this.tables.definitions.put(next.id, next);
@@ -7463,10 +7611,14 @@ export class WorkflowService {
         {
           kind: "definition.scope",
           actor,
-          message: `将模板「${next.name}」v${next.version} 作用域切换为 ${input.scope}`,
+          message: scopeChanged
+            ? `将模板「${next.name}」v${next.version} 作用域切换为 ${input.scope}`
+            : `更新模板「${next.name}」v${next.version} 的指定项目范围`,
           data: {
-            previousScope: definitionScope(definition),
+            previousScope,
             scope: input.scope,
+            previousWorkspaceIds: selectedWorkspaceIds(definition),
+            workspaceIds,
           },
         },
       );
@@ -7853,11 +8005,12 @@ export function createWorkflowRoutes(
         if (
           scopeValue !== undefined &&
           scopeValue !== "project" &&
+          scopeValue !== "selected" &&
           scopeValue !== "platform"
         ) {
           throw new WorkflowError(
             "invalid_input",
-            "scope must be project or platform",
+            "scope must be project, selected, or platform",
           );
         }
         sendJson(response, 200, {
@@ -7878,18 +8031,21 @@ export function createWorkflowRoutes(
           .object({
             workspaceId: z.string(),
             sourceMd: z.string(),
-            scope: z.enum(["project", "platform"]).default("project"),
+            scope: z
+              .enum(["project", "selected", "platform"])
+              .default("project"),
+            workspaceIds: z.array(z.string().min(1)).max(200).default([]),
           })
           .parse(await readBody(request));
         const actor = browserActor(requireTeam(), request, body.workspaceId);
         if (
           (body.scope === "project" && !isManager(actor)) ||
-          (body.scope === "platform" &&
+          ((body.scope === "selected" || body.scope === "platform") &&
             (actor.globalRole !== "admin" || actor.kind !== "user"))
         )
           throw new WorkflowError(
             "forbidden",
-            body.scope === "platform"
+            body.scope === "selected" || body.scope === "platform"
               ? "platform admin is required"
               : "workspace owner or admin is required",
           );
@@ -7910,7 +8066,10 @@ export function createWorkflowRoutes(
           .object({
             workspaceId: z.string(),
             sourceMd: z.string(),
-            scope: z.enum(["project", "platform"]).default("project"),
+            scope: z
+              .enum(["project", "selected", "platform"])
+              .default("project"),
+            workspaceIds: z.array(z.string().min(1)).max(200).default([]),
             activate: z.boolean().default(true),
           })
           .parse(await readBody(request));
@@ -8215,16 +8374,10 @@ export function createWorkflowRoutes(
             definitionId: z.string().min(1).optional(),
             definitionVersion: z.number().int().positive().optional(),
             assignmentBindings: z
-              .record(
-                z.string().min(1).max(160),
-                instanceAssignmentInputSchema,
-              )
+              .record(z.string().min(1).max(160), instanceAssignmentInputSchema)
               .default({}),
             approvalBindings: z
-              .record(
-                z.string().min(1).max(160),
-                instanceApprovalInputSchema,
-              )
+              .record(z.string().min(1).max(160), instanceApprovalInputSchema)
               .default({}),
           })
           .parse(await readBody(request));
@@ -8264,16 +8417,10 @@ export function createWorkflowRoutes(
               )
               .default({}),
             assignmentBindings: z
-              .record(
-                z.string().min(1).max(160),
-                instanceAssignmentInputSchema,
-              )
+              .record(z.string().min(1).max(160), instanceAssignmentInputSchema)
               .default({}),
             approvalBindings: z
-              .record(
-                z.string().min(1).max(160),
-                instanceApprovalInputSchema,
-              )
+              .record(z.string().min(1).max(160), instanceApprovalInputSchema)
               .default({}),
           })
           .parse(await readBody(request));
@@ -8475,7 +8622,8 @@ export function createWorkflowRoutes(
           .object({
             workspaceId: z.string().min(1),
             definitionId: z.string().min(1),
-            scope: z.enum(["project", "platform"]),
+            scope: z.enum(["project", "selected", "platform"]),
+            workspaceIds: z.array(z.string().min(1)).max(200).default([]),
           })
           .parse(await readBody(request));
         const actor = browserActor(requireTeam(), request, body.workspaceId);
@@ -8596,8 +8744,7 @@ export async function apply(
       principalRuntime: () => ctx.get("collabPrincipalRuntime"),
       permission: () =>
         ctx.get("collabPermission") as
-          | WorkflowPermissionServiceLike
-          | undefined,
+          WorkflowPermissionServiceLike | undefined,
       onEvent: (event) => {
         try {
           (
@@ -8828,8 +8975,7 @@ export async function apply(
           kind: "human" | "agent" | "system";
           role?: WorkflowActor["globalRole"];
         },
-      ) =>
-        service.handleTaskClaimed(task, taskWorkflowActor(actor)),
+      ) => service.handleTaskClaimed(task, taskWorkflowActor(actor)),
       claimRejected: (
         task: Parameters<WorkflowService["handleTaskClaimRejected"]>[0],
         actor: {
@@ -8840,11 +8986,7 @@ export async function apply(
         },
         reason: string,
       ) =>
-        service.handleTaskClaimRejected(
-          task,
-          taskWorkflowActor(actor),
-          reason,
-        ),
+        service.handleTaskClaimRejected(task, taskWorkflowActor(actor), reason),
       decide: (
         task: Parameters<WorkflowService["handleTaskDecision"]>[0],
         actor: {
@@ -8863,8 +9005,7 @@ export async function apply(
       ) => service.refreshTaskReceiverDisplay(task),
       events: (task: {
         readonly workflow?:
-          | { readonly instanceId: string; readonly nodeId: string }
-          | undefined;
+          { readonly instanceId: string; readonly nodeId: string } | undefined;
       }) => service.taskEventProjections(task),
       submit: (
         task: Parameters<WorkflowService["handleTaskSubmitted"]>[0],

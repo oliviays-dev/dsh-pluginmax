@@ -41,6 +41,9 @@
       "path": "plugins/dsh-collab-task"
     },
     {
+      "path": "plugins/dsh-collab-task-dispatch"
+    },
+    {
       "path": "plugins/dsh-collab-router-worker"
     },
     {
@@ -81,6 +84,9 @@
     },
     {
       "path": "plugins/dsh-collab-demo-phone-tablet-order"
+    },
+    {
+      "path": "plugins/dsh-collab-demo-ai-server-120"
     }
   ]
 }

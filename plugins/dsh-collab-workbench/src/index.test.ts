@@ -2832,4 +2832,20 @@ describe("方案 B：工作台工作区范围", () => {
     };
     expect(service.projects(member)).toEqual([]);
   });
+
+  it("简报项目筛选目录包含没有简报事项的可访问项目", async () => {
+    const service = new WorkbenchService(tables(), scopeDeps());
+    const module = await service.briefModule(
+      {
+        userId: "admin",
+        name: "平台管理员",
+        role: "admin",
+      },
+      { tzOffsetMinutes },
+    );
+    expect(module.data?.views.all).toEqual([]);
+    expect(module.data?.projectCatalog).toEqual([
+      { workspaceId: "ws-1", workspaceName: "已加入项目" },
+    ]);
+  });
 });

@@ -137,7 +137,7 @@ describe("built-in workbench panel providers", () => {
     expect(source).toContain("pmwb-coverage-track");
   });
 
-  it("renders AI partner workload with 24/72 hour windows and blockers", () => {
+  it("renders AI partner workload with 24/72 hour windows", () => {
     const source = readFileSync(CLIENT, "utf8");
     expect(source).toContain("AI伙伴负载");
     expect(source).toContain('last24h: { label: "24 小时"');
@@ -154,9 +154,12 @@ describe("built-in workbench panel providers", () => {
     );
     expect(source).toContain("line-height:1.5;text-align:right;font-variant");
     expect(source).toContain("runtimeTrend.percent");
-    expect(source).toContain("minmax(38px,0.72fr)");
+    expect(source).toContain("minmax(46px,0.72fr)");
     expect(source).toContain("minmax(44px,0.62fr)");
-    expect(source).toContain("minmax(96px,1.22fr) minmax(0,2fr)");
+    expect(source).toContain(
+      "width:100%;min-width:378px;display:grid;grid-template-columns:20px minmax(110px,1.22fr) minmax(220px,2fr)",
+    );
+    expect(source).toContain(".pmwb2-ai-load-cell.token{min-width:52px");
     expect(source).toContain(
       "font-size:11px;line-height:1.5;text-align:right;font-variant-numeric:tabular-nums",
     );
@@ -164,6 +167,10 @@ describe("built-in workbench panel providers", () => {
     expect(source).toContain("justify-self:end;text-align:right");
     expect(source).toContain(
       "overflow:auto;background:var(--dsw-alias-bg-layer-2)",
+    );
+    expect(source).toContain("@container (max-width:380px)");
+    expect(source).toContain(
+      "min-width:340px;grid-template-columns:16px minmax(92px,1fr) minmax(212px,1.8fr)",
     );
     expect(source).toContain("pmwb2-ai-load-divider");
     expect(source).toContain("inactiveSorted");
@@ -182,7 +189,8 @@ describe("built-in workbench panel providers", () => {
     );
     expect(source).toContain("openTeammate(item)");
     expect(source).toContain("hasRunIn72h");
-    expect(source).toContain("blockers");
+    expect(source).toContain('className: "pmwb2-ai-load-person-name"');
+    expect(source).not.toContain("pmwb2-ai-load-warning");
     expect(source).not.toContain("相对领跑");
     expect(source).not.toContain("位参与");
     expect(source).not.toContain("pmwb2-ai-load-track");
@@ -353,6 +361,10 @@ describe("built-in workbench panel providers", () => {
     expect(source).toContain('type: "checkbox"');
     expect(source).toContain('allSelected ? "清空" : "全选"');
     expect(source).toContain("projects: briefProjects");
+    expect(source).toContain("projectCatalog");
+    expect(source).toContain(
+      "briefProjectNames(\n            legacyPayload.data?.projectCatalog ?? [],\n            legacyPayload.data?.views?.all ?? [],\n          )",
+    );
   });
 
   it("expands the first task evidence row and loads its basics once", () => {

@@ -1,18 +1,24 @@
 import type { ServerResponse } from "node:http";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   apply,
   buildProjectReportContent,
   createProjectRoutes,
   generateProjectReportContent,
+  hydrateOverviewAlerts,
   inject,
   isProjectReportScheduleDue,
   projectReportScheduleClock,
   ProjectError,
   ProjectService,
+  ProjectProgressOverviewService,
+  MockScenarioSourceRegistry,
   projectDomainSpec,
   runScheduledProjectReports,
   type ProjectAuditRecord,
+  type ProjectAlertRecord,
+  type ProjectDependencies,
   type ProjectRecord,
   type ProjectReportRecord,
   type ProjectRoleRecord,
@@ -102,6 +108,293 @@ async function call(route: Route, request: unknown): Promise<FakeResponse> {
   const response = new FakeResponse();
   await route.handler(request as never, response as unknown as ServerResponse);
   return response;
+}
+
+const BUSINESS_CHAIN_DEFINITION = {
+  id: "definition-chain-ai-server",
+  scope: "platform" as const,
+  workspaceId: "platform",
+  key: "business-chain-ai-server",
+  version: 3,
+  kind: "business-chain" as const,
+  name: "AI Server 交付链路",
+  description: "供应链交付示例链路",
+  status: "active",
+  updatedAt: "2026-11-18T12:00:00.000Z",
+  businessChain: {
+    enabled: true,
+    templateId: "chain-ai-server",
+    chainKey: "ai-server-delivery",
+    displayName: "AI Server 交付链路",
+    projectTypeCodes: ["采购类"],
+    stageCodePolicy: "stable" as const,
+    snapshotPolicy: "pin-at-project-create" as const,
+    allowUnboundExternalNodes: false,
+  },
+  graph: {
+    nodes: [
+      {
+        id: "order-intake",
+        name: "订单接入",
+        type: "task",
+        executor: { kind: "user", id: "olivia", label: "Olivia" },
+        approvers: [],
+        businessChain: {
+          sequence: 1,
+          stageCode: "ORDER_INTAKE",
+          summaryMetric: "order-quantity",
+          externalRefs: [
+            {
+              system: "OMS",
+              objectType: "sales-order-line",
+              objectId: "SO-2026-1018-01",
+              required: true,
+            },
+            {
+              system: "APS-PLANNING",
+              objectType: "plan-node",
+              objectId: "PLN-SO0101-M01",
+              required: true,
+            },
+          ],
+          fields: [
+            {
+              key: "planned",
+              label: "原计划",
+              bindings: [
+                {
+                  system: "APS-PLANNING",
+                  objectId: "PLN-SO0101-M01",
+                  path: "baseline.quantity",
+                },
+                {
+                  system: "APS-PLANNING",
+                  objectId: "PLN-SO0101-M01",
+                  path: "baseline.finishDate",
+                },
+              ],
+            },
+          ],
+        },
+      },
+      {
+        id: "supply-prep",
+        name: "供应备货",
+        type: "task",
+        executor: { kind: "user", id: "peter", label: "Peter" },
+        approvers: [],
+        businessChain: {
+          sequence: 2,
+          stageCode: "SUPPLY_PREP",
+          summaryMetric: "kit-readiness",
+          externalRefs: [
+            {
+              system: "WMS",
+              objectType: "project-kit",
+              objectId: "INV-SO0101-KIT",
+              required: true,
+            },
+            {
+              system: "APS-PLANNING",
+              objectType: "plan-node",
+              objectId: "PLN-SO0101-M03",
+              required: true,
+            },
+          ],
+          fields: [
+            {
+              key: "planned",
+              label: "原计划",
+              bindings: [
+                {
+                  system: "APS-PLANNING",
+                  objectId: "PLN-SO0101-M03",
+                  path: "baseline.quantity",
+                },
+                {
+                  system: "APS-PLANNING",
+                  objectId: "PLN-SO0101-M03",
+                  path: "baseline.finishDate",
+                },
+              ],
+            },
+            {
+              key: "revised",
+              label: "变更后",
+              bindings: [
+                {
+                  system: "APS-PLANNING",
+                  objectId: "PLN-SO0101-M03",
+                  path: "confirmed.quantity",
+                },
+                {
+                  system: "APS-PLANNING",
+                  objectId: "PLN-SO0101-M03",
+                  path: "confirmed.finishDate",
+                },
+              ],
+            },
+            {
+              key: "actual",
+              label: "实际完成",
+              bindings: [
+                {
+                  system: "WMS",
+                  objectId: "INV-SO0101-KIT",
+                  path: "components.0.availableQuantity",
+                },
+              ],
+            },
+          ],
+        },
+      },
+      {
+        id: "integration-test",
+        name: "联调验证",
+        type: "task",
+        executor: { kind: "user", id: "peter", label: "Peter" },
+        approvers: [],
+        businessChain: {
+          sequence: 3,
+          stageCode: "INTEGRATION_TEST",
+          summaryMetric: "actual-output",
+          externalRefs: [
+            {
+              system: "MES",
+              objectType: "resource",
+              objectId: "BENCH-TEST-03",
+              required: true,
+            },
+          ],
+          fields: [
+            {
+              key: "actual",
+              label: "实际完成",
+              bindings: [
+                {
+                  system: "MES",
+                  objectId: "BENCH-TEST-03",
+                  path: "nodeExecution.1.actualCompletedQuantity",
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ],
+    edges: [
+      { from: "order-intake", to: "supply-prep" },
+      { from: "supply-prep", to: "integration-test" },
+    ],
+  },
+};
+
+function businessChainWorkflowService(
+  harness: ReturnType<typeof createHarness>,
+) {
+  const instances = [
+    {
+      id: "wf-chain-1",
+      workspaceId: "ws-1",
+      definitionId: BUSINESS_CHAIN_DEFINITION.id,
+      definitionKey: BUSINESS_CHAIN_DEFINITION.key,
+      definitionVersion: 3,
+      title: "AI Server 交付",
+      status: "blocked",
+      updatedAt: "2026-11-18T12:00:00.000Z",
+      nodes: {
+        "order-intake": {
+          status: "completed",
+          completedAt: "2026-11-12T16:40:00.000Z",
+          taskIds: [],
+        },
+        "supply-prep": {
+          status: "blocked",
+          enteredAt: "2026-11-17T09:20:00.000Z",
+          taskIds: ["TSK-CHAIN-1"],
+        },
+        "integration-test": {
+          status: "running",
+          enteredAt: "2026-11-17T09:00:00.000Z",
+          taskIds: [],
+        },
+      },
+      assignmentBindings: {
+        "order-intake": {
+          primaryAssignee: { id: "olivia", name: "Olivia" },
+        },
+        "supply-prep": {
+          primaryAssignee: { id: "peter", name: "Peter" },
+        },
+        "integration-test": {
+          primaryAssignee: { id: "peter", name: "Peter" },
+        },
+      },
+    },
+  ];
+  const chainTask = {
+    id: "TSK-CHAIN-1",
+    title: "补齐 GPU 在途批次",
+    status: "abnormal",
+    priority: "P1",
+    receiverType: "human",
+    receiverName: "Peter",
+    createdAt: "2026-11-17T09:20:00.000Z",
+    updatedAt: "2026-11-18T02:00:00.000Z",
+    workflow: {
+      instanceId: "wf-chain-1",
+      nodeId: "supply-prep",
+    },
+    executionAnomaly: {
+      code: "GPU_GAP",
+      message: "GPU 到货时间缺口需要处理",
+      at: "2026-11-18T02:00:00.000Z",
+    },
+  };
+  harness.dependencies.workflows = () => ({
+    instances: (workspaceId: string) =>
+      workspaceId === "ws-1" ? instances : [],
+    instance: (instanceId: string) =>
+      instances.find((instance) => instance.id === instanceId),
+    sharedDefinitions: () => [
+      BUSINESS_CHAIN_DEFINITION,
+      {
+        id: "definition-plain",
+        scope: "project" as const,
+        workspaceId: "ws-1",
+        key: "plain-workflow",
+        version: 1,
+        kind: "workflow" as const,
+        name: "普通执行流程",
+        description: "",
+        status: "active",
+        updatedAt: "2026-11-18T12:00:00.000Z",
+        graph: { nodes: [], edges: [] },
+      },
+    ],
+    definition: (definitionId: string) =>
+      definitionId === BUSINESS_CHAIN_DEFINITION.id
+        ? BUSINESS_CHAIN_DEFINITION
+        : undefined,
+    events: (instanceId: string) =>
+      instanceId === "wf-chain-1"
+        ? [
+            {
+              id: "event-chain-1",
+              nodeId: "supply-prep",
+              kind: "agent.dispatch_failed",
+              message: "供应计划同步失败",
+              at: "2026-11-18T02:10:00.000Z",
+            },
+          ]
+        : [],
+    submissions: () => [],
+  });
+  harness.dependencies.tasks = () => ({
+    list: (workspaceId: string) => (workspaceId === "ws-1" ? [chainTask] : []),
+    markRoleUnavailable: async () => 0,
+  });
+  return { instances, chainTask };
 }
 
 interface Seat {
@@ -254,6 +547,7 @@ function createHarness(options: HarnessOptions = {}) {
     roles: new FakeTable<ProjectRoleRecord>(),
     reports: new FakeTable<ProjectReportRecord>(),
     audit: new FakeTable<ProjectAuditRecord>(),
+    alerts: new FakeTable<ProjectAlertRecord>(),
   };
   const service = new ProjectService(tables, { now: () => now });
   const workspace = {
@@ -807,7 +1101,9 @@ function createHarness(options: HarnessOptions = {}) {
     syncExclusiveGrant: async () => undefined,
     revokeMatchingGrants: async () => undefined,
   };
-  const dependencies = {
+  const dependencies: {
+    -readonly [Key in keyof ProjectDependencies]: ProjectDependencies[Key];
+  } = {
     team,
     workspaces,
     assignments: () => assignments,
@@ -921,6 +1217,7 @@ function createHarness(options: HarnessOptions = {}) {
       },
     }),
     principals: () => principals,
+    progressSources: () => undefined,
     now: () => now,
   };
   const routes = createProjectRoutes(service, dependencies);
@@ -1054,6 +1351,179 @@ describe("project service", () => {
     const next = await harness.service.ensureProject({ workspaceId: "ws-new" });
     expect(next.code).toBe("PRJ000008");
   });
+
+  it("stores a project business-chain snapshot and never overwrites it on template updates", async () => {
+    const harness = createHarness();
+    await harness.service.saveTemplate({
+      id: "tpl-chain",
+      name: "AI Server 交付模版",
+      code: "TPL-CHAIN",
+      type: "采购类",
+      status: "启用",
+      roleIds: [],
+      workflowTemplateIds: [],
+      businessChainMode: "required",
+      allowedBusinessChainTemplateIds: ["chain-ai-server"],
+      defaultBusinessChainTemplateId: "chain-ai-server",
+      versionPolicy: "pin-at-project-create",
+    });
+    await harness.service.upsertProject({
+      workspaceId: "ws-1",
+      code: "SO0101",
+      templateId: "tpl-chain",
+    });
+    const project = await harness.service.saveBusinessChainBinding({
+      workspaceId: "ws-1",
+      expectedRevision: 1,
+      binding: {
+        projectTemplateId: "tpl-chain",
+        businessChainTemplateId: "chain-ai-server",
+        workflowDefinitionId: BUSINESS_CHAIN_DEFINITION.id,
+        workflowDefinitionVersion: 3,
+        chainKey: "ai-server-delivery",
+        bindingMode: "template-default",
+        sourceTemplateRevision: 1,
+        nodeBindings: [],
+        boundBy: "olivia",
+      },
+    });
+    expect(project.businessChainBinding).toMatchObject({
+      workflowDefinitionId: BUSINESS_CHAIN_DEFINITION.id,
+      workflowDefinitionVersion: 3,
+      projectTemplateId: "tpl-chain",
+      sourceTemplateRevision: 1,
+    });
+    expect(project.businessChainRevision).toBe(2);
+
+    const template = harness.service.template("tpl-chain")!;
+    await harness.service.saveTemplate({
+      ...template,
+      name: "AI Server 交付模版 v2",
+      allowedBusinessChainTemplateIds: ["chain-ai-server"],
+      defaultBusinessChainTemplateId: "chain-ai-server",
+    });
+    expect(harness.service.template("tpl-chain")?.revision).toBe(2);
+    expect(harness.service.project("ws-1")?.businessChainBinding).toMatchObject(
+      {
+        workflowDefinitionVersion: 3,
+        sourceTemplateRevision: 1,
+      },
+    );
+    await expect(
+      harness.service.saveBusinessChainBinding({
+        workspaceId: "ws-1",
+        expectedRevision: 1,
+        binding: {
+          projectTemplateId: "tpl-chain",
+          businessChainTemplateId: "chain-ai-server",
+          workflowDefinitionId: BUSINESS_CHAIN_DEFINITION.id,
+          workflowDefinitionVersion: 3,
+          chainKey: "ai-server-delivery",
+          bindingMode: "template-default",
+          sourceTemplateRevision: 2,
+          nodeBindings: [],
+          boundBy: "olivia",
+        },
+      }),
+    ).rejects.toMatchObject({ code: "revision_conflict" });
+  });
+
+  it("validates project template business-chain defaults and compatibility defaults", async () => {
+    const harness = createHarness();
+    await expect(
+      harness.service.saveTemplate({
+        id: "tpl-invalid-chain",
+        name: "无效业务链路模版",
+        code: "TPL-INVALID-CHAIN",
+        type: "采购类",
+        status: "启用",
+        businessChainMode: "required",
+        allowedBusinessChainTemplateIds: ["chain-a"],
+        defaultBusinessChainTemplateId: "chain-b",
+      }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+    await harness.service.saveTemplate({
+      id: "tpl-legacy",
+      name: "历史模版",
+      code: "TPL-LEGACY",
+      type: "研发类",
+      status: "启用",
+    });
+    expect(harness.service.template("tpl-legacy")).toMatchObject({
+      businessChainMode: "none",
+      allowedBusinessChainTemplateIds: [],
+      versionPolicy: "pin-at-project-create",
+      revision: 1,
+    });
+  });
+
+  it("keeps one stable alert identity across lifecycle transitions and stale sources", async () => {
+    const harness = createHarness();
+    const candidate = {
+      conditionKey: "WMS:WH-EAST-01:sync-sla",
+      sourceSystem: "WMS",
+      sourceObjectId: "WH-EAST-01",
+      sourceRevision: "INV-R4",
+      alertType: "source_sync",
+      severity: "P1" as const,
+      title: "库存回传超过 SLA",
+      description: "华东仓库存回传延迟",
+      lifecycle: "open" as const,
+      linkedTaskIds: ["TSK-1", "TSK-2"],
+    };
+    const first = await harness.service.upsertProjectAlerts(
+      "ws-1",
+      [candidate],
+      { observedAt: "2026-11-18T04:00:00.000Z" },
+    );
+    const alertId = first[0]!.alertId;
+    expect(alertId).toMatch(/^project-alert:/);
+    const acknowledged = await harness.service.transitionProjectAlert({
+      workspaceId: "ws-1",
+      alertId,
+      action: "acknowledge",
+      actorPrincipalId: "principal-human-olivia",
+    });
+    expect(acknowledged.lifecycle).toBe("acknowledged");
+    expect(acknowledged.alertId).toBe(alertId);
+    const inProgress = await harness.service.transitionProjectAlert({
+      workspaceId: "ws-1",
+      alertId,
+      action: "start",
+      actorPrincipalId: "principal-human-olivia",
+    });
+    expect(inProgress.lifecycle).toBe("in_progress");
+    const resolved = await harness.service.transitionProjectAlert({
+      workspaceId: "ws-1",
+      alertId,
+      action: "resolve",
+    });
+    expect(resolved.lifecycle).toBe("resolved");
+    expect(harness.service.alerts("ws-1")).toHaveLength(1);
+    const reopened = await harness.service.upsertProjectAlerts(
+      "ws-1",
+      [{ ...candidate, title: "库存回传仍然超过 SLA" }],
+      {
+        observedAt: "2026-11-19T04:00:00.000Z",
+        staleConditionKeys: new Set([candidate.conditionKey]),
+      },
+    );
+    expect(reopened[0]).toMatchObject({
+      alertId,
+      lifecycle: "stale",
+      title: "库存回传仍然超过 SLA",
+      firstSeenAt: "2026-11-18T04:00:00.000Z",
+    });
+    const stillStale = await harness.service.upsertProjectAlerts("ws-1", [], {
+      observedAt: "2026-11-20T04:00:00.000Z",
+      sourceStatuses: { WMS: "stale" },
+    });
+    expect(stillStale[0]).toMatchObject({
+      alertId,
+      lifecycle: "stale",
+      lastSeenAt: "2026-11-20T04:00:00.000Z",
+    });
+  });
 });
 
 describe("project routes", () => {
@@ -1083,6 +1553,32 @@ describe("project routes", () => {
     });
     expect(body.projects[0].notes.tasks).toBe("今日新增 1 项");
     expect(body.projects[0].notes.workflows).toBe("1 个阻塞");
+  });
+
+  it("backfills a missing project owner from the workspace owner on read", async () => {
+    const harness = createHarness();
+    await harness.service.seedDefaults();
+    const route = findRoute(harness.routes, "/api/collab/projects");
+    await call(
+      route,
+      fakeRequest("GET", "/api/collab/projects", { token: "admin-token" }),
+    );
+    const project = harness.tables.projects.get("ws-1");
+    expect(project).toBeDefined();
+    await harness.tables.projects.put("ws-1", {
+      ...project!,
+      ownerId: undefined,
+      ownerName: "",
+    });
+    const response = await call(
+      route,
+      fakeRequest("GET", "/api/collab/projects", { token: "admin-token" }),
+    );
+    expect(response.status).toBe(200);
+    expect(response.json().projects[0]).toMatchObject({
+      ownerId: "olivia",
+      ownerName: "Olivia",
+    });
   });
 
   it("lists all projects to platform admins and only joined projects to members", async () => {
@@ -2653,6 +3149,793 @@ describe("project routes", () => {
     expect(listed.json().workflowTemplates).toHaveLength(1);
   });
 
+  it("saves the current project roles and business chain as a reusable template", async () => {
+    const harness = createHarness({ extraWorkspace: true });
+    await harness.service.seedDefaults();
+    businessChainWorkflowService(harness);
+    const saveTemplate = findRoute(
+      harness.routes,
+      "/api/collab/projects/templates/save",
+    );
+    const created = await call(
+      saveTemplate,
+      fakeRequest("POST", "/api/collab/projects/templates/save", {
+        token: "admin-token",
+        body: {
+          id: "tpl-source",
+          name: "供应链项目源模版",
+          code: "TPL-SOURCE",
+          type: "采购类",
+          status: "启用",
+          roleIds: ["role-owner"],
+          workflowTemplateIds: [],
+          businessChainMode: "required",
+          allowedBusinessChainTemplateIds: ["chain-ai-server"],
+          defaultBusinessChainTemplateId: "chain-ai-server",
+          versionPolicy: "latest-active",
+        },
+      }),
+    );
+    expect(created.status, JSON.stringify(created.json())).toBe(200);
+    const apply = findRoute(
+      harness.routes,
+      "/api/collab/projects/templates/apply",
+    );
+    const applied = await call(
+      apply,
+      fakeRequest("POST", "/api/collab/projects/templates/apply", {
+        token: "admin-token",
+        body: { workspaceId: "ws-1", templateId: "tpl-source" },
+      }),
+    );
+    expect(applied.status, JSON.stringify(applied.json())).toBe(200);
+
+    const fromProject = findRoute(
+      harness.routes,
+      "/api/collab/projects/templates/from-project",
+    );
+    const denied = await call(
+      fromProject,
+      fakeRequest("POST", "/api/collab/projects/templates/from-project", {
+        token: "owner-token",
+        body: {
+          workspaceId: "ws-1",
+          name: "供应链交付快照",
+          type: "采购类",
+        },
+      }),
+    );
+    expect(denied.status).toBe(403);
+
+    const saved = await call(
+      fromProject,
+      fakeRequest("POST", "/api/collab/projects/templates/from-project", {
+        token: "admin-token",
+        body: {
+          workspaceId: "ws-1",
+          name: "供应链交付快照",
+          type: "采购类",
+        },
+      }),
+    );
+    expect(saved.status, JSON.stringify(saved.json())).toBe(201);
+    const template = saved.json().template as ProjectTemplateRecord;
+    expect(template).toMatchObject({
+      name: "供应链交付快照",
+      type: "采购类",
+      status: "启用",
+      businessChainMode: "required",
+      allowedBusinessChainTemplateIds: ["chain-ai-server"],
+      defaultBusinessChainTemplateId: "chain-ai-server",
+      versionPolicy: "latest-active",
+    });
+    expect(template.roleIds).toHaveLength(1);
+    const copiedRoleId = template.roleIds[0]!;
+    expect(copiedRoleId).not.toBe("role-owner");
+    expect(harness.service.role(copiedRoleId)).toMatchObject({
+      name: harness.service.role("role-owner")?.name,
+      category: harness.service.role("role-owner")?.category,
+      permissions: harness.service.role("role-owner")?.permissions,
+    });
+
+    const reused = await call(
+      apply,
+      fakeRequest("POST", "/api/collab/projects/templates/apply", {
+        token: "admin-token",
+        body: { workspaceId: "ws-2", templateId: template.id },
+      }),
+    );
+    expect(reused.status, JSON.stringify(reused.json())).toBe(200);
+    expect(harness.service.project("ws-2")).toMatchObject({
+      templateId: template.id,
+      businessChainBinding: {
+        businessChainTemplateId: "chain-ai-server",
+        projectTemplateId: template.id,
+      },
+    });
+    expect(
+      harness.service
+        .project("ws-2")
+        ?.projectRoles.some((role) => role.id === copiedRoleId),
+    ).toBe(true);
+  });
+
+  it("only exposes template-authorized business chains and enforces revision on apply", async () => {
+    const harness = createHarness();
+    await harness.service.seedDefaults();
+    businessChainWorkflowService(harness);
+    harness.dependencies.progressSources = () => ({
+      read: async () => [
+        {
+          system: "APS-PLANNING",
+          document: "01-planning-system-mcp.md",
+          status: "fresh",
+          observedAt: "2026-11-18T12:00:00+08:00",
+          data: {},
+          isMock: true,
+        },
+        {
+          system: "OMS",
+          document: "02-order-management-system-mcp.md",
+          status: "fresh",
+          observedAt: "2026-11-18T12:00:00+08:00",
+          data: {},
+          isMock: true,
+        },
+        {
+          system: "WMS",
+          document: "03-inventory-system-mcp.md",
+          status: "fresh",
+          observedAt: "2026-11-18T12:00:00+08:00",
+          data: {},
+          isMock: true,
+        },
+        {
+          system: "MES",
+          document: "04-capacity-system-mcp.md",
+          status: "fresh",
+          observedAt: "2026-11-18T12:00:00+08:00",
+          data: {},
+          isMock: true,
+        },
+      ],
+    });
+    const saveTemplateRoute = findRoute(
+      harness.routes,
+      "/api/collab/projects/templates/save",
+    );
+    const saved = await call(
+      saveTemplateRoute,
+      fakeRequest("POST", "/api/collab/projects/templates/save", {
+        token: "admin-token",
+        body: {
+          id: "tpl-chain",
+          name: "AI Server 交付模版",
+          code: "TPL-CHAIN",
+          type: "采购类",
+          status: "启用",
+          roleIds: ["role-owner"],
+          workflowTemplateIds: [],
+          businessChainMode: "required",
+          allowedBusinessChainTemplateIds: ["chain-ai-server"],
+          defaultBusinessChainTemplateId: "chain-ai-server",
+          versionPolicy: "pin-at-project-create",
+        },
+      }),
+    );
+    expect(saved.status).toBe(200);
+    harness.members.find((member) => member.userId === "peter")!.memberRole =
+      "owner";
+    const applyTemplate = findRoute(
+      harness.routes,
+      "/api/collab/projects/templates/apply",
+    );
+    const applied = await call(
+      applyTemplate,
+      fakeRequest("POST", "/api/collab/projects/templates/apply", {
+        token: "owner-token",
+        body: { workspaceId: "ws-1", templateId: "tpl-chain" },
+      }),
+    );
+    expect(applied.status, JSON.stringify(applied.json())).toBe(200);
+    expect(harness.service.project("ws-1")?.businessChainBinding).toMatchObject(
+      {
+        businessChainTemplateId: "chain-ai-server",
+        workflowDefinitionId: BUSINESS_CHAIN_DEFINITION.id,
+        workflowDefinitionVersion: 3,
+        bindingMode: "template-default",
+      },
+    );
+
+    const candidatesRoute = findRoute(
+      harness.routes,
+      "/api/collab/projects/business-chain/candidates",
+    );
+    const candidates = await call(
+      candidatesRoute,
+      fakeRequest(
+        "GET",
+        "/api/collab/projects/business-chain/candidates?workspaceId=ws-1",
+        { token: "owner-token" },
+      ),
+    );
+    expect(candidates.status).toBe(200);
+    expect(candidates.json().candidates).toEqual([
+      expect.objectContaining({
+        id: "chain-ai-server",
+        definitionId: BUSINESS_CHAIN_DEFINITION.id,
+      }),
+    ]);
+    expect(
+      candidates
+        .json()
+        .candidates.some(
+          (candidate: { definitionId: string }) =>
+            candidate.definitionId === "definition-plain",
+        ),
+    ).toBe(false);
+
+    const denied = await call(
+      candidatesRoute,
+      fakeRequest(
+        "GET",
+        "/api/collab/projects/business-chain/candidates?workspaceId=ws-1",
+        { token: "member-token" },
+      ),
+    );
+    expect(denied.status).toBe(403);
+
+    const validateRoute = findRoute(
+      harness.routes,
+      "/api/collab/projects/business-chain/validate",
+    );
+    const validated = await call(
+      validateRoute,
+      fakeRequest("POST", "/api/collab/projects/business-chain/validate", {
+        token: "owner-token",
+        body: {
+          workspaceId: "ws-1",
+          definitionId: BUSINESS_CHAIN_DEFINITION.id,
+          nodeBindings: [],
+        },
+      }),
+    );
+    expect(validated.status).toBe(200);
+    expect(validated.json().blocking).toEqual([]);
+    const bindRoute = findRoute(
+      harness.routes,
+      "/api/collab/projects/business-chain/bind",
+    );
+    const current = harness.service.project("ws-1")!;
+    const rebound = await call(
+      bindRoute,
+      fakeRequest("POST", "/api/collab/projects/business-chain/bind", {
+        token: "owner-token",
+        body: {
+          workspaceId: "ws-1",
+          definitionId: BUSINESS_CHAIN_DEFINITION.id,
+          nodeBindings: [],
+          revision: current.businessChainRevision,
+          validationDigest: validated.json().digest,
+        },
+      }),
+    );
+    expect(rebound.status, JSON.stringify(rebound.json())).toBe(200);
+    const conflict = await call(
+      bindRoute,
+      fakeRequest("POST", "/api/collab/projects/business-chain/bind", {
+        token: "owner-token",
+        body: {
+          workspaceId: "ws-1",
+          definitionId: BUSINESS_CHAIN_DEFINITION.id,
+          nodeBindings: [],
+          revision: current.businessChainRevision,
+          validationDigest: validated.json().digest,
+        },
+      }),
+    );
+    expect(conflict.status).toBe(409);
+    expect(conflict.json().error.code).toBe("revision_conflict");
+
+    const nonBusiness = await call(
+      bindRoute,
+      fakeRequest("POST", "/api/collab/projects/business-chain/bind", {
+        token: "owner-token",
+        body: {
+          workspaceId: "ws-1",
+          definitionId: "definition-plain",
+          nodeBindings: [],
+          revision: harness.service.project("ws-1")!.businessChainRevision,
+          validationDigest: "sha256:plain",
+        },
+      }),
+    );
+    expect(nonBusiness.status).toBe(400);
+  });
+
+  it("returns a partial progress read model instead of 500 when a source times out", async () => {
+    const harness = createHarness();
+    await harness.service.seedDefaults();
+    businessChainWorkflowService(harness);
+    await harness.service.saveTemplate({
+      id: "tpl-chain",
+      name: "AI Server 交付模版",
+      code: "TPL-CHAIN",
+      type: "采购类",
+      status: "启用",
+      roleIds: ["role-owner"],
+      workflowTemplateIds: [],
+      businessChainMode: "required",
+      allowedBusinessChainTemplateIds: ["chain-ai-server"],
+      defaultBusinessChainTemplateId: "chain-ai-server",
+      versionPolicy: "pin-at-project-create",
+    });
+    await harness.service.upsertProject({
+      workspaceId: "ws-1",
+      code: "SO0101",
+      templateId: "tpl-chain",
+    });
+    await harness.service.saveBusinessChainBinding({
+      workspaceId: "ws-1",
+      expectedRevision: 1,
+      binding: {
+        projectTemplateId: "tpl-chain",
+        businessChainTemplateId: "chain-ai-server",
+        workflowDefinitionId: BUSINESS_CHAIN_DEFINITION.id,
+        workflowDefinitionVersion: 3,
+        workflowInstanceId: "wf-chain-1",
+        chainKey: "ai-server-delivery",
+        bindingMode: "template-default",
+        sourceTemplateRevision: 1,
+        nodeBindings: [],
+        boundBy: "olivia",
+      },
+    });
+    harness.dependencies.progressSources = () => ({
+      read: async () => {
+        throw new Error("source timeout");
+      },
+    });
+    const route = findRoute(
+      harness.routes,
+      "/api/collab/projects/progress-overview",
+    );
+    const response = await call(
+      route,
+      fakeRequest(
+        "GET",
+        "/api/collab/projects/progress-overview?workspaceId=ws-1",
+        { token: "owner-token" },
+      ),
+    );
+    expect(response.status).toBe(200);
+    expect(response.json().overview.coverage.status).toBe("partial");
+    expect(response.json().overview.nodes.length).toBeGreaterThan(0);
+  });
+
+  it("uploads project demo data and overlays progress node fields", async () => {
+    const harness = createHarness();
+    await harness.service.seedDefaults();
+    businessChainWorkflowService(harness);
+    await harness.service.saveTemplate({
+      id: "tpl-chain",
+      name: "AI Server 交付模版",
+      code: "TPL-CHAIN",
+      type: "采购类",
+      status: "启用",
+      roleIds: ["role-owner"],
+      workflowTemplateIds: [],
+      businessChainMode: "required",
+      allowedBusinessChainTemplateIds: ["chain-ai-server"],
+      defaultBusinessChainTemplateId: "chain-ai-server",
+      versionPolicy: "pin-at-project-create",
+    });
+    await harness.service.upsertProject({
+      workspaceId: "ws-1",
+      code: "SO0101",
+      templateId: "tpl-chain",
+    });
+    await harness.service.saveBusinessChainBinding({
+      workspaceId: "ws-1",
+      expectedRevision: 1,
+      binding: {
+        projectTemplateId: "tpl-chain",
+        businessChainTemplateId: "chain-ai-server",
+        workflowDefinitionId: BUSINESS_CHAIN_DEFINITION.id,
+        workflowDefinitionVersion: 3,
+        workflowInstanceId: "wf-chain-1",
+        chainKey: "ai-server-delivery",
+        bindingMode: "template-default",
+        sourceTemplateRevision: 1,
+        nodeBindings: [],
+        boundBy: "olivia",
+      },
+    });
+    harness.dependencies.progressSources = () => ({
+      read: async () => [],
+    });
+    const upload = await call(
+      findRoute(harness.routes, "/api/collab/projects/demo-data/upload"),
+      fakeRequest("POST", "/api/collab/projects/demo-data/upload", {
+        token: "admin-token",
+        body: {
+          workspaceId: "ws-1",
+          fileName: "demo-data.json",
+          data: {
+            schemaVersion: "project-demo-data-v1",
+            nodes: {
+              "order-intake": {
+                status: "completed",
+                owner: "演示负责人",
+                fields: {
+                  planned: "999 台 · 2026-12-31",
+                },
+              },
+              "supply-prep": {
+                status: "blocked",
+                owner: "采购演示负责人",
+                exception: "GPU 到货延迟",
+                fields: {
+                  actual: "184 套",
+                },
+              },
+            },
+            changeEvents: [
+              {
+                id: "demo-1",
+                category: "order",
+                at: "2026-11-18T09:30:00+08:00",
+                description: "客户确认新的交付窗口",
+                source: "演示数据",
+                linkedNodeIds: ["order-intake"],
+              },
+            ],
+          },
+        },
+      }),
+    );
+    expect(upload.status, JSON.stringify(upload.json())).toBe(200);
+    expect(harness.service.project("ws-1")?.demoDataConfig).toMatchObject({
+      fileName: "demo-data.json",
+    });
+
+    const overview = await call(
+      findRoute(harness.routes, "/api/collab/projects/progress-overview"),
+      fakeRequest(
+        "GET",
+        "/api/collab/projects/progress-overview?workspaceId=ws-1",
+        { token: "admin-token" },
+      ),
+    );
+    expect(overview.status).toBe(200);
+    const orderNode = overview
+      .json()
+      .overview.nodes.find(
+        (node: { id: string }) => node.id === "order-intake",
+      );
+    expect(orderNode).toMatchObject({
+      owner: "演示负责人",
+      status: "completed",
+      fields: [
+        {
+          key: "planned",
+          label: "原计划",
+          value: "999 台 · 2026-12-31",
+        },
+      ],
+    });
+    expect(
+      overview
+        .json()
+        .overview.nodes.find(
+          (node: { id: string }) => node.id === "supply-prep",
+        ),
+    ).toMatchObject({
+      status: "blocked",
+      exceptionText: "GPU 到货延迟",
+    });
+    expect(overview.json().overview.changeEvents).toEqual([
+      expect.objectContaining({
+        id: "demo-1",
+        description: "客户确认新的交付窗口",
+        linkedNodeIds: ["order-intake"],
+      }),
+    ]);
+  });
+
+  it("keeps business-chain instances and projected tasks out of project views", async () => {
+    const harness = createHarness();
+    await harness.service.seedDefaults();
+    const { chainTask } = businessChainWorkflowService(harness);
+    await harness.service.upsertProject({
+      workspaceId: "ws-1",
+      code: "SO0101",
+    });
+    const manualTask = {
+      ...chainTask,
+      id: "TSK-MANUAL",
+      title: "手工任务",
+      workflow: undefined,
+      executionAnomaly: undefined,
+      status: "todo",
+    };
+    harness.dependencies.tasks = () => ({
+      list: () => [chainTask, manualTask],
+      markRoleUnavailable: async () => 0,
+    });
+    const response = await call(
+      findRoute(harness.routes, "/api/collab/projects/detail"),
+      fakeRequest("GET", "/api/collab/projects/detail?workspaceId=ws-1", {
+        token: "owner-token",
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(response.json().workflows).toEqual([]);
+    expect(
+      response.json().tasks.map((task: { id: string }) => task.id),
+    ).toEqual(["TSK-MANUAL"]);
+  });
+
+  it("binds a project-uploaded custom business chain without a template whitelist", async () => {
+    const harness = createHarness();
+    businessChainWorkflowService(harness);
+    harness.dependencies.progressSources = () => ({
+      read: async () => [
+        {
+          system: "APS-PLANNING",
+          document: "01-planning-system-mcp.md",
+          status: "fresh",
+          data: {},
+          isMock: true,
+        },
+        {
+          system: "OMS",
+          document: "02-order-management-system-mcp.md",
+          status: "fresh",
+          data: {},
+          isMock: true,
+        },
+        {
+          system: "WMS",
+          document: "03-inventory-system-mcp.md",
+          status: "fresh",
+          data: {},
+          isMock: true,
+        },
+        {
+          system: "MES",
+          document: "04-capacity-system-mcp.md",
+          status: "fresh",
+          data: {},
+          isMock: true,
+        },
+      ],
+    });
+    const route = findRoute(
+      harness.routes,
+      "/api/collab/projects/business-chain/custom",
+    );
+    const response = await call(
+      route,
+      fakeRequest("POST", "/api/collab/projects/business-chain/custom", {
+        token: "admin-token",
+        body: {
+          workspaceId: "ws-1",
+          definitionId: BUSINESS_CHAIN_DEFINITION.id,
+          nodeBindings: [],
+          revision: 1,
+        },
+      }),
+    );
+    expect(response.status, JSON.stringify(response.json())).toBe(200);
+    expect(harness.service.project("ws-1")?.businessChainBinding).toMatchObject(
+      {
+        bindingMode: "project-custom",
+        workflowDefinitionId: BUSINESS_CHAIN_DEFINITION.id,
+        projectTemplateId: "project-custom",
+      },
+    );
+    const config = await call(
+      findRoute(harness.routes, "/api/collab/projects/business-chain"),
+      fakeRequest(
+        "GET",
+        "/api/collab/projects/business-chain?workspaceId=ws-1",
+        { token: "admin-token" },
+      ),
+    );
+    expect(config.json().businessChain).toMatchObject({
+      configured: true,
+      sourceState: "fresh",
+      current: { bindingMode: "project-custom" },
+    });
+    const validation = await call(
+      findRoute(harness.routes, "/api/collab/projects/business-chain/validate"),
+      fakeRequest("POST", "/api/collab/projects/business-chain/validate", {
+        token: "admin-token",
+        body: {
+          workspaceId: "ws-1",
+          definitionId: BUSINESS_CHAIN_DEFINITION.id,
+          nodeBindings: [],
+        },
+      }),
+    );
+    expect(validation.status).toBe(200);
+    expect(validation.json().blocking).toEqual([]);
+    expect(
+      validation
+        .json()
+        .blocking.some(
+          (issue: { code: string }) => issue.code === "template_missing",
+        ),
+    ).toBe(false);
+    const rebound = await call(
+      findRoute(harness.routes, "/api/collab/projects/business-chain/bind"),
+      fakeRequest("POST", "/api/collab/projects/business-chain/bind", {
+        token: "admin-token",
+        body: {
+          workspaceId: "ws-1",
+          definitionId: BUSINESS_CHAIN_DEFINITION.id,
+          nodeBindings: [],
+          revision: harness.service.project("ws-1")!.businessChainRevision,
+          validationDigest: validation.json().digest,
+        },
+      }),
+    );
+    expect(rebound.status, JSON.stringify(rebound.json())).toBe(200);
+    expect(rebound.json().businessChain.current.bindingMode).toBe(
+      "project-custom",
+    );
+    const attached = await call(
+      findRoute(harness.routes, "/api/collab/projects/business-chain/instance"),
+      fakeRequest("POST", "/api/collab/projects/business-chain/instance", {
+        token: "admin-token",
+        body: {
+          workspaceId: "ws-1",
+          instanceId: "wf-chain-1",
+          revision: harness.service.project("ws-1")!.businessChainRevision,
+        },
+      }),
+    );
+    expect(attached.status, JSON.stringify(attached.json())).toBe(200);
+    expect(attached.json().businessChain.current.workflowInstanceId).toBe(
+      "wf-chain-1",
+    );
+  });
+
+  it("builds a sourced progress read model and upserts stable alerts idempotently", async () => {
+    const harness = createHarness();
+    const { instances, chainTask } = businessChainWorkflowService(harness);
+    await harness.service.seedDefaults();
+    await harness.service.saveTemplate({
+      id: "tpl-chain",
+      name: "AI Server 交付模版",
+      code: "TPL-CHAIN",
+      type: "采购类",
+      status: "启用",
+      roleIds: ["role-owner"],
+      workflowTemplateIds: [],
+      businessChainMode: "required",
+      allowedBusinessChainTemplateIds: ["chain-ai-server"],
+      defaultBusinessChainTemplateId: "chain-ai-server",
+      versionPolicy: "pin-at-project-create",
+    });
+    await harness.service.upsertProject({
+      workspaceId: "ws-1",
+      code: "SO0101",
+      templateId: "tpl-chain",
+    });
+    const project = await harness.service.saveBusinessChainBinding({
+      workspaceId: "ws-1",
+      expectedRevision: 1,
+      binding: {
+        projectTemplateId: "tpl-chain",
+        businessChainTemplateId: "chain-ai-server",
+        workflowDefinitionId: BUSINESS_CHAIN_DEFINITION.id,
+        workflowDefinitionVersion: 3,
+        workflowInstanceId: "wf-chain-1",
+        chainKey: "ai-server-delivery",
+        bindingMode: "template-default",
+        sourceTemplateRevision: 1,
+        nodeBindings: [],
+        boundBy: "olivia",
+      },
+    });
+    const builder = new ProjectProgressOverviewService({
+      sources: new MockScenarioSourceRegistry({
+        docsRoot: resolve(
+          import.meta.dirname,
+          "../../../docs/project-progress-overview",
+        ),
+      }),
+      now: () => new Date("2026-11-18T04:30:00.000Z"),
+    });
+    const detailed = await builder.buildDetailed({
+      project,
+      template: harness.service.template("tpl-chain"),
+      definition: BUSINESS_CHAIN_DEFINITION,
+      instance: instances[0],
+      tasks: [chainTask],
+      reports: [],
+      events: [
+        {
+          id: "event-chain-1",
+          nodeId: "supply-prep",
+          kind: "agent.dispatch_failed",
+          message: "供应计划同步失败",
+          at: "2026-11-18T02:10:00.000Z",
+        },
+      ],
+    });
+    expect(detailed.overview.businessChain).toMatchObject({
+      definitionId: BUSINESS_CHAIN_DEFINITION.id,
+      definitionVersion: 3,
+      instanceId: "wf-chain-1",
+    });
+    expect(detailed.overview.coverage.status).toBe("stale");
+    const supply = detailed.overview.nodes.find(
+      (node) => node.id === "supply-prep",
+    );
+    expect(supply).toMatchObject({
+      stageCode: "SUPPLY_PREP",
+      plannedLabel: "200 · 2026-11-25",
+      revisedLabel: "186 · 2026-11-30",
+      owner: "Peter",
+      statusLabel: "阻塞",
+    });
+    expect(supply?.fields).toEqual([
+      { key: "planned", label: "原计划", value: "200 · 2026-11-25" },
+      { key: "revised", label: "变更后", value: "186 · 2026-11-30" },
+      { key: "actual", label: "实际完成", value: "96" },
+    ]);
+    expect(detailed.overview.changeEvents.length).toBeGreaterThan(4);
+    expect(detailed.overview.changeEvents.map((event) => event.at)).toEqual(
+      [...detailed.overview.changeEvents]
+        .map((event) => event.at)
+        .sort((left, right) => left.localeCompare(right)),
+    );
+    expect(
+      detailed.alertCandidates.some(
+        (alert) => alert.conditionKey === "WMS:GPU-MODULE-H:timing-gap",
+      ),
+    ).toBe(true);
+
+    const first = await harness.service.upsertProjectAlerts(
+      "ws-1",
+      detailed.alertCandidates,
+      {
+        observedAt: detailed.overview.generatedAt,
+        staleConditionKeys: detailed.staleConditionKeys,
+      },
+    );
+    const idsByCondition = Object.fromEntries(
+      first.map((alert) => [alert.conditionKey, alert.alertId]),
+    );
+    expect(
+      first.find(
+        (alert) => alert.conditionKey === "WMS:GPU-MODULE-H:timing-gap",
+      )?.lifecycle,
+    ).toBe("stale");
+    const second = await harness.service.upsertProjectAlerts(
+      "ws-1",
+      detailed.alertCandidates,
+      {
+        observedAt: "2026-11-18T05:00:00.000Z",
+        staleConditionKeys: detailed.staleConditionKeys,
+      },
+    );
+    expect(
+      Object.fromEntries(
+        second.map((alert) => [alert.conditionKey, alert.alertId]),
+      ),
+    ).toEqual(idsByCondition);
+
+    const hydrated = hydrateOverviewAlerts(detailed.overview, second);
+    expect(hydrated.alerts.length).toBeGreaterThan(0);
+    expect(
+      hydrated.nodes.find((node) => node.id === "supply-prep")?.alerts.length,
+    ).toBeGreaterThan(0);
+  });
+
   it("generates a deterministic daily report and lists it", async () => {
     const harness = createHarness();
     await harness.service.seedDefaults();
@@ -2664,6 +3947,16 @@ describe("project routes", () => {
       status: "风险",
       health: "关注",
       targetDate: "2026-10-31",
+    });
+    harness.dependencies.skillCatalog = () => ({
+      resolveSkills: async () => [
+        {
+          id: "skill-project-reporting",
+          name: "项目汇报生成",
+          version: "2.4.1",
+          instructions: "- 使用资源市场当前发布的项目汇报指令。",
+        },
+      ],
     });
     const generate = findRoute(
       harness.routes,
@@ -2679,13 +3972,16 @@ describe("project routes", () => {
     expect(response.status).toBe(200);
     const report = response.json().report;
     expect(report.date).toBe("2026-10-16");
+    expect(report.generatedAt).toBe("2026-10-16T02:00:00.000Z");
     expect(report.generatedBy).toBe("PM_一切皆插件");
     expect(report.generatedByTeammateId).toBe("tm-project-ws-1");
+    expect(report.skillVersion).toBe("2.4.1");
     expect(report.content).toContain("## 一句话结论");
     expect(report.content).toContain("综合健康度判定为「风险」");
-    expect(report.content).toContain("## 指标快照");
+    expect(report.content).toContain("## 项目健康度与计划偏差");
     expect(report.content).toContain("## 关键结果");
-    expect(report.content).toContain("## 风险与异常");
+    expect(report.content).toContain("## 业务数据异常");
+    expect(report.content).toContain("## 推进异常");
     expect(report.content).toContain("## 待确认与下一步");
     expect(report.content).toContain("工作流「GUI 回归」当前阻塞");
     expect(report.content).toContain("P1 任务 `TSK-1`");
@@ -2716,7 +4012,7 @@ describe("project routes", () => {
       reportType: "weekly",
       triggerSource: "chat",
       skillId: "skill-project-reporting",
-      skillVersion: "1.0.0",
+      skillVersion: "2.4.1",
     });
     expect(weekly.json().report.content).toContain("## 本周结论");
     expect(weekly.json().report.content).toContain("## 下周计划");
@@ -2749,6 +4045,16 @@ describe("project routes", () => {
       workspaceId: "ws-1",
       ownerId: "olivia",
       ownerName: "Olivia",
+    });
+    harness.dependencies.skillCatalog = () => ({
+      resolveSkills: async () => [
+        {
+          id: "skill-project-reporting",
+          name: "项目汇报生成",
+          version: "2.5.0",
+          instructions: "- 定时日报使用资源市场当前发布指令。",
+        },
+      ],
     });
 
     const scheduleRoute = findRoute(
@@ -2795,8 +4101,11 @@ describe("project routes", () => {
     expect(reports).toHaveLength(1);
     expect(reports[0]).toMatchObject({
       date: "2026-10-16",
+      generatedAt: "2026-10-16T02:00:00.000Z",
       reportType: "daily",
       triggerSource: "schedule",
+      skillId: "skill-project-reporting",
+      skillVersion: "2.5.0",
     });
     const second = await runScheduledProjectReports(
       harness.service,
@@ -2892,13 +4201,32 @@ describe("project routes", () => {
       status: "succeeded",
       output: { summary: baseline },
     };
+    let dispatchedInstruction = "";
+    const skillCatalog: NonNullable<
+      ProjectDependencies["skillCatalog"]
+    > = () => ({
+      resolveSkills: async () => [
+        {
+          id: "skill-project-reporting",
+          name: "项目汇报生成",
+          version: "1.3.0",
+          instructions:
+            "- 使用资源市场版本的项目汇报结构。\n- 先写结论，再写证据。",
+        },
+      ],
+    });
+    const agent: NonNullable<ProjectDependencies["agent"]> = () => ({
+      run: () => run,
+      runs: () => [run],
+      dispatch: async (input) => {
+        dispatchedInstruction = String(input.payload.context.instruction);
+        return run;
+      },
+    });
     const dependencies = {
       ...harness.dependencies,
-      agent: () => ({
-        run: () => run,
-        runs: () => [run],
-        dispatch: async () => run,
-      }),
+      skillCatalog,
+      agent,
     };
     const generated = await generateProjectReportContent({
       dependencies,
@@ -2913,9 +4241,17 @@ describe("project routes", () => {
     });
     expect(generated).toMatchObject({
       generationMode: "agent",
+      skillId: "skill-project-reporting",
+      skillVersion: "1.3.0",
       agentRunId: "run-project-report",
       content: baseline,
     });
+    expect(dispatchedInstruction).toContain("## 场景 Skill 指令");
+    expect(dispatchedInstruction).toContain("使用资源市场版本的项目汇报结构");
+    expect(dispatchedInstruction).toContain("项目健康度与计划偏差");
+    expect(dispatchedInstruction).toContain("业务数据异常");
+    expect(dispatchedInstruction).toContain("推进异常");
+    expect(dispatchedInstruction).toContain("## 项目事实包");
     expect(generated.generationError).toBeUndefined();
   });
 
@@ -2957,6 +4293,15 @@ describe("project routes", () => {
     const generated = await generateProjectReportContent({
       dependencies: {
         ...harness.dependencies,
+        skillCatalog: () => ({
+          resolveSkills: async () => [
+            {
+              id: "skill-project-reporting",
+              version: "1.0.0",
+              instructions: "- 使用项目汇报结构。",
+            },
+          ],
+        }),
         agent: () => ({
           run: () => run,
           runs: () => [run],
@@ -3054,6 +4399,7 @@ describe("report content", () => {
         roleMappingPresets: {},
         rolesInitialized: true,
         rolesRevision: 1,
+        businessChainRevision: 1,
         reportSchedule: {
           enabled: true,
           frequency: "daily",
@@ -3121,6 +4467,7 @@ describe("report content", () => {
         roleMappingPresets: {},
         rolesInitialized: true,
         rolesRevision: 1,
+        businessChainRevision: 1,
         reportSchedule: {
           enabled: true,
           frequency: "daily",
@@ -3159,6 +4506,7 @@ describe("report content", () => {
         roleMappingPresets: {},
         rolesInitialized: true,
         rolesRevision: 1,
+        businessChainRevision: 1,
         reportSchedule: {
           enabled: true,
           frequency: "daily",

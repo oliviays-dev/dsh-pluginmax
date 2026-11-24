@@ -26,10 +26,8 @@ if [[ "$DSH_HOME" == "$ROOT/.tmp/dsh-home" && "${PLUGINMAX_SMOKE_ALLOW_SHARED_HO
   exit 1
 fi
 
-if [[ ! -d "$DSH_HOME/profiles/pluginmax" ]]; then
-  PLUGINMAX_ENABLE_PHONE_TABLET_DEMO="${PLUGINMAX_EXPECT_PHONE_TABLET_DEMO:-}" \
-    DSH_HOME="$DSH_HOME" "$ROOT/scripts/install-profile.sh"
-fi
+PLUGINMAX_ENABLE_PHONE_TABLET_DEMO="${PLUGINMAX_EXPECT_PHONE_TABLET_DEMO:-}" \
+  DSH_HOME="$DSH_HOME" "$ROOT/scripts/install-profile.sh"
 
 mkdir -p "$ROOT/.tmp"
 mkdir -p "$WORKSPACE_ROOT"
@@ -627,6 +625,31 @@ elif grep -q 'phone-tablet' "$BODY"; then
   echo "default profile must not load the phone/tablet demo MCP assets" >&2
   cat "$BODY" >&2
   exit 1
+fi
+
+if [[ "${PLUGINMAX_ENABLE_AI_SERVER_120_MOCK:-1}" != "0" ]]; then
+  for mock_mcp in \
+    mcp-mock-oms-ai-server-120 \
+    mcp-mock-srm-ai-server-120 \
+    mcp-mock-aps-planning-ai-server-120 \
+    mcp-mock-mes-ai-server-120 \
+    mcp-mock-wms-ai-server-120 \
+    mcp-mock-qms-ai-server-120; do
+    grep -q "$mock_mcp" "$BODY" || {
+      echo "AI Server 120 mock MCP asset is missing: $mock_mcp" >&2
+      cat "$BODY" >&2
+      exit 1
+    }
+  done
+  code="$(api POST /resources/mcps/connect "$TOKEN" \
+    '{"mcpId":"mcp-mock-oms-ai-server-120"}' \
+    "http://127.0.0.1:$PORT")"
+  expect_code 200 "$code" "connect AI Server 120 OMS MCP"
+  grep -q '"status":"connected"' "$BODY" || {
+    echo "AI Server 120 OMS MCP did not complete initialize and tools/list" >&2
+    cat "$BODY" >&2
+    exit 1
+  }
 fi
 
 code="$(api POST /resources/custom "$TOKEN" '{"type":"skill","name":"Smoke 自定义 Skill","description":"metadata and instructions","version":"0.1.0","publisherName":"Smoke","permissions":["只读摘要"],"manifest":{"schemaVersion":1,"instructions":"# Smoke Skill\n\n输出可核验的摘要。","triggers":["smoke"]}}' "http://127.0.0.1:$PORT")"

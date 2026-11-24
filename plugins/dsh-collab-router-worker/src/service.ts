@@ -37,6 +37,7 @@ export interface RootTaskLike {
   readonly id: string;
   readonly workspaceId: string;
   readonly creationKey?: string | undefined;
+  readonly parentTaskId?: string | undefined;
   readonly title: string;
   readonly priority: "P1" | "P2" | "P3";
   readonly createdBy?: string | undefined;
@@ -81,14 +82,10 @@ export interface TaskCreationLike {
     input: {
       readonly draft: TaskDraftForCreation;
       readonly creationKey: string;
+      readonly parentTaskId?: string | undefined;
       readonly type?: string | undefined;
       readonly status?:
-        | "todo"
-        | "progress"
-        | "abnormal"
-        | "review"
-        | "done"
-        | undefined;
+        "todo" | "progress" | "abnormal" | "review" | "done" | undefined;
       readonly executionPolicy?: unknown;
       readonly autoSubmitReview?: boolean | undefined;
       readonly autoApproveReview?: boolean | undefined;
@@ -226,20 +223,6 @@ export class RouterWorkerPlanService {
       throw new RouterWorkerError("not_found", "计划版本不存在");
     }
     return planVersionSchema.parse(version);
-  }
-
-  private async markPendingReview(
-    actor: PlanActor,
-    plan: PlanRecord,
-  ): Promise<void> {
-    const root = this.deps.tasks().get(plan.rootTaskId);
-    if (root.status !== "todo" && root.status !== "progress") {
-      return;
-    }
-    await this.deps.tasks().changeStatus?.(actor, {
-      taskId: plan.rootTaskId,
-      status: "review",
-    });
   }
 
   private async recordPlanActivity(
@@ -427,9 +410,6 @@ export class RouterWorkerPlanService {
   ): Promise<{ readonly plan: PlanRecord; readonly version: PlanVersion }> {
     const existing = this.findByRoot(input.workspaceId, input.rootTaskId);
     if (existing !== undefined) {
-      if (existing.status === "draft" || existing.status === "proposed") {
-        await this.markPendingReview(actor, existing);
-      }
       return {
         plan: existing,
         version: this.currentVersion(existing),
@@ -448,7 +428,6 @@ export class RouterWorkerPlanService {
       });
       await this.tables.nodes.put(state.id, state);
     }
-    await this.markPendingReview(actor, result.plan);
     await this.recordPlanActivity(
       actor,
       result.plan,
@@ -456,12 +435,6 @@ export class RouterWorkerPlanService {
       `创建任务规划 v1：共 ${result.version.graph.nodes.length} 个节点`,
     );
     return result;
-  }
-
-  async ensurePendingReview(planId: string, actor: PlanActor): Promise<void> {
-    const plan = this.requirePlan(planId);
-    if (plan.status !== "draft" && plan.status !== "proposed") return;
-    await this.markPendingReview(actor, plan);
   }
 
   async syncDispatchActivity(planId: string, actor: PlanActor): Promise<void> {
@@ -822,7 +795,6 @@ export class RouterWorkerPlanService {
       });
       await this.tables.nodes.put(state.id, state);
     }
-    await this.markPendingReview(actor, nextPlan);
     await this.recordPlanActivity(
       actor,
       nextPlan,
@@ -1017,8 +989,12 @@ export class RouterWorkerPlanService {
       throw new RouterWorkerError("conflict", "任务创建服务不可用");
     }
     const taskCreator = this.taskCreatorFor(plan);
+    const root = this.deps.tasks().get(plan.rootTaskId);
     const result = await creation.createFromDraft(taskCreator, {
       creationKey: dispatchKey,
+      ...(root.parentTaskId === undefined
+        ? { parentTaskId: plan.rootTaskId }
+        : {}),
       type: node.taskType ?? "任务",
       status: node.initialStatus ?? "todo",
       autoSubmitReview: node.autoSubmitReview ?? true,
@@ -1089,6 +1065,9 @@ export class RouterWorkerPlanService {
     }
     const version = this.currentVersion(plan);
     const taskCreator = this.taskCreatorFor(plan);
+    const root = this.deps.tasks().get(plan.rootTaskId);
+    const relationParentTaskId =
+      root.parentTaskId === undefined ? plan.rootTaskId : undefined;
     const created: string[] = [];
     const bindings = [...this.tables.bindings.entries()].map(
       ([, value]) => value,
@@ -1110,6 +1089,9 @@ export class RouterWorkerPlanService {
         }
         const result = await creation.createFromDraft(taskCreator, {
           creationKey: dispatchKey,
+          ...(relationParentTaskId === undefined
+            ? {}
+            : { parentTaskId: relationParentTaskId }),
           type: node.taskType ?? "任务",
           status: node.initialStatus ?? "todo",
           autoSubmitReview: node.autoSubmitReview ?? true,
@@ -1204,7 +1186,6 @@ export class RouterWorkerPlanService {
       }
       created.push(taskId);
     }
-    const root = this.deps.tasks().get(plan.rootTaskId);
     if (root.status === "todo" || root.status === "review") {
       await this.deps.tasks().changeStatus?.(actor, {
         taskId: plan.rootTaskId,

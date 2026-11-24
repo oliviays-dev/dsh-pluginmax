@@ -316,12 +316,8 @@ describe("dsh-collab-task service", () => {
     };
     const team = {
       resolveToken: () => undefined,
-      users: () => [
-        { id: "zhouning", name: "周宁", role: "member" as const },
-      ],
-      members: () => [
-        { userId: "zhouning", memberRole: "member" as const },
-      ],
+      users: () => [{ id: "zhouning", name: "周宁", role: "member" as const }],
+      members: () => [{ userId: "zhouning", memberRole: "member" as const }],
     };
     expect(
       canReviewTask({
@@ -604,9 +600,7 @@ describe("dsh-collab-task service", () => {
         body: {
           taskId: aiTask.id,
           content: "@Other AI run this",
-          mentions: [
-            { kind: "agent", id: "tm-other", name: "Other AI" },
-          ],
+          mentions: [{ kind: "agent", id: "tm-other", name: "Other AI" }],
           deliveryTarget: "collaborators",
         },
       }),
@@ -627,9 +621,7 @@ describe("dsh-collab-task service", () => {
         body: {
           taskId: aiTask.id,
           content: "@Other AI please consider this risk",
-          mentions: [
-            { kind: "agent", id: "tm-other", name: "Other AI" },
-          ],
+          mentions: [{ kind: "agent", id: "tm-other", name: "Other AI" }],
         },
       }),
       discussion.response,
@@ -1037,11 +1029,7 @@ describe("dsh-collab-task service", () => {
     expect(completed.events.at(-1)?.message).toBe(
       "Research Agent 完成产出物，自动提交验收",
     );
-    const rejected = await tasks.reject(
-      olivia,
-      created.id,
-      "请补充来源说明",
-    );
+    const rejected = await tasks.reject(olivia, created.id, "请补充来源说明");
     expect(rejected.receiverType).toBe("agent");
     expect(rejected.receiverId).toBe("tm-1");
     expect(rejected.events.at(-1)?.message).not.toContain("负责人恢复为");
@@ -1482,7 +1470,7 @@ describe("dsh-collab-task service", () => {
     });
   });
 
-  it("keeps an agent task in progress when auto submit is disabled", async () => {
+  it("returns a completed agent task to todo when auto submit is disabled", async () => {
     const tasks = service();
     const created = await tasks.create(olivia, {
       workspaceId: "workspace-1",
@@ -1491,7 +1479,7 @@ describe("dsh-collab-task service", () => {
       receiverType: "agent",
       receiverId: "agent-1",
       receiverName: "Backend DE",
-      description: "Stay in progress after completion.",
+      description: "Return to todo after completion.",
       acceptance: ["Manual hand-off"],
       autoSubmitReview: false,
     });
@@ -1507,7 +1495,7 @@ describe("dsh-collab-task service", () => {
       },
       "Backend DE",
     );
-    expect(completed.status).toBe("progress");
+    expect(completed.status).toBe("todo");
     expect(completed.events.at(-1)?.message).toContain("返回了执行反馈");
   });
 
@@ -2315,19 +2303,9 @@ describe("dsh-collab-task service", () => {
     await mkdir(outputDirectory, { recursive: true });
     const outputPath = join(outputDirectory, "战略分析.md");
     await writeFile(outputPath, "# 更新后的报告\n", "utf8");
-    await utimes(
-      outputPath,
-      new Date(now - 30_000),
-      new Date(now - 30_000),
-    );
+    await utimes(outputPath, new Date(now - 30_000), new Date(now - 30_000));
     await mkdir(
-      join(
-        root,
-        ".pluginmax",
-        "task-outputs",
-        "TSK-OTHER",
-        "run-original",
-      ),
+      join(root, ".pluginmax", "task-outputs", "TSK-OTHER", "run-original"),
       { recursive: true },
     );
     await writeFile(
@@ -3047,9 +3025,7 @@ describe("workflow task action errors", () => {
         instanceTitle: "Review",
         nodeName: "Review",
         dispatchMode: "claim",
-        candidatePool: [
-          { kind: "user", id: "candidate", name: "Candidate" },
-        ],
+        candidatePool: [{ kind: "user", id: "candidate", name: "Candidate" }],
       },
     });
     const routes = createTaskRoutes(tasks, {
@@ -3579,8 +3555,7 @@ describe("teammate task assignment", () => {
     });
     const instruction = (
       dispatched[0]?.payload as
-        | { context?: { instruction?: string } }
-        | undefined
+        { context?: { instruction?: string } } | undefined
     )?.context?.instruction;
     expect(instruction).toContain("## 当前任务文档");
     expect(instruction).toContain(
@@ -4083,6 +4058,117 @@ function contextHarness(
   return { tasks, dispatched, runs, route, team, runtimeActors };
 }
 
+describe("agent task state reconciliation", () => {
+  it("starts an AI task only after explicit dispatch confirmation", async () => {
+    const { tasks, route, dispatched } = contextHarness();
+    const created = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Manual dispatch",
+      priority: "P2",
+      receiverType: "agent",
+      receiverId: "tm-1",
+      receiverName: "测小白",
+      description: "Wait for explicit dispatch confirmation.",
+      acceptance: ["Execution starts"],
+    });
+    expect(dispatched).toHaveLength(0);
+    const { response, read } = fakeResponse();
+    await route("/api/collab/tasks/dispatch/execute").handler(
+      fakeRequest({
+        method: "POST",
+        url: "/api/collab/tasks/dispatch/execute",
+        body: { taskId: created.id },
+      }),
+      response,
+    );
+    expect(read().status).toBe(200);
+    expect(dispatched).toHaveLength(1);
+    expect(tasks.get(created.id).status).toBe("progress");
+  });
+
+  it("repairs a stale progress state when the latest owner run succeeded", async () => {
+    const { tasks, route } = contextHarness();
+    const created = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Plan-only agent result",
+      priority: "P2",
+      receiverType: "agent",
+      receiverId: "tm-1",
+      receiverName: "测小白",
+      description: "Return a plan draft for confirmation.",
+      acceptance: ["Plan is ready"],
+      autoSubmitReview: false,
+    });
+    await tasks.attachAgentRun(
+      created.id,
+      {
+        id: "run-plan-only",
+        instanceId: created.id,
+        status: "succeeded",
+        output: { summary: "Plan Draft v2，等待确认与派发。" },
+      },
+      "测小白",
+    );
+    await tasks.changeStatus(
+      { id: "admin", name: "Admin", kind: "human" },
+      { taskId: created.id, status: "progress" },
+    );
+    expect(tasks.get(created.id).status).toBe("progress");
+
+    const { response } = fakeResponse();
+    await route("/api/collab/tasks").handler(
+      fakeRequest({
+        method: "GET",
+        url: "/api/collab/tasks?workspaceId=workspace-1",
+      }),
+      response,
+    );
+
+    expect(tasks.get(created.id).status).toBe("todo");
+  });
+
+  it("repairs a stale progress state when the latest run was cancelled", async () => {
+    const { tasks, route } = contextHarness();
+    const created = await tasks.create(olivia, {
+      workspaceId: "workspace-1",
+      title: "Cancelled agent run",
+      priority: "P2",
+      receiverType: "agent",
+      receiverId: "tm-1",
+      receiverName: "测小白",
+      description: "No active execution remains.",
+      acceptance: ["State is repaired"],
+      autoSubmitReview: false,
+    });
+    await tasks.attachAgentRun(
+      created.id,
+      {
+        id: "run-cancelled",
+        instanceId: created.id,
+        status: "cancelled",
+        error: "执行已暂停",
+      },
+      "测小白",
+    );
+    await tasks.changeStatus(
+      { id: "admin", name: "Admin", kind: "human" },
+      { taskId: created.id, status: "progress" },
+    );
+    expect(tasks.get(created.id).status).toBe("progress");
+
+    const { response } = fakeResponse();
+    await route("/api/collab/tasks").handler(
+      fakeRequest({
+        method: "GET",
+        url: "/api/collab/tasks?workspaceId=workspace-1",
+      }),
+      response,
+    );
+
+    expect(tasks.get(created.id).status).toBe("todo");
+  });
+});
+
 describe("task context delivery", () => {
   it("delivers the full task context once, then only increments", async () => {
     const { tasks, route, dispatched } = contextHarness();
@@ -4180,9 +4266,7 @@ describe("task context delivery", () => {
         body: {
           taskId: task.id,
           content: "@测小白 风险章节还差一条指标说明。",
-          mentions: [
-            { kind: "agent", id: "tm-1", name: "测小白" },
-          ],
+          mentions: [{ kind: "agent", id: "tm-1", name: "测小白" }],
         },
       }),
       mention.response,
@@ -4364,9 +4448,7 @@ describe("task context delivery", () => {
     expect(instruction).toContain("PT-ORD-001-RPT-管理报告证据包.md");
     expect(instruction).toContain("支付失败 52 单");
     expect(instruction).toContain("异常率 7.6%");
-    expect(instruction).toContain(
-      "不要为了读取这些文件发起 shell.execute",
-    );
+    expect(instruction).toContain("不要为了读取这些文件发起 shell.execute");
   });
 
   it("resends full task context to stateless external agents", async () => {
@@ -4982,8 +5064,9 @@ describe("task execution control", () => {
     });
     expect(cancelled).toEqual(["run-1", "run-2"]);
     expect(
-      tasks.get(task.id).messages
-        .filter((message) => message.runId !== undefined)
+      tasks
+        .get(task.id)
+        .messages.filter((message) => message.runId !== undefined)
         .map((message) => message.state),
     ).toEqual(["cancelled", "cancelled"]);
     expect(

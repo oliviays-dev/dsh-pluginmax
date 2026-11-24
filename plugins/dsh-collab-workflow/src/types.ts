@@ -2,9 +2,78 @@ import { z } from "zod";
 
 export const idPattern = /^[a-zA-Z][a-zA-Z0-9._-]*$/;
 
-export const workflowScopeSchema = z.enum(["project", "platform"]);
+export const workflowScopeSchema = z.enum(["project", "selected", "platform"]);
 export const templatePortabilitySchema = z.enum(["required", "suggested"]);
 export const dispatchModeSchema = z.enum(["assigned", "claim"]);
+
+export const workflowDefinitionKindSchema = z.enum([
+  "workflow",
+  "business-chain",
+]);
+export type WorkflowDefinitionKind = z.infer<
+  typeof workflowDefinitionKindSchema
+>;
+
+export const workflowExternalRefSchema = z.object({
+  /** 稳定来源系统代码，例如 APS-PLANNING、OMS、Jira、CI-CD。 */
+  system: z.string().trim().min(1).max(80),
+  /** 来源内稳定对象类型，不使用展示名称。 */
+  objectType: z.string().trim().min(1).max(80),
+  /** 来源内稳定对象 ID。 */
+  objectId: z.string().trim().min(1).max(200),
+  required: z.boolean().default(true),
+});
+export type WorkflowExternalRef = z.infer<typeof workflowExternalRefSchema>;
+
+export const workflowNodeFieldBindingSchema = z.object({
+  /** 来源系统必须同时出现在节点 externalRefs 中。 */
+  system: z.string().trim().min(1).max(80),
+  /** 来源对象 ID 必须同时出现在节点 externalRefs 中。 */
+  objectId: z.string().trim().min(1).max(200),
+  /** 来源快照内的点路径，例如 baseline.quantity。 */
+  path: z.string().trim().min(1).max(300),
+});
+export type WorkflowNodeFieldBinding = z.infer<
+  typeof workflowNodeFieldBindingSchema
+>;
+
+export const workflowNodeFieldSchema = z.object({
+  key: z.string().trim().regex(idPattern),
+  label: z.string().trim().min(1).max(80),
+  bindings: z.array(workflowNodeFieldBindingSchema).min(1).max(10),
+});
+export type WorkflowNodeField = z.infer<typeof workflowNodeFieldSchema>;
+
+export const workflowNodeBusinessChainSchema = z.object({
+  sequence: z.number().int().positive(),
+  stageCode: z
+    .string()
+    .trim()
+    .min(1)
+    .max(80)
+    .regex(/^[A-Z][A-Z0-9_]*$/, "stageCode 必须使用大写字母、数字和下划线"),
+  summaryMetric: z.string().trim().min(1).max(160),
+  externalRefs: z.array(workflowExternalRefSchema).max(50).default([]),
+  /** 节点业务字段完全由业务链路定义，平台不内置计划类字段。 */
+  fields: z.array(workflowNodeFieldSchema).max(20).default([]),
+});
+export type WorkflowNodeBusinessChain = z.infer<
+  typeof workflowNodeBusinessChainSchema
+>;
+
+export const workflowBusinessChainSchema = z.object({
+  enabled: z.boolean().default(true),
+  templateId: z.string().trim().min(1).max(160).optional(),
+  chainKey: z.string().trim().regex(idPattern),
+  displayName: z.string().trim().min(1).max(160),
+  projectTypeCodes: z.array(z.string().trim().min(1).max(80)).default([]),
+  stageCodePolicy: z.literal("stable").default("stable"),
+  snapshotPolicy: z
+    .enum(["pin-at-project-create", "latest-active"])
+    .default("pin-at-project-create"),
+  allowUnboundExternalNodes: z.boolean().default(false),
+});
+export type WorkflowBusinessChain = z.infer<typeof workflowBusinessChainSchema>;
 
 export const executorSchema = z.object({
   /** role 表示「项目角色」：执行人不是某个人，而是该项目该角色当前的全部成员。 */
@@ -95,6 +164,7 @@ export const workflowNodeSchema = z.object({
   metricExpression: z.string().trim().max(500).optional(),
   subworkflowKey: z.string().trim().regex(idPattern).optional(),
   subworkflowVersion: z.number().int().positive().optional(),
+  businessChain: workflowNodeBusinessChainSchema.optional(),
 });
 
 export const assignmentTargetSchema = z.object({
@@ -243,11 +313,18 @@ export const nodeStateSchema = z.object({
 
 export const workflowDefinitionSchema = z.object({
   id: z.string().min(1).max(160),
-  /** project 仅所属 workspace 可见；platform 对所有 workspace 可见。 */
+  /**
+   * project 仅所属 workspace 可见；selected 仅所属项目和 workspaceIds 可见；
+   * platform 对所有 workspace 可见。
+   */
   scope: workflowScopeSchema.default("platform"),
   workspaceId: z.string().min(1).max(160),
+  /** selected 作用域的目标项目；project/platform 下固定为空。 */
+  workspaceIds: z.array(z.string().min(1).max(160)).max(200).default([]),
   key: z.string().regex(idPattern),
   version: z.number().int().positive(),
+  kind: workflowDefinitionKindSchema.default("workflow"),
+  businessChain: workflowBusinessChainSchema.optional(),
   name: z.string().min(1).max(160),
   description: z.string().max(2_000).default(""),
   sourceMd: z.string().min(1).max(200_000),
@@ -353,14 +430,22 @@ export type WorkflowDefinition = z.infer<typeof workflowDefinitionSchema>;
 export type WorkflowInstance = z.infer<typeof workflowInstanceSchema>;
 export type WorkflowEvent = z.infer<typeof workflowEventSchema>;
 
-export function dispatchModeForNode(node: Pick<WorkflowNode, "executor" | "dispatchMode">): DispatchMode {
-  return node.dispatchMode ?? (node.executor.kind === "role" ? "claim" : "assigned");
+export function dispatchModeForNode(
+  node: Pick<WorkflowNode, "executor" | "dispatchMode">,
+): DispatchMode {
+  return (
+    node.dispatchMode ?? (node.executor.kind === "role" ? "claim" : "assigned")
+  );
 }
 
 export function portabilityForActor(
-  actor: Pick<Executor, "kind" | "portability"> | Pick<Approver, "kind" | "portability">,
+  actor:
+    | Pick<Executor, "kind" | "portability">
+    | Pick<Approver, "kind" | "portability">,
 ): TemplatePortability {
-  return actor.kind === "system" ? "required" : (actor.portability ?? "suggested");
+  return actor.kind === "system"
+    ? "required"
+    : (actor.portability ?? "suggested");
 }
 
 export const workflowSubmissionSchema = z.object({

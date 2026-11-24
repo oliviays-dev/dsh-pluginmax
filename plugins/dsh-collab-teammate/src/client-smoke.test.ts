@@ -50,7 +50,36 @@ interface ClientExports {
       systemKey?: string | undefined;
       protected?: unknown;
     }): string;
+    templatePickerGroups(
+      items: readonly {
+        id: string;
+        name: string;
+        source: string;
+        systemKey?: string | undefined;
+        protected?: unknown;
+      }[],
+    ): readonly {
+      key: string;
+      label: string;
+      items: readonly { id: string; name: string }[];
+    }[];
+    runtimeDirectoryFilters(): readonly { key: string; label: string }[];
     matchesDirectoryFilter(group: string, filter: string): boolean;
+    matchesDirectorySearch(
+      item: {
+        name?: string | undefined;
+        role?: string | undefined;
+        description?: string | undefined;
+        ownerName?: string | undefined;
+        templateName?: string | undefined;
+        projectName?: string | undefined;
+        source?: string | undefined;
+        systemKey?: string | undefined;
+        protected?: unknown;
+        projectBinding?: { workspaceId?: string | undefined } | undefined;
+      },
+      query: string,
+    ): boolean;
     markdownTableCells(line: string): readonly string[];
     isMarkdownTableSeparator(line: string): boolean;
     runtimeDetailEditPolicy(editing: boolean): {
@@ -65,6 +94,22 @@ interface ClientExports {
       archived: readonly { id: string; status: string }[];
       defaultView: readonly { id: string; status: string }[];
     };
+    externalRuntimeMatchesQuery(
+      runtime: {
+        name: string;
+        provider: string;
+        protocol: string;
+        command?: string | undefined;
+        supportedModels?: readonly string[] | undefined;
+        supportedTools?: readonly string[] | undefined;
+        defaultModel?: string | undefined;
+      },
+      query: string,
+    ): boolean;
+    externalRuntimeListStatus(runtime: {
+      status: string;
+      lastProbeOk?: boolean | undefined;
+    }): { label: string; tone: string };
     teammateExecutionPill(
       teammate: { execution?: string; externalRuntimeId?: string },
       runtimes: readonly { id: string; name: string; status: string }[],
@@ -103,6 +148,7 @@ interface ClientExports {
       searchEnabled?: boolean | undefined;
       permissionMode?: string | undefined;
       maxTurns?: string | undefined;
+      reasoningEffort?: string | undefined;
       ignoredOutputFormat: boolean;
       advancedArgs?:
         | readonly {
@@ -134,6 +180,7 @@ interface ClientExports {
       model: string;
       supportedModels?: readonly string[] | undefined;
       defaultModel?: string | undefined;
+      reasoningEffort?: string | undefined;
       maxTurns: string;
       contextWindowTokens?: string | undefined;
       customArgsText?: string | undefined;
@@ -150,6 +197,7 @@ interface ClientExports {
       args: readonly string[];
       supportedModels?: readonly string[] | undefined;
       defaultModel?: string | undefined;
+      reasoningEffort?: string | undefined;
       supportedTools?: readonly string[] | undefined;
       customArgs?: readonly string[] | undefined;
       contextWindowTokens?: number | undefined;
@@ -164,6 +212,7 @@ interface ClientExports {
       model: string;
       supportedModels?: readonly string[] | undefined;
       defaultModel?: string | undefined;
+      reasoningEffort?: string | undefined;
       supportedTools?: readonly string[] | undefined;
       customArgsText?: string | undefined;
       searchEnabled?: boolean | undefined;
@@ -180,6 +229,37 @@ interface ClientExports {
       sandboxMode?: string | undefined;
       networkAccess?: boolean | undefined;
     }): string;
+    externalRuntimeToForm(runtime: {
+      id: string;
+      name: string;
+      provider: string;
+      protocol: string;
+      command: string;
+      args?: readonly string[] | undefined;
+      supportedModels?: readonly string[] | undefined;
+      supportedTools?: readonly string[] | undefined;
+      defaultModel?: string | undefined;
+      reasoningEffort?: string | undefined;
+      contextWindowTokens?: number | undefined;
+      sandboxMode?: string | undefined;
+      networkAccess?: boolean | undefined;
+      customArgs?: readonly string[] | undefined;
+    }): {
+      [key: string]: unknown;
+      runtimeId: string;
+      defaultModel: string;
+      reasoningEffort: string;
+      contextWindowTokens: string;
+      supportedTools: readonly string[];
+      supportedModels: readonly string[];
+    };
+    externalRuntimeDirtyCount(
+      form: Readonly<Record<string, unknown>> | null,
+      runtime?: Readonly<Record<string, unknown>> | null | undefined,
+    ): number;
+    formatContextWindowInput(value: string | number): string;
+    runtimeHoursText(value: number): string;
+    runtimeProbeText(runtime: Readonly<Record<string, unknown>>): string;
   };
 }
 
@@ -252,7 +332,7 @@ describe("AI Teammate runtime client", () => {
     const source = readFileSync(CLIENT_PATH, "utf8");
     expect(source).toContain("pmtm-item-status-row");
     expect(source).toContain('"项目托管"');
-    expect(source).toContain('"平台内置"');
+    expect(source).toContain('"内置"');
     expect(source).toContain("justify-content:flex-start");
     expect(source).toContain("item.projectBinding !== undefined");
     expect(source).toContain("项目 ${item.projectName");
@@ -329,6 +409,7 @@ describe("AI Teammate runtime client", () => {
 
   it("renders default-all directory filters for both AI partner tabs", () => {
     const source = readFileSync(CLIENT_PATH, "utf8");
+    const exported = loadClientExports();
     expect(source).toContain('"AI伙伴类型筛选"');
     expect(source).toContain('"智能体定义筛选"');
     expect(source).toMatch(
@@ -337,18 +418,157 @@ describe("AI Teammate runtime client", () => {
     expect(source).toMatch(
       /templateDirectoryFilter[\s\S]{0,100}?react\.useState\("all"\)/,
     );
-    expect(source).toContain('{ key: "builtin", label: "平台内置" }');
+    expect(source).toContain('{ key: "builtin", label: "内置" }');
     expect(source).toContain('{ key: "project", label: "项目托管" }');
     expect(source).toContain('{ key: "mine", label: "我的" }');
-    expect(source).toContain('{ key: "platform", label: "平台模版" }');
+    expect(source).toContain('{ key: "builtin", label: "通用模版" }');
+    expect(source).toContain('{ key: "platform", label: "角色模版" }');
     expect(source).toContain('{ key: "personal", label: "个人模版" }');
+    expect(
+      exported.__test
+        ?.runtimeDirectoryFilters()
+        .map((item: { label: string }) => item.label),
+    ).toEqual(["全部", "我的", "内置", "项目托管"]);
+    expect(source).toContain(
+      "flex-wrap:nowrap;gap:6px;padding:0 0 2px;overflow-x:auto",
+    );
   });
 
-  it("creates AI companions with a project through the bundled runtime route", () => {
+  it("uses role template terminology across definition flows", () => {
     const source = readFileSync(CLIENT_PATH, "utf8");
-    expect(source).toContain('"/api/collab/teammates/create-with-employee"');
-    expect(source).toContain("关联项目");
-    expect(source).toContain("createInstanceWorkspaceId");
+    expect(source).toContain("保存角色模版");
+    expect(source).toContain("角色模版预装 Skills");
+    expect(source).not.toContain('"平台模版"');
+    expect(source).not.toContain('"平台内置"');
+  });
+
+  it("keeps contextual create actions beside directory search and filters", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain("pmtm-directory-search");
+    expect(source).toContain("pmtm-directory-search-btn");
+    expect(source).toContain("搜索 AI伙伴、角色、Owner、项目");
+    expect(source).toContain("搜索角色模版、角色、创建人");
+    expect(source).toContain("directorySearchRef.current?.focus()");
+    expect(source).toContain("const createActions =");
+    expect(source).toContain("const createInstanceAction =");
+    expect(source).toContain("const templateCreateActions =");
+    expect(source).toContain('"新建 AI伙伴"');
+    expect(source).toContain('"新建个人模版"');
+    expect(source).toContain('"新建角色模版"');
+    expect(source).toContain(
+      '"/api/collab/teammates/create-with-employee"',
+    );
+    expect(source).toContain('"/api/collab/teammate-templates/create"');
+  });
+
+  it("groups template picker options by ownership without type suffixes", () => {
+    const exported = loadClientExports();
+    const groups = exported.__test?.templatePickerGroups([
+      { id: "role-1", name: "采购专员", source: "platform" },
+      {
+        id: "builtin-1",
+        name: "Data Agent",
+        source: "platform",
+        systemKey: "data-agent",
+      },
+      { id: "personal-1", name: "小白 PD 应届生", source: "personal" },
+    ]);
+    expect(groups?.map((group) => group.label)).toEqual([
+      "个人模版",
+      "角色模版",
+      "通用模版",
+    ]);
+    expect(
+      groups?.map((group) => group.items.map((item) => item.name)),
+    ).toEqual([["小白 PD 应届生"], ["采购专员"], ["Data Agent"]]);
+
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain('className: "pmtm-template-picker-menu"');
+    expect(source).toContain('role: "listbox"');
+    expect(source).toContain("pmtm-template-picker-option-name");
+    expect(source).toContain("item.name,");
+  });
+
+  it("searches directory entries by identity, owner, type, and project", () => {
+    const exported = loadClientExports();
+    const item = {
+      name: "采购韧性伙伴",
+      role: "供应商风险分析",
+      ownerName: "Olivia",
+      source: "platform",
+      projectName: "供应链交付",
+      projectBinding: { workspaceId: "ws-supply-chain" },
+    };
+    expect(exported.__test?.matchesDirectorySearch(item, "采购")).toBe(true);
+    expect(exported.__test?.matchesDirectorySearch(item, "olivia")).toBe(true);
+    expect(exported.__test?.matchesDirectorySearch(item, "角色模版")).toBe(
+      true,
+    );
+    expect(
+      exported.__test?.matchesDirectorySearch(
+        { name: "任务规划伙伴", systemKey: "project-manager" },
+        "通用模版",
+      ),
+    ).toBe(true);
+    expect(exported.__test?.matchesDirectorySearch(item, "项目托管")).toBe(
+      true,
+    );
+    expect(exported.__test?.matchesDirectorySearch(item, "供应链交付")).toBe(
+      true,
+    );
+    expect(
+      exported.__test?.matchesDirectorySearch(item, "不存在的关键词"),
+    ).toBe(false);
+  });
+
+  it("keeps the saved definition selected and returns to its detail view", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    const saveStart = source.indexOf("const saveEdit = async () =>");
+    const runtimeBranch = source.indexOf(
+      "if (selected === null || form === null) return;",
+      saveStart,
+    );
+    const definitionSave = source.slice(saveStart, runtimeBranch);
+    expect(definitionSave).toContain(
+      "const savedTemplate = result.template ?? selectedTemplate",
+    );
+    expect(definitionSave).toContain(
+      "setDefinitionTemplateId(savedTemplate.id)",
+    );
+    expect(definitionSave).toContain("setTeammateTemplates((current)");
+    expect(definitionSave).toContain("setEditing(false)");
+    expect(definitionSave).toContain("setForm(null)");
+    expect(definitionSave).not.toContain("loadList(");
+    expect(definitionSave).not.toContain("loadDetail(");
+  });
+
+  it("pins edit actions to an equal-size footer for both editors", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain(
+      'editing || instanceEditing ? " pmtm-editor-editing" : ""',
+    );
+    expect(
+      source.match(/className: "pmtm-edit-footer"/g)?.length ?? 0,
+    ).toBeGreaterThanOrEqual(3);
+    expect(source).toContain(".pmtm-edit-footer{display:flex;flex:none");
+    expect(source).toContain(
+      ".pmtm-edit-footer .pmtm-btn{width:104px;height:34px",
+    );
+  });
+
+  it("uses a consistent type scale across both edit pages", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain(
+      ".pmtm-edit-body .pmtm-editor-head h2{font-size:17px",
+    );
+    expect(source).toContain(
+      ".pmtm-edit-body .pmtm-field > .label{color:var(--dsw-alias-label-secondary);font-size:11px",
+    );
+    expect(source).toContain(
+      ".pmtm-edit-body .pmtm-input,.pmtm-edit-body .pmtm-select,.pmtm-edit-body .pmtm-area{font-size:12.5px",
+    );
+    expect(source).toContain(".pmtm-edit-body .pmtm-area.tools");
+    expect(source).toContain("pmtm-edit-section-label");
   });
 
   it("declares the fixed runtime tabs in product order", () => {
@@ -486,11 +706,34 @@ describe("AI Teammate runtime client", () => {
     expect(source).toContain("goals: [],");
   });
 
+  it("does not resubmit unchanged Skill bindings when renaming a template", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain("const skillBindingsChanged =");
+    expect(source).toContain(
+      "...(skillBindingsChanged ? { skillBindings } : {})",
+    );
+  });
+
   it("lets platform admins edit protected templates without lifecycle actions", () => {
     const source = readFileSync(CLIENT_PATH, "utf8");
     expect(source).toMatch(
       /if \(protectedSystem\) \{\s*return h\(\s*"div",\s*\{ className: "pmtm-actions" \},\s*protectedBadge,\s*h\(\s*"button",[\s\S]{0,500}?"编辑模版"/,
     );
+  });
+
+  it("shows edit, enable, and archive actions for managed disabled templates", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain(
+      "canManagePlatform || selectedTemplate.ownerUserId === currentUser?.id",
+    );
+    const renderActions = source.slice(
+      source.indexOf("const renderActions ="),
+      source.indexOf("const renderEditor ="),
+    );
+    expect(renderActions).toContain('"编辑模版"');
+    expect(renderActions).toContain('key: "activate"');
+    expect(renderActions).toContain('key: "archive"');
+    expect(renderActions).toContain('"启用"');
   });
 
   it("keeps a teammate deep link until the instance list is ready", () => {
@@ -512,7 +755,7 @@ describe("AI Teammate runtime client", () => {
   it("marks protected platform definitions in the definition list", () => {
     const source = readFileSync(CLIENT_PATH, "utf8");
     expect(source).toMatch(
-      /className: "pmtm-item-status-row"[\s\S]{0,400}?tab === "definition" &&\s*\(item\.systemKey !== undefined \|\|\s*item\.protected !== undefined\)[\s\S]{0,200}?className: "pmtm-built-in-chip"[\s\S]{0,100}?"平台内置"/,
+      /className: "pmtm-item-status-row"[\s\S]{0,400}?tab === "definition" &&\s*\(item\.systemKey !== undefined \|\|\s*item\.protected !== undefined\)[\s\S]{0,200}?className: "pmtm-built-in-chip"[\s\S]{0,100}?"通用模版"/,
     );
   });
 
@@ -533,7 +776,7 @@ describe("AI Teammate runtime client", () => {
     const source = readFileSync(CLIENT_PATH, "utf8");
     const soul = source.indexOf('"SOUL.md（生效人格）"');
     const dataAgent = source.indexOf('mode: "summary"');
-    const skills = source.indexOf('"Skills · 企业预装清单"');
+    const skills = source.indexOf('"Skills · 角色模版预装清单"');
     const instances = source.indexOf('"使用该模版的 AI伙伴"');
     expect(soul).toBeGreaterThan(-1);
     expect(dataAgent).toBeGreaterThan(soul);
@@ -559,6 +802,45 @@ describe("AI Teammate runtime client", () => {
     ]);
     expect(groups?.archived.map((item) => item.id)).toEqual(["ext-3"]);
     expect(groups?.active.map((item) => item.id)).toEqual(["ext-1"]);
+  });
+
+  it("builds the runtime directory with search, status filters, and an add action", () => {
+    const exported = loadClientExports();
+    const test = exported.__test;
+    const runtime = {
+      name: "Codex CLI · 研发本机",
+      provider: "codex",
+      protocol: "codex-jsonl",
+      command: "codex",
+      supportedModels: ["gpt-5.2"],
+      supportedTools: ["web_search", "run_command"],
+      defaultModel: "gpt-5.2",
+    };
+    expect(test?.externalRuntimeMatchesQuery(runtime, "研发")).toBe(true);
+    expect(test?.externalRuntimeMatchesQuery(runtime, "Codex")).toBe(true);
+    expect(test?.externalRuntimeMatchesQuery(runtime, "gpt-5.2")).toBe(true);
+    expect(test?.externalRuntimeMatchesQuery(runtime, "网页搜索")).toBe(true);
+    expect(test?.externalRuntimeMatchesQuery(runtime, "不存在的运行时")).toBe(
+      false,
+    );
+    expect(test?.externalRuntimeListStatus({ status: "active" })).toEqual({
+      label: "待探测",
+      tone: "pending",
+    });
+    expect(
+      test?.externalRuntimeListStatus({
+        status: "active",
+        lastProbeOk: false,
+      }),
+    ).toEqual({ label: "探测失败", tone: "error" });
+
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain('placeholder: "搜索运行时、Provider 或模型"');
+    expect(source).toContain('"aria-label": "运行时状态筛选"');
+    expect(source).toContain('"aria-label": "注册运行时"');
+    expect(source).toContain("pmtm-runtime-archive");
+    expect(source).toContain("pmtm-runtime-list-scroll");
+    expect(source).toContain("本机与工作区");
   });
 
   it("flags teammate bindings whose external runtime is unavailable", () => {
@@ -643,41 +925,69 @@ describe("AI Teammate runtime client", () => {
   it("supports editing external runtime definitions", () => {
     const source = readFileSync(CLIENT_PATH, "utf8");
     expect(source).toContain("const startExternalEdit = (runtime)");
+    expect(source).toContain("const selectExternalRuntime = (runtime)");
+    expect(source).toMatch(
+      /const startExternalEdit = \(runtime\) => \{[\s\S]{0,160}?setExternalEditing\(true\)/,
+    );
+    expect(source).toMatch(
+      /const selectExternalRuntime = \(runtime\) => \{[\s\S]{0,160}?setExternalEditing\(false\)/,
+    );
     expect(source).toContain("已更新外部 Agent");
     expect(source).toContain("/api/collab/agent/external-runtimes/update");
     expect(source).toContain("运行时名称");
-    expect(source).toContain("Agent 角色、职责和 SOUL 请在定义态配置");
-    expect(source).toContain("执行配置");
+    expect(source).toContain("基础信息");
+    expect(source).toContain("能力与模型");
+    expect(source).toContain("运行边界");
+    expect(source).toContain("命令与高级配置");
     expect(source).toContain("支持的常用工具");
+    expect(source).toContain("visibleTools.length === 0");
     expect(source).toContain("网页搜索");
     expect(source).toContain("执行命令");
     expect(source).toContain("MCP");
     expect(source).toContain("支持的模型池");
+    expect(source).toContain("modelChoices.length === 0");
+    expect(source).toContain(".pmrt-chip-empty");
     expect(source).toContain("默认模型");
-    expect(source).toContain("加入模型池");
+    expect(source).toContain('className: "pmrt-chip pmrt-model-add"');
+    expect(source).toContain("思考强度");
     expect(source).toContain("文件修改权限");
     expect(source).toContain("可写任务工作区");
-    expect(source).toContain("允许访问公开网络");
-    expect(source).toContain("sandboxMode: externalForm.sandboxMode");
-    expect(source).toContain("networkAccess: externalForm.networkAccess");
-    expect(source).toContain("supportedModels: externalForm.supportedModels");
-    expect(source).toContain("supportedTools: externalForm.supportedTools");
+    expect(source).toContain("允许公开网络");
+    expect(source).toContain("sandboxMode: form.sandboxMode");
+    expect(source).toContain("networkAccess: form.networkAccess !== false");
+    expect(source).toContain("supportedModels: form.supportedModels");
+    expect(source).toContain("supportedTools: form.supportedTools");
     expect(source).toContain("启动命令预览");
     expect(source).toContain("高级启动参数");
+    expect(source).toContain(
+      ".pmrt-advanced-head{display:flex;align-items:center;justify-content:flex-start",
+    );
+    expect(source).toMatch(
+      /placeholder: externalEditing\s*\?\s*'例如：--verbose --include-directory "\.\/docs"'\s*:\s*undefined/,
+    );
     expect(source).toContain("最大上下文窗口");
     expect(source).toContain("DEFAULT_CONTEXT_WINDOW_TOKENS");
     expect(source).toContain("DEFAULT_CONTEXT_WINDOW_TOKENS = 128_000");
     expect(source).toContain("align-items:start;gap:9px;margin-top:14px");
     expect(source).toContain(".pmtm-input,.pmtm-select{height:34px");
-    expect(source).toContain("恢复推荐配置");
-    expect(source).toContain("pmtm-runtime-form-actions");
+    expect(source).not.toContain("恢复推荐配置");
+    expect(source).not.toContain("管理员声明");
+    expect(source).not.toContain("字段提示");
+    expect(source).toContain("pmrt-savebar");
+    expect(source).toContain("showForm && externalEditing");
+    const runtimePageActionsSource = source.slice(
+      source.indexOf("const runtimePageActions ="),
+      source.indexOf("return h(", source.indexOf("const runtimePageActions =")),
+    );
+    expect(runtimePageActionsSource).not.toContain("toggleExternalArchiveView");
+    expect(runtimePageActionsSource).toContain("pmrt-page-button primary");
+    expect(source).toContain("有 ${dirtyCount} 项未保存更改");
     expect(source).not.toContain("参数格式有效");
     expect(source).not.toContain("平台托管参数");
     expect(source).not.toContain("status: externalForm.active");
     expect(source).not.toContain("value: externalForm.active");
     expect(source).not.toContain("添加参数");
     expect(source).not.toContain("固定参数（每个 argv token 单独一行）");
-    expect(source).toContain("pmtm-profile-head-actions");
     expect(source).toContain(".pmtm-instance-exec .pmtm-select{height:34px");
     expect(source).toContain('className: "pmtm-meta secondary"');
     expect(source).toContain('ROLE_PLACEHOLDER = "角色待定"');
@@ -689,16 +999,111 @@ describe("AI Teammate runtime client", () => {
     );
   });
 
-  it("renders the selected runtime as a detail page with four actions", () => {
+  it("moves runtime settings out of the AI teammate tabs into its own route", () => {
     const source = readFileSync(CLIENT_PATH, "utf8");
-    expect(source).toContain("pmtm-runtime-detail-page");
-    expect(source).toContain("runtimeDetailActions");
-    expect(source).toContain("const externalRuntimeDetail =");
-    expect(source).toContain('"编辑"');
+    expect(source).toContain(
+      'if (route !== "teammates" && route !== "runtime-settings") return null;',
+    );
+    expect(source).toContain('runtimeSettings: route === "runtime-settings"');
+    expect(source).toContain('runtimeSettings ? "external" : "runtime"');
+    expect(source).toContain('runtimeSettings ? "运行时" : "AI伙伴"');
+    expect(source).not.toContain("管理本机外部 Agent 执行通道、模型与权限");
+    expect(source).not.toContain('pmtm-tab${tab === "external"');
+    expect(source).not.toContain('setTab("external")');
+  });
+
+  it("renders the selected runtime as an inline editable detail page", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toContain("pmrt-identity");
+    expect(source).toContain("runtimeHeaderActions");
     expect(source).toContain('"探测"');
     expect(source).toContain('"停用"');
-    expect(source).toContain('"归档"');
-    expect(source).toContain("pmtm-runtime-detail-command");
+    expect(source).toContain("pmrt-button-danger");
+    expect(source).toContain('runtime.status === "disabled"');
+    const runtimeHeaderSource = source.slice(
+      source.indexOf("const runtimeHeaderActions ="),
+      source.indexOf("const runtimeDirectory ="),
+    );
+    expect(runtimeHeaderSource).not.toContain('title: "归档运行时"');
+    expect(runtimeHeaderSource).not.toContain("M14.5 4.5");
+    expect(source).toContain("pmrt-detail-scroll");
+    expect(source).toContain("pmrt-savebar");
+    expect(source).not.toContain("runtimeDetailActions");
+    expect(source).not.toContain('"更多操作"');
+    expect(source).not.toContain("可见范围");
+  });
+
+  it("matches the runtime settings v2 form and save-bar contract", () => {
+    const exported = loadClientExports();
+    const test = exported.__test;
+    const runtime = {
+      id: "ext-v2",
+      name: "Codex CLI · 研发本机",
+      provider: "codex",
+      protocol: "codex-jsonl",
+      command: "codex",
+      args: ["--model", "gpt-5.2"],
+      supportedModels: ["gpt-5.2", "gpt-5.1", "gpt-5", "o3"],
+      defaultModel: "gpt-5.2",
+      reasoningEffort: "high",
+      supportedTools: ["web_search", "read_file"],
+      contextWindowTokens: 128_000,
+      sandboxMode: "workspace-write",
+      networkAccess: true,
+      customArgs: [],
+    };
+    const form = test?.externalRuntimeToForm(runtime);
+    expect(form).toMatchObject({
+      runtimeId: "ext-v2",
+      defaultModel: "gpt-5.2",
+      reasoningEffort: "high",
+      contextWindowTokens: "128,000",
+    });
+    expect(test?.formatContextWindowInput("128000")).toBe("128,000");
+    expect(
+      test?.externalRuntimeDirtyCount(
+        form === undefined ? null : { ...form, name: "Codex CLI · 只读分析" },
+        runtime,
+      ),
+    ).toBe(1);
+    expect(
+      test?.externalRuntimeDirtyCount(
+        form === undefined ? null : form,
+        runtime,
+      ),
+    ).toBe(0);
+    expect(
+      test?.externalRuntimeDirtyCount(
+        form === undefined ? null : { ...form, runtimeId: undefined },
+        null,
+      ),
+    ).toBeGreaterThan(0);
+    expect(test?.runtimeProbeText({})).toBe("尚未探测");
+
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    const runtimeSource = source.slice(
+      source.indexOf("const renderExternalManager ="),
+      source.indexOf("const renderTemplateEditor ="),
+    );
+    expect(source).toMatch(
+      /codex:\s*\[[\s\S]*?"gpt-5\.2"[\s\S]*?"gpt-5\.1"[\s\S]*?"gpt-5"[\s\S]*?"o3"/,
+    );
+    expect(source).toContain(".pmrt-archive-filter{margin-left:auto");
+    expect(source).toContain('className: "pmrt-field pmrt-wide"');
+    expect(source).toContain("pmrt-model-add");
+    expect(source).toContain('form.provider === "workbuddy"');
+    expect(source).toContain("const visibleTools = externalEditing");
+    expect(source).toContain("pmrt-chip-readonly");
+    expect(source).toContain("pmrt-model-chip-readonly");
+    expect(source).toContain(".pmrt-detail.readonly .pmrt-select-icon");
+    expect(source).toContain("最大执行回合");
+    expect(source).toContain("formatContextWindowInput(event.target.value)");
+    expect(source).toContain("已自定义 ${customArgsCount} 项");
+    expect(source).toContain('"重置"');
+    expect(runtimeSource).not.toContain("最近同步");
+    expect(runtimeSource).not.toContain("恢复推荐配置");
+    expect(runtimeSource).not.toContain("管理员声明");
+    expect(runtimeSource).not.toContain("可见范围");
   });
 
   it("converts runtime args to structured readable configuration", () => {
@@ -767,6 +1172,7 @@ describe("AI Teammate runtime client", () => {
     ).toEqual([
       "模型池：1 个",
       "默认模型：hy4",
+      "思考强度：CLI 默认",
       "工具：网页搜索",
       "上下文窗口：128K token",
       "权限：自动接受文件修改",
@@ -780,8 +1186,9 @@ describe("AI Teammate runtime client", () => {
         command: "codex",
         modelMode: "default",
         model: "",
-        supportedModels: [],
-        defaultModel: "",
+        supportedModels: ["gpt-5.2"],
+        defaultModel: "gpt-5.2",
+        reasoningEffort: "high",
         contextWindowTokens: "128000",
         supportedTools: ["web_search"],
         sandboxMode: "workspace-write",
@@ -789,7 +1196,9 @@ describe("AI Teammate runtime client", () => {
         customArgsText: "",
         advancedArgs: [],
       }),
-    ).toContain("sandbox_workspace_write.network_access=true");
+    ).toContain(
+      'codex --model gpt-5.2 --search -c model_reasoning_effort="high" exec --json',
+    );
     expect(
       test?.runtimeConfigurationLabels({
         provider: "codex",
@@ -813,7 +1222,7 @@ describe("AI Teammate runtime client", () => {
         modelMode: "custom",
         model: "",
         supportedModels: ["gpt-5"],
-        defaultModel: "gpt-5.2-codex",
+        defaultModel: "gpt-5.2",
         maxTurns: "",
         advancedArgs: [],
       }),
@@ -923,6 +1332,21 @@ describe("AI Teammate runtime client", () => {
     expect(source).not.toContain("stats.meetingCount ?? 0");
   });
 
+  it("matches workbench runtime formatting below one hour", () => {
+    const exported = loadClientExports();
+    expect(exported.__test?.runtimeHoursText(0)).toBe("0.0h");
+    expect(exported.__test?.runtimeHoursText(0.0005)).toBe("1.8s");
+    expect(exported.__test?.runtimeHoursText(0.5)).toBe("30m");
+    expect(exported.__test?.runtimeHoursText(1)).toBe("1.0h");
+  });
+
+  it("saves instance profile edits through the instance endpoint", () => {
+    const source = readFileSync(CLIENT_PATH, "utf8");
+    expect(source).toMatch(
+      /const saveInstanceProfileEdit[\s\S]{0,1500}?\/api\/collab\/teammates\/profile/,
+    );
+  });
+
   it("loads project roles from AI teammate assignments without an employee record", () => {
     const source = readFileSync(CLIENT_PATH, "utf8");
     expect(source).toContain("/api/collab/teammates/project-roles?teammateId=");
@@ -934,11 +1358,12 @@ describe("AI Teammate runtime client", () => {
     const source = readFileSync(CLIENT_PATH, "utf8");
     expect(source).toContain("/api/collab/resources/skills/installed");
     expect(source).toContain("/api/collab/teammates/skills?teammateId=");
-    expect(source).toContain("已加载 Skills");
+    expect(source).not.toContain("已加载 Skills");
+    expect(source).not.toContain("角色模版由平台管理员维护");
     expect(source).toContain("预装 Skills");
-    expect(source).toContain("Skills · 企业预装清单");
+    expect(source).toContain("Skills · 角色模版预装清单");
     expect(source).toContain("不含实例扩展");
-    expect(source).toContain("企业预装 Skills");
+    expect(source).toContain("角色模版预装 Skills");
     expect(source).toContain("个人模版 Skills");
     expect(source).toContain("从资源库添加");
     expect(source).toContain("pmtm-drawer");
@@ -953,7 +1378,10 @@ describe("AI Teammate runtime client", () => {
     expect(source).not.toContain("场景用于告诉运行时何时加载该 Skill");
     expect(source).toContain("skillBindingDraft");
     expect(source).toContain("用户扩展策略");
-    expect(source).toContain("允许实例补充 Skill");
+    expect(source).toContain("允许用户自行安装扩展 Skill");
+    expect(source).toContain("安装扩展 Skill");
+    expect(source).toContain("/api/collab/teammates/skills/extend");
+    expect(source).toContain('className: "pmtm-skill-group-actions"');
     expect(source).not.toContain("禁止替换主 Skill 的场景");
     expect(source).not.toContain("允许用户停用默认 Skill");
     expect(source).not.toContain("允许用户在指定场景选择主处理器");
@@ -961,7 +1389,7 @@ describe("AI Teammate runtime client", () => {
     expect(source).toContain("暂无预装SKILL");
     expect(source).toContain("自定义扩展");
     expect(source).not.toContain("可添加的 Skills");
-    expect(source).toContain("可从资源市场安装时选择此 AI 伙伴");
+    expect(source).toContain("当前实例还没有扩展 Skill");
     expect(source).not.toContain("pmtm-skill-art");
     expect(source).toContain('"data-skill-tag": "version"');
     expect(source).toContain('"data-skill-tag": "category"');

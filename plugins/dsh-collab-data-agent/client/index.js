@@ -85,7 +85,7 @@ window.__ModuleLoader__.load({
     const styles = `
 .pmda-action{width:32px;height:32px;flex:none;display:grid;place-items:center;padding:0;border:0.5px solid color-mix(in srgb,var(--dsw-alias-agent-primary,#8b7bf7) 44%,var(--dsw-alias-border-l3));border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-agent-primary,#8b7bf7);cursor:pointer;position:relative;}
 .pmda-action:hover,.pmda-action.active{background:color-mix(in srgb,var(--dsw-alias-agent-primary,#8b7bf7) 12%,var(--dsw-alias-bg-layer-1));}
-.pmda-action.workspace{border-color:var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);margin-right:-12px;}
+.pmda-action.workspace{border-color:var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);}
 .pmda-action.workspace:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
 .pmda-action.workspace.active{border-color:var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}
 .pmda-action svg{width:15px;height:15px;}
@@ -503,6 +503,32 @@ window.__ModuleLoader__.load({
           text: compact(text, 8000),
         };
       }
+      const projectSurface = node?.closest?.(
+        "[data-data-agent-text-surface='project']",
+      );
+      if (projectSurface !== null && projectSurface !== undefined) {
+        const workflowNode = node.closest?.("[data-workflow-node-id]");
+        const projectTitle =
+          projectSurface.getAttribute("data-data-agent-title") ?? "项目";
+        const nodeTitle =
+          workflowNode?.getAttribute?.("data-data-agent-title") ??
+          (workflowNode === null || workflowNode === undefined
+            ? ""
+            : titleOf(workflowNode));
+        return {
+          surface: "project",
+          sourceType: "project",
+          sourceId: workspaceIdFor(projectSurface),
+          sourceTitle:
+            nodeTitle === "" ||
+            nodeTitle === projectTitle ||
+            nodeTitle === "页面内容"
+              ? projectTitle
+              : `${projectTitle} · ${nodeTitle}`,
+          workspaceId: workspaceIdFor(projectSurface),
+          text: compact(text, 8000),
+        };
+      }
       return undefined;
     }
 
@@ -863,7 +889,7 @@ window.__ModuleLoader__.load({
         const pointerUp = (event) => {
           if (
             event.target.closest?.(
-              ".pmda-selection-actions, .pmda-selection-action, button, input, textarea, select, a, [role='button'][data-control], [data-data-agent-exclude]",
+              ".pmda-selection-actions, .pmda-selection-action, input, textarea, select, [role='button'][data-control], [data-data-agent-exclude]",
             )
           ) {
             return;
@@ -885,7 +911,7 @@ window.__ModuleLoader__.load({
                   : anchor?.parentElement;
               if (
                 node?.closest?.(
-                  "textarea, input, button, a, select, [contenteditable='true']",
+                  "textarea, input, select, [contenteditable='true']",
                 )
               ) {
                 return;
@@ -1033,7 +1059,7 @@ window.__ModuleLoader__.load({
             },
           },
           ICONS.selection,
-          selection.kind === "text" ? "添加到对话" : "让DataAgent分析",
+          "让DataAgent分析",
         ),
         selection.taskCapture === undefined
           ? null

@@ -33,6 +33,7 @@ import {
   agentRunSchema,
   agentExecutionMetadataSchema,
   externalAgentRuntimeSchema,
+  reasoningEffortSchema,
   runtimeToolNameSchema,
   type AgentProfile,
   type AgentExecutionMetadata,
@@ -832,6 +833,8 @@ export class ExternalAgentRuntimeService {
       readonly supportedTools?: readonly RuntimeToolName[] | undefined;
       readonly supportedModels?: readonly string[] | undefined;
       readonly defaultModel?: string | undefined;
+      readonly reasoningEffort?:
+        ExternalAgentRuntime["reasoningEffort"] | undefined;
       readonly contextWindowTokens?: number | undefined;
       readonly sandboxMode?: ExternalAgentRuntime["sandboxMode"] | undefined;
       readonly networkAccess?: boolean | undefined;
@@ -887,6 +890,7 @@ export class ExternalAgentRuntimeService {
           supportedTools: (record.supportedTools ?? []).join(","),
           supportedModels: (record.supportedModels ?? []).join(","),
           defaultModel: record.defaultModel,
+          reasoningEffort: record.reasoningEffort,
           contextWindowTokens: record.contextWindowTokens,
           sandboxMode: record.sandboxMode ?? "workspace-write",
           networkAccess: record.networkAccess !== false,
@@ -910,6 +914,8 @@ export class ExternalAgentRuntimeService {
       readonly supportedTools?: readonly RuntimeToolName[] | undefined;
       readonly supportedModels?: readonly string[] | undefined;
       readonly defaultModel?: string | null | undefined;
+      readonly reasoningEffort?:
+        ExternalAgentRuntime["reasoningEffort"] | null | undefined;
       readonly contextWindowTokens?: number | null | undefined;
       readonly sandboxMode?: ExternalAgentRuntime["sandboxMode"] | undefined;
       readonly networkAccess?: boolean | undefined;
@@ -965,6 +971,10 @@ export class ExternalAgentRuntimeService {
         (input.defaultModel ?? undefined) !== current.defaultModel
           ? "defaultModel"
           : "",
+        input.reasoningEffort !== undefined &&
+        (input.reasoningEffort ?? undefined) !== current.reasoningEffort
+          ? "reasoningEffort"
+          : "",
         input.contextWindowTokens !== undefined &&
         (input.contextWindowTokens ?? undefined) !== current.contextWindowTokens
           ? "contextWindowTokens"
@@ -995,6 +1005,10 @@ export class ExternalAgentRuntimeService {
           input.defaultModel === null
             ? undefined
             : (input.defaultModel ?? current.defaultModel),
+        reasoningEffort:
+          input.reasoningEffort === null
+            ? undefined
+            : (input.reasoningEffort ?? current.reasoningEffort),
         contextWindowTokens:
           input.contextWindowTokens === null
             ? undefined
@@ -1035,6 +1049,7 @@ export class ExternalAgentRuntimeService {
           supportedTools: (next.supportedTools ?? []).join(","),
           supportedModels: (next.supportedModels ?? []).join(","),
           defaultModel: next.defaultModel,
+          reasoningEffort: next.reasoningEffort,
           contextWindowTokens: next.contextWindowTokens,
           sandboxMode: next.sandboxMode,
           networkAccess: next.networkAccess,
@@ -1052,6 +1067,9 @@ export class ExternalAgentRuntimeService {
       const current = this.require(input.runtimeId);
       this.assertCanManage(current, actor);
       if (current.status === "archived") return current;
+      if (current.status !== "disabled") {
+        throw new AgentError("conflict", "请先停用运行时，再执行归档");
+      }
       const next = parseOrInvalid(externalAgentRuntimeSchema, {
         ...current,
         status: "archived",
@@ -1140,6 +1158,42 @@ export class ExternalAgentRuntimeService {
       return next;
     });
   }
+}
+
+/**
+ * CodeBuddy removed the hy4-preview alias. Rewrite existing workbuddy
+ * runtime definitions to the currently supported standard model id.
+ */
+export async function migrateObsoleteWorkbuddyModelAliases(
+  runtimes: KvTableLike<ExternalAgentRuntime>,
+  now: () => Date = () => new Date(),
+): Promise<number> {
+  let migrated = 0;
+  for (const value of values(runtimes)) {
+    const runtime = parseOrInvalid(externalAgentRuntimeSchema, value);
+    if (runtime.provider !== "workbuddy") continue;
+    const modelIndex = runtime.args.indexOf("--model");
+    if (modelIndex < 0 || runtime.args[modelIndex + 1] !== "hy4-preview") {
+      continue;
+    }
+    const args = [...runtime.args];
+    args[modelIndex + 1] = "hy4std";
+    const next = parseOrInvalid(externalAgentRuntimeSchema, {
+      ...runtime,
+      args,
+      supportedModels: (runtime.supportedModels ?? []).map((model) =>
+        model === "hy4-preview" ? "hy4std" : model,
+      ),
+      defaultModel:
+        runtime.defaultModel === "hy4-preview"
+          ? "hy4std"
+          : runtime.defaultModel,
+      updatedAt: iso(now()),
+    });
+    await runtimes.put(next.id, next);
+    migrated += 1;
+  }
+  return migrated;
 }
 
 /**
@@ -3701,6 +3755,7 @@ export function createAgentRoutes(
                 .max(50)
                 .optional(),
               defaultModel: z.string().trim().min(1).max(160).optional(),
+              reasoningEffort: reasoningEffortSchema.optional(),
               contextWindowTokens: z
                 .number()
                 .int()
@@ -3759,6 +3814,7 @@ export function createAgentRoutes(
                 .max(160)
                 .nullable()
                 .optional(),
+              reasoningEffort: reasoningEffortSchema.nullable().optional(),
               contextWindowTokens: z
                 .number()
                 .int()
@@ -4299,6 +4355,7 @@ interface RuntimeBoundTeammateServiceLike {
 export async function apply(ctx: AgentContext): Promise<void | (() => void)> {
   const domain = await ctx.storageDomain.open(agentDomainSpec);
   const executionDomain = await ctx.storageDomain.open(executionDomainSpec);
+  await migrateObsoleteWorkbuddyModelAliases(domain.table("external_runtimes"));
   const executionService = new AgentExecutionService({
     capabilities: executionDomain.table("capabilities"),
     envelopes: executionDomain.table("envelopes"),
